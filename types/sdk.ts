@@ -1,5 +1,5 @@
-// # Station SDK
-// Everything a station author touches: the contract they declare in `shared/`, the implementation they write in
+// # System SDK
+// Everything a system author touches: the contract they declare in `shared/`, the implementation they write in
 // `server/`, the context a fn runs with, and the renderers they register in `client/`. This is the part of the
 // harness other people build on, so it is typed end to end:
 //
@@ -10,9 +10,11 @@
 //   - Types are written once, as gin types with the `g` builder. Args, results, handler shapes, payloads, settings
 //     and renderer props are all inferred from them.
 //
-// The only library type in this file is gin's wire `TypeDef`, which is what a gin type is on the wire.
+// Library types in this file: gin's wire `TypeDef` (what a gin type is on the wire) and Vue's `Component` (renderers
+// are Vue components, like the chat UI).
 
 import type { TypeDef } from '@aeye/gin';
+import type { Component } from 'vue';
 
 // ═══ Basics ═══
 
@@ -37,7 +39,7 @@ export type Usd = number;
 /** Any JSON value. */
 export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
-/** A name qualified by its station: `fs/read`, `hub/search_fns`, `fs/FileInfo`. */
+/** A name qualified by its system: `fs/read`, `hub/search_fns`, `fs/FileInfo`. */
 export type QualifiedName<S extends string = string, N extends string = string> = `${S}/${N}`;
 
 /** How urgent queued work is. */
@@ -47,7 +49,7 @@ export type Priority = 'urgent' | 'interactive' | 'normal' | 'background';
 export type Audience = 'user' | 'llm' | 'both' | 'none';
 
 /** What kind of thing an actor is. */
-export type ActorKind = 'user' | 'group' | 'agent' | 'station' | 'system';
+export type ActorKind = 'user' | 'group' | 'agent' | 'system';
 
 /** A page of results with a cursor for the next page. */
 export interface Page<T> {
@@ -132,7 +134,7 @@ export declare const g: GinBuilder;
 // ═══ Refs ═══
 
 /**
- * A typed handle to a fn. Exported from a station's contract (`fs.fns.read`); used to declare a dep and to call
+ * A typed handle to a fn. Exported from a system's contract (`fs.fns.read`); used to declare a dep and to call
  * the fn with checked args, result and handlers.
  */
 export interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
@@ -142,7 +144,7 @@ export interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
   readonly handlers: H;
 }
 
-/** A typed handle to a named type (`fs.types.FileInfo`). Use it in other stations' gin types with `g`-built fields. */
+/** A typed handle to a named type (`fs.types.FileInfo`). Use it in other systems' gin types with `g`-built fields. */
 export interface TypeRef<N extends QualifiedName, T> extends GinType<T> {
   readonly name: N;
 }
@@ -193,9 +195,9 @@ export type AnyHookRef = HookRef<QualifiedName>;
  * computed from this, so they can't disagree.
  */
 export interface FnTypes {
-  /** `system` (implemented in code by its station) or the ref of the kind that runs it. */
-  kind: 'system' | AnyKindRef;
-  /** The kind's payload; `undefined` for system fns. */
+  /** `native` (implemented in code by its own system) or the ref of the kind that runs it. */
+  kind: 'native' | AnyKindRef;
+  /** The kind's payload; `undefined` for native fns. */
   payload: unknown;
   args: unknown;
   result: unknown;
@@ -261,15 +263,15 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   tags?: string[];
 }
 
-/** The types of a system fn. */
-export interface SystemFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U> {
-  kind: 'system'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U;
+/** The types of a native fn. */
+export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U> {
+  kind: 'native'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U;
 }
 
-/** Declare a system fn: a fn its station implements in code. */
+/** Declare a native fn: a fn its system implements in code. */
 export declare function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never>(
   def: FnInput<A, R, D, H, P, S, U>,
-): FnDef<SystemFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>>>;
+): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>>>;
 
 /** What a fn's runs support. Pause and undo are set by declaring `resume` and `undo` types. */
 export interface Operations {
@@ -387,7 +389,7 @@ export type UndoOutcome =
   /** Nothing left to undo. */
   | { status: 'gone' };
 
-/** The implementation of a system fn. `undo` is required exactly when the fn declares an undo type. */
+/** The implementation of a native fn. `undo` is required exactly when the fn declares an undo type. */
 export type FnImpl<T extends FnTypes> =
   { run(args: T['args'], ctx: FnCtx<T>): Promise<Outcome<T>> } &
   ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx): Promise<UndoOutcome> });
@@ -536,11 +538,11 @@ export type RunStatus = 'awaiting-approval' | 'queued' | 'running' | 'waiting' |
 export interface Services {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
-  /** File operations, limited to what the station allows. */
+  /** File operations, limited to what the system allows. */
   readonly files: Files;
-  /** fetch, through the station's outbound rules. */
+  /** fetch, through the system's outbound rules. */
   readonly fetch: typeof fetch;
-  /** Resources from any station the actor may see. */
+  /** Resources from any system the actor may see. */
   readonly resources: Resources;
   /** Attach something to the assistant message this run belongs to. */
   attach<A>(attachment: AttachmentRef<QualifiedName, A>, data: A, title: string): void;
@@ -584,7 +586,7 @@ export interface Files {
   share(path: string): Promise<ContentRef>;
 }
 
-/** Reading resources. The hub routes each URI to the station that serves it. */
+/** Reading resources. The hub routes each URI to the system that serves it. */
 export interface Resources {
   stat(uri: ResourceUri): Promise<ResourceStat | undefined>;
   text(uri: ResourceUri, sections?: SectionKey[]): Promise<string>;
@@ -682,7 +684,7 @@ export interface LlmPayload {
   model?: ModelChoice;
   tools: QualifiedName[];
   /** Fns the agent may add to its toolset while running. */
-  canLoad: { fns?: QualifiedName[]; stations?: string[]; tags?: string[] } | 'none';
+  canLoad: { fns?: QualifiedName[]; systems?: string[]; tags?: string[] } | 'none';
   maxTools: number;
   context: QualifiedName[];
   hooks: QualifiedName[];
@@ -694,8 +696,8 @@ export interface LlmPayload {
 export type AgentFnTypes<A, R> = KindFnTypes<KindRef<'hub/llm', LlmPayload>, LlmPayload, A, R>;
 
 /**
- * Declare an agent: an LLM with instructions, tools and context, callable like any fn. A station can ship its
- * own agents (a code reviewer, a planner) with tools from any station.
+ * Declare an agent: an LLM with instructions, tools and context, callable like any fn. A system can ship its
+ * own agents (a code reviewer, a planner) with tools from any system.
  */
 export declare function agent<A, R>(def: {
   description: string;
@@ -706,7 +708,7 @@ export declare function agent<A, R>(def: {
   instructions: string;
   model?: ModelChoice;
   tools?: AnyFnRef[];
-  canLoad?: { fns?: AnyFnRef[]; stations?: string[]; tags?: string[] } | 'none';
+  canLoad?: { fns?: AnyFnRef[]; systems?: string[]; tags?: string[] } | 'none';
   maxTools?: number;
   context?: AnyContextRef[];
   hooks?: AnyHookRef[];
@@ -733,7 +735,7 @@ export type ArgsOf<A extends Record<string, ArgDef<boolean>>> =
 
 /**
  * Content for the LLM. Static content is written in the contract; dynamic content (no `content`) is produced by
- * the station when loaded, so the server must implement it. Context can bring other context and fns along: with
+ * the system when loaded, so the server must implement it. Context can bring other context and fns along: with
  * fns it is a skill.
  */
 export interface ContextDef<A, Dynamic extends boolean> {
@@ -776,12 +778,12 @@ export declare function context<const Args extends Record<string, ArgDef<boolean
 export type AnyContextDef = ContextDef<unknown, boolean>;
 
 /** A dynamic context's implementation: its content for these args. */
-export type ContextImpl<A> = (args: A, ctx: StationCtx & { session?: SessionId; actor: ActorId }) => Promise<string>;
+export type ContextImpl<A> = (args: A, ctx: SystemCtx & { session?: SessionId; actor: ActorId }) => Promise<string>;
 
 // ═══ Settings and attachments ═══
 
 /**
- * A typed control admins (or fns) attach to actors: a database station's access rules per group, a quota per user.
+ * A typed control admins (or fns) attach to actors: a database system's access rules per group, a quota per user.
  * A run reads the effective value with `ctx.setting(ref)`.
  */
 export interface SettingDef<T> {
@@ -797,7 +799,7 @@ export interface SettingDef<T> {
 /** Declare an actor setting. */
 export declare function setting<T>(def: { description: string; type: GinType<T>; appliesTo: ActorKind[]; merge: SettingDef<T>['merge']; editableBy?: ('self' | 'fns')[] }): SettingDef<T>;
 
-/** A kind of attachment a station's fns add to assistant messages, drawn by its client renderer. */
+/** A kind of attachment a system's fns add to assistant messages, drawn by its client renderer. */
 export interface AttachmentDef<T> {
   readonly description: string;
   readonly data: GinType<T>;
@@ -839,7 +841,7 @@ export type HookContribution =
   | { type: 'load'; context?: AnyContextRef[]; fns?: AnyFnRef[] };
 
 /** A hook's implementation. */
-export type HookImpl = (input: HookInput, ctx: StationCtx) => Promise<HookContribution[]>;
+export type HookImpl = (input: HookInput, ctx: SystemCtx) => Promise<HookContribution[]>;
 
 /** An `@` mention provider. */
 export interface MentionDef {
@@ -861,7 +863,7 @@ export interface MentionOption {
 }
 
 /** A mention provider's implementation. */
-export type MentionImpl = (query: string, ctx: StationCtx & { session: SessionId; actor: ActorId }) => Promise<MentionOption[]>;
+export type MentionImpl = (query: string, ctx: SystemCtx & { session: SessionId; actor: ActorId }) => Promise<MentionOption[]>;
 
 /** An embed function the hub can index with. */
 export interface EmbedderDef {
@@ -902,13 +904,13 @@ export declare function sectionKey(path: string[]): SectionKey;
 
 // ═══ Resources ═══
 
-/** An absolute URI. A station serves the URIs under its roots. */
+/** An absolute URI. A system serves the URIs under its roots. */
 export type ResourceUri = `${string}://${string}`;
 
 /** A stable section key, made from structure so it survives content moving. */
 export type SectionKey = string & { readonly [brand]: 'SectionKey' };
 
-/** A place a station offers resources from, initially a folder. */
+/** A place a system offers resources from, initially a folder. */
 export interface ResourceRoot {
   uri: ResourceUri;
   name: string;
@@ -936,7 +938,7 @@ export interface ResourceStat {
 
 /** A link between resources: a folder's child, a code import, a page link. */
 export interface ResourceLink {
-  /** Absolute, when the station could resolve it. */
+  /** Absolute, when the system could resolve it. */
   uri?: ResourceUri;
   /** As written: `./foo`, `react`. */
   raw: string;
@@ -947,7 +949,7 @@ export interface ResourceLink {
 /** What the hub asks for when reading. */
 export type ReadWant = 'links' | 'text' | 'bytes';
 
-/** A read. A station may include more than was asked for if it had it anyway. */
+/** A read. A system may include more than was asked for if it had it anyway. */
 export interface ResourceRead {
   stat: ResourceStat;
   links?: ResourceLink[];
@@ -984,7 +986,7 @@ export interface ResourceChange {
   version?: string;
 }
 
-/** How a station serves resources. Built on `@aeye/resources` parsers where they fit. */
+/** How a system serves resources. Built on `@aeye/resources` parsers where they fit. */
 export interface ResourceProvider {
   roots(): Promise<ResourceRoot[]>;
   list(uri: ResourceUri, cursor?: string): Promise<Page<ResourceStat>>;
@@ -994,7 +996,7 @@ export interface ResourceProvider {
   watch?(uris: ResourceUri[], onChange: (changes: ResourceChange[]) => void): () => void;
 }
 
-// ═══ Declaring a station ═══
+// ═══ Declaring a system ═══
 
 /** Everything a contract can hold, by section. */
 export interface ContractShape {
@@ -1022,7 +1024,7 @@ type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
 type Q<N extends string, K> = QualifiedName<N, K & string>;
 
 /** The typed refs of everything in a contract. */
-export interface StationRefs<N extends string, C extends ContractShape> {
+export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly name: N;
   readonly types: { readonly [K in keyof C['types']]: TypeRef<Q<N, K>, Infer<C['types'][K]>> };
   readonly settings: { readonly [K in keyof C['settings']]: C['settings'][K] extends SettingDef<infer T> ? SettingRef<Q<N, K>, T> : never };
@@ -1037,43 +1039,43 @@ export interface StationRefs<N extends string, C extends ContractShape> {
 }
 
 /**
- * A station's contract, in `shared/`: its name and everything it offers, with no implementation. Safe to import
+ * A system's contract, in `shared/`: its name and everything it offers, with no implementation. Safe to import
  * from anywhere. Built with `with`, any number of times; each call can use the refs from the calls before it, so a
- * fn can depend on a fn declared earlier and context can bring along the station's own fns.
+ * fn can depend on a fn declared earlier and context can bring along the system's own fns.
  *
  * ```ts
- * export const fs = station('fs', { description: 'Files and a shell.' })
+ * export const fs = system('fs', { description: 'Files and a shell.' })
  *   .with({ types: { Entry }, fns: { read: fn({...}), grep: fn({...}) } })
  *   .with(({ fns }) => ({ context: { guide: context({ description: '…', content: '…', fns: [fns.read, fns.grep] }) } }));
  * ```
  */
-export interface StationContract<N extends string, C extends ContractShape> extends StationRefs<N, C> {
+export interface SystemContract<N extends string, C extends ContractShape> extends SystemRefs<N, C> {
   readonly description: string;
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
-  with<const P extends Partial<ContractShape>>(part: P | ((self: StationRefs<N, C>) => P)): StationContract<N, Merge<C, P>>;
+  with<const P extends Partial<ContractShape>>(part: P | ((self: SystemRefs<N, C>) => P)): SystemContract<N, Merge<C, P>>;
 }
 
-/** Start a contract. The name must be unique among the hub's stations: lowercase letters, digits and dashes. */
-export declare function station<const N extends string>(name: N, info: { description: string }): StationContract<N, EmptyContract>;
+/** Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. */
+export declare function system<const N extends string>(name: N, info: { description: string }): SystemContract<N, EmptyContract>;
 
-export type AnyContract = StationContract<string, ContractShape>;
+export type AnyContract = SystemContract<string, ContractShape>;
 
-// ═══ Implementing a station ═══
+// ═══ Implementing a system ═══
 
-type SystemFnKeys<F> = { [K in keyof F]: F[K] extends FnDef<infer T> ? (T['kind'] extends 'system' ? K : never) : never }[keyof F];
+type NativeFnKeys<F> = { [K in keyof F]: F[K] extends FnDef<infer T> ? (T['kind'] extends 'native' ? K : never) : never }[keyof F];
 type DynamicContextKeys<X> = { [K in keyof X]: X[K] extends ContextDef<unknown, true> ? K : never }[keyof X];
 
 /** A section of the implementation: required when the contract declares something there, forbidden when it doesn't. */
 type Needs<K extends string, T> = [keyof T] extends [never] ? { readonly [P in K]?: never } : { readonly [P in K]: T };
 
 /**
- * A station's implementation, computed from its contract. It must implement exactly what the contract declares:
- * every system fn, every kind, every dynamic context, hook, mention provider, embedder and sectioner.
+ * A system's implementation, computed from its contract. It must implement exactly what the contract declares:
+ * every native fn, every kind, every dynamic context, hook, mention provider, embedder and sectioner.
  */
-export type StationImpl<C extends ContractShape> =
-  Needs<'fns', { readonly [K in SystemFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>> }> &
+export type SystemImpl<C extends ContractShape> =
+  Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>> }> &
   Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P> : never }> &
   Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A> : never }> &
   Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl }> &
@@ -1081,53 +1083,53 @@ export type StationImpl<C extends ContractShape> =
   Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
   {
-    /** Resources this station serves. */
+    /** Resources this system serves. */
     readonly resources?: ResourceProvider;
     /** Hub events to receive. Subscriptions follow the handlers given. */
-    readonly events?: { readonly [E in StationEvent['type']]?: (event: Extract<StationEvent, { type: E }>, ctx: StationCtx) => Promise<void> };
+    readonly events?: { readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx) => Promise<void> };
   };
 
 /** What hooks, mentions, dynamic context and event handlers get. */
-export interface StationCtx {
-  readonly station: string;
+export interface SystemCtx {
+  readonly system: string;
   readonly llm: Llm;
   readonly resources: Resources;
   readonly log: Log;
   readonly signal: AbortSignal;
 }
 
-/** How a station process connects. */
+/** How a system process connects. */
 export interface ServeOptions {
   /** The hub's WebSocket URL. */
   hub: string;
-  /** Where the station keeps its key pair. */
+  /** Where the system keeps its key pair. */
   state: string;
-  /** A one-time pairing token, if an admin made one. Otherwise the station prints a pairing code. */
+  /** A one-time pairing token, if an admin made one. Otherwise the system prints a pairing code. */
   pairingToken?: string;
-  /** The built client assets, if the station has renderers. */
+  /** The built client assets, if the system has renderers. */
   client?: string;
-  /** Also serve the station as an MCP server. */
+  /** Also serve the system as an MCP server. */
   mcp?: { stdio: true } | { http: { port: number } };
 }
 
 /**
- * Run a station: connect to the hub (pairing the first time), send the contract, and serve the implementation.
+ * Run a system: connect to the hub (pairing the first time), send the contract, and serve the implementation.
  * The implementation is checked against the contract at compile time.
  */
 export declare function serve<N extends string, C extends ContractShape>(
-  contract: StationContract<N, C>,
-  impl: StationImpl<C>,
+  contract: SystemContract<N, C>,
+  impl: SystemImpl<C>,
   options: ServeOptions,
-): Promise<RunningStation<N>>;
+): Promise<RunningSystem<N>>;
 
-/** A running station. */
-export interface RunningStation<N extends string> {
+/** A running system. */
+export interface RunningSystem<N extends string> {
   readonly name: N;
   readonly status: 'pairing' | 'connected' | 'disconnected';
   /** Resolves once connected and the contract is imported. */
   ready(): Promise<void>;
-  /** Add a system fn at runtime. Returns its ref. */
-  add<const K extends string, T extends FnTypes & { kind: 'system' }>(name: K, def: FnDef<T>, impl: FnImpl<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
+  /** Add a native fn at runtime. Returns its ref. */
+  add<const K extends string, T extends FnTypes & { kind: 'native' }>(name: K, def: FnDef<T>, impl: FnImpl<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
   /** Add a fn of some kind at runtime (no implementation: its kind runs it). */
   add<const K extends string, T extends FnTypes>(name: K, def: FnDef<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
   /** Remove a fn added at runtime. */
@@ -1137,32 +1139,38 @@ export interface RunningStation<N extends string> {
   stop(): Promise<void>;
 }
 
-// ═══ Station events ═══
+// ═══ System events ═══
 
-/** A message as stations see it. */
+/** A message as systems see it. */
 export interface MessageView {
   id: MessageId;
   session: SessionId;
   author: ActorId;
   role: 'user' | 'assistant' | 'note';
   text: string;
+  replyTo?: MessageId;
+  replyAll: boolean;
   createdAt: Timestamp;
 }
 
-/** Hub events a station can subscribe to. */
-export type StationEvent =
+/** Hub events a system can subscribe to. */
+export type SystemEvent =
   | { type: 'message'; message: MessageView }
   | { type: 'run'; run: RunId; fn: QualifiedName; update: RunUpdate }
   | { type: 'resources'; changes: ResourceChange[] }
-  | { type: 'station'; station: string; status: 'connected' | 'disconnected' | 'removed' }
+  | { type: 'system'; system: string; status: 'connected' | 'disconnected' | 'removed' }
   | { type: 'fns'; added: QualifiedName[]; removed: QualifiedName[] };
 
 // ═══ Client renderers ═══
 
-/** A renderer: draw into `el` and return a cleanup. Any UI library works. */
-export type Mount<P> = (el: HTMLElement, props: P) => (() => void) | void;
+/**
+ * A renderer is a Vue component; the chat UI is Vue too. Its props are a view typed by the contract, and they are
+ * reactive: when the run, attachment or value changes, the component re-renders. A system's client build keeps
+ * `vue` external, so renderers share the chat's Vue.
+ */
+export type Renderer<P> = Component<P>;
 
-/** What a fn renderer gets: the run's typed args, result and progress. */
+/** The props of a fn renderer: the run's typed args, result and progress. */
 export interface FnView<T extends FnTypes> {
   run: RunId;
   status: RunStatus;
@@ -1170,25 +1178,25 @@ export interface FnView<T extends FnTypes> {
   result?: T['result'];
   error?: FnError;
   progress?: ProgressState<T['progress']>;
-  /** Called with the new view whenever the run changes. */
-  subscribe(listener: (view: FnView<T>) => void): () => void;
 }
 
-/** What an attachment renderer gets. */
+/** The props of an attachment renderer. */
 export interface AttachmentView<T> {
   data: T;
   title: string;
 }
 
-/** What a custom input gets. */
+/**
+ * The props of a custom input. It works with `v-model`: read `modelValue` and emit `update:modelValue`
+ * (in a `<script setup>`, `defineModel<T>()` does both).
+ */
 export interface InputView<T> {
-  value: T | undefined;
-  onChange(value: T): void;
-  /** Problems with the current value. */
+  modelValue: T | undefined;
+  /** Problems with the current value, from the type's checks. */
   problems: string[];
 }
 
-/** What a resource renderer gets. */
+/** The props of a resource preview. */
 export interface ResourceView {
   stat: ResourceStat;
   section?: SectionKey;
@@ -1196,34 +1204,41 @@ export interface ResourceView {
   bytes(): Promise<Uint8Array>;
 }
 
-/** A station's renderers, typed by its contract. */
+/** The props of the renderer for one of a contract's fns: `defineProps<FnViewOf<typeof fs, 'bash'>>()`. */
+export type FnViewOf<S extends AnyContract, K extends keyof S['defs']['fns']> = FnView<TypesOf<S['defs']['fns'][K]>>;
+/** The props of the renderer for one of a contract's attachments. */
+export type AttachmentViewOf<S extends AnyContract, K extends keyof S['defs']['attachments']> = AttachmentView<Infer<S['defs']['attachments'][K]['data']>>;
+/** The props of the input for one of a contract's types. */
+export type InputViewOf<S extends AnyContract, K extends keyof S['defs']['types']> = InputView<Infer<S['defs']['types'][K]>>;
+
+/** A system's renderers, typed by its contract. */
 export interface ClientRenderers<C extends ContractShape> {
   /** How calls of a fn are drawn in the chat. */
-  fns?: { readonly [K in keyof C['fns']]?: Mount<FnView<TypesOf<C['fns'][K]>>> };
+  fns?: { readonly [K in keyof C['fns']]?: Renderer<FnView<TypesOf<C['fns'][K]>>> };
   /** How a fn of a kind is drawn when the fn has no renderer of its own. */
-  kinds?: { readonly [K in keyof C['kinds']]?: Mount<FnView<UntypedFn>> };
-  attachments?: { readonly [K in keyof C['attachments']]?: Mount<AttachmentView<Infer<C['attachments'][K]['data']>>> };
-  /** Inputs for the station's named types (used in `!` forms and handler prompts). */
-  inputs?: { readonly [K in keyof C['types']]?: Mount<InputView<Infer<C['types'][K]>>> };
+  kinds?: { readonly [K in keyof C['kinds']]?: Renderer<FnView<UntypedFn>> };
+  attachments?: { readonly [K in keyof C['attachments']]?: Renderer<AttachmentView<Infer<C['attachments'][K]['data']>>> };
+  /** Inputs for the system's named types (used in `!` forms and handler prompts). */
+  inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<Infer<C['types'][K]>>> };
   /** Previews for resource formats. */
-  resources?: Record<string, Mount<ResourceView>>;
+  resources?: Record<string, Renderer<ResourceView>>;
 }
 
 /** A built client module. The chat UI loads it from the hub. */
 export interface ClientModule {
-  readonly station: string;
+  readonly system: string;
 }
 
-/** Declare a station's renderers in `client/`. */
-export declare function client<N extends string, C extends ContractShape>(contract: StationContract<N, C>, renderers: ClientRenderers<C>): ClientModule;
+/** Declare a system's renderers in `client/`. */
+export declare function client<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, renderers: ClientRenderers<C>): ClientModule;
 
 // ═══ The hub's contract ═══
 
-/** The types of a hub system fn. */
-type HubFn<A, R> = FnDef<SystemFnTypes<A, R, {}, {}, NoProgress, never, never>>;
+/** The types of a hub native fn. */
+type HubFn<A, R> = FnDef<NativeFnTypes<A, R, {}, {}, NoProgress, never, never>>;
 
 /**
- * The hub is a station too, built with the same SDK. Its contract is exported so other stations can depend on its
+ * The hub is a system too, built with the same SDK. Its contract is exported so other systems can depend on its
  * fns, use its `llm` kind, and refer to its hooks and sectioners.
  */
 export interface HubContract extends EmptyContract {
@@ -1245,4 +1260,4 @@ export interface HubContract extends EmptyContract {
 }
 
 /** The hub's contract. */
-export declare const hub: StationContract<'hub', HubContract>;
+export declare const hub: SystemContract<'hub', HubContract>;

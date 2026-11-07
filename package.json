@@ -17,21 +17,22 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@aeye/ai": "^0.4.0",
-    "@aeye/core": "^0.6.0",
-    "@aeye/gin": "^0.4.5",
-    "@aeye/models": "^0.4.0",
-    "@aeye/resources": "^0.3.9",
-    "@ayepi/auth": "^0.4.1",
-    "@ayepi/codec": "^0.4.1",
-    "@ayepi/core": "^0.4.1",
-    "@ayepi/env": "^0.4.1",
-    "@ayepi/files": "^0.4.1",
-    "@ayepi/log": "^0.4.1",
-    "@ayepi/mcp": "^0.4.1",
-    "@ayepi/plugin": "^0.4.1",
-    "@ayepi/rate": "^0.4.1",
-    "@ayepi/work": "^0.4.1",
-    "zod": "^4.6.7"
+    "@aeye/core": "file:../aits/packages/core",
+    "@aeye/ai": "file:../aits/packages/ai",
+    "@aeye/gin": "file:../aits/packages/gin",
+    "@aeye/models": "file:../aits/packages/models",
+    "@aeye/resources": "file:../aits/packages/resources",
+    "@ayepi/auth": "file:../ayepi/packages/auth",
+    "@ayepi/codec": "file:../ayepi/packages/codec",
+    "@ayepi/core": "file:../ayepi/packages/core",
+    "@ayepi/env": "file:../ayepi/packages/env",
+    "@ayepi/files": "file:../ayepi/packages/files",
+    "@ayepi/log": "file:../ayepi/packages/log",
+    "@ayepi/mcp": "file:../ayepi/packages/mcp",
+    "@ayepi/plugin": "file:../ayepi/packages/plugin",
+    "@ayepi/rate": "file:../ayepi/packages/rate",
+    "@ayepi/work": "file:../ayepi/packages/work",
+    "zod": "^4.6.7",
+    "vue": "^3.5.0"
   }
 }

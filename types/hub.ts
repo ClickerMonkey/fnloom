@@ -1,6 +1,6 @@
 // # Hub
-// The hub's side: what crosses the wire from stations, what it stores, how it runs turns, permissions, spend,
-// chat and storage. Station authors never touch these directly; the SDK (sdk.ts) is their surface. Library types
+// The hub's side: what crosses the wire from systems, what it stores, how it runs turns, permissions, spend,
+// chat and storage. System authors never touch these directly; the SDK (sdk.ts) is their surface. Library types
 // (aeye, ayepi) appear only here, where the hub uses them.
 
 import type { Usage, Message, Request as AeyeRequest, Response as AeyeResponse, Chunk } from '@aeye/core';
@@ -9,20 +9,20 @@ import type {
   Id, RunId, TurnId, SessionId, ActorId, MessageId, Duration, Timestamp, Usd, Json, QualifiedName, Priority, Audience, ActorKind, Page,
   GinTypeDef, FnError, RunStatus, RunUpdate, Operations, FnLimits, ModelChoice, KindDescription,
   ResourceUri, ResourceStat, ResourceLink, ResourceRead, ResourceRoot, ResourceChange, ReadWant, ContentRef, Section, SectionKey, SectionMatch,
-  HookInput, MentionOption, StationEvent, UndoOutcome, Link,
+  HookInput, MentionOption, SystemEvent, UndoOutcome, Link,
 } from './sdk.ts';
 
-// ═══ Wire: what a station sends ═══
+// ═══ Wire: what a system sends ═══
 
-/** A station's name. Unique among the hub's stations; namespaces everything it contributes. */
-export type StationName = string & { readonly __station: true };
+/** A system's name. Unique among the hub's systems; namespaces everything it contributes. */
+export type SystemName = string & { readonly __system: true };
 
 /**
- * A station's whole contract as JSON, sent on connect (skipped if the hash matches) and kept current with
+ * A system's whole contract as JSON, sent on connect (skipped if the hash matches) and kept current with
  * patches. The SDK builds it from the typed contract. Names inside are unqualified.
  */
 export interface Manifest {
-  name: StationName;
+  name: SystemName;
   version: string;
   description: string;
   /** Hash of everything below; sent in `Hello`. */
@@ -38,12 +38,12 @@ export interface Manifest {
   embedders: Array<{ name: string; dimensions: number; maxInput: number; pricePerMillionTokens: Usd }>;
   sectioners: Array<{ name: string; description: string; match: SectionMatch }>;
   /** Events it handles; the hub only sends those. */
-  events: StationEvent['type'][];
+  events: SystemEvent['type'][];
   /** Whether it serves resources. Roots are fetched separately (they can change). */
   resources: boolean;
   client?: { entry: string; hash: string; files: Array<{ path: string; size: number; hash: string }> };
-  /** Stations whose fns, kinds or context it refers to. */
-  requires: StationName[];
+  /** Systems whose fns, kinds or context it refers to. */
+  requires: SystemName[];
 }
 
 /** The sections of a manifest a patch can change. */
@@ -77,15 +77,15 @@ export interface HandlerDecl {
 export type ProgressDecl = { type: 'none' } | { type: 'linear' } | { type: 'steps'; steps: Record<string, string> };
 
 /**
- * A fn on the wire. System fns carry their signature, deps and handlers as declared. Fns of other kinds carry a
- * payload; the hub asks the kind's station to describe it and checks the result against the declared signature.
+ * A fn on the wire. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a
+ * payload; the hub asks the kind's system to describe it and checks the result against the declared signature.
  */
 export interface FnDecl {
   name: string;
   description: string;
   instructions?: string;
-  /** `system`, or the qualified name of a kind. */
-  kind: 'system' | QualifiedName;
+  /** `native`, or the qualified name of a kind. */
+  kind: 'native' | QualifiedName;
   payload?: Json;
   args: GinTypeDef;
   returns: GinTypeDef;
@@ -104,7 +104,7 @@ export interface FnDecl {
 export interface ContextDecl {
   name: string;
   description: string;
-  /** Absent for dynamic context: the hub asks the station for it on load. */
+  /** Absent for dynamic context: the hub asks the system for it on load. */
   content?: string;
   command?: { name: string; args: Array<{ name: string; hint: string; required: boolean }> };
   imports: QualifiedName[];
@@ -127,10 +127,10 @@ export interface ImportReport {
 
 // ═══ Wire: the link ═══
 
-/** The first frame from a station. A new name starts pairing; a known name gets a challenge. */
+/** The first frame from a system. A new name starts pairing; a known name gets a challenge. */
 export interface Hello {
   protocol: 1;
-  name: StationName;
+  name: SystemName;
   version: string;
   /** New per process start, to tell a restart from a reconnect. */
   instance: string;
@@ -139,11 +139,11 @@ export interface Hello {
   pairingToken?: string;
 }
 
-/** The hub's challenge to a known station; the station signs the nonce with its private key. */
+/** The hub's challenge to a known system; the system signs the nonce with its private key. */
 export interface Challenge { nonce: string }
 export interface ChallengeAnswer { signature: string }
 
-/** The hub accepts the station. */
+/** The hub accepts the system. */
 export interface Welcome {
   /** A short-lived token for HTTP (asset upload, presigned content). */
   token: string;
@@ -152,7 +152,7 @@ export interface Welcome {
   limits: LinkLimits;
 }
 
-/** Size limits that keep station traffic small. */
+/** Size limits that keep system traffic small. */
 export interface LinkLimits {
   /** Largest frame; bigger content goes as a `ContentRef`. */
   maxFrame: number;
@@ -165,13 +165,13 @@ export interface LinkLimits {
  * side runs both an ayepi client and an ayepi server and every frame says which conversation it belongs to.
  */
 export interface LinkFrame {
-  /** `h`: a call the station made to the hub, or its reply. `s`: a call the hub made to the station, or its reply. */
+  /** `h`: a call the system made to the hub, or its reply. `s`: a call the hub made to the system, or its reply. */
   d: 'h' | 's';
   /** The ayepi frame. */
   f: Json;
 }
 
-/** What a station calls on the hub (an ayepi spec). */
+/** What a system calls on the hub (an ayepi spec). */
 export interface HubLink {
   manifest(input: Manifest): Promise<ImportReport>;
   patch(input: ManifestPatch): Promise<ImportReport>;
@@ -181,25 +181,25 @@ export interface HubLink {
   allow(input: { run: RunId; operations: Partial<Pick<Operations, 'cancel' | 'pause' | 'background'>> }): Promise<void>;
   undoWith(input: { run: RunId; undo: Json }): Promise<void>;
   attach(input: { run: RunId; attachment: QualifiedName; data: Json; title: string } | { run: RunId; link: Link }): Promise<void>;
-  /** Answer a handler call the hub relayed to this station (it was the caller). */
+  /** Answer a handler call the hub relayed to this system (it was the caller). */
   handlerResult(input: { call: Id<'handlerCall'>; result: { ok: true; value: Json } | { ok: false; error: FnError } }): Promise<void>;
   resourcesChanged(input: { changes: ResourceChange[] }): Promise<void>;
   /** The LLM forward behind `ctx.llm` (and the aeye provider). */
   llm(input: LlmForward): AsyncIterable<LlmForwardChunk>;
   embed(input: { texts: string[]; run?: RunId }): Promise<{ vectors: number[][]; cost: Usd }>;
-  /** Resource access for `ctx.resources`, routed to whichever station serves the URI. */
+  /** Resource access for `ctx.resources`, routed to whichever system serves the URI. */
   resource(input: { uri: ResourceUri; want: ReadWant[]; run?: RunId }): Promise<ResourceRead>;
   content(input: { ref: ContentRef; offset: number; length: number }): Promise<{ chunk: string }>;
   setting(input: { run: RunId; setting: QualifiedName }): Promise<{ value?: Json }>;
   log(input: { level: 'debug' | 'info' | 'warn' | 'error'; key: string; fields: Record<string, Json> }): Promise<void>;
 }
 
-/** What the hub calls on a station (an ayepi spec the station serves over the link). */
-export interface StationLink {
+/** What the hub calls on a system (an ayepi spec the system serves over the link). */
+export interface SystemLink {
   run(input: RunRequest): Promise<OutcomeWire>;
   control(input: { run: RunId; action: 'cancel' | 'pause' }): Promise<{ accepted: boolean; reason?: string }>;
   undo(input: { run: RunId; fn: QualifiedName; payload: Json }): Promise<UndoOutcome>;
-  /** Relay a handler call to the station whose run supplied it. */
+  /** Relay a handler call to the system whose run supplied it. */
   handler(input: { call: Id<'handlerCall'>; run: RunId; handler: string; args: Json }): Promise<{ ok: true; value: Json } | { ok: false; error: FnError }>;
   check(input: { kind: string; payload: Json }): Promise<{ problems: string[]; description?: KindDescription }>;
   context(input: { name: string; args: Record<string, string>; session?: SessionId; actor: ActorId }): Promise<{ text: string }>;
@@ -213,7 +213,7 @@ export interface StationLink {
   embed(input: { embedder: string; texts: string[] }): Promise<{ vectors: number[][] }>;
   hook(input: { hook: string; message: HookInput }): Promise<Json[]>;
   mention(input: { provider: string; query: string; session: SessionId; actor: ActorId }): Promise<MentionOption[]>;
-  event(input: StationEvent): Promise<void>;
+  event(input: SystemEvent): Promise<void>;
   restart(input: { reason: string }): Promise<void>;
 }
 
@@ -221,7 +221,7 @@ export interface StationLink {
 export interface RunRequest {
   run: { id: RunId; fn: QualifiedName; parent?: RunId; turn: TurnId; session?: SessionId; actor: ActorId; caller: ActorId; attempt: number; priority: Priority };
   fn: string;
-  kind: 'system' | string;
+  kind: 'native' | string;
   payload?: Json;
   args: Json;
   budget: { cost: Usd; time: Duration };
@@ -245,7 +245,7 @@ export type RunSettled =
   | { status: 'cancelled' }
   | { status: 'background'; run: RunId };
 
-/** An LLM request forwarded from a station. Tools and output types go as JSON schema (zod doesn't cross the wire). */
+/** An LLM request forwarded from a system. Tools and output types go as JSON schema (zod doesn't cross the wire). */
 export interface LlmForward {
   run?: RunId;
   request: Omit<AeyeRequest, 'tools' | 'responseFormat'> & {
@@ -263,16 +263,16 @@ export type LlmForwardChunk =
   | { type: 'done'; usage: Usage; cost: Usd; interaction: Id<'llmInteraction'> }
   | { type: 'error'; message: string; kind: 'model' | 'tool' | 'limit' | 'provider' };
 
-// ═══ Stations ═══
+// ═══ Systems ═══
 
-/** Where a station is. */
-export type StationStatus = 'pairing' | 'connected' | 'disconnected' | 'removed';
+/** Where a system is. */
+export type SystemStatus = 'pairing' | 'connected' | 'disconnected' | 'removed';
 
-/** The hub's row for a station. */
-export interface StationRecord {
-  name: StationName;
+/** The hub's row for a system. */
+export interface SystemRecord {
+  name: SystemName;
   description: string;
-  status: StationStatus;
+  status: SystemStatus;
   /** A known name must prove it holds this key. */
   keyFingerprint: string;
   version: string;
@@ -287,25 +287,25 @@ export interface StationRecord {
 /** A pairing waiting for an admin. */
 export interface PairingRequest {
   id: Id<'pairing'>;
-  name: StationName;
+  name: SystemName;
   keyFingerprint: string;
   version: string;
   address: string;
-  /** `code`: the admin compares the code the station printed. `token`: the station brought a one-time token. */
+  /** `code`: the admin compares the code the system printed. `token`: the system brought a one-time token. */
   method: 'code' | 'token';
   code?: string;
-  /** The name is paired to a different key; approving replaces that station. */
-  replaces?: StationName;
+  /** The name is paired to a different key; approving replaces that system. */
+  replaces?: SystemName;
   status: 'pending' | 'approved' | 'rejected' | 'expired';
   createdAt: Timestamp;
   expiresAt: Timestamp;
 }
 
-/** A one-time token an admin creates so a station can pair without a code. */
+/** A one-time token an admin creates so a system can pair without a code. */
 export interface PairingToken {
   id: Id<'pairingToken'>;
   /** The name it may claim, or any. */
-  name?: StationName;
+  name?: SystemName;
   tokenHash: string;
   createdBy: ActorId;
   expiresAt: Timestamp;
@@ -315,12 +315,12 @@ export interface PairingToken {
 // ═══ Catalog ═══
 
 /** Why a fn can't be called right now. */
-export type FnUnavailable = 'station-disconnected' | 'station-removed' | 'kind-missing' | 'kind-station-disconnected' | 'dep-unavailable' | 'disabled' | 'paused';
+export type FnUnavailable = 'system-disconnected' | 'system-removed' | 'kind-missing' | 'kind-system-disconnected' | 'dep-unavailable' | 'disabled' | 'paused';
 
 /** The hub's row for a fn. */
 export interface FnRecord {
   name: QualifiedName;
-  station: StationName;
+  system: SystemName;
   decl: FnDecl;
   /** Hash of the decl; runs record the version they used. */
   version: string;
@@ -337,14 +337,14 @@ export interface FnRecord {
 /** The hub's row for a kind. */
 export interface KindRecord {
   name: QualifiedName;
-  station: StationName;
+  system: SystemName;
   decl: KindDecl;
 }
 
-/** The hub's row for a named type. Types re-declared by a station must stay compatible (gin `compatible`). */
+/** The hub's row for a named type. Types re-declared by a system must stay compatible (gin `compatible`). */
 export interface TypeRecord {
   name: QualifiedName;
-  station: StationName;
+  system: SystemName;
   description: string;
   def: GinTypeDef;
 }
@@ -352,7 +352,7 @@ export interface TypeRecord {
 /** The hub's row for context. */
 export interface ContextRecord {
   name: QualifiedName;
-  station: StationName;
+  system: SystemName;
   decl: ContextDecl;
   /** References found in the text (`@fs/read`), added to what loading brings along. */
   mentions: { context: QualifiedName[]; fns: QualifiedName[] };
@@ -379,9 +379,8 @@ export interface UserActor extends ActorBase { kind: 'user'; email: string; role
 export interface GroupActor extends ActorBase { kind: 'group' }
 /** An agent fn acting as a participant, so its runs and messages have an author. */
 export interface AgentActor extends ActorBase { kind: 'agent'; fn: QualifiedName }
-export interface StationActor extends ActorBase { kind: 'station'; station: StationName }
-export interface SystemActor extends ActorBase { kind: 'system' }
-export type Actor = UserActor | GroupActor | AgentActor | StationActor | SystemActor;
+export interface SystemActor extends ActorBase { kind: 'system'; system: SystemName }
+export type Actor = UserActor | GroupActor | AgentActor | SystemActor;
 
 export interface Membership { group: ActorId; user: ActorId; addedBy: ActorId; addedAt: Timestamp }
 
@@ -401,7 +400,7 @@ export interface AuthSession {
   actingAs?: ActorId;
 }
 
-/** A value of a station's actor setting on one actor. */
+/** A value of a system's actor setting on one actor. */
 export interface ActorSetting {
   setting: QualifiedName;
   actor: ActorId;
@@ -420,8 +419,8 @@ export type ActorMatch = { actor: ActorId } | { group: ActorId } | { kind: Actor
 export interface FnMatch {
   /** A name or a glob over names: `fs/*`. */
   fn?: string;
-  station?: StationName;
-  kind?: 'system' | QualifiedName;
+  system?: SystemName;
+  kind?: 'native' | QualifiedName;
   tags?: string[];
   /** A gin predicate over the args. */
   when?: Json;
@@ -434,7 +433,8 @@ export type Approver =
   | { by: 'group'; group: ActorId; quorum?: number }
   /** An agent fn that answers allow or deny with a reason. */
   | { by: 'judge'; fn: QualifiedName }
-  | { by: 'system' };
+  /** The hub decides by itself (a rule, a quota). */
+  | { by: 'hub' };
 
 /**
  * May these actors run these fns? Deny beats ask beats allow; a more specific match beats a broader one. With no
@@ -470,9 +470,9 @@ export interface Run {
   id: RunId;
   fn: QualifiedName;
   fnVersion: string;
-  kind: 'system' | QualifiedName;
-  /** The station that ran it. */
-  station: StationName;
+  kind: 'native' | QualifiedName;
+  /** The system that ran it. */
+  system: SystemName;
   parent?: RunId;
   root: RunId;
   turn: TurnId;
@@ -510,8 +510,8 @@ export interface HandlerCall {
   run: RunId;
   handler: string;
   args: Json;
-  /** Who answers: a person (a form in the chat), or the caller's station. */
-  answerer: { user: ActorId } | { station: StationName; run: RunId };
+  /** Who answers: a person (a form in the chat), or the caller's system. */
+  answerer: { user: ActorId } | { system: SystemName; run: RunId };
   status: 'pending' | 'answered' | 'failed';
   result?: Json;
 }
@@ -553,8 +553,8 @@ export interface LlmInteraction {
   turn: TurnId;
   run: RunId;
   session?: SessionId;
-  /** Set when it came from a station through `ctx.llm`. */
-  station?: StationName;
+  /** Set when it came from a system through `ctx.llm`. */
+  system?: SystemName;
   iteration: number;
   provider: string;
   model: string;
@@ -595,23 +595,28 @@ export interface QueueSettings {
   /** How recently a user must have been active to count as present. */
   activeWindow: Duration;
   llmConcurrency: number;
-  /** Per station. */
+  /** Per system. */
   runConcurrency: number;
   priorities: Record<Priority, number>;
 }
 
 // ═══ Sessions and chat ═══
 
-/** A chat. */
+/**
+ * A chat. With one person in it, the session's agent answers every message. With more than one person, agents
+ * stay quiet unless addressed: an agent answers a message that replies to one of its own messages, and every
+ * agent answers a reply-all. See `ChatMessage.replyTo` and `replyAll`.
+ */
 export interface Session {
   id: SessionId;
   title: string;
   owner: ActorId;
-  /** The agent fn that answers. Default `hub/chat`. */
+  /** The agent fn that answers when only one person is in the session. Default `hub/chat`. */
   agent: QualifiedName;
+  /** People and agents. Tagging a person notifies them; agents follow the reply rule above. */
   participants: Array<{ actor: ActorId; role: 'owner' | 'member' | 'agent'; notify: 'all' | 'tagged' | 'none'; joinedAt: Timestamp }>;
-  /** Only these stations' fns, context, mentions and hooks apply. */
-  stations: StationName[] | 'all';
+  /** Only these systems' fns, context, mentions and hooks apply. */
+  systems: SystemName[] | 'all';
   /** The agent's loaded fns and context so far. */
   tools: QualifiedName[];
   context: QualifiedName[];
@@ -636,7 +641,14 @@ export interface ChatMessage {
   parts: MessagePart[];
   runs: RunId[];
   status: 'streaming' | 'done' | 'failed';
+  /** People tagged with @; they are notified. */
   tagged: ActorId[];
+  /** The message this replies to. With more than one person in the session, replying to an agent's message is how that agent is asked to answer. */
+  replyTo?: MessageId;
+  /** Addressed to every agent in the session: each one answers. */
+  replyAll: boolean;
+  /** The agents the hub woke for this message, from the rule on `Session`. */
+  answerers: ActorId[];
   createdAt: Timestamp;
 }
 
@@ -679,8 +691,8 @@ export interface ChatCapabilities {
   commands: Array<{ name: string; context: QualifiedName; args: Array<{ name: string; hint: string; required: boolean }>; description: string }>;
   /** Fns a user may run with `!`. */
   invocations: Array<{ fn: QualifiedName; description: string; args: GinTypeDef }>;
-  clients: Array<{ station: StationName; url: string; hash: string }>;
-  stations: Array<{ name: StationName; status: StationStatus; enabled: boolean }>;
+  clients: Array<{ system: SystemName; url: string; hash: string }>;
+  systems: Array<{ name: SystemName; status: SystemStatus; enabled: boolean }>;
   models: Array<{ id: string; name: string }>;
 }
 
@@ -689,7 +701,7 @@ export interface ChatCapabilities {
 /** The hub's row for a resource. */
 export interface ResourceRecord {
   uri: ResourceUri;
-  station: StationName;
+  system: SystemName;
   stat: ResourceStat;
   links: ResourceLink[];
   indexedVersion?: string;
@@ -697,7 +709,7 @@ export interface ResourceRecord {
   seenAt: Timestamp;
 }
 
-/** A user's choice of sectioner for some resources. More specific matches win; a user's rule beats a station's default. */
+/** A user's choice of sectioner for some resources. More specific matches win; a user's rule beats a system's default. */
 export interface SectionRule {
   id: Id<'sectionRule'>;
   match: SectionMatch;
@@ -722,7 +734,7 @@ export type IndexedKind = 'fn' | 'context' | 'section' | 'message' | 'type';
 export interface IndexEntry {
   kind: IndexedKind;
   key: string;
-  station?: StationName;
+  system?: SystemName;
   text: string;
   embedder: QualifiedName;
   updatedAt: Timestamp;
@@ -750,7 +762,7 @@ export interface ModelCatalog { models: ModelInfo[]; refreshedAt: Timestamp }
 export type SpendScope =
   | { scope: 'all' }
   | { scope: 'actor'; actor: ActorId }
-  | { scope: 'station'; station: StationName }
+  | { scope: 'system'; system: SystemName }
   | { scope: 'session'; session: SessionId }
   | { scope: 'fn'; fn: QualifiedName }
   | { scope: 'model'; model: string };
@@ -777,7 +789,7 @@ export interface LedgerEntry {
   cost: Usd;
   tokens: number;
   actor: ActorId;
-  station?: StationName;
+  system?: SystemName;
   session?: SessionId;
   fn: QualifiedName;
   model?: string;
@@ -795,13 +807,13 @@ export type BrowserEvent =
   | { type: 'run'; run: RunId; session?: SessionId; update: RunUpdate }
   | { type: 'approval'; approval: Approval }
   | { type: 'handler'; call: HandlerCall }
-  | { type: 'station'; station: StationName; status: StationStatus }
+  | { type: 'system'; system: SystemName; status: SystemStatus }
   | { type: 'pairing'; pairing: PairingRequest }
   | { type: 'capabilities'; capabilities: ChatCapabilities }
   | { type: 'notification'; notification: Notification };
 
 /** Why someone is notified. */
-export type NotificationReason = 'approval-needed' | 'input-needed' | 'tagged' | 'turn-finished' | 'pairing-requested' | 'station-disconnected' | 'spend-limit';
+export type NotificationReason = 'approval-needed' | 'input-needed' | 'tagged' | 'turn-finished' | 'pairing-requested' | 'system-disconnected' | 'spend-limit';
 
 /** An inbox item; pushed (web push) when the user isn't looking. */
 export interface Notification {
@@ -824,10 +836,10 @@ export interface HubWebApi {
   signIn(input: { email: string; password: string }): Promise<{ token: string; user: UserActor }>;
   capabilities(input: { session?: SessionId }): Promise<ChatCapabilities>;
   sessions(input: { cursor?: string; search?: string }): Promise<Page<Session>>;
-  createSession(input: { agent?: QualifiedName; stations?: StationName[] | 'all'; title?: string }): Promise<Session>;
-  updateSession(input: { session: SessionId; stations?: StationName[] | 'all'; agent?: QualifiedName; priority?: Priority; budget?: { cost: Usd; time: Duration } }): Promise<Session>;
+  createSession(input: { agent?: QualifiedName; systems?: SystemName[] | 'all'; title?: string }): Promise<Session>;
+  updateSession(input: { session: SessionId; systems?: SystemName[] | 'all'; agent?: QualifiedName; priority?: Priority; budget?: { cost: Usd; time: Duration } }): Promise<Session>;
   messages(input: { session: SessionId; cursor?: string }): Promise<Page<ChatMessage>>;
-  send(input: { session: SessionId; parts: MessagePart[]; client: HookInput['client'] }): Promise<{ turn: TurnId; message: ChatMessage }>;
+  send(input: { session: SessionId; parts: MessagePart[]; replyTo?: MessageId; replyAll?: boolean; client: HookInput['client'] }): Promise<{ turn: TurnId; message: ChatMessage }>;
   invoke(input: { session: SessionId; fn: QualifiedName; args: Json }): Promise<{ turn: TurnId; run: RunId }>;
   control(input: { session: SessionId; action: 'pause' | 'resume' | 'cancel' }): Promise<SessionControls>;
   undoTurn(input: { turn: TurnId }): Promise<UndoReport>;
@@ -845,15 +857,15 @@ export interface HubWebApi {
 }
 
 /**
- * Admin actions. Each is also a `hub` system fn, so it can be done by asking in chat (always with approval).
+ * Admin actions. Each is also a `hub` native fn, so it can be done by asking in chat (always with approval).
  */
 export interface HubAdmin {
   configureProvider: { args: ProviderConfig; result: { models: number } };
   setModelCategory: { args: Omit<ModelCategory, 'id'>; result: { id: Id<'modelCategory'> } };
   configureTranscription: { args: { provider: string; model?: string } | { off: true }; result: { ok: boolean } };
-  createPairingToken: { args: { name?: StationName; expiresIn: Duration }; result: { token: string; expiresAt: Timestamp } };
-  approvePairing: { args: { pairing: Id<'pairing'>; approve: boolean }; result: { station?: StationName } };
-  removeStation: { args: { station: StationName }; result: { fnsUnavailable: number } };
+  createPairingToken: { args: { name?: SystemName; expiresIn: Duration }; result: { token: string; expiresAt: Timestamp } };
+  approvePairing: { args: { pairing: Id<'pairing'>; approve: boolean }; result: { system?: SystemName } };
+  removeSystem: { args: { system: SystemName }; result: { fnsUnavailable: number } };
   setSpendLimit: { args: Omit<SpendLimit, 'id' | 'createdBy'>; result: { id: Id<'spendLimit'> } };
   setPolicy: { args: Omit<Policy, 'id' | 'createdBy' | 'createdAt'>; result: { id: Id<'policy'> } };
   setActorSetting: { args: { setting: QualifiedName; actor: ActorId; value: Json }; result: { ok: boolean } };
@@ -873,7 +885,7 @@ export interface HubTables {
   actorSettings: ActorSetting;
   policies: Policy;
   approvals: Approval;
-  stations: StationRecord;
+  systems: SystemRecord;
   pairings: PairingRequest;
   pairingTokens: PairingToken;
   types: TypeRecord;
@@ -960,5 +972,5 @@ export interface HubConfig {
 export interface Schedule { id: Id<'schedule'>; fn: QualifiedName; args: Json; cron: string; actor: ActorId; nextAt: Timestamp; enabled: boolean }
 
 /** Run a fn when an event happens. @status future */
-export interface Trigger { id: Id<'trigger'>; on: StationEvent['type']; when?: Json; fn: QualifiedName; args: Json; actor: ActorId; enabled: boolean }
+export interface Trigger { id: Id<'trigger'>; on: SystemEvent['type']; when?: Json; fn: QualifiedName; args: Json; actor: ActorId; enabled: boolean }
 

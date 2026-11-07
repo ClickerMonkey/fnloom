@@ -1,8 +1,9 @@
 // # Examples
 // Compile-time proof that the SDK reads well and catches mistakes. Nothing here runs: `npm run typecheck` fails if
-// an expectation breaks. Every `@ts-expect-error` marks a mistake a station author must not be able to make.
+// an expectation breaks. Every `@ts-expect-error` marks a mistake a system author must not be able to make.
 
-import { station, fn, handler, steps, serve, client, kind, g, hub, type Infer, type FnRef, type ContextRef } from './sdk.ts';
+import { h, type DefineComponent } from 'vue';
+import { system, fn, handler, steps, serve, client, kind, g, hub, type Infer, type FnRef, type ContextRef, type FnViewOf, type AttachmentViewOf, type InputViewOf } from './sdk.ts';
 import { fs, Entry } from './fs.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -22,7 +23,7 @@ expect<Equal<typeof fs.types.Entry.name, 'fs/Entry'>>(true);
 expect<Equal<typeof fs.context.tree, ContextRef<'fs/tree', { root?: string }>>>(true);
 expect<Equal<typeof fs.fns.read, FnRef<'fs/read', { path: string; offset?: number; limit?: number }, { text: string; lines: number; truncated: boolean }, {}>>>(true);
 
-// ── The fs station's server: everything declared must be implemented ─────────
+// ── The fs system's server: everything declared must be implemented ─────────
 
 void serve(fs, {
   fns: {
@@ -111,14 +112,14 @@ void serve(fs, {
     async read(uri) { return { stat: { uri, name: uri, type: 'file', version: '1' }, text: { inline: await readText(uri) } }; },
   },
   events: { resources: async (event, ctx) => ctx.log.info('fs.resources.changed', { count: event.changes.length }) },
-}, { hub: 'ws://localhost:4100', state: '.station' });
+}, { hub: 'ws://localhost:4100', state: '.system' });
 
 // ── Mistakes that don't compile ───────────────────────────────────────────────
 
-// @ts-expect-error every system fn must be implemented (most are missing here)
+// @ts-expect-error every native fn must be implemented (most are missing here)
 void serve(fs, { fns: { read: { async run(_a, ctx) { return ctx.done({ text: '', lines: 0, truncated: false }); } } } }, { hub: '', state: '' });
 
-const tiny = station('tiny', { description: 'One fn.' }).with({
+const tiny = system('tiny', { description: 'One fn.' }).with({
   fns: { ping: fn({ description: 'Ping.', args: g.obj({}), returns: g.literal('pong') }) },
 });
 void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); } } } }, { hub: '', state: '' });
@@ -129,7 +130,7 @@ void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); 
 // @ts-expect-error a fn that isn't in the contract can't be implemented
 void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); } }, pong: { async run(_a: {}, ctx: never) { return ctx; } } } }, { hub: '', state: '' });
 
-// ── Calling other stations' fns ───────────────────────────────────────────────
+// ── Calling other systems' fns ───────────────────────────────────────────────
 
 const copyFn = fn({
   description: 'Copy a file.',
@@ -140,7 +141,7 @@ const copyFn = fn({
   deps: { read: fs.fns.read, write: fs.fns.write },
 });
 
-const backup = station('backup', { description: 'Backups.' })
+const backup = system('backup', { description: 'Backups.' })
   .with({ fns: { copy: copyFn } })
   // a later step can depend on an earlier step's fns
   .with(({ fns }) => ({
@@ -182,9 +183,9 @@ void serve(backup, {
 // ── Kinds ─────────────────────────────────────────────────────────────────────
 
 const Request = g.obj({ method: g.enum('GET', 'POST'), url: g.text() });
-const web = station('web', { description: 'HTTP fns.' })
+const web = system('web', { description: 'HTTP fns.' })
   .with({ kinds: { api: kind({ description: 'A fn that makes one HTTP request.', applicability: 'Use for a single REST call.', payload: Request }) } })
-  // a fn of a kind declares the args and result it expects; the kind's station runs it
+  // a fn of a kind declares the args and result it expects; the kind's system runs it
   .with(({ kinds }) => ({
     fns: { weather: kinds.api.fn({ description: 'Weather for a city.', payload: { method: 'GET', url: 'https://wttr.in/{{args.city}}?format=j1' }, args: g.obj({ city: g.text() }), returns: g.json() }) },
   }));
@@ -202,16 +203,25 @@ void serve(web, {
 
 // ── Renderers are typed by the contract ───────────────────────────────────────
 
+// A functional component: the props are the typed view.
+const BashView = (view: FnViewOf<typeof fs, 'bash'>) =>
+  h('pre', { 'data-fraction': view.progress?.fraction ?? 0 }, [`$ ${view.args.command}\n`, view.result?.stdout ?? '']);
+
+// What a `.vue` file compiles to. In the SFC: `const props = defineProps<AttachmentViewOf<typeof fs, 'diff'>>()`.
+declare const DiffView: DefineComponent<AttachmentViewOf<typeof fs, 'diff'>>;
+// An input for fs/Entry. In the SFC: `const value = defineModel<Infer<typeof Entry>>()`.
+declare const EntryInput: DefineComponent<InputViewOf<typeof fs, 'Entry'>>;
+
 export const fsClient = client(fs, {
-  fns: {
-    bash: (el, view) => {
-      el.textContent = view.args.command;
-      if (view.progress) { el.dataset['fraction'] = String(view.progress.fraction); }
-      return view.subscribe(next => { el.textContent = next.result?.stdout ?? ''; });
-    },
-  },
-  attachments: { diff: (el, view) => { el.textContent = `${view.data.path}: ${view.data.before.length} → ${view.data.after.length}`; } },
-  inputs: { Entry: (el, view) => { el.textContent = view.value?.path ?? ''; } },
-  // @ts-expect-error renderers only for things the contract has
-  nope: {},
+  fns: { bash: BashView },
+  attachments: { diff: DiffView },
+  inputs: { Entry: EntryInput },
 });
+
+declare const WrongView: DefineComponent<{ other: number }>;
+// @ts-expect-error a renderer's props must match what it renders
+client(fs, { attachments: { diff: WrongView } });
+// @ts-expect-error a functional renderer's props must match too
+client(fs, { fns: { read: (view: FnViewOf<typeof fs, 'bash'>) => h('pre', view.args.command) } });
+// @ts-expect-error renderers only for things the contract has
+client(fs, { fns: { nope: BashView } });

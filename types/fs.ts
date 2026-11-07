@@ -1,9 +1,9 @@
-// # The fs station
-// The first station, written with the SDK exactly as it will ship: this file is its `shared/` contract. It gives an
+// # The fs system
+// The first system, written with the SDK exactly as it will ship: this file is its `shared/` contract. It gives an
 // agent files and a shell over chosen folders, serves those folders as resources, and can restart itself so
 // changes to its own code go live.
 
-import { station, fn, handler, linear, context, setting, attachment, hook, mention, arg, agent, g, hub } from './sdk.ts';
+import { system, fn, handler, linear, context, setting, attachment, hook, mention, arg, agent, g, hub } from './sdk.ts';
 
 /** A file or folder. */
 export const Entry = g.obj({
@@ -16,8 +16,8 @@ export const Entry = g.obj({
 /** What undo needs to put a file back: its earlier content, or nothing if it didn't exist. */
 const Previous = g.obj({ path: g.text(), previous: g.nullable(g.content()) });
 
-/** The fs station's contract. */
-export const fs = station('fs', { description: 'Files and a shell over chosen folders, served as resources. Can restart itself.' })
+/** The fs system's contract. */
+export const fs = system('fs', { description: 'Files and a shell over chosen folders, served as resources. Can restart itself.' })
   .with({
     types: { Entry },
     settings: {
@@ -90,7 +90,7 @@ export const fs = station('fs', { description: 'Files and a shell over chosen fo
         undo: Previous,
       }),
       restart: fn({
-        description: 'Restart this station so changes to its code go live. It reconnects on its own.',
+        description: 'Restart this system so changes to its code go live. It reconnects on its own.',
         args: g.obj({ reason: g.text() }),
         returns: g.obj({ restarting: g.literal(true) }),
         operations: { cancel: false, background: false },
@@ -126,7 +126,7 @@ export const fs = station('fs', { description: 'Files and a shell over chosen fo
     },
   }));
 
-/** The fs station's server settings. */
+/** The fs system's server settings. */
 export interface FsConfig {
   /** The folders it serves and works in. Nothing outside them is reachable. */
   roots: Array<{ path: string; name: string; writable: boolean; index: 'all' | 'on-read' | 'none' }>;
