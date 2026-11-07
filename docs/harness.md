@@ -841,6 +841,14 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **zod:** the latest version everywhere.
 - **Renderers are trusted;** an admin can turn off a system's functions, its renderers, or both.
 - **Vectors:** `sqlite-vec` now (768 dimensions), Postgres with pgvector later.
+- **Embeddings (first milestone):** product's EmbeddingGemma-300m service (local, 768 dimensions), wrapped as an
+  `embedder` system, so embedders come from systems as designed.
+- **Library changes** land on a local `harness` branch in aits and ayepi, linked into harness, not pushed.
+- **gin types:** `g` is gin's own builder with full TS inference (added to gin), exposing all of gin: constraints,
+  defaults, generics, docs. gin reports the named types a type references, so a system can load them from the hub.
+  Fns receive plain values gin has checked (dates and timestamps as `Date`).
+- **Look:** calm and modern, light and dark following the device, one accent color, subtle motion.
+- **Auth:** a single admin account for now; SSO later.
 - **System config:** a system declares a config type and can't be used until a valid value is set. The value is
   in every context as `ctx.config`, and the `configured` event announces changes.
 - **Installed systems:** the hub can install systems, keep them on disk and in its database, start them with the
