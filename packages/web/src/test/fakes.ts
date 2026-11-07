@@ -4,7 +4,7 @@
  */
 import type { CallArgs, CallReturn } from '@ayepi/core';
 import { Notification, Tokens, type UserEvent } from '@harness/core';
-import type { WebSpec } from '../admin/contract.ts';
+import type { HubWebSpec } from '@harness/core';
 import type { CallerOf, Connection, Endpoint } from '../api/client.ts';
 import { SessionKeeper, SignInForm } from '../state/auth.ts';
 import { ConnectionStore } from '../state/connection.ts';
@@ -18,7 +18,7 @@ import { Toasts } from '../state/toasts.ts';
 import { fakeChat } from '../chat/test/fakes.ts';
 import { fakeAdmin } from '../admin/test/fakes.ts';
 
-type EndpointOf<K extends Endpoint> = WebSpec['endpoints'][K];
+type EndpointOf<K extends Endpoint> = HubWebSpec['endpoints'][K];
 
 /** A caller of endpoint `K` that answers with `impl` and keeps every call's arguments in `calls`. */
 export interface FakeCaller<K extends Endpoint> extends CallerOf<K> {

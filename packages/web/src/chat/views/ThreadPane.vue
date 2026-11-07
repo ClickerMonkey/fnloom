@@ -104,6 +104,8 @@ function stateOf(system: string): Record<string, Json> {
 }
 
 function viewOf(run: RunView): RenderView | undefined {
+  // a run known only from live status events has no args yet; its renderer draws once its record has arrived
+  if (run.args === undefined) { return undefined; }
   const kind = run.kind === undefined || run.kind === 'native' ? undefined : run.kind;
   const component = chat.renderers.fn(run.fn, kind);
   if (component === undefined) { return undefined; }
@@ -111,7 +113,7 @@ function viewOf(run: RunView): RenderView | undefined {
   return {
     component,
     props: {
-      run: run.id, status: run.status, args: run.args ?? null, result: runResult(run), error: runError(run), progress: run.progress,
+      run: run.id, status: run.status, args: run.args, result: runResult(run), error: runError(run), progress: run.progress,
       state: stateOf(system), submit: (value: Json) => chat.renderers.runtime.submit(run.id, json(), value), system: chat.renderers.runtime.systemClient(system),
     },
   };
@@ -441,8 +443,9 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         <UserMessage
           v-else-if="item.kind === 'user'" :message="item.message" :mine="item.mine" :author-name="nameOf(item.message.author)" :now="now" :command-name="commandName"
           :suggestions="messageSuggestions(item.message, record)" :actions="userActions(item.mine)" :quote="quoteOf(item.message)" :flash="flash === item.message.id"
+          :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(id: RunId) => chat.collapse.isCollapsed(id)"
           @action="act($event, [item.message])" @quote="quote(item.message)" @mention-hover="showCard" @mention-leave="hideCard" @mention-open="showCard"
-          @suggestion="useSuggestion" @run="emit('run', $event)"
+          @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
         />
         <AssistantAnswer
           v-else-if="item.kind === 'answer'" :messages="item.messages" :author-name="nameOf(item.author)" :now="now" :streaming="item.streaming" :failed="item.failed"

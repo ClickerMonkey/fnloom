@@ -7,7 +7,7 @@
  */
 import type {
   ActorId, Approval, ChatMessage, DeliveryView, FnRecord, HandlerCall, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
-  Json, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, SystemName, SystemStatus, Notification,
+  Json, OutputLine, ResourceRoot, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, SystemName, SystemStatus, Notification,
 } from '@harness/core';
 
 /** Every internal event, by name. */
@@ -25,9 +25,12 @@ export interface HubEvents {
   'presence': { presence: Presence };
   'notification': { notification: Notification };
   'system.status': { system: SystemName; status: SystemStatus };
+  'system.output': { system: SystemName; line: OutputLine };
   'pairing': { pairing: PairingRequest };
   'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };
   'resources.changed': { system: SystemName; changes: ResourceChange[] };
+  /** A system's roots, as it offered them on connect or after it said they changed. */
+  'resources.roots': { system: SystemName; roots: readonly ResourceRoot[] };
   'capabilities.changed': Record<string, never>;
 }
 

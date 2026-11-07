@@ -10,7 +10,7 @@ import {
   type Policy, type PriorityRule, type ProviderId, type ResolvedLimits, type ResourceRead, type ResourceRecord, type ResourceUri, type Run, type SystemStatus, type SystemView,
   type UserEvent,
 } from '@harness/core';
-import type { BudgetView, LlmFilter, OutputLine, ModelInfo, ResourceFilter, RuleRef, RunFilter } from '../src/admin/contract.ts';
+import type { BudgetView, LlmFilter, OutputLine, ModelInfo, ResourceFilter, RuleRef, RunFilter } from '@harness/core';
 import {
   actor, budget, category, fnRecord, installed, logLine, model, pairing, policy, priorityRule, resourceRecord, settingValue, settingView, systemView,
 } from '../src/admin/test/fakes.ts';

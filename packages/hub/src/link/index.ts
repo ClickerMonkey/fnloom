@@ -16,6 +16,8 @@ import type {
 } from '@harness/core';
 
 /** One connected system: who it is and how to call it. */
+export type { SystemOutput } from './output.ts';
+
 export interface SystemConnection {
   readonly system: SystemName;
   readonly instance: string;

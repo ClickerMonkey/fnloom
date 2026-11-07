@@ -9,7 +9,7 @@ import { computed } from 'vue';
 import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
-import { argSummary, isActive, isSettled, runElapsed, runError, runResult, runText, type RunView } from '../logic/runs.ts';
+import { argSummary, isActive, isSettled, resultBrief, runElapsed, runError, runResult, runText, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
@@ -33,13 +33,7 @@ const error = computed(() => runError(props.run));
 const result = computed(() => runResult(props.run));
 const elapsed = computed(() => runElapsed(props.run, props.now));
 const active = computed(() => isActive(props.run.status));
-const brief = computed(() => {
-  const value = result.value;
-  if (value === undefined || value === null) { return ''; }
-  if (typeof value === 'string') { return value; }
-  if (typeof value === 'number' || typeof value === 'boolean') { return String(value); }
-  return JSON.stringify(value, null, 2);
-});
+const brief = computed(() => resultBrief(result.value));
 const showStatus = computed(() => !isSettled(props.run.status) || props.run.background || props.byline !== '');
 const showResult = computed(() => props.view === undefined && brief.value !== '' && props.run.status === 'done');
 const hasBody = computed(() => showStatus.value || (props.run.progress !== undefined && !isSettled(props.run.status)) || props.view !== undefined || showResult.value);

@@ -82,6 +82,21 @@ export class HandlerRelay implements HandlerAnswers {
     resolve({ ok: true, value });
   }
 
+  /**
+   * Ask a person something on behalf of a hub fn (`hub/ask_user`) and wait for the answer: a handler call they answer
+   * in the chat, recorded like any other.
+   */
+  async askPerson(input: { run: Run; user: ActorId; handler: string; args: Json; decl: HandlerCall['decl'] }, signal: AbortSignal): Promise<HandlerAnswer> {
+    const call: HandlerCall = {
+      id: mintId('handlerCall', this.#deps.random), run: input.run.id, handler: input.handler, args: input.args, decl: input.decl,
+      answerer: { user: input.user }, status: 'pending', createdAt: this.#deps.clock(),
+    };
+    await this.#deps.store.table('handlerCalls').insert(call);
+    const answer = await this.#wait(call, input.run, signal);
+    await this.#record(call, input.run, answer);
+    return answer;
+  }
+
   /** Ask the system whose run made the call. */
   async #ask(call: HandlerCall, answerer: { system: Run['system']; run: RunId }, parent: Run | undefined, signal: AbortSignal): Promise<HandlerAnswer> {
     const connection = this.#deps.link.connection(answerer.system);

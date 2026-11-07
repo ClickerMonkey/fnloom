@@ -118,6 +118,20 @@ export function escapeBody(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * Markdown as the plain text it reads as, for places that can't render it (notifications, push): code fences and
+ * inline code keep their text, links their label, and heading, quote and list markers and emphasis go.
+ */
+export function unmark(markdown: string): string {
+  return markdown
+    .replace(/```[^\n]*\n([\s\S]*?)```/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/(\*\*|__|~~)(.+?)\1/g, '$2')
+    .replace(/(^|[^\w*])[*_](\S(?:.*?\S)?)[*_](?=[^\w*]|$)/gm, '$1$2')
+    .replace(/`([^`]+)`/g, '$1');
+}
+
 /** Shorten text to at most `max` characters on a word boundary, with an ellipsis when cut. */
 export function clip(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim();

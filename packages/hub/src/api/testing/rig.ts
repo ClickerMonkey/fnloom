@@ -69,6 +69,11 @@ export interface Fakes {
   index?: { [K in keyof HubServices['index']]?: Partial<HubServices['index'][K]> };
 }
 
+/** Every key of a service group, from a record that must name them all (so a new service can't be left unfaked). */
+function keysOf<G extends object>(all: { readonly [K in keyof G & string]: true }): Array<keyof G & string> {
+  return Object.keys(all).filter((key): key is keyof G & string => key in all);
+}
+
 /** Fakes for every service of a module group. */
 function group<G extends object>(module: string, keys: ReadonlyArray<keyof G & string>, given: { [K in keyof G]?: Partial<G[K]> } = {}): G {
   const out = Object.fromEntries(keys.map((key) => [key, fake(`${module}.${key}`, given[key] ?? {})]));
@@ -203,10 +208,12 @@ export async function webRig(r: Rig): Promise<WebRig> {
 export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
   return {
     catalog: fake('catalog', fakes.catalog),
-    link: group('link', ['connections', 'pairing', 'config', 'supervisor', 'admin', 'resources', 'tokens'], fakes.link),
-    execution: group('execution', ['runs', 'agents', 'llm', 'limits', 'ledger', 'policies', 'handlers'], fakes.execution),
-    chat: group('chat', ['sessions', 'turns', 'reply', 'enrich', 'state', 'deliveries', 'undo', 'mentions', 'presence', 'notifications'], fakes.chat),
-    index: group('index', ['embedders', 'indexer', 'search', 'suggest'], fakes.index),
+    link: group('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true }), fakes.link),
+    execution: group('execution', keysOf<HubServices['execution']>({ runs: true, agents: true, llm: true, limits: true, ledger: true, policies: true, handlers: true }), fakes.execution),
+    chat: group('chat', keysOf<HubServices['chat']>({
+      sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true,
+    }), fakes.chat),
+    index: group('index', keysOf<HubServices['index']>({ embedders: true, indexer: true, search: true, suggest: true }), fakes.index),
   };
 }
 

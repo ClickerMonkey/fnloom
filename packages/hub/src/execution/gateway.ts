@@ -6,7 +6,7 @@
  * aeye decodes strict-mode output with its own schemas), the chunks, and the real cost.
  */
 import type { Request } from '@aeye/core';
-import type { LlmForward, LlmForwardChunk, Run, RunId, TurnId, Usd } from '@harness/core';
+import type { LlmForward, LlmForwardChunk, ModelInfo, Run, RunId, TurnId, Usd } from '@harness/core';
 import { Channel } from './channel.ts';
 import { BudgetRefused, causeOf, LlmRateLimited, messageOf } from './errors.ts';
 import type { LlmGateway } from './index.ts';
@@ -91,7 +91,7 @@ export class HubLlmGateway implements LlmGateway {
     return this.#deps.llm.embed(texts, scope);
   }
 
-  models(): Promise<Array<{ id: string; name: string }>> {
+  models(): Promise<ModelInfo[]> {
     return Promise.resolve(this.#deps.llm.models());
   }
 

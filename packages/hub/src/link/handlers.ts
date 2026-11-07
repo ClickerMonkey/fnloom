@@ -20,6 +20,7 @@ import type { StoreConfigService } from './config.ts';
 import type { PeerLinkService } from './connections.ts';
 import type { ResourceRouter, SystemTokens } from './index.ts';
 import { fingerprint, isPublicKey, randomToken, verifyNonce } from './keys.ts';
+import type { SystemOutput } from './output.ts';
 import type { StorePairingService } from './pairing.ts';
 import type { SystemStatusKeeper } from './status.ts';
 
@@ -57,6 +58,8 @@ export interface LinkHandlerOptions {
   readonly resources: ResourceRouter;
   readonly embedding: LinkEmbedding;
   readonly limits: LinkLimits;
+  /** Where each system's lines go for the admin page. */
+  readonly output: SystemOutput;
 }
 
 /** Where a socket came from, as far as its upgrade request says. */
@@ -110,7 +113,10 @@ export class LinkHandshake {
       resourcesChanged: ({ data, link }) => { resources.changed(link.system, data.changes); },
       resource: ({ data, signal }) => resources.read(data.uri, data.want, signal),
       embed: ({ data, signal }) => embedding.embed(data.texts, signal),
-      log: ({ data, link }) => { log.log(data.level, data.key, { system: link.system, instance: link.instance, ...data.fields }); },
+      log: ({ data, link }) => {
+        log.log(data.level, data.key, { system: link.system, instance: link.instance, ...data.fields });
+        this.#options.output.logged(link.system, data);
+      },
     };
   }
 

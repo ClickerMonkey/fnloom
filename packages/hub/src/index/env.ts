@@ -14,6 +14,8 @@ export const indexEnv = env({
   HARNESS_INDEX_MAX_TEXT: z.number().int().min(100).default(4_000),
   /** How many extra candidates search asks for when it filters by system. */
   HARNESS_SEARCH_OVERFETCH: z.number().int().min(1).default(3),
+  /** The most resources one crawl of a root (on connect, for roots that index everything) looks at. */
+  HARNESS_INDEX_CRAWL_MAX: z.number().int().min(1).default(20_000),
 });
 
 /** The parsed index tunables. */

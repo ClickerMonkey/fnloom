@@ -18,6 +18,7 @@ import type { LocalContent } from './content.ts';
 import { HubLlm } from './llm.ts';
 import type { ScopedLog } from './log.ts';
 import { HubResources } from './resources.ts';
+import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
 import type { RunRegistry } from './runs.ts';
 import { LinkState, stateRecordType } from './state.ts';
@@ -123,6 +124,7 @@ export class SystemRuntime<C extends ContractShape> {
       config: current.value,
       llm: new HubLlm({ hub: env.hub }, signal),
       resources: new HubResources(env.hub, env.content, { signal }),
+      types: new HubTypes(env.hub, signal),
       log: this.#log,
       signal,
     };

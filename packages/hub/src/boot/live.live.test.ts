@@ -4,14 +4,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { liveEnv, modelEnv } from './env.ts';
+import { liveModels } from '@harness/sdk/server/testing';
+import { modelEnv } from './env.ts';
 
 const Completion = z.object({ choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1) });
 
 describe('OpenRouter (live)', () => {
   const key = modelEnv.get('OPENROUTER_API_KEY');
   it.skipIf(key === undefined)('answers with a free model', async () => {
-    const models = [liveEnv.get('HARNESS_LIVE_MODEL'), ...liveEnv.get('HARNESS_LIVE_FALLBACKS').split(',').filter((m) => m !== '')];
+    const models = liveModels();
     const tried: string[] = [];
     for (const model of models) {
       const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {

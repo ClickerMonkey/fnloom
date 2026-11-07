@@ -16,7 +16,7 @@ import { UiBadge, UiIcon, UiInput, type IconName } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import BrowserFrame from '../components/BrowserFrame.vue';
 import BrowserRow from '../components/BrowserRow.vue';
-import { ResourceFilter } from '../contract.ts';
+import { ResourceFilter } from '@harness/core';
 import { filterOf } from '../logic/browsers.ts';
 
 const { admin, chat } = useStores();

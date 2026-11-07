@@ -6,6 +6,7 @@ import type { Streamer } from '@aeye/core';
 import type { Logger } from '@ayepi/log';
 import type {
   FnRecord, IdRandom, Json, LlmMessage, OutcomeWire, Run, RunId, RunInfo, RunRequest, RunSettled, UndoOutcome, Usd,
+  ModelInfo,
 } from '@harness/core';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
@@ -42,7 +43,7 @@ export interface ExecutionDeps extends ExecutionBase {
   /** Whether a person is active in a session (the global tool timeout only unblocks the agent then). */
   readonly presence: Pick<SessionService, 'active'>;
   /** Where an agent's answer streams, and where a turn is settled. */
-  readonly turns: Pick<TurnService, 'begin' | 'stream' | 'finish' | 'settle'>;
+  readonly turns: Pick<TurnService, 'begin' | 'stream' | 'finish' | 'settle' | 'track'>;
   readonly approvers: ApproverDirectory;
 }
 
@@ -98,7 +99,7 @@ export interface LlmEngine {
   readonly streamer: Streamer<HubCallContext, HubCallMetadata>;
   /** Embeddings through a provider model; `scope` pays for them. */
   embed(texts: readonly string[], scope?: LlmCallScope): Promise<{ vectors: number[][]; cost: Usd }>;
-  models(): Array<{ id: string; name: string }>;
+  models(): ModelInfo[];
 }
 
 /**

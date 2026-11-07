@@ -11,7 +11,6 @@ import { spec } from '@ayepi/core';
 import type { HubServices, ModuleFactory } from '../boot/index.ts';
 import { AeyeLlm, createHubAi, HubAiHooks, modelLimiter } from './ai.ts';
 import { HubAgentLoop, type AgentLoopDeps } from './agent.ts';
-import { executionEnv } from './env.ts';
 import { HubFns, SystemExecutor } from './executors.ts';
 import { HubLlmGateway } from './gateway.ts';
 import { HandlerRelay } from './handlers.ts';
@@ -127,33 +126,40 @@ export const EXECUTION_LINK_SPEC = spec({
 });
 
 /**
- * The execution module as a boot module factory. Other services are read lazily (inside methods), so the module can
- * be built before the ones it uses.
+ * The execution module as a boot module factory. Other modules are reached lazily: the chat services it uses are
+ * delegates that look chat up on each call, so building execution never builds chat (chat, in turn, uses execution).
  */
 export function executionModule(options: {
-  /** Who answers approvals, as people (chat's `StoreApprovers`). */
-  readonly approvers: ExecutionDeps['approvers'];
   /** Where models come from; defaults to OpenRouter with the key in the model env slice. */
   readonly llm?: (hub: HubServices) => LlmSource;
-}): ModuleFactory<'execution'> {
+  /** Implement the hub fns other modules provide, on the module's `HubFns` (called once it is built). */
+  readonly hubFns?: (module: ExecutionModule, hub: HubServices) => void;
+} = {}): ModuleFactory<'execution'> {
   return ({ hub }) => {
-    const settings = { queue: hub.settings.queueEnv, model: hub.settings.modelEnv, execution: executionEnv.parse() };
+    const settings = { queue: hub.settings.queueEnv, model: hub.settings.modelEnv, execution: hub.settings.executionEnv };
     const module = createExecution({
       settings,
-      get log() { return hub.log; },
+      log: hub.log,
       clock: () => hub.clock(),
-      get store() { return hub.store; },
-      get bus() { return hub.bus; },
-      get catalog() { return hub.catalog; },
-      get link() { return hub.link.connections; },
-      get config() { return hub.link.config; },
-      get presence() { return hub.chat.sessions; },
-      get turns() { return hub.chat.turns; },
-      get enrich() { return hub.chat.enrich; },
-      approvers: options.approvers,
-      get ports() { return hub.store.ports; },
+      store: hub.store,
+      bus: hub.bus,
+      catalog: hub.catalog,
+      link: hub.link.connections,
+      config: hub.link.config,
+      presence: { active: (session) => hub.chat.sessions.active(session) },
+      turns: {
+        begin: (input) => hub.chat.turns.begin(input),
+        stream: (message, delta) => { hub.chat.turns.stream(message, delta); },
+        finish: (message, parts, status) => hub.chat.turns.finish(message, parts, status),
+        settle: (turn, status) => hub.chat.turns.settle(turn, status),
+        track: (message, runs) => hub.chat.turns.track(message, runs),
+      },
+      enrich: { render: (message) => hub.chat.enrich.render(message) },
+      approvers: { approvers: (approver, turnUser) => hub.chat.approvers.approvers(approver, turnUser) },
+      ports: hub.store.ports,
       llm: options.llm?.(hub) ?? { providers: openRouterProviders(hub.settings.modelEnv.OPENROUTER_API_KEY) },
     });
+    options.hubFns?.(module, hub);
     return {
       services: module,
       hooks: { work: { up: () => module.start(), pre: () => module.stop() } },

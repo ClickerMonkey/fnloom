@@ -7,19 +7,20 @@ import { bearerAuth } from '@ayepi/auth';
 import { middleware, spec, use } from '@ayepi/core';
 import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
+import { BudgetView, LlmFilter, LlmSummary, ModelInfo, OutputLine, ResourceFilter, RuleRef, RunFilter, SettingView } from './admin.ts';
 import { MentionHover, MentionOption, ImportReport } from './manifest.ts';
 import {
-  ActorId, ApprovalId, DeliveryId, Duration, ProviderId, HandlerCallId, Json, LlmInteractionId, MessageId, PageRequest, PairingId, Priority, QualifiedName,
+  ActorId, ActorKind, ApprovalId, DeliveryId, Duration, ProviderId, HandlerCallId, Json, LlmInteractionId, MessageId, PageRequest, PairingId, Priority, QualifiedName,
   RunId, SessionId, SystemName, Timestamp, TurnId, page,
 } from './primitives.ts';
 import { ReadWant, ResourceRead, ResourceUri, ContentRef } from './resources.ts';
 import { ClientInfo, RunUpdate } from './run.ts';
-import { Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
+import { Actor, ActorSetting, Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
 import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControls, SessionSummary } from './records/chat.ts';
-import { IndexedKind, Notification, SearchHit } from './records/content.ts';
+import { IndexedKind, Notification, ResourceRecord, SearchHit } from './records/content.ts';
 import { DeliveryView, HandlerCall, LlmInteraction, Run, TreeNode, UndoReport } from './records/runs.ts';
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, ResolvedLimits } from './records/spend.ts';
-import { InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus } from './records/systems.ts';
+import { FnRecord, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus } from './records/systems.ts';
 import { Policy } from './records/actors.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
@@ -162,13 +163,34 @@ const admin = use(tel, hubAuth, adminOnly).group({
   /** Add or replace a provider. Keys arrive in plain text over TLS and are stored encrypted as secrets. */
   configureProvider: { body: ProviderInput, response: z.object({ models: z.number().int() }), ws: 'configureProvider' },
   providers: { body: z.object({}), response: z.array(z.object({ id: ProviderId, provider: ProviderKind, models: z.number().int() })), ws: 'providers' },
-  setModelCategory: { body: ModelCategory.omit({ id: true }), response: z.object({ id: z.string() }), ws: 'setModelCategory' },
-  setBudget: { body: BudgetRule.omit({ id: true, setBy: true }), response: z.object({ id: z.string() }), ws: 'setBudget' },
-  setPriority: { body: PriorityRule.omit({ id: true, setBy: true }), response: z.object({ id: z.string() }), ws: 'setPriority' },
-  setPolicy: { body: Policy.omit({ id: true, createdBy: true, createdAt: true }), response: z.object({ id: z.string() }), ws: 'setPolicy' },
+  /** Add a rule, or replace the one with `id` (an edit). */
+  setModelCategory: { body: ModelCategory.partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setModelCategory' },
+  setBudget: { body: BudgetRule.omit({ setBy: true }).partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setBudget' },
+  setPriority: { body: PriorityRule.omit({ setBy: true }).partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setPriority' },
+  setPolicy: { body: Policy.omit({ createdBy: true, createdAt: true }).partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setPolicy' },
   setActorSetting: { body: z.object({ setting: QualifiedName, actor: ActorId, value: Json }), response: z.object({ ok: z.boolean() }), ws: 'setActorSetting' },
   addUser: { body: z.object({ email: z.email(), name: z.string(), role: UserRole, groups: z.array(ActorId).optional() }), response: z.object({ id: ActorId }), ws: 'addUser' },
   addGroup: { body: z.object({ name: z.string(), about: z.string(), members: z.array(ActorId).optional() }), response: z.object({ id: ActorId }), ws: 'addGroup' },
+  /** A system's fns, with whether each can be used now and its running numbers. */
+  systemFns: { body: z.object({ system: SystemName }), response: z.array(FnRecord), ws: 'systemFns' },
+  /** The end of a system's output, oldest first; new lines arrive on `systemLog`. */
+  systemLogs: { body: z.object({ system: SystemName, limit: z.number().int().min(1).max(2_000).optional() }), response: z.array(OutputLine), ws: 'systemLogs' },
+  models: { body: z.object({ provider: ProviderId.optional() }), response: z.array(ModelInfo), ws: 'models' },
+  modelCategories: { body: z.object({}), response: z.array(ModelCategory), ws: 'modelCategories' },
+  budgets: { body: z.object({}), response: z.array(BudgetView), ws: 'budgets' },
+  priorityRules: { body: z.object({}), response: z.array(PriorityRule), ws: 'priorityRules' },
+  /** The priority and budgets a turn by `user` (in `session`, when given) would get now. */
+  resolveLimits: { body: z.object({ user: ActorId, session: SessionId.optional() }), response: ResolvedLimits, ws: 'resolveLimits' },
+  policies: { body: z.object({}), response: z.array(Policy), ws: 'policies' },
+  actors: { body: z.object({ kind: ActorKind.optional() }), response: z.array(Actor), ws: 'actors' },
+  actorSettings: { body: z.object({}), response: z.object({ declared: z.array(SettingView), values: z.array(ActorSetting) }), ws: 'actorSettings' },
+  /** Runs, newest first. */
+  runs: { body: PageRequest.extend(RunFilter.shape), response: page(Run), ws: 'runs' },
+  /** LLM calls, newest first. */
+  llmCalls: { body: PageRequest.extend(LlmFilter.shape), response: page(LlmSummary), ws: 'llmCalls' },
+  /** Resources the hub knows, most recently seen first. */
+  resources: { body: PageRequest.extend(ResourceFilter.shape), response: page(ResourceRecord), ws: 'resources' },
+  removeRule: { body: RuleRef, response: z.object({ ok: z.boolean() }), ws: 'removeRule' },
 });
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -210,6 +232,8 @@ export const hubWebSpec = spec({
     // Event channel ids share the ws namespace with endpoint ids (`session` is an endpoint's), so events get an `on.` prefix.
     session: { params: z.object({ session: SessionId }), data: SessionEvent, guard: [hubAuth], ws: 'on.session' },
     user: { data: UserEvent, guard: [hubAuth], ws: 'on.user' },
+    /** New output lines of one system (admins). */
+    systemLog: { params: z.object({ system: SystemName }), data: OutputLine, guard: [hubAuth, adminOnly], ws: 'on.systemLog' },
   },
 });
 export type HubWebSpec = typeof hubWebSpec;

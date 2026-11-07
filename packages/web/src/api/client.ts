@@ -4,16 +4,16 @@
  * state in `state/*.ts`, which receive the callers they use, so tests hand them fakes.
  */
 import { client, wsTransport, type ApiClient, type WsTransport } from '@ayepi/core/client';
-import { manifestFromSpec, type Caller } from '@ayepi/core';
-import { proposedSpec, type WebSpec } from '../admin/contract.ts';
+import type { Caller } from '@ayepi/core';
+import type { HubWebSpec } from '@harness/core';
 import { manifest } from './manifest.gen.ts';
 
-/** The typed web API client: the hub's web API plus the proposed admin reads (`admin/contract.ts`). */
-export type Hub = ApiClient<WebSpec>;
+/** The typed web API client: the hub's web API (`hubWebSpec`). */
+export type Hub = ApiClient<HubWebSpec>;
 /** The name of a web API endpoint. */
-export type Endpoint = keyof WebSpec['endpoints'];
+export type Endpoint = keyof HubWebSpec['endpoints'];
 /** A caller of one endpoint: `call` typed from the spec, plus `cancel`, `invalidate` and `pending`. */
-export type CallerOf<K extends Endpoint> = Caller<WebSpec['endpoints'][K]>;
+export type CallerOf<K extends Endpoint> = Caller<HubWebSpec['endpoints'][K]>;
 /** The client's live online/offline state. */
 export type Connection = Hub['connection'];
 
@@ -28,9 +28,6 @@ export interface HubOptions {
 /** Socket settings: queue calls while reconnecting, check the line every 30s, back off up to 15s between tries. */
 const SOCKET = { whileDisconnected: 'queue', heartbeat: { interval: 30_000, timeout: 10_000 }, backoff: { initial: 500, max: 15_000 } } as const;
 
-/** The generated manifest of `hubWebSpec` with the proposed admin reads' manifest added. */
-const proposed = manifestFromSpec(proposedSpec);
-const WEB_MANIFEST = { endpoints: { ...manifest.endpoints, ...proposed.endpoints }, events: { ...manifest.events, ...proposed.events } };
 
 /** Make the client and its socket. The socket connects on the first call or subscription that needs it. */
 export function createHub(options: HubOptions): { hub: Hub; socket: WsTransport } {
@@ -38,9 +35,9 @@ export function createHub(options: HubOptions): { hub: Hub; socket: WsTransport 
     const token = options.token();
     return `${options.origin.replace(/^http/, 'ws')}/ws${token === '' ? '' : `?access_token=${encodeURIComponent(token)}`}`;
   }, SOCKET);
-  const hub = client<WebSpec>({
+  const hub = client<HubWebSpec>({
     baseUrl: `${options.origin}/api`,
-    manifest: WEB_MANIFEST,
+    manifest,
     headers: () => {
       const token = options.token();
       return token === '' ? {} : { authorization: `Bearer ${token}` };

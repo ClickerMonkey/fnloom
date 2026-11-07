@@ -42,13 +42,21 @@ export const systemsSlice = spec({
 export const settingsSlice = spec({
   endpoints: pick(['configureProvider', 'providers', 'setModelCategory', 'setBudget', 'setPriority', 'setPolicy', 'setActorSetting', 'addUser', 'addGroup']),
 });
+/** The admin pages' reads, and the output of systems as it arrives. */
+export const adminSlice = spec({
+  endpoints: pick([
+    'systemFns', 'systemLogs', 'models', 'modelCategories', 'budgets', 'priorityRules', 'resolveLimits', 'policies', 'actors', 'actorSettings', 'runs', 'llmCalls',
+    'resources', 'removeRule',
+  ]),
+  events: { systemLog: hubWebSpec.events.systemLog },
+});
 /** The realtime events (no endpoints). */
-export const eventsSlice = spec({ endpoints: {}, events: hubWebSpec.events });
+export const eventsSlice = spec({ endpoints: {}, events: { session: hubWebSpec.events.session, user: hubWebSpec.events.user } });
 
 /** Every slice, as a type. */
 type Slices = [
   typeof authSlice, typeof chatSlice, typeof runsSlice, typeof findSlice, typeof inboxSlice, typeof contentSlice, typeof systemsSlice, typeof settingsSlice,
-  typeof eventsSlice,
+  typeof adminSlice, typeof eventsSlice,
 ];
 
 /** The endpoint names of a slice. */

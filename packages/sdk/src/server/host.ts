@@ -331,7 +331,12 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
       if (connection !== this.#connection) { return; }
       if (reply.kind === 'pairing') {
         this.#setStatus('pairing');
-        this.#log.warn('system.pairing', { code: reply.code ?? null, url: reply.url, expiresAt: reply.expiresAt });
+        if (reply.code === undefined) {
+          // a pairing token: the hub has approved it and will say so (`paired`); nothing for an admin to do
+          this.#log.info('system.pairing.token', { pairing: reply.pairing });
+        } else {
+          this.#log.warn('system.pairing', { code: reply.code, url: reply.url, expiresAt: reply.expiresAt });
+        }
         return;
       }
       const welcome = await hub.call('prove', { signature: await this.#keys.sign(reply.nonce) });

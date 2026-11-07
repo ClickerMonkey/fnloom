@@ -9,7 +9,7 @@ import { ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
 import type { AdminApi, SystemLogEvents } from '../api.ts';
-import type { OutputLine } from '../contract.ts';
+import type { OutputLine } from '@harness/core';
 import type { SystemAction } from '../logic/systems.ts';
 
 type SystemApi = Pick<AdminApi,

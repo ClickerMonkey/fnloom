@@ -306,6 +306,14 @@ describe('resources', () => {
     expect(rig.resources.roots()).toEqual([]);
   });
 
+  it('asks for roots again once a system becomes connected (its config arrived after it connected)', async () => {
+    const system = await served();
+    system.behaviour.roots = [{ uri: ResourceUri.parse('file:///later'), name: 'later', description: 'l', index: 'all', ignore: [], watch: false }];
+    rig.bus.publish('system.status', { system: SystemName.parse('vectors'), status: 'connected' });
+    await settle(5);
+    expect(rig.resources.roots().map((r) => r.root.name)).toEqual(['later']);
+  });
+
   it('reads text inline and by ref in chunks, and answers systems asking for resources', async () => {
     const system = await served();
     const text = 'héllo wörld '.repeat(200);

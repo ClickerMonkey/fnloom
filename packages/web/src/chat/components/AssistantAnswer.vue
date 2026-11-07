@@ -136,7 +136,7 @@ const lastMessage = computed(() => props.messages.at(-1));
 .head { display: flex; align-items: baseline; gap: var(--space-2); min-height: 28px; }
 .author { font-weight: var(--weight-medium); font-size: var(--text-sm); }
 .time { color: var(--text-faint); font-size: var(--text-xs); }
-.collapse-all { margin-left: auto; padding: 0 var(--space-1); border: 0; background: transparent; color: var(--text-faint); font-size: var(--text-xs); }
+.collapse-all { margin-left: auto; min-height: 28px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); font-size: var(--text-xs); }
 .collapse-all:hover { color: var(--text); }
 .body { display: grid; gap: var(--space-3); min-width: 0; line-height: var(--leading); overflow-wrap: anywhere; }
 .failed .body { color: var(--text-dim); }

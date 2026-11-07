@@ -6,6 +6,10 @@
 import { env } from '@ayepi/env';
 import { PRIORITIES } from '@harness/core';
 import { z } from 'zod';
+import { chatEnv } from '../chat/env.ts';
+import { executionEnv } from '../execution/env.ts';
+import { indexEnv } from '../index/env.ts';
+import { storeEnv } from '../store/env.ts';
 
 /** Where the hub listens and keeps its data. */
 export const hubEnv = env({
@@ -123,8 +127,8 @@ export const pushEnv = env({
   HARNESS_VAPID_SUBJECT: z.string().default('mailto:admin@localhost'),
 });
 
-/** Every slice, so boot can parse them all and an admin page can list them. */
-export const HUB_ENV = { hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv } as const;
+/** Every slice, so boot can parse them all and an admin page can list them. Module slices live beside their module. */
+export const HUB_ENV = { hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv } as const;
 
 /** The parsed hub settings, derived from the slices (never written by hand). */
 export type HubSettings = { [K in keyof typeof HUB_ENV]: ReturnType<(typeof HUB_ENV)[K]['parse']> };
@@ -134,12 +138,6 @@ export function parseHubSettings(): HubSettings {
   return {
     hubEnv: hubEnv.parse(), httpEnv: httpEnv.parse(), authEnv: authEnv.parse(), queueEnv: queueEnv.parse(), linkEnv: linkEnv.parse(),
     modelEnv: modelEnv.parse(), logEnv: logEnv.parse(), pushEnv: pushEnv.parse(),
+    storeEnv: storeEnv.parse(), executionEnv: executionEnv.parse(), chatEnv: chatEnv.parse(), indexEnv: indexEnv.parse(),
   };
 }
-
-/** Live tests only: which free OpenRouter models they call. Kept here so test code holds no model ids. */
-export const liveEnv = env({
-  HARNESS_LIVE_MODEL: z.string().default('nvidia/nemotron-3.5-super-vl:free'),
-  HARNESS_LIVE_FALLBACKS: z.string().default('nvidia/nemotron-3-ultra-550b-a55b:free,dots-studio/dots-3-note-preview:free'),
-  HARNESS_LIVE_EMBEDDER_URL: z.string().default('http://127.0.0.1:8760'),
-});

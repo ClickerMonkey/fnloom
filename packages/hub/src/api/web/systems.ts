@@ -8,7 +8,7 @@ import { plugin } from '@ayepi/plugin';
 import { adminOnly, SystemView, type SystemName, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
-import { compact, type FullHandlers } from './access.ts';
+import { bodyOf, compact, type FullHandlers } from './access.ts';
 import { systemsSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
@@ -40,9 +40,10 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         return Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r)));
       },
       system: async ({ data }) => systemView(hub, await system(data.system)),
-      pairings: async ({ data }) => (await store.table('pairings').find({
-        ...(data.status === undefined ? {} : { where: { status: data.status } }), order: [['createdAt', 'desc']], limit: MAX_SYSTEMS,
-      })).items,
+      pairings: async (io) => {
+        const { status } = bodyOf(io, {});
+        return (await store.table('pairings').find({ ...(status === undefined ? {} : { where: { status } }), order: [['createdAt', 'desc']], limit: MAX_SYSTEMS })).items;
+      },
       approvePairing: async ({ data, user }) => {
         if (!data.approve) {
           await link.pairing.reject(data.pairing, user.id);

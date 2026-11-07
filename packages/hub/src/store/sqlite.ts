@@ -3,6 +3,8 @@
  * text and vector indexes, and every ayepi port. `openSqliteStore` is the `StoreFactory`; call `migrate()` once on
  * start before using it.
  */
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { type RowOf, type TableName } from '@harness/core';
 import { type Logger, logger as defaultLogger } from '@ayepi/log';
 import { type SqliteOptions, type SqliteQueue, sqlitePubSub, sqliteQueue, sqliteRateStore, sqliteStore } from '@ayepi/sqlite';
@@ -55,13 +57,18 @@ export class SqliteStore implements HubStore {
     this.search = new HybridSearch(this, shared.tuning);
   }
 
-  /** Open a store on a file (`:memory:` for tests). Tables are made by `migrate()`; the ayepi ports' tables now. */
+  /**
+   * Open a store on a file (`:memory:` for tests), making its folder if needed. Tables are made by `migrate()`; the
+   * ayepi ports' tables now.
+   */
   static open(options: StoreOptions): SqliteStore {
     const tuning: StoreTuning = { ...storeEnv.parse(), ...options.tuning };
+    const onDisk = options.file !== ':memory:' && options.file !== '';
+    if (onDisk) mkdirSync(dirname(options.file), { recursive: true });
     const database = new Database(options.file);
     sqliteVec.load(database);
     database.pragma(`busy_timeout = ${tuning.HARNESS_DB_BUSY_TIMEOUT}`);
-    if (options.file !== ':memory:' && options.file !== '') database.pragma('journal_mode = WAL');
+    if (onDisk) database.pragma('journal_mode = WAL');
     database.pragma('synchronous = NORMAL');
     const portOptions: SqliteOptions = options.now === undefined ? { prefix: PORT_PREFIX } : { prefix: PORT_PREFIX, now: options.now };
     const raw: RawPorts = {

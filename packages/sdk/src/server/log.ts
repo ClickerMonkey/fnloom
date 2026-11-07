@@ -54,6 +54,15 @@ class HubTransport implements Transport {
   }
 }
 
+/**
+ * `@ayepi/log` keeps the `error` field for a serialized `Error`, but harness code also logs `{ error: message }`.
+ * This filter turns such a string into that shape, so the line reads `error=Error: message` instead of losing it.
+ */
+export function errorFieldFilter(record: LogRecord): LogRecord {
+  const error: unknown = record.error;
+  return typeof error === 'string' ? { ...record, error: { name: 'Error', message: error } } : record;
+}
+
 /** Writes every level to stderr, for when stdout carries a protocol (MCP over stdio). */
 const stderrConsole = { log: console.error, info: console.error, debug: console.error, warn: console.error, error: console.error };
 
@@ -67,6 +76,7 @@ export function systemLogger(options: { level: 'debug' | 'info' | 'warn' | 'erro
     level: options.level,
     structured: options.json,
     transports: [...local, new HubTransport(options.sink)],
+    filter: errorFieldFilter,
     sanitize: { sensitiveKeys: ['password', 'authorization', 'cookie', /token$/i, /secret/i, /apikey/i, /privatekey/i], maxStringLength: 4_000, maxArrayLength: 50 },
   });
 }

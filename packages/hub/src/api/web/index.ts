@@ -5,6 +5,7 @@
  */
 import { plugin, type AnyPlugin } from '@ayepi/plugin';
 import type { HubServices } from '../../boot/index.ts';
+import { adminPlugin } from './admin.ts';
 import { authPlugin, type AuthPluginOptions } from './auth.ts';
 import { chatPlugin } from './chat.ts';
 import { contentPlugin } from './content.ts';
@@ -40,6 +41,7 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     contentPlugin(hub, auth),
     systems,
     settingsPlugin(hub, systems),
+    adminPlugin(hub, systems),
     eventsPlugin(hub, auth),
   ];
 }

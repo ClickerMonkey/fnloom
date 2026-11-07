@@ -10,7 +10,7 @@ import {
 } from '@harness/core';
 import type { z } from 'zod';
 import { checkForm, type FieldProblems } from '../../state/problems.ts';
-import { webSpec } from '../contract.ts';
+import { hubWebSpec } from '@harness/core';
 import { WINDOWS } from './limits.ts';
 
 /** Every key of any member of a union of objects. */
@@ -21,12 +21,12 @@ export type Checked<T, K extends string> = { readonly ok: true; readonly value: 
 
 /** The bodies the forms send, straight from the spec. */
 export const BODIES = {
-  setBudget: webSpec.endpoints.setBudget.cfg.body,
-  setPriority: webSpec.endpoints.setPriority.cfg.body,
-  setPolicy: webSpec.endpoints.setPolicy.cfg.body,
-  setModelCategory: webSpec.endpoints.setModelCategory.cfg.body,
-  createPairingToken: webSpec.endpoints.createPairingToken.cfg.body,
-  upgradeSystem: webSpec.endpoints.upgradeSystem.cfg.body,
+  setBudget: hubWebSpec.endpoints.setBudget.cfg.body,
+  setPriority: hubWebSpec.endpoints.setPriority.cfg.body,
+  setPolicy: hubWebSpec.endpoints.setPolicy.cfg.body,
+  setModelCategory: hubWebSpec.endpoints.setModelCategory.cfg.body,
+  createPairingToken: hubWebSpec.endpoints.createPairingToken.cfg.body,
+  upgradeSystem: hubWebSpec.endpoints.upgradeSystem.cfg.body,
 } as const;
 
 export type BudgetBody = z.output<typeof BODIES.setBudget>;

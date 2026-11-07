@@ -11,6 +11,7 @@ import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, Manifest
 import {
   ActorId, DeliveryId, Duration, HandlerCallId, Json, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
+import { TypeRecord } from './records/systems.ts';
 import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section } from './resources.ts';
 import {
   AllowedOperations, BudgetLeft, HandlerAnswer, OutcomeWire, ProgressReport, RunInfo, RunSettled, RunUpdate, TimeInfo, UndoOutcome, UserInfo,
@@ -183,8 +184,11 @@ const linked = use(linkSession).group({
     }),
     ws: 'at',
   },
-  /** Answer a handler call the hub relayed to this system (it was the caller). */
-  handlerResult: { body: z.object({ call: HandlerCallId, result: HandlerAnswer }), ws: 'hr' },
+  /**
+   * Named type definitions another system declared, with every named type they reference (dependencies first), so a
+   * system can load and use them. Names the hub doesn't know come back in `missing`.
+   */
+  types: { body: z.object({ names: z.array(QualifiedName).min(1) }), response: z.object({ types: z.array(TypeRecord), missing: z.array(z.string()) }), ws: 'ty' },
   resourcesChanged: { body: z.object({ changes: z.array(ResourceChange) }), ws: 'rc' },
   /** The LLM forward behind `ctx.llm` and the aeye provider systems use. */
   llm: { body: LlmForward, streamOut: LlmForwardChunk, ws: 'llm' },

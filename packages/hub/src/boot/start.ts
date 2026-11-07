@@ -25,6 +25,7 @@ import { NamedContentFiles } from '../api/files.ts';
 import { first, PAGE } from '../api/paging.ts';
 import { webPlugins } from '../api/web/index.ts';
 import { MemoryEventBus } from '../bus/memory.ts';
+import { JwtSystemTokens } from '../link/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { parseHubSettings, type HubSettings } from './env.ts';
 import { HUB_INFO, HUB_PACKAGE_DIR } from './info.ts';
@@ -92,6 +93,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
 
   const store = await options.modules.store({
     file: settings.hubEnv.HARNESS_DB_FILE, dimensions: { [settings.modelEnv.HARNESS_EMBEDDER_DOCUMENT]: settings.modelEnv.HARNESS_EMBED_DIMENSIONS }, now: clock, log,
+    tuning: settings.storeEnv,
   });
   /** Once the lifecycle starts, stopping it closes the store and the log. */
   let lifecycleOwns = false;
@@ -111,7 +113,9 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
 
     const base: BaseServices = { settings, log, clock, bus, store };
     const api = apiServices(base, { keys, files, presign: mounted.presign, pushSender: options.pushSender ?? new WebPushSender({ ...keys.vapid, subject: settings.pushEnv.HARNESS_VAPID_SUBJECT }) });
-    const { hub, builds } = assemble(base, api, options.modules, { peers: systems, hubActor });
+    const { hub, builds } = assemble(base, api, options.modules, {
+      peers: systems, hubActor, systemTokens: new JwtSystemTokens({ secret: keys.jwtSecret, ttl: settings.authEnv.HARNESS_ACCESS_TTL }),
+    });
     const modules = builds();
 
     const { HARNESS_ADMIN_EMAIL: email, HARNESS_ADMIN_PASSWORD: password } = settings.authEnv;

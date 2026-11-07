@@ -9,7 +9,7 @@
 import type { BaseRequest, BaseResponse, Request, Response, Streamer, Usage } from '@aeye/core';
 import { AI, type ModelInfo, type Providers } from '@aeye/ai';
 import { models as knownModels, strictSupport } from '@aeye/models';
-import type { LlmInteractionId, ReservationId, Usd } from '@harness/core';
+import type { LlmInteractionId, ModelInfo as ModelView, ReservationId, Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
 import type { Ledger } from './index.ts';
@@ -184,7 +184,13 @@ export class AeyeLlm implements LlmEngine {
     return { vectors, cost: (scope?.cost ?? before) - before };
   }
 
-  models(): Array<{ id: string; name: string }> {
-    return this.#ai.models.list().map((model) => ({ id: model.id, name: model.name }));
+  models(): ModelView[] {
+    return this.#ai.models.list().map((model): ModelView => {
+      const text = model.pricing.text;
+      return {
+        id: model.id, provider: model.provider, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities],
+        ...(text?.input === undefined && text?.output === undefined ? {} : { pricing: { input: text.input ?? 0, output: text.output ?? 0 } }),
+      };
+    });
   }
 }

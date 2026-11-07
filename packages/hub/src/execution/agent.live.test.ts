@@ -7,7 +7,8 @@
  */
 import { agent, fn, g, system } from '@harness/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
-import { liveEnv, modelEnv } from '../boot/env.ts';
+import { liveModels } from '@harness/sdk/server/testing';
+import { modelEnv } from '../boot/env.ts';
 import { messageOf } from './errors.ts';
 import { openRouterProviders } from './providers.ts';
 import { replyText } from './wire.ts';
@@ -28,7 +29,7 @@ afterEach(async () => { await rig?.module.stop(); });
 describe('the agent loop (live)', () => {
   const key = modelEnv.get('OPENROUTER_API_KEY');
   it.skipIf(key === undefined)('suspends on a tool call, runs it, and answers in the next iteration', async () => {
-    const models = [liveEnv.get('HARNESS_LIVE_MODEL'), ...liveEnv.get('HARNESS_LIVE_FALLBACKS').split(',').filter((m) => m !== '')];
+    const models = liveModels();
     const tried: string[] = [];
     for (const model of models) {
       rig = executionRig({

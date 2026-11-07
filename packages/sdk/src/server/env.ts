@@ -40,3 +40,29 @@ export const sdkEnv = env({
 
 /** The parsed SDK tunables. */
 export type SdkEnv = ReturnType<typeof sdkEnv.parse>;
+
+/**
+ * The variables that tell a system process where its hub is and where to keep its state. The hub's supervisor sets
+ * them for systems it installs; `npm run dev` sets them for the dev systems. One record, so the names can't drift.
+ */
+export const SYSTEM_ENV = {
+  hub: 'HARNESS_HUB',
+  state: 'HARNESS_SYSTEM_STATE',
+  name: 'HARNESS_SYSTEM_NAME',
+  pairingToken: 'HARNESS_PAIRING_TOKEN',
+} as const;
+
+/**
+ * The link fields of a system's env slice, for spreading into it: `env({ ...systemFields('fs'), FS_SHELL: … })`.
+ * State defaults to `.harness/systems/<name>`, the hub to this machine's default port.
+ */
+export function systemFields(name: string) {
+  return {
+    /** The hub's link URL. */
+    [SYSTEM_ENV.hub]: z.string().default('ws://127.0.0.1:4300/link'),
+    /** Where the system keeps its key pair, outcome journal and anything else it stores. */
+    [SYSTEM_ENV.state]: z.string().default(`.harness/systems/${name}`),
+    /** A one-time pairing token an admin made, if any. */
+    [SYSTEM_ENV.pairingToken]: z.string().optional(),
+  } as const;
+}

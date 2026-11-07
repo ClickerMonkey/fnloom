@@ -846,7 +846,7 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **Groups and limits:** a user in several groups gets the highest group priority and the highest group
   ceiling. Group budgets are either pooled (one pot shared by the members, and it always applies) or per
   member (each member's own allowance; a user in several gets the most generous one).
-- **Permissions:** with no matching policy, fns tagged `read` are allowed; anything else asks the turn's user.
+- **Permissions:** with no matching policy, fns tagged `read` are allowed; anything else asks the turn's user. Agents (`hub/llm` fns such as `hub/chat`) are allowed too, because an agent acts only through its tools and each tool call is checked on its own.
 - **Database:** SQLite through `better-sqlite3` (the fastest Node driver) with `sqlite-vec` for vectors, behind
   the `HubStore` port, with Kysely for typed queries so Postgres with pgvector can take over for large
   databases.

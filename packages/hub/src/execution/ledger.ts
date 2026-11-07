@@ -37,6 +37,10 @@ export class HubLedger implements Ledger {
     this.#spend = spend;
   }
 
+  spent(rule: BudgetRule, input: { actor?: ActorId | undefined; now: number }): Promise<Usd> {
+    return this.#spend.spent(rule, input);
+  }
+
   reserve(input: { limits: ResolvedLimits; estimate: Usd; run: RunId }): ReturnType<Ledger['reserve']> {
     const checked = this.#checking.then(() => this.#reserve(input));
     this.#checking = checked.catch(() => undefined);

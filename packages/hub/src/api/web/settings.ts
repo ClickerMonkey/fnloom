@@ -68,24 +68,25 @@ export function settingsPlugin(hub: HubServices, systems: ReturnType<typeof syst
       },
       setModelCategory: async ({ data }) => {
         const existing = await first((cursor) => store.table('modelCategories').find({ limit: PAGE, cursor }), (c) => c.name === data.name);
-        const id = existing?.id ?? mintId('modelCategory');
+        const id = data.id ?? existing?.id ?? mintId('modelCategory');
         await store.table('modelCategories').put({ ...data, id });
         return { id };
       },
       setBudget: async ({ data, user }) => {
-        const id = mintId('budget');
-        await store.table('budgets').insert({ ...compact(data), id, setBy: user.id });
+        const id = data.id ?? mintId('budget');
+        await store.table('budgets').put({ ...compact(data), id, setBy: user.id });
         hub.log.info('budget.set', { budget: id, scope: data.target.scope, maxCost: data.maxCost, user: user.id });
         return { id };
       },
       setPriority: async ({ data, user }) => {
-        const id = mintId('priorityRule');
-        await store.table('priorityRules').insert({ ...compact(data), id, setBy: user.id });
+        const id = data.id ?? mintId('priorityRule');
+        await store.table('priorityRules').put({ ...compact(data), id, setBy: user.id });
         return { id };
       },
       setPolicy: async ({ data, user }) => {
-        const id = mintId('policy');
-        await store.table('policies').insert({ ...compact(data), id, createdBy: user.id, createdAt: hub.clock() });
+        const id = data.id ?? mintId('policy');
+        const previous = data.id === undefined ? undefined : await store.table('policies').get(data.id);
+        await store.table('policies').put({ ...compact(data), id, createdBy: previous?.createdBy ?? user.id, createdAt: previous?.createdAt ?? hub.clock() });
         hub.log.info('policy.set', { policy: id, effect: data.decision.effect, user: user.id });
         return { id };
       },

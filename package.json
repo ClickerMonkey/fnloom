@@ -25,11 +25,14 @@
     "web:manifest": "tsx scripts/web-manifest.ts",
     "build": "npm run web:manifest && vue-tsc -b && npm run build -w @harness/web",
     "dev": "tsx scripts/dev.ts",
-    "e2e": "tsx packages/web/e2e/run.ts",
+    "e2e": "vitest run --project e2e",
     "check": "tsx scripts/web-manifest.ts --check && vue-tsc -b && eslint . && npm test && npm run explorer",
     "explorer": "node --experimental-strip-types --no-warnings explorer/build.ts",
     "explorer:serve": "node --experimental-strip-types --no-warnings explorer/serve.ts",
-    "context:sync": "ayepi-context docs/ayepi --prune"
+    "context:sync": "ayepi-context docs/ayepi --prune",
+    "dev:web": "npm run dev -w @harness/web",
+    "e2e:mock": "npm run e2e:mock -w @harness/web",
+    "ui-tests": "tsx ui-tests/run.ts"
   },
   "devDependencies": {
     "@ayepi/context": "file:../ayepi/packages/context",

@@ -2,7 +2,7 @@
  * The execution module's errors. Each carries what its handler needs (a `FnError` to hand back, a wait before trying
  * again), and `causeOf` finds one inside a wrapper (aeye wraps errors thrown by hooks in its own).
  */
-import type { BudgetId, ErrorClass, FnError } from '@harness/core';
+import { messageOf, type BudgetId, type ErrorClass, type FnError } from '@harness/core';
 
 /** Make a `FnError`. */
 export function fnError(errorClass: ErrorClass, message: string, code?: string): FnError {
@@ -76,7 +76,5 @@ export function causeOf<E extends Error>(error: unknown, type: abstract new (...
   return undefined;
 }
 
-/** A readable message for anything thrown. */
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The message of anything thrown (one definition, in `@harness/core`). */
+export { messageOf };

@@ -36,7 +36,10 @@ packages/
 systems/
   fs/          @harness/system-fs        shared/ (contract), server/, client/ (Vue renderers)
   embedder/    @harness/system-embedder  shared/ (contract + service schemas), server/
-scripts/       dev.ts (npm run dev), web-manifest.ts (generated web manifest)
+scripts/       dev.ts (npm run dev), stack.ts (boots the stack), hub-client.ts and session.ts (driving a hub from scripts),
+               web-manifest.ts (generated web manifest)
+e2e/           the end-to-end suite over the real stack (npm run e2e)
+ui-tests/      a puppeteer script per UI feature against a running harness (npm run ui-tests)
 types/         the approved type design (design record; not imported by code)
 explorer/      the design explorer (npm run explorer)
 ```
@@ -124,8 +127,11 @@ contract change writes it in its report (the schema, and why); it is made betwee
 | `npm run coverage` | tests with v8 coverage |
 | `npm run lint` | ESLint (strict type-checked, no `any`, no casts, Vue) |
 | `npm run web:manifest` | regenerate the web app's manifest from `hubWebSpec` |
-| `npm run dev` | hub (4300), web (4310), fs and embedder systems, bound to `0.0.0.0`; data in `HARNESS_DATA` (default `.harness`). Components not built yet are skipped. `HARNESS_DEV_ONLY=hub,web` runs a subset |
-| `npm run e2e` | puppeteer scenarios against `HARNESS_E2E_URL` at phone, tablet and desktop sizes in light and dark; shots in `packages/web/e2e/shots/` |
+| `npm run dev` | `scripts/dev.ts` over `scripts/stack.ts`: builds the web app, starts the hub (serving it) on `HARNESS_PORT` (4300) bound to `0.0.0.0`, signs in as the admin from `.env`, pairs fs and the embedder with one-time tokens the first time, configures fs with this repository as its root. Data in `HARNESS_DATA` (`.harness`). `HARNESS_DEV_ONLY=hub,fs` runs a subset |
+| `npm run dev:web` | Vite with hot reload on `HARNESS_WEB_PORT` (4310), proxying the hub |
+| `npm run e2e` | `e2e/*.e2e.test.ts` (vitest project `e2e`): boots the stack on `HARNESS_E2E_PORT` (4330) and drives it with a free OpenRouter model |
+| `npm run ui-tests` | `ui-tests/run.ts`: every UI feature script in `ui-tests/features/` against `HARNESS_UI_URL`, at 1440x900 and 390x844; shots in `ui-tests/shots/<feature>/` |
+| `npm run e2e:mock` | the web lane's puppeteer scenarios against its mock hub at phone, tablet and desktop in light and dark; shots in `packages/web/e2e/shots/` |
 | `npm run build` | manifest, typecheck, then the web build (`packages/web/dist`, served by the hub) |
 | `npm run check` | manifest check, typecheck, lint, tests, explorer build |
 
@@ -140,3 +146,16 @@ or a free one above 4300, bound to `0.0.0.0`, stopped before finishing.
   `wireType` / `encodeValue`; gin should omit both.
 - **gin:** named types are registered under qualified names with a `/` (`fs/Entry`); check that `toCode` renders
   them readably for the LLM.
+
+## Library asks found while integrating
+
+- **@ayepi/core:** a handler's `data` is left out when every field of the request is absent (`{}`; `server.ts`,
+  `payload.data` is only set when the merged data has keys), though the handler types say it is there. The hub reads
+  such bodies through `bodyOf` (`api/web/access.ts`); the server should always pass the parsed (possibly empty) data.
+- **@ayepi/log:** `consoleTransport()` without a `console` writes through the global console at write time, so once
+  `interceptConsole()` runs every line goes back into the logger and is dropped. The hub binds the original methods
+  (`boot/log.ts`); the transport should capture them when it is made. A string `error` field renders as
+  `error=undefined: undefined` because `error` is reserved for a serialized `Error`; `errorFieldFilter`
+  (`@harness/sdk/server`) turns such strings into that shape. The logger should accept a string there.
+- **@ayepi/work:** `stop()` waits for its poll loop, which sleeps on an unref'd timer, so awaiting `stop()` in a process
+  with nothing else alive lets Node exit before it settles. Waking the loop on `stop()` would fix it.

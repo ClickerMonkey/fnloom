@@ -32,6 +32,16 @@ export interface SessionService {
   presence(presence: Omit<Presence, 'lastActiveAt'>): Promise<void>;
   /** Whether a person is active in a session now (for the tool-timeout rule). */
   active(session: SessionId): Promise<boolean>;
+  /** Set the fns and context the session's agent has loaded (`hub/load_fns`, `hub/drop_fns`, `hub/load_context`). */
+  load(session: SessionId, loaded: { tools?: readonly QualifiedName[]; context?: readonly QualifiedName[] }): Promise<Session>;
+}
+
+/** What a run can attach to an assistant message. */
+export type AttachedPart = Extract<MessagePart, { type: 'attachment' | 'link' }>;
+
+/** Whether a part is one a run attached. */
+export function isAttached(part: MessagePart): part is AttachedPart {
+  return part.type === 'attachment' || part.type === 'link';
 }
 
 /** How a turn ends: done, failed or cancelled (never back to running, paused or undone). */
@@ -45,7 +55,15 @@ export interface TurnService {
   begin(input: { turn: TurnId; author: ActorId; replyTo?: MessageId }): Promise<ChatMessage>;
   /** Append streamed text to an assistant message (from the agent loop). */
   stream(message: MessageId, delta: { text?: string; reasoning?: string }): void;
+  /** Close an assistant message with its final parts. Attachments and links runs added while it streamed are kept. */
   finish(message: MessageId, parts: MessagePart[], status: 'done' | 'failed'): Promise<ChatMessage>;
+  /**
+   * A run attaches something (a system attachment, already checked, or a link) to its turn's latest assistant
+   * message. Refused when the run belongs to no session turn or the turn has no assistant message yet.
+   */
+  attach(run: RunId, part: AttachedPart): Promise<ChatMessage>;
+  /** Record runs an assistant message's tool calls started, so the chat shows their cards under it (from the agent loop). */
+  track(message: MessageId, runs: readonly RunId[]): Promise<void>;
   /** A turn ended (the agent answered without tool calls, failed, or was cancelled): record it and tell people who are away. */
   settle(turn: TurnId, status: TurnEnd): Promise<void>;
 }

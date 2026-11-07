@@ -3,7 +3,7 @@
  * the session state each run changed is put back. Runs that changed something but can't be undone are reported, and
  * the hub posts a note in the session saying what happened.
  */
-import { mintId, type ActorId, type ChatMessage, type Run, type TurnId, type UndoReport } from '@harness/core';
+import { mintId, READ_TAG, type ActorId, type ChatMessage, type Run, type TurnId, type UndoReport } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import type { StateService, UndoService } from './index.ts';
@@ -11,7 +11,7 @@ import { isActiveRun, type StoreSessionService } from './sessions.ts';
 import { readAll } from './support.ts';
 
 /** The tag of fns that only read, so a turn that ran them has nothing to undo there. */
-export const READ_TAG = 'read';
+export { READ_TAG };
 
 /** The note the hub posts after undoing a turn. */
 export function undoNote(report: UndoReport): string {

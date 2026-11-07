@@ -5,7 +5,7 @@
 import type { LlmStatus } from '@harness/core';
 import type { z } from 'zod';
 import type { StatusLook } from './systems.ts';
-import type { LlmSummary } from '../contract.ts';
+import type { LlmSummary } from '@harness/core';
 
 /** A filter from text values (the URL's query): every field that reads as valid, the rest left out. */
 export function filterOf<S extends z.ZodObject>(schema: S, values: Readonly<Record<string, string>>): z.output<S> {

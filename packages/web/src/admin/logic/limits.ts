@@ -7,7 +7,7 @@ import type { ActorId, BudgetPeriod, LimitLevel, LimitScope, Priority, PriorityL
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import type { Tone } from '../../ui/index.ts';
-import type { BudgetView } from '../contract.ts';
+import type { BudgetView } from '@harness/core';
 
 /** Finds an actor's name; falls back to the id when unknown. */
 export type NameOf = (actor: ActorId) => string;

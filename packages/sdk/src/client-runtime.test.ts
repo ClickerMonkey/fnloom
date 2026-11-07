@@ -142,6 +142,23 @@ describe('buildClient', () => {
     expect(loaded.system).toBe('greet');
     expect(runtime.fnRenderer('greet/hi')).toBeDefined();
   }, 60_000);
+
+  it('folds the renderers\' CSS into the entry, so loading it styles them', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'harness-client-css-'));
+    folders.push(root);
+    await writeFile(join(root, 'Styled.vue'), '<template><b class="styled">hi</b></template>\n<style scoped>.styled { color: rebeccapurple; }</style>\n');
+    await writeFile(join(root, 'index.ts'), [
+      'import { client, fn, g, system } from "@harness/sdk";',
+      'import Styled from "./Styled.vue";',
+      'const look = system("look", { description: "Looks." }).with({ fns: { hi: fn({ description: "Hi.", args: g.obj({}), returns: g.text() }) } });',
+      'export default client(look, { fns: { hi: Styled } });',
+    ].join('\n'));
+    const bundle = await buildClient({ entry: join(root, 'index.ts'), outDir: join(root, 'dist'), minify: false });
+    expect(bundle.files.map((f) => f.path)).toEqual(['index.js']);
+    const code = new TextDecoder().decode(bundle.files[0]?.bytes);
+    expect(code).toContain('rebeccapurple');
+    expect(code).toContain("document.createElement('style')");
+  }, 60_000);
 });
 
 /** Wait until a condition holds (a few ticks at most). */

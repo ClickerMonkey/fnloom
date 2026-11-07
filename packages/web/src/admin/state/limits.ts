@@ -5,7 +5,7 @@
 import type { ActorId, BudgetId, PriorityRule, PriorityRuleId, ResolvedLimits, SessionId } from '@harness/core';
 import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
-import type { BudgetView } from '../contract.ts';
+import type { BudgetView } from '@harness/core';
 import type { BudgetBody, PriorityBody } from '../logic/forms.ts';
 
 type LimitsApi = Pick<AdminApi, 'budgets' | 'setBudget' | 'priorityRules' | 'setPriority' | 'resolveLimits' | 'removeRule'>;

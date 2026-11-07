@@ -44,6 +44,8 @@ export class PeerResourceRouter implements ResourceRouter {
       this.#roots.delete(change.system);
       this.#watched.delete(change.system);
     });
+    // a system that connected before it was configured serves its roots once its config arrives
+    options.bus.subscribe('system.status', ({ system, status }) => { if (status === 'connected') { void this.refresh(system); } });
   }
 
   roots(): ReadonlyArray<{ system: SystemName; root: ResourceRoot }> {
@@ -62,7 +64,8 @@ export class PeerResourceRouter implements ResourceRouter {
     const { links, catalog, log } = this.#options;
     const connection = links.connection(system);
     const manifest = await catalog.manifest(system);
-    if (connection === undefined || manifest?.resources === false) { this.#roots.delete(system); return; }
+    // before its first manifest nothing is known; importing the manifest refreshes again when it serves resources
+    if (connection === undefined || manifest?.resources !== true) { this.#roots.delete(system); return; }
     try {
       const roots = await connection.peer.call('roots');
       this.#roots.set(system, roots);
@@ -72,6 +75,7 @@ export class PeerResourceRouter implements ResourceRouter {
       for (const uri of fresh) { watched.add(uri); }
       if (fresh.length > 0) { await connection.peer.call('watch', { uris: fresh, on: true }); }
       log.info('resources.roots', { system, roots: roots.length });
+      this.#options.bus.publish('resources.roots', { system, roots });
     } catch (error) {
       this.#roots.delete(system);
       log.warn('resources.roots.failed', { system, error: messageOf(error) });

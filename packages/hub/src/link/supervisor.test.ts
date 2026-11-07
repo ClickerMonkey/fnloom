@@ -10,7 +10,8 @@ import { settle } from '../catalog/testing.ts';
 import { StoredKeyPair } from './keys.ts';
 import { NodeInstaller, NodeLauncher, SystemPackageJson, type Installer, type ProcessExit, type ProcessLauncher, type SystemCommand, type SystemPackage, type SystemProcess } from './process.ts';
 import { FakeSystem, linkRig, type LinkRig } from './rig.ts';
-import { ProcessSupervisor, SYSTEM_ENV } from './supervisor.ts';
+import { SYSTEM_ENV } from '@harness/sdk/server';
+import { ProcessSupervisor } from './supervisor.ts';
 
 /** A process the test ends by hand. */
 class FakeProcess implements SystemProcess {

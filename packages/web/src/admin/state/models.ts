@@ -6,7 +6,7 @@ import type { ModelCategory, ModelCategoryId, ProviderId, ProviderInput, Provide
 import { computed } from 'vue';
 import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
-import type { ModelInfo } from '../contract.ts';
+import type { ModelInfo } from '@harness/core';
 import type { CategoryBody } from '../logic/forms.ts';
 
 type ModelsApi = Pick<AdminApi, 'providers' | 'configureProvider' | 'models' | 'modelCategories' | 'setModelCategory' | 'removeRule'>;

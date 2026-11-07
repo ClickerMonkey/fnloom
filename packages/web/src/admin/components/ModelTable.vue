@@ -6,7 +6,7 @@
 import { computed, ref } from 'vue';
 import { formatCost, formatTokens } from '../../chat/logic/format.ts';
 import { UiBadge, UiEmpty, UiInput } from '../../ui/index.ts';
-import type { ModelInfo } from '../contract.ts';
+import type { ModelInfo } from '@harness/core';
 
 const props = defineProps<{ models: readonly ModelInfo[]; providerName: (model: ModelInfo) => string }>();
 const query = ref('');

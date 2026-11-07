@@ -5,7 +5,7 @@
 import { plugin } from '@ayepi/plugin';
 import { mintId } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { compact, type FullHandlers } from './access.ts';
+import { bodyOf, compact, type FullHandlers } from './access.ts';
 import { inboxSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
@@ -14,7 +14,7 @@ export function inboxPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin
   const { chat, api, store } = hub;
   return plugin({ name: 'web.inbox', spec: inboxSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof inboxSlice> => ({
-      notifications: ({ data, user }) => chat.notifications.list(user.id, compact(data)),
+      notifications: (io) => chat.notifications.list(io.user.id, compact(bodyOf(io, {}))),
       readNotifications: async ({ data, user }) => {
         await chat.notifications.read(user.id, data.ids);
       },

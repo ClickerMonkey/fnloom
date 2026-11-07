@@ -187,6 +187,12 @@ export class StoreSessionService implements SessionService {
   }
 
   /** Change some of a session's fields (and its `updatedAt`), and tell its people. */
+  async load(id: SessionId, loaded: { tools?: readonly QualifiedName[]; context?: readonly QualifiedName[] }): Promise<Session> {
+    const updated = await this.save(id, { ...(loaded.tools === undefined ? {} : { tools: [...loaded.tools] }), ...(loaded.context === undefined ? {} : { context: [...loaded.context] }) });
+    this.#deps.log.info('chat.session.loaded', { session: id, tools: updated.tools.length, context: updated.context.length });
+    return updated;
+  }
+
   async save(id: SessionId, patch: Partial<Omit<Session, 'id' | 'updatedAt'>>): Promise<Session> {
     const session = await this.#deps.store.table('sessions').update(id, { ...patch, updatedAt: this.#deps.clock() });
     this.#changed(session);

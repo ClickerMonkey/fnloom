@@ -14,11 +14,11 @@ import type { Authenticator, ContentStore, EventRelay, PushService, SecretVault 
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type {
-  DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, TurnService, UndoService,
+  ApproverDirectory, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, TurnService, UndoService,
 } from '../chat/index.ts';
 import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, RunService } from '../execution/index.ts';
 import type { Embedders, Indexer, Search, Suggester } from '../index/index.ts';
-import type { ConfigService, LinkService, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemTokens } from '../link/index.ts';
+import type { ConfigService, LinkService, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens } from '../link/index.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
 import type { HubSettings } from './env.ts';
 
@@ -41,7 +41,7 @@ export interface HubServices {
   readonly catalog: Catalog;
   readonly link: {
     readonly connections: LinkService; readonly pairing: PairingService; readonly config: ConfigService; readonly supervisor: Supervisor;
-    readonly admin: SystemAdmin; readonly resources: ResourceRouter; readonly tokens: SystemTokens;
+    readonly admin: SystemAdmin; readonly resources: ResourceRouter; readonly tokens: SystemTokens; readonly output: SystemOutput;
   };
   readonly execution: {
     readonly runs: RunService; readonly agents: AgentLoop; readonly llm: LlmGateway; readonly limits: LimitResolver; readonly ledger: Ledger;
@@ -50,7 +50,7 @@ export interface HubServices {
   readonly chat: {
     readonly sessions: SessionService; readonly turns: TurnService; readonly reply: ReplyRule; readonly enrich: MessageEnricher;
     readonly state: StateService; readonly deliveries: DeliveryService; readonly undo: UndoService; readonly mentions: MentionService;
-    readonly presence: PresenceTracker; readonly notifications: NotificationService;
+    readonly presence: PresenceTracker; readonly notifications: NotificationService; readonly approvers: ApproverDirectory;
   };
   readonly index: { readonly embedders: Embedders; readonly indexer: Indexer; readonly search: Search; readonly suggest: Suggester };
   readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault };
@@ -97,6 +97,8 @@ export interface ModuleContext {
   readonly peers: Peers<SystemLinkSpec>;
   /** The hub's own actor (the author of hub notes, the owner of hub secrets). */
   readonly hubActor: ActorId;
+  /** Signs the HTTP tokens linked systems get in their welcome (the hub JWT secret). */
+  readonly systemTokens: SystemTokens;
 }
 
 /** Builds one module. Synchronous: anything slow goes in its hooks. */

@@ -8,7 +8,7 @@ import { qualify, type ChatCapabilities, type SessionId, type SystemName, type U
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { CLIENTS_PATH } from '../serve.ts';
-import { compact, userInfo, visibleSession, type FullHandlers } from './access.ts';
+import { bodyOf, compact, userInfo, visibleSession, type FullHandlers } from './access.ts';
 import { chatSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
@@ -58,8 +58,8 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
   const { chat, execution } = hub;
   return plugin({ name: 'web.chat', spec: chatSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof chatSlice> => ({
-      capabilities: ({ data, user }) => capabilities(hub, user, data.session),
-      sessions: ({ data, user }) => chat.sessions.list(user.id, compact(data)),
+      capabilities: (io) => capabilities(hub, io.user, bodyOf(io, {}).session),
+      sessions: (io) => chat.sessions.list(io.user.id, compact(bodyOf(io, {}))),
       session: ({ data, user }) => visibleSession(hub, data.session, user),
       createSession: async ({ data, user }) => {
         const session = await chat.sessions.create({ ...compact(data), owner: user.id, agent: data.agent ?? qualify('hub', 'chat') });

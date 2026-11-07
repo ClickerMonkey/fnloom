@@ -5,7 +5,7 @@
 import type {
   ActorId, AllowedOperations, ContentRef, DeliveryId, ErrorClass, FnError, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
-  Duration, UserInfo,
+  Duration, TypeRecord, UserInfo,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -42,6 +42,15 @@ export interface Resources {
   search(query: string, options?: { roots?: ResourceUri[]; limit?: number }): Promise<ResourceHit[]>;
 }
 
+/** Named types any system declared, from the hub. */
+export interface Types {
+  /**
+   * The definitions of these named types and of every named type they reference, dependencies first, with the names
+   * the hub doesn't know. Parse them with gin to read or check values of another system's types.
+   */
+  definitions(names: readonly QualifiedName[]): Promise<{ types: TypeRecord[]; missing: string[] }>;
+}
+
 /** Structured logging: a stable dotted key, then fields. */
 export interface Log {
   debug(key: string, fields?: Record<string, Json>): void;
@@ -59,6 +68,8 @@ export interface Services {
   readonly fetch: typeof fetch;
   /** Resources from any system the actor may see. */
   readonly resources: Resources;
+  /** Named types from any system, with what they reference. */
+  readonly types: Types;
   /** Attach something to the assistant message this run belongs to. The data is checked. */
   attach<A>(attachment: AttachmentRef<QualifiedName, A>, data: A, title: string): void;
   /** Attach a link to a resource, URL, file or run. */
@@ -75,6 +86,7 @@ export interface SystemCtx<Cfg = unknown> {
   readonly config: Cfg;
   readonly llm: Llm;
   readonly resources: Resources;
+  readonly types: Types;
   readonly log: Log;
   readonly signal: AbortSignal;
 }
@@ -242,7 +254,7 @@ export interface AskerCtx {
 }
 
 /** What an action's implementation gets. */
-export interface ActionCtx<St extends object, Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources'> {
+export interface ActionCtx<St extends object, Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources' | 'types'> {
   readonly delivery: DeliveryId;
   /** The run whose renderer sent it, if any. */
   readonly run: RunId | undefined;

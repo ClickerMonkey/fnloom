@@ -5,7 +5,7 @@
  * overlay keeps every name a reference (`{ name }`), so nothing the hub parses is registered process-wide.
  */
 import { createRegistry, typeClosure, typeReferences, type LocalScope, type Registry, type Type, type TypeDef } from '@aeye/gin';
-import type { GinTypeDef } from '@harness/core';
+import { messageOf, type GinTypeDef } from '@harness/core';
 import { toGin, ginName, hubName } from './names.ts';
 
 /** Looks up the definition of a named type by its hub name (`fs/Entry`), or undefined when none is known. */
@@ -21,10 +21,8 @@ export interface ParsedTypes {
   readonly missing: readonly string[];
 }
 
-/** The error message of anything thrown. */
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The message of anything thrown (one definition, in `@harness/core`). */
+export { messageOf };
 
 /** Parses wire definitions in scopes built from the named types they need. */
 export class GinScopes {

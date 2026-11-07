@@ -427,7 +427,7 @@ export class FakeHub {
         allow: ({ data }) => { this.allowed.push(data); },
         undoWith: ({ data }) => { this.undos.push(data); },
         attach: ({ data }) => { this.attachments.push(data); },
-        handlerResult: () => undefined,
+        types: () => ({ types: [], missing: [] }),
         resourcesChanged: ({ data }) => { this.changes.push(...data.changes); },
         llm: ({ data }) => {
           this.forwards.push(data);
@@ -485,3 +485,4 @@ export async function* streamOf<T>(items: readonly T[]): AsyncGenerator<T> {
 function emptyReport(): ImportReport {
   return { added: [], updated: [], removed: [], refused: [] };
 }
+export { liveEnv, liveModels } from './live.ts';

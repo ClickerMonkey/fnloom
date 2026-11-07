@@ -1,6 +1,6 @@
 import { ActorId, BudgetId, LlmInteractionId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { RunFilter } from '../contract.ts';
+import { RunFilter } from '@harness/core';
 import { budget, installed, pairing, policy, systemView, T0 } from '../test/fakes.ts';
 import { LLM_STATUS_LOOK, filterOf, llmTimes } from './browsers.ts';
 import {

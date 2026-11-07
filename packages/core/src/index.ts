@@ -26,4 +26,5 @@ export * from './records/runs.ts';
 export * from './records/chat.ts';
 export * from './records/content.ts';
 export * from './records/tables.ts';
+export * from './admin.ts';
 export * from './web.ts';

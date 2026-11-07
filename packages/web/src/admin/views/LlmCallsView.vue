@@ -18,7 +18,7 @@ import { useNow } from '../../ui/now.ts';
 import BrowserFrame from '../components/BrowserFrame.vue';
 import BrowserRow from '../components/BrowserRow.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { LlmFilter } from '../contract.ts';
+import { LlmFilter } from '@harness/core';
 import { BROWSER_REFRESH, LLM_STATUS_LOOK, filterOf, llmTimes } from '../logic/browsers.ts';
 
 const { admin } = useStores();

@@ -194,3 +194,11 @@ export interface Page<T> {
 /** A cursor-paged request. */
 export const PageRequest = z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional() });
 export type PageRequest = z.infer<typeof PageRequest>;
+
+/** The message of anything thrown: an `Error`'s message, or the value as text. */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The tag that marks a fn as only reading: with no policy that matches, it runs without asking. */
+export const READ_TAG = 'read';

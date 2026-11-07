@@ -1,0 +1,136 @@
+/**
+ * The hub's own fns that span modules: finding and loading fns and context for a session's agent (index search,
+ * the catalog, the session), searching resources, and asking a person (a handler call they answer in the chat).
+ * `registerHubFns` implements them on execution's `HubFns` against the hub contract's refs, so args and results are
+ * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering.
+ */
+import { QualifiedName, splitName, type IndexedKind, type Session, type SessionId } from '@harness/core';
+import { hub, parseValue, wireType } from '@harness/sdk';
+import type { Catalog } from '../catalog/index.ts';
+import type { SessionService } from '../chat/index.ts';
+import type { Search } from '../index/index.ts';
+import type { HubStore } from '../store/index.ts';
+import { allowsSystem, searchSystems } from '../chat/support.ts';
+import type { HubFnCtx, HubFns } from '../execution/executors.ts';
+import type { HandlerRelay } from '../execution/handlers.ts';
+import { parseSectionIndexKey } from '../index/indexer.ts';
+
+/** How many results a search returns when the agent doesn't say. */
+const DEFAULT_LIMIT = 10;
+/** The characters of a section shown as its preview. */
+const PREVIEW = 280;
+
+/** What the hub fns read, each looked up when a fn runs. */
+export interface HubFnDeps {
+  readonly store: () => HubStore;
+  readonly catalog: () => Pick<Catalog, 'fn' | 'fns' | 'availability' | 'context'>;
+  readonly search: () => Search;
+  /** Where a session's loaded fns and context are kept. */
+  readonly sessions: () => Pick<SessionService, 'load'>;
+  /** The relay a question to a person goes through. */
+  readonly handlers: () => Pick<HandlerRelay, 'askPerson'>;
+}
+
+/** The session a run belongs to, refused when it has none (these fns only make sense in a chat). */
+async function sessionOf(deps: HubFnDeps, ctx: HubFnCtx): Promise<Session> {
+  const id: SessionId | undefined = ctx.request.run.session;
+  const session = id === undefined ? undefined : await deps.store().table('sessions').get(id);
+  if (session === undefined) { throw new Error('this fn only works inside a chat session'); }
+  return session;
+}
+
+/** Index hits of one kind for a session's systems. */
+async function hits(deps: HubFnDeps, session: Session, kind: IndexedKind, query: string, limit: number | undefined) {
+  return deps.search().search({ text: query, kinds: [kind], limit: limit ?? DEFAULT_LIMIT, systems: searchSystems(session) });
+}
+
+/** Names the agent gave, split into well-formed qualified names and the rest. */
+function names(given: readonly string[]): { valid: QualifiedName[]; invalid: string[] } {
+  const valid: QualifiedName[] = [];
+  const invalid: string[] = [];
+  for (const name of given) {
+    const parsed = QualifiedName.safeParse(name);
+    if (parsed.success) { valid.push(parsed.data); } else { invalid.push(name); }
+  }
+  return { valid, invalid };
+}
+
+/** Register the hub fns. */
+export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
+
+  fns.register(hub.fns.search_fns, async (args, ctx) => {
+    const session = await sessionOf(deps, ctx);
+    const found = await hits(deps, session, 'fn', args.query, args.limit);
+    const records = await deps.catalog().fns({ names: names(found.map((h) => h.key)).valid });
+    return Promise.all(records.map(async (fn) => ({
+      fn: fn.name, description: fn.decl.description, available: (await deps.catalog().availability(fn.name)) === true,
+    })));
+  });
+
+  fns.register(hub.fns.load_fns, async (args, ctx) => {
+    const session = await sessionOf(deps, ctx);
+    const { valid, invalid } = names(args.fns);
+    const refused = invalid.map((fn) => ({ fn, reason: 'not a qualified fn name (system/name)' }));
+    const loaded: QualifiedName[] = [];
+    for (const name of valid) {
+      const fn = await deps.catalog().fn(name);
+      const availability = fn === undefined ? undefined : await deps.catalog().availability(name);
+      if (fn === undefined) { refused.push({ fn: name, reason: 'no such fn' }); }
+      else if (!allowsSystem(session, splitName(name).system)) { refused.push({ fn: name, reason: 'this session does not use that system' }); }
+      else if (availability !== true) { refused.push({ fn: name, reason: availability?.detail ?? 'unavailable' }); }
+      else { loaded.push(name); }
+    }
+    if (loaded.length > 0) { await deps.sessions().load(session.id, { tools: [...new Set([...session.tools, ...loaded])] }); }
+    return { loaded, refused };
+  });
+
+  fns.register(hub.fns.drop_fns, async (args, ctx) => {
+    const session = await sessionOf(deps, ctx);
+    const drop = new Set<string>(args.fns);
+    const dropped = session.tools.filter((fn) => drop.has(fn));
+    if (dropped.length > 0) { await deps.sessions().load(session.id, { tools: session.tools.filter((fn) => !drop.has(fn)) }); }
+    return { dropped };
+  });
+
+  fns.register(hub.fns.search_context, async (args, ctx) => {
+    const session = await sessionOf(deps, ctx);
+    const found = await hits(deps, session, 'context', args.query, args.limit);
+    const records = await Promise.all(names(found.map((h) => h.key)).valid.map((name) => deps.catalog().context(name)));
+    return records.flatMap((c) => (c === undefined ? [] : [{ context: c.name, description: c.decl.description }]));
+  });
+
+  fns.register(hub.fns.load_context, async (args, ctx) => {
+    const session = await sessionOf(deps, ctx);
+    const loaded: QualifiedName[] = [];
+    for (const name of names(args.context).valid) {
+      if (await deps.catalog().context(name) !== undefined && allowsSystem(session, splitName(name).system)) { loaded.push(name); }
+    }
+    if (loaded.length > 0) { await deps.sessions().load(session.id, { context: [...new Set([...session.context, ...loaded])] }); }
+    return { loaded };
+  });
+
+  fns.register(hub.fns.search_resources, async (args, ctx) => {
+    const session = await sessionOf(deps, ctx);
+    const roots = args.roots;
+    const found = await hits(deps, session, 'section', args.query, args.limit);
+    return found
+      .map((hit) => ({ hit, at: parseSectionIndexKey(hit.key) }))
+      .filter(({ at }) => roots === undefined || roots.some((root) => at.uri.startsWith(root)))
+      .map(({ hit, at }) => ({
+        uri: at.uri, ...('section' in at ? { section: at.section } : {}),
+        title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), score: hit.score,
+      }));
+  });
+
+  const ask = hub.fns.ask_user;
+  fns.register(ask, async (args, ctx) => {
+    const run = await deps.store().table('runs').get(ctx.request.run.id);
+    if (run === undefined) { throw new Error(`no run ${ctx.request.run.id}`); }
+    const answer = await deps.handlers().askPerson({
+      run, user: ctx.request.run.user.id, handler: 'ask_user', args: { question: args.question },
+      decl: { description: args.question, args: wireType(ask.args), returns: wireType(ask.returns) },
+    }, ctx.signal);
+    if (!answer.ok) { throw new Error(answer.error.message); }
+    return parseValue(ask.returns, answer.value);
+  });
+}

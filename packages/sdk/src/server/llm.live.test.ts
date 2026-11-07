@@ -8,22 +8,14 @@ import { AI, type Provider } from '@aeye/ai';
 import type { Chunk, Message, Request } from '@aeye/core';
 import { models, strictSupport } from '@aeye/models';
 import { OpenRouterProvider } from '@aeye/openrouter';
-import { env } from '@ayepi/env';
 import { mintId, type Json, type LlmChunk, type LlmForward, type LlmForwardChunk } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import { fn } from '../fn.ts';
 import { g } from '../gin.ts';
 import { system } from '../system.ts';
+import { z } from 'zod';
 import { harnessAiOf, serve, type RunningSystem } from './index.ts';
-import { FakeHub } from './testing.ts';
-
-/** The live tests' tunables: the key, and which free models to try (the same defaults as the hub's live slice). */
-const live = env({
-  OPENROUTER_API_KEY: z.string().optional(),
-  HARNESS_LIVE_MODEL: z.string().default('nvidia/nemotron-3.5-super-vl:free'),
-  HARNESS_LIVE_FALLBACKS: z.string().default('nvidia/nemotron-3-ultra-550b-a55b:free,dots-studio/dots-3-note-preview:free'),
-});
+import { FakeHub, liveEnv, liveModels } from './testing.ts';
 
 const weather = system('weather', { description: 'Weather.' }).with({
   fns: {
@@ -102,10 +94,10 @@ afterEach(async () => {
 });
 
 describe('the forwarding provider (live)', () => {
-  const key = live.get('OPENROUTER_API_KEY');
+  const key = liveEnv.get('OPENROUTER_API_KEY');
 
   it.skipIf(key === undefined)('runs a system-side prompt with a tool, then a structured answer, on a free model', async () => {
-    const candidates = [live.get('HARNESS_LIVE_MODEL'), ...live.get('HARNESS_LIVE_FALLBACKS').split(',').filter((m) => m !== '')];
+    const candidates = liveModels();
     const tried: string[] = [];
     for (const model of candidates) {
       const hub = new FakeHub();

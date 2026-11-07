@@ -22,7 +22,7 @@ import {
   AccessClaims, IDS, Notification, UserView, adminOnly, hubAuth, mintId, tel, type ActorId, type NotificationReason, type Tokens,
 } from '@harness/core';
 import { z } from 'zod';
-import { webSpec } from '../src/admin/contract.ts';
+import { hubWebSpec } from '@harness/core';
 import { MockAdmin } from './mockAdmin.ts';
 import { MockChat } from './mockChat.ts';
 
@@ -102,7 +102,7 @@ export function mockHub(options: { needsAdmin: boolean }) {
   const chat = new MockChat(owner);
   const admin = new MockAdmin(chat, Date.now);
 
-  const real = implement(webSpec)
+  const real = implement(hubWebSpec)
     .middleware(telemetry.server(tel, { level: 'debug' }))
     .middleware(bearerAuth.server(hubAuth, {
       secret: SECRET, claims: AccessClaims,
@@ -211,10 +211,10 @@ export function mockHub(options: { needsAdmin: boolean }) {
   // system names must match their pattern, which the generator can't read from a regex
   const systemName = (g: { rng: () => number }): string => SYSTEM_NAMES[Math.floor(g.rng() * SYSTEM_NAMES.length)] ?? 'fs';
   const overrides = { fields: { name: systemName, system: systemName } };
-  const generated = Object.fromEntries(Object.entries(mockHandlers(webSpec, { seed: 'harness-ui', now: () => NOW, overrides })).filter(([name]) => !realNames.has(name)));
+  const generated = Object.fromEntries(Object.entries(mockHandlers(hubWebSpec, { seed: 'harness-ui', now: () => NOW, overrides })).filter(([name]) => !realNames.has(name)));
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- @ayepi/mock's generated bag covers the remaining endpoints but is untyped per endpoint (library ask: a typed mockHandlers)
-  const rest = implement(webSpec).handlers(generated as never);
-  const app = server(webSpec, [real, rest]);
+  const rest = implement(hubWebSpec).handlers(generated as never);
+  const app = server(hubWebSpec, [real, rest]);
   chat.attach((session, event) => { app.emit('session', { session }, event); });
   admin.attach({ user: (event) => { app.emit('user', event); }, log: (system, line) => { app.emit('systemLog', { system }, line); } });
 

@@ -6,7 +6,7 @@
  */
 import { nextTick, ref, watch } from 'vue';
 import { UiButton, UiEmpty } from '../../ui/index.ts';
-import type { OutputLine } from '../contract.ts';
+import type { OutputLine } from '@harness/core';
 
 const props = withDefaults(defineProps<{ lines: readonly OutputLine[]; live?: boolean }>(), { live: true });
 const box = ref<HTMLElement | null>(null);

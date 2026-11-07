@@ -4,17 +4,15 @@
  * value that does not fit becomes a `FnError` the hub and the LLM can act on, never a crash.
  */
 import { ApiError, DISCONNECTED_STATUS } from '@ayepi/core';
-import { FnError, type Json, type ErrorClass, type RunSettled } from '@harness/core';
+import { FnError, messageOf, type Json, type ErrorClass, type RunSettled } from '@harness/core';
 import { CallFailed, Suspended, type Settled } from '../ctx.ts';
 import { encodeValue, parseValue, type GinType } from '../gin.ts';
 
 /** A value that did or did not fit its type. */
 export type Checked<T> = { ok: true; value: T } | { ok: false; error: FnError };
 
-/** The message of anything thrown. */
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The message of anything thrown (one definition, in `@harness/core`). */
+export { messageOf };
 
 /** Make a `FnError`. */
 export function fnError(cls: ErrorClass, message: string, extra?: { code?: string; data?: Json }): FnError {

@@ -5,7 +5,7 @@
 import { ApiError, manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, compositeKey, hubWebSpec, mintId, NotificationId, QualifiedName, RunId, SessionId, SystemName, TurnId, type Run, type Session, type SystemRecord, type Tokens,
+  ActorId, BudgetId, compositeKey, hubWebSpec, mintId, NotificationId, QualifiedName, RunId, SessionId, SystemName, TurnId, type Run, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
 import { ScryptHasher } from '../hash.ts';
 import { entriesFrom, rig, settle, webRig, type Fakes } from '../testing/rig.ts';
@@ -169,7 +169,7 @@ describe('chat', () => {
         fns: () => Promise.resolve([]),
         manifest: () => Promise.resolve(undefined),
       },
-      execution: { llm: { models: () => Promise.resolve([{ id: 'openrouter/auto', name: 'Auto' }]) } },
+      execution: { llm: { models: () => Promise.resolve([{ id: 'openrouter/auto', provider: 'openrouter', name: 'Auto', capabilities: ['chat'] }]) } },
     });
     await r.store.table('systems').insert(systemRow('fs'));
     await r.store.table('systems').insert(systemRow('off', { enabled: { functions: false, renderers: true } }));
@@ -319,7 +319,7 @@ describe('admin', () => {
   });
 
   it('stores provider keys sealed and replaces a provider’s old key', async () => {
-    const { r, web, as } = await signedIn({ execution: { llm: { models: () => Promise.resolve([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]) } } });
+    const { r, web, as } = await signedIn({ execution: { llm: { models: () => Promise.resolve([{ id: 'a', provider: 'openrouter', name: 'A', capabilities: [] }, { id: 'b', provider: 'openrouter', name: 'B', capabilities: [] }]) } } });
     await expect(web.client.call('configureProvider', { provider: 'openrouter', apiKey: 'sk-or-first' }, as)).resolves.toEqual({ models: 2 });
     await web.client.call('configureProvider', { provider: 'openrouter', apiKey: 'sk-or-second' }, as);
     const providers = (await r.store.table('providers').find({ limit: 10 })).items;
@@ -366,5 +366,53 @@ describe('admin', () => {
     const category = await web.client.call('setModelCategory', { name: 'fast', description: '', models: ['a'] }, as);
     const same = await web.client.call('setModelCategory', { name: 'fast', description: 'quick', models: ['b'] }, as);
     expect(same.id).toBe(category.id);
+  });
+});
+
+describe('admin reads', () => {
+  it('lists models, narrowed to a provider, even when the body is empty', async () => {
+    const models = [{ id: 'a', provider: 'openrouter', name: 'A', capabilities: ['chat'] }, { id: 'b', provider: 'openai', name: 'B', capabilities: [] }];
+    const { r, web, as } = await signedIn({ execution: { llm: { models: () => Promise.resolve(models) } } });
+    await expect(web.client.call('models', {}, as)).resolves.toEqual(models);
+    const provider = mintId('provider');
+    await r.store.table('providers').insert({ id: provider, config: { provider: 'openrouter', apiKey: mintId('secret') }, createdAt: 1 });
+    await expect(web.client.call('models', { provider }, as)).resolves.toEqual([models[0]]);
+    await expect(web.client.call('models', { provider: mintId('provider') }, as)).resolves.toEqual([]);
+  });
+
+  it('shows budgets with what they have spent, and removes rules by kind', async () => {
+    const { r, web, as, me } = await signedIn({ execution: { ledger: { spent: () => Promise.resolve(1.5) } } });
+    const { id } = await web.client.call('setBudget', { target: { scope: 'hub' }, period: 'all-time', maxCost: 10, onLimit: 'refuse' }, as);
+    await expect(web.client.call('budgets', {}, as)).resolves.toEqual([expect.objectContaining({ id, maxCost: 10, spent: 1.5, setBy: me })]);
+    await web.client.call('setBudget', { id: BudgetId.parse(id), target: { scope: 'hub' }, period: 'all-time', maxCost: 20, onLimit: 'wait' }, as);
+    await expect(r.store.table('budgets').count()).resolves.toBe(1);
+    await expect(web.client.call('removeRule', { kind: 'budget', id: BudgetId.parse(id) }, as)).resolves.toEqual({ ok: true });
+    await expect(web.client.call('removeRule', { kind: 'budget', id: BudgetId.parse(id) }, as)).resolves.toEqual({ ok: false });
+  });
+
+  it('pages runs and LLM calls newest first without their bodies, and filters by what is asked', async () => {
+    const { r, web, as } = await signedIn();
+    await r.store.table('runs').insert(runRow('run_a', { createdAt: 1, status: 'done' }));
+    await r.store.table('runs').insert(runRow('run_b', { createdAt: 2, status: 'failed' }));
+    expect((await web.client.call('runs', {}, as)).items.map((run) => run.id)).toEqual(['run_b', 'run_a']);
+    expect((await web.client.call('runs', { status: 'done' }, as)).items.map((run) => run.id)).toEqual(['run_a']);
+    expect((await web.client.call('runs', { fn: 'not a name' }, as)).items).toEqual([]);
+    expect((await web.client.call('llmCalls', {}, as)).items).toEqual([]);
+  });
+
+  it('shows a system\'s output and its fns', async () => {
+    const lines = [{ at: 1, stream: 'stdout' as const, text: 'info fs.ready' }];
+    const { web, as } = await signedIn({
+      link: { output: { tail: (_system, limit) => lines.slice(0, limit) } },
+      catalog: { fns: () => Promise.resolve([]) },
+    });
+    await expect(web.client.call('systemLogs', { system: SystemName.parse('fs') }, as)).resolves.toEqual(lines);
+    await expect(web.client.call('systemFns', { system: SystemName.parse('fs') }, as)).resolves.toEqual([]);
+  });
+
+  it('refuses members', async () => {
+    const { r, web } = await signedIn();
+    const tokens = await member(r, web);
+    await expect(web.client.call('budgets', {}, web.as(tokens))).rejects.toMatchObject({ status: 403 });
   });
 });

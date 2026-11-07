@@ -3,17 +3,20 @@
  * A person's message: on the right in the accent bubble when it is your own, on the left with the author's name and
  * avatar when it is someone else's. A reply shows a small quote that jumps to the original. A long message (a
  * pasted log) collapses after a few lines behind Show more. What the hub and hooks added for the model sits under it
- * as one dimmed, collapsed row, and what the index suggested shows as chips. The action bar sits in the margin.
+ * as one dimmed, collapsed row, and what the index suggested shows as chips. Runs the person started with `!` show
+ * as live run cards under it. The action bar sits in the margin.
  */
 import type { ChatMessage, MessagePart, QualifiedName, RunId } from '@harness/core';
 import { computed, onMounted, ref } from 'vue';
 import { UiAvatar, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
 import type { MessageSuggestions, SuggestionItem } from '../logic/session.ts';
+import type { RunView } from '../logic/runs.ts';
 import { splitParts, type MentionPart } from '../logic/thread.ts';
 import MessageActions from './MessageActions.vue';
 import PartList from './PartList.vue';
+import RunCard from './RunCard.vue';
 import SuggestionChips from './SuggestionChips.vue';
-import type { MessageAction } from './types.ts';
+import type { MessageAction, RenderView } from './types.ts';
 
 const props = withDefaults(defineProps<{
   message: ChatMessage;
@@ -28,7 +31,13 @@ const props = withDefaults(defineProps<{
   flash?: boolean;
   /** How many lines show before Show more. */
   clampLines?: number;
-}>(), { quote: undefined, flash: false, clampLines: 8 });
+  /** The runs this message started (`!` invocations), as far as known. */
+  runs?: readonly RunView[];
+  /** A run's renderer and its props, when its system has one. */
+  viewOf?: (run: RunView) => RenderView | undefined;
+  /** Whether a run's card is collapsed. */
+  collapsed?: (run: RunId) => boolean;
+}>(), { quote: undefined, flash: false, clampLines: 8, runs: () => [], viewOf: () => undefined, collapsed: () => false });
 
 const emit = defineEmits<{
   action: [action: MessageAction];
@@ -38,6 +47,7 @@ const emit = defineEmits<{
   mentionOpen: [part: MentionPart, anchor: HTMLElement];
   suggestion: [item: SuggestionItem, kind: 'context' | 'fn'];
   run: [run: RunId];
+  runToggle: [run: RunId, collapsed: boolean];
 }>();
 
 const split = computed(() => splitParts(props.message.parts));
@@ -70,7 +80,7 @@ onMounted(() => {
     tabindex="-1"
   >
     <UiAvatar v-if="!mine" class="avatar" :name="authorName" :size="28" />
-    <div class="column">
+    <div class="column" :class="{ 'has-runs': runs.length > 0 }">
       <span v-if="!mine" class="author">{{ authorName }}</span>
       <button v-if="quote" type="button" class="quote" data-testid="reply-quote" @click="emit('quote')">
         <UiIcon name="reply" :size="12" />
@@ -95,6 +105,12 @@ onMounted(() => {
           <li v-for="(line, i) in addedText" :key="i">{{ line }}</li>
         </ul>
       </div>
+      <div v-if="runs.length > 0" class="runs">
+        <RunCard
+          v-for="run in runs" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run.id)" :view="viewOf(run)" :byline="mine ? 'You ran this' : `${authorName} ran this`"
+          @open="emit('run', run.id)" @toggle="emit('runToggle', run.id, $event)"
+        />
+      </div>
       <SuggestionChips :suggestions="suggestions" @use="(item, kind) => emit('suggestion', item, kind)" />
       <div class="meta">
         <time class="time" :datetime="new Date(message.createdAt).toISOString()" :title="fullTime(message.createdAt)">{{ relativeTime(message.createdAt, now) }}</time>
@@ -111,6 +127,9 @@ onMounted(() => {
 .user-message:focus { outline: none; }
 .avatar { flex: none; margin-top: 18px; }
 .column { display: grid; justify-items: start; gap: var(--space-1); min-width: 0; max-width: min(85%, var(--readable)); }
+/* a run card needs room to show its renderer, however short the message that started it */
+.column.has-runs { width: min(85%, var(--readable)); }
+.runs { display: grid; gap: var(--space-2); justify-self: stretch; min-width: 0; }
 .mine .column { justify-items: end; }
 .author { font-size: var(--text-xs); color: var(--text-faint); padding: 0 var(--space-2); }
 .quote {
@@ -130,7 +149,8 @@ onMounted(() => {
 .clamped .body { max-height: calc(var(--lines) * 1lh); overflow: hidden; mask-image: linear-gradient(to bottom, #000 60%, transparent); }
 .more { justify-self: start; margin-top: var(--space-1); padding: 0; border: 0; background: transparent; color: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium); text-decoration: underline; }
 .added { display: grid; justify-items: inherit; gap: 2px; max-width: 100%; }
-.added-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0 var(--space-1); border: 0; background: transparent; color: var(--text-faint); font-size: var(--text-xs); }
+.added-toggle { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); font-size: var(--text-xs); }
+.added-toggle:hover { color: var(--text-dim); }
 .added-list { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--surface-2); color: var(--text-faint); font-size: var(--text-xs); list-style: none; overflow-wrap: anywhere; }
 .meta { display: flex; align-items: center; gap: var(--space-1); min-height: 32px; }
 .mine .meta { flex-direction: row-reverse; }

@@ -11,7 +11,7 @@
  * into a policy for that actor and fn.
  */
 import {
-  mintId, type ActorId, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type QualifiedName,
+  mintId, READ_TAG, type ActorId, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type QualifiedName,
   type Remember, type RunId, type SessionId,
 } from '@harness/core';
 import type { PolicyEngine, RunDecision } from './index.ts';
@@ -24,7 +24,7 @@ import { AGENT_KIND } from './runs.ts';
  * call is decided on its own); anything else asks the turn's user.
  */
 export function fallback(fn: FnRecord): Policy['decision'] {
-  return fn.decl.tags.includes('read') || fn.decl.kind === AGENT_KIND ? { effect: 'allow' } : { effect: 'ask', approver: { by: 'turn-user' } };
+  return fn.decl.tags.includes(READ_TAG) || fn.decl.kind === AGENT_KIND ? { effect: 'allow' } : { effect: 'ask', approver: { by: 'turn-user' } };
 }
 
 /** What an actor is, for matching subjects. */

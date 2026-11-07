@@ -1,79 +1,61 @@
 /**
- * `npm run dev`: the hub, the web app (Vite), and the fs and embedder systems, each bound to the LAN, with their
- * output prefixed and coloured. Ctrl+C stops them all. Settings come from the `devEnv` slice:
+ * `npm run dev`: builds the web app, then runs the hub (serving that build), the fs system (with this repository as
+ * its root) and the embedder system, all bound to the LAN and restarting when their source changes. Output is
+ * prefixed and coloured per process; Ctrl+C stops them all. Settings come from the environment or `.env`:
  *
- *   HARNESS_PORT      hub port (default 4300)       HARNESS_WEB_PORT  web port (default 4310)
- *   HARNESS_DATA      data folder (default .harness) HARNESS_DEV_ONLY  comma list to run only some: hub,web,fs,embedder
+ *   HARNESS_ADMIN_EMAIL / HARNESS_ADMIN_PASSWORD   the single admin account (required; made on first start)
+ *   HARNESS_PORT       hub and web app port (default 4300)
+ *   HARNESS_DATA       data folder (default .harness)
+ *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder (default all)
+ *   HARNESS_DEV_ROOT   the folder fs serves (default this repository)
+ *   HARNESS_EMBEDDER_URL  the EmbeddingGemma service (default http://127.0.0.1:8760)
  *
- * A component whose entry file doesn't exist yet is reported and skipped, so this works while lanes build.
+ * For the web app with hot reload instead of a build, run `npm run dev:web` beside it (Vite on HARNESS_WEB_PORT).
  */
-import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { env } from '@ayepi/env';
+import { loadEnv } from '@ayepi/env/load';
 import { z } from 'zod';
+import { fsConfig, ROOT, startStack, type ComponentName } from './stack.ts';
+
+for (const [key, value] of Object.entries(loadEnv({ files: ['.env'] }))) {
+  process.env[key] ??= typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+const COMPONENTS = ['web', 'hub', 'fs', 'embedder'] as const satisfies readonly ComponentName[];
 
 const devEnv = env({
-  HARNESS_PORT: z.number().int().default(4300),
-  HARNESS_WEB_PORT: z.number().int().default(4310),
+  HARNESS_PORT: z.number().int().min(1).max(65535).default(4300),
   HARNESS_DATA: z.string().default('.harness'),
-  HARNESS_DEV_ONLY: z.string().default('hub,web,fs,embedder'),
+  HARNESS_DEV_ONLY: z.string().default(COMPONENTS.join(',')),
+  HARNESS_DEV_ROOT: z.string().default(ROOT),
   HARNESS_EMBEDDER_URL: z.string().default('http://127.0.0.1:8760'),
+  HARNESS_ADMIN_EMAIL: z.email(),
+  HARNESS_ADMIN_PASSWORD: z.string().min(10),
 });
 const settings = devEnv.parse();
-const root = fileURLToPath(new URL('..', import.meta.url));
-const tsx = fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url));
-const vite = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
-const link = `ws://127.0.0.1:${settings.HARNESS_PORT}/link`;
 
-interface Component {
-  readonly name: string;
-  readonly colour: number;
-  readonly entry: string;
-  readonly args: readonly string[];
-  readonly cwd: string;
-  readonly env: Readonly<Record<string, string>>;
-}
+const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32 } as const satisfies Record<ComponentName, number>;
+const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
 
-const shared = { HARNESS_PORT: String(settings.HARNESS_PORT), HARNESS_WEB_PORT: String(settings.HARNESS_WEB_PORT), HARNESS_DATA: settings.HARNESS_DATA };
-
-const components: readonly Component[] = [
-  { name: 'hub', colour: 35, entry: `${root}packages/hub/src/main.ts`, args: [tsx, 'watch', `${root}packages/hub/src/main.ts`], cwd: root, env: { HARNESS_HOST: '0.0.0.0' } },
-  { name: 'web', colour: 36, entry: vite, args: [vite], cwd: `${root}packages/web`, env: {} },
-  { name: 'fs', colour: 33, entry: `${root}systems/fs/server/main.ts`, args: [tsx, 'watch', `${root}systems/fs/server/main.ts`], cwd: root, env: { HARNESS_HUB: link, HARNESS_SYSTEM_STATE: `${settings.HARNESS_DATA}/dev-systems/fs` } },
-  {
-    name: 'embedder', colour: 32, entry: `${root}systems/embedder/server/main.ts`, args: [tsx, 'watch', `${root}systems/embedder/server/main.ts`], cwd: root,
-    env: { HARNESS_HUB: link, HARNESS_SYSTEM_STATE: `${settings.HARNESS_DATA}/dev-systems/embedder`, HARNESS_EMBEDDER_URL: settings.HARNESS_EMBEDDER_URL },
+const stack = await startStack({
+  port: settings.HARNESS_PORT,
+  data: settings.HARNESS_DATA,
+  admin: { email: settings.HARNESS_ADMIN_EMAIL, password: settings.HARNESS_ADMIN_PASSWORD },
+  build: true,
+  watch: true,
+  only: new Set(settings.HARNESS_DEV_ONLY.split(',').map((s) => s.trim()).filter(isComponent)),
+  systems: { fs: fsConfig(settings.HARNESS_DEV_ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL } },
+  output: (component, line, stream) => {
+    (stream === 'err' ? process.stderr : process.stdout).write(`\u001b[${COLOURS[component]}m${component.padEnd(9)}\u001b[0m ${line}\n`);
   },
-];
+});
+console.info('dev.ready', { local: stack.url, network: stack.lanUrls, data: settings.HARNESS_DATA, admin: settings.HARNESS_ADMIN_EMAIL });
 
-const only = new Set(settings.HARNESS_DEV_ONLY.split(',').map((s) => s.trim()));
-const children = new Map<string, ChildProcess>();
-
-function prefix(component: Component, text: string): string {
-  return text.split(/\r?\n/).filter((line) => line !== '').map((line) => `\u001b[${component.colour}m${component.name.padEnd(9)}\u001b[0m ${line}`).join('\n');
-}
-
-for (const component of components) {
-  if (!only.has(component.name)) { continue; }
-  if (!existsSync(component.entry)) {
-    console.warn('dev.component.missing', { component: component.name, entry: component.entry });
-    continue;
-  }
-  const child = spawn(process.execPath, [...component.args], { cwd: component.cwd, env: { ...process.env, ...shared, ...component.env }, stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', (chunk: Buffer) => { process.stdout.write(`${prefix(component, chunk.toString())}\n`); });
-  child.stderr.on('data', (chunk: Buffer) => { process.stderr.write(`${prefix(component, chunk.toString())}\n`); });
-  child.on('exit', (code) => { children.delete(component.name); console.info('dev.component.exited', { component: component.name, code }); });
-  children.set(component.name, child);
-}
-
-const lan = Object.values(networkInterfaces()).flat().find((n) => n?.family === 'IPv4' && !n.internal)?.address ?? 'localhost';
-console.info('dev.ready', { web: `http://${lan}:${settings.HARNESS_WEB_PORT}`, hub: `http://${lan}:${settings.HARNESS_PORT}`, data: settings.HARNESS_DATA });
-
-function stop(): void {
-  for (const child of children.values()) { child.kill(); }
-  process.exit(0);
-}
+let stopping = false;
+const stop = (): void => {
+  if (stopping) { return; }
+  stopping = true;
+  stack.stop().finally(() => { process.exit(0); }).catch(() => undefined);
+};
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

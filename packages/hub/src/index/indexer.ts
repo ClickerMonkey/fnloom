@@ -37,6 +37,8 @@ export interface IndexerOptions {
   readonly document: QualifiedName;
   /** The most characters of an item that are indexed. */
   readonly maxText: number;
+  /** The most resources one crawl of a root looks at. */
+  readonly maxCrawl: number;
 }
 
 /** The kinds a system's contract contributes. */
@@ -62,6 +64,12 @@ export function sectionIndexKey(uri: ResourceUri, key: SectionKey): string {
   return `${uri}#${key}`;
 }
 
+/** A section index key back to its resource and section (the part after the last `#`). */
+export function parseSectionIndexKey(key: string): { uri: string; section: string } | { uri: string } {
+  const at = key.lastIndexOf('#');
+  return at < 0 ? { uri: key } : { uri: key.slice(0, at), section: key.slice(at + 1) };
+}
+
 /** Keeps the store's index current. */
 export class StoreIndexer implements Indexer {
   readonly #options: IndexerOptions;
@@ -84,6 +92,9 @@ export class StoreIndexer implements Indexer {
         for (const change of changes) {
           this.#queue('index.resource', () => (change.change === 'removed' ? this.#drop(change.uri) : this.#follow(change.uri)));
         }
+      }),
+      bus.subscribe('resources.roots', ({ roots }) => {
+        for (const root of roots) { if (root.index === 'all') { this.#queue('index.crawl', () => this.crawl(root.uri)); } }
       }),
       embedders.onChange(() => { if (embedders.active() !== undefined) { this.#queue('index.backfill', () => this.backfill()); } }),
     ];
@@ -195,6 +206,38 @@ export class StoreIndexer implements Indexer {
     } catch (error) {
       log.warn('index.embed.failed', { items: rows.length, error: messageOf(error) });
     }
+  }
+
+  /**
+   * Walk a root and index every resource whose version isn't the one indexed (a root that indexes everything, on
+   * connect: files changed while the hub was away are caught up). Returns how many it indexed.
+   */
+  async crawl(root: ResourceUri): Promise<number> {
+    const { router, store, log, maxCrawl } = this.#options;
+    const folders: ResourceUri[] = [root];
+    let seen = 0;
+    let indexed = 0;
+    while (folders.length > 0 && seen < maxCrawl) {
+      const folder = folders.shift();
+      if (folder === undefined) { break; }
+      let cursor: string | undefined;
+      do {
+        const page = await router.list(folder, cursor);
+        for (const stat of page.items) {
+          seen += 1;
+          if (stat.type === 'folder') { folders.push(stat.uri); continue; }
+          if ((await store.table('resources').get(stat.uri))?.indexedVersion === stat.version) { continue; }
+          try {
+            if (await this.resource(stat.uri) !== undefined) { indexed += 1; }
+          } catch (error) {
+            log.warn('index.crawl.skipped', { uri: stat.uri, error: messageOf(error) });
+          }
+        }
+        cursor = page.cursor;
+      } while (cursor !== undefined && seen < maxCrawl);
+    }
+    log.info('index.crawled', { root, seen, indexed, capped: seen >= maxCrawl });
+    return indexed;
   }
 
   /** A changed resource: re-section it when its root indexes everything, or it was indexed before (on read). */

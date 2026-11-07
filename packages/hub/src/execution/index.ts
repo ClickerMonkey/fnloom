@@ -13,7 +13,9 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
+  ModelInfo,
 } from '@harness/core';
+import type { SpendReader } from './spend.ts';
 
 /** A request to run a fn: from an agent's tool call, a person's `!`, or a run's child call. */
 export interface RunInput {
@@ -73,8 +75,8 @@ export interface LimitResolver {
   resolve(input: { user: UserInfo; session?: SessionId; turn?: TurnId; requested?: Priority }): Promise<ResolvedLimits>;
 }
 
-/** Spend: reservations before LLM calls, settlement after, and the record of every cost. */
-export interface Ledger {
+/** Spend: reservations before LLM calls, settlement after, the record of every cost, and what budgets have spent. */
+export interface Ledger extends SpendReader {
   /**
    * Hold an estimate against every budget that applies; refused (or delayed) when one would go over. Reservations
    * are checked one at a time, so concurrent calls always see each other's holds.
@@ -100,7 +102,7 @@ export interface LlmGateway {
   /** Embeddings through a provider (when no embedder system is used). */
   embed(texts: readonly string[], run?: RunId): Promise<{ vectors: number[][]; cost: Usd }>;
   /** The models configured providers offer. */
-  models(): Promise<Array<{ id: string; name: string }>>;
+  models(): Promise<ModelInfo[]>;
 }
 
 /** One agent (`hub/llm` fn) run, iterated one LLM call per queued job. */

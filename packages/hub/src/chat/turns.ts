@@ -11,11 +11,11 @@ import {
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
-import type { MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, TurnEnd, TurnService } from './index.ts';
+import { isAttached, type AttachedPart, type MentionService, type MessageEnricher, type NotificationService, type PresenceTracker, type ReplyRule, type TurnEnd, type TurnService } from './index.ts';
 import type { People } from './people.ts';
 import { ACTIVE_RUN_STATUSES, UNTITLED, type StoreSessionService } from './sessions.ts';
 import type { StreamBuffer } from './streams.ts';
-import { allowsSystem, clip, participantOf, peopleOf, readAll, timeInfo } from './support.ts';
+import { allowsSystem, clip, participantOf, peopleOf, readAll, timeInfo, unmark } from './support.ts';
 
 /** The most runs a session is checked for when an agent is interrupted. */
 const MAX_SESSION_RUNS = 500;
@@ -165,12 +165,33 @@ export class StoreTurnService implements TurnService {
     if (delta.reasoning !== undefined && delta.reasoning !== '') { this.#deps.bus.publish('message.reasoning', { session: streamed.session, message, text: delta.reasoning }); }
   }
 
+  async track(message: MessageId, runs: readonly RunId[]): Promise<void> {
+    if (runs.length === 0) { return; }
+    const row = await this.#deps.store.table('messages').get(message);
+    if (row === undefined) { throw new ChatError('not-found', `No message ${message}.`); }
+    const added = runs.filter((run) => !row.runs.includes(run));
+    if (added.length === 0) { return; }
+    const updated = await this.#deps.store.table('messages').update(message, { runs: [...row.runs, ...added] });
+    this.#deps.bus.publish('message', { message: updated });
+  }
+
+  async attach(run: RunId, part: AttachedPart): Promise<ChatMessage> {
+    const { store, bus } = this.#deps;
+    const row = await store.table('runs').get(run);
+    if (row?.session === undefined) { throw new ChatError('not-found', `Run ${run} belongs to no session.`); }
+    const target = (await store.table('messages').find({ where: { turn: row.turn, role: 'assistant' }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
+    if (target === undefined) { throw new ChatError('conflict', `Turn ${row.turn} has no assistant message to attach to yet.`); }
+    const updated = await store.table('messages').update(target.id, { parts: [...target.parts, part], runs: target.runs.includes(run) ? target.runs : [...target.runs, run] });
+    bus.publish('message', { message: updated });
+    return updated;
+  }
+
   async finish(message: MessageId, parts: MessagePart[], status: 'done' | 'failed'): Promise<ChatMessage> {
     const row = await this.#deps.store.table('messages').get(message);
     if (row === undefined) { throw new ChatError('not-found', `No message ${message}.`); }
     if (row.role !== 'assistant') { throw new ChatError('conflict', 'Only an assistant message is finished.'); }
     this.#parts.streams.close(message);
-    const finished = await this.#deps.store.table('messages').update(message, { parts, status });
+    const finished = await this.#deps.store.table('messages').update(message, { parts: [...parts, ...row.parts.filter(isAttached)], status });
     this.#deps.bus.publish('message', { message: finished });
     const session = await this.#deps.store.table('sessions').get(row.session);
     const repliedTo = row.replyTo === undefined ? undefined : await this.#deps.store.table('messages').get(row.replyTo);
@@ -310,7 +331,7 @@ export class StoreTurnService implements TurnService {
     const person = participantOf(session, repliedTo.author);
     if (person === undefined || person.role === 'agent' || person.notify === 'none' || this.#parts.presence.looking(person.actor, session.id)) { return; }
     await this.#parts.notifications.notify({
-      user: person.actor, reason: 'replied', title: `New reply in ${session.title}`, body: clip(plainText(message.parts), NOTIFICATION_BODY), link: { session: session.id },
+      user: person.actor, reason: 'replied', title: `New reply in ${session.title}`, body: clip(unmark(plainText(message.parts)), NOTIFICATION_BODY), link: { session: session.id },
     });
   }
 
@@ -318,7 +339,7 @@ export class StoreTurnService implements TurnService {
   async #notifyFinished(session: Session, turn: Turn, status: TurnEnd): Promise<void> {
     const answer = (await this.#deps.store.table('messages').find({ where: { turn: turn.id, role: 'assistant' }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
     const outcome = { done: 'finished', failed: 'failed', cancelled: 'was cancelled' } as const satisfies Record<TurnEnd, string>;
-    const body = answer === undefined ? `The turn ${outcome[status]}.` : clip(plainText(answer.parts), NOTIFICATION_BODY);
+    const body = answer === undefined ? `The turn ${outcome[status]}.` : clip(unmark(plainText(answer.parts)), NOTIFICATION_BODY);
     const audience = peopleOf(session).filter((p) => p.notify === 'all' || (p.notify === 'replies' && p.actor === turn.actor));
     for (const person of audience) {
       if (this.#parts.presence.looking(person.actor, session.id)) { continue; }

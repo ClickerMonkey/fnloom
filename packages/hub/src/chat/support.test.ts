@@ -1,7 +1,7 @@
 import { IDS } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { ChatError } from './errors.ts';
-import { agentActorId, agentName, allowsSystem, asQualified, clip, collect, escapeAttribute, escapeBody, knownZone, readAll, sameJson, timeInfo, turnScope, weekday } from './support.ts';
+import { agentActorId, agentName, allowsSystem, asQualified, clip, collect, unmark, escapeAttribute, escapeBody, knownZone, readAll, sameJson, timeInfo, turnScope, weekday } from './support.ts';
 import { MemoryStore, actorId } from './testing.ts';
 
 const at = Date.UTC(2026, 10, 7, 14, 30, 5);
@@ -110,5 +110,14 @@ describe('paging', () => {
     for (let i = 0; i < 5; i++) { await s.table('memberships').insert({ group: actorId('act_g'), user: actorId(`act_${i}`), addedBy: actorId('act_a'), addedAt: i }); }
     expect(await readAll(s.table('memberships'), { where: { group: actorId('act_g') } }, 3)).toHaveLength(3);
     expect(await readAll(s.table('memberships'), {}, 100)).toHaveLength(5);
+  });
+});
+
+describe('markdown as plain text', () => {
+  it('keeps what markdown reads as and drops its markers', () => {
+    expect(unmark('# Title\n\nOne **hub** owns every `LLM` call, while *systems* add [fns](https://x.dev).')).toBe('Title\n\nOne hub owns every LLM call, while systems add fns.');
+    expect(unmark('- first\n- second\n1. third\n> quoted')).toBe('first\nsecond\nthird\nquoted');
+    expect(unmark('```ts\nconst a = 1;\n```')).toBe('const a = 1;\n');
+    expect(unmark('snake_case_name and 2 * 3 * 4 stay')).toBe('snake_case_name and 2 * 3 * 4 stay');
   });
 });

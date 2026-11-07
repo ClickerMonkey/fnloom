@@ -7,7 +7,7 @@ import { shallowRef } from 'vue';
 import { Loaded, Paged, Task, type PagedSource, type TaskResult } from '../../state/loaded.ts';
 import type { ChatApi } from '../../chat/api.ts';
 import type { AdminApi } from '../api.ts';
-import type { LlmFilter, LlmSummary, ResourceFilter, RunFilter } from '../contract.ts';
+import type { LlmFilter, LlmSummary, ResourceFilter, RunFilter } from '@harness/core';
 
 /** How many rows a browser fetches per page. */
 export const BROWSER_PAGE = 50;

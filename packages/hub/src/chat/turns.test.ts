@@ -312,3 +312,55 @@ describe('plain text of parts', () => {
     ])).toBe('Run /plan ship on @a.md');
   });
 });
+
+describe('runs and attachments on an assistant message', () => {
+  /** A sent turn with the agent's message begun, and one of its tool runs stored. */
+  async function answering() {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'Read the docs' }], client: CLIENT });
+    const answer = await w.chat.turns.begin({ turn: sent.turn, author: chatAgent });
+    const run = makeRun({ id: IDS.run.parse('run_tool'), fn: 'fs/read', turn: sent.turn, actor: w.admin.id, session: w.session.id });
+    await w.store.table('runs').insert(run);
+    return { w, sent, answer, run };
+  }
+
+  it('records the tool runs the agent started on its message, once each, and announces the change', async () => {
+    const { w, answer, run } = await answering();
+    await w.chat.turns.track(answer.id, [run.id]);
+    await w.chat.turns.track(answer.id, [run.id]);
+    await settle();
+    expect((await w.store.table('messages').get(answer.id))?.runs).toEqual([run.id]);
+    expect(w.bus.of('message').filter((e) => e.message.id === answer.id && e.message.runs.length === 1)).toHaveLength(1);
+  });
+
+  it('attaches a run\'s attachment to the turn\'s latest answer, and finishing keeps it', async () => {
+    const { w, answer, run } = await answering();
+    await w.chat.turns.attach(run.id, { type: 'attachment', attachment: 'fs/diff', data: { path: 'a.md' }, title: 'a.md' });
+    const finished = await w.chat.turns.finish(answer.id, [{ type: 'text', text: 'Done.' }], 'done');
+    expect(finished.parts).toEqual([{ type: 'text', text: 'Done.' }, { type: 'attachment', attachment: 'fs/diff', data: { path: 'a.md' }, title: 'a.md' }]);
+    expect(finished.runs).toEqual([run.id]);
+  });
+
+  it('refuses to attach for a run outside a session, or before the turn has an answer', async () => {
+    const w = await chatWorld();
+    const loose = makeRun({ id: IDS.run.parse('run_loose'), fn: 'fs/read', turn: IDS.turn.parse('trn_loose'), actor: w.admin.id });
+    await w.store.table('runs').insert(loose);
+    await expect(w.chat.turns.attach(loose.id, { type: 'link', link: { url: 'https://example.com', title: 'x' } })).rejects.toThrow(/no session/);
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'hi' }], client: CLIENT });
+    const early = makeRun({ id: IDS.run.parse('run_early'), fn: 'fs/read', turn: sent.turn, actor: w.admin.id, session: w.session.id });
+    await w.store.table('runs').insert(early);
+    await expect(w.chat.turns.attach(early.id, { type: 'link', link: { url: 'https://example.com', title: 'x' } })).rejects.toThrow(/no assistant message/);
+  });
+});
+
+describe('loading fns and context into a session', () => {
+  it('replaces the session\'s loaded tools and context and announces the change', async () => {
+    const w = await chatWorld();
+    const loaded = await w.chat.sessions.load(w.session.id, { tools: ['fs/read'], context: ['fs/guide'] });
+    expect(loaded).toMatchObject({ tools: ['fs/read'], context: ['fs/guide'] });
+    const again = await w.chat.sessions.load(w.session.id, { tools: [] });
+    expect(again).toMatchObject({ tools: [], context: ['fs/guide'] });
+    await settle();
+    expect(w.bus.of('session.changed').length).toBeGreaterThanOrEqual(2);
+  });
+});

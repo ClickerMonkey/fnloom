@@ -173,7 +173,7 @@ describe('the embedder implementation', () => {
 
   /** A hub that is never reached, so the real `HubLlm` over it fails every call: the embedder uses no LLM. */
   const unreachable: HubAccess = { ready: () => Promise.reject(new Error('unused')), now: () => undefined, limits: () => ({ maxFrame: 262_144, maxChunk: 131_072, heartbeat: 15_000 }) };
-  const ctx = (config: EmbedderConfig, log: Log) => ({ system: 'embedder', config, log, signal: new AbortController().signal, llm: new HubLlm({ hub: unreachable }), resources: { stat: () => Promise.reject(new Error('unused')), text: () => Promise.reject(new Error('unused')), links: () => Promise.reject(new Error('unused')), sections: () => Promise.reject(new Error('unused')), search: () => Promise.reject(new Error('unused')) } });
+  const ctx = (config: EmbedderConfig, log: Log) => ({ system: 'embedder', config, log, signal: new AbortController().signal, llm: new HubLlm({ hub: unreachable }), resources: { stat: () => Promise.reject(new Error('unused')), text: () => Promise.reject(new Error('unused')), links: () => Promise.reject(new Error('unused')), sections: () => Promise.reject(new Error('unused')), search: () => Promise.reject(new Error('unused')) }, types: { definitions: () => Promise.reject(new Error('unused')) } });
 
   it('embeds documents and queries with their task, caching queries', async () => {
     const fake = new FakeClient();

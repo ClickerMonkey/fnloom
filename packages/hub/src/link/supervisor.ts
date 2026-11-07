@@ -9,6 +9,7 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
+import { SYSTEM_ENV } from '@harness/sdk/server';
 import type { ActorId, InstallSource, InstalledSystem, Json, StopReason, SystemName, SystemRecord } from '@harness/core';
 import { allRows } from '../catalog/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
@@ -52,8 +53,6 @@ export interface SupervisorOptions {
   readonly settings: SupervisorSettings;
 }
 
-/** The environment a system process is started with, so its `serve()` finds the hub and its state. */
-export const SYSTEM_ENV = { hub: 'HARNESS_HUB', state: 'HARNESS_SYSTEM_STATE', name: 'HARNESS_SYSTEM_NAME' } as const;
 
 /** One running process. */
 interface Running {

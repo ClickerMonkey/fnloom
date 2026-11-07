@@ -3,6 +3,7 @@
  * named. Feature code reads these through `fsEnv.parse()`, never `process.env`.
  */
 import { env } from '@ayepi/env';
+import { systemFields } from '@harness/sdk/server';
 import { z } from 'zod';
 
 /** Folder names skipped by every walk (listing, glob, grep, tree, mentions) unless asked for by path. */
@@ -12,12 +13,7 @@ const IGNORED = ['.git', 'node_modules', 'dist', 'coverage', '.types', '.harness
 const SAFE = ['ls', 'pwd', 'cat', 'head', 'tail', 'wc', 'echo', 'which', 'git status', 'git diff', 'git log', 'git show', 'git branch', 'npm run typecheck', 'npm test', 'npx vitest', 'npx tsc'];
 
 export const fsEnv = env({
-  /** The hub's link URL. */
-  HARNESS_HUB: z.string().default('ws://127.0.0.1:4300/link'),
-  /** Where the system keeps its key pair, outcome journal and undo snapshots. */
-  HARNESS_SYSTEM_STATE: z.string().default('.harness/systems/fs'),
-  /** A one-time pairing token an admin made, if any. */
-  HARNESS_PAIRING_TOKEN: z.string().optional(),
+  ...systemFields('fs'),
   /** The shell `bash` runs commands with. Default: Git Bash on Windows when installed, else bash, else the system shell. */
   FS_SHELL: z.string().optional(),
   /** Lines `read` returns when no limit is given. */

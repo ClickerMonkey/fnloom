@@ -133,6 +133,6 @@ describe('providers', () => {
 
   it('list the models the hub AI can pick from', async () => {
     const rig = executionRig();
-    expect(await rig.module.llm.models()).toEqual(expect.arrayContaining([{ id: 'test-model', name: 'Test model' }]));
+    expect(await rig.module.llm.models()).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'test-model', name: 'Test model', capabilities: ['chat', 'streaming', 'tools', 'json', 'structured'] })]));
   });
 });

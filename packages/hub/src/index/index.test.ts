@@ -75,7 +75,17 @@ class FakeRouter implements ResourceRouter {
     return Promise.resolve({ stat: this.#stat(uri), text: this.files.get(uri)?.text ?? '', links: [{ raw: './b.md', kind: 'link' }] });
   }
   stat(uri: ResourceUri): Promise<ResourceStat | undefined> { return Promise.resolve(this.#stat(uri)); }
-  list(): Promise<Page<ResourceStat>> { return Promise.resolve({ items: [] }); }
+  /** One level of a folder: its files, and its subfolders as folder entries. */
+  list(folder: ResourceUri): Promise<Page<ResourceStat>> {
+    const items = new Map<string, ResourceStat>();
+    for (const uri of this.files.keys()) {
+      if (!uri.startsWith(`${folder}/`)) { continue; }
+      const [first = '', ...rest] = uri.slice(folder.length + 1).split('/');
+      const child = ResourceUri.parse(`${folder}/${first}`);
+      items.set(child, rest.length === 0 ? this.#stat(child) : { uri: child, name: first, type: 'folder', version: '0' });
+    }
+    return Promise.resolve({ items: [...items.values()] });
+  }
   sections(_sectioner: QualifiedName, uri: ResourceUri, version: string): Promise<Section[]> {
     this.sectionCalls += 1;
     const text = this.files.get(uri)?.text ?? '';
@@ -94,7 +104,7 @@ function setup() {
   const batcher = new EmbedBatcher({ embedders, size: 8, wait: 1, poll: 2 });
   const router = new FakeRouter();
   const sectioning = new Sectioning({ store, catalog, router });
-  const indexer = new StoreIndexer({ store, bus, log, clock: () => 5, catalog, embedders, batcher, router, sectioning, document: DOCUMENT, maxText: 500 });
+  const indexer = new StoreIndexer({ store, bus, log, clock: () => 5, catalog, embedders, batcher, router, sectioning, document: DOCUMENT, maxText: 500, maxCrawl: 100 });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 });
   const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document: DOCUMENT, overfetch: 3 });
   const suggester = new IndexSuggester({ store, catalog, search });
@@ -193,6 +203,32 @@ describe('resources', () => {
     router.files.set(uri, { text: 'one\n\ntwo\n', version: 'v1', format: 'markdown' });
     await store.table('sectionRules').put({ id: SectionRuleId.parse('srl_1'), match: { glob: '**/*.md' }, sectioner: q('hub/paragraphs'), setBy: ActorId.parse('act_admin') });
     expect((await indexer.resource(uri))?.added).toEqual(['one', 'two']);
+  });
+
+  it('crawls a root that indexes everything when its system offers it, catching up only what changed', async () => {
+    const { indexer, router, store, bus } = ctx;
+    indexer.start();
+    const nested = ResourceUri.parse('file:///docs/deep/notes.md');
+    router.files.set(uri, { text: '# A\nx\n', version: 'v1', format: 'markdown' });
+    router.files.set(nested, { text: '# B\ny\n', version: 'v1', format: 'markdown' });
+    bus.publish('resources.roots', { system: SystemName.parse('shop'), roots: [router.root] });
+    await settle(5);
+    await indexer.idle();
+    expect((await store.table('resources').get(uri))?.indexedVersion).toBe('v1');
+    expect((await store.table('resources').get(nested))?.indexedVersion).toBe('v1');
+
+    router.files.set(nested, { text: '# B\nz\n', version: 'v2', format: 'markdown' });
+    const sectioned = router.sectionCalls;
+    expect(await indexer.crawl(router.root.uri)).toBe(1);
+    expect((await store.table('resources').get(nested))?.indexedVersion).toBe('v2');
+    expect(router.sectionCalls).toBe(sectioned);
+
+    router.root.index = 'on-read';
+    bus.publish('resources.roots', { system: SystemName.parse('shop'), roots: [router.root] });
+    router.files.set(uri, { text: '# A\nnew\n', version: 'v3', format: 'markdown' });
+    await settle(5);
+    await indexer.idle();
+    expect((await store.table('resources').get(uri))?.indexedVersion).toBe('v1');
   });
 
   it('follows changes by its root’s policy, and drops removed resources', async () => {

@@ -8,7 +8,7 @@ import { clamp, formatBytes, formatCost, formatDuration, formatTokens } from './
 import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage } from './inspect.ts';
 import { isTyping, shortcutFor } from './keys.ts';
 import { agentName, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
-import { applyRunUpdate, argSummary, emptyRun, mergeRecord, phaseOf, progressFraction, runElapsed, runError, runResult, runText, statusLine } from './runs.ts';
+import { applyRunUpdate, argSummary, emptyRun, mergeRecord, phaseOf, progressFraction, resultBrief, runElapsed, runError, runResult, runText, statusLine } from './runs.ts';
 import { budgetMeter, messageSuggestions, scopeLabel, whoAnswers } from './session.ts';
 import { appendToken, dayLabel, messageText, prependPage, resendParts, splitParts, threadItems, upsertMessage } from './thread.ts';
 
@@ -260,5 +260,18 @@ describe('keys', () => {
     const box = document.createElement('input');
     box.type = 'checkbox';
     expect([isTyping(text), isTyping(box), isTyping(document.createElement('textarea')), isTyping(document.createElement('div')), isTyping(null)]).toEqual([true, false, true, false, false]);
+  });
+});
+
+describe('a result in brief', () => {
+  it('shows text as text, a text-carrying object as its text, and anything else as JSON', () => {
+    expect(resultBrief(undefined)).toBe('');
+    expect(resultBrief(null)).toBe('');
+    expect(resultBrief('done')).toBe('done');
+    expect(resultBrief(3)).toBe('3');
+    expect(resultBrief({ text: '# README\nhello', lines: 2 })).toBe('# README\nhello');
+    expect(resultBrief({ cwd: '/repo' })).toBe('/repo');
+    expect(resultBrief({ exitCode: 0, stdout: 'x' })).toBe('{\n  "exitCode": 0,\n  "stdout": "x"\n}');
+    expect(resultBrief(['a'])).toBe('[\n  "a"\n]');
   });
 });

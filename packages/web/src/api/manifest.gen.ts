@@ -1140,6 +1140,7 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
+        "id",
         "name",
         "description",
         "models"
@@ -1162,6 +1163,7 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
+        "id",
         "target",
         "period",
         "maxCost",
@@ -1189,6 +1191,7 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
+        "id",
         "target",
         "default",
         "max"
@@ -1211,6 +1214,7 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
+        "id",
         "description",
         "subject",
         "target",
@@ -1290,6 +1294,289 @@ export const manifest = {
       "hasHeaders": false,
       "multi": false,
       "bodyEnc": "json"
+    },
+    "systemFns": {
+      "method": "POST",
+      "path": "/systemFns",
+      "ws": "systemFns",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "systemLogs": {
+      "method": "POST",
+      "path": "/systemLogs",
+      "ws": "systemLogs",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system",
+        "limit"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "models": {
+      "method": "POST",
+      "path": "/models",
+      "ws": "models",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "provider"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "modelCategories": {
+      "method": "POST",
+      "path": "/modelCategories",
+      "ws": "modelCategories",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "budgets": {
+      "method": "POST",
+      "path": "/budgets",
+      "ws": "budgets",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "priorityRules": {
+      "method": "POST",
+      "path": "/priorityRules",
+      "ws": "priorityRules",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "resolveLimits": {
+      "method": "POST",
+      "path": "/resolveLimits",
+      "ws": "resolveLimits",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "user",
+        "session"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "policies": {
+      "method": "POST",
+      "path": "/policies",
+      "ws": "policies",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "actors": {
+      "method": "POST",
+      "path": "/actors",
+      "ws": "actors",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "kind"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "actorSettings": {
+      "method": "POST",
+      "path": "/actorSettings",
+      "ws": "actorSettings",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "runs": {
+      "method": "POST",
+      "path": "/runs",
+      "ws": "runs",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "cursor",
+        "limit",
+        "status",
+        "fn",
+        "system",
+        "session"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "llmCalls": {
+      "method": "POST",
+      "path": "/llmCalls",
+      "ws": "llmCalls",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "cursor",
+        "limit",
+        "status",
+        "model",
+        "system",
+        "session"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "resources": {
+      "method": "POST",
+      "path": "/resources",
+      "ws": "resources",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "cursor",
+        "limit",
+        "search",
+        "system"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "removeRule": {
+      "method": "POST",
+      "path": "/removeRule",
+      "ws": "removeRule",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": "raw",
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
     }
   },
   "events": {
@@ -1300,6 +1587,10 @@ export const manifest = {
     "user": {
       "ws": "on.user",
       "hasParams": false
+    },
+    "systemLog": {
+      "ws": "on.systemLog",
+      "hasParams": true
     }
   }
 } as const satisfies Manifest;

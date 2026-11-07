@@ -6,7 +6,7 @@ import type { ActorId, ActorSetting, Json, QualifiedName, SystemName } from '@ha
 import { computed } from 'vue';
 import { Loaded, Task } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
-import type { SettingView } from '../contract.ts';
+import type { SettingView } from '@harness/core';
 
 type SettingsApi = Pick<AdminApi, 'actorSettings' | 'setActorSetting'>;
 

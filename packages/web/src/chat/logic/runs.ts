@@ -96,6 +96,24 @@ export function runResult(run: RunView): Json | undefined {
   return run.outcome?.status === 'done' ? run.outcome.result : undefined;
 }
 
+/**
+ * A result in brief, as a run card without a renderer shows it: text as text, an object that carries its text in a
+ * `text` field or in its only field (a file read) as that text, anything else as indented JSON.
+ */
+export function resultBrief(value: Json | undefined): string {
+  if (value === undefined || value === null) { return ''; }
+  if (typeof value === 'string') { return value; }
+  if (typeof value === 'number' || typeof value === 'boolean') { return String(value); }
+  if (!Array.isArray(value)) {
+    const text = value['text'];
+    if (typeof text === 'string') { return text; }
+    const fields = Object.values(value);
+    const only = fields[0];
+    if (fields.length === 1 && typeof only === 'string') { return only; }
+  }
+  return JSON.stringify(value, null, 2);
+}
+
 /** What a run is doing, in plain words: "Read file…", "Retrying read file… (attempt 2)", "Read file failed". */
 export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt'>): string {
   const label = fnLabel(run.fn);

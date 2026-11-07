@@ -16,7 +16,7 @@ import ModelTable from '../components/ModelTable.vue';
 import ProviderDialog from '../components/ProviderDialog.vue';
 import RuleList from '../components/RuleList.vue';
 import RuleRow from '../components/RuleRow.vue';
-import type { ModelInfo } from '../contract.ts';
+import type { ModelInfo } from '@harness/core';
 import { PROVIDER_NAME, type CategoryBody } from '../logic/forms.ts';
 import { ModelsTab } from '../sections.ts';
 import type { ProviderRow } from '../state/models.ts';

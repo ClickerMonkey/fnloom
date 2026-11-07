@@ -11,7 +11,7 @@ import { g, wireType } from '@harness/sdk';
 import { fakeCaller } from '../../test/fakes.ts';
 import { llmCall, run, T0 } from '../../chat/test/fakes.ts';
 import type { SystemLogEvents } from '../api.ts';
-import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView } from '../contract.ts';
+import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView } from '@harness/core';
 import { AdminStore } from '../state/admin.ts';
 
 export { T0 };

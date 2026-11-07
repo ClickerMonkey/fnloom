@@ -20,7 +20,7 @@ import { UiBadge, UiInput, UiSelect, type SelectOption } from '../../ui/index.ts
 import { useNow } from '../../ui/now.ts';
 import BrowserFrame from '../components/BrowserFrame.vue';
 import BrowserRow from '../components/BrowserRow.vue';
-import { RunFilter } from '../contract.ts';
+import { RunFilter } from '@harness/core';
 import { BROWSER_REFRESH, filterOf } from '../logic/browsers.ts';
 
 const { admin, toasts } = useStores();

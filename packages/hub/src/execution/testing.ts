@@ -12,7 +12,7 @@ import { memoryBackend } from '@ayepi/work';
 import { fnDecl, type AnyFnDef } from '@harness/sdk';
 import {
   ActorId, MessageId, SystemName, mintId, systemLinkSpec,
-  type ApprovalId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
+  type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo,
 } from '@harness/core';
@@ -252,6 +252,8 @@ export interface ChatRecord {
   readonly streamed: Array<{ message: MessageId; text?: string; reasoning?: string }>;
   readonly finished: Array<{ message: MessageId; parts: MessagePart[]; status: 'done' | 'failed' }>;
   readonly settled: Array<{ turn: TurnId; status: Exclude<TurnStatus, 'running' | 'paused' | 'undone'> }>;
+  /** Runs recorded on assistant messages (`track`). */
+  readonly tracked: Array<{ message: MessageId; runs: readonly RunId[] }>;
 }
 
 /** Limits that let a turn spend up to $1 at interactive priority. */
@@ -270,7 +272,7 @@ export function executionRig(options: { settings?: ExecutionSettings; active?: b
   const hub = linkServer();
   const systems = new Map<string, TestSystem>();
   const provider = new ScriptedProvider();
-  const chat: ChatRecord = { begun: [], streamed: [], finished: [], settled: [] };
+  const chat: ChatRecord = { begun: [], streamed: [], finished: [], settled: [], tracked: [] };
   const presence = { active: options.active ?? false };
   const configs = new Map<string, ConfigValue>();
   const approverSets = new Map<ApprovalId, ActorId[]>();
@@ -298,6 +300,7 @@ export function executionRig(options: { settings?: ExecutionSettings; active?: b
         return Promise.resolve({ ...begun, parts, status });
       },
       settle: (turn, status) => { chat.settled.push({ turn, status }); return Promise.resolve(); },
+      track: (message, runs) => { chat.tracked.push({ message, runs }); return Promise.resolve(); },
     },
     enrich: { render: (message) => message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') },
     approvers: { approvers: (approver: Approver, turnUser: ActorId) => Promise.resolve(approver.by === 'turn-user' ? [turnUser] : approver.by === 'actor' ? [approver.actor] : []) },

@@ -4,8 +4,9 @@ import { ActorId, systemLinkSpec } from '@harness/core';
 import { fake, fakeModules, rig } from '../api/testing/rig.ts';
 import type { HubModules } from './index.ts';
 import { assemble } from './services.ts';
+import { JwtSystemTokens } from '../link/tokens.ts';
 
-const extras = { peers: peers(systemLinkSpec), hubActor: ActorId.parse('act_hub') };
+const extras = { peers: peers(systemLinkSpec), hubActor: ActorId.parse('act_hub'), systemTokens: new JwtSystemTokens({ secret: 'x'.repeat(32), ttl: 60_000 }) };
 
 describe('assemble', () => {
   it('builds each module once, on first use', async () => {

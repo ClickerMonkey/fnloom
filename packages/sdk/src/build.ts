@@ -4,7 +4,7 @@
  * `buildClient({ entry, outDir })` runs a Vite library build of `client/index.ts` (Vue single-file components
  * included) into `outDir/index.js`. `vue` and `@harness/sdk` stay external: every import of them reads the chat's own
  * copies from the shared-modules global (`shareModules` in `@harness/sdk/client`), so renderers share the chat's Vue
- * and the SDK's injection keys. Pass `outDir` as `serve`'s `client` option and the system uploads it on connect.
+ * and the SDK's injection keys. Their CSS is folded into `index.js` (`inlineCss`), so loading the entry styles them. Pass `outDir` as `serve`'s `client` option and the system uploads it on connect.
  */
 import vue from '@vitejs/plugin-vue';
 import { build, type Plugin } from 'vite';
@@ -45,6 +45,26 @@ export function sharedModules(): Plugin {
   };
 }
 
+/**
+ * A Vite plugin that moves the bundle's CSS into its entry chunk, which adds it to the page as a `<style>` when it
+ * loads. The chat loads a system's build by its entry alone, so renderers' styles must travel with it.
+ */
+export function inlineCss(): Plugin {
+  return {
+    name: 'harness-inline-css',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const sheets = Object.values(bundle).flatMap((file) => (file.type === 'asset' && file.fileName.endsWith('.css') ? [file] : []));
+      const entry = Object.values(bundle).find((file) => file.type === 'chunk' && file.isEntry);
+      if (sheets.length === 0 || entry?.type !== 'chunk') { return; }
+      const css = sheets.map((sheet) => (typeof sheet.source === 'string' ? sheet.source : new TextDecoder().decode(sheet.source))).join('\n');
+      for (const sheet of sheets) { Reflect.deleteProperty(bundle, sheet.fileName); }
+      entry.code = `if (typeof document !== 'undefined') { const style = document.createElement('style'); style.dataset['harnessClient'] = ''; style.textContent = ${JSON.stringify(css)}; document.head.append(style); }\n${entry.code}`;
+    },
+  };
+}
+
 /** What `buildClient` takes. */
 export interface BuildClientOptions {
   /** The client entry: a module whose default export is `client(contract, renderers)`. */
@@ -62,7 +82,7 @@ export async function buildClient(options: BuildClientOptions): Promise<ClientBu
   await build({
     configFile: false,
     logLevel: 'warn',
-    plugins: [sharedModules(), vue()],
+    plugins: [sharedModules(), vue(), inlineCss()],
     build: {
       outDir: options.outDir,
       emptyOutDir: true,

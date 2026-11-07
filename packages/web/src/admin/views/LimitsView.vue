@@ -17,7 +17,7 @@ import ResolvedView from '../components/ResolvedView.vue';
 import RuleList from '../components/RuleList.vue';
 import RuleRow from '../components/RuleRow.vue';
 import SpendMeter from '../components/SpendMeter.vue';
-import type { BudgetView } from '../contract.ts';
+import type { BudgetView } from '@harness/core';
 import { ACTOR_LEVELS, type BudgetBody, type PriorityBody } from '../logic/forms.ts';
 import { ON_LIMIT_TEXT, PRIORITY_WORD, budgetAmount, scopeText } from '../logic/limits.ts';
 import { LimitsTab } from '../sections.ts';

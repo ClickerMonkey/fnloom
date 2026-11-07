@@ -6,7 +6,7 @@
 import type { LimitLevel } from '@harness/core';
 import { computed, ref, watch } from 'vue';
 import { UiBanner, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, optionsOf, type SegmentOption, type SelectOption } from '../../ui/index.ts';
-import type { BudgetView } from '../contract.ts';
+import type { BudgetView } from '@harness/core';
 import { budgetBody, budgetDraft, type BudgetBody, type BudgetDraft, type PeriodKind } from '../logic/forms.ts';
 import { BUDGET_LEVELS, LEVEL_NAME, ON_LIMIT_TEXT, WINDOWS } from '../logic/limits.ts';
 import type { ActorOption } from '../state/actors.ts';

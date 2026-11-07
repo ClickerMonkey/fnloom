@@ -88,6 +88,7 @@ function services(options: FakeOptions, recorded: Recorded) {
     files: { read: unused('files'), readText: unused('files'), write: unused('files'), list: unused('files'), remove: unused('files'), share: unused('files') },
     fetch: unused('fetch'),
     resources: { stat: unused('resources'), text: unused('resources'), links: unused('resources'), sections: unused('resources'), search: unused('resources') },
+    types: { definitions: unused('types') },
     attach: <A>(ref: AttachmentRef<QualifiedName, A>, data: A, title: string) => { recorded.attachments.push({ name: ref.name, data: parseValue(ref.data, data), title }); },
     link: () => undefined,
     setting: <V>(ref: SettingRef<QualifiedName, V>) => {
@@ -154,7 +155,7 @@ export function undoCtx(options: FakeOptions): { ctx: UndoCtx<FsConfig> } & Reco
 export function systemCtx(options: FakeOptions): SystemCtx<FsConfig> & { session: ReturnType<typeof mintId<'session'>>; user: typeof user; time: TimeInfo } & Recorded {
   const recorded = record();
   const all = services(options, recorded);
-  return { ...recorded, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
+  return { ...recorded, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
 }
 
 /** An action context. */

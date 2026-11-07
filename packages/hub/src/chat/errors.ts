@@ -1,5 +1,7 @@
 /** The errors chat services throw, each with a stable code the web API maps to a status. */
 
+import { messageOf } from '@harness/core';
+
 /** Why a chat request was refused. */
 export const CHAT_ERROR_CODES = {
   /** No such session, message, turn, run or delivery, or the asker can't see it. */
@@ -30,7 +32,5 @@ export class ChatError<C extends ChatErrorCode = ChatErrorCode> extends Error {
   }
 }
 
-/** The message of anything thrown. */
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The message of anything thrown (one definition, in `@harness/core`). */
+export { messageOf };

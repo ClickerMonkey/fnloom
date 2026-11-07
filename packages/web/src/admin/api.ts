@@ -6,7 +6,7 @@
  */
 import type { SystemName } from '@harness/core';
 import type { Hub } from '../api/client.ts';
-import type { OutputLine } from './contract.ts';
+import type { OutputLine } from '@harness/core';
 
 /** Make the admin callers. */
 export function adminApi(hub: Hub) {

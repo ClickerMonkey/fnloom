@@ -75,7 +75,7 @@ describe('specs', () => {
     });
   }
 
-  it('gives the web spec its two realtime channels', () => {
-    expect(Object.keys(manifestFromSpec(hubWebSpec).events).sort()).toEqual(['session', 'user']);
+  it('gives the web spec its realtime channels', () => {
+    expect(Object.keys(manifestFromSpec(hubWebSpec).events).sort()).toEqual(['session', 'systemLog', 'user']);
   });
 });

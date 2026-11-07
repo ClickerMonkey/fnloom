@@ -1,14 +1,10 @@
 /** The embedder system's tunables, an `@ayepi/env` slice. Durations are milliseconds. */
 import { env } from '@ayepi/env';
+import { systemFields } from '@harness/sdk/server';
 import { z } from 'zod';
 
 export const embedderEnv = env({
-  /** The hub's link URL. */
-  HARNESS_HUB: z.string().default('ws://127.0.0.1:4300/link'),
-  /** Where the system keeps its key pair and outcome journal. */
-  HARNESS_SYSTEM_STATE: z.string().default('.harness/systems/embedder'),
-  /** A one-time pairing token an admin made, if any. */
-  HARNESS_PAIRING_TOKEN: z.string().optional(),
+  ...systemFields('embedder'),
   /** The EmbeddingGemma service, used when the system's config names none. */
   HARNESS_EMBEDDER_URL: z.string().default('http://127.0.0.1:8760'),
   /** Most texts per request (the service's own `max_batch` also caps it). */

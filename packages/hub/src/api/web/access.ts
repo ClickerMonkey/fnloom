@@ -19,6 +19,14 @@ export function deviceOf(req: Request): string {
   return (req.headers.get('user-agent') ?? 'unknown').slice(0, 200);
 }
 
+/**
+ * A request's data where every field is optional. ayepi leaves `data` out of the handler's input when the request's
+ * fields are all absent (`{}`), though its types say it is there; `empty` stands in for it then (a library ask).
+ */
+export function bodyOf<T>(io: { readonly data: T }, empty: T): T {
+  return 'data' in io ? io.data : empty;
+}
+
 /** The person as runs and systems see them: their groups, and their time zone and locale (the browser's when given). */
 export async function userInfo(hub: Pick<HubServices, 'store'>, user: UserView, client?: ClientInfo): Promise<UserInfo> {
   const memberships = await collect((cursor) => hub.store.table('memberships').find({ where: { user: user.id }, limit: PAGE, cursor }));
