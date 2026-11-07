@@ -154,8 +154,8 @@ export interface ChallengeAnswer { signature: string }
 
 /** The hub accepts the system. */
 export interface Welcome {
-  /** The system's config, as an admin set it (checked against the contract's config type). */
-  config: Json;
+  /** The system's config and its version, if a valid one is set. Without one the system waits, unusable. */
+  config?: { value: Json; version: number };
   /** Why it is starting, so the SDK can call the right lifecycle events. */
   start: { first: boolean; upgradedFrom?: string };
   /** A short-lived token for HTTP (asset upload, presigned content). */
@@ -244,8 +244,10 @@ export interface SystemLink {
   /** Deliver a form submission to the run waiting in `ctx.form()`. */
   form(input: { delivery: Id<'delivery'>; run: RunId; value: Json }): Promise<void>;
   restart(input: { reason: string }): Promise<void>;
-  /** Stop for a reason (config change, upgrade, shutdown, removed); the system runs `lifecycle.stopping` first. */
-  stop(input: { reason: 'restart' | 'config' | 'upgrade' | 'shutdown' | 'removed'; timeout: Duration }): Promise<void>;
+  /** Stop for a reason; the system runs `lifecycle.stopping` first. */
+  stop(input: { reason: 'restart' | 'upgrade' | 'shutdown' | 'removed'; timeout: Duration }): Promise<void>;
+  /** The config changed (or was set for the first time). The system runs `lifecycle.configured`. */
+  configure(input: { value: Json; version: number; previous?: Json }): Promise<void>;
 }
 
 /** The hub's request to run a fn. */
@@ -262,6 +264,8 @@ export interface RunRequest {
   handlers: string[];
   resume?: { state: Json; calls: Record<string, RunSettled>; reason: 'resumed' | 'restart' };
   deadline: Timestamp;
+  /** The config version to run with. The system already has the value (sent on connect and on change), so requests stay small. */
+  configVersion: number;
 }
 
 /** A run's outcome on the wire. */
@@ -299,12 +303,16 @@ export type LlmForwardChunk =
 // ═══ Systems ═══
 
 /** Where a system is. */
-export type SystemStatus = 'pairing' | 'connected' | 'disconnected' | 'removed';
+/** `needs-config`: connected, but without a valid config, so it can't be used yet. */
+export type SystemStatus = 'pairing' | 'needs-config' | 'connected' | 'disconnected' | 'removed';
 
 /** The hub's row for a system. */
 export interface SystemRecord {
-  /** Its config, as an admin set it (encrypted where the type marks a field secret). */
-  config: Json;
+  /**
+   * Its config, as someone set it, checked against the contract's config type (fields holding secrets are stored
+   * encrypted). Absent until a valid value is set; until then the system needs config and can't be used.
+   */
+  config?: { value: Json; version: number; setBy: ActorId; setAt: Timestamp };
   /** Set when the hub installed it and runs it. */
   installed?: InstalledSystem;
   name: SystemName;
@@ -375,7 +383,7 @@ export interface PairingToken {
 // ═══ Catalog ═══
 
 /** Why a fn can't be called right now. */
-export type FnUnavailable = 'system-disconnected' | 'system-removed' | 'kind-missing' | 'kind-system-disconnected' | 'dep-unavailable' | 'disabled' | 'paused';
+export type FnUnavailable = 'system-needs-config' | 'system-disconnected' | 'system-removed' | 'kind-missing' | 'kind-system-disconnected' | 'dep-unavailable' | 'disabled' | 'paused';
 
 /** The hub's row for a fn. */
 export interface FnRecord {
@@ -998,7 +1006,7 @@ export type BrowserEvent =
   | { type: 'delivery'; delivery: Pick<DeliveryRecord, 'id' | 'status' | 'result' | 'error'> };
 
 /** Why someone is notified. */
-export type NotificationReason = 'approval-needed' | 'input-needed' | 'replied' | 'turn-finished' | 'pairing-requested' | 'system-disconnected' | 'spend-limit';
+export type NotificationReason = 'approval-needed' | 'input-needed' | 'config-needed' | 'replied' | 'turn-finished' | 'pairing-requested' | 'system-disconnected' | 'spend-limit';
 
 /** An inbox item; pushed (web push) when the user isn't looking. */
 export interface Notification {
@@ -1076,7 +1084,8 @@ export interface HubAdmin {
   addUser: { args: { email: string; name: string; role: 'admin' | 'member'; groups?: ActorId[] }; result: { id: ActorId } };
   addGroup: { args: { name: string; about: string; members?: ActorId[] }; result: { id: ActorId } };
   installSystem: { args: { source: InstalledSystem['source']; config?: Json; autoStart?: boolean }; result: { name: SystemName } };
-  configureSystem: { args: { system: SystemName; config: Json }; result: { restarted: boolean } };
+  /** Set a system's config. Refused unless it is valid for the system's config type. */
+  configureSystem: { args: { system: SystemName; config: Json }; result: { version: number } | { problems: string[] } };
   startSystem: { args: { system: SystemName }; result: { ok: boolean } };
   stopSystem: { args: { system: SystemName }; result: { ok: boolean } };
   upgradeSystem: { args: { system: SystemName; version?: string }; result: { from: string; to: string } };

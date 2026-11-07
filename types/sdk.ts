@@ -464,15 +464,17 @@ export type UndoOutcome =
   | { status: 'gone' };
 
 /** The implementation of a native fn. `undo` is required exactly when the fn declares an undo type. */
-export type FnImpl<T extends FnTypes> =
-  { run(args: T['args'], ctx: FnCtx<T>): Promise<Outcome<T>> } &
-  ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx): Promise<UndoOutcome> });
+export type FnImpl<T extends FnTypes, Cfg = unknown> =
+  { run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>> } &
+  ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 
 /**
  * What a run gets besides its args. Typed by its fn: only its deps can be called, only its handlers exist, only
  * its progress steps can be reported, and the outcome helpers take its result, undo and resume types.
  */
-export interface FnCtx<T extends FnTypes> extends Services {
+export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
+  /** The system's config, as it was when this run started. */
+  readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
   readonly run: RunInfo;
   /** What is left of the turn's money and time, for information. The hub enforces LLM spend itself. */
@@ -504,7 +506,8 @@ export interface FnCtx<T extends FnTypes> extends Services {
 }
 
 /** What an undo implementation gets. */
-export interface UndoCtx extends Services {
+export interface UndoCtx<Cfg = unknown> extends Services {
+  readonly config: Cfg;
   readonly run: RunInfo;
   readonly signal: AbortSignal;
 }
@@ -731,7 +734,7 @@ export interface ActionRef<N extends QualifiedName, I, R> {
 }
 
 /** What an action's implementation gets. */
-export interface ActionCtx<St extends object> extends SystemCtx, Omit<Services, 'log' | 'llm' | 'resources'> {
+export interface ActionCtx<St extends object, Cfg = unknown> extends SystemCtx<Cfg>, Omit<Services, 'log' | 'llm' | 'resources'> {
   readonly session: SessionId;
   /** Who sent it. */
   readonly user: UserInfo;
@@ -742,7 +745,7 @@ export interface ActionCtx<St extends object> extends SystemCtx, Omit<Services, 
 }
 
 /** An action's implementation. */
-export type ActionImpl<I, R, St extends object> = (input: I, ctx: ActionCtx<St>) => Promise<R>;
+export type ActionImpl<I, R, St extends object, Cfg = unknown> = (input: I, ctx: ActionCtx<St, Cfg>) => Promise<R>;
 
 /** A message on its way: stored by the hub, delivered when the system is online. Its status is live. */
 export interface Delivery<R> {
@@ -799,12 +802,12 @@ export interface KindDescription {
  * A kind's implementation. The payload is typed; a fn's args and result aren't (they depend on the payload), so
  * they arrive as JSON the hub has already checked against `describe`'s types.
  */
-export interface KindImpl<P> {
+export interface KindImpl<P, Cfg = unknown> {
   /** Problems with a payload beyond its type (an unknown fn, a program that doesn't type-check). */
   check(payload: P, ctx: KindCheckCtx): Promise<string[]>;
   describe(payload: P, ctx: KindCheckCtx): Promise<KindDescription>;
-  run(payload: P, args: Json, ctx: KindRunCtx): Promise<Outcome<UntypedFn>>;
-  undo?(payload: P, undo: Json, ctx: UndoCtx): Promise<UndoOutcome>;
+  run(payload: P, args: Json, ctx: KindRunCtx<Cfg>): Promise<Outcome<UntypedFn>>;
+  undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
 }
 
 /** What a kind can look up while checking a payload. */
@@ -819,7 +822,7 @@ export interface UntypedFn {
 }
 
 /** A kind's run context: like `FnCtx`, but calls are by name (limited to the deps `describe` returned). */
-export interface KindRunCtx extends Omit<FnCtx<UntypedFn>, 'fns' | 'handlers' | 'progress'> {
+export interface KindRunCtx<Cfg = unknown> extends Omit<FnCtx<UntypedFn, Cfg>, 'fns' | 'handlers' | 'progress'> {
   call(fn: QualifiedName, args: Json, options?: { key?: string; background?: boolean }): FnCall<Json>;
   handler(name: string, args: Json): Promise<Json>;
   progress(state: { fraction: number; message?: string } | { step: string; status: StepStatus; detail?: string }): void;
@@ -927,7 +930,7 @@ export declare function context<const Args extends Record<string, ArgDef<boolean
 export type AnyContextDef = ContextDef<unknown, boolean>;
 
 /** A dynamic context's implementation: its content for these args. */
-export type ContextImpl<A> = (args: A, ctx: SystemCtx & { readonly session?: SessionId; readonly user: UserInfo; readonly time: TimeInfo }) => Promise<string>;
+export type ContextImpl<A, Cfg = unknown> = (args: A, ctx: SystemCtx<Cfg> & { readonly session?: SessionId; readonly user: UserInfo; readonly time: TimeInfo }) => Promise<string>;
 
 // ═══ Types ═══
 
@@ -983,9 +986,9 @@ export declare function type<T, const M extends Methods = {}>(def: {
 }): TypeDef<T, M>;
 
 /** A method's implementation: a native fn that also gets the value it was called on. */
-export type MethodImpl<V, T extends FnTypes> =
-  { run(self: V, args: T['args'], ctx: FnCtx<T>): Promise<Outcome<T>> } &
-  ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx): Promise<UndoOutcome> });
+export type MethodImpl<V, T extends FnTypes, Cfg = unknown> =
+  { run(self: V, args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>> } &
+  ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 
 // ═══ Settings and attachments ═══
 
@@ -1051,7 +1054,7 @@ export type HookContribution =
   | { type: 'load'; context?: AnyContextRef[]; fns?: AnyFnRef[] };
 
 /** A hook's implementation. */
-export type HookImpl = (input: HookInput, ctx: SystemCtx) => Promise<HookContribution[]>;
+export type HookImpl<Cfg = unknown> = (input: HookInput, ctx: SystemCtx<Cfg>) => Promise<HookContribution[]>;
 
 /**
  * An `@` mention provider: a way to point at something a system knows about, such as a file, a database row or a
@@ -1101,7 +1104,7 @@ export interface MentionHover {
 }
 
 /** What a mention provider's implementation gets. */
-export interface MentionCtx extends SystemCtx {
+export interface MentionCtx<Cfg = unknown> extends SystemCtx<Cfg> {
   readonly session: SessionId;
   /** The person mentioning; results and details are limited to what they may see. */
   readonly user: UserInfo;
@@ -1109,17 +1112,17 @@ export interface MentionCtx extends SystemCtx {
 }
 
 /** A mention provider's implementation. */
-export interface MentionImpl<T, V> {
+export interface MentionImpl<T, V, Cfg = unknown> {
   /** Results for what the person typed after `@`. */
-  search(query: string, ctx: MentionCtx): Promise<MentionOption<T>[]>;
+  search(query: string, ctx: MentionCtx<Cfg>): Promise<MentionOption<T>[]>;
   /** The hover card. Asked for when hovered, so it is current; `undefined` when the thing no longer exists. */
-  hover(target: T, ctx: MentionCtx): Promise<(MentionHover & { /** The thing itself, as its declared type, so the card can offer its methods. */ value?: V }) | undefined>;
+  hover(target: T, ctx: MentionCtx<Cfg>): Promise<(MentionHover & { /** The thing itself, as its declared type, so the card can offer its methods. */ value?: V }) | undefined>;
   /**
    * The text the LLM gets for this mention, written when the message is sent: what the thing is, where it lives
    * and how to reach it with this system's fns (system, kind, id or path, a few key facts). The hub wraps it in a
    * tagged block with the label, so the model can match it to the words around it.
    */
-  llm(target: T, ctx: MentionCtx): Promise<string>;
+  llm(target: T, ctx: MentionCtx<Cfg>): Promise<string>;
 }
 
 /** An embed function the hub can index with. */
@@ -1257,7 +1260,7 @@ export interface ResourceProvider {
 
 /** Everything a contract can hold, by section. */
 export interface ContractShape {
-  /** The system's settings, set by an admin in the hub and given to the server when it starts. */
+  /** What the system needs before it can be used; see `ConfigOf`. */
   config: GinType<object>;
   types: Record<string, TypeDef<unknown, Methods>>;
   settings: Record<string, SettingDef<unknown>>;
@@ -1342,27 +1345,29 @@ type Needs<K extends string, T> = [keyof T] extends [never] ? { readonly [P in K
  * sectioner and action.
  */
 export type SystemImpl<C extends ContractShape> =
-  Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>> }> &
-  Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P> : never }> &
-  Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A> : never }> &
-  Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl }> &
-  Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V> : never }> &
-  Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>> } : never }> &
+  Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>> }> &
+  Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P, ConfigOf<C>> : never }> &
+  Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A, ConfigOf<C>> : never }> &
+  Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>> }> &
+  Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>> : never }> &
+  Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>> } : never }> &
   Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
-  Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St> : never }> &
+  Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
   {
     /** Resources this system serves. */
     readonly resources?: ResourceProvider;
     /** Hub events to receive. Subscriptions follow the handlers given. */
-    readonly events?: { readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx) => Promise<void> };
+    readonly events?: { readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx<ConfigOf<C>>) => Promise<void> };
     /** Moments in the system's life. Each gets the system's context and its config. */
     readonly lifecycle?: Lifecycle<ConfigOf<C>>;
   };
 
-/** What hooks, mentions, dynamic context and event handlers get. */
-export interface SystemCtx {
+/** What hooks, mentions, actions, dynamic context, events and lifecycle events get. */
+export interface SystemCtx<Cfg = unknown> {
   readonly system: string;
+  /** The system's current config. */
+  readonly config: Cfg;
   readonly llm: Llm;
   readonly resources: Resources;
   readonly log: Log;
@@ -1389,39 +1394,38 @@ export interface ServeOptions {
  */
 export declare function serve<N extends string, C extends ContractShape>(
   contract: SystemContract<N, C>,
-  impl: SystemImpl<C> | ((setup: Setup<ConfigOf<C>>) => SystemImpl<C> | Promise<SystemImpl<C>>),
+  impl: SystemImpl<C>,
   options: ServeOptions,
 ): Promise<RunningSystem<N>>;
 
-/** A system's config type. */
+/**
+ * A system's config type: what it needs before it can be used (the folders to serve, a database URL, an API
+ * key). An admin, or a person by asking in chat, sets a value in the hub, which checks it against this type. Until
+ * a valid value is set, the system shows as needing config and its fns, mentions and hooks are unavailable. The
+ * current value is in every context as `ctx.config`; a run keeps the value it started with.
+ */
 export type ConfigOf<C extends ContractShape> = Infer<C['config']>;
 
 /**
- * What an implementation built by a function gets: the typed config (from the hub) and this system's identity.
- * When an admin changes the config, the hub stops the system's work, calls the function again with the new config,
- * and carries on, so the implementation never holds a stale config.
- */
-export interface Setup<Cfg> {
-  readonly config: Cfg;
-  readonly system: SystemInfo;
-  readonly log: Log;
-}
-
-/**
- * Moments in a system's life. All are optional; each gets the system's context and its current config.
+ * Moments in a system's life. All are optional; each gets the system's context, with its current config.
  * `stopping` has a deadline: the hub waits for it (and for runs that can't be cancelled) up to its `timeout`.
  */
 export interface Lifecycle<Cfg> {
-  /** The first time it connects after being paired or installed. */
-  installed?(ctx: SystemCtx & { config: Cfg }): Promise<void>;
-  /** Every time it connects and its contract is imported. */
-  started?(ctx: SystemCtx & { config: Cfg }): Promise<void>;
-  /** Before it stops: a restart, a config change, an upgrade, the hub shutting down. */
-  stopping?(ctx: SystemCtx & { config: Cfg; reason: 'restart' | 'config' | 'upgrade' | 'shutdown' | 'removed'; timeout: Duration }): Promise<void>;
+  /** The first time it connects after being paired or installed (with a valid config). */
+  installed?(ctx: SystemCtx<Cfg>): Promise<void>;
+  /** Every time it connects with a valid config and its contract is imported. */
+  started?(ctx: SystemCtx<Cfg>): Promise<void>;
+  /**
+   * Someone changed the config. `ctx.config` is the new value and `previous` the old one; react if it matters
+   * (watch new folders, reconnect to a new database). Runs already going keep the value they started with.
+   */
+  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg }): Promise<void>;
+  /** Before it stops: a restart, an upgrade, the hub shutting down, or being removed. */
+  stopping?(ctx: SystemCtx<Cfg> & { readonly reason: 'restart' | 'upgrade' | 'shutdown' | 'removed'; readonly timeout: Duration }): Promise<void>;
   /** The first start of a new version; `from` is the version it replaced. */
-  upgraded?(ctx: SystemCtx & { config: Cfg; from: string }): Promise<void>;
+  upgraded?(ctx: SystemCtx<Cfg> & { readonly from: string }): Promise<void>;
   /** An admin removed it; clean up anything it keeps outside the hub. */
-  uninstalled?(ctx: SystemCtx & { config: Cfg }): Promise<void>;
+  uninstalled?(ctx: SystemCtx<Cfg>): Promise<void>;
 }
 
 /** A running system. */

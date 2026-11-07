@@ -172,17 +172,32 @@ connect the hub reads everything from the contract, so nothing is registered by 
 
 ### Config, installed systems and lifecycle
 
-- **Config.** A system can declare a typed `config` in its contract (the fs system's roots). An admin sets it in
-  the hub, which checks it against the type and sends it when the system connects. Pass `serve` a function and
-  it gets the typed config and returns the implementation; when the config changes, the hub stops the system's
-  work, calls the function again, and carries on, so nothing holds a stale config.
+- **Config.** A system declares a config type in its contract: what it needs before it can be used (the fs
+  system's folders, a database URL, an API key).
+  - **Needs a valid value first.** An admin sets the value in the hub, or a person does by asking in chat. The
+    hub checks it against the type and refuses an invalid one. Until a valid value is set, the system shows as
+    needing config (and admins get a notification), and its fns, mentions and hooks are unavailable.
+  - **Passed along with the work.** The current value is in every context the system gets: `ctx.config` in a
+    fn, method, action, hook, mention, dynamic context, event or lifecycle event, typed by the config type. The
+    hub sends the value when the system connects and when it changes; each request then carries only the config
+    version, so messages stay small. A run keeps the value it started with.
+  - **Changes are announced.** When someone changes it, the system's `configured` event gets the new value and
+    the previous one, so it can react if it wants to (watch new folders, reconnect to a new database).
+
+  ```ts
+  // shared/
+  config: g.obj({ roots: g.list(g.obj({ path: g.text(), name: g.text(), writable: g.bool() })) }),
+  // server/
+  read: { async run(args, ctx) { const roots = ctx.config.roots; … } },
+  lifecycle: { async configured(ctx) { watch(ctx.config.roots); unwatch(ctx.previous.roots); } },
+  ```
 - **Installed systems.** Some systems are installed with the hub: kept on disk under the hub's data folder and in
   its database, paired at install (the hub makes the key), started when the hub starts, and restarted if they
   crash (with backoff, and a limit per hour so a broken system doesn't loop). Admins install, configure, start,
   stop and upgrade them from the UI or by asking in chat. Systems that run elsewhere connect and pair as before.
-- **Lifecycle.** A system can handle `installed` (first connect), `started` (every connect), `stopping` (with a
-  reason and a deadline: restart, config change, upgrade, shutdown, removed), `upgraded` (first start of a new
-  version) and `uninstalled`.
+- **Lifecycle.** A system can handle `installed` (first connect with a valid config), `started` (every connect),
+  `configured` (the config changed), `stopping` (with a reason and a deadline: restart, upgrade, shutdown,
+  removed), `upgraded` (first start of a new version) and `uninstalled`.
 
 ### Changing itself
 
@@ -832,5 +847,7 @@ isn't slowing the compiler.
 - **Database:** SQLite through `better-sqlite3` (the fastest Node driver) with `sqlite-vec` for vectors, behind
   the `HubStore` port, with Kysely for typed queries so Postgres with pgvector can take over for large
   databases.
+- **System config:** a system declares a config type and can't be used until a valid value is set. The value is
+  in every context as `ctx.config`, and the `configured` event announces changes.
 - **Installed systems:** the hub can install systems, keep them on disk and in its database, start them with the
-  hub, and restart them; systems have config and lifecycle events.
+  hub, and restart them; systems have lifecycle events.

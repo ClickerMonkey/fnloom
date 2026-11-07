@@ -32,12 +32,12 @@ expect<Equal<typeof fs.fns.read, FnRef<'fs/read', { path: string; offset?: numbe
 
 // ── The fs system's server: everything declared must be implemented ─────────
 
-// the implementation is built from the typed config the hub sends; a config change builds it again
-void serve(fs, ({ config }) => ({
+void serve(fs, {
   fns: {
     read: {
       async run(args, ctx) {
-        expect<Equal<typeof config.roots[number]['index'], 'all' | 'on-read' | 'none'>>(true);
+        // the system's config is typed in every context; a run keeps the value it started with
+        expect<Equal<typeof ctx.config.roots[number]['index'], 'all' | 'on-read' | 'none'>>(true);
         const text = await ctx.files.readText(args.path);
         const lines = text.split('\n');
         const from = args.offset ?? 0;
@@ -173,9 +173,11 @@ void serve(fs, ({ config }) => ({
   events: { resources: async (event, ctx) => ctx.log.info('fs.resources.changed', { count: event.changes.length }) },
   lifecycle: {
     async started(ctx) { ctx.log.info('fs.started', { roots: ctx.config.roots.length }); },
+    // someone changed the config: react if it matters (here, watch the new set of folders)
+    async configured(ctx) { ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous.roots.length }); },
     async stopping(ctx) { ctx.log.info('fs.stopping', { reason: ctx.reason }); },
   },
-}), { hub: 'ws://localhost:4100', state: '.system' });
+}, { hub: 'ws://localhost:4100', state: '.system' });
 
 // ── Mistakes that don't compile ───────────────────────────────────────────────
 
