@@ -3,7 +3,7 @@
 // an expectation breaks. Every `@ts-expect-error` marks a mistake a system author must not be able to make.
 
 import { h, type DefineComponent } from 'vue';
-import { system, fn, handler, steps, serve, client, kind, mention, g, hub, type Infer, type FnRef, type ContextRef, type FnViewOf, type AttachmentViewOf, type InputViewOf } from './sdk.ts';
+import { system, type, fn, handler, steps, serve, client, kind, mention, g, hub, type Infer, type ValueOf, type FnRef, type ContextRef, type FnViewOf, type AttachmentViewOf, type InputViewOf } from './sdk.ts';
 import { fs, Entry } from './fs.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -15,7 +15,14 @@ declare function shell(command: string, signal: AbortSignal, onOutput: (fraction
 
 // ── Types and refs are inferred ───────────────────────────────────────────────
 
-expect<Equal<Infer<typeof Entry>, { path: string; type: 'file' | 'folder' | 'link'; size: number; modifiedAt: number }>>(true);
+expect<Equal<ValueOf<typeof Entry>, { path: string; type: 'file' | 'folder' | 'link'; size: number; modifiedAt: number }>>(true);
+// a type's methods are typed fn refs, called with the value as self
+expect<Equal<typeof fs.types.Entry.methods.reveal.name, 'fs/Entry.reveal'>>(true);
+expect<Equal<Infer<typeof fs.types.Entry.methods.reveal.args>, { self: ValueOf<typeof Entry> }>>(true);
+// a type's display names a value by one of its own fields
+type({ description: 'x', shape: g.obj({ name: g.text() }), display: { label: 'X', title: 'name' } });
+// @ts-expect-error the title must be one of the type's fields
+type({ description: 'x', shape: g.obj({ name: g.text() }), display: { label: 'X', title: 'nmae' } });
 expect<Equal<typeof fs.fns.read.name, 'fs/read'>>(true);
 expect<Equal<typeof fs.fns.explore.name, 'fs/explore'>>(true);
 expect<Equal<typeof fs.types.Entry.name, 'fs/Entry'>>(true);
@@ -60,7 +67,13 @@ void serve(fs, {
       },
       async undo(payload) { return { status: 'undone', summary: `restored ${payload.path}` }; },
     },
-    list: { async run(_args, ctx) { return ctx.done({ entries: [] }); } },
+    list: {
+      async run(_args, ctx) {
+        // every run knows who it is for, their time, and where the call came from
+        ctx.log.info('fs.list', { user: ctx.run.user.email, zone: ctx.run.user.timeZone, at: ctx.run.time.local, from: ctx.run.system.from?.system ?? 'hub' });
+        return ctx.done({ entries: [] });
+      },
+    },
     glob: { async run(_args, ctx) { return ctx.done({ paths: [] }); } },
     grep: {
       async run(_args, ctx) {
@@ -117,6 +130,18 @@ void serve(fs, {
     },
   },
   // tree is dynamic context, so it must be implemented; its args are typed from the command
+  // methods of the system's types: native fns that also get the value they were called on
+  types: {
+    Entry: {
+      reveal: {
+        async run(self, _args, ctx) {
+          expect<Equal<typeof self, ValueOf<typeof Entry>>>(true);
+          ctx.log.info('fs.reveal', { path: self.path });
+          return ctx.done(true);
+        },
+      },
+    },
+  },
   // actions sent from renderers; this one has the same state view as bash
   actions: {
     rerun: async (input, ctx) => {
@@ -131,7 +156,8 @@ void serve(fs, {
       // the chip shows the friendly name; the target is the system's own key for the thing
       async search(query) { return [{ label: 'harness.md', hint: `docs · matches "${query}"`, icon: 'file', target: { root: 'harness', path: 'docs/harness.md' } }]; },
       // the hover card is for the person
-      async hover(target) { return { title: target.path, subtitle: `in ${target.root}`, fields: [{ label: 'Size', value: '28 KB' }], open: { resource: `file:///${target.path}` } }; },
+      // returning the value as an Entry lets the card show Entry's icon and offer its reveal method
+      async hover(target) { return { title: target.path, subtitle: `in ${target.root}`, fields: [{ label: 'Size', value: '28 KB' }], open: { resource: `file:///${target.path}` }, value: { path: target.path, type: 'file', size: 28_000, modifiedAt: 0 } }; },
       // the LLM text says exactly what and where, and how to reach it
       async llm(target) { return `File ${target.path} in the fs root "${target.root}". Read it with fs/read { "path": "${target.path}" }.`; },
     },
@@ -206,6 +232,25 @@ void serve(backup, {
         const done = await ctx.fns.copy({ from: args.path, to: `${args.path}.bak` }, { handlers: { overwrite: async () => true }, key: 'copy' });
         const answer = await ctx.fns.ask({ question: 'Keep the snapshot?' });
         return ctx.done(`${done.bytes} bytes, ${answer.answer}`);
+      },
+    },
+  },
+}, { hub: '', state: '' });
+
+// ── Calling a type's method from another system ───────────────────────────────
+
+const viewer = system('viewer', { description: 'Shows files.' }).with({
+  fns: { show: fn({ description: 'Reveal a file.', args: g.obj({ entry: fs.types.Entry }), returns: g.bool(), deps: { reveal: fs.types.Entry.methods.reveal } }) },
+});
+void serve(viewer, {
+  fns: {
+    show: {
+      async run(args, ctx) {
+        // a type ref is a gin type, so it works as a field; its method takes the value as self
+        const shown = await ctx.fns.reveal({ self: args.entry });
+        // @ts-expect-error a method call needs the value it is called on
+        ctx.fns.reveal({});
+        return ctx.done(shown);
       },
     },
   },

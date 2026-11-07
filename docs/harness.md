@@ -61,7 +61,7 @@ Harness borrows ideas from `product` but starts fresh:
 │                │                    ▼                          │
 │                │              tool queue ──► hub fns (native, llm)
 │                │                    │                          │
-│  actors · policies · spend limits · store (sqlite) · index     │
+│  actors · policies · budgets · store (sqlite) · index         │
 └──────────────────────┬──────────────────────────────────────┘
                        │  one WebSocket per system (small binary frames)
         ┌──────────────┼──────────────┬───────────────┐
@@ -226,9 +226,16 @@ bash: fn({ …, state: Shell }),     // run: const { cwd } = await ctx.state.get
 
 ### Running a fn
 
-Every run gets a **budget** (money and time), carved out of its parent's. The implementation receives
-typed args and a context:
+The implementation receives typed args and a context:
 
+- **who and when** (`ctx.run`): the person the turn is for (name, id, email, role, groups, time zone,
+  locale), their current time (`now`, zone, and local time with its offset), this system, and the system and
+  fn that called, if another system's fn did. The hub builds this from the signed-in user and what their
+  browser reports (zone, locale, clock), and passes the same thing to actions, mentions, hooks and dynamic
+  context
+- **the budget**, for information only: what is left of the turn's money and time, and which budget is the
+  tightest. The hub enforces LLM spend itself, so a system doesn't have to; `ctx.budget.spend()` reports
+  costs the hub can't see (a paid API)
 - typed callers for its deps (`ctx.fns.readFile(...)`) and for its handlers
 - progress reporting and live operations
 - an abort signal and a pause hook
@@ -450,7 +457,9 @@ approve: fn({ description: 'Ask the user to approve a deploy plan.', args: g.obj
 - reading or writing a state field the fn didn't declare, or writing the wrong type
 - waiting for a form on a fn that doesn't declare one, or submitting the wrong shape
 - sending an action the contract doesn't declare, or with the wrong input
-- leaving out the implementation of a declared action
+- leaving out the implementation of a declared action, or of a type's method
+- a type display naming a field the shape doesn't have
+- calling a type's method without the value (`self`)
 - implementing anything the contract doesn't declare
 - attaching data of the wrong shape
 - a renderer for something the contract doesn't have, or a component whose props don't match
@@ -458,7 +467,9 @@ approve: fn({ description: 'Ask the user to approve a deploy plan.', args: g.obj
 ## Sessions and the chat
 
 - **A session** has participants (users and agents), an agent fn that answers, **enabled systems**
-  (only their fns, context and inputs apply), a priority and a budget.
+  (only their fns, context and inputs apply), a priority and budgets.
+- **A session-wide budget** (for its whole life, or per time window) shrinks each message's budget as it is
+  used up. See [Priority and budgets](#g/priority-and-budgets).
 - **Who answers.** With one person in the session, its agent answers every message. With more than one
   person, agents stay quiet unless addressed. An agent answers a message that **replies to one of its own
   messages**, and every agent answers a **reply-all**. People are notified of every message, of replies to
@@ -475,16 +486,17 @@ approve: fn({ description: 'Ask the user to approve a deploy plan.', args: g.obj
 - **Undo a turn:** every run with an undo payload is undone, newest first. The chat reports what was
   created, updated and removed.
 
-### Hooks
+### What gets added to a message
 
-Before the LLM sees a user message, hooks may add to it:
+Before the LLM sees a user message, two things may add to it:
 
-- the user's local time and time zone
-- suggested context and suggested fns (from the index)
-- anything a system adds
+- **The hub itself**, whenever it can, with no system involved: the person's local time and time zone, and
+  suggested context and fns (from the index).
+- **Systems' hooks**: a system can declare a hook and add its own information (the git branch, the open
+  ticket). A hook gets the message and the same who-and-when every run gets.
 
-Each contribution is a small tagged block in the message, so the model can tell it apart from what the
-user typed.
+Each addition is a small tagged block in the message, so the model can tell it apart from what the user
+typed.
 
 ### Chat inputs
 
@@ -497,6 +509,28 @@ user typed.
   runs, which render as clickable cards.
 - **Renderers:** systems supply renderers for their fns' calls, for resource formats and for
   attachments.
+
+### Types
+
+A system declares named types with `type()`: a shape, how values are shown, and methods.
+
+```ts
+Customer: type({
+  description: 'A customer account.',
+  shape: g.obj({ id: g.text(), name: g.text(), plan: g.enum('free', 'pro') }),
+  display: { label: 'Customer', plural: 'Customers', icon: 'building', color: '#2f6fde', title: 'name', subtitle: 'plan' },
+  methods: { upgrade: fn({ description: 'Move to the pro plan.', args: g.obj({}), returns: g.bool() }) },
+})
+```
+
+- **Display** gives the type's name for people, an icon and a color, and which fields name a value (`title`
+  and `subtitle` must be fields of the shape). Mention chips and cards use it now; widgets will later.
+- **Methods** are native fns called on a value: the server implements `run(self, args, ctx)`. A person can
+  run them from a mention's card (only those they're allowed to), and code can call them through the type's
+  ref: `deps: { upgrade: crm.types.Customer.methods.upgrade }`, then `ctx.fns.upgrade({ self: customer })`.
+  They are offered to the LLM only when their `visibility` says so. The hub also registers them as gin
+  methods, so gin programs (the later `api` kind) can call them.
+- A type ref is a gin type itself, so other systems can use it as a field: `g.obj({ customer: crm.types.Customer })`.
 
 ### Mentions
 
@@ -511,6 +545,9 @@ supplied by the system that owns the thing:
   place of the chip, so the model knows exactly what the thing is and where it lives:
 
   `<mention provider="crm/rows" label="Acme Corp">Row 42 of table customers in the crm database (system crm). Customer "Acme Corp", 3 open orders.</mention>`
+
+A provider can say what type its things are (`of: types.Customer`). Then the chip and the card use the type's
+label, icon and color, and when `hover` returns the thing as a value, the card offers the type's methods.
 
 What's stored is the system's own key for the thing (a path; a table and an id), typed by the provider:
 
@@ -538,26 +575,58 @@ if a transcription service is configured, `@` only if a mention provider is conn
 ### Configuring by asking
 
 Everything an admin configures can also be done by asking in chat, through the hub's native fns: providers,
-model categories, transcription, web search, systems, pairing, spend limits, policies, actor settings.
+model categories, transcription, web search, systems, pairing, priorities, budgets, policies, actor settings.
 These always need approval.
 
 ### Push notifications
 
 The hub sends web push notifications: approval or input needed, a reply to your message, a turn finished while you
-were away, a system waiting for pairing, a spend limit reached.
+were away, a system waiting for pairing, a budget reached.
 
 ## LLM calls and budgets
 
 - **One place for LLM calls.** The hub's LLM queue is the only caller of real providers. Systems and
   `llm` fns go through it.
 - **Priority:** every LLM request has one. Interactive chat comes before background work.
-- **Spend limits:** money (and optionally calls or tokens) per time window, scoped to everything, an
-  actor, a group, a system, a session, a fn or a model. When a limit is hit, a request waits for the
-  window, is refused, or asks someone.
-- **Run budgets:** money and time per run, carved from the parent's.
+- **The hub enforces budgets.** Before each LLM call it reserves an estimate against every budget that
+  applies, and settles the real cost after. Systems are told what's left only so they can choose; they
+  never have to enforce it.
 - **Everything is saved:** every LLM interaction (request, response, usage, cost, timing) and every run
   (args, outcome, progress, timing, cost, errors). The **fn tree** of a turn is a query away.
 - **Providers and models** are configured on the hub (or by asking in chat) and come from aeye.
+
+### Priority and budgets
+
+Priority and budgets can be set at each level a turn passes through: the **hub**, the user's **groups**, the
+**user**, the **session** and the **turn** (and budgets also on a system, a fn or a model). A budget counts
+money (and optionally tokens or calls) over a rolling **window**, over **all time**, or **per turn**. With
+that many levels, the rules make sure there is always exactly one answer.
+
+**Priority**
+
+1. The priority comes from the most specific level that sets one: turn, session, user, the user's groups (the
+   highest among them), then the hub.
+2. Any level can set a ceiling (`max`). The lowest ceiling wins; among groups, the highest one counts, because
+   membership grants.
+3. The turn runs at its priority, lowered to the ceiling if it is above it.
+
+**Budgets**
+
+1. Every window and all-time budget that applies counts at once, and no spend may take any of them over:
+   - the hub's
+   - the session's total
+   - the user's
+   - every **pooled** group budget the user shares with other members
+   - the most generous **each-member** group allowance
+2. The per-turn cap is the lowest **per-turn** budget across the levels. A session can lower what one message
+   may spend, but not raise it above the user's or the hub's cap.
+3. A turn's budget is that cap, lowered to the least that is left of every other budget. So as a session's
+   total is used up, each message's budget shrinks.
+4. When a budget is reached, the request waits for the window to free up, is refused, or asks someone to
+   raise it, as the budget says.
+
+The resolved priority and budgets are stored on the turn, and the chat's budget meter shows which one is
+the tightest.
 
 ## Actors and permissions
 

@@ -9,7 +9,7 @@ import type {
   Id, RunId, TurnId, SessionId, ActorId, MessageId, Duration, Timestamp, Usd, Json, QualifiedName, Priority, Audience, ActorKind, Page,
   GinTypeDef, FnError, RunStatus, RunUpdate, Operations, FnLimits, ModelChoice, KindDescription,
   ResourceUri, ResourceStat, ResourceLink, ResourceRead, ResourceRoot, ResourceChange, ReadWant, ContentRef, Section, SectionKey, SectionMatch,
-  HookInput, MentionOption, MentionHover, SystemEvent, UndoOutcome, Link, Display,
+  HookInput, MentionOption, MentionHover, SystemEvent, UndoOutcome, Link, Display, RunInfo, UserInfo, TimeInfo, TypeDisplay,
 } from './sdk.ts';
 
 // ═══ Wire: what a system sends ═══
@@ -27,14 +27,15 @@ export interface Manifest {
   description: string;
   /** Hash of everything below; sent in `Hello`. */
   hash: string;
-  types: Array<{ name: string; description: string; def: GinTypeDef }>;
+  /** Named types. A type's methods are sent as fns named `Type.method` whose args hold the value as `self`. */
+  types: Array<{ name: string; description: string; def: GinTypeDef; display: TypeDisplay; methods: string[] }>;
   settings: Array<{ name: string; description: string; type: GinTypeDef; appliesTo: ActorKind[]; merge: string; editableBy: string[] }>;
   attachments: Array<{ name: string; description: string; data: GinTypeDef }>;
   kinds: KindDecl[];
   fns: FnDecl[];
   context: ContextDecl[];
   hooks: Array<{ name: string; description: string; order: number; timeout: Duration }>;
-  mentions: Array<{ name: string; title: string; description: string; target: GinTypeDef }>;
+  mentions: Array<{ name: string; title: string; description: string; target: GinTypeDef; /** The type of the things it points at. */ of?: QualifiedName }>;
   embedders: Array<{ name: string; dimensions: number; maxInput: number; pricePerMillionTokens: Usd }>;
   sectioners: Array<{ name: string; description: string; match: SectionMatch }>;
   actions: Array<{ name: string; description: string; input: GinTypeDef; returns: GinTypeDef; state?: GinTypeDef; expires?: Duration }>;
@@ -241,12 +242,14 @@ export interface SystemLink {
 
 /** The hub's request to run a fn. */
 export interface RunRequest {
-  run: { id: RunId; fn: QualifiedName; parent?: RunId; turn: TurnId; session?: SessionId; actor: ActorId; caller: ActorId; attempt: number; priority: Priority };
+  /** Who and when: the person (name, id, email, groups, zone, locale), their current time, and this system and caller. */
+  run: RunInfo;
   fn: string;
   kind: 'native' | string;
   payload?: Json;
   args: Json;
-  budget: { cost: Usd; time: Duration };
+  /** What is left, for information. The hub enforces LLM spend itself. */
+  budget: { cost: Usd; time: Duration; limitedBy: string };
   /** Optional handlers the caller can answer. */
   handlers: string[];
   resume?: { state: Json; calls: Record<string, RunSettled>; reason: 'resumed' | 'restart' };
@@ -510,7 +513,6 @@ export interface Run {
   outcome?: OutcomeWire;
   progress?: Json;
   allowed: Pick<Operations, 'cancel' | 'pause' | 'background'>;
-  budget: { cost: Usd; time: Duration };
   /** Spent by this run itself. */
   cost: Usd;
   /** Spent by it and everything under it. */
@@ -587,9 +589,16 @@ export interface Turn {
   session?: SessionId;
   message?: MessageId;
   actor: ActorId;
+  /** The person, as systems see them, captured when the turn started. */
+  user: UserInfo;
+  /** Their time when the turn started; runs get the time when they start. */
+  time: TimeInfo;
+  /** What the browser reported with the message. */
+  client?: ClientInfo;
   root?: RunId;
   status: 'running' | 'done' | 'failed' | 'cancelled' | 'paused' | 'undone';
-  budget: { cost: Usd; time: Duration };
+  /** Priority and budgets, resolved once when the turn starts (see `Limits`). */
+  limits: ResolvedLimits;
   cost: Usd;
   /** Stop after this many failures, or keep feeding errors to the agent. */
   errors: { max: number } | 'feed-back';
@@ -638,7 +647,7 @@ export interface LlmInteraction {
 
 // ═══ Queues ═══
 
-/** One iteration of an agent run, waiting for the LLM worker (`@ayepi/work`, priority doer, behind spend limits). */
+/** One iteration of an agent run, waiting for the LLM worker (`@ayepi/work`, priority doer, behind the budgets). */
 export interface LlmJob {
   run: RunId;
   turn: TurnId;
@@ -680,14 +689,12 @@ export interface Session {
   agent: QualifiedName;
   /** People and agents. A person is notified of every message, of replies to their own messages, or of nothing. Agents follow the reply rule above. */
   participants: Array<{ actor: ActorId; role: 'owner' | 'member' | 'agent'; notify: 'all' | 'replies' | 'none'; joinedAt: Timestamp }>;
-  /** Only these systems' fns, context, mentions and hooks apply. */
+  /** Only these systems' fns, context, mentions and hooks apply. The hub's own message extras always do. */
   systems: SystemName[] | 'all';
   /** The agent's loaded fns and context so far. */
   tools: QualifiedName[];
   context: QualifiedName[];
-  priority: Priority;
-  /** Default budget per turn. */
-  budget: { cost: Usd; time: Duration };
+  /** The session's priority and budgets are `PriorityRule`s and `BudgetRule`s scoped to it: a default and a ceiling, a per-turn cap, and a total for the whole session. */
   status: 'idle' | 'running' | 'paused';
   /** The aeye conversation for the next iteration. */
   transcript: Message[];
@@ -727,7 +734,9 @@ export type MessagePart =
   | { type: 'command'; context: QualifiedName; args: Record<string, string> }
   | { type: 'invocation'; run: RunId; fn: QualifiedName }
   | { type: 'file'; ref: ContentRef; name: string }
-  /** What a hook added. Shown dimmed; the LLM sees it tagged. */
+  /** What the hub added by itself (local time, suggested context and fns). Shown dimmed; the LLM sees it tagged. */
+  | { type: 'extra'; extra: 'local-time' | 'suggested-context' | 'suggested-fns'; blocks: Json[] }
+  /** What a system's hook added. Shown dimmed; the LLM sees it tagged. */
   | { type: 'hook'; hook: QualifiedName; blocks: Json[] }
   | { type: 'attachment'; attachment: QualifiedName; data: Json; title: string }
   | { type: 'link'; link: Link };
@@ -826,29 +835,93 @@ export interface ModelCategory { id: Id<'modelCategory'>; name: string; descript
 /** The hub's catalog: aeye's `ModelInfo` for every configured provider's models. */
 export interface ModelCatalog { models: ModelInfo[]; refreshedAt: Timestamp }
 
-/** What a spend limit covers. A group's limit is shared by its members. */
-export type SpendScope =
-  | { scope: 'all' }
-  | { scope: 'actor'; actor: ActorId }
-  | { scope: 'system'; system: SystemName }
+/**
+ * Where a priority or budget rule lives. The levels a turn passes through, from broad to specific: the hub, the
+ * user's groups, the user, the session, the turn. Systems, fns and models can have budgets too.
+ */
+export type LimitScope =
+  | { scope: 'hub' }
+  | { scope: 'group'; group: ActorId }
+  | { scope: 'user'; user: ActorId }
   | { scope: 'session'; session: SessionId }
+  | { scope: 'turn'; turn: TurnId }
+  | { scope: 'system'; system: SystemName }
   | { scope: 'fn'; fn: QualifiedName }
   | { scope: 'model'; model: string };
 
-/** Spend per window of time. `@ayepi/rate` counts calls, not dollars, so the hub keeps a ledger and reserves before each call. */
-export interface SpendLimit {
-  id: Id<'spendLimit'>;
-  target: SpendScope;
-  window: Duration;
+/** How long a budget's spend adds up before it starts again. */
+export type BudgetPeriod =
+  /** A rolling window (the last 24 hours). */
+  | { window: Duration }
+  /** Never resets: a session's total, a user's lifetime allowance. */
+  | 'all-time'
+  /** Each turn on its own: the per-message cap. Only on hub, group, user and session. */
+  | 'per-turn';
+
+/** A budget: how much may be spent at one level, per period. `@ayepi/rate` counts calls, not dollars, so the hub keeps a ledger. */
+export interface BudgetRule {
+  id: Id<'budget'>;
+  target: LimitScope;
+  period: BudgetPeriod;
   maxCost: Usd;
-  maxCalls?: number;
   maxTokens?: number;
+  maxCalls?: number;
+  /** For `per-turn` budgets: how long a turn may take. */
+  maxTime?: Duration;
+  /**
+   * Only on groups. `pooled`: the members share one pot. `each`: every member gets this allowance on their own,
+   * and a user in several such groups gets the most generous one.
+   */
+  share?: 'pooled' | 'each';
+  /** When reached: wait for the period to free up, refuse, or ask someone to raise it. */
   onLimit: 'wait' | 'refuse' | 'ask';
-  createdBy: ActorId;
+  setBy: ActorId;
+}
+
+/** A priority rule: the priority used unless something more specific sets one, and the highest allowed. */
+export interface PriorityRule {
+  id: Id<'priorityRule'>;
+  target: Extract<LimitScope, { scope: 'hub' | 'group' | 'user' | 'session' | 'turn' }>;
+  default?: Priority;
+  /** No turn under this level runs above it. */
+  max?: Priority;
+  setBy: ActorId;
+}
+
+/**
+ * How priority and budgets are resolved for a turn. There is always exactly one answer.
+ *
+ * **Priority:**
+ * 1. The default comes from the most specific level that sets one: turn, session, user, the user's groups (the
+ *    highest among them), then the hub.
+ * 2. The ceiling is the lowest `max` across the levels that set one. At the group level, the highest `max`
+ *    among the user's groups counts, because membership grants.
+ * 3. The turn runs at the default, lowered to the ceiling if it is above it.
+ *
+ * **Budgets:**
+ * 1. Every window and all-time budget that applies counts at once: the hub's, the session's total, the user's,
+ *    each pooled group the user is in, and the most generous `each` group allowance. No spend may take any of
+ *    them over.
+ * 2. The per-turn cap is the lowest `per-turn` budget across the levels, so a session can lower what one message
+ *    may spend but can't raise it above the user's or the hub's cap.
+ * 3. A turn's budget is the per-turn cap, lowered to the least that is left of every other budget. So a nearly
+ *    spent session total shrinks each message's budget.
+ * 4. System, fn and model budgets are checked on each call they cover.
+ */
+export interface ResolvedLimits {
+  priority: Priority;
+  /** Which level gave the default, and which capped it. */
+  priorityFrom: { default: LimitScope['scope']; cappedBy?: LimitScope['scope'] };
+  /** The turn's own budget after rule 3. */
+  turn: { cost: Usd; time: Duration };
+  /** Every budget that applies, with what was left when the turn started. */
+  budgets: Array<{ rule: Id<'budget'>; scope: LimitScope; remaining: Usd }>;
+  /** The tightest one, shown in the chat ("limited by: session total"). */
+  limitedBy: Id<'budget'>;
 }
 
 /** Budget held before an LLM call, settled with the real cost after. */
-export interface Reservation { id: Id<'reservation'>; limits: Id<'spendLimit'>[]; estimate: Usd; createdAt: Timestamp; settled?: { cost: Usd; at: Timestamp } }
+export interface Reservation { id: Id<'reservation'>; budgets: Id<'budget'>[]; estimate: Usd; createdAt: Timestamp; settled?: { cost: Usd; at: Timestamp } }
 
 /** One line of spend. */
 export interface LedgerEntry {
@@ -902,15 +975,25 @@ export interface Notification {
 /** A browser's web push subscription (VAPID; the hub sends pushes itself). */
 export interface PushSubscription { id: Id<'push'>; user: ActorId; endpoint: string; keys: { p256dh: string; auth: string }; device: string; createdAt: Timestamp }
 
+/** What the browser reports with every message and action, so the hub can tell systems the person's time. */
+export interface ClientInfo {
+  timeZone: string;
+  locale: string;
+  /** The browser's clock, to catch a wrong system clock. */
+  now: Timestamp;
+}
+
 /** What the web chat calls (an ayepi spec over HTTP and the browser's WebSocket). */
 export interface HubWebApi {
   signIn(input: { email: string; password: string }): Promise<{ token: string; user: UserActor }>;
   capabilities(input: { session?: SessionId }): Promise<ChatCapabilities>;
   sessions(input: { cursor?: string; search?: string }): Promise<Page<Session>>;
   createSession(input: { agent?: QualifiedName; systems?: SystemName[] | 'all'; title?: string }): Promise<Session>;
-  updateSession(input: { session: SessionId; systems?: SystemName[] | 'all'; agent?: QualifiedName; priority?: Priority; budget?: { cost: Usd; time: Duration } }): Promise<Session>;
+  updateSession(input: { session: SessionId; systems?: SystemName[] | 'all'; agent?: QualifiedName; priority?: Priority }): Promise<Session>;
+  /** The resolved priority and budgets the next turn in a session would get, for the budget meter. */
+  limits(input: { session: SessionId }): Promise<ResolvedLimits>;
   messages(input: { session: SessionId; cursor?: string }): Promise<Page<ChatMessage>>;
-  send(input: { session: SessionId; parts: MessagePart[]; replyTo?: MessageId; replyAll?: boolean; client: HookInput['client'] }): Promise<{ turn: TurnId; message: ChatMessage }>;
+  send(input: { session: SessionId; parts: MessagePart[]; replyTo?: MessageId; replyAll?: boolean; client: ClientInfo }): Promise<{ turn: TurnId; message: ChatMessage }>;
   invoke(input: { session: SessionId; fn: QualifiedName; args: Json }): Promise<{ turn: TurnId; run: RunId }>;
   control(input: { session: SessionId; action: 'pause' | 'resume' | 'cancel' }): Promise<SessionControls>;
   undoTurn(input: { turn: TurnId }): Promise<UndoReport>;
@@ -944,7 +1027,8 @@ export interface HubAdmin {
   createPairingToken: { args: { name?: SystemName; expiresIn: Duration }; result: { token: string; expiresAt: Timestamp } };
   approvePairing: { args: { pairing: Id<'pairing'>; approve: boolean }; result: { system?: SystemName } };
   removeSystem: { args: { system: SystemName }; result: { fnsUnavailable: number } };
-  setSpendLimit: { args: Omit<SpendLimit, 'id' | 'createdBy'>; result: { id: Id<'spendLimit'> } };
+  setBudget: { args: Omit<BudgetRule, 'id' | 'setBy'>; result: { id: Id<'budget'> } };
+  setPriority: { args: Omit<PriorityRule, 'id' | 'setBy'>; result: { id: Id<'priorityRule'> } };
   setPolicy: { args: Omit<Policy, 'id' | 'createdBy' | 'createdAt'>; result: { id: Id<'policy'> } };
   setActorSetting: { args: { setting: QualifiedName; actor: ActorId; value: Json }; result: { ok: boolean } };
   setSectionRule: { args: Omit<SectionRule, 'id' | 'setBy'>; result: { id: Id<'sectionRule'> } };
@@ -985,7 +1069,8 @@ export interface HubTables {
   secrets: Secret;
   providers: ProviderConfig & { id: Id<'provider'> };
   modelCategories: ModelCategory;
-  spendLimits: SpendLimit;
+  budgets: BudgetRule;
+  priorityRules: PriorityRule;
   reservations: Reservation;
   ledger: LedgerEntry;
   notifications: Notification;
@@ -1042,7 +1127,8 @@ export interface HubConfig {
   queues: QueueSettings;
   link: LinkLimits;
   pairingTimeout: Duration;
-  turnBudget: { cost: Usd; time: Duration };
+  /** The hub-level defaults, used until an admin sets hub rules. */
+  defaults: { priority: Priority; perTurn: { cost: Usd; time: Duration } };
   embedder: QualifiedName;
 }
 

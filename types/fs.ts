@@ -3,14 +3,22 @@
 // agent files and a shell over chosen folders, serves those folders as resources, and can restart itself so
 // changes to its own code go live.
 
-import { system, fn, handler, linear, context, setting, attachment, hook, mention, action, arg, agent, g, hub } from './sdk.ts';
+import { system, type, fn, handler, linear, context, setting, attachment, hook, mention, action, arg, agent, g, hub } from './sdk.ts';
 
 /** A file or folder. */
-export const Entry = g.obj({
-  path: g.text(),
-  type: g.enum('file', 'folder', 'link'),
-  size: g.num({ min: 0, whole: true }),
-  modifiedAt: g.timestamp(),
+export const Entry = type({
+  description: 'A file or folder under one of the roots.',
+  shape: g.obj({
+    path: g.text(),
+    type: g.enum('file', 'folder', 'link'),
+    size: g.num({ min: 0, whole: true }),
+    modifiedAt: g.timestamp(),
+  }),
+  display: { label: 'File', plural: 'Files', icon: 'file', color: '#8a8f98', title: 'path', subtitle: 'type' },
+  methods: {
+    // offered on a file's mention card; people and code can call it, the LLM can't (visibility)
+    reveal: fn({ description: 'Show it in the file manager.', args: g.obj({}), returns: g.bool(), visibility: 'user' }),
+  },
 });
 
 /** The shell's session state: the working folder cd sets and bash uses. */
@@ -56,7 +64,7 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       list: fn({
         description: 'List a folder.',
         args: g.obj({ path: g.text(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
-        returns: g.obj({ entries: g.list(Entry) }),
+        returns: g.obj({ entries: g.list(Entry.shape) }),
         tags: ['read'],
       }),
       glob: fn({
@@ -118,12 +126,13 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         state: Shell,
       }),
     },
-    mentions: {
-      files: mention({ title: 'Files', description: 'Files and folders under the roots.', target: g.obj({ root: g.text(), path: g.text() }) }),
-    },
   })
-  // context and the agent use the fns declared above
-  .with(({ fns }) => ({
+  // mentions, context and the agent use the types and fns declared above
+  .with(({ fns, types }) => ({
+    mentions: {
+      // chips and cards show as Entry: its label, icon and color, and its reveal method on the card
+      files: mention({ title: 'Files', description: 'Files and folders under the roots.', target: g.obj({ root: g.text(), path: g.text() }), of: types.Entry }),
+    },
     context: {
       guide: context({
         description: 'How to work with files here: read before editing, prefer edit over write.',

@@ -13,7 +13,7 @@
 // Library types in this file: gin's wire `TypeDef` (what a gin type is on the wire) and Vue's `Component` (renderers
 // are Vue components, like the chat UI).
 
-import type { TypeDef } from '@aeye/gin';
+import type { TypeDef as GinWireType } from '@aeye/gin';
 import type { Component } from 'vue';
 
 // ═══ Basics ═══
@@ -51,6 +51,40 @@ export type Audience = 'user' | 'llm' | 'both' | 'none';
 /** What kind of thing an actor is. */
 export type ActorKind = 'user' | 'group' | 'agent' | 'system';
 
+/**
+ * The person a turn is for, as every system sees them. Built by the hub from the signed-in user; time zone and
+ * locale come from their browser when it reports them.
+ */
+export interface UserInfo {
+  readonly id: ActorId;
+  readonly name: string;
+  readonly email: string;
+  readonly role: 'admin' | 'member';
+  readonly groups: ReadonlyArray<{ id: ActorId; name: string }>;
+  readonly timeZone: string;
+  readonly locale: string;
+}
+
+/** The current time for the person, so a system never guesses at "today". */
+export interface TimeInfo {
+  /** Now, as a timestamp. */
+  readonly now: Timestamp;
+  /** The person's time zone (IANA, `America/New_York`). */
+  readonly timeZone: string;
+  /** Now in the person's zone, with its offset: `2026-11-07T09:30:00-05:00`. */
+  readonly local: string;
+}
+
+/** Which system something is running in, and which system asked for it. */
+export interface SystemInfo {
+  /** This system's name. */
+  readonly name: string;
+  /** This process (new on every start). */
+  readonly instance: string;
+  /** When another system's fn made the call: that system, fn and run. */
+  readonly from?: { readonly system: string; readonly fn: QualifiedName; readonly run: RunId };
+}
+
 /** A page of results with a cursor for the next page. */
 export interface Page<T> {
   items: T[];
@@ -61,7 +95,7 @@ export interface Page<T> {
 // ═══ Gin types ═══
 
 /** A gin type in its JSON wire form. This is how types travel to the hub and are stored. */
-export type GinTypeDef = TypeDef;
+export type GinTypeDef = GinWireType;
 
 /**
  * A gin type that also carries the TypeScript type of its values. `g.obj({ path: g.text() })` is a
@@ -144,10 +178,24 @@ export interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
   readonly handlers: H;
 }
 
-/** A typed handle to a named type (`fs.types.FileInfo`). Use it in other systems' gin types with `g`-built fields. */
-export interface TypeRef<N extends QualifiedName, T> extends GinType<T> {
+/**
+ * A typed handle to a named type (`fs.types.Entry`). It is a gin type itself, so it can be used as a field of other
+ * types (`g.obj({ entry: fs.types.Entry })`). Its methods are typed fn refs that code can call with the value as
+ * `self`.
+ */
+export interface TypeRef<N extends QualifiedName, T, M extends Methods = {}> extends GinType<T> {
   readonly name: N;
+  readonly display: TypeDisplay;
+  readonly methods: { readonly [K in keyof M]: M[K] extends FnDef<infer F> ? FnRef<MethodName<N, K>, MethodArgs<T, F['args']>, F['result'], F['handlers']> : never };
 }
+
+export type AnyTypeRef = TypeRef<QualifiedName, unknown, Methods>;
+
+/** A method's qualified name: `fs/Entry.open`. */
+export type MethodName<N extends QualifiedName, K> = `${N}.${K & string}` & QualifiedName;
+
+/** The args of a method call: the value it is called on, as `self`, plus the method's own args. */
+export type MethodArgs<T, A> = Simplify<{ self: T } & A>;
 
 /** A typed handle to a fn kind. `kinds.api.fn({...})` declares a fn of that kind. */
 export interface KindRef<N extends QualifiedName, P> {
@@ -427,9 +475,9 @@ export type FnImpl<T extends FnTypes> =
 export interface FnCtx<T extends FnTypes> extends Services {
   /** Which run this is, whom it acts for, and where it sits in the tree. */
   readonly run: RunInfo;
-  /** Money and time left for this run and everything it calls. */
-  readonly budget: Budget;
-  /** Aborts on cancel, timeout or an empty budget. */
+  /** What is left of the turn's money and time, for information. The hub enforces LLM spend itself. */
+  readonly budget: BudgetInfo;
+  /** Aborts on cancel or timeout. */
   readonly signal: AbortSignal;
   /** Call the fn's deps. */
   readonly fns: Callers<T['deps']>;
@@ -461,28 +509,33 @@ export interface UndoCtx extends Services {
   readonly signal: AbortSignal;
 }
 
-/** Facts about the current run. */
+/** Facts about the current run: what it is, who it is for, when, and where it came from. */
 export interface RunInfo {
   readonly id: RunId;
   readonly fn: QualifiedName;
   readonly parent?: RunId;
   readonly turn: TurnId;
   readonly session?: SessionId;
-  /** Whom the run acts for: permissions and settings are theirs. */
-  readonly actor: ActorId;
+  /** The person the turn is for: permissions and settings are theirs. */
+  readonly user: UserInfo;
+  readonly time: TimeInfo;
+  readonly system: SystemInfo;
   /** Who called: the agent, the user (with `!`), or the parent run's fn. */
   readonly caller: ActorId;
   readonly attempt: number;
   readonly priority: Priority;
 }
 
-/** A run's budget. */
-export interface Budget {
-  readonly cost: Usd;
-  readonly time: Duration;
-  /** What's left now, after what this run and its children spent. */
+/**
+ * What is left of the budgets that apply to this turn, for information (to choose a cheaper path, or stop early).
+ * The hub enforces LLM spend itself: `ctx.llm` calls that would go over are refused or wait.
+ */
+export interface BudgetInfo {
+  /** The least that is left across every budget that applies (turn, session, user, groups). */
   remaining(): { cost: Usd; time: Duration };
-  /** Report a cost the hub can't see (a paid API call). LLM calls through `ctx.llm` are counted automatically. */
+  /** Which budget is the tightest right now (`session`, `user`, `group: Design team`). */
+  limitedBy(): string;
+  /** Report a cost the hub can't see (a paid API call), so budgets stay exact. */
   spend(cost: Usd, what: string): void;
 }
 
@@ -596,7 +649,7 @@ export type ModelChoice =
   | { category: string }
   | { auto: { cost?: number; speed?: number; accuracy?: number } };
 
-/** LLM calls. They always go through the hub, which picks the model, enforces spend limits and records them. */
+/** LLM calls. They always go through the hub, which picks the model, enforces budgets and records them. */
 export interface Llm {
   text(input: { prompt: string; system?: string; model?: ModelChoice }): Promise<string>;
   /** An answer checked against a gin type. */
@@ -681,7 +734,8 @@ export interface ActionRef<N extends QualifiedName, I, R> {
 export interface ActionCtx<St extends object> extends SystemCtx, Omit<Services, 'log' | 'llm' | 'resources'> {
   readonly session: SessionId;
   /** Who sent it. */
-  readonly actor: ActorId;
+  readonly user: UserInfo;
+  readonly time: TimeInfo;
   /** The run whose renderer sent it, if any. */
   readonly run?: RunId;
   readonly state: SessionState<St>;
@@ -873,7 +927,65 @@ export declare function context<const Args extends Record<string, ArgDef<boolean
 export type AnyContextDef = ContextDef<unknown, boolean>;
 
 /** A dynamic context's implementation: its content for these args. */
-export type ContextImpl<A> = (args: A, ctx: SystemCtx & { session?: SessionId; actor: ActorId }) => Promise<string>;
+export type ContextImpl<A> = (args: A, ctx: SystemCtx & { readonly session?: SessionId; readonly user: UserInfo; readonly time: TimeInfo }) => Promise<string>;
+
+// ═══ Types ═══
+
+/** A type's methods by name. Each is declared with `fn()` and implemented with the value it is called on. */
+export type Methods = Record<string, AnyFnDef>;
+
+/** How values of a type are shown: in mention chips, hover cards, inputs and (later) widgets. */
+export interface TypeDisplay {
+  /** The type's name for people: "Customer". */
+  readonly label: string;
+  readonly plural?: string;
+  /** An icon name or URL. */
+  readonly icon?: string;
+  /** A CSS color. */
+  readonly color?: string;
+  /** The field whose value names a value ("Acme Corp"). */
+  readonly title?: string;
+  /** The field shown under it. */
+  readonly subtitle?: string;
+}
+
+/** Fields of T that can name a value. */
+type NamingKeys<T> = { [K in keyof T]-?: T[K] extends string | number | undefined ? K : never }[keyof T] & string;
+
+/** A named type in a contract: its shape, how it is shown, and its methods. */
+export interface TypeDef<T, M extends Methods> {
+  readonly description: string;
+  readonly shape: GinType<T>;
+  readonly display: TypeDisplay;
+  readonly methods: M;
+  readonly [phantom]?: T;
+}
+
+/**
+ * Declare a named type. Methods are native fns called on a value of the type: the person can run them from a
+ * mention's card (or a widget), and code can call them through the type's ref. They are offered to the LLM only
+ * when their `visibility` says so.
+ *
+ * ```ts
+ * Customer: type({
+ *   description: 'A customer account.',
+ *   shape: g.obj({ id: g.text(), name: g.text(), plan: g.enum('free', 'pro') }),
+ *   display: { label: 'Customer', icon: 'building', color: '#2f6fde', title: 'name', subtitle: 'plan' },
+ *   methods: { upgrade: fn({ description: 'Move to the pro plan.', args: g.obj({}), returns: g.bool() }) },
+ * })
+ * ```
+ */
+export declare function type<T, const M extends Methods = {}>(def: {
+  description: string;
+  shape: GinType<T>;
+  display: Omit<TypeDisplay, 'title' | 'subtitle'> & { title?: NamingKeys<T>; subtitle?: NamingKeys<T> };
+  methods?: M;
+}): TypeDef<T, M>;
+
+/** A method's implementation: a native fn that also gets the value it was called on. */
+export type MethodImpl<V, T extends FnTypes> =
+  { run(self: V, args: T['args'], ctx: FnCtx<T>): Promise<Outcome<T>> } &
+  ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx): Promise<UndoOutcome> });
 
 // ═══ Settings and attachments ═══
 
@@ -905,7 +1017,11 @@ export declare function attachment<T>(def: { description: string; data: GinType<
 
 // ═══ Hooks, mentions, embedders, sectioners ═══
 
-/** A user-message hook: adds information to a message before the LLM sees it. */
+/**
+ * A system's user-message hook: adds information to a message before the LLM sees it (the git branch, the open
+ * ticket). The hub also adds some things itself whenever it can, without any system: the person's local time and
+ * suggested context and fns.
+ */
 export interface HookDef {
   readonly description: string;
   /** Lower runs first. */
@@ -921,10 +1037,9 @@ export declare function hook(def: { description: string; order?: number; timeout
 export interface HookInput {
   readonly session: SessionId;
   readonly turn: TurnId;
-  readonly author: ActorId;
   readonly text: string;
-  /** What the browser reported. */
-  readonly client: { localTime: string; timeZone: string; locale: string };
+  readonly user: UserInfo;
+  readonly time: TimeInfo;
 }
 
 /** What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. */
@@ -949,14 +1064,19 @@ export type HookImpl = (input: HookInput, ctx: SystemCtx) => Promise<HookContrib
  *
  * `target` is the system's own key for a thing (a path; a table and an id). It is what gets stored.
  */
-export interface MentionDef<T> {
+export interface MentionDef<T, V> {
   readonly title: string;
   readonly description: string;
   readonly target: GinType<T>;
+  /**
+   * The type of the things it points at, if the system declares one. The chip and the hover card then use the
+   * type's label, icon and color, and the card offers the type's methods the person may run.
+   */
+  readonly of?: TypeRef<QualifiedName, V, Methods>;
 }
 
 /** Declare a mention provider. */
-export declare function mention<T>(def: { title: string; description: string; target: GinType<T> }): MentionDef<T>;
+export declare function mention<T, V = never>(def: { title: string; description: string; target: GinType<T>; of?: TypeRef<QualifiedName, V, Methods> }): MentionDef<T, V>;
 
 /** One search result in the `@` picker. */
 export interface MentionOption<T> {
@@ -984,15 +1104,16 @@ export interface MentionHover {
 export interface MentionCtx extends SystemCtx {
   readonly session: SessionId;
   /** The person mentioning; results and details are limited to what they may see. */
-  readonly actor: ActorId;
+  readonly user: UserInfo;
+  readonly time: TimeInfo;
 }
 
 /** A mention provider's implementation. */
-export interface MentionImpl<T> {
+export interface MentionImpl<T, V> {
   /** Results for what the person typed after `@`. */
   search(query: string, ctx: MentionCtx): Promise<MentionOption<T>[]>;
   /** The hover card. Asked for when hovered, so it is current; `undefined` when the thing no longer exists. */
-  hover(target: T, ctx: MentionCtx): Promise<MentionHover | undefined>;
+  hover(target: T, ctx: MentionCtx): Promise<(MentionHover & { /** The thing itself, as its declared type, so the card can offer its methods. */ value?: V }) | undefined>;
   /**
    * The text the LLM gets for this mention, written when the message is sent: what the thing is, where it lives
    * and how to reach it with this system's fns (system, kind, id or path, a few key facts). The hub wraps it in a
@@ -1136,14 +1257,14 @@ export interface ResourceProvider {
 
 /** Everything a contract can hold, by section. */
 export interface ContractShape {
-  types: Record<string, GinType<unknown>>;
+  types: Record<string, TypeDef<unknown, Methods>>;
   settings: Record<string, SettingDef<unknown>>;
   attachments: Record<string, AttachmentDef<unknown>>;
   kinds: Record<string, KindDef<unknown>>;
   fns: Record<string, AnyFnDef>;
   context: Record<string, AnyContextDef>;
   hooks: Record<string, HookDef>;
-  mentions: Record<string, MentionDef<unknown>>;
+  mentions: Record<string, MentionDef<unknown, unknown>>;
   embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
   actions: Record<string, ActionDef<unknown, unknown, object>>;
@@ -1163,14 +1284,14 @@ type Q<N extends string, K> = QualifiedName<N, K & string>;
 /** The typed refs of everything in a contract. */
 export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly name: N;
-  readonly types: { readonly [K in keyof C['types']]: TypeRef<Q<N, K>, Infer<C['types'][K]>> };
+  readonly types: { readonly [K in keyof C['types']]: C['types'][K] extends TypeDef<infer T, infer M> ? TypeRef<Q<N, K>, T, M> : never };
   readonly settings: { readonly [K in keyof C['settings']]: C['settings'][K] extends SettingDef<infer T> ? SettingRef<Q<N, K>, T> : never };
   readonly attachments: { readonly [K in keyof C['attachments']]: C['attachments'][K] extends AttachmentDef<infer T> ? AttachmentRef<Q<N, K>, T> : never };
   readonly kinds: { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindRef<Q<N, K>, P> : never };
   readonly fns: { readonly [K in keyof C['fns']]: C['fns'][K] extends FnDef<infer T> ? FnRef<Q<N, K>, T['args'], T['result'], T['handlers']> : never };
   readonly context: { readonly [K in keyof C['context']]: C['context'][K] extends ContextDef<infer A, boolean> ? ContextRef<Q<N, K>, A> : never };
   readonly hooks: { readonly [K in keyof C['hooks']]: HookRef<Q<N, K>> };
-  readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T> ? MentionRef<Q<N, K>, T> : never };
+  readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, unknown> ? MentionRef<Q<N, K>, T> : never };
   readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
@@ -1203,6 +1324,7 @@ export type AnyContract = SystemContract<string, ContractShape>;
 // ═══ Implementing a system ═══
 
 type NativeFnKeys<F> = { [K in keyof F]: F[K] extends FnDef<infer T> ? (T['kind'] extends 'native' ? K : never) : never }[keyof F];
+type TypesWithMethods<X> = { [K in keyof X]: X[K] extends TypeDef<unknown, infer M> ? ([keyof M] extends [never] ? never : K) : never }[keyof X];
 type DynamicContextKeys<X> = { [K in keyof X]: X[K] extends ContextDef<unknown, true> ? K : never }[keyof X];
 
 /** A section of the implementation: required when the contract declares something there, forbidden when it doesn't. */
@@ -1210,14 +1332,16 @@ type Needs<K extends string, T> = [keyof T] extends [never] ? { readonly [P in K
 
 /**
  * A system's implementation, computed from its contract. It must implement exactly what the contract declares:
- * every native fn, every kind, every dynamic context, hook, mention provider, embedder and sectioner.
+ * every native fn, every method of its types, every kind, every dynamic context, hook, mention provider, embedder,
+ * sectioner and action.
  */
 export type SystemImpl<C extends ContractShape> =
   Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>> }> &
   Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P> : never }> &
   Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A> : never }> &
   Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl }> &
-  Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T> ? MentionImpl<T> : never }> &
+  Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V> : never }> &
+  Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>> } : never }> &
   Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
   Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St> : never }> &
@@ -1356,6 +1480,8 @@ export interface InputView<T> {
 export interface MentionView<T> {
   label: string;
   target: T;
+  /** How the mentioned type is shown, if the provider declares one. */
+  type?: TypeDisplay;
   /** What the system's `hover` returned; `undefined` when the thing no longer exists. */
   hover: MentionHover | undefined;
 }
@@ -1373,7 +1499,10 @@ export type FnViewOf<S extends AnyContract, K extends keyof S['defs']['fns']> = 
 /** The props of the renderer for one of a contract's attachments. */
 export type AttachmentViewOf<S extends AnyContract, K extends keyof S['defs']['attachments']> = AttachmentView<Infer<S['defs']['attachments'][K]['data']>> & WithSystem<S['defs']>;
 /** The props of the input for one of a contract's types. */
-export type InputViewOf<S extends AnyContract, K extends keyof S['defs']['types']> = InputView<Infer<S['defs']['types'][K]>> & WithSystem<S['defs']>;
+export type InputViewOf<S extends AnyContract, K extends keyof S['defs']['types']> = InputView<ValueOf<S['defs']['types'][K]>> & WithSystem<S['defs']>;
+
+/** The value type of a declared type. */
+export type ValueOf<D> = D extends TypeDef<infer T, Methods> ? T : never;
 
 /** A system's renderers, typed by its contract. Every renderer also gets `system` to send its system actions. */
 export interface ClientRenderers<C extends ContractShape> {
@@ -1383,7 +1512,7 @@ export interface ClientRenderers<C extends ContractShape> {
   kinds?: { readonly [K in keyof C['kinds']]?: Renderer<FnView<UntypedFn> & WithSystem<C>> };
   attachments?: { readonly [K in keyof C['attachments']]?: Renderer<AttachmentView<Infer<C['attachments'][K]['data']>> & WithSystem<C>> };
   /** Inputs for the system's named types (used in `!` forms and handler prompts). */
-  inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<Infer<C['types'][K]>> & WithSystem<C>> };
+  inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<ValueOf<C['types'][K]>> & WithSystem<C>> };
   /** Custom hover cards for mentions (otherwise the hub draws the `MentionHover`). */
   mentions?: { readonly [K in keyof C['mentions']]?: Renderer<MentionView<Infer<C['mentions'][K]['target']>> & WithSystem<C>> };
   /** Previews for resource formats. */
@@ -1405,7 +1534,8 @@ type HubFn<A, R> = FnDef<NativeFnTypes<A, R, {}, {}, NoProgress, never, never>>;
 
 /**
  * The hub is a system too, built with the same SDK. Its contract is exported so other systems can depend on its
- * fns, use its `llm` kind, and refer to its hooks and sectioners.
+ * fns, use its `llm` kind, and refer to its sectioners. Its built-in message extras (local time, suggestions)
+ * aren't hooks: the hub adds them itself whenever it can.
  */
 export interface HubContract extends EmptyContract {
   kinds: { llm: KindDef<LlmPayload> };
@@ -1420,11 +1550,10 @@ export interface HubContract extends EmptyContract {
     run_wait: HubFn<{ run: RunId; timeout?: Duration }, { status: RunStatus; result?: Json; error?: FnError }>;
     ask_user: HubFn<{ question: string; user?: ActorId }, { answer: string }>;
   };
-  hooks: { local_time: HookDef; suggest_context: HookDef; suggest_fns: HookDef };
   mentions: {
-    fns: MentionDef<{ fn: QualifiedName }>;
-    context: MentionDef<{ context: QualifiedName }>;
-    resources: MentionDef<{ uri: ResourceUri; section?: SectionKey }>;
+    fns: MentionDef<{ fn: QualifiedName }, never>;
+    context: MentionDef<{ context: QualifiedName }, never>;
+    resources: MentionDef<{ uri: ResourceUri; section?: SectionKey }, never>;
   };
   sectioners: { whole: SectionerDef; headings: SectionerDef; symbols: SectionerDef; pages: SectionerDef; paragraphs: SectionerDef };
 }
