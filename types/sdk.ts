@@ -201,8 +201,11 @@ export type MethodArgs<T, A> = Simplify<{ self: T } & A>;
 export interface KindRef<N extends QualifiedName, P> {
   readonly name: N;
   readonly payload: GinType<P>;
-  /** Declare a fn of this kind. The args and result types are what you expect the payload to produce; the hub checks them against what the kind derives. */
-  fn<A, R>(def: KindFnInput<P, A, R>): FnDef<KindFnTypes<KindRef<N, P>, P, A, R>>;
+  /**
+   * Declare a fn of this kind. Only the payload is needed; the kind derives the rest. Give `args`/`returns` to type
+   * the ref (the hub checks them against what the kind derives); without them the ref takes and returns `Json`.
+   */
+  fn<A = Json, R = Json>(def: KindFnInput<P, A, R>): FnDef<KindFnTypes<KindRef<N, P>, P, A, R>>;
 }
 
 /** A typed handle to context. A `/command`'s args are typed. */
@@ -772,14 +775,19 @@ export declare function kind<P>(def: { description: string; applicability: strin
 
 export type AnyKindRef = KindRef<QualifiedName, unknown>;
 
-/** What `kinds.x.fn()` takes. */
+/**
+ * What `kinds.x.fn()` takes. Only the payload is required: everything else a fn has (signature, deps, types it
+ * references, handlers, progress, operations, limits, display) is worked out by the kind's `describe`. An input
+ * kind's payload might be just a gin type, giving a fn with no deps; a program kind works out every fn and type
+ * its code references. `args`/`returns` are optional typing hints: when given, the hub checks them against what
+ * the kind derived, and the ref is typed by them (otherwise it is typed by `Json`).
+ */
 export interface KindFnInput<P, A, R> {
   description: string;
   instructions?: string;
   payload: P;
-  /** What the payload should produce; checked by the hub against the kind's own description of it. */
-  args: GinType<A>;
-  returns: GinType<R>;
+  args?: GinType<A>;
+  returns?: GinType<R>;
   visibility?: Audience;
   tags?: string[];
 }
@@ -789,13 +797,25 @@ export interface KindFnTypes<K extends AnyKindRef, P, A, R> {
   kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never;
 }
 
-/** What a kind works out from one payload. */
+/**
+ * Everything a kind works out from one payload, so the author of a fn of that kind writes only the payload. The
+ * hub stores this with the fn and recomputes it whenever the payload, or anything it references, changes.
+ * Optional fields fall back to the kind's defaults (no handlers, no progress, the hub's limits, a card display).
+ */
 export interface KindDescription {
   args: GinTypeDef;
   returns: GinTypeDef;
-  /** The fns a payload calls (a program's calls, an agent's tools). The hub refuses calls outside these. */
+  /** The fns a payload calls (a program's calls, an agent's tools). The hub refuses calls outside these. Empty for an input kind. */
   deps: QualifiedName[];
+  /** The named types the payload references, so the hub can load them and re-describe when one changes. */
+  types?: QualifiedName[];
+  /** The resources or context the payload references. */
+  refs?: string[];
   operations: Operations;
+  handlers?: Record<string, { required: boolean; args: GinTypeDef; returns: GinTypeDef }>;
+  progress?: ProgressDef;
+  limits?: Partial<FnLimits>;
+  display?: Display;
 }
 
 /**

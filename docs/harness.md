@@ -230,6 +230,16 @@ A fn also declares:
 - **Display:** how a finished run looks in the chat: its card, a plain message, or nothing.
 - **Limits:** timeout, retries, and an estimated cost.
 
+**Most of that is worked out by the kind.** Any system can define a kind, and any system (that one or
+another) can add fns of it. A fn of a kind carries the kind's payload, and the kind's `describe` works out
+everything else from it: signature, deps, the types and resources it references, handlers, progress,
+operations, limits and display. So creating a fn needs only what the kind can't work out, usually the
+payload, a name and a description. An *input* kind's payload might be just a gin type: no deps, no refs. A
+*code* or *api* kind works out every fn and type its program references. The hub keeps the description with
+the fn and recomputes it when the payload, or anything it references, changes. The fn runs on the system
+that defines its kind, because that system owns the payload's handler. Native fns are the exception: their
+author declares everything, because the code is the payload.
+
 ### Session state
 
 Each system has a scratch pad per session: data its fns pass to each other without the LLM seeing it (the
@@ -820,6 +830,9 @@ Already checked: type-checking all of the types and examples takes about two sec
 
 ## Decided
 
+- **Kinds derive fns:** a fn of a kind needs only what the kind can't work out (usually just its payload);
+  the kind's `describe` supplies signature, deps, referenced types and resources, handlers, progress,
+  operations, limits and display, and the hub recomputes it when the payload or its references change.
 - **Name:** plugins are **systems**; the main server is the **hub**, itself a system named `hub`.
 - **Kinds:** code-backed fns are kind `native` (the hub's own fns too), agents are `hub/llm`, and systems
   can add more. A fn declared at runtime belongs to, and runs on, the system that defines its kind, because that
