@@ -33,18 +33,35 @@ describe('BashView', () => {
     expect(card.find('.actions').exists()).toBe(false);
   });
 
-  it('runs again through the system and follows the delivery to its result', async () => {
-    const fake = fakeSystem(false);
-    const card = mount(BashView, { props: bash({ result: { exitCode: 0, stdout: 'first', stderr: '' } }, fake.system) });
-    expect(card.find('.offline').exists()).toBe(true);
+  it('runs again as a new bash run with the same args, and says when it started', async () => {
+    const fake = fakeSystem();
+    const args = { command: 'npm test', cwd: 'packages', timeout: 60_000 };
+    const card = mount(BashView, { props: bash({ args, result: { exitCode: 0, stdout: 'first', stderr: '' } }, fake.system) });
     await card.find('.action.primary').trigger('click');
-    expect(fake.sent).toEqual(['npm test']);
-    expect(card.find('.again .chip').text()).toBe('Queued until fs is online');
+    expect(fake.started).toEqual([{ fn: 'bash', args }]);
+    expect(card.find('.action.primary').text()).toBe('Starting…');
     expect(card.find('.action.primary').attributes('disabled')).toBeDefined();
-    fake.settle({ exitCode: 0, stdout: 'second', stderr: '' });
+    fake.start();
     await flushPromises();
-    expect(card.find('.again .chip').text()).toBe('Done');
-    expect(card.find('.again .stream').text()).toBe('second');
+    expect(card.find('.started').text()).toBe('Started again below');
+    expect(card.find('.action.primary').attributes('disabled')).toBeUndefined();
+    // the first run's output stays as it was; the new run has its own card
+    expect(card.find('.stream').text()).toBe('first');
+  });
+
+  it('shows why a run again could not start, and is off while fs is offline', async () => {
+    const fake = fakeSystem();
+    const card = mount(BashView, { props: bash({ result: { exitCode: 0, stdout: '', stderr: '' } }, fake.system) });
+    await card.find('.action.primary').trigger('click');
+    fake.refuse('fs/bash is unavailable: disabled');
+    await flushPromises();
+    expect(card.find('[role="alert"]').text()).toBe('fs/bash is unavailable: disabled');
+    expect(card.find('.started').exists()).toBe(false);
+
+    const offline = fakeSystem(false);
+    const away = mount(BashView, { props: bash({ result: { exitCode: 0, stdout: '', stderr: '' } }, offline.system) });
+    expect(away.find('.note').text()).toContain('fs is offline');
+    expect(away.find('.action.primary').attributes('disabled')).toBeDefined();
   });
 
   it('copies the command and its output', async () => {

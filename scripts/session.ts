@@ -1,9 +1,10 @@
 /**
  * Driving one chat session from a script (the e2e tests and the UI test fixtures): a live recorder of its events that
- * waits for the one expected (`SessionWatch`), an approver that answers its approvals while some work runs, and
- * `ask`, which sends a message and waits for the agent's finished answer.
+ * waits for the one expected (`SessionWatch`), an approver that says yes to its approvals and confirmations while some
+ * work runs, and `ask`, which sends a message and waits for the agent's finished answer.
  */
-import type { Approval, ChatMessage, ClientInfo, RunStatus, RunUpdate, SessionEvent, SessionId, TurnId } from '@harness/core';
+import { BoolType } from '@aeye/gin';
+import type { Approval, ChatMessage, ClientInfo, HandlerCall, RunStatus, RunUpdate, SessionEvent, SessionId, TurnId } from '@harness/core';
 import type { SignedIn } from './hub-client.ts';
 
 /** The browser facts a message carries. */
@@ -70,10 +71,15 @@ export class SessionWatch {
   }
 }
 
-/** Approves a session's approvals, each once, for as long as some work runs. */
+/**
+ * Says yes for a person while some work runs: approves a session's approvals, and answers "yes" to the yes/no questions
+ * its runs ask a person (such as the shell's confirmation of a command outside the safe list), each once.
+ */
 export class Approver {
   /** Every approval it has answered, oldest first. */
   readonly answered: Approval[] = [];
+  /** Every yes/no question it has answered, oldest first. */
+  readonly confirmed: HandlerCall[] = [];
   readonly #seen = new Set<string>();
   readonly #client: SignedIn;
   readonly #watch: SessionWatch;
@@ -94,6 +100,12 @@ export class Approver {
           this.#seen.add(approval.id);
           this.answered.push(approval);
           await this.#client.hub.call('approve', { approval: approval.id, approve: true, remember: 'once' });
+        }
+        for (const { call } of this.#watch.of('handler')) {
+          if (call.status !== 'pending' || !('user' in call.answerer) || call.decl.returns.name !== BoolType.NAME || this.#seen.has(call.id)) { continue; }
+          this.#seen.add(call.id);
+          this.confirmed.push(call);
+          await this.#client.hub.call('answer', { call: call.id, value: true });
         }
         await new Promise((resolve) => setTimeout(resolve, 200));
       }

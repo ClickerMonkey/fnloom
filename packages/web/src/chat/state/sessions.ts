@@ -1,9 +1,9 @@
 /**
  * The session list: newest activity first, paged, searchable (debounced), with archived sessions behind a switch.
- * Rows stay live from the one user channel (`session` events), not a subscription per row. Starting, renaming and
- * archiving go through here so the list and the hub agree.
+ * Rows stay live from the one user channel (`session` and `session-deleted` events), not a subscription per row.
+ * Starting, renaming, archiving and deleting go through here so the list and the hub agree.
  */
-import type { QualifiedName, Session, SessionId, SessionSummary, UserEvent } from '@harness/core';
+import { SessionSummary, type QualifiedName, type Session, type SessionId, type UserEvent } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { problemText } from '../../state/problems.ts';
@@ -17,12 +17,12 @@ const newestFirst = (a: SessionSummary, b: SessionSummary): number => b.updatedA
 
 /** The summary a list shows of a full session. */
 export function summaryOf(session: Session): SessionSummary {
-  return { id: session.id, title: session.title, owner: session.owner, agent: session.agent, status: session.status, createdAt: session.createdAt, updatedAt: session.updatedAt, archived: session.archived };
+  return SessionSummary.parse(session);
 }
 
 /** The list of sessions. */
 export class SessionListStore {
-  readonly #api: Pick<ChatApi, 'sessions' | 'createSession' | 'updateSession'>;
+  readonly #api: Pick<ChatApi, 'sessions' | 'createSession' | 'updateSession' | 'deleteSession'>;
   readonly #events: UserEvents;
   readonly #searchDelay: number;
   #stop: (() => void) | undefined;
@@ -41,7 +41,7 @@ export class SessionListStore {
   readonly #hasMore = ref(false);
   readonly hasMore = computed(() => this.#hasMore.value);
 
-  constructor(api: Pick<ChatApi, 'sessions' | 'createSession' | 'updateSession'>, events: UserEvents, searchDelay = SEARCH_DELAY) {
+  constructor(api: Pick<ChatApi, 'sessions' | 'createSession' | 'updateSession' | 'deleteSession'>, events: UserEvents, searchDelay = SEARCH_DELAY) {
     this.#api = api;
     this.#events = events;
     this.#searchDelay = searchDelay;
@@ -133,6 +133,20 @@ export class SessionListStore {
     return this.#change(id, { archived }, (s) => ({ ...s, archived }));
   }
 
+  /** Delete a session for good. It leaves the list at once, and comes back if the hub refuses. */
+  async remove(id: SessionId): Promise<boolean> {
+    const before = this.items.value;
+    this.items.value = before.filter((s) => s.id !== id);
+    try {
+      await this.#api.deleteSession.call({ session: id });
+      return true;
+    } catch (error) {
+      this.items.value = before;
+      this.problem.value = problemText(error, "Couldn't delete that chat.");
+      return false;
+    }
+  }
+
   /** A session's summary, if listed. */
   find(id: SessionId): SessionSummary | undefined {
     return this.items.value.find((s) => s.id === id);
@@ -175,6 +189,7 @@ export class SessionListStore {
   }
 
   #onEvent(event: UserEvent): void {
+    if (event.type === 'session-deleted') { this.items.value = this.items.value.filter((s) => s.id !== event.session); return; }
     if (event.type !== 'session') { return; }
     const known = this.items.value.some((s) => s.id === event.session.id);
     if (known || this.loaded.value) { this.#upsert(event.session); }

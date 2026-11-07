@@ -3,13 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { AccessClaims, type Tokens } from '@harness/core';
 import { ACCESS_TOKEN, AdminAuthenticator } from './auth.ts';
 import { ScryptHasher } from './hash.ts';
-import { memoryStore, quietLog, TEST_KEYS } from './testing/rig.ts';
+import { testStore } from '../testing.ts';
+import { TEST_KEYS } from './testing/rig.ts';
 
 const HOUR = 3_600_000;
 const admin = { email: 'Admin@Example.com', name: 'Admin', password: 'correct horse battery', device: 'test' };
 
 async function make() {
-  const store = await memoryStore(quietLog().log);
+  const store = await testStore();
   const clock = { now: 1_800_000_000_000 };
   const auth = new AdminAuthenticator({
     store, hasher: new ScryptHasher(10), secret: TEST_KEYS.jwtSecret, accessTtl: 900_000, refreshTtl: 24 * HOUR,

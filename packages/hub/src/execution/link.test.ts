@@ -19,7 +19,7 @@ let rig: ExecutionRig;
 afterEach(async () => { await rig.module.stop(); });
 
 async function started(): Promise<ExecutionRig> {
-  rig = executionRig();
+  rig = await executionRig();
   rig.catalog.add('fs', 'read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
   rig.catalog.add('fs', 'remove', fn({ description: 'Remove.', args: g.obj({ path: g.text() }), returns: g.bool(), tags: ['read'], handlers: { confirm } }));
   rig.catalog.add('fs', 'copy', copy);

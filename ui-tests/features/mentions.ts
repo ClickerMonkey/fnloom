@@ -1,6 +1,6 @@
 /**
- * Mentions (chat-features 5.3, 5.4): `@` searches files and picking one puts it in the draft; a sent mention shows as a
- * chip with a hover card.
+ * Mentions (chat-features 5.3, 5.4, 5.5): `@` searches files and picking one puts it in the draft; a sent mention shows
+ * as a chip with a hover card, which offers the methods of the file's type (fs/Entry's Reveal) to run on it.
  */
 import { QualifiedName } from '@harness/core';
 import { clientInfo } from '../../scripts/session.ts';
@@ -34,6 +34,9 @@ export default feature({
     await find(page, 'mention-chip');
     if (isPhone(ctx)) { await page.tap(tid('mention-chip')); } else { await point(ctx, tid('mention-chip')); }
     await find(page, 'hover-card');
+    await page.waitForSelector(`${tid('hover-methods')} button`, { timeout: 10_000 });
+    const methods = await page.$$eval(`${tid('hover-methods')} button`, (els) => els.map((el) => el.textContent.trim()));
+    check(methods.some((m) => m.startsWith('Reveal')), `the card offers the file type's methods (saw ${methods.join(', ')})`);
     await settle(page);
     await ctx.shot('hover-card');
     await page.keyboard.press('Escape');

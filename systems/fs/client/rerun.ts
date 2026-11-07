@@ -1,39 +1,36 @@
 /**
- * The bash card's "run again": sends the `rerun` action through the hub and follows its delivery. State lives here,
- * not in the component, so the card only draws it.
+ * The bash card's "Run again": starts a new `bash` run with the same args through the hub, as `!fs/bash` would. The
+ * new run has its own card in the chat, with its approval, live status, cost, place in the fn tree and undo, and the
+ * hub keeps it, so a reload shows it like any other run. State lives here, not in the component, so the card only
+ * draws it.
  */
-import type { Delivery } from '@harness/sdk';
-import { computed, ref, shallowRef, type ComputedRef, type Ref, type ShallowRef } from 'vue';
-import type { CommandOutput } from '../shared/index.ts';
+import type { RunId } from '@harness/core';
+import { computed, ref, type ComputedRef, type Ref } from 'vue';
 
-/** A rerun in progress or finished. */
+/** A "Run again" in progress or finished. */
 export interface Rerun {
-  /** The latest delivery, live. */
-  readonly delivery: ShallowRef<Delivery<CommandOutput> | undefined>;
-  readonly result: Ref<CommandOutput | undefined>;
+  /** The run it started, once the hub has started it. */
+  readonly started: Ref<RunId | undefined>;
+  /** Why it couldn't start, if it couldn't. */
   readonly error: Ref<string | undefined>;
-  /** True from sending until the system has handled it. */
+  /** True from pressing until the hub has answered. */
   readonly busy: ComputedRef<boolean>;
   run(): void;
 }
 
-/** Follow reruns sent by `send`. Only one runs at a time. */
-export function useRerun(send: () => Delivery<CommandOutput>): Rerun {
-  const delivery = shallowRef<Delivery<CommandOutput>>();
-  const result = ref<CommandOutput>();
+/** Start runs with `start`. Only one start is in flight at a time. */
+export function useRerun(start: () => Promise<RunId>): Rerun {
+  const started = ref<RunId>();
   const error = ref<string>();
   const pending = ref(false);
   const run = () => {
     if (pending.value) { return; }
     pending.value = true;
-    result.value = undefined;
     error.value = undefined;
-    const sent = send();
-    delivery.value = sent;
-    sent.result
-      .then((output) => { if (delivery.value === sent) { result.value = output; } })
-      .catch((problem: unknown) => { if (delivery.value === sent) { error.value = problem instanceof Error ? problem.message : 'It could not run.'; } })
+    start()
+      .then((id) => { started.value = id; })
+      .catch((problem: unknown) => { started.value = undefined; error.value = problem instanceof Error ? problem.message : 'It could not start.'; })
       .finally(() => { pending.value = false; });
   };
-  return { delivery, result, error, busy: computed(() => pending.value), run };
+  return { started, error, busy: computed(() => pending.value), run };
 }

@@ -61,7 +61,7 @@ describe('fs over the link', () => {
     const manifest = hub.manifests[0];
     expect(manifest?.name).toBe('fs');
     const text = JSON.stringify(manifest);
-    for (const name of ['read', 'write', 'edit', 'list', 'glob', 'grep', 'cd', 'bash', 'remove', 'restart', 'explore', 'Entry', 'files', 'git', 'rerun', 'tree', 'guide']) {
+    for (const name of ['read', 'write', 'edit', 'list', 'glob', 'grep', 'cd', 'bash', 'remove', 'restart', 'explore', 'Entry', 'files', 'git', 'tree', 'guide']) {
       expect(text).toContain(`"${name}"`);
     }
   });

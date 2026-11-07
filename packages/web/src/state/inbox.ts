@@ -136,10 +136,19 @@ export class InboxStore {
   #onEvent(event: UserEvent): void {
     if (event.type !== 'notification') { return; }
     const notification = event.notification;
-    if (this.items.value.some((n) => n.id === notification.id)) { return; }
+    const held = this.items.value.find((n) => n.id === notification.id);
+    if (held !== undefined) { this.#replace(held, notification); return; }
     if (this.loaded.value && (this.filter.value === 'all' || !notification.read)) {
       this.items.value = [notification, ...this.items.value];
     }
     if (!notification.read) { this.unread.value++; }
+  }
+
+  /** A notification the hub changed (it resolved, or was read elsewhere): shown as it is now, the count following. */
+  #replace(held: Notification, notification: Notification): void {
+    const drop = this.filter.value === 'unread' && notification.read;
+    this.items.value = drop ? this.items.value.filter((n) => n.id !== held.id) : this.items.value.map((n) => (n.id === held.id ? notification : n));
+    if (!held.read && notification.read) { this.unread.value = Math.max(0, this.unread.value - 1); }
+    if (held.read && !notification.read) { this.unread.value++; }
   }
 }

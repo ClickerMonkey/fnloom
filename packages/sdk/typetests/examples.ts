@@ -11,7 +11,7 @@ import {
 import { harnessAiOf, serve, type HarnessAi } from '@harness/sdk/server';
 import { type ClientRuntime } from '@harness/sdk/client';
 import { fs, type Entry } from '@harness/system-fs';
-import { mintId, type ContentRef, type FnError, type ModelChoice } from '@harness/core';
+import { mintId, type ContentRef, type FnError, type ModelChoice, type RunId } from '@harness/core';
 
 // Stand-ins for real file and shell code.
 declare function readText(path: string): Promise<string>;
@@ -154,13 +154,9 @@ void serve(fs, {
       },
     },
   },
-  // actions sent from renderers; this one has the same state view as bash
-  actions: {
-    rerun: async (input, ctx) => {
-      const { cwd } = await ctx.state.get();
-      return shell(`cd ${cwd ?? '.'} && ${input.command}`, ctx.signal, () => undefined);
-    },
-  },
+  // fs declares no actions, so it can't implement one
+  // @ts-expect-error actions the contract doesn't declare are refused
+  actions: { rerun: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
   // tree is dynamic context, so it must be implemented; its args are typed from the command
   context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}` },
   hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
@@ -184,7 +180,7 @@ void serve(fs, {
   lifecycle: {
     async started(ctx) { ctx.log.info('fs.started', { roots: ctx.config.roots.length }); },
     // someone changed the config: react if it matters (here, watch the new set of folders)
-    async configured(ctx) { ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous.roots.length }); },
+    async configured(ctx) { ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous?.roots.length ?? 0 }); },
     async stopping(ctx) { ctx.log.info('fs.stopping', { reason: ctx.reason }); },
   },
 }, { hub: 'ws://localhost:4300/link', state: '.system' });
@@ -372,20 +368,21 @@ void serve(crm, {
 // ── Renderers are typed by the contract ───────────────────────────────────────
 
 // A functional component: the props are the typed view, live. It shows the shared working folder and has a
-// "run again" button that sends the rerun action to the fs system through the hub.
+// "run again" button that starts a new bash run with the same args in the session, through the hub.
 const BashView = (view: FnViewOf<typeof fs, 'bash'>) =>
   h('div', [
     h('pre', { 'data-fraction': view.progress?.fraction ?? 0 }, [`${view.state.cwd ?? '.'} $ ${view.args.command}\n`, view.result?.stdout ?? '']),
     h('button', {
       disabled: !view.system.online,
       onClick: async () => {
-        const delivery = view.system.send.rerun({ command: view.args.command });   // stored by the hub, delivered when fs is online
-        const again = await delivery.result;
-        expectType<Equal<typeof again, { exitCode: number; stdout: string; stderr: string }>>(true);
-        // @ts-expect-error only actions the contract declares can be sent
-        view.system.send.deploy({});
-        // @ts-expect-error action input is checked
-        view.system.send.rerun({ cmd: 'ls' });
+        const again = await view.system.run.bash({ ...view.args });   // a new run, with its own card, approval and undo
+        expectType<Equal<typeof again, RunId>>(true);
+        // @ts-expect-error fn args are checked
+        void view.system.run.bash({ cmd: 'ls' });
+        // @ts-expect-error only fns the contract declares can be run
+        void view.system.run.deploy({});
+        // @ts-expect-error only actions the contract declares can be sent, and fs declares none
+        view.system.send.rerun({ command: 'ls' });
       },
     }, 'Run again'),
   ]);

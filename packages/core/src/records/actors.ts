@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ActorId, ActorKind, ApprovalId, AuthSessionId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
 } from '../primitives.ts';
+import { FnKindName } from '../manifest.ts';
 
 const actorBase = {
   id: ActorId,
@@ -81,7 +82,7 @@ export const FnMatch = z.object({
   /** A name or a glob over names: `fs/*`. */
   fn: z.string().optional(),
   system: SystemName.optional(),
-  kind: z.union([z.literal('native'), QualifiedName]).optional(),
+  kind: FnKindName.optional(),
   tags: z.array(z.string()).optional(),
   /** A gin predicate over the args. */
   when: Json.optional(),

@@ -35,15 +35,17 @@ const module = client(shop, { fns: { buy: BuyView }, kinds: { query: QueryView }
 function fakeBridge() {
   const acts: Array<Parameters<ClientBridge['act']>[0]> = [];
   const forms: Array<{ value: Json }> = [];
+  const invokes: Array<Parameters<ClientBridge['invoke']>[0]> = [];
   const followers = new Map<DeliveryId, { status: (s: DeliveryStatus) => void; settle: (result: Json) => void; fail: (e: Error) => void }>();
   let online = true;
   const bridge: ClientBridge = {
     online: () => online,
     act: (input) => { acts.push(input); return Promise.resolve(mintId('delivery')); },
     submit: (input) => { forms.push(input); return Promise.resolve(mintId('delivery')); },
+    invoke: (input) => { invokes.push(input); return Promise.resolve(mintId('run')); },
     follow: (id, status) => new Promise((settle, fail) => { followers.set(id, { status, settle, fail }); }),
   };
-  return { bridge, acts, forms, followers, setOnline: (value: boolean) => { online = value; } };
+  return { bridge, acts, forms, invokes, followers, setOnline: (value: boolean) => { online = value; } };
 }
 
 describe('ClientRuntime', () => {
@@ -56,6 +58,8 @@ describe('ClientRuntime', () => {
     expect(runtime.fnRenderer('other/report')).toBeUndefined();
     expect(runtime.attachmentRenderer('shop/receipt')).toBe(ReceiptView);
     expect(runtime.resourceViewer('csv')).toBe(CsvView);
+    expect(runtime.viewerSystem('csv')).toBe('shop');
+    expect(runtime.viewerSystem('pdf')).toBeUndefined();
     expect(runtime.inputRenderer('shop/Nothing')).toBeUndefined();
   });
 
@@ -96,6 +100,19 @@ describe('ClientRuntime', () => {
     expect(runtime.systemClient('shop', run)).not.toBe(fromRun);
   });
 
+  it('runs its fns in the session with checked args, and refuses args that do not fit', async () => {
+    const fake = fakeBridge();
+    const runtime = new ClientRuntime(fake.bridge);
+    runtime.register(module);
+    const shopClient = runtime.systemClient('shop');
+    const run = await shopClient.run['buy']?.({ sku: 'a1' });
+    expect(run).toMatch(/^run_/);
+    expect(fake.invokes).toEqual([{ fn: 'shop/buy', args: { sku: 'a1' } }]);
+    await expect(shopClient.run['buy']?.({ sku: 1 })).rejects.toThrow();
+    expect(fake.invokes).toHaveLength(1);
+    expect(runtime.systemClient('other').run).toEqual({});
+  });
+
   it('refuses action input that does not fit before sending', () => {
     const fake = fakeBridge();
     const runtime = new ClientRuntime(fake.bridge);
@@ -121,6 +138,20 @@ describe('ClientRuntime', () => {
     [...fake.followers.values()][0]?.settle(null);
     await expect(delivery.result).resolves.toBeUndefined();
     expect(fake.forms[0]?.value).toEqual({ yes: true });
+  });
+
+  it("gives a fn's renderer a submit checked with the fn's own form type, and none to a fn without a form", async () => {
+    const fake = fakeBridge();
+    const runtime = new ClientRuntime(fake.bridge);
+    expect(runtime.formSubmit('shop/buy', mintId('run'))).toBeUndefined();
+    runtime.register(module);
+    const submit = runtime.formSubmit('shop/buy', mintId('run'));
+    if (submit === undefined) { throw new Error('buy declares a form'); }
+    expect(() => submit({ yes: 'nope' })).toThrow();
+    void submit({ yes: false });
+    await waitUntil(() => fake.forms.length === 1);
+    expect(fake.forms[0]?.value).toEqual({ yes: false });
+    expect(runtime.formSubmit('shop/other', mintId('run'))).toBeUndefined();
   });
 
   it('knows a client module when it sees one', () => {

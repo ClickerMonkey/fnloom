@@ -56,11 +56,12 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `run.ts` | `UserInfo`, `TimeInfo`, `RunInfo`, `ClientInfo`, `Operations`, `ProgressDecl`/`ProgressWire`, `FnError`, `RunStatus`, `RunUpdate`, `OutcomeWire`, `RunSettled`, `UndoOutcome` |
 | `resources.ts` | `ResourceUri`, `SectionKey`, `ContentRef`, `ResourceStat`/`Read`/`Link`/`Root`, `Section`, `Link` |
 | `llm.ts` | JSON projections of aeye's request/chunk/usage: `LlmMessage`, `LlmRequest`, `LlmChunk`, `LlmForward`, `LlmForwardChunk` |
-| `manifest.ts` | `Manifest` and every `*Decl`, `ManifestPatch`, `ImportReport`, `KindDescription`, `HookBlock`, `MentionOption`/`Hover`, `SystemEvent` |
+| `manifest.ts` | `Manifest` and every `*Decl`, `ManifestPatch`, `ImportReport`, `KindDescription`, `HookBlock`, `MentionOption`/`Hover` |
+| `system-events.ts` | `SystemEvent` (what systems subscribe to), `MessageView`, `HeardSystemStatus` and its guard |
 | `link.ts` | `hubLinkSpec` (system → hub) and `systemLinkSpec` (hub → system), the handshake (`Hello`, `HelloReply`, `Welcome`), `RunRequest`, the `linkSession` middleware def |
 | `records/*.ts` | everything the hub stores (systems, actors and policies, spend, runs and turns, chat, content and notifications) |
 | `records/tables.ts` | `HUB_TABLES`: every table's row schema and key; `RowOf<T>` types the store |
-| `web.ts` | `hubWebSpec` (every browser endpoint, the `tel` / `hubAuth` / `adminOnly` middleware defs) and its `session` / `user` events |
+| `web.ts` | the web API slices (`authSlice`, `chatSlice`, …, one per hub plugin, each under its middleware chains), `hubWebSpec` joining them with `mergeSpecs`, the `tel` / `hubAuth` / `adminOnly` middleware defs and the `session` / `user` events |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.

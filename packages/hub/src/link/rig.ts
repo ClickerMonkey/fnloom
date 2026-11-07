@@ -11,7 +11,7 @@ import {
   type StopReason, type SystemEvent, type Welcome,
 } from '@harness/core';
 import { ADMIN } from '../catalog/fixtures.ts';
-import { MemoryBus, MemoryStore, memoryLog, settle } from '../catalog/testing.ts';
+import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import { buildSystems, type SystemsSettings } from './build.ts';
 import { LINK_SPEC, type LinkEmbedding, type LinkSpec } from './handlers.ts';
 import { makeKeyPair, signNonce, type StoredKeyPair } from './keys.ts';
@@ -26,7 +26,7 @@ export const RIG_SETTINGS: SystemsSettings = {
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2,
   },
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
-  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_INDEX_CRAWL_MAX: 1_000 },
+  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_INDEX_CRAWL_MAX: 1_000 },
   search: { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 },
 };
 
@@ -35,8 +35,8 @@ const noLauncher: ProcessLauncher = { launch: () => { throw new Error('the rig s
 
 /** The system side over fakes, with a running hub link server. */
 export async function linkRig(options: { embedding?: LinkEmbedding } = {}) {
-  const store = new MemoryStore();
-  const bus = new MemoryBus();
+  const store = await testStore();
+  const bus = new RecordingBus();
   const { log, records } = memoryLog();
   const time = { now: 1_000_000 };
   const clock = () => time.now;

@@ -32,7 +32,7 @@ describe('the agent loop (live)', () => {
     const models = liveModels();
     const tried: string[] = [];
     for (const model of models) {
-      rig = executionRig({
+      rig = await executionRig({
         settings: testSettings({ HARNESS_TURN_COST: 0.05 }, {}, model),
         llm: { providers: openRouterProviders(key) },
       });

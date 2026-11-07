@@ -18,6 +18,7 @@ export const ROUTES: { readonly [E in HubEventName]?: Route<E> } = {
     emit('session', { session: session.id }, { type: 'session', session });
     emit('user', { type: 'session', session });
   },
+  'session.deleted': ({ session }, emit) => { emit('user', { type: 'session-deleted', session }); },
   'session.controls': ({ session, controls }, emit) => { emit('session', { session }, { type: 'controls', controls }); },
   'run.update': ({ run, fn, session, update }, emit) => {
     if (session !== undefined) { emit('session', { session }, { type: 'run', run, fn, update }); }
@@ -39,6 +40,7 @@ export const ROUTES: { readonly [E in HubEventName]?: Route<E> } = {
   },
   'pairing': ({ pairing }, emit) => { emit('user', { type: 'pairing', pairing }); },
   'catalog.changed': (_data, emit) => { emit('user', { type: 'capabilities' }); },
+  'fn.stats': ({ fn, system, stats }, emit) => { emit('user', { type: 'fn', fn, system, stats }); },
   'capabilities.changed': (_data, emit) => { emit('user', { type: 'capabilities' }); },
 };
 

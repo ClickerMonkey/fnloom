@@ -1,7 +1,7 @@
 /**
  * Content refs on an `@ayepi/files` `FileStore`. Bytes live under `content/<sha-256>`, so the same bytes are stored
- * once. Browsers upload with a presigned `PUT` to `uploads/<id>`; `finish` checks the declared size, hashes the
- * upload and moves it into `content/`. Presigned downloads use the key `content/<hash>/<name>`, which the
+ * once. Browsers upload with a presigned `PUT` to `uploads/<id>` whose URL caps the body at the declared size (the
+ * files server refuses a larger one); `finish` refuses a shorter one, hashes the upload and moves it into `content/`. Presigned downloads use the key `content/<hash>/<name>`, which the
  * `NamedContentFiles` wrapper maps back to the bytes, so the browser saves the file under its own name.
  */
 import { randomBytes } from 'node:crypto';
@@ -142,7 +142,7 @@ export class FileContentStore implements ContentStore {
     const upload = randomBytes(18).toString('base64url');
     const meta = UploadMeta.parse({ mime: input.mime, size: input.size, expiresAt: this.#o.clock() + this.#o.presignTtl });
     await this.#o.files.put(this.#metaKey(upload), JSON.stringify(meta), { contentType: 'application/json' });
-    const url = await this.#o.presign.presignUpload(`${UPLOADS}${upload}`, { expiresIn: this.#seconds(), contentType: input.mime });
+    const url = await this.#o.presign.presignUpload(`${UPLOADS}${upload}`, { expiresIn: this.#seconds(), contentType: input.mime, maxSize: input.size });
     return { url, upload };
   }
 

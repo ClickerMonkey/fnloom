@@ -3,7 +3,8 @@
  * distance. Each row is keyed by kind + key, keeps the kind as a metadata column (so a nearest search filters by
  * kind inside the KNN) and the key as an auxiliary column. A meta table remembers each embedder's table and
  * dimensions; when an embedder's dimensions change its vectors can't be compared any more, so its table is rebuilt
- * empty (the indexer re-embeds).
+ * empty (the indexer re-embeds). Tables made before are remembered when the store opens again. An embedder with no
+ * table yet has no vectors: searching it finds nothing and removing from it removes nothing; only storing needs a size.
  */
 import { createHash } from 'node:crypto';
 import { IndexedKind, type QualifiedName, compositeKey } from '@harness/core';
@@ -68,12 +69,19 @@ async function ensureVectorTable(scope: Scope, embedder: string, size: number, l
   return rebuilt;
 }
 
-/** Create or check the tables of the embedders known at open. Run inside a transaction. Returns those rebuilt. */
-export async function createVectorTables(scope: Scope, dimensions: ReadonlyMap<string, number>, log: Logger): Promise<string[]> {
+/**
+ * Create or check the tables of the embedders given at open, then learn the size of every table made before (so a
+ * store opened again searches the vectors it already has). Run inside a transaction. Returns the tables rebuilt.
+ */
+export async function createVectorTables(scope: Scope, dimensions: Map<string, number>, log: Logger): Promise<string[]> {
   await createVectorMeta(scope);
   const rebuilt: string[] = [];
   for (const [embedder, size] of dimensions) {
     if (await ensureVectorTable(scope, embedder, size, log)) rebuilt.push(embedder);
+  }
+  for (const row of await scope.db.selectFrom(VECTOR_META).selectAll().execute()) {
+    const meta = VectorMeta.parse(row);
+    if (!dimensions.has(meta.embedder)) dimensions.set(meta.embedder, meta.dimensions);
   }
   return rebuilt;
 }
@@ -102,6 +110,7 @@ export class SqliteVectorIndex implements VectorIndex {
 
   async upsert(embedder: QualifiedName, entries: ReadonlyArray<{ kind: IndexedKind; key: string; vector: readonly number[] }>): Promise<void> {
     const table = this.#table(embedder);
+    if (table === undefined) throw new StoreError('unknown-embedder', `the store has no vectors for embedder ${embedder}: ensure its size first`);
     for (const entry of entries) this.#check(embedder, entry.vector);
     if (entries.length === 0) return;
     await this.#scope.atomic(async ({ db }) => {
@@ -116,7 +125,7 @@ export class SqliteVectorIndex implements VectorIndex {
 
   async remove(embedder: QualifiedName, kind: IndexedKind, keys: readonly string[]): Promise<void> {
     const table = this.#table(embedder);
-    if (keys.length === 0) return;
+    if (table === undefined || keys.length === 0) return;
     const ids = keys.map((key) => compositeKey(kind, key));
     await sql`delete from ${sql.table(table)} where id in (${sql.join(ids)})`.execute(this.#scope.db);
   }
@@ -128,6 +137,7 @@ export class SqliteVectorIndex implements VectorIndex {
     kinds?: readonly IndexedKind[],
   ): Promise<Array<{ kind: IndexedKind; key: string; score: number }>> {
     const table = this.#table(embedder);
+    if (table === undefined) return [];
     this.#check(embedder, vector);
     const k = Math.floor(limit);
     if (k < 1 || kinds?.length === 0) return [];
@@ -142,9 +152,9 @@ export class SqliteVectorIndex implements VectorIndex {
     });
   }
 
-  #table(embedder: QualifiedName): string {
-    if (!this.#dimensions.has(embedder)) throw new StoreError('unknown-embedder', `the store has no vectors for embedder ${embedder}`);
-    return vectorTable(embedder);
+  /** The embedder's table, or undefined while it has none (no size ensured yet). */
+  #table(embedder: QualifiedName): string | undefined {
+    return this.#dimensions.has(embedder) ? vectorTable(embedder) : undefined;
   }
 
   #check(embedder: QualifiedName, vector: readonly number[]): void {

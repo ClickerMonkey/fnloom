@@ -10,7 +10,7 @@
 import { reject as refuse, spec } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  hubLinkSpec, type ActorId, type AttachmentDecl, type ContentRef, type Json, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeRecord,
+  hubLinkSpec, type ActorId, type AttachmentDecl, type ContentRef, type Json, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
 } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -168,7 +168,7 @@ export class LinkServices {
   }
 
   /** Named type definitions and every named type they reference, dependencies first, with the names not found. */
-  async types(names: readonly QualifiedName[]): Promise<{ types: TypeRecord[]; missing: string[] }> {
+  async types(names: readonly QualifiedName[]): Promise<TypeDefinitions> {
     const catalog = this.#deps.catalog();
     const closure = await catalog.typeClosure(names);
     const records = await Promise.all(closure.order.map((name) => catalog.type(name)));

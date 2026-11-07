@@ -158,11 +158,19 @@ describe('the chat agent', () => {
     bashRun = run.id;
   });
 
-  it('runs the command again from the bash card', async () => {
-    const { delivery } = await me.hub.call('act', { session: id(), system: FS, action: 'rerun', input: { command: 'echo harness-e2e-ok' }, run: bashRun, client: clientInfo() });
-    const done = await watch.next('delivery', (e) => e.delivery.id === delivery && (e.delivery.status === 'done' || e.delivery.status === 'failed'), 60_000);
-    expect(done.delivery.status).toBe('done');
-    expect(JSON.stringify(done.delivery.result)).toContain('harness-e2e-ok');
+  it('runs the command again from the bash card, as a new run with its approval', async () => {
+    // the card's "Run again" starts fs/bash with the same args, as `!fs/bash` does
+    const first = await me.hub.call('run', { run: bashRun });
+    const { result: again, approvals } = await approving((async () => {
+      const invoked = await me.hub.call('invoke', { session: id(), fn: fsFn('bash'), args: first.args, client: clientInfo() });
+      await watch.next('run', (e) => e.run === invoked.run && finished(e.update), 60_000);
+      return invoked;
+    })());
+    expect(approvals.map((a) => a.fn)).toContain(fsFn('bash'));
+    const run = await me.hub.call('run', { run: again.run });
+    expect(run.id).not.toBe(bashRun);
+    expect(run.status).toBe('done');
+    expect(JSON.stringify(run.outcome)).toContain('harness-e2e-ok');
   });
 });
 
@@ -176,7 +184,7 @@ describe('session state and realtime', () => {
     const run = await me.hub.call('run', { run: cd.run });
     expect(run.status).toBe('done');
     const state = await me.hub.call('state', { run: cd.run });
-    expect(JSON.stringify(state.values)).toContain('packages');
+    expect(JSON.stringify(state.fields.find((f) => f.name === 'cwd')?.value)).toContain('packages');
 
     const { result: pwd } = await approving((async () => {
       const invoked = await me.hub.call('invoke', { session: id(), fn: fsFn('bash'), args: { command: 'pwd' }, client: clientInfo() });

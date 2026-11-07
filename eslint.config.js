@@ -22,6 +22,9 @@ export default tseslint.config(
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'inline-type-imports' }],
       '@typescript-eslint/no-floating-promises': 'error',
+      // a new variant in a source-of-truth union must break every switch over it, including void switches;
+      // a `default` does not count as handling the variants it would swallow
+      '@typescript-eslint/switch-exhaustiveness-check': ['error', { considerDefaultExhaustiveForUnions: false, allowDefaultCaseForExhaustiveSwitch: false }],
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
       '@typescript-eslint/no-empty-object-type': 'off',
       '@typescript-eslint/no-unnecessary-type-parameters': 'off',

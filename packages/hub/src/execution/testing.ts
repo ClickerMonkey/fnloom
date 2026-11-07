@@ -17,7 +17,7 @@ import {
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo,
 } from '@harness/core';
 import { z } from 'zod';
-import { MemoryBus, MemoryStore, memoryLog, settle } from '../catalog/testing.ts';
+import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { Catalog, FnSignature } from '../catalog/index.ts';
 import type { SystemConnection } from '../link/index.ts';
 import { createExecution, type ExecutionModule, type LlmSource } from './create.ts';
@@ -52,8 +52,12 @@ export const TEST_MODEL: ModelInfo = {
   capabilities: new Set(['chat', 'streaming', 'tools', 'json', 'structured']), pricing: { text: { input: 1, output: 2 } },
 };
 
-/** One scripted reply: chunks to stream, or an error to throw before the first one. */
-export type ScriptedReply = Chunk[] | Error;
+/**
+ * One scripted reply: chunks to stream, or an error to throw before the first one, or a function that makes either
+ * when the request arrives (to change the world between building a request and the model's answer, or to hold the
+ * answer back until a test lets it go).
+ */
+export type ScriptedReply = Chunk[] | Error | (() => Chunk[] | Error | Promise<Chunk[] | Error>);
 
 /** A reply that says some text. */
 export function says(text: string, cost = 0.001): Chunk[] {
@@ -99,8 +103,9 @@ export class ScriptedProvider implements Provider<Record<string, never>> {
 
   async *#stream(request: Request, signal: AbortSignal | undefined): AsyncGenerator<Chunk, Response> {
     this.requests.push(request);
-    const reply = this.replies.shift();
-    if (reply === undefined) throw new Error('the scripted provider has no reply left');
+    const next = this.replies.shift();
+    if (next === undefined) throw new Error('the scripted provider has no reply left');
+    const reply = typeof next === 'function' ? await next() : next;
     if (reply instanceof Error) throw reply;
     for (const chunk of reply) {
       await Promise.resolve();
@@ -261,9 +266,9 @@ export interface ChatRecord {
 export const OPEN_LIMITS: ResolvedLimits = { priority: 'interactive', priorityFrom: { default: 'hub' }, turn: { cost: 1, time: 600_000 }, budgets: [] };
 
 /** Build the execution module over fakes. */
-export function executionRig(options: { settings?: ExecutionSettings; active?: boolean; llm?: LlmSource } = {}) {
-  const store = new MemoryStore();
-  const bus = new MemoryBus();
+export async function executionRig(options: { settings?: ExecutionSettings; active?: boolean; llm?: LlmSource } = {}) {
+  const store = await testStore();
+  const bus = new RecordingBus();
   const { log, records } = memoryLog();
   const time = { now: 1_000_000 };
   const clock = (): number => time.now;
@@ -341,7 +346,7 @@ export function executionRig(options: { settings?: ExecutionSettings; active?: b
   return { module, store, bus, log, records, time, catalog, provider, chat, presence, configs, approverSets, connect, session, turn, hub };
 }
 
-export type ExecutionRig = ReturnType<typeof executionRig>;
+export type ExecutionRig = Awaited<ReturnType<typeof executionRig>>;
 
 /** The rig's one session id. */
 export const SESSION = mintId('session', () => 'test');

@@ -1,7 +1,6 @@
 /** The hub's records of systems: what is paired, installed and configured, and what each contributes. */
 import { z } from 'zod';
-import { GinTypeDef } from '../gin.ts';
-import { ContextDecl, FnDecl, KindDecl, Manifest, TypeDisplay } from '../manifest.ts';
+import { ContextDecl, FnDecl, KindDecl, Manifest, TypeDecl } from '../manifest.ts';
 import { ActorId, Duration, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp, Usd } from '../primitives.ts';
 
 /** Where a system is. `needs-config`: connected, but without a valid config, so it can't be used yet. */
@@ -157,18 +156,25 @@ export type FnRecord = z.infer<typeof FnRecord>;
 export const KindRecord = z.object({ name: QualifiedName, system: SystemName, decl: KindDecl });
 export type KindRecord = z.infer<typeof KindRecord>;
 
-/** The hub's row for a named type. Types re-declared by a system must stay compatible (gin `compatible`). */
-export const TypeRecord = z.object({
+/**
+ * The hub's row for a named type: its declaration, qualified, with its methods left to the fns named `Type.method`.
+ * Types re-declared by a system must stay compatible (gin `compatible`).
+ */
+export const TypeRecord = TypeDecl.omit({ name: true, methods: true }).extend({
   name: QualifiedName,
   system: SystemName,
-  description: z.string(),
-  def: GinTypeDef,
-  display: TypeDisplay,
-  /** The named types its definition refers to, direct (gin `typeReferences`). */
-  references: z.array(z.string()),
+  /**
+   * The named types its definition refers to directly (gin `typeReferences`), so a receiver can load them first. The
+   * hub works these out from `def` itself; this is the only place they are kept.
+   */
+  references: z.array(QualifiedName),
   updatedAt: Timestamp,
 });
 export type TypeRecord = z.infer<typeof TypeRecord>;
+
+/** Named type definitions, dependencies first, with the names asked for (or referred to) that the hub doesn't know. */
+export const TypeDefinitions = z.object({ types: z.array(TypeRecord), missing: z.array(QualifiedName) });
+export type TypeDefinitions = z.infer<typeof TypeDefinitions>;
 
 /** The hub's row for context. */
 export const ContextRecord = z.object({

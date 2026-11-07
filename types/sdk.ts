@@ -1436,10 +1436,11 @@ export interface Lifecycle<Cfg> {
   /** Every time it connects with a valid config and its contract is imported. */
   started?(ctx: SystemCtx<Cfg>): Promise<void>;
   /**
-   * Someone changed the config. `ctx.config` is the new value and `previous` the old one; react if it matters
-   * (watch new folders, reconnect to a new database). Runs already going keep the value they started with.
+   * Someone changed the config. `ctx.config` is the new value and `previous` the old one (undefined when there was
+   * none); react if it matters (watch new folders, reconnect to a new database). Runs already going keep the value
+   * they started with.
    */
-  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg }): Promise<void>;
+  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg | undefined }): Promise<void>;
   /** Before it stops: a restart, an upgrade, the hub shutting down, or being removed. */
   stopping?(ctx: SystemCtx<Cfg> & { readonly reason: 'restart' | 'upgrade' | 'shutdown' | 'removed'; readonly timeout: Duration }): Promise<void>;
   /** The first start of a new version; `from` is the version it replaced. */

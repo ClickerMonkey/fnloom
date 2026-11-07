@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { statusChip, deliveryChip, failedOutput, percent } from './bash.ts';
+import { statusChip, failedOutput, percent } from './bash.ts';
 import { diffBlocks, diffLines, diffStats, splitLines, type DiffLine } from './diff.ts';
 
 /** Apply a diff's lines back: the kept and added lines make the new text, the kept and removed the old. */
@@ -71,15 +71,6 @@ describe('the bash card\'s logic', () => {
     expect(statusChip('paused', undefined, undefined).label).toBe('Paused');
     expect(statusChip('cancelled', undefined, undefined).label).toBe('Stopped');
     expect(statusChip('undone', undefined, undefined).label).toBe('Undone');
-  });
-
-  it('labels a rerun\'s delivery', () => {
-    expect(deliveryChip('queued', undefined).label).toBe('Queued until fs is online');
-    expect(deliveryChip('delivered', undefined).tone).toBe('busy');
-    expect(deliveryChip('done', 1)).toEqual({ label: 'Exit 1', tone: 'bad' });
-    expect(deliveryChip('done', 0).tone).toBe('ok');
-    expect(deliveryChip('failed', undefined).tone).toBe('bad');
-    expect(deliveryChip('expired', undefined).label).toBe('Expired');
   });
 
   it('keeps the output a timed-out run carries, and clamps progress', () => {

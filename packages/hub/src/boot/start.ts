@@ -32,7 +32,7 @@ import { HUB_INFO, HUB_PACKAGE_DIR } from './info.ts';
 import { loadKeys, randomSecret, type KeyMaker } from './keys.ts';
 import { makeLogger } from './log.ts';
 import { apiServices, assemble, type BaseServices } from './services.ts';
-import { COMPONENTS, type ModuleBuild, type RunningHub, type StageHooks, type StartOptions } from './index.ts';
+import { COMPONENTS, type ComponentName, type ModuleBuild, type RunningHub, type StageHooks, type StartOptions } from './index.ts';
 
 /** The signals that stop the hub (`SIGBREAK` is Ctrl+Break on Windows). */
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const;
@@ -124,7 +124,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
       log.info('auth.admin.bootstrapped', { email });
     }
 
-    const lc = updown({
+    const lc = updown<ComponentName>({
       signals: options.signals === true ? SIGNALS : false, exit: options.signals === true, timeout: settings.httpEnv.HARNESS_SHUTDOWN_TIMEOUT,
       onError: (error, phase, component) => { log.error('lifecycle.failed', { phase, component }, error); },
     });
@@ -143,7 +143,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     const links = moduleHooks(modules, 'links');
     const installed = moduleHooks(modules, 'installed');
 
-    const components: readonly Component[] = [
+    const components: readonly Component<ComponentName>[] = [
       { name: COMPONENTS.log, post: async () => { restoreConsole(); if (options.log === undefined) { await log.close(); } } },
       { name: COMPONENTS.store, deps: [COMPONENTS.log], post: () => store.close() },
       {

@@ -5,13 +5,12 @@
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  compact, mintId, splitName, SystemName, type ActorId, type GroupActor, type ProviderConfig, type ProviderInput, type ProviderRecord, type SecretId, type UserActor,
+  settingsSlice, compact, mintId, splitName, SystemName, type ActorId, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind, type ProviderRecord, type SecretId, type UserActor,
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { findUserByEmail, normalEmail } from '../auth.ts';
 import type { FullHandlers } from './access.ts';
 import { collect, first, PAGE } from '../paging.ts';
-import { settingsSlice } from './slices.ts';
 import type { systemsPlugin } from './systems.ts';
 
 /** The secrets a provider config holds. */
@@ -31,6 +30,11 @@ async function sealProvider(hub: Pick<HubServices, 'api'>, input: ProviderInput,
     case 'replicate': return { provider: 'replicate', apiKey: await seal(input.apiKey) };
     case 'aws': return { provider: 'aws', region: input.region, ...(input.credentials === undefined ? {} : { credentials: await seal(input.credentials) }) };
   }
+}
+
+/** How many of the hub AI's models a provider offers. */
+function modelsOf(models: readonly ModelInfo[], provider: ProviderKind): number {
+  return models.filter((model) => model.provider === provider).length;
 }
 
 /** Every actor id given must be an actor of this kind. */
@@ -58,13 +62,14 @@ export function settingsPlugin(hub: HubServices, systems: ReturnType<typeof syst
           await store.table('providers').update(existing.id, { config });
           for (const secret of secretsOf(existing.config)) { await hub.api.secrets.remove(secret); }
         }
+        await execution.providers.reload();
         bus.publish('capabilities.changed', {});
         hub.log.info('provider.configured', { provider: data.provider, user: user.id });
-        return { models: (await execution.llm.models()).length };
+        return { models: modelsOf(await execution.llm.models(), data.provider) };
       },
       providers: async () => {
         const [records, models] = await Promise.all([providers(), execution.llm.models()]);
-        return records.map((p) => ({ id: p.id, provider: p.config.provider, models: models.length }));
+        return records.map((p) => ({ id: p.id, provider: p.config.provider, models: modelsOf(models, p.config.provider) }));
       },
       setModelCategory: async ({ data }) => {
         const existing = await first((cursor) => store.table('modelCategories').find({ limit: PAGE, cursor }), (c) => c.name === data.name);

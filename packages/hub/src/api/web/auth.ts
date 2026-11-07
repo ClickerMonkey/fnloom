@@ -8,11 +8,10 @@ import { reject } from '@ayepi/core';
 import { telemetry } from '@ayepi/otel/server';
 import { plugin } from '@ayepi/plugin';
 import { limiter } from '@ayepi/rate';
-import { AccessClaims, hubAuth, tel } from '@harness/core';
+import { authSlice, AccessClaims, hubAuth, tel } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { ACCESS_TOKEN, normalEmail } from '../auth.ts';
 import { deviceOf, type FullHandlers } from './access.ts';
-import { authSlice } from './slices.ts';
 
 /** What the sign-in plugin needs besides the services. */
 export interface AuthPluginOptions {

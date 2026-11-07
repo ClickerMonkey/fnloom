@@ -34,7 +34,7 @@ const props = withDefaults(defineProps<{
   /** The runs this message started (`!` invocations), as far as known. */
   runs?: readonly RunView[];
   /** A run's renderer and its props, when its system has one. */
-  viewOf?: (run: RunView) => RenderView | undefined;
+  viewOf?: (run: RunView) => RenderView<'fn'> | undefined;
   /** Whether a run's card is collapsed. */
   collapsed?: (run: RunView) => boolean;
 }>(), { quote: undefined, flash: false, clampLines: 8, runs: () => [], viewOf: () => undefined, collapsed: () => false });
@@ -48,6 +48,7 @@ const emit = defineEmits<{
   suggestion: [item: SuggestionItem, kind: 'context' | 'fn'];
   run: [run: RunId];
   runToggle: [run: RunId, collapsed: boolean];
+  background: [run: RunId];
 }>();
 
 const split = computed(() => splitParts(props.message.parts));
@@ -108,7 +109,7 @@ onMounted(() => {
       <div v-if="runs.length > 0" class="runs">
         <RunCard
           v-for="run in runs" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)" :byline="mine ? 'You ran this' : `${authorName} ran this`"
-          @open="emit('run', run.id)" @toggle="emit('runToggle', run.id, $event)"
+          @open="emit('run', run.id)" @toggle="emit('runToggle', run.id, $event)" @background="emit('background', run.id)"
         />
       </div>
       <SuggestionChips :suggestions="suggestions" @use="(item, kind) => emit('suggestion', item, kind)" />

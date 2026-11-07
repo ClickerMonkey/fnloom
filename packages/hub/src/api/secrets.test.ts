@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActorId, SecretId } from '@harness/core';
-import { memoryStore, quietLog } from './testing/rig.ts';
+import { testStore } from '../testing.ts';
 import { AesSecretVault, SecretBox } from './secrets.ts';
 
 describe('SecretBox', () => {
@@ -27,7 +27,7 @@ describe('SecretBox', () => {
 
 describe('AesSecretVault', () => {
   it('stores sealed, reveals plain, and removes', async () => {
-    const store = await memoryStore(quietLog().log);
+    const store = await testStore();
     const vault = new AesSecretVault({ store, box: new SecretBox('a-key-that-is-long-enough-for-the-hub-0123'), clock: () => 5 });
     const id = await vault.store({ name: 'provider:openrouter', owner: ActorId.parse('act_admin'), value: 'sk-or-abc' });
     const row = await store.table('secrets').get(id);

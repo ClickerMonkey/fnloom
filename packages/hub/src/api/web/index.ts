@@ -4,6 +4,7 @@
  * installed.
  */
 import { plugin, type AnyPlugin } from '@ayepi/plugin';
+import { eventsSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { adminPlugin } from './admin.ts';
 import { authPlugin, type AuthPluginOptions } from './auth.ts';
@@ -13,7 +14,6 @@ import { findPlugin } from './find.ts';
 import { inboxPlugin } from './inbox.ts';
 import { runsPlugin } from './runs.ts';
 import { settingsPlugin } from './settings.ts';
-import { eventsSlice } from './slices.ts';
 import { systemsPlugin } from './systems.ts';
 
 /** The realtime plugin: while installed, bus events reach browsers as `session` and `user` events. */

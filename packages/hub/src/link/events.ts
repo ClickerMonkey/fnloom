@@ -4,7 +4,7 @@
  * fire and forget: a system that fails to take one is logged, never retried).
  */
 import type { Logger } from '@ayepi/log';
-import type { ChatMessage, MessageView, SystemEvent } from '@harness/core';
+import { isHeardSystemStatus, type ChatMessage, type MessageView, type SystemEvent } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
@@ -41,7 +41,7 @@ export class SystemEventRelay {
       bus.subscribe('run.update', ({ run, fn, update }) => { this.send({ type: 'run', run, fn, update }); }),
       bus.subscribe('resources.changed', ({ changes }) => { this.send({ type: 'resources', changes }); }),
       bus.subscribe('system.status', ({ system, status }) => {
-        if (status === 'connected' || status === 'disconnected' || status === 'removed') { this.send({ type: 'system', system, status }); }
+        if (isHeardSystemStatus(status)) { this.send({ type: 'system', system, status }); }
       }),
       bus.subscribe('catalog.changed', ({ added, removed }) => { if (added.length + removed.length > 0) { this.send({ type: 'fns', added, removed }); } }),
     );

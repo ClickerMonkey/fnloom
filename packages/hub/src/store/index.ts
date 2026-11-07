@@ -71,9 +71,11 @@ export interface Table<Row> {
 export interface VectorIndex {
   /** Make the embedder's table at this size if needed; true when vectors of another size were dropped. */
   ensure(embedder: QualifiedName, dimensions: number): Promise<boolean>;
+  /** Store vectors; refused (`unknown-embedder`) until the embedder's size is ensured, and for a vector of another size. */
   upsert(embedder: QualifiedName, entries: ReadonlyArray<{ kind: IndexedKind; key: string; vector: readonly number[] }>): Promise<void>;
+  /** Remove vectors by key; nothing to do for an embedder with no table yet. */
   remove(embedder: QualifiedName, kind: IndexedKind, keys: readonly string[]): Promise<void>;
-  /** Nearest by cosine distance; `score` is similarity in [0, 1]. */
+  /** Nearest by cosine distance; `score` is similarity in [0, 1]. An embedder with no table yet has no vectors, so none. */
   nearest(embedder: QualifiedName, vector: readonly number[], limit: number, kinds?: readonly IndexedKind[]): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
 }
 

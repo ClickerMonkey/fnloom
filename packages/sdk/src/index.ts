@@ -43,6 +43,6 @@ export { manifestOf, manifestBody, fnDecl, canonicalJson, sha256, type ManifestO
 export {
   client, RESOURCE_VIEWER,
   type Renderer, type Delivery, type FnView, type SystemClient, type WithSystem, type AttachmentView, type InputView, type MentionView, type ResourceView,
-  type FnViewOf, type AttachmentViewOf, type InputViewOf, type ClientRenderers, type ClientModule, type ResourceViewerProps,
+  type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type ClientRenderers, type ClientModule, type ResourceViewerProps,
 } from './client.ts';
 export { expectType, type Equal, type Simplify } from './util.ts';

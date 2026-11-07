@@ -5,9 +5,9 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
+import { contentSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import type { FullHandlers } from './access.ts';
-import { contentSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
 /** The content plugin. */

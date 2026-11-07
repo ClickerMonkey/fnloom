@@ -1,4 +1,7 @@
-/** Embeddings systems ask the hub for (`ctx.embed`): the document embedder, priced at its declared rate. */
+/**
+ * Embeddings systems ask the hub for (`ctx.embed`): the document embedder, priced at its declared rate. They go in
+ * the background lane, since a system embedding its own data can ask for many at once.
+ */
 import type { Catalog } from '../catalog/index.ts';
 import type { LinkEmbedding } from '../link/handlers.ts';
 import type { EmbedBatcher } from './batch.ts';
@@ -22,7 +25,7 @@ export class IndexEmbedding implements LinkEmbedding {
   async embed(texts: readonly string[]): Promise<{ vectors: number[][]; cost: number }> {
     const active = this.#embedders.active();
     if (active === undefined) { throw new Error('no embedder is connected'); }
-    const vectors = await this.#batcher.embed(active.document.name, texts);
+    const vectors = await this.#batcher.embed(active.document.name, texts, 'background');
     const decl = (await this.#catalog.entries('embedders')).find((e) => e.name === active.document.name)?.decl;
     const tokens = texts.reduce((sum, text) => sum + Math.ceil(Math.min(text.length, active.document.maxInput) / CHARS_PER_TOKEN), 0);
     return { vectors, cost: ((decl?.pricePerMillionTokens ?? 0) * tokens) / 1_000_000 };

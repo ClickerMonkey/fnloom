@@ -84,7 +84,10 @@ export class HubFns implements RunExecutor {
     const impl = this.#impls.get(job.run.fn);
     if (impl === undefined) return { status: 'failed', error: fnError('fatal', `the hub has no implementation of ${job.run.fn}`, 'not-implemented') };
     try {
-      return { status: 'done', result: await impl(job.request.args, { request: job.request, signal }) };
+      const result = await impl(job.request.args, { request: job.request, signal });
+      // an implementation that returns early when stopped (`run_wait`) still ends the way the stop asked
+      if (signal.aborted && signal.reason instanceof RunStopped) throw signal.reason;
+      return { status: 'done', result };
     } catch (error) {
       if (signal.aborted && signal.reason instanceof RunStopped) throw signal.reason;
       return { status: 'failed', error: fnError('caller', messageOf(error)) };

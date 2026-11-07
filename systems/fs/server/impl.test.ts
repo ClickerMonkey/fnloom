@@ -10,7 +10,7 @@ import { createFsImpl, type FsServer } from './impl.ts';
 import type { CommandRun, FsConfig } from './index.ts';
 import { DiskSnapshots } from './snapshots.ts';
 import {
-  FakeGit, FakeOpener, FakeRestarter, FakeShell, actionCtx, configFor, doneResult, failure, fnCtx, memoryState, systemCtx, tempFolder, undoCtx,
+  FakeGit, FakeOpener, FakeRestarter, FakeShell, configFor, doneResult, failure, fnCtx, memoryState, systemCtx, tempFolder, undoCtx,
 } from './testing.ts';
 
 type Fns = typeof fs.defs.fns;
@@ -168,14 +168,6 @@ describe('the fs implementation', () => {
       build(() => ({ exitCode: 130, stdout: 'some', stderr: '', ended: 'cancelled' }));
       expect(await server.impl.fns.bash.run({ command: 'ls' }, bashCtx(memoryState()).ctx)).toEqual({ status: 'cancelled', partial: { exitCode: 130, stdout: 'some', stderr: '' } });
     });
-
-    it('reruns a command from its card in the session\'s folder without asking', async () => {
-      const state = memoryState<Cwd>({ cwd: `${root}/src` });
-      const result = await server.impl.actions.rerun({ command: 'rm -rf build' }, actionCtx(state, { config }).ctx);
-      expect(result).toEqual({ exitCode: 0, stdout: 'ok\n', stderr: '' });
-      expect(shell.calls[0]).toMatchObject({ command: 'rm -rf build', cwd: `${root}/src` });
-      await expect(server.impl.actions.rerun({ command: 'ls' }, actionCtx(state, { config, settings: { 'fs/shell': { allowed: false, safe: [] } } }).ctx)).rejects.toThrow(/doesn't allow/);
-    });
   });
 
   it('schedules a restart after answering', async () => {
@@ -229,5 +221,12 @@ describe('the fs implementation', () => {
     expect((await server.resources.roots()).map((r) => r.name)).toEqual(['src']);
     await server.impl.lifecycle?.stopping?.({ ...ctx, reason: 'restart', timeout: 1_000 });
     expect(ctx.log.lines.map((l) => l.key)).toEqual(['fs.started', 'fs.stopping']);
+  });
+
+  it('takes its first config while running, when there is no previous one', async () => {
+    const ctx = systemCtx({ config });
+    await server.impl.lifecycle?.configured?.({ ...ctx, previous: undefined });
+    expect((await server.resources.roots()).map((r) => r.name)).toEqual(['work']);
+    expect(ctx.log.lines.find((l) => l.key === 'fs.configured')?.fields).toEqual({ roots: 1, before: 0 });
   });
 });

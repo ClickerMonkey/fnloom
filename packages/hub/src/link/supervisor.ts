@@ -2,7 +2,8 @@
  * Installed systems: kept under the hub's data folder (`<systems>/<name>/versions/<version>`, its key pair and state
  * in `<systems>/<name>/state`), paired at install with a key the hub makes, started with the hub, and restarted
  * when they exit unexpectedly: after `backoff`, doubling with each crash in the last hour, until `maxPerHour`
- * crashes. Then a system that has a last good version (the last one that connected) rolls back to it; one that
+ * crashes. A system that exits with the restart code asked for a restart (its `restart` fn, or the hub's): it is
+ * started again at once and that doesn't count as a crash. Then a system that has a last good version (the last one that connected) rolls back to it; one that
  * doesn't is disabled until an admin starts it. Stopping asks over the link first, then ends the process.
  */
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -10,7 +11,7 @@ import { join } from 'node:path';
 import { reject as refuse } from '@ayepi/core';
 import { backoff } from '@ayepi/core/retry';
 import type { Logger } from '@ayepi/log';
-import { SYSTEM_ENV } from '@harness/sdk/server';
+import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
 import type { ActorId, InstallSource, InstalledSystem, Json, StopReason, SystemName, SystemRecord } from '@harness/core';
 import { allRows } from '../catalog/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
@@ -58,6 +59,8 @@ export interface SupervisorOptions {
 /** One running process. */
 interface Running {
   readonly process: SystemProcess;
+  /** Settles once the exit has been handled (status written, restart started), so a stop can wait for all of it. */
+  readonly handled: Promise<void>;
   stopping: boolean;
 }
 
@@ -125,12 +128,12 @@ export class ProcessSupervisor implements Supervisor {
     if (this.#running.has(system)) { return; }
     if (installed.status === 'disabled') { this.#crashes.delete(system); }
     const process = this.#options.launcher.launch(installed.command);
-    this.#running.set(system, { process, stopping: false });
-    await this.#update(system, { status: 'starting', ...(process.pid === undefined ? {} : { pid: process.pid }) });
-    this.#options.log.info('supervisor.started', { system, version: installed.version, pid: process.pid });
-    process.exited.then((exit) => this.#exited(system, exit)).catch((error: unknown) => {
+    const handled = process.exited.then((exit) => this.#exited(system, exit)).catch((error: unknown) => {
       this.#options.log.error('supervisor.exit.failed', { system, error: messageOf(error) });
     });
+    this.#running.set(system, { process, handled, stopping: false });
+    await this.#update(system, { status: 'starting', ...(process.pid === undefined ? {} : { pid: process.pid }) });
+    this.#options.log.info('supervisor.started', { system, version: installed.version, pid: process.pid });
   }
 
   async stop(system: SystemName, reason: StopReason): Promise<void> {
@@ -157,8 +160,8 @@ export class ProcessSupervisor implements Supervisor {
     if (ended === timedOut) {
       log.warn('supervisor.stop.killed', { system, reason });
       running.process.kill();
-      await running.process.exited;
     }
+    await running.handled;
   }
 
   async upgrade(system: SystemName, version?: string): Promise<{ from: string; to: string }> {
@@ -228,6 +231,12 @@ export class ProcessSupervisor implements Supervisor {
       await this.#update(system, { status: 'stopped', lastExit });
       return;
     }
+    if (exit.code === RESTART_CODE) {
+      log.info('supervisor.restarting', { system, version: installed.version });
+      await this.#update(system, { status: 'starting', lastExit });
+      await this.start(system);
+      return;
+    }
     const { policy } = installed.restart;
     if (policy === 'never' || (policy === 'on-failure' && exit.code === 0)) {
       await this.#update(system, { status: exit.code === 0 ? 'stopped' : 'crashed', lastExit });
@@ -289,7 +298,10 @@ export class ProcessSupervisor implements Supervisor {
     return {
       run: process.execPath,
       args: [pkg.entry],
-      env: { [SYSTEM_ENV.hub]: this.#options.settings.hubLink, [SYSTEM_ENV.state]: this.#stateDir(pkg.name), [SYSTEM_ENV.name]: pkg.name },
+      env: {
+        [SYSTEM_ENV.hub]: this.#options.settings.hubLink, [SYSTEM_ENV.state]: this.#stateDir(pkg.name), [SYSTEM_ENV.name]: pkg.name,
+        [SYSTEM_ENV.supervised]: 'true', [SYSTEM_ENV.restartCode]: String(RESTART_CODE),
+      },
       cwd: pkg.dir,
     };
   }

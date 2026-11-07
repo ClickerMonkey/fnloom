@@ -8,11 +8,12 @@ import { ctx, endpoint, middleware, spec, use } from '@ayepi/core';
 import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
 import { LlmForward, LlmForwardChunk } from './llm.ts';
-import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption, SystemEvent } from './manifest.ts';
+import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, HandlerCallId, Json, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
-import { TypeRecord } from './records/systems.ts';
+import { TypeDefinitions } from './records/systems.ts';
+import { SystemEvent } from './system-events.ts';
 import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section } from './resources.ts';
 import {
   AllowedOperations, BudgetLeft, HandlerAnswer, OutcomeWire, ProgressReport, RunInfo, RunSettled, RunUpdate, TimeInfo, UndoOutcome, UserInfo,
@@ -115,8 +116,7 @@ export const RunRequest = z.object({
   run: RunInfo,
   /** The fn's local name (`read`, `Entry.reveal`). */
   fn: z.string(),
-  /** `native`, or the qualified kind that runs it. */
-  kind: z.union([z.literal('native'), QualifiedName]),
+  kind: FnKindName,
   payload: Json.optional(),
   args: Json,
   budget: BudgetLeft,
@@ -195,7 +195,7 @@ const linked = use(linkTel, linkSession).group({
    * Named type definitions another system declared, with every named type they reference (dependencies first), so a
    * system can load and use them. Names the hub doesn't know come back in `missing`.
    */
-  types: { body: z.object({ names: z.array(QualifiedName).min(1) }), response: z.object({ types: z.array(TypeRecord), missing: z.array(z.string()) }), ws: 'ty' },
+  types: { body: z.object({ names: z.array(QualifiedName).min(1) }), response: TypeDefinitions, ws: 'ty' },
   resourcesChanged: { body: z.object({ changes: z.array(ResourceChange) }), ws: 'rc' },
   /** The LLM forward behind `ctx.llm` and the aeye provider systems use. */
   llm: { body: LlmForward, streamOut: LlmForwardChunk, ws: 'llm' },
@@ -243,7 +243,7 @@ export const systemLinkSpec = spec({
      * kind also carries its kind and the fn's payload, since the kind's system undoes it.
      */
     undo: endpoint({
-      body: z.object({ run: RunInfo, fn: z.string(), kind: z.union([z.literal('native'), QualifiedName]), fnPayload: Json.optional(), payload: Json }),
+      body: z.object({ run: RunInfo, fn: z.string(), kind: FnKindName, fnPayload: Json.optional(), payload: Json }),
       response: UndoOutcome,
       ws: 'un',
     }),

@@ -103,6 +103,8 @@ export class StoreIndexer implements Indexer {
       }),
       embedders.onChange(() => { if (embedders.active() !== undefined) { this.#queue('index.backfill', () => this.backfill()); } }),
     ];
+    // embedders that connected before the indexer started are caught up too
+    if (embedders.active() !== undefined) { this.#queue('index.backfill', () => this.backfill()); }
     log.debug('index.started', {});
     return () => { for (const stop of stops) { stop(); } };
   }
@@ -218,7 +220,7 @@ export class StoreIndexer implements Indexer {
     if (active === undefined || rows.length === 0) { return; }
     try {
       await this.#sized(active.document.dimensions);
-      const vectors = await batcher.embed(active.document.name, rows.map((r) => r.text));
+      const vectors = await batcher.embed(active.document.name, rows.map((r) => r.text), 'background');
       const entries = rows.map((r, i) => {
         const vector = vectors[i];
         if (vector?.length !== active.document.dimensions) { throw new Error(`${active.document.name} gave no ${active.document.dimensions}-number vector for ${r.kind} ${r.key}`); }

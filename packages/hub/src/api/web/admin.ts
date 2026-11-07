@@ -7,12 +7,11 @@
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  QualifiedName, UserView, splitName, SystemName, type BudgetView, type LlmSummary, type ResourceRecord, type SettingView, type TableName,
+  adminSlice, QualifiedName, UserView, splitName, SystemName, type BudgetView, type LlmSummary, type ResourceRecord, type SettingView, type TableName,
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { userInfo, type FullHandlers } from './access.ts';
-import { adminSlice } from './slices.ts';
 import type { systemsPlugin } from './systems.ts';
 
 /** How many output lines `systemLogs` returns when not asked. */

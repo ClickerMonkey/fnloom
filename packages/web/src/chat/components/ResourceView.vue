@@ -14,7 +14,7 @@ const props = withDefaults(defineProps<{
   read: ResourceRead | undefined;
   loading: boolean;
   problem?: string;
-  custom?: RenderView | undefined;
+  custom?: RenderView<'resource'> | undefined;
   navigate?: ((href: string) => void) | undefined;
 }>(), { problem: '', custom: undefined, navigate: undefined });
 const emit = defineEmits<{ retry: [] }>();
@@ -37,7 +37,7 @@ const isMarkdown = computed(() => format.value === 'markdown' || props.read?.sta
         <span v-if="read.stat.format">· {{ read.stat.format }}</span>
         <span v-if="read.stat.size !== undefined">· {{ formatBytes(read.stat.size) }}</span>
       </p>
-      <RendererHost v-if="custom" :component="custom.component" :props="custom.props" :label="read.stat.name" />
+      <RendererHost v-if="custom" :view="custom" :label="read.stat.name" />
       <div v-else-if="text !== undefined && isMarkdown" class="markdown"><UiMarkdown :source="text" :navigate="navigate" /></div>
       <UiCodeBlock v-else-if="text !== undefined" :code="text" :language="format" :filename="read.stat.name" line-numbers :max-height="0" />
       <p v-else-if="read.text" class="dim">This is too large to show here.</p>

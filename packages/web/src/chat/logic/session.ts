@@ -1,9 +1,10 @@
 /**
  * Facts about a session the chat shows around the thread: who will answer the next message (the hub's reply rule,
- * worked out the same way before sending), the budget meter, and what the embedding index suggested for a message.
+ * worked out the same way before sending), the agent and model it answers with, the budget meter, and what the
+ * embedding index suggested for a message.
  * Pure, so they are tested alone.
  */
-import type { ActorId, ChatMessage, LimitScope, QualifiedName, ResolvedLimits, Session } from '@harness/core';
+import type { ActorId, ChatCapabilities, ChatMessage, LimitScope, ModelChoice, QualifiedName, ResolvedLimits, Session } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
 import { formatCost } from './format.ts';
 import { agentName, fnLabel, humanize, localName, systemOf } from './labels.ts';
@@ -140,3 +141,30 @@ export function messageSuggestions(message: Pick<ChatMessage, 'parts'>, session:
 
 /** The words for a suggestion's state. */
 export const SUGGESTION_STATE = { auto: 'Added', offered: 'Offered', loaded: 'Loaded' } as const satisfies Record<SuggestionState, string>;
+
+/** A chat's model as a picker's value: `default` for the one its agent's fn chooses, else `model:<id>`. */
+export type ModelPick = 'default' | `model:${string}`;
+
+/** The picker value of a chat's model choice. A category or automatic choice shows as the agent's (it isn't one id). */
+export function modelPick(choice: ModelChoice | undefined): ModelPick {
+  return choice !== undefined && 'model' in choice ? `model:${choice.model}` : 'default';
+}
+
+/** The model choice a picker value stands for: `null` goes back to the agent's own. */
+export function modelChoiceOf(pick: ModelPick): ModelChoice | null {
+  return pick === 'default' ? null : { model: pick.slice('model:'.length) };
+}
+
+/** What a chat answers with, in words: the model's name, a category, or the agent's own choice. */
+export function modelLabel(choice: ModelChoice | undefined, models: ChatCapabilities['models']): string {
+  if (choice === undefined) { return 'Agent’s model'; }
+  if ('model' in choice) { return models.find((m) => m.id === choice.model)?.name ?? choice.model; }
+  if ('category' in choice) { return `${humanize(choice.category)} models`; }
+  return 'Automatic';
+}
+
+/** The agents a chat can switch to, as picker options: each agent's name and what it does, the current one first. */
+export function agentOptions(agents: ChatCapabilities['agents'], current: QualifiedName | undefined): Array<{ fn: QualifiedName; name: string; description: string }> {
+  const listed = agents.some((a) => a.fn === current) || current === undefined ? agents : [{ fn: current, description: '' }, ...agents];
+  return [...listed].sort((a, b) => Number(b.fn === current) - Number(a.fn === current)).map((a) => ({ fn: a.fn, name: agentName(a.fn), description: a.description }));
+}

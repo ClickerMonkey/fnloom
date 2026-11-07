@@ -3,7 +3,7 @@
  * disagree, and checked against core's `Manifest` schema before it leaves.
  */
 import {
-  Json, Manifest, SystemName, qualify, splitName, SYSTEM_EVENT_TYPES,
+  Json, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
   type ActionDecl, type ClientAssets, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType, type TypeDecl,
 } from '@harness/core';
 import type { AnyContextDef, AnyTypeDef } from './declare.ts';
@@ -63,7 +63,6 @@ function typeDecl(name: string, def: AnyTypeDef): TypeDecl {
     def: wireType(def.shape),
     display: { ...def.display },
     methods: Object.keys(def.methods),
-    references: referencesOf(def.shape),
   };
 }
 
@@ -99,9 +98,7 @@ function referencedSystems(system: string, defs: ContractShape): string[] {
     if (def.of !== undefined) { names.add(def.of.name); }
   }
   for (const def of Object.values(defs.types)) {
-    for (const ref of referencesOf(def.shape)) {
-      if (ref.includes('/')) { names.add(qualify(ref.slice(0, ref.indexOf('/')), ref.slice(ref.indexOf('/') + 1))); }
-    }
+    for (const ref of referencesOf(def.shape)) { names.add(ref); }
   }
   return [...new Set([...names].map((n) => splitName(n).system))].filter((s) => s !== system).sort();
 }

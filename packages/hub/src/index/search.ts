@@ -1,12 +1,13 @@
 /**
  * Hybrid search over the index: the query is embedded with the query embedder and matched against stored vectors and
- * words at once, merged by reciprocal rank (the store's `HybridSearch`). With no embedder connected, or when
- * embedding the query fails, it is words alone. Results can be limited to some systems.
+ * words at once, merged by reciprocal rank (the store's `HybridSearch`). With no embedder connected, when embedding
+ * the query fails, or when the vectors can't be searched with it (no vectors stored yet, or the query is another
+ * size), it is words alone. Results can be limited to some systems.
  */
 import type { Logger } from '@ayepi/log';
 import { compositeKey, type IndexedKind, type QualifiedName, type SearchHit, type SystemName } from '@harness/core';
 import { messageOf } from '../catalog/scope.ts';
-import type { HybridSearch } from '../store/hybrid.ts';
+import type { FusedHit, HybridQuery, HybridSearch } from '../store/hybrid.ts';
 import type { HubStore } from '../store/index.ts';
 import type { EmbedBatcher } from './batch.ts';
 import type { Embedders, Search } from './index.ts';
@@ -36,10 +37,8 @@ export class IndexSearch implements Search {
     const { store, hybrid, document, overfetch } = this.#options;
     const filtered = query.systems !== undefined && query.systems !== 'all';
     const vector = await this.#vector(query.text);
-    const hits = await hybrid.search({
-      text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit,
-      ...(vector === undefined ? {} : { vector: { embedder: document, values: vector } }),
-    });
+    const words: HybridQuery = { text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit };
+    const hits = vector === undefined ? await hybrid.search(words) : await this.#hybrid({ ...words, vector: { embedder: document, values: vector } }, words);
     const allowed = filtered ? new Set<string>(query.systems) : undefined;
     const out: SearchHit[] = [];
     for (const hit of hits) {
@@ -51,12 +50,22 @@ export class IndexSearch implements Search {
     return out;
   }
 
+  /** Search with the query's vector, or by words alone when the vectors can't be searched with it. */
+  async #hybrid(withVector: HybridQuery, words: HybridQuery): Promise<FusedHit[]> {
+    try {
+      return await this.#options.hybrid.search(withVector);
+    } catch (error) {
+      this.#options.log.warn('index.search.vectors.failed', { embedder: this.#options.document, error: messageOf(error) });
+      return this.#options.hybrid.search(words);
+    }
+  }
+
   /** The query's embedding, or undefined to search by words alone. */
   async #vector(text: string): Promise<number[] | undefined> {
     const active = this.#options.embedders.active();
     if (active === undefined || text.trim() === '') { return undefined; }
     try {
-      return (await this.#options.batcher.embed(active.query.name, [text]))[0];
+      return (await this.#options.batcher.embed(active.query.name, [text], 'interactive'))[0];
     } catch (error) {
       this.#options.log.warn('index.search.embed.failed', { error: messageOf(error) });
       return undefined;

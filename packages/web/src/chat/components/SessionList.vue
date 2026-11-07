@@ -29,6 +29,7 @@ const emit = defineEmits<{
   archived: [archived: boolean];
   rename: [id: SessionId, title: string];
   archive: [id: SessionId, archived: boolean];
+  remove: [id: SessionId];
   more: [];
   retry: [];
 }>();
@@ -63,7 +64,7 @@ defineExpose({ focusSearch: () => { searchBox.value?.focus(); } });
     <TransitionGroup v-else tag="ul" name="row" class="rows">
       <SessionRow
         v-for="session in items" :key="session.id" :session="session" :active="session.id === current" :now="now"
-        @open="emit('open', session.id)" @rename="emit('rename', session.id, $event)" @archive="emit('archive', session.id, $event)"
+        @open="emit('open', session.id)" @rename="emit('rename', session.id, $event)" @archive="emit('archive', session.id, $event)" @remove="emit('remove', session.id)"
       />
     </TransitionGroup>
     <div v-if="hasMore && items.length > 0" class="more">

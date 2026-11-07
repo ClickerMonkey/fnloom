@@ -95,8 +95,11 @@ export interface RuntimeParts<C extends ContractShape> {
   readonly inlineText: number;
 }
 
+/** A `{{name}}` placeholder in static context content. */
+const ARG_PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+
 /** The person a request is for, as the hub sends it. */
-interface AskerWire {
+export interface AskerWire {
   session?: SessionId | undefined;
   actor: ActorId;
   user: UserInfo;
@@ -142,7 +145,7 @@ export class SystemRuntime<C extends ContractShape> {
       handler: ({ data }) => runs.answer(data.run, data.key, data.handler, data.args),
       child: ({ data }) => { runs.child(data.parent, data.key, data.run, data.update); },
       check: ({ data }) => this.#check(data.kind, data.payload),
-      context: ({ data, signal }) => this.#context(data.name, data.args, data, signal),
+      context: async ({ data, signal }) => ({ text: await this.contextText(data.name, data.args, data, signal) }),
       roots: () => this.#resources().roots(),
       list: ({ data }) => this.#resources().list(data.uri, data.cursor),
       stat: async ({ data }) => {
@@ -277,17 +280,25 @@ export class SystemRuntime<C extends ContractShape> {
     };
   }
 
-  async #context(name: string, args: Record<string, string>, asker: AskerWire, signal: AbortSignal): Promise<{ text: string }> {
+  /**
+   * A context's text for these args, for whoever is asking (the hub, or an MCP client getting a prompt). A command's
+   * required args must be there. Static content has each declared arg's `{{name}}` filled in; dynamic content comes
+   * from the implementation, which gets the args.
+   */
+  async contextText(name: string, args: Readonly<Record<string, string>>, asker: AskerWire, signal: AbortSignal): Promise<string> {
     const def = this.#parts.table.contract.defs.context[name];
     if (def === undefined) { throw reject(404, 'NOT_FOUND', `No context ${name}.`); }
-    if (def.content !== undefined) { return { text: def.content }; }
-    const impl = this.#parts.table.impl.context?.[name];
-    if (impl === undefined) { throw reject(404, 'NOT_FOUND', `Context ${name} is not implemented.`); }
-    for (const [arg, spec] of Object.entries(def.command?.args ?? {})) {
+    const declared = def.command?.args ?? {};
+    for (const [arg, spec] of Object.entries(declared)) {
       if (spec.required && args[arg] === undefined) { throw reject(400, 'MISSING_ARG', `/${def.command?.name ?? name} needs ${arg}: ${spec.hint}`); }
     }
+    if (def.content !== undefined) {
+      return def.content.replace(ARG_PLACEHOLDER, (whole, arg: string) => (Object.hasOwn(declared, arg) ? args[arg] ?? '' : whole));
+    }
+    const impl = this.#parts.table.impl.context?.[name];
+    if (impl === undefined) { throw reject(404, 'NOT_FOUND', `Context ${name} is not implemented.`); }
     const ctx = { ...this.systemCtx(signal), user: asker.user, time: asker.time, ...(asker.session === undefined ? {} : { session: asker.session }) };
-    return { text: await impl(args, ctx) };
+    return impl({ ...args }, ctx);
   }
 
   #resources(): NonNullable<SystemTable['impl']['resources']> {

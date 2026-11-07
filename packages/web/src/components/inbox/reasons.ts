@@ -17,7 +17,14 @@ export const REASONS = {
   'config-needed': { icon: 'settings', tone: 'warn', label: 'Setup needed' },
   replied: { icon: 'chat', tone: 'accent', label: 'Reply' },
   'turn-finished': { icon: 'success', tone: 'ok', label: 'Finished' },
+  'turn-failed': { icon: 'error', tone: 'danger', label: 'Failed' },
   'pairing-requested': { icon: 'key', tone: 'accent', label: 'Pairing' },
   'system-disconnected': { icon: 'offline', tone: 'danger', label: 'Disconnected' },
   'spend-limit': { icon: 'warning', tone: 'danger', label: 'Spend limit' },
 } as const satisfies Record<NotificationReason, ReasonLook>;
+
+/** How a notification looks: its reason's look, quietened once what it asked for has happened (`resolved`). */
+export function lookOf(notification: { readonly reason: NotificationReason; readonly resolved?: string | undefined }): ReasonLook {
+  const look = REASONS[notification.reason];
+  return notification.resolved === undefined ? look : { icon: 'check', tone: 'neutral', label: `${look.label} · ${notification.resolved}` };
+}

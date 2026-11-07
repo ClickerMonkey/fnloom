@@ -2,7 +2,7 @@ import {
   ActorId, BudgetId, LedgerId, RunId, SessionId, SystemName, TurnId, type BudgetRule, type ResolvedLimits, type Run, type Turn,
 } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryBus, MemoryStore } from '../catalog/testing.ts';
+import { RecordingBus, testStore } from '../testing.ts';
 import type { CallSite } from './index.ts';
 import { coversSite, HubLedger, TURN_CAP } from './ledger.ts';
 import { budgetLabel, LedgerSpend } from './spend.ts';
@@ -20,10 +20,10 @@ function limits(budgets: BudgetRule[], turnCost = 1): ResolvedLimits {
 }
 
 async function world(rules: BudgetRule[] = []) {
-  const store = new MemoryStore();
+  const store = await testStore();
   const time = { now: 10_000_000 };
   let n = 0;
-  const bus = new MemoryBus();
+  const bus = new RecordingBus();
   const ledger = new HubLedger({ store, bus, clock: () => time.now, random: () => `${++n}`, settings: testSettings() }, new LedgerSpend(store));
   const turn: Turn = {
     id: TRN, session: SES, actor: ADA, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running', limits: limits(rules), cost: 0, errors: 'feed-back', createdAt: 0,
@@ -187,7 +187,7 @@ describe('a budget that asks', () => {
 
 describe('spend', () => {
   it('counts a window, a pooled group and an each-member allowance from the ledger', async () => {
-    const store = new MemoryStore();
+    const store = await testStore();
     await store.table('memberships').insert({ group: ENG, user: ADA, addedBy: ADA, addedAt: 0 });
     await store.table('memberships').insert({ group: ENG, user: BOB, addedBy: ADA, addedAt: 0 });
     const entries = [line(1, 100), line(2, 900), line(4, 950, { actor: BOB }), line(8, 990, { actor: ActorId.parse('act_cy'), session: SES })];

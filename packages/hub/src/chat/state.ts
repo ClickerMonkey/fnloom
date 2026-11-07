@@ -9,7 +9,7 @@
  * are recorded on the run with the value before, so undoing the turn puts them back.
  */
 import {
-  GinTypeDef, Json, compositeKey, qualify, type JsonObject, type Run, type RunId, type SessionId, type StateChange, type StateField, type StateOwner, type SystemName,
+  GinTypeDef, Json, compositeKey, qualify, type JsonObject, type Run, type RunId, type SessionId, type StateChange, type StateFieldValue, type StateField, type StateOwner, type SystemName,
 } from '@harness/core';
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
@@ -124,8 +124,14 @@ export class TableStateService implements StateService {
     return { version: result.version };
   }
 
-  async forRun(run: RunId): Promise<Record<string, Json>> {
-    return (await this.get({ run })).values;
+  async forRun(run: RunId): Promise<{ system: SystemName; fields: StateFieldValue[] }> {
+    const scope = await this.#scope({ run });
+    const { values } = await this.#read(this.#deps.store, scope);
+    const fields = [...scope.fields.values()].map((field): StateFieldValue => {
+      const value = values[field.name];
+      return { name: field.name, type: field.type, ...(value === undefined ? {} : { value }) };
+    });
+    return { system: scope.system, fields };
   }
 
   async revert(run: RunId): Promise<void> {

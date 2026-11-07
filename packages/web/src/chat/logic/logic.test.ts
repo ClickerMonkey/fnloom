@@ -2,14 +2,17 @@ import { ActorId, HookBlock, ResolvedLimits, RunId, type ChatCapabilities } from
 import { describe, expect, it } from 'vitest';
 import { capabilities, llmCall, message, run, session, T0, tree } from '../test/fakes.ts';
 import {
-  commandArgs, commandHint, detectTrigger, draftParts, enterSends, insertText, leadingCommand, missingArgs, placeholderFor, pruneMentions, textParts, type DraftMention,
+  commandArgs, commandHint, detectTrigger, draftParts, enterSends, insertText, leadingCommand, methodArgs, methodsOf, missingArgs, ownArgs, placeholderFor, pruneMentions, textParts,
+  type DraftMention,
 } from './composer.ts';
 import { clamp, formatBytes, formatCost, formatDuration, formatTokens } from './format.ts';
 import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage } from './inspect.ts';
 import { isTyping, shortcutFor } from './keys.ts';
-import { agentName, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
-import { applyRunUpdate, argSummary, emptyRun, mergeRecord, phaseOf, progressFraction, resultBrief, runElapsed, runError, runResult, runText, statusLine } from './runs.ts';
-import { budgetMeter, messageSuggestions, scopeLabel, scoreText, whoAnswers } from './session.ts';
+import { agentName, confirmVerb, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
+import {
+  applyRunUpdate, argSummary, ASKING_TEXT, emptyRun, isBusy, mergeRecord, phaseOf, progressFraction, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
+} from './runs.ts';
+import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, whoAnswers } from './session.ts';
 import {
   answerPieces, appendToken, dayLabel, messageText, messageTextLength, prependPage, resendParts, splitParts, storedReasoning, threadItems, undoneTurns, upsertMessage,
 } from './thread.ts';
@@ -339,5 +342,68 @@ describe('a result in brief', () => {
     expect(resultBrief({ cwd: '/repo' })).toBe('/repo');
     expect(resultBrief({ exitCode: 0, stdout: 'x' })).toBe('{\n  "exitCode": 0,\n  "stdout": "x"\n}');
     expect(resultBrief(['a'])).toBe('[\n  "a"\n]');
+  });
+});
+
+describe('yes-or-no questions', () => {
+  it("name the yes button with the question's own verb", () => {
+    expect(confirmVerb('Run a command your shell setting would ask about?')).toBe('Run');
+    expect(confirmVerb('overwrite a.md?')).toBe('Overwrite');
+    expect(confirmVerb('Pick a folder')).toBe('Yes');
+    expect(confirmVerb('42?')).toBe('Yes');
+  });
+});
+
+describe('type methods', () => {
+  it('are offered for the hovered type, asking only for args besides self', () => {
+    const offered = methodsOf(caps.methods, 'fs/Entry');
+    expect(offered.map((m) => [m.fn, m.label, m.own === undefined])).toEqual([['fs/Entry.reveal', 'Reveal', true], ['fs/Entry.rename', 'Rename', false]]);
+    expect(offered[1]?.own).toEqual({ name: 'obj', props: { to: { type: { name: 'text' } } } });
+    expect(methodsOf(caps.methods, undefined)).toEqual([]);
+    expect(methodsOf(caps.methods, 'git/Commit')).toEqual([]);
+    expect(ownArgs({ name: 'text' })).toBeUndefined();
+  });
+
+  it('run on the value as self', () => {
+    expect(methodArgs({ to: 'b.md' }, { path: 'a.md' })).toEqual({ to: 'b.md', self: { path: 'a.md' } });
+    expect(methodArgs(null, { path: 'a.md' })).toEqual({ self: { path: 'a.md' } });
+  });
+});
+
+describe('agent and model pickers', () => {
+  it('list the agents with the current one first, even one the hub no longer offers', () => {
+    expect(agentOptions(caps.agents, 'fs/explore').map((a) => a.name)).toEqual(['Explore agent', 'Chat agent']);
+    expect(agentOptions(caps.agents, 'crm/coach').map((a) => a.fn)).toEqual(['crm/coach', 'hub/chat', 'fs/explore']);
+  });
+
+  it("round-trip a chat's model through the picker and name it", () => {
+    expect(modelPick(undefined)).toBe('default');
+    expect(modelPick({ model: 'meta/llama-free' })).toBe('model:meta/llama-free');
+    expect(modelPick({ category: 'fast' })).toBe('default');
+    expect(modelChoiceOf('default')).toBeNull();
+    expect(modelChoiceOf('model:meta/llama-free')).toEqual({ model: 'meta/llama-free' });
+    expect(modelLabel(undefined, caps.models)).toBe('Agent’s model');
+    expect(modelLabel({ model: 'meta/llama-free' }, caps.models)).toBe('Llama (free)');
+    expect(modelLabel({ model: 'x/unknown' }, caps.models)).toBe('x/unknown');
+    expect(modelLabel({ category: 'fast' }, caps.models)).toBe('Fast models');
+    expect(modelLabel({ auto: {} }, caps.models)).toBe('Automatic');
+  });
+});
+
+describe('a run waiting on the person', () => {
+  it('shows as waiting for their answer, not busy, until it settles', () => {
+    const asking = { ...run({ status: 'running' }), asking: true };
+    expect(shownStatus(asking)).toBe('waiting');
+    expect(isBusy(asking)).toBe(false);
+    expect(runText(asking)).toBe(ASKING_TEXT);
+    expect(phaseOf(asking)).toBe('waiting');
+    expect(statusLine([asking], T0).lead).toBe(ASKING_TEXT);
+    const done = { ...asking, status: 'done' as const };
+    expect(shownStatus(done)).toBe('done');
+    expect(runText(done)).not.toBe(ASKING_TEXT);
+  });
+
+  it('applies a move to the background', () => {
+    expect(applyRunUpdate(emptyRun(RunId.parse('run_1'), 'fs/bash', 'running'), { type: 'background' }, T0).background).toBe(true);
   });
 });

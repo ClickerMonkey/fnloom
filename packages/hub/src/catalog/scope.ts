@@ -6,7 +6,7 @@
  * qualified names (`fs/Entry`) as they stand.
  */
 import { createRegistry, typeClosure, typeReferences, type LocalScope, type Registry, type Type, type TypeDef } from '@aeye/gin';
-import { messageOf, type GinTypeDef } from '@harness/core';
+import { messageOf, QualifiedName, type GinTypeDef } from '@harness/core';
 
 /** Looks up the definition of a named type by its qualified name (`fs/Entry`), or undefined when none is known. */
 export type TypeLookup = (name: string) => GinTypeDef | undefined;
@@ -60,9 +60,12 @@ export class GinScopes {
     }
   }
 
-  /** The named types a definition refers to and does not define itself. */
-  references(def: GinTypeDef): string[] {
-    return [...typeReferences(def, this.registry).refs];
+  /**
+   * The named types a definition refers to and does not define itself. The hub stores only types whose every
+   * reference resolved to a stored, qualified name, so one that isn't qualified throws.
+   */
+  references(def: GinTypeDef): QualifiedName[] {
+    return QualifiedName.array().parse(typeReferences(def, this.registry).refs);
   }
 
   /** Every named type a definition mentions: those it refers to and those it carries inline. */
@@ -71,10 +74,13 @@ export class GinScopes {
     return [...new Set([...found.refs, ...found.defines])];
   }
 
-  /** The named types `names` depend on, transitively, dependencies first, and the ones `lookup` did not know. */
-  closure(names: readonly string[], lookup: TypeLookup): { order: string[]; missing: string[] } {
+  /**
+   * The named types `names` depend on, transitively, dependencies first, and the ones `lookup` did not know. Stored
+   * types refer only to qualified names, so a missing name that isn't one throws.
+   */
+  closure(names: readonly QualifiedName[], lookup: TypeLookup): { order: string[]; missing: QualifiedName[] } {
     const roots: TypeDef[] = names.map((name) => ({ name }));
     const closure = typeClosure(roots, this.registry, lookup);
-    return { order: [...closure.order], missing: [...closure.missing] };
+    return { order: [...closure.order], missing: QualifiedName.array().parse(closure.missing) };
   }
 }

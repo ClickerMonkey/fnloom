@@ -10,7 +10,8 @@ import {
 import { fn, g, wireType } from '@harness/sdk';
 import { TestCatalog } from '../../execution/testing.ts';
 import { ScryptHasher } from '../hash.ts';
-import { entriesFrom, rig, settle, webRig, type Fakes } from '../testing/rig.ts';
+import { settle } from '../../testing.ts';
+import { entriesFrom, rig, webRig, type Fakes } from '../testing/rig.ts';
 
 const sessionId = SessionId.parse('ses_1');
 const client = { timeZone: 'Europe/Paris', locale: 'fr', now: 1 };
@@ -200,7 +201,7 @@ describe('chat', () => {
         entries: entriesFrom({
           types: [{
             name: QualifiedName.parse('fs/Entry'), system: fs,
-            decl: { name: 'Entry', description: 'A file or folder.', def: wireType(g.obj({ path: g.text() })), display: { label: 'Entry' }, methods: ['reveal'], references: [] },
+            decl: { name: 'Entry', description: 'A file or folder.', def: wireType(g.obj({ path: g.text() })), display: { label: 'Entry' }, methods: ['reveal'] },
           }],
         }),
         fns: () => Promise.resolve([read, reveal]),
@@ -242,7 +243,7 @@ describe('runs', () => {
   it('checks a person may see a run before backgrounding it or reading its state', async () => {
     const backgrounded: RunId[] = [];
     const { r, web, as } = await signedIn({
-      chat: { sessions: { get: (id, viewer) => Promise.resolve(id === sessionId ? session(viewer) : undefined) }, state: { forRun: () => Promise.resolve({ open: true }) } },
+      chat: { sessions: { get: (id, viewer) => Promise.resolve(id === sessionId ? session(viewer) : undefined) }, state: { forRun: () => Promise.resolve({ system: SystemName.parse('fs'), fields: [{ name: 'open', type: 't', value: true }] }) } },
       execution: {
         runs: {
           get: (id) => Promise.resolve(id === RunId.parse('run_1') ? runRow('run_1') : undefined),
@@ -252,7 +253,7 @@ describe('runs', () => {
     });
     const mem = await member(r, web);
     await expect(web.client.call('background', { run: RunId.parse('run_1') }, as)).resolves.toEqual({ accepted: true });
-    await expect(web.client.call('state', { run: RunId.parse('run_1') }, as)).resolves.toEqual({ values: { open: true } });
+    await expect(web.client.call('state', { run: RunId.parse('run_1') }, as)).resolves.toEqual({ system: 'fs', fields: [{ name: 'open', type: 't', value: true }] });
     await expect(web.client.call('background', { run: RunId.parse('run_2') }, as)).rejects.toMatchObject({ status: 404 });
     expect(backgrounded).toEqual(['run_1']);
     // A member who isn't in the session doesn't see its runs (admins see everything).
@@ -372,8 +373,16 @@ describe('admin', () => {
   });
 
   it('stores provider keys sealed and replaces a provider’s old key', async () => {
-    const { r, web, as } = await signedIn({ execution: { llm: { models: () => Promise.resolve([{ id: 'a', provider: 'openrouter', name: 'A', capabilities: [] }, { id: 'b', provider: 'openrouter', name: 'B', capabilities: [] }]) } } });
+    let reloads = 0;
+    const models = [
+      { id: 'a', provider: 'openrouter', name: 'A', capabilities: [] }, { id: 'b', provider: 'openrouter', name: 'B', capabilities: [] },
+      { id: 'c', provider: 'openai', name: 'C', capabilities: [] },
+    ];
+    const { r, web, as } = await signedIn({
+      execution: { llm: { models: () => Promise.resolve(models) }, providers: { reload: () => { reloads += 1; return Promise.resolve(); } } },
+    });
     await expect(web.client.call('configureProvider', { provider: 'openrouter', apiKey: 'sk-or-first' }, as)).resolves.toEqual({ models: 2 });
+    expect(reloads).toBe(1);
     await web.client.call('configureProvider', { provider: 'openrouter', apiKey: 'sk-or-second' }, as);
     const providers = (await r.store.table('providers').find({ limit: 10 })).items;
     expect(providers).toHaveLength(1);
@@ -382,6 +391,10 @@ describe('admin', () => {
     await expect(r.api.secrets.reveal(config.apiKey)).resolves.toBe('sk-or-second');
     await expect(r.store.table('secrets').count()).resolves.toBe(1);
     await expect(web.client.call('providers', {}, as)).resolves.toEqual([{ id: providers[0]?.id, provider: 'openrouter', models: 2 }]);
+    // each provider counts its own models
+    await expect(web.client.call('configureProvider', { provider: 'openai', apiKey: 'sk-openai' }, as)).resolves.toEqual({ models: 1 });
+    expect((await web.client.call('providers', {}, as)).map((p) => [p.provider, p.models]).sort()).toEqual([['openai', 1], ['openrouter', 2]]);
+    expect(reloads).toBe(3);
   });
 
   it('adds users and groups, refusing duplicates and members that aren’t users', async () => {

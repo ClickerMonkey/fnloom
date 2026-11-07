@@ -258,7 +258,7 @@ function fits(node: FormNode, value: Json | undefined): boolean {
     case 'obj': return value !== null && typeof value === 'object' && !Array.isArray(value);
     case 'enum': return node.choices.some((c) => c.value === value);
     case 'literal': return node.value === value;
-    default: return true;
+    case 'json': case 'nullable': case 'or': case 'ref': return true;
   }
 }
 
@@ -448,6 +448,8 @@ export function constraintHint(node: FormNode): string {
     }
     case 'duration': return 'Like 500ms, 2s, 5m or 1h';
     case 'list': return node.maxLength !== undefined ? `Up to ${node.maxLength}` : '';
-    default: return '';
+    case 'bool': case 'color': case 'date': case 'timestamp': case 'enum': case 'literal': case 'json':
+    case 'map': case 'nullable': case 'obj': case 'or': case 'ref': case 'tuple':
+      return '';
   }
 }

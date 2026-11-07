@@ -66,10 +66,13 @@ describe('FileContentStore', () => {
 
   it('refuses an upload of another size than declared, and one over the limit', async () => {
     const { raw, content, put } = make(10);
-    const { url, upload } = await content.presignUpload({ mime: 'text/plain', size: 3 });
-    await put(url, 'four');
-    await expect(content.finish(upload)).rejects.toMatchObject({ status: 422 });
-    expect(raw.objects.size).toBe(0);
+    const long = await content.presignUpload({ mime: 'text/plain', size: 3 });
+    expect((await put(long.url, 'four')).status).toBe(413); // the presigned URL caps the body
+    await expect(content.finish(long.upload)).rejects.toMatchObject({ status: 409 });
+    const short = await content.presignUpload({ mime: 'text/plain', size: 3 });
+    await put(short.url, 'tw');
+    await expect(content.finish(short.upload)).rejects.toMatchObject({ status: 422 });
+    expect([...raw.objects.keys()].filter((key) => !key.endsWith('.json'))).toEqual([]);
     await expect(content.presignUpload({ mime: 'text/plain', size: 11 })).rejects.toMatchObject({ status: 413 });
   });
 

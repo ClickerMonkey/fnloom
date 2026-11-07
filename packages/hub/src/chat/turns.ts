@@ -368,7 +368,7 @@ export class StoreTurnService implements TurnService {
     const audience = peopleOf(session).filter((p) => p.notify === 'all' || (p.notify === 'replies' && p.actor === turn.actor));
     for (const person of audience) {
       if (this.#parts.presence.looking(person.actor, session.id)) { continue; }
-      await this.#parts.notifications.notify({ user: person.actor, reason: 'turn-finished', title: `${session.title} ${outcome[status]}`, body, link: { session: session.id } });
+      await this.#parts.notifications.notify({ user: person.actor, reason: status === 'failed' ? 'turn-failed' : 'turn-finished', title: `${session.title} ${outcome[status]}`, body, link: { session: session.id } });
     }
   }
 }

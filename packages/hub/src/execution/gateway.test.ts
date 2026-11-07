@@ -1,7 +1,7 @@
 import type { Chunk, Response, Streamer } from '@aeye/core';
 import { LlmInteractionId, RunId, SystemName, TurnId, type LlmForward, type LlmForwardChunk, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryStore, memoryLog } from '../catalog/testing.ts';
+import { testStore, memoryLog } from '../testing.ts';
 import { LlmRateLimited } from './errors.ts';
 import { abortableSleep, HubLlmGateway } from './gateway.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
@@ -14,7 +14,7 @@ const forward: LlmForward & { system: string } = { run: RUN, request: { messages
 
 /** A gateway over a stored run, a streamer that is rate limited `limited` times first, and a recording LLM doer. */
 async function gateway(limited: number, retryAfter = 40) {
-  const store = new MemoryStore();
+  const store = await testStore();
   await store.table('turns').insert({
     id: TURN, actor: ALICE, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running', limits: OPEN_LIMITS, cost: 0, errors: 'feed-back', createdAt: 0,
   });

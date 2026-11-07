@@ -214,8 +214,11 @@ export interface Lifecycle<Cfg> {
   installed?(ctx: SystemCtx<Cfg>): Promise<void>;
   /** Every time it connects with a valid config and its contract is imported. */
   started?(ctx: SystemCtx<Cfg>): Promise<void>;
-  /** Someone changed the config. Runs already going keep the value they started with. */
-  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg }): Promise<void>;
+  /**
+   * Someone changed the config. `previous` is the value it replaced, or undefined when there was none (the first
+   * config it gets while already running). Runs already going keep the value they started with.
+   */
+  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg | undefined }): Promise<void>;
   /** Before it stops. The hub waits up to `timeout`. */
   stopping?(ctx: SystemCtx<Cfg> & { readonly reason: StopReason; readonly timeout: Duration }): Promise<void>;
   /** The first start of a new version; `from` is the version it replaced. */

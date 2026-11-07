@@ -57,11 +57,13 @@ export class MockChat {
   capabilities(): ChatCapabilities {
     return ChatCapabilities.parse({
       voiceInput: false, voiceOutput: false, uploads: true,
-      mentions: [{ provider: 'fs/files', title: 'Files' }],
+      mentions: [{ provider: 'fs/files', title: 'Files', of: 'fs/Entry' }],
+      methods: [{ type: 'fs/Entry', method: 'reveal', fn: 'fs/Entry.reveal', description: 'Show it in the file manager', args: { name: 'obj', props: { self: { type: { name: 'fs/Entry' } } } } }],
       commands: [
         { name: 'tree', context: 'fs/tree', args: [{ name: 'root', hint: 'The folder to start from', required: false }], description: 'Show the project’s file tree' },
         { name: 'docs', context: 'fs/docs', args: [], description: 'Add the design docs to this chat' },
       ],
+      agents: [{ fn: 'hub/chat', description: 'The chat agent.' }, { fn: 'fs/explore', description: 'Explores the project and answers questions about it.' }],
       invocations: [
         { fn: 'fs/read_file', description: 'Read a file', args: { name: 'obj', props: { path: { type: { name: 'text', options: { minLength: 1 } }, docs: 'Relative to the project root.' } } } },
         {
@@ -277,7 +279,8 @@ export class MockChat {
     const next: Run = update.type === 'status'
       ? { ...current, status: update.status, ...(update.status === 'running' && current.startedAt === undefined ? { startedAt: this.#now() } : {}) }
       : update.type === 'progress' ? { ...current, progress: update.progress }
-        : update.type === 'cost' ? { ...current, cost: update.cost, totalCost: update.total } : { ...current, allowed: update.operations };
+        : update.type === 'cost' ? { ...current, cost: update.cost, totalCost: update.total }
+          : update.type === 'background' ? { ...current, background: true } : { ...current, allowed: update.operations };
     this.runs.set(run, next);
     this.#emit(id, { type: 'run', run, fn: current.fn, update });
   }
@@ -353,7 +356,11 @@ export class MockChat {
     });
     this.#add(router.id, {
       turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - DAY - 80_000, runs: [read.id, edit.id],
-      parts: [{ type: 'text', text: 'Done. All three chat routes now carry `meta.group = \'chat\'`, and the shell keys the page by group:\n\n```ts\n<component :is="Component" :key="shown.meta.group ?? shown.path" />\n```\n\n| Route | Group |\n|---|---|\n| `/chat` | chat |\n| `/chat/:session` | chat |\n| `/chat/:session/turn/:turn/tree` | chat |' }],
+      parts: [{ type: 'text', text: 'Done. All three chat routes now carry `meta.group = \'chat\'`, and the shell keys the page by group:\n\n```ts\n<component :is="Component" :key="shown.meta.group ?? shown.path" />\n```\n\n| Route | Group |\n|---|---|\n| `/chat` | chat |\n| `/chat/:session` | chat |\n| `/chat/:session/turn/:turn/tree` | chat |' },
+        { type: 'attachment', attachment: 'fs/diff', title: 'Edited packages/web/src/app/routes.ts', data: { path: 'packages/web/src/app/routes.ts', before: 'props: true', after: "meta: { group: 'chat' }" } },
+        { type: 'link', link: { resource: 'file:///repo/packages/web/src/app/routes.ts', title: 'routes.ts' } },
+        { type: 'link', link: { url: 'https://router.vuejs.org/guide/essentials/passing-props', title: 'Passing props to route components' } },
+      ],
     });
     this.#add(router.id, { turn: mintId('turn'), author: 'act_hub', role: 'note', status: 'done', createdAt: now - 3_600_000, parts: [{ type: 'text', text: 'notes went offline. Its fns are unavailable until it reconnects.' }] });
     this.#add(notes.id, { turn: mintId('turn'), author: this.#owner(), role: 'user', status: 'done', createdAt: now - DAY - 3_600_000, parts: [{ type: 'text', text: 'Sum up Thursday’s meeting notes.' }] });

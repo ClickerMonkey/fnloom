@@ -11,8 +11,8 @@ import DiffView from '../DiffView.vue';
 import EntryInput from '../EntryInput.vue';
 import { fakeFsSystem } from '../fakes.ts';
 
-const online = fakeFsSystem(true);
-const offline = fakeFsSystem(false);
+const online = fakeFsSystem(true, true);
+const offline = fakeFsSystem(false, true);
 const run = mintId('run');
 const tests = Array.from({ length: 40 }, (_, i) => `  ✓ systems/fs/server/case-${i + 1}.test.ts (${(i * 7) % 23} tests) ${12 + i}ms`).join('\n');
 const before = Array.from({ length: 40 }, (_, i) => `export const value${i} = ${i}; // a fairly long comment so the line runs past a phone's width for sure`).join('\n');

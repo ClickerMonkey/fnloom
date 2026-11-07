@@ -1,6 +1,6 @@
 /**
  * System renderers (chat-features 4.8, 4.9): the bash run's card is drawn by the fs system's own renderer, and its
- * "Run again" button sends the system's `rerun` action, whose delivery shows live under the card until it is done.
+ * "Run again" button starts a new fs/bash run with the same args, which gets a run card of its own in the thread.
  */
 import { check, count, feature, find, openSession, settle, show } from '../kit.ts';
 
@@ -23,16 +23,15 @@ export default feature({
     await show(page, renderer);
     await ctx.shot('renderer');
 
+    const cards = await count(page, 'run-card');
     const again = await page.waitForSelector(`${renderer} ::-p-text(Run again)`, { timeout: 10_000 });
     check(again !== null, 'the bash card offers Run again');
     await again.click();
-    const rerun = `${renderer} section[aria-label="Run again"]`;
-    await page.waitForSelector(rerun, { timeout: 10_000 });
-    await page.waitForFunction((selector) => {
-      const section = document.querySelector(selector);
-      return section !== null && section.textContent.includes('Done') && section.textContent.includes('ui-tests');
-    }, { timeout: 60_000 }, rerun);
-    await show(page, rerun);
+    const started = `${renderer} .note.started`;
+    await page.waitForSelector(started, { timeout: 15_000 });
+    await show(page, started);
     await ctx.shot('rerun');
+    await page.waitForFunction((before) => document.querySelectorAll('[data-testid="run-card"]').length > before, { timeout: 15_000 }, cards);
+    check(await count(page, 'run-card') > cards, 'Run again added a run card of its own');
   },
 });

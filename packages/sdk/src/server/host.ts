@@ -250,7 +250,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     await this.#lifecycleRunner.up();
     this.#watchReachable(socket.state);
     if (this.#options.mcp !== undefined) {
-      this.#mcp = new McpFace(this.#table, runEnv, this.#version, { timeout: this.#env.HARNESS_MCP_TIMEOUT, maxBody: this.#env.HARNESS_MCP_MAX_BODY });
+      this.#mcp = new McpFace(this.#table, runEnv, this.#version, { timeout: this.#env.HARNESS_MCP_TIMEOUT, maxBody: this.#env.HARNESS_MCP_MAX_BODY }, this.#runtime);
       await this.#mcp.serve(this.#options.mcp);
     }
   }

@@ -1,4 +1,5 @@
-import { ApprovalId, BudgetId, HookBlock, RunId, SessionId, type ChatMessage } from '@harness/core';
+import { ApprovalId, BudgetId, HookBlock, RunId, SessionId, type ChatMessage, type RunStatus } from '@harness/core';
+import type { AnyViews } from '@harness/sdk';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick, type FunctionalComponent } from 'vue';
@@ -23,6 +24,9 @@ import TurnTree from './TurnTree.vue';
 import UserMessage from './UserMessage.vue';
 
 afterEach(() => { document.body.innerHTML = ''; vi.useRealTimers(); });
+
+/** A fn renderer's view for a run of a fn without a form. */
+const fnProps = (status: RunStatus): AnyViews['fn'] => ({ run: RunId.parse('run_1'), status, args: {}, state: {}, submit: undefined, system: { online: true, send: {}, run: {} } });
 
 const key = (el: Element, k: string, over: KeyboardEventInit = {}): void => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...over })); };
 
@@ -56,9 +60,9 @@ describe('RunCard', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const Good: FunctionalComponent<{ status: string }> = (p) => h('p', { class: 'custom' }, `custom ${p.status}`);
     const Bad: FunctionalComponent = () => { throw new Error('boom'); };
-    const good = mount(RunCard, { props: { run: run(), now: T0, collapsed: false, view: { component: Good, props: { status: 'running' } } } });
+    const good = mount(RunCard, { props: { run: run(), now: T0, collapsed: false, view: { component: Good, props: fnProps('running') } } });
     expect(good.get('.custom').text()).toBe('custom running');
-    const bad = mount(RendererHost, { props: { component: Bad, props: {}, label: 'bash run' } });
+    const bad = mount(RendererHost, { props: { view: { component: Bad, props: fnProps('running') }, label: 'bash run' } });
     await flushPromises();
     expect(bad.find('[data-testid=renderer-broken]').text()).toContain("Couldn't show this bash run.");
     expect(error).toHaveBeenCalledOnce();
@@ -135,6 +139,21 @@ describe('AssistantAnswer', () => {
     expect(answer.findAll('[data-testid=run-card]').map((c) => c.attributes('data-run'))).toEqual(['run_x', 'run_y']);
     expect(answer.findAll('[data-testid=answer-text]').at(-1)?.classes()).toContain('caret');
     expect(answer.find('strong').text()).toBe('now');
+  });
+
+  it('shows the agent working, and no actions, until something of a streaming answer arrives', async () => {
+    const empty = message({ role: 'assistant', author: 'act_agent', status: 'streaming', parts: [] });
+    const answer = mount(AssistantAnswer, {
+      props: {
+        messages: [empty], authorName: 'Chat agent', now: T0, streaming: true, failed: false, runsOf: () => [],
+        reasoningOf: () => '', collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: ['copy', 'reply'],
+      },
+    });
+    expect(answer.find('[data-testid=answer-typing]').exists()).toBe(true);
+    expect(answer.find('.meta').exists()).toBe(false);
+    await answer.setProps({ messages: [{ ...empty, parts: [{ type: 'text', text: 'Hello' }] }] });
+    expect(answer.find('[data-testid=answer-typing]').exists()).toBe(false);
+    expect(answer.find('.meta').exists()).toBe(true);
   });
 
   it('collapses every card at once and shows reasoning behind a toggle', async () => {

@@ -4,7 +4,8 @@
  * (`answerPieces`): the fns it ran as cards in call order, what they attached, and the reply. Reasoning sits collapsed
  * above, shimmering while it streams, and stays on the stored answer. Text renders as markdown as it arrives, with a
  * soft caret while streaming. Attachments draw through their system's renderer, links as cards. While the turn is in flight the status line sits at the foot of the
- * bubble; before anything arrives, a typing indicator stands in its place.
+ * bubble; before anything arrives, a typing indicator stands in its place, and the message actions wait until there is
+ * something to act on.
  */
 import type { ChatMessage, Link, MessageId, MessagePart, RunId } from '@harness/core';
 import { computed, ref } from 'vue';
@@ -32,8 +33,8 @@ const props = withDefaults(defineProps<{
   marks?: ReadonlyMap<RunId, number>;
   reasoningOf: (message: ChatMessage) => string;
   collapsed: (run: RunView) => boolean;
-  viewOf: (run: RunView) => RenderView | undefined;
-  attachmentView: (part: Attachment) => RenderView | undefined;
+  viewOf: (run: RunView) => RenderView<'fn'> | undefined;
+  attachmentView: (part: Attachment) => RenderView<'attachment'> | undefined;
   actions: readonly MessageAction[];
   /** The line under an answer in flight. */
   statusLine?: Line | undefined;
@@ -65,6 +66,10 @@ const caretKey = computed(() => {
   return last?.status === 'streaming' ? `${last.id}-${piecesOf(last).findLast((p) => p.kind === 'text')?.key ?? ''}` : '';
 });
 const first = computed(() => props.messages[0]);
+/** Nothing of the answer has arrived yet: no text, runs, attachments, links or reasoning. */
+const empty = computed(() => props.messages.every((m) => piecesOf(m).length === 0 && props.reasoningOf(m) === ''));
+/** The answer is on its way but has nothing to show: the typing indicator stands in, and there is nothing to act on. */
+const pending = computed(() => empty.value && (props.streaming || props.waiting));
 const allRuns = computed(() => props.messages.flatMap((m) => props.runsOf(m)));
 const anyExpanded = computed(() => allRuns.value.some((run) => !props.collapsed(run)));
 const openReasoning = ref<ReadonlySet<MessageId>>(new Set());
@@ -112,9 +117,9 @@ function toggleReasoning(id: MessageId): void {
           </template>
         </template>
         <StatusLine v-if="statusLine && lineHasNews(statusLine)" :line="statusLine" @tree="emit('tree')" />
-        <TypingDots v-else-if="waiting" label="The agent is writing" />
+        <TypingDots v-else-if="pending" :label="`${authorName} is working`" data-testid="answer-typing" />
       </div>
-      <div class="meta">
+      <div v-if="!pending" class="meta">
         <MessageActions class="actions" :actions="actions" @action="emit('action', $event)" />
       </div>
     </div>

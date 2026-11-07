@@ -12,9 +12,27 @@ import type { IconName, Tone } from '../../ui/index.ts';
 import { clamp } from './format.ts';
 import { fnLabel, lowerFirst } from './labels.ts';
 
-/** What is known of a run: always its id, fn, status and costs; the rest once the record or an event says. */
+/**
+ * What is known of a run: always its id, fn, status and costs; the rest once the record or an event says. `asking` is
+ * the chat's own: the run is blocked on the person's answer to one of its handlers (a confirm, a question), so it says
+ * so instead of looking busy.
+ */
 export type RunView = Pick<Run, 'id' | 'fn' | 'status' | 'cost' | 'totalCost' | 'attempt' | 'background' | 'errors'>
-  & Partial<Pick<Run, 'args' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'llmCall' | 'createdAt' | 'text'>>;
+  & Partial<Pick<Run, 'args' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'llmCall' | 'createdAt' | 'text'>>
+  & { readonly asking?: boolean };
+
+/** The words of a run waiting on the person's answer. */
+export const ASKING_TEXT = 'Waiting for your answer';
+
+/** The status a run shows as: `waiting` while it waits on the person's answer, else its own. */
+export function shownStatus(run: Pick<RunView, 'status' | 'asking'>): RunStatus {
+  return run.asking === true && !isSettled(run.status) ? 'waiting' : run.status;
+}
+
+/** Whether a run is busy now: active, and not blocked on the person. */
+export function isBusy(run: Pick<RunView, 'status' | 'asking'>): boolean {
+  return isActive(run.status) && run.asking !== true;
+}
 
 /** A run known only by an event: its fn and status. */
 export function emptyRun(id: RunId, fn: QualifiedName, status: RunStatus = 'queued'): RunView {
@@ -39,6 +57,7 @@ export function applyRunUpdate(run: RunView, update: RunUpdate, now: number): Ru
     case 'progress': return { ...run, progress: update.progress };
     case 'allowed': return { ...run, allowed: update.operations };
     case 'cost': return { ...run, cost: update.cost, totalCost: update.total };
+    case 'background': return { ...run, background: true };
   }
 }
 
@@ -122,14 +141,15 @@ export function runWords(run: Pick<RunView, 'fn' | 'attempt' | 'args' | 'text'> 
  * "Retrying harness.md…", "Reading harness.md failed"), or the chat's own while it waits on a person or after it was
  * stopped or taken back.
  */
-export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text'>): string {
+export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text' | 'asking'>): string {
   const label = fnLabel(run.fn);
+  if (run.asking === true && !isSettled(run.status)) { return ASKING_TEXT; }
   switch (run.status) {
     case 'awaiting-approval': return `Waiting for approval to ${lowerFirst(label)}`;
     case 'paused': return `${label} · paused`;
     case 'cancelled': return `${label} cancelled`;
     case 'undone': return `${label} undone`;
-    default: return runWords({ ...run, status: run.status }).one;
+    case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return runWords({ ...run, status: run.status }).one;
   }
 }
 
@@ -154,11 +174,12 @@ export const PHASES = ['active', 'retry', 'waiting', 'failed', 'done'] as const;
 export type Phase = (typeof PHASES)[number];
 
 /** Which phase a run is in on the status line: its own, `waiting` while it waits on a person, `done` once stopped. */
-export function phaseOf(run: Pick<RunView, 'status' | 'attempt'>): Phase {
+export function phaseOf(run: Pick<RunView, 'status' | 'attempt' | 'asking'>): Phase {
+  if (run.asking === true && !isSettled(run.status)) { return 'waiting'; }
   switch (run.status) {
     case 'awaiting-approval': case 'paused': return 'waiting';
     case 'cancelled': case 'undone': return 'done';
-    default: return runPhase(run.status, run.attempt);
+    case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return runPhase(run.status, run.attempt);
   }
 }
 
@@ -210,7 +231,7 @@ export function lineHasNews(line: StatusLine): boolean {
 function groupText(first: RunView, count: number): string {
   switch (first.status) {
     case 'awaiting-approval': case 'paused': case 'cancelled': case 'undone': return runText(first);
-    default: return countedText(runWords({ ...first, status: first.status }), count);
+    case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return countedText(runWords({ ...first, status: first.status }), count);
   }
 }
 
@@ -234,8 +255,9 @@ export function statusLine(runs: readonly RunView[], now: number, options: Statu
   const shown = sorted.slice(0, options.max).map(([key, group]) => ({
     key, fn: group.first.fn, phase: group.phase, count: group.count, text: groupText(group.first, group.count), tone: PHASE_TONE[group.phase],
   }));
-  const working = runs.some((run) => isActive(run.status) && !isTurnAgent(run, agent));
+  const working = runs.some((run) => isBusy(run) && !isTurnAgent(run, agent));
   const lead = runs.some((run) => run.status === 'awaiting-approval') ? 'Waiting for your approval'
+    : runs.some((run) => run.asking === true && !isSettled(run.status)) ? ASKING_TEXT
     : runs.some((run) => run.status === 'paused') ? 'Paused'
     : working ? '' : THINKING;
   return { groups: shown, more: Math.max(0, sorted.length - options.max), lead };

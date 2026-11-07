@@ -1,45 +1,57 @@
 /**
- * A stand-in for the chat's system client, for the renderer tests and the preview page: `rerun` returns a live
- * delivery that the caller settles, so every delivery state can be shown and checked.
+ * A stand-in for the chat's system client, for the renderer tests and the preview page: `run.<fn>` records what it was
+ * asked to start and waits until the caller starts or refuses it (or, with `starts`, starts it at once), so every state
+ * of "Run again" can be shown and checked. fs declares no actions, so `send` is empty.
  */
-import { mintId, type DeliveryId, type DeliveryStatus } from '@harness/core';
-import type { Delivery, SystemClient } from '@harness/sdk';
-import { reactive } from 'vue';
-import type { CommandOutput, FsContract } from '../shared/index.ts';
+import { mintId, type RunId } from '@harness/core';
+import type { SystemClient } from '@harness/sdk';
+import type { FsContract } from '../shared/index.ts';
+
+/** A run the fake was asked to start. */
+export interface StartedRun {
+  readonly fn: keyof FsContract['defs']['fns'];
+  readonly args: unknown;
+}
 
 /** A fake fs system client and the handles to drive it. */
 export interface FakeFsSystem {
   readonly system: SystemClient<FsContract['defs']>;
-  /** The commands sent with `rerun`, in order. */
-  readonly sent: string[];
-  /** The latest delivery's status, live. */
-  readonly delivery: { id: DeliveryId; status: DeliveryStatus; result: Promise<CommandOutput> };
-  /** Finish the latest rerun with this output. */
-  settle(output: CommandOutput): void;
-  /** Move the latest delivery to a status without finishing it. */
-  move(status: DeliveryStatus): void;
+  /** The runs asked for, in order. */
+  readonly started: StartedRun[];
+  /** Start the latest run asked for; resolves with its id. */
+  start(): RunId;
+  /** Refuse the latest run asked for, as the hub does when it can't start it. */
+  refuse(message: string): void;
 }
 
-/** Make a fake fs system client. */
-export function fakeFsSystem(online = true): FakeFsSystem {
-  let finish: (output: CommandOutput) => void = () => undefined;
-  const sent: string[] = [];
-  const delivery = reactive<FakeFsSystem['delivery']>({ id: mintId('delivery'), status: 'queued', result: Promise.resolve({ exitCode: 0, stdout: '', stderr: '' }) });
+/** Make a fake fs system client. With `starts`, every run asked for starts at once. */
+export function fakeFsSystem(online = true, starts = false): FakeFsSystem {
+  const started: StartedRun[] = [];
+  let pending: { resolve: (run: RunId) => void; reject: (error: Error) => void } | undefined;
+  const ask = (fn: StartedRun['fn']) => (args: unknown): Promise<RunId> => {
+    started.push({ fn, args });
+    if (starts) { return Promise.resolve(mintId('run')); }
+    return new Promise<RunId>((resolve, reject) => { pending = { resolve, reject }; });
+  };
   const system: SystemClient<FsContract['defs']> = {
     online,
-    send: {
-      rerun: (input): Delivery<CommandOutput> => {
-        sent.push(input.command);
-        delivery.id = mintId('delivery');
-        delivery.status = online ? 'delivered' : 'queued';
-        delivery.result = new Promise<CommandOutput>((resolve) => { finish = resolve; });
-        return delivery;
-      },
+    send: {},
+    run: {
+      read: ask('read'), write: ask('write'), edit: ask('edit'), list: ask('list'), glob: ask('glob'), grep: ask('grep'),
+      cd: ask('cd'), bash: ask('bash'), remove: ask('remove'), restart: ask('restart'), explore: ask('explore'),
     },
   };
   return {
-    system, sent, delivery,
-    settle: (output) => { delivery.status = 'done'; finish(output); },
-    move: (status) => { delivery.status = status; },
+    system, started,
+    start: () => {
+      const run = mintId('run');
+      pending?.resolve(run);
+      pending = undefined;
+      return run;
+    },
+    refuse: (message) => {
+      pending?.reject(new Error(message));
+      pending = undefined;
+    },
   };
 }

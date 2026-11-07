@@ -16,7 +16,7 @@ describe('the fs contract', () => {
     const manifest = await manifestOf(fs, { version: '0.0.0' });
     const state = (name: string) => JSON.stringify(manifest.fns.find((f) => f.name === name)?.state);
     expect(state('cd')).toBe(state('bash'));
-    expect(manifest.actions[0]?.state).toEqual(manifest.fns.find((f) => f.name === 'bash')?.state);
+    expect(manifest.actions).toEqual([]);
   });
 
   it('keeps an earlier file as a content ref (or null) for undo', () => {

@@ -5,11 +5,10 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { adminOnly, compact, SystemView, type SystemName, type SystemRecord } from '@harness/core';
+import { systemsSlice, adminOnly, compact, SystemView, type SystemName, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { type FullHandlers } from './access.ts';
-import { systemsSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
 /** How many systems the admin list shows at most. */

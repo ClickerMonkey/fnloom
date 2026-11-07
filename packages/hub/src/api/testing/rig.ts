@@ -5,7 +5,7 @@
  * server with a typed in-process caller. Tests only.
  */
 import { client as apiClient, server, spec, type AnySpec, type ApiClient, type Server } from '@ayepi/core';
-import { createLogger, type Logger, type LogRecord } from '@ayepi/log';
+import type { LogRecord } from '@ayepi/log';
 import { createPluginHost, type PluginHost } from '@ayepi/plugin';
 import { hubWebSpec, type HubWebSpec, type ManifestSection, type SystemName, type Tokens } from '@harness/core';
 import type { Catalog, CatalogEntry } from '../../catalog/index.ts';
@@ -15,29 +15,13 @@ import type { HubKeys } from '../../boot/keys.ts';
 import type { HubModules, HubServices, ModuleKey } from '../../boot/index.ts';
 import { apiServices, type ApiServices } from '../../boot/services.ts';
 import { openSqliteStore } from '../../store/sqlite.ts';
+import { memoryLog, testStore } from '../../testing.ts';
 import type { HubStore } from '../../store/index.ts';
 import type { FileStore, FileInfo, FileObject, FileBody } from '@ayepi/files';
 import { collect as collectBytes, toStream } from '@ayepi/files';
 import type { PushSender } from '../push.ts';
 import { webPlugins } from '../web/index.ts';
 
-/** A logger that keeps what it logs. */
-export function quietLog(): { log: Logger; records: LogRecord[] } {
-  const records: LogRecord[] = [];
-  return { log: createLogger({ level: 'debug', transports: [{ name: 'memory', write: (record) => { records.push(record); } }] }), records };
-}
-
-/** A migrated in-memory store. */
-export async function memoryStore(log: Logger): Promise<HubStore> {
-  const store = await openSqliteStore({ file: ':memory:', dimensions: {}, log });
-  await store.migrate();
-  return store;
-}
-
-/** Let queued microtasks and timers run. */
-export async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i++) { await new Promise((resolve) => setTimeout(resolve, 0)); }
-}
 
 /**
  * A fake of an interface: the methods given, and for any other a method that throws naming itself. The one unchecked
@@ -156,8 +140,8 @@ export interface Rig {
 
 /** Make a rig. */
 export async function rig(fakes: Fakes = {}, settings: HubSettings = testSettings()): Promise<Rig> {
-  const { log, records } = quietLog();
-  const store = await memoryStore(log);
+  const { log, records } = memoryLog();
+  const store = await testStore({ log });
   const bus = new MemoryEventBus((event, error) => { log.error('bus.listener.failed', { event }, error); });
   const files = new MemoryFiles();
   const push = recordingPush();
@@ -209,7 +193,7 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
   return {
     catalog: fake('catalog', fakes.catalog),
     link: group('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true }), fakes.link),
-    execution: group('execution', keysOf<HubServices['execution']>({ runs: true, agents: true, llm: true, limits: true, ledger: true, policies: true, handlers: true }), fakes.execution),
+    execution: group('execution', keysOf<HubServices['execution']>({ runs: true, agents: true, llm: true, limits: true, ledger: true, policies: true, handlers: true, providers: true }), fakes.execution),
     chat: group('chat', keysOf<HubServices['chat']>({
       sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true,
     }), fakes.chat),

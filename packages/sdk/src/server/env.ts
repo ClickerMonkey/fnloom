@@ -5,6 +5,23 @@
 import { env } from '@ayepi/env';
 import { z } from 'zod';
 
+/**
+ * The variables that tell a system process where its hub is, where to keep its state, and whether the hub supervises
+ * it. The hub's supervisor sets them for systems it installs; `npm run dev` sets them for the dev systems. One record,
+ * so the names can't drift.
+ */
+export const SYSTEM_ENV = {
+  hub: 'HARNESS_HUB',
+  state: 'HARNESS_SYSTEM_STATE',
+  name: 'HARNESS_SYSTEM_NAME',
+  pairingToken: 'HARNESS_PAIRING_TOKEN',
+  supervised: 'HARNESS_SUPERVISED',
+  restartCode: 'HARNESS_RESTART_CODE',
+} as const;
+
+/** The exit code a supervised system exits with to ask the hub for a restart, unless the hub sets another. */
+export const RESTART_CODE = 75;
+
 export const sdkEnv = env({
   /** How often the link pings the hub; a missed pong reconnects. */
   HARNESS_LINK_HEARTBEAT: z.number().int().min(1_000).default(15_000),
@@ -33,26 +50,15 @@ export const sdkEnv = env({
   /** Bytes of content kept for the hub to fetch by ref. */
   HARNESS_CONTENT_CACHE: z.number().int().min(1_024).default(64_000_000),
   /** Set by the hub when it starts an installed system: restarting means exiting, and the hub starts it again. */
-  HARNESS_SUPERVISED: z.boolean().default(false),
+  [SYSTEM_ENV.supervised]: z.boolean().default(false),
   /** The exit code that asks a supervising hub for a restart. */
-  HARNESS_RESTART_CODE: z.number().int().min(1).max(255).default(75),
+  [SYSTEM_ENV.restartCode]: z.number().int().min(1).max(255).default(RESTART_CODE),
   HARNESS_LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   HARNESS_LOG_JSON: z.boolean().default(false),
 });
 
 /** The parsed SDK tunables. */
 export type SdkEnv = ReturnType<typeof sdkEnv.parse>;
-
-/**
- * The variables that tell a system process where its hub is and where to keep its state. The hub's supervisor sets
- * them for systems it installs; `npm run dev` sets them for the dev systems. One record, so the names can't drift.
- */
-export const SYSTEM_ENV = {
-  hub: 'HARNESS_HUB',
-  state: 'HARNESS_SYSTEM_STATE',
-  name: 'HARNESS_SYSTEM_NAME',
-  pairingToken: 'HARNESS_PAIRING_TOKEN',
-} as const;
 
 /**
  * The link fields of a system's env slice, for spreading into it: `env({ ...systemFields('fs'), FS_SHELL: … })`.

@@ -5,7 +5,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StoreCatalog } from '../catalog/catalog.ts';
 import { manifestFor, shop, systemRow, vectors as vectorsContract } from '../catalog/fixtures.ts';
-import { MemoryBus, MemoryStore, memoryLog, settle } from '../catalog/testing.ts';
+import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { ResourceRouter } from '../link/index.ts';
 import { FakeSystem, linkRig, pairDirectly } from '../link/rig.ts';
 import { HybridSearch } from '../store/hybrid.ts';
@@ -95,14 +95,14 @@ class FakeRouter implements ResourceRouter {
   changed(): void {}
 }
 
-function setup() {
-  const store = new MemoryStore();
-  const bus = new MemoryBus();
+async function setup() {
+  const store = await testStore();
+  const bus = new RecordingBus();
   const { log, records } = memoryLog();
   const describer = { describe: () => Promise.resolve({ problems: ['no kinds'] }) };
   const catalog = new StoreCatalog({ store, bus, log, clock: () => 5, describer });
   const embedders = new FakeEmbedders();
-  const batcher = new EmbedBatcher({ embedders, size: 8, wait: 1, poll: 2 });
+  const batcher = new EmbedBatcher({ embedders, log, size: 8, wait: 1, poll: 2, concurrency: { interactive: 2, background: 1 } });
   const router = new FakeRouter();
   const sectioning = new Sectioning({ store, catalog, router });
   const indexer = new StoreIndexer({ store, bus, log, clock: () => 5, catalog, embedders, batcher, router, sectioning, document: DOCUMENT, maxText: 500, maxCrawl: 100 });
@@ -112,8 +112,14 @@ function setup() {
   return { store, bus, log, records, catalog, embedders, batcher, router, sectioning, indexer, search, suggester };
 }
 
-let ctx: ReturnType<typeof setup>;
-beforeEach(() => { ctx = setup(); });
+let ctx: Awaited<ReturnType<typeof setup>>;
+
+/** The items with a vector under the document embedder, found with a probe of `dimensions` numbers. */
+async function vectorKeys(dimensions = 3): Promise<string[]> {
+  const probe = [1, ...Array<number>(dimensions - 1).fill(0)];
+  return (await ctx.store.vectors.nearest(DOCUMENT, probe, 100)).map((h) => `${h.kind}:${h.key}`).sort();
+}
+beforeEach(async () => { ctx = await setup(); });
 afterEach(async () => { await ctx.batcher.stop(); });
 
 describe('indexing', () => {
@@ -123,31 +129,31 @@ describe('indexing', () => {
     const row = await store.table('index').get(compositeKey(DOCUMENT, 'fn', 'shop/get'));
     expect(row).toMatchObject({ text: 'Get a product by sku', embedder: DOCUMENT });
     expect(row?.vectorHash).toBeUndefined();
-    expect(store.vectors.entries.size).toBe(0);
+    expect(await vectorKeys()).toEqual([]);
 
     indexer.start();
     embedders.connect();
     await indexer.idle();
     expect((await store.table('index').get(compositeKey(DOCUMENT, 'fn', 'shop/get')))?.vectorHash).toBe(row?.hash);
-    expect([...(store.vectors.entries.get(DOCUMENT)?.values() ?? [])]).toEqual([{ kind: 'fn', key: 'shop/get', vector: [2, 0, 0.1] }]);
+    expect(await vectorKeys()).toEqual(['fn:shop/get']);
+    expect((await store.vectors.nearest(DOCUMENT, [2, 0, 0.1], 1))[0]?.score).toBeCloseTo(1);
   });
 
   it('sizes vectors by the embedder’s declared dimensions, and embeds everything again when they change', async () => {
-    const { indexer, store, embedders } = ctx;
+    const { indexer, embedders } = ctx;
     indexer.start();
     embedders.connect();
     await indexer.upsert([{ kind: 'fn', key: 'shop/get', text: 'Get a product' }, { kind: 'fn', key: 'shop/list', text: 'List products' }]);
     await indexer.idle();
-    expect(store.vectors.sizes.get(DOCUMENT)).toBe(3);
-    expect([...(store.vectors.entries.get(DOCUMENT)?.values() ?? [])].map((e) => e.vector.length)).toEqual([3, 3]);
+    expect(await vectorKeys(3)).toEqual(['fn:shop/get', 'fn:shop/list']);
     // the embedder system now declares 4 dimensions
     embedders.document = new WordEmbedder(DOCUMENT, 4);
     embedders.query = new WordEmbedder(QUERY, 4);
     embedders.connect();
     await indexer.idle();
     await indexer.idle();
-    expect(store.vectors.sizes.get(DOCUMENT)).toBe(4);
-    expect([...(store.vectors.entries.get(DOCUMENT)?.values() ?? [])].map((e) => e.vector.length)).toEqual([4, 4]);
+    expect(await vectorKeys(4)).toEqual(['fn:shop/get', 'fn:shop/list']);
+    await expect(vectorKeys(3)).rejects.toMatchObject({ code: 'bad-vector' });
     expect(ctx.records.some((r) => r.msg === 'index.vectors.resized')).toBe(true);
   });
 
@@ -160,8 +166,8 @@ describe('indexing', () => {
     expect(embedders.document.calls).toBe(1);
     await indexer.remove('context', ['shop/guide']);
     expect(await store.table('index').get(compositeKey(DOCUMENT, 'context', 'shop/guide'))).toBeUndefined();
-    expect(store.text.entries.size).toBe(0);
-    expect(store.vectors.entries.get(DOCUMENT)?.size).toBe(0);
+    expect(await store.text.search({ text: 'shop', kinds: ['context'], limit: 5 })).toEqual([]);
+    expect(await vectorKeys()).toEqual([]);
   });
 
   it('keeps going on words when embedding fails, and embeds later', async () => {
@@ -172,7 +178,7 @@ describe('indexing', () => {
     expect(records.some((r) => r.msg === 'index.embed.failed')).toBe(true);
     embedders.document.failing = false;
     await indexer.backfill();
-    expect(ctx.store.vectors.entries.get(DOCUMENT)?.size).toBe(1);
+    expect(await vectorKeys()).toEqual(['fn:shop/list']);
   });
 
   it('re-indexes what a system contributes when the catalog changes, dropping what is gone', async () => {
@@ -278,6 +284,12 @@ describe('resources', () => {
 });
 
 describe('search and suggestions', () => {
+  const SESSION = SessionId.parse('ses_1');
+  const sessionRow = (systems: Session['systems']): Session => ({
+    id: SESSION, title: 't', owner: ActorId.parse('act_admin'), agent: q('hub/chat'), participants: [], systems, tools: [], context: [],
+    status: 'idle', transcript: [], createdAt: 1, updatedAt: 1, archived: false,
+  });
+
   async function indexed() {
     const { catalog, indexer, embedders, store } = ctx;
     embedders.connect();
@@ -307,14 +319,44 @@ describe('search and suggestions', () => {
     expect((await ctx.search.search({ text: 'product', kinds: ['fn'], limit: 5 })).map((h) => h.key)).toEqual(['shop/get']);
   });
 
+  it('searches and suggests by words when an embedder connected before anything was embedded or sized', async () => {
+    const { catalog, indexer, embedders, store, records } = ctx;
+    await catalog.importManifest(await manifestFor(shop));
+    await store.table('systems').put(systemRow('shop', 'connected'));
+    await catalog.refreshAvailability(SystemName.parse('shop'));
+    await indexer.reindexSystem(SystemName.parse('shop'));
+    // the embedders are there and the query embeds fine, but no backfill has made the vector table yet
+    embedders.connect();
+    expect(await vectorKeys()).toEqual([]);
+    const hits = await ctx.search.search({ text: 'product sku', kinds: ['fn'], limit: 3 });
+    expect(hits.map((h) => h.key)).toContain('shop/get');
+    expect(embedders.query.calls).toBe(1);
+    await store.table('sessions').put(sessionRow([SystemName.parse('shop')]));
+    expect((await ctx.suggester.suggest({ session: SESSION, text: 'get a product by its sku', limit: 4 })).map((s) => s.name)).toContain('shop/get');
+    expect(records.some((r) => r.msg === 'index.search.vectors.failed')).toBe(false);
+  });
+
+  it('falls back to words when the vectors can’t be searched with the query', async () => {
+    await indexed();
+    ctx.embedders.query = new WordEmbedder(QUERY, 4);
+    ctx.embedders.connect();
+    expect((await ctx.search.search({ text: 'engine', kinds: ['fn'], limit: 3 })).map((h) => h.key)).toEqual(['cars/drive']);
+    expect(ctx.records.find((r) => r.msg === 'index.search.vectors.failed')).toMatchObject({ embedder: DOCUMENT });
+  });
+
+  it('catches up embedders that connected before the indexer started', async () => {
+    const { indexer, embedders } = ctx;
+    await indexer.upsert([{ kind: 'fn', key: 'shop/get', text: 'Get a product by sku' }]);
+    embedders.connect();
+    indexer.start();
+    await indexer.idle();
+    expect(await vectorKeys()).toEqual(['fn:shop/get']);
+  });
+
   it('suggests available fns and context of the session’s systems', async () => {
     await indexed();
-    const session = SessionId.parse('ses_1');
-    const row: Session = {
-      id: session, title: 't', owner: ActorId.parse('act_admin'), agent: q('hub/chat'), participants: [], systems: [SystemName.parse('shop')], tools: [], context: [],
-      status: 'idle', transcript: [], createdAt: 1, updatedAt: 1, archived: false,
-    };
-    await ctx.store.table('sessions').put(row);
+    const session = SESSION;
+    await ctx.store.table('sessions').put(sessionRow([SystemName.parse('shop')]));
     const suggestions = await ctx.suggester.suggest({ session, text: 'find a product by its sku', limit: 4 });
     expect(suggestions.length).toBeGreaterThan(0);
     expect(suggestions.every((s) => s.name.startsWith('shop/'))).toBe(true);
@@ -326,6 +368,36 @@ describe('search and suggestions', () => {
     await ctx.store.table('systems').update('shop', { status: 'disconnected' });
     await ctx.catalog.refreshAvailability(SystemName.parse('shop'));
     expect(await ctx.suggester.suggest({ session, text: 'find a product by its sku', limit: 4 })).toEqual([]);
+  });
+});
+
+describe('embed lanes', () => {
+  it('embeds for a person while background batches are still running or waiting', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    class SlowCrawl extends WordEmbedder {
+      override async embed(texts: readonly string[]): Promise<number[][]> {
+        if (texts.includes('crawl')) { await gate; }
+        return super.embed(texts);
+      }
+    }
+    const embedders = new FakeEmbedders();
+    embedders.document = new SlowCrawl(DOCUMENT);
+    embedders.connect();
+    const batcher = new EmbedBatcher({ embedders, log: ctx.log, size: 1, wait: 1, poll: 2, concurrency: { interactive: 1, background: 1 } });
+    try {
+      const done: string[] = [];
+      const crawl = batcher.embed(DOCUMENT, ['crawl'], 'background').then(() => { done.push('crawl'); });
+      await settle(10);
+      const next = batcher.embed(DOCUMENT, ['next'], 'background').then(() => { done.push('next'); });
+      expect(await batcher.embed(DOCUMENT, ['a product'], 'interactive')).toEqual([[1, 0, 0.1]]);
+      expect(done).toEqual([]);
+      release();
+      await Promise.all([crawl, next]);
+      expect(done).toEqual(['crawl', 'next']);
+    } finally {
+      await batcher.stop();
+    }
   });
 });
 
@@ -345,7 +417,7 @@ describe('embedders from systems', () => {
     expect(changes).toBeGreaterThan(0);
     expect(await embedders.get(DOCUMENT)?.embed(['a', 'bb', 'ccc'])).toEqual([[1, 0, 0], [2, 0, 0], [3, 0, 0]]);
 
-    const batcher = new EmbedBatcher({ embedders, size: 4, wait: 1, poll: 2 });
+    const batcher = new EmbedBatcher({ embedders, log: rig.log, size: 4, wait: 1, poll: 2, concurrency: { interactive: 1, background: 1 } });
     const answer = new IndexEmbedding({ embedders, batcher, catalog: rig.catalog });
     expect(await answer.embed(['abcd'])).toEqual({ vectors: [[4, 0, 0]], cost: 0 });
 

@@ -4,7 +4,7 @@
  * only its owner changes it (anyone in it picks their own notify choice).
  */
 import {
-  ACTIVE_RUN_STATUSES, IDS, SessionSummary, isUnsettled, mintId, type ActorId, type ChatMessage, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
+  ACTIVE_RUN_STATUSES, IDS, SessionSummary, compositeKey, isUnsettled, mintId, type ActorId, type ChatMessage, type ModelChoice, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
   type Run, type Session, type SessionControls, type SessionId, type SystemName,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
@@ -28,6 +28,9 @@ export function isActiveRun(run: Pick<Run, 'status'>): boolean {
 
 /** The most active runs a session's controls look at. */
 const MAX_ACTIVE_RUNS = 500;
+
+/** The most rows of one table a session's deletion removes at once (more stay for the next try). */
+const MAX_DELETED = 100_000;
 
 /** The id of a session's own priority rule: one per session, replaced on change. */
 export function sessionPriorityRule(session: SessionId): PriorityRule['id'] {
@@ -99,11 +102,12 @@ export class StoreSessionService implements SessionService {
 
   async update(
     id: SessionId,
-    patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; priority?: Priority; archived?: boolean; notify?: NotifyChoice },
+    patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; model?: ModelChoice | null; priority?: Priority; archived?: boolean; notify?: NotifyChoice },
     by: ActorId,
   ): Promise<Session> {
     const session = await this.require(id, by);
-    const { notify, priority, ...owned } = patch;
+    const { notify, priority, model, ...owned } = patch;
+    if (model !== undefined && session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can change this session.'); }
     if ((Object.keys(owned).length > 0 || priority !== undefined) && session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can change this session.'); }
     let participants = session.participants;
     if (notify !== undefined) { participants = participants.map((p) => (p.actor === by ? { ...p, notify } : p)); }
@@ -119,10 +123,35 @@ export class StoreSessionService implements SessionService {
       ...(owned.systems === undefined ? {} : { systems: owned.systems }),
       ...(owned.agent === undefined ? {} : { agent: owned.agent }),
       ...(owned.archived === undefined ? {} : { archived: owned.archived }),
+      ...(model === undefined || model === null ? {} : { model }),
       participants,
     });
+    if (model === null) { return this.#clearModel(updated); }
     this.#deps.log.info('chat.session.updated', { session: id, by, fields: Object.keys(patch) });
     return updated;
+  }
+
+  async delete(id: SessionId, by: ActorId): Promise<boolean> {
+    const session = await this.require(id, by);
+    if (session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can delete this session.'); }
+    const { store, runs, bus, log } = this.#deps;
+    for (const run of await this.#active(id)) {
+      if (run.allowed.cancel) { await runs.cancel(run.id, by); }
+    }
+    const removed = await store.tx(async (tx) => {
+      let count = 0;
+      for (const message of await readAll(tx.table('messages'), { where: { session: id } }, MAX_DELETED)) { if (await tx.table('messages').remove(message.id)) { count++; } }
+      for (const delivery of await readAll(tx.table('deliveries'), { where: { session: id } }, MAX_DELETED)) { await tx.table('deliveries').remove(delivery.id); }
+      for (const field of await readAll(tx.table('stateFields'), { where: { session: id } }, MAX_DELETED)) {
+        await tx.table('stateFields').remove(compositeKey(field.session, field.system, field.name, field.type));
+      }
+      await tx.table('priorityRules').remove(sessionPriorityRule(id));
+      await tx.table('sessions').remove(id);
+      return count;
+    });
+    bus.publish('session.deleted', { session: id, participants: audienceOf(session) });
+    log.info('chat.session.deleted', { session: id, by, messages: removed });
+    return true;
   }
 
   async messages(session: SessionId, viewer: ActorId, query: { cursor?: string; limit?: number }): Promise<Page<ChatMessage>> {
@@ -199,6 +228,15 @@ export class StoreSessionService implements SessionService {
     const id = sessionPriorityRule(session);
     const existing = await rules.get(id);
     await rules.put({ ...(existing ?? {}), id, target: { scope: 'session', session }, default: priority, setBy: by });
+  }
+
+  /** Drop a session's own model, so its agent chooses again. */
+  async #clearModel(session: Session): Promise<Session> {
+    const { model, ...rest } = session;
+    if (model === undefined) { return session; }
+    const cleared = await this.#deps.store.table('sessions').put(rest);
+    this.#changed(cleared);
+    return cleared;
   }
 
   async #active(session: SessionId): Promise<Run[]> {

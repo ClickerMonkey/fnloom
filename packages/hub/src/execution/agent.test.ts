@@ -21,7 +21,7 @@ let rig: ExecutionRig;
 afterEach(async () => { await rig.module.stop(); });
 
 async function started(options: Parameters<typeof executionRig>[0] = {}): Promise<ExecutionRig> {
-  rig = executionRig(options);
+  rig = await executionRig(options);
   rig.catalog.add('fs', 'read', readDef);
   rig.catalog.add('fs', 'write', writeDef);
   rig.catalog.add('tools', 'helper', helper);
@@ -70,7 +70,7 @@ describe('a session agent', () => {
     expect(r.provider.requests[0]?.tools?.map((t) => t.name).sort()).toEqual(['fs__read', 'fs__write']);
 
     const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 10 })).items[0];
-    expect(child).toMatchObject({ fn: 'fs/read', key: 'call_1', toolCallId: 'call_1', status: 'done' });
+    expect(child).toMatchObject({ fn: 'fs/read', key: '0:call_1', toolCallId: 'call_1', status: 'done' });
     expect(child?.llmCall).toBeDefined();
 
     expect(r.chat.begun).toHaveLength(1);
@@ -246,6 +246,38 @@ describe('a session agent', () => {
     r.provider.script(...[1, 2, 3, 4].map((i) => calls([['fs__read', { path: `f${i}` }]])));
     const { run } = await r.module.agents.start(agentInput(turn));
     expect((await runTo(r, run)).settled).toMatchObject({ status: 'failed', error: { code: 'max-iterations' } });
+  });
+});
+
+describe('an agent and fns that change under it', () => {
+  it('answers a call to a fn switched off after its tools were offered with the refusal, and carries on', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'read a' });
+    r.provider.script(() => { r.catalog.set('fs/read', { disabled: true }); return calls([['fs__read', { path: 'a' }]]); }, says('It is switched off.'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'It is switched off.' });
+    expect(fs.requests).toEqual([]);
+    const tool = (await r.store.table('sessions').get(SESSION))?.transcript.find((m) => m.role === 'tool');
+    expect(tool?.content).toBe('Error: fs/read is turned off.');
+    expect(r.provider.requests[1]?.tools?.map((t) => t.name)).toEqual(['fs__write']);
+  });
+
+  it('cancels an agent whose iteration still waits for an LLM slot, without ever asking the model', async () => {
+    const r = await started({ settings: testSettings({ HARNESS_LLM_CONCURRENCY: 1 }) });
+    let release: () => void = () => undefined;
+    const busy = new Promise<void>((resolve) => { release = resolve; });
+    r.provider.script(async () => { await busy; return says('{"title":"A","points":[]}'); });
+    const first = await r.module.agents.start(agentInput(await r.turn(), 'tools/summarize', { topic: 'a' }));
+    await until(() => r.provider.requests.length === 1, 'the first agent to ask the model');
+    const second = await r.module.agents.start({ ...agentInput(await r.turn(), 'tools/summarize', { topic: 'b' }), key: 'second' });
+    await until(async () => (await r.module.runs.get(second.run))?.status === 'running', 'the second agent to queue its iteration');
+    expect(await r.module.runs.cancel(second.run, ALICE)).toEqual({ accepted: true });
+    expect((await runTo(r, second.run)).settled).toEqual({ status: 'cancelled' });
+    release();
+    expect((await runTo(r, first.run)).settled).toEqual({ status: 'done', result: { title: 'A', points: [] } });
+    expect(JSON.stringify(r.provider.requests)).not.toContain('Summarize b.');
   });
 });
 

@@ -6,16 +6,16 @@
 import type { Notification } from '@harness/core';
 import { computed } from 'vue';
 import { UiIcon, UiIconButton, fullTime, relativeTime } from '../../ui/index.ts';
-import { REASONS } from './reasons.ts';
+import { lookOf } from './reasons.ts';
 
 const props = withDefaults(defineProps<{ notification: Notification; now: number; compact?: boolean }>(), { compact: false });
 defineEmits<{ open: [notification: Notification]; read: [notification: Notification] }>();
 
-const look = computed(() => REASONS[props.notification.reason]);
+const look = computed(() => lookOf(props.notification));
 </script>
 
 <template>
-  <li class="row" :class="{ unread: !notification.read, compact }" :data-testid="`notification-${notification.id}`">
+  <li class="row" :class="{ unread: !notification.read, resolved: notification.resolved !== undefined, compact }" :data-testid="`notification-${notification.id}`">
     <button type="button" class="open" @click="$emit('open', notification)">
       <span class="mark" :class="`tone-${look.tone}`"><UiIcon :name="look.icon" :size="16" /></span>
       <span class="text">
@@ -24,7 +24,7 @@ const look = computed(() => REASONS[props.notification.reason]);
           <time class="time" :datetime="new Date(notification.createdAt).toISOString()" :title="fullTime(notification.createdAt)">{{ relativeTime(notification.createdAt, now) }}</time>
         </span>
         <span v-if="notification.body !== ''" class="body">{{ notification.body }}</span>
-        <span class="reason">
+        <span class="reason" :class="`tone-${look.tone}`" data-testid="notification-reason">
           <span v-if="!notification.read" class="dot" aria-hidden="true" />
           {{ look.label }}<span v-if="!notification.read" class="sr-only">, unread</span>
         </span>
@@ -56,6 +56,8 @@ const look = computed(() => REASONS[props.notification.reason]);
 .time { flex: none; color: var(--text-faint); font-size: var(--text-xs); }
 .body { color: var(--text-dim); font-size: var(--text-sm); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .reason { display: flex; align-items: center; gap: 6px; color: var(--text-faint); font-size: var(--text-xs); }
+.reason.tone-danger, .reason.tone-warn { color: var(--tone); font-weight: var(--weight-medium); }
+.resolved .title { color: var(--text-dim); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .side { display: grid; place-items: center; flex: none; width: var(--control-sm); }
 .read { opacity: 0; transition: opacity var(--fast) var(--ease); }

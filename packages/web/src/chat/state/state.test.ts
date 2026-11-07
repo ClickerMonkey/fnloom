@@ -16,7 +16,7 @@ import { RendererHub } from './renderers.ts';
 import { sendDraft } from './send.ts';
 import { SessionListStore } from './sessions.ts';
 import { DraftSuggestions } from './suggest.ts';
-import { ThreadStore, undoSummary } from './thread.ts';
+import { stateKey, ThreadStore, undoSummary } from './thread.ts';
 import { UploadQueue } from './uploads.ts';
 import { VoiceStore } from './voice.ts';
 
@@ -224,9 +224,53 @@ describe('ThreadStore', () => {
     t.push({ type: 'controls', controls: { pause: true, cancel: true, uncancellable: [], undoLastTurn: false } });
     expect(t.store.canUndo.value).toBe(false);
     t.push({ type: 'state', system: SystemName.parse('fs'), fields: [{ name: 'cwd', type: 'h', value: '/src' }] });
-    expect(t.store.state.value.get('fs/cwd')).toBe('/src');
+    expect(t.store.state.value.get(stateKey(SystemName.parse('fs'), { name: 'cwd', type: 'h' }))).toBe('/src');
     t.push({ type: 'session', session: summary({ id: 'ses_1', status: 'running' }) });
     expect(t.store.running.value).toBe(true);
+  });
+
+  it("gives a run only the state fields its fn declared, matched by name and type, loading them on first read", async () => {
+    const t = thread();
+    const fs = SystemName.parse('fs');
+    const run = RunId.parse('run_bash');
+    t.api.state = fakeCaller<'state'>(() => Promise.resolve({ system: fs, fields: [{ name: 'cwd', type: 'text', value: '/repo' }, { name: 'last', type: 'num' }] }));
+    await t.store.open();
+    expect(t.store.stateOf(run)).toEqual({});
+    await vi.waitFor(() => { expect(t.store.stateOf(run)).toEqual({ cwd: '/repo' }); });
+    expect(t.api.state.calls).toEqual([[{ run }]]);
+    // a same-named field of another type, and a field the fn never declared, stay out of its view
+    t.push({ type: 'state', system: fs, fields: [{ name: 'cwd', type: 'num', value: 3 }, { name: 'other', type: 'text', value: 'x' }, { name: 'last', type: 'num', value: 7 }] });
+    expect(t.store.stateOf(run)).toEqual({ cwd: '/repo', last: 7 });
+    t.push({ type: 'state', system: fs, fields: [{ name: 'cwd', type: 'text' }] });
+    expect(t.store.stateOf(run)).toEqual({ last: 7 });
+    // a reconnect reads the declared fields again
+    await t.store.refresh();
+    expect(t.api.state.calls).toHaveLength(2);
+    expect(t.store.stateOf(run)).toEqual({ cwd: '/repo' });
+  });
+
+  it("forgets the last turn's controls when a new turn starts, so Stop offers Cancel again", async () => {
+    const t = thread();
+    await t.store.open();
+    t.push({ type: 'controls', controls: { pause: false, cancel: false, uncancellable: [], undoLastTurn: true } });
+    expect(t.store.controls.value?.cancel).toBe(false);
+    await t.store.send({ parts: [{ type: 'text', text: 'again' }] });
+    expect(t.store.controls.value).toBeUndefined();
+    t.push({ type: 'controls', controls: { pause: false, cancel: false, uncancellable: [], undoLastTurn: true } });
+    await t.store.invoke('fs/bash', { command: 'sleep 5' });
+    expect(t.store.controls.value).toBeUndefined();
+  });
+
+  it('shows a run moved to the background by the hub live, until it settles', async () => {
+    const t = thread();
+    await t.store.open();
+    const run = RunId.parse('run_sleep');
+    t.push({ type: 'run', run, fn: 'fs/bash', update: { type: 'status', status: 'running' } });
+    expect(t.store.background.value).toHaveLength(0);
+    t.push({ type: 'run', run, fn: 'fs/bash', update: { type: 'background' } });
+    expect(t.store.background.value.map((r) => r.id)).toEqual([run]);
+    t.push({ type: 'run', run, fn: 'fs/bash', update: { type: 'status', status: 'done' } });
+    expect(t.store.background.value).toHaveLength(0);
   });
 
   it('sends once while a send is in flight, and says why when it fails', async () => {

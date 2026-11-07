@@ -2,7 +2,7 @@
  * `ctx.types`: named types any system declared, loaded from the hub with every named type they reference
  * (dependencies first), so a system can parse and check values of types it doesn't declare itself.
  */
-import type { QualifiedName, TypeRecord } from '@harness/core';
+import type { QualifiedName, TypeDefinitions } from '@harness/core';
 import type { Types } from '../ctx.ts';
 import type { HubAccess } from './link.ts';
 
@@ -16,7 +16,7 @@ export class HubTypes implements Types {
     this.#signal = signal;
   }
 
-  async definitions(names: readonly QualifiedName[]): Promise<{ types: TypeRecord[]; missing: string[] }> {
+  async definitions(names: readonly QualifiedName[]): Promise<TypeDefinitions> {
     if (names.length === 0) { return { types: [], missing: [] }; }
     const hub = await this.#hub.ready(this.#signal);
     return hub.call('types', { names: [...names] }, this.#signal === undefined ? {} : { signal: this.#signal });

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunInfo, UserInfo, mintId, type FnError, type Json, type QualifiedName, type TimeInfo } from '@harness/core';
 import {
-  parseValue, type ActionCtx, type AttachmentRef, type Callers, type FnCtx, type FnTypes, type HandlersInRun, type Log, type Outcome,
+  parseValue, type AttachmentRef, type Callers, type FnCtx, type FnTypes, type HandlersInRun, type Log, type Outcome,
   type ProgressReporter, type SessionState, type SettingRef, type SystemCtx, type UndoCtx,
 } from '@harness/sdk';
 import { HubLlm, type HubAccess } from '@harness/sdk/server';
@@ -156,16 +156,6 @@ export function systemCtx(options: FakeOptions): SystemCtx<FsConfig> & { session
   const recorded = record();
   const all = services(options, recorded);
   return { ...recorded, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
-}
-
-/** An action context. */
-export function actionCtx<St extends object>(state: SessionState<St>, options: FakeOptions): { ctx: ActionCtx<St, FsConfig> } & Recorded {
-  const base = systemCtx(options);
-  const all = services(options, base);
-  return {
-    ctx: { ...base, files: all.files, fetch: all.fetch, attach: all.attach, link: all.link, setting: all.setting, delivery: mintId('delivery'), run: undefined, actor: user.id, state },
-    attachments: base.attachments, log: base.log,
-  };
 }
 
 /** The outcome of a run, narrowed to `done`, failing the test otherwise. */

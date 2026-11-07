@@ -3,20 +3,24 @@
  * live here, not in the components, so plain TypeScript (and lint) sees them.
  */
 import type { ApprovalId, Json, QualifiedName } from '@harness/core';
+import type { AnyViews } from '@harness/sdk';
 import type { Component } from 'vue';
 import type { IconName } from '../../ui/index.ts';
 
-/** A system's renderer and the props to mount it with. */
-export interface RenderView {
+/** Which kind of renderer a view mounts: a fn's, an attachment's, a custom input, a mention card or a resource viewer. */
+export type RenderKind = keyof AnyViews;
+
+/** A system's renderer and the props to mount it with: the SDK's view for its kind (see `AnyViews`). */
+export interface RenderView<K extends RenderKind = RenderKind> {
   readonly component: Component;
-  readonly props: Readonly<Record<string, unknown>>;
+  readonly props: AnyViews[K];
 }
 
 /** What a message's action bar can offer. */
 export type MessageAction = 'copy' | 'reply' | 'edit' | 'retry' | 'undo' | 'details' | 'tree' | 'link';
 
 /** What the chat header's tools and overflow menu offer. */
-export type HeaderAction = 'rename' | 'tree' | 'undo' | 'settings' | 'people' | 'archive' | 'shortcuts';
+export type HeaderAction = 'rename' | 'tree' | 'undo' | 'settings' | 'people' | 'archive' | 'delete' | 'shortcuts';
 
 /** One approval as the tray shows it. */
 export interface ApprovalView {

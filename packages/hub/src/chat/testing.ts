@@ -1,37 +1,30 @@
 /**
- * Test doubles for what the chat module leans on: an in-memory `HubStore` whose tables parse every row with core's
- * schemas (like the real store) and whose transactions roll back, a recording `EventBus`, a catalog fed by fixtures,
- * a link whose systems answer with a handler per endpoint, and recording run, agent, limit, search and push fakes.
- * `chatRig` wires them into a full `ChatDeps`. Tests only.
+ * Test doubles for what the chat module leans on, beside the shared store, bus and logger (`../testing.ts`): a catalog
+ * fed by fixtures, a link whose systems answer with a handler per endpoint, and recording run, agent, limit, search
+ * and push fakes. `chatRig` wires them into a full `ChatDeps` over a real in-memory store. Tests only.
  */
 import { ApiError, type CallReturn, type Peer, type PeerCallArgs, type PeerKeys, type WsConn } from '@ayepi/core';
-import { createLogger, type LogRecord } from '@ayepi/log';
 import {
-  GinTypeDef, HUB_TABLES, IDS, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
-  type Notification, type Page, type QualifiedName, type ResolvedLimits, type RowOf, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
-  type Suggestion, type SystemLinkSpec, type TableName, type TypeRecord, type UndoOutcome, type UserActor,
+  GinTypeDef, IDS, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
+  type Notification, type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
+  type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor,
 } from '@harness/core';
-import type { EventBus, HubEventName, HubEvents } from '../bus.ts';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
 import type { Search, Suggester } from '../index/index.ts';
 import type { LinkService, SystemConnection } from '../link/index.ts';
-import type { AyepiPorts, HubStore, Table, TableQuery, TextIndex, VectorIndex, Where } from '../store/index.ts';
+import type { HubStore } from '../store/index.ts';
+import { FaultyStore, RecordingBus, memoryLog, settle, testStore } from '../testing.ts';
 import type { ChatDeps } from './deps.ts';
 import { createChat } from './chat.ts';
 import { chatEnv } from './env.ts';
 
-/** Let queued microtasks and timers run (bus listeners, background flushes). */
-export async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i++) { await new Promise((resolve) => setTimeout(resolve, 0)); }
-}
+export { settle };
 
 /** A gin type definition from its JSON. */
 export function gin(def: unknown): GinTypeDef {
   return GinTypeDef.parse(def);
 }
-
-// ─── Store ────────────────────────────────────────────────────────────────────
 
 /**
  * The one unchecked step of these doubles: a value whose type a test double knows from how it stored it (a table's
@@ -40,190 +33,6 @@ export function gin(def: unknown): GinTypeDef {
 function known<T>(value: unknown): T {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see the doc comment: every caller stores and reads under the same key
   return value as T;
-}
-
-/** How a memory table reads and keys its rows. */
-interface RowDef<Row> {
-  readonly row: { parse(value: unknown): Row };
-  readonly key: (row: Row) => string;
-}
-
-const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
-
-/** Whether a column value passes one filter: equal, `in`, a bound, or `exists`. */
-function passes(value: unknown, filter: unknown): boolean {
-  if (filter !== null && typeof filter === 'object' && !Array.isArray(filter)) {
-    if ('in' in filter && Array.isArray(filter.in)) { return filter.in.some((item: unknown) => same(item, value)); }
-    if ('exists' in filter && typeof filter.exists === 'boolean') { return (value !== undefined) === filter.exists; }
-    if ('gt' in filter) { return compare(value, filter.gt) > 0; }
-    if ('gte' in filter) { return compare(value, filter.gte) >= 0; }
-    if ('lt' in filter) { return compare(value, filter.lt) < 0; }
-    if ('lte' in filter) { return compare(value, filter.lte) <= 0; }
-  }
-  return same(value, filter);
-}
-
-/** Order two cells: absent first, then numbers, strings and booleans by value. */
-function compare(a: unknown, b: unknown): number {
-  if (a === b) { return 0; }
-  if (a === undefined) { return -1; }
-  if (b === undefined) { return 1; }
-  if (typeof a === 'number' && typeof b === 'number') { return a - b; }
-  return JSON.stringify(a).localeCompare(JSON.stringify(b));
-}
-
-function matches<Row extends object>(row: Row, where: Where<Row> | undefined): boolean {
-  const cells = new Map(Object.entries(row));
-  return Object.entries(where ?? {}).every(([column, filter]) => filter === undefined || passes(cells.get(column), filter));
-}
-
-/** One table over a shared row map. Rows are stored as JSON and parsed on every read. */
-class MemoryTable<Row extends object> implements Table<Row> {
-  readonly #def: RowDef<Row>;
-  readonly #rows: Map<string, string>;
-  readonly #failing: () => boolean;
-
-  constructor(def: RowDef<Row>, rows: Map<string, string>, failing: () => boolean) {
-    this.#def = def;
-    this.#rows = rows;
-    this.#failing = failing;
-  }
-
-  async get(key: string): Promise<Row | undefined> {
-    const raw = this.#rows.get(key);
-    return Promise.resolve(raw === undefined ? undefined : this.#parse(raw));
-  }
-
-  async find(query: TableQuery<Row>): Promise<Page<Row>> {
-    const rows = [...this.#rows.entries()].map(([key, raw]) => ({ key, row: this.#parse(raw) })).filter(({ row }) => matches(row, query.where));
-    rows.sort((a, b) => {
-      const ca = new Map(Object.entries(a.row));
-      const cb = new Map(Object.entries(b.row));
-      for (const [column, direction] of query.order ?? []) {
-        const order = compare(ca.get(column), cb.get(column));
-        if (order !== 0) { return direction === 'asc' ? order : -order; }
-      }
-      return a.key.localeCompare(b.key);
-    });
-    const offset = query.cursor === undefined ? 0 : Number(query.cursor);
-    const end = offset + query.limit;
-    const items = rows.slice(offset, end).map((r) => r.row);
-    return Promise.resolve(end < rows.length ? { items, cursor: String(end) } : { items });
-  }
-
-  async count(where?: Where<Row>): Promise<number> {
-    return Promise.resolve([...this.#rows.values()].filter((raw) => matches(this.#parse(raw), where)).length);
-  }
-
-  async insert(row: Row): Promise<Row> {
-    const parsed = this.#def.row.parse(row);
-    const key = this.#def.key(parsed);
-    if (this.#rows.has(key)) { return Promise.reject(new Error(`${key} already exists`)); }
-    this.#rows.set(key, JSON.stringify(parsed));
-    return Promise.resolve(parsed);
-  }
-
-  async put(row: Row): Promise<Row> {
-    const parsed = this.#def.row.parse(row);
-    this.#rows.set(this.#def.key(parsed), JSON.stringify(parsed));
-    return Promise.resolve(parsed);
-  }
-
-  async update(key: string, patch: Partial<Row>): Promise<Row> {
-    const raw = this.#rows.get(key);
-    if (raw === undefined) { return Promise.reject(new Error(`${key} does not exist`)); }
-    if (this.#failing()) { return Promise.reject(new Error(`The update of ${key} failed (on purpose).`)); }
-    const parsed = this.#def.row.parse({ ...this.#parse(raw), ...patch });
-    this.#rows.set(key, JSON.stringify(parsed));
-    return Promise.resolve(parsed);
-  }
-
-  async remove(key: string): Promise<boolean> {
-    return Promise.resolve(this.#rows.delete(key));
-  }
-
-  #parse(raw: string): Row {
-    return this.#def.row.parse(JSON.parse(raw));
-  }
-}
-
-/** An in-memory store: tables only. Transactions run one at a time and put every table back when they throw. */
-export class MemoryStore implements HubStore {
-  readonly #data = new Map<TableName, Map<string, string>>();
-  readonly #failing = new Set<TableName>();
-  #lock: Promise<void> = Promise.resolve();
-
-  /** Make the next update of a table fail, to test what a transaction puts back. */
-  failNextUpdate(table: TableName): void {
-    this.#failing.add(table);
-  }
-
-  table<K extends TableName>(name: K): Table<RowOf<K>> {
-    let rows = this.#data.get(name);
-    if (rows === undefined) {
-      rows = new Map();
-      this.#data.set(name, rows);
-    }
-    return new MemoryTable(known<RowDef<RowOf<K>>>(HUB_TABLES[name]), rows, () => this.#failing.delete(name));
-  }
-
-  async tx<T>(fn: (store: HubStore) => Promise<T>): Promise<T> {
-    const run = this.#lock.then(async () => {
-      const saved = new Map([...this.#data].map(([name, rows]) => [name, new Map(rows)]));
-      try {
-        return await fn(this);
-      } catch (error) {
-        for (const [name, live] of this.#data) {
-          live.clear();
-          for (const [key, raw] of saved.get(name) ?? []) { live.set(key, raw); }
-        }
-        throw error;
-      }
-    });
-    this.#lock = run.then(() => undefined, () => undefined);
-    return run;
-  }
-
-  get vectors(): VectorIndex { throw new Error('The memory store has no vector index.'); }
-  get text(): TextIndex { throw new Error('The memory store has no text index.'); }
-  get ports(): AyepiPorts { throw new Error('The memory store has no ayepi ports.'); }
-  async migrate(): Promise<void> { return Promise.resolve(); }
-  async close(): Promise<void> { return Promise.resolve(); }
-}
-
-// ─── Bus ──────────────────────────────────────────────────────────────────────
-
-/** A bus that records what is published and delivers to listeners on a microtask. */
-export class RecordingBus implements EventBus {
-  readonly #published = new Map<HubEventName, unknown[]>();
-  readonly #listeners = new Map<HubEventName, Set<(data: never) => void>>();
-
-  publish<E extends HubEventName>(event: E, data: HubEvents[E]): void {
-    const list = this.#published.get(event) ?? [];
-    list.push(data);
-    this.#published.set(event, list);
-    for (const listener of this.#set(event)) { queueMicrotask(() => { listener(data); }); }
-  }
-
-  subscribe<E extends HubEventName>(event: E, listener: (data: HubEvents[E]) => void): () => void {
-    const set = this.#set(event);
-    set.add(listener);
-    return () => { set.delete(listener); };
-  }
-
-  /** Everything published under one event, in order. */
-  of<E extends HubEventName>(event: E): ReadonlyArray<HubEvents[E]> {
-    return known<Array<HubEvents[E]>>(this.#published.get(event) ?? []);
-  }
-
-  #set<E extends HubEventName>(event: E): Set<(data: HubEvents[E]) => void> {
-    let set = this.#listeners.get(event);
-    if (set === undefined) {
-      set = new Set();
-      this.#listeners.set(event, set);
-    }
-    return known<Set<(data: HubEvents[E]) => void>>(set);
-  }
 }
 
 // ─── Catalog ──────────────────────────────────────────────────────────────────
@@ -507,11 +316,11 @@ export class FakePush {
 // ─── The rig ──────────────────────────────────────────────────────────────────
 
 /** A full `ChatDeps` of test doubles, with an admin user and the `hub/chat` agent fn. */
-export function chatRig() {
+export async function chatRig() {
   let counter = 0;
   const random = (): string => String(++counter).padStart(6, '0');
   let now = Date.UTC(2026, 10, 7, 14, 30);
-  const store = new MemoryStore();
+  const store = new FaultyStore(await testStore());
   const bus = new RecordingBus();
   const catalog = new FixtureCatalog();
   const link = new FakeLink();
@@ -521,8 +330,7 @@ export function chatRig() {
   const limits = new FixedLimits();
   const index = new FixtureIndex();
   const push = new FakePush();
-  const logs: LogRecord[] = [];
-  const log = createLogger({ level: 'debug', transports: [{ name: 'memory', write: (record) => { logs.push(record); } }] });
+  const { log, records: logs } = memoryLog();
   catalog.addFn('hub', { name: 'chat', kind: AGENT_KIND, description: 'The chat agent.' });
   const deps: ChatDeps = {
     settings: { chat: chatEnv.parse(), queue: { HARNESS_ACTIVE_WINDOW: 120_000 }, model: { HARNESS_SUGGESTIONS: 6 } },
@@ -544,7 +352,7 @@ export function chatRig() {
 }
 
 /** The rig's type. */
-export type ChatRig = ReturnType<typeof chatRig>;
+export type ChatRig = Awaited<ReturnType<typeof chatRig>>;
 
 /** An actor id from a string. */
 export function actorId(id: string): ActorId {
@@ -553,7 +361,7 @@ export function actorId(id: string): ActorId {
 
 /** The rig with the chat module built on it, the admin signed up, and a session of theirs. */
 export async function chatWorld(options: { systems?: SystemName[] | 'all' } = {}) {
-  const rig = chatRig();
+  const rig = await chatRig();
   await rig.init();
   const chat = createChat(rig.deps);
   const session = await chat.sessions.create({ owner: rig.admin.id, ...(options.systems === undefined ? {} : { systems: options.systems }) });

@@ -30,6 +30,18 @@ export const chat: Scenario = {
     await settle(page, 600);
     await shot('history');
     check(await page.$$eval('[data-testid="assistant-answer"]', (els) => els.length) >= 1, 'the history should show the earlier answer');
+    // what the answer's fns attached: a diff card, and link cards for a resource and a web page
+    check(await page.$('[data-testid="attachment"][data-attachment="fs/diff"]') !== null, 'the answer should show its diff attachment');
+    const links = await page.$$eval('[data-testid="link-card"]', (els) => els.map((el) => ({ tag: el.tagName, text: el.textContent })));
+    check(links.some((l) => l.tag === 'BUTTON' && l.text.includes('routes.ts')), 'a resource link should be a card that opens the viewer');
+    check(links.some((l) => l.tag === 'A' && l.text.includes('router.vuejs.org')), 'a web link should be a card that opens the page');
+    await page.$eval('button[data-testid="link-card"]', (el) => { el.scrollIntoView({ block: 'center' }); });
+    await settle(page, 300);
+    await shot('attachments');
+    await page.$eval('button[data-testid="link-card"]', (el) => { if (el instanceof HTMLElement) { el.click(); } });
+    await page.waitForFunction(() => new URL(location.href).searchParams.has('resource'), { timeout: 5_000 });
+    await page.click('[data-testid="panel-close"]');
+    await page.waitForFunction(() => !new URL(location.href).searchParams.has('resource'));
 
     // a draft left from an earlier run is kept per chat; start from an empty box
     await page.$eval('[data-testid="composer-input"]', (el) => { if (el instanceof HTMLTextAreaElement) { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } });

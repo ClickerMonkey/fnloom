@@ -76,6 +76,13 @@ export const StateField = z.object({
 });
 export type StateField = z.infer<typeof StateField>;
 
+/**
+ * A state field as the chat sees it: its name and type hash (two fields are the same only when both match) and its
+ * value, absent when the field is empty or was just cleared.
+ */
+export const StateFieldValue = StateField.pick({ name: true, type: true }).extend({ value: Json.optional() });
+export type StateFieldValue = z.infer<typeof StateFieldValue>;
+
 /** Where a delivery is. */
 export const DeliveryStatus = z.enum(['queued', 'delivered', 'done', 'failed', 'expired']);
 export type DeliveryStatus = z.infer<typeof DeliveryStatus>;

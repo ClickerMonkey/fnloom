@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { hub as hubContract } from '@harness/sdk';
 import { mintId, SystemName } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { quietLog, recordingPush, testSettings } from '../api/testing/rig.ts';
+import { recordingPush, testSettings } from '../api/testing/rig.ts';
+import { memoryLog } from '../testing.ts';
 import { ScriptedProvider, TEST_MODEL } from '../execution/testing.ts';
 import type { RunningHub } from './index.ts';
 import { hubModules } from './modules.ts';
@@ -20,7 +21,7 @@ let running: RunningHub;
 beforeAll(async () => {
   const base = testSettings();
   running = await startHub({
-    port: 0, log: quietLog().log, pushSender: recordingPush(), signals: false,
+    port: 0, log: memoryLog().log, pushSender: recordingPush(), signals: false,
     keyMaker: { secret: () => 'k'.repeat(48), vapid: () => ({ publicKey: 'pub', privateKey: 'priv' }) },
     settings: {
       ...base,

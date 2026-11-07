@@ -1,7 +1,7 @@
 import { fn, g } from '@harness/sdk';
 import { ActorId, PolicyId, QualifiedName, RunId, SystemName, TurnId, type FnRecord, type Policy, type RunSettled } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryBus, MemoryStore, memoryLog, settle } from '../catalog/testing.ts';
+import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import { RunDeciders } from './deciders.ts';
 import type { RunInput } from './index.ts';
 import { choosePolicy, globMatches, HubPolicyEngine, subjectRank, targetRank, type ActorFacts } from './policies.ts';
@@ -64,8 +64,8 @@ describe('matching', () => {
 
 describe('the policy engine', () => {
   async function engine() {
-    const store = new MemoryStore();
-    const bus = new MemoryBus();
+    const store = await testStore();
+    const bus = new RecordingBus();
     const { log } = memoryLog();
     let i = 0;
     await store.table('turns').insert({
@@ -134,8 +134,8 @@ describe('approvals no person answers', () => {
 
   /** An engine whose deciders run judges through a fake run service and read a fake ledger. */
   async function decided(options: { verdict?: RunSettled; left?: number } = {}) {
-    const store = new MemoryStore();
-    const bus = new MemoryBus();
+    const store = await testStore();
+    const bus = new RecordingBus();
     const { log } = memoryLog();
     let i = 0;
     await store.table('actors').insert({ id: HUB, kind: 'system', system: SystemName.parse('hub'), name: 'Hub', about: '', createdAt: 0, disabled: false });

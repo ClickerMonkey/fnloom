@@ -6,7 +6,7 @@ import { chatRig, gin, settle } from './testing.ts';
 
 describe('the chat module', () => {
   it('provides every chat service the hub expects', async () => {
-    const rig = chatRig();
+    const rig = await chatRig();
     await rig.init();
     const chat = createChat(rig.deps);
     const services: HubServices['chat'] = chat;
@@ -14,7 +14,7 @@ describe('the chat module', () => {
   });
 
   it('flushes deliveries for systems already connected when it starts, and stops listening when stopped', async () => {
-    const rig = chatRig();
+    const rig = await chatRig();
     await rig.init();
     const chat = createChat(rig.deps);
     rig.catalog.addEntry('actions', 'fs/ping', { name: 'ping', description: 'Ping.', input: gin({ name: 'any' }), returns: gin({ name: 'any' }) });

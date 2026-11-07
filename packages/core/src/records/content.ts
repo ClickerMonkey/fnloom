@@ -58,7 +58,7 @@ export type SearchHit = z.infer<typeof SearchHit>;
 
 /** Why someone is notified. */
 export const NotificationReason = z.enum([
-  'approval-needed', 'input-needed', 'config-needed', 'replied', 'turn-finished', 'pairing-requested', 'system-disconnected', 'spend-limit',
+  'approval-needed', 'input-needed', 'config-needed', 'replied', 'turn-finished', 'turn-failed', 'pairing-requested', 'system-disconnected', 'spend-limit',
 ]);
 export type NotificationReason = z.infer<typeof NotificationReason>;
 
@@ -82,6 +82,11 @@ export const Notification = z.object({
   link: NotificationLink,
   read: z.boolean(),
   pushed: z.boolean(),
+  /**
+   * What became of the thing it asked for, once nobody needs to act on it any more (`Approved`, `Timed out`,
+   * `Connected`); such a notification is read, and stays as a record of what happened.
+   */
+  resolved: z.string().optional(),
   createdAt: Timestamp,
 });
 export type Notification = z.infer<typeof Notification>;

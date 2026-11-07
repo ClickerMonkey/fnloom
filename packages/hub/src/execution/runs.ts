@@ -381,7 +381,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   async background(id: RunId): Promise<boolean> {
     const run = await this.get(id);
     if (run === undefined || isSettled(run.status) || !run.allowed.background) return false;
-    if (!run.background) await this.#deps.store.table('runs').update(id, { background: true });
+    if (!run.background) this.#publish(await this.#deps.store.table('runs').update(id, { background: true }), { type: 'background' });
     this.#waiters.get(id)?.resolve({ status: 'background', run: id });
     this.#waiters.delete(id);
     this.#deps.log.info('run.background', { run: id, fn: run.fn });

@@ -114,7 +114,8 @@ export function resendParts(parts: readonly MessagePart[]): OutgoingPart[] {
       case 'mention': out.push({ type: 'mention', provider: part.provider, label: part.label, target: part.target }); break;
       case 'command': out.push({ type: 'command', context: part.context, args: part.args }); break;
       case 'file': out.push({ type: 'file', ref: part.ref, name: part.name }); break;
-      default: break;
+      // the rest are added by the hub or the agent, never sent by a person
+      case 'reasoning': case 'invocation': case 'extra': case 'hook': case 'attachment': case 'link': break;
     }
   }
   return out;

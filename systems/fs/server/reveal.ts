@@ -8,7 +8,8 @@ export function revealCommand(platform: NodeJS.Platform, path: string, type: Ent
   switch (platform) {
     case 'win32': return { file: 'explorer.exe', args: type === 'folder' ? [path.replaceAll('/', '\\')] : [`/select,${path.replaceAll('/', '\\')}`] };
     case 'darwin': return { file: 'open', args: type === 'folder' ? [path] : ['-R', path] };
-    default: return { file: 'xdg-open', args: [type === 'folder' ? path : parentOf(path)] };
+    case 'linux': case 'freebsd': case 'openbsd': case 'netbsd': case 'sunos': case 'aix': case 'android': case 'cygwin': case 'haiku':
+      return { file: 'xdg-open', args: [type === 'folder' ? path : parentOf(path)] };
   }
 }
 

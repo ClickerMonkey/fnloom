@@ -3,7 +3,7 @@ import { MessageId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, Tu
 import { g, wireType } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, declOf, manifestFor, orders, shop, vectors } from '../catalog/fixtures.ts';
-import { settle } from '../catalog/testing.ts';
+import { settle } from '../testing.ts';
 import { fingerprint, makeKeyPair, signNonce } from './keys.ts';
 import { FakeSystem, linkRig, pairDirectly, type LinkRig } from './rig.ts';
 
@@ -69,6 +69,8 @@ describe('pairing with a code', () => {
     rig.time.now += 61_000;
     expect(await rig.pairing.pending()).toEqual([]);
     expect((await rig.store.table('pairings').get(again.pairing))?.status).toBe('expired');
+    // the expiry is announced, so whoever was asked to approve it hears it is over
+    expect(rig.bus.of('pairing').at(-1)).toMatchObject({ pairing: { id: again.pairing, status: 'expired' } });
   });
 
   it('refuses a key that is not Ed25519', async () => {
@@ -86,9 +88,14 @@ describe('pairing with a token', () => {
     expect(stored?.tokenHash).not.toContain(token);
 
     const system = new FakeSystem(rig.app, 'shop', shopManifest);
+    // it asked with a code first, then came back with the token
+    const asked = await system.connect();
+    if ('limits' in asked) { throw new Error('expected pairing'); }
     const reply = await system.connect(token);
     if ('limits' in reply) { throw new Error('expected pairing'); }
     expect(reply.code).toBeUndefined();
+    expect((await rig.store.table('pairings').get(asked.pairing))?.status).toBe('expired');
+    expect(rig.bus.of('pairing').map((e) => e.pairing.status)).toEqual(['pending', 'approved', 'expired']);
     await settle(5);
     expect(system.paired).toEqual([reply.pairing]);
     expect((await rig.store.table('systems').get('shop'))?.pairedBy).toBe(ADMIN);

@@ -248,12 +248,18 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
 .hint { margin: calc(-1 * var(--space-2)) 0 0; color: var(--text-faint); font-size: var(--text-xs); }
 .error { margin: 0; color: var(--danger); font-size: var(--text-xs); }
 .object { display: grid; gap: var(--space-3); min-width: 0; }
-.items { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.items { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; container: items / inline-size; }
 .item { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
 .entry { flex-wrap: wrap; }
 .entry > .grow { flex: 1 1 160px; }
 .grow { flex: 1; min-width: 0; }
 .item-actions { display: flex; gap: 2px; padding-top: 26px; flex: none; }
+/* in a narrow list the move and remove buttons become a small toolbar above the item, so its fields get the full width */
+@container items (max-width: 520px) {
+  .item:not(.entry) { flex-direction: column; align-items: stretch; gap: var(--space-1); }
+  .item:not(.entry) > .item-actions { order: -1; justify-content: flex-end; padding-top: 0; }
+  .item:not(.entry) > .grow { flex: none; width: 100%; }
+}
 .entry-remove { margin-top: 26px; }
 .field { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
 .field-remove { margin-top: 26px; flex: none; }

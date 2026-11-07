@@ -3,10 +3,9 @@
  * subscribes again (same endpoint) updates its subscription instead of adding another.
  */
 import { plugin } from '@ayepi/plugin';
-import { compact, mintId } from '@harness/core';
+import { inboxSlice, compact, mintId } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { type FullHandlers } from './access.ts';
-import { inboxSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
 /** The inbox plugin. */

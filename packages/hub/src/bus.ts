@@ -6,8 +6,8 @@
  * Owner: the api lane implements `EventBus` (`bus/memory.ts`); every module publishes and subscribes through it.
  */
 import type {
-  ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, HandlerCall, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
-  Json, OutputLine, ResourceRoot, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, SystemName, SystemStatus, Notification,
+  ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
+  OutputLine, ResourceRoot, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
 } from '@harness/core';
 
 /** Every internal event, by name. */
@@ -16,9 +16,11 @@ export interface HubEvents {
   'message.token': { session: SessionId; message: MessageId; text: string };
   'message.reasoning': { session: SessionId; message: MessageId; text: string };
   'session.changed': { session: SessionSummary; participants: readonly ActorId[] };
+  /** A session was deleted for good. */
+  'session.deleted': { session: SessionId; participants: readonly ActorId[] };
   'session.controls': { session: SessionId; controls: SessionControls };
   'run.update': { run: RunId; fn: QualifiedName; session?: SessionId; update: RunUpdate };
-  'state.changed': { session: SessionId; system: SystemName; fields: Array<{ name: string; type: string; value?: Json }> };
+  'state.changed': { session: SessionId; system: SystemName; fields: StateFieldValue[] };
   'delivery': { session: SessionId; delivery: DeliveryView };
   'handler': { session?: SessionId; call: HandlerCall };
   'approval': { session?: SessionId; approval: Approval; approvers: readonly ActorId[] };
@@ -30,6 +32,8 @@ export interface HubEvents {
   'system.output': { system: SystemName; line: OutputLine };
   'pairing': { pairing: PairingRequest };
   'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };
+  /** A fn's running numbers after one of its runs settled. */
+  'fn.stats': { fn: QualifiedName; system: SystemName; stats: FnStats };
   'resources.changed': { system: SystemName; changes: ResourceChange[] };
   /** A system's roots, as it offered them on connect or after it said they changed. */
   'resources.roots': { system: SystemName; roots: readonly ResourceRoot[] };

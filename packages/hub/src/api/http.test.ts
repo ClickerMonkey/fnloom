@@ -5,7 +5,8 @@ import { signJwt } from '@ayepi/auth/server';
 import { accessTokenExpiry } from '../boot/start.ts';
 import { ACCESS_TOKEN } from './auth.ts';
 import { HttpFront } from './http.ts';
-import { quietLog, TEST_KEYS } from './testing/rig.ts';
+import { memoryLog } from '../testing.ts';
+import { TEST_KEYS } from './testing/rig.ts';
 
 const ping = spec({ endpoints: { ping: endpoint({ method: 'GET', response: z.object({ pong: z.boolean() }) }) } });
 const fronts: HttpFront[] = [];
@@ -14,7 +15,7 @@ afterEach(async () => { for (const front of fronts.splice(0)) { await front.clos
 async function start(options: { expiry?: number; ready?: boolean } = {}) {
   const web = server(ping, [implement(ping).handlers({ ping: () => ({ pong: true }) })]);
   const front = new HttpFront({
-    web, link: server(spec({ endpoints: {} }), []), files: [], heartbeat: 60_000, tokenMargin: 0, clock: Date.now, log: quietLog().log,
+    web, link: server(spec({ endpoints: {} }), []), files: [], heartbeat: 60_000, tokenMargin: 0, clock: Date.now, log: memoryLog().log,
     health: { live: () => true, ready: () => options.ready ?? true },
     tokenExpiry: (token) => (token === 'good' && options.expiry !== undefined ? Date.now() + options.expiry : undefined),
   });

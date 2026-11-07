@@ -1,5 +1,5 @@
 /** What the bash card shows, worked out from its view so the component only draws. Pure and browser-safe. */
-import type { DeliveryStatus, FnError, RunStatus } from '@harness/core';
+import type { FnError, RunStatus } from '@harness/core';
 
 /** The tone of the card's status chip. */
 export type Tone = 'busy' | 'ok' | 'bad' | 'quiet';
@@ -21,17 +21,6 @@ export function statusChip(status: RunStatus, exitCode: number | undefined, erro
   if (status === 'undone') { return { label: 'Undone', tone: 'quiet' }; }
   if (status === 'failed') { return { label: error?.code === 'timeout' ? 'Timed out' : 'Failed', tone: 'bad' }; }
   return exitCode === undefined || exitCode === 0 ? { label: 'Done', tone: 'ok' } : { label: `Exit ${exitCode}`, tone: 'bad' };
-}
-
-/** The chip for a "run again" delivery. */
-export function deliveryChip(status: DeliveryStatus, exitCode: number | undefined): Chip {
-  switch (status) {
-    case 'queued': return { label: 'Queued until fs is online', tone: 'quiet' };
-    case 'delivered': return { label: 'Running', tone: 'busy' };
-    case 'failed': return { label: 'Couldn\'t run', tone: 'bad' };
-    case 'expired': return { label: 'Expired', tone: 'quiet' };
-    case 'done': return exitCode === undefined || exitCode === 0 ? { label: 'Done', tone: 'ok' } : { label: `Exit ${exitCode}`, tone: 'bad' };
-  }
 }
 
 /** The output a failed run still carries (a timeout keeps what was printed). */

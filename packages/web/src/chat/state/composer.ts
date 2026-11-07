@@ -4,13 +4,13 @@
  * commands, `!` the fns the person may run) with keyboard movement; the inline `!` form; staged files; and what a
  * send carries. A failed send puts the draft back exactly.
  */
-import { MessageId, OutgoingPart, type ChatCapabilities, type MentionOption, type QualifiedName, type SessionId } from '@harness/core';
+import { MessageId, OutgoingPart, type ChatCapabilities, type Json, type MentionOption, type QualifiedName, type SessionId } from '@harness/core';
 import { computed, ref, shallowRef, watch, type Ref } from 'vue';
 import { z } from 'zod';
 import { persisted, type KeyValueStore } from '../../state/persisted.ts';
 import type { ChatApi } from '../api.ts';
 import {
-  commandHint, detectTrigger, draftParts, insertText, mentionToken, pruneMentions, type Command, type DraftMention, type Invocation, type Trigger,
+  commandHint, detectTrigger, draftParts, insertText, mentionToken, methodArgs, pruneMentions, type Command, type DraftMention, type Invocation, type Trigger,
 } from '../logic/composer.ts';
 import { fnLabel } from '../logic/labels.ts';
 import type { Outgoing } from './thread.ts';
@@ -76,6 +76,8 @@ export class ComposerStore {
   readonly #saved: Ref<SavedDraft | undefined>;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #generation = 0;
+  /** The value a type method's open form runs on. */
+  #self: Json | undefined;
 
   readonly text = ref('');
   readonly caret = ref(0);
@@ -173,13 +175,23 @@ export class ComposerStore {
     }
   }
 
-  /** Open a fn's `!` form directly (a suggested fn, a type method). */
-  openInvocation(invocation: Invocation): void {
+  /**
+   * Open a fn's `!` form directly (a suggested fn, a type method). `self` is the value a type method runs on: the
+   * form asks only for the method's own args, and the call adds it (see `invocationArgs`).
+   */
+  openInvocation(invocation: Invocation, self?: Json): void {
     this.invoking.value = invocation;
+    this.#self = self;
   }
 
   closeInvocation(): void {
     this.invoking.value = undefined;
+    this.#self = undefined;
+  }
+
+  /** The args the open form's answer runs its fn with: the answer, plus `self` for a type method. */
+  invocationArgs(answer: Json): Json {
+    return this.#self === undefined ? answer : methodArgs(answer, this.#self);
   }
 
   /** Put text at the caret (dictation, a starter, a suggested command). */

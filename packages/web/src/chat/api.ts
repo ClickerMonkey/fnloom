@@ -20,6 +20,7 @@ export function chatApi(hub: Hub) {
     session: hub.caller('session', { dedupe: true }),
     createSession: hub.caller('createSession', { invalidates: [SESSIONS_TAG] }),
     updateSession: hub.caller('updateSession', { invalidates: [SESSIONS_TAG] }),
+    deleteSession: hub.caller('deleteSession', { invalidates: [SESSIONS_TAG] }),
     limits: hub.caller('limits', { dedupe: true }),
     messages: hub.caller('messages', { dedupe: true }),
     send: hub.caller('send', { invalidates: [SESSIONS_TAG] }),

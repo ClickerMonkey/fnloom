@@ -1,15 +1,15 @@
 /**
  * The run queue and the LLM queue, on `@ayepi/work` (durable on the hub's SQLite ports in production, in memory in
- * tests). Every LLM call shares one doer (`PriorityRateDoer`): a priority doer (interactive work before background
- * work) in front of a rate cap on call starts across all models. Agent iterations are LLM jobs on that doer, and forwarded system requests
+ * tests). Every LLM call shares one doer (`llmDoer`): a rate cap on call starts across all models
+ * that admits the most urgent waiting call first (interactive work before background work) into fixed call slots. Agent iterations are LLM jobs on that doer, and forwarded system requests
  * run on it too, so priorities and limits hold for both. Runs are queued by priority and run at most
  * `HARNESS_RUN_CONCURRENCY` at a time per system.
  *
  * Handlers settle their run themselves; the queue only retries what is transient (rate limits, a budget waiting for
  * its window), by rescheduling without spending an attempt.
  */
-import { doWith, type Doer, type DoerTaskOptions } from '@ayepi/core/doer';
-import { rateLimitedDoer, type RateLimitStore } from '@ayepi/rate';
+import { doWith, type Doer } from '@ayepi/core/doer';
+import { rateLimitedDoer, type RateLimitedDoer, type RateLimitStore } from '@ayepi/rate';
 import { createWork, defineWork, priorityDoer, unlimitedDoer, WorkDelayError, type PubSub, type Queue, type Store } from '@ayepi/work';
 import type { LlmJob, Priority, RunJob, SystemName } from '@harness/core';
 import { BudgetRefused, causeOf, LlmRateLimited } from './errors.ts';
@@ -44,34 +44,34 @@ export function transientDelay(error: unknown): number | undefined {
   return causeOf(error, BudgetRefused)?.wait;
 }
 
+/** What the LLM doer is sized by. */
+export interface LlmDoerOptions {
+  /** Calls running at once. */
+  readonly max: number;
+  /** Call starts allowed per `window`, across all models. */
+  readonly limit: number;
+  readonly window: number;
+  /** Where the rate is counted (the hub's SQLite rate store in production). */
+  readonly store?: RateLimitStore | undefined;
+  readonly now?: () => number;
+}
+
 /**
- * The LLM doer: a priority doer (at most `max` calls at once, the most urgent picked first, then the oldest) in front
- * of the global rate cap. The rate doer admits oldest first, so it sits behind the priority pick: only calls already
- * chosen by priority wait on the rate, and urgent work never queues behind a backlog of background calls. A call
- * holds its slot while it waits on the rate, so at most `max` picked calls are ever passed by a more urgent one.
+ * The LLM doer: a rate cap on call starts that admits waiting calls most urgent first, then oldest, into `max` call
+ * slots. The slots take no buffer, so a call is admitted only into a free slot and an urgent call never waits
+ * behind background calls already handed on.
  */
-export class PriorityRateDoer implements Doer {
-  readonly #pick: Doer;
-  readonly #rate: Doer;
-
-  constructor(pick: Doer, rate: Doer) {
-    this.#pick = pick;
-    this.#rate = rate;
-  }
-
-  available(): number {
-    return this.#pick.available();
-  }
-
-  do(task: () => Promise<void>, opts?: DoerTaskOptions): void {
-    // a doer never rejects: the task's own failure is its driver's, as with the doers this wraps
-    this.#pick.do(() => doWith(this.#rate, task, opts).catch(() => undefined), opts);
-  }
-
-  async done(): Promise<void> {
-    await this.#pick.done();
-    await this.#rate.done();
-  }
+export function llmDoer(options: LlmDoerOptions): RateLimitedDoer {
+  return rateLimitedDoer({
+    limit: options.limit,
+    window: options.window,
+    algorithm: 'sliding-window',
+    prefix: 'llm:all:',
+    order: 'priority',
+    doer: priorityDoer({ max: options.max, buffer: 0 }),
+    ...(options.store === undefined ? {} : { store: options.store }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
 }
 
 /** The two queues and the doers behind them. */
@@ -88,13 +88,12 @@ export class ExecutionQueues {
     this.#deps = deps;
     this.#handlers = handlers;
     const { queue, execution } = deps.settings;
-    this.#llmDoer = new PriorityRateDoer(priorityDoer({ max: queue.HARNESS_LLM_CONCURRENCY }), rateLimitedDoer({
+    this.#llmDoer = llmDoer({
+      max: queue.HARNESS_LLM_CONCURRENCY,
       limit: execution.HARNESS_LLM_RATE_LIMIT,
       window: execution.HARNESS_LLM_RATE_WINDOW,
-      algorithm: 'sliding-window',
-      prefix: 'llm:all:',
-      ...(ports.rate === undefined ? {} : { store: ports.rate }),
-    }));
+      store: ports.rate,
+    });
     this.#runWork = defineWork('run', async (job: RunJob, ctx) => {
       await this.#handlers.run(job, ctx.signal);
       return ctx.void();

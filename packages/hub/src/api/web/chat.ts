@@ -4,12 +4,13 @@
  * work to the chat and execution modules.
  */
 import { plugin } from '@ayepi/plugin';
-import { compact, qualify, type ChatCapabilities, type SessionId, type SystemName, type UserView } from '@harness/core';
+import { chatSlice, compact, qualify, type ChatCapabilities, type SessionId, type SystemName, type UserView } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
+import { HUB_SYSTEM } from '../../catalog/availability.ts';
+import { AGENT_KIND } from '../../execution/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { CLIENTS_PATH } from '../serve.ts';
 import { userInfo, visibleSession, type FullHandlers } from './access.ts';
-import { chatSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
 /** Whether a session lets a system's contributions in. */
@@ -32,16 +33,22 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   ]);
   // a type's methods run on a value, from its mention's hover card, so they aren't offered as free `!` fns
   const methods = new Set(types.flatMap((t) => t.decl.methods.map((method) => `${t.name}.${method}`)));
+  const byName = new Map(fns.map((f) => [f.name, f]));
+  /** Whether a person may run a fn by hand: its system is usable here and its visibility lets people see it. */
+  const byHand = (f: (typeof fns)[number]): boolean => usable.has(f.system) && f.decl.visibility !== 'llm' && f.decl.visibility !== 'none';
   return {
     voiceInput: false,
     voiceOutput: false,
     uploads: true,
-    mentions: mentions.filter((m) => usable.has(m.system)).map((m) => ({ provider: m.name, title: m.decl.title })),
+    mentions: mentions.filter((m) => usable.has(m.system)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
     commands: contexts.filter((c) => usable.has(c.system)).flatMap((c) => (c.decl.command === undefined ? [] : [{
       name: c.decl.command.name, context: c.name, args: c.decl.command.args, description: c.decl.description,
     }])),
-    invocations: fns.filter((f) => usable.has(f.system) && !methods.has(f.name) && f.decl.visibility !== 'llm' && f.decl.visibility !== 'none').map((f) => ({
-      fn: f.name, description: f.decl.description, args: f.decl.args,
+    agents: fns.filter((f) => (f.system === HUB_SYSTEM || usable.has(f.system)) && f.decl.kind === AGENT_KIND).map((f) => ({ fn: f.name, description: f.decl.description })),
+    invocations: fns.filter((f) => byHand(f) && !methods.has(f.name)).map((f) => ({ fn: f.name, description: f.decl.description, args: f.decl.args })),
+    methods: types.flatMap((t) => t.decl.methods.flatMap((method) => {
+      const f = byName.get(qualify(t.system, `${t.decl.name}.${method}`));
+      return f === undefined || !byHand(f) ? [] : [{ type: t.name, method, fn: f.name, description: f.decl.description, args: f.decl.args }];
     })),
     clients: manifests.flatMap(({ system, manifest }) => (manifest?.client === undefined ? [] : [{
       system, url: clientUrl(system, manifest.client.hash, manifest.client.entry), hash: manifest.client.hash,
@@ -74,6 +81,10 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
       updateSession: async ({ data: { session, ...patch }, user }) => {
         await visibleSession(hub, session, user);
         return chat.sessions.update(session, compact(patch), user.id);
+      },
+      deleteSession: async ({ data, user }) => {
+        await visibleSession(hub, data.session, user);
+        return { deleted: await chat.sessions.delete(data.session, user.id) };
       },
       limits: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);

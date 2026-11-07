@@ -97,7 +97,10 @@ export function buildSystems(options: SystemsOptions) {
   });
 
   const embedders = new SystemEmbedders({ catalog, links: connections, bus, log, document, query, batch: settings.model.HARNESS_EMBED_BATCH });
-  const batcher = new EmbedBatcher({ embedders, size: settings.model.HARNESS_EMBED_BATCH, wait: settings.index.HARNESS_EMBED_WAIT, poll: settings.index.HARNESS_EMBED_POLL });
+  const batcher = new EmbedBatcher({
+    embedders, log, size: settings.model.HARNESS_EMBED_BATCH, wait: settings.index.HARNESS_EMBED_WAIT, poll: settings.index.HARNESS_EMBED_POLL,
+    concurrency: { interactive: settings.index.HARNESS_EMBED_INTERACTIVE, background: settings.index.HARNESS_EMBED_BACKGROUND },
+  });
   const sectioning = new Sectioning({ store, catalog, router: resources });
   const indexer = new StoreIndexer({ store, bus, log, clock, catalog, embedders, batcher, router: resources, sectioning, document, maxText: settings.index.HARNESS_INDEX_MAX_TEXT, maxCrawl: settings.index.HARNESS_INDEX_CRAWL_MAX });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, settings.search);

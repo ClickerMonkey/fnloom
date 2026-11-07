@@ -138,7 +138,7 @@ export class StoreCatalog implements Catalog {
     return this.#types.get(name);
   }
 
-  async typeClosure(names: readonly QualifiedName[]): Promise<{ order: QualifiedName[]; missing: string[] }> {
+  async typeClosure(names: readonly QualifiedName[]): Promise<{ order: QualifiedName[]; missing: QualifiedName[] }> {
     await this.#load();
     const closure = this.#scopes.closure(names, this.#storedLookup);
     return { order: closure.order.filter((name) => this.#types.has(name)).map((name) => this.#typeName(name)), missing: closure.missing };

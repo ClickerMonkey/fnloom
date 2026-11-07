@@ -160,6 +160,20 @@ describe('SystemStore', () => {
     expect(admin.system.fns.value.value).toHaveLength(2);
     expect(systemView({ installed: installed() }).installed?.status).toBe('running');
   });
+
+  it('updates a fn’s numbers live as its runs settle, ignoring other systems’ fns', async () => {
+    const { admin, user } = fakeAdmin();
+    await admin.system.open(fs);
+    await admin.system.loadFns();
+    const [first] = admin.system.fns.value.value ?? [];
+    if (first === undefined) { throw new Error('no fns'); }
+    const stats = { runs: 3, failures: 1, averageCost: 0.01, averageTime: 120, lastRunAt: 5 };
+    user.push({ type: 'fn', fn: first.name, system: fs, stats });
+    expect(admin.system.fns.value.value?.find((f) => f.name === first.name)?.stats).toEqual(stats);
+    const before = admin.system.fns.value.value;
+    user.push({ type: 'fn', fn: first.name, system: SystemName.parse('other'), stats: { ...stats, runs: 9 } });
+    expect(admin.system.fns.value.value).toBe(before);
+  });
 });
 
 describe('ModelsStore, LimitsStore, PoliciesStore and ActorSettingsStore', () => {

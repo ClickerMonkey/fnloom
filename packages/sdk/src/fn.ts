@@ -3,7 +3,7 @@
  * declaration (its ref, its run context, its outcome helpers and its renderer's props), so they can't disagree.
  */
 import type {
-  Audience, Display, FnError, FnLimits, Json, Operations, ProgressDecl, StatusTemplates, StepStatus, Usd,
+  Audience, Display, FnError, FnLimits, Json, Operations, ProgressDecl, ProgressWire, StatusTemplates, StepStatus, Usd,
 } from '@harness/core';
 import { json, type GinType } from './gin.ts';
 import type { AnyFnRef, AnyKindRef, KindRef } from './refs.ts';
@@ -75,10 +75,15 @@ export type ProgressReporter<P extends ProgressDef> =
   P extends StepsProgress<infer S> ? { step(name: keyof S & string, status: StepStatus, detail?: string): void } :
   { readonly type: 'none' };
 
-/** Progress as the UI sees it, shaped the same way. */
+/** Linear progress on the wire. */
+type LinearWire = Extract<ProgressWire, { fraction: number }>;
+/** One step's progress on the wire. */
+type StepWire = Extract<ProgressWire, { steps: unknown }>['steps'][string];
+
+/** Progress as the UI sees it, shaped the same way: core's `ProgressWire`, with the fn's own step names. */
 export type ProgressState<P extends ProgressDef> =
-  P extends LinearProgress ? { fraction: number; message?: string } :
-  P extends StepsProgress<infer S> ? { steps: { [K in keyof S]: { status: StepStatus; detail?: string } } } :
+  P extends LinearProgress ? LinearWire :
+  P extends StepsProgress<infer S> ? { steps: { [K in keyof S]: StepWire } } :
   undefined;
 
 // ─── What the type system knows about a fn ───────────────────────────────────

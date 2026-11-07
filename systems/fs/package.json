@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "description": "The fs system: files and a shell over chosen folders, served as resources. Can restart itself.",
+  "harness": {
+    "name": "fs",
+    "main": "server/main.ts"
+  },
   "scripts": {
     "preview:shots": "tsx client/preview/shots.ts"
   },

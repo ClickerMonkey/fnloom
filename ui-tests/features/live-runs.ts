@@ -24,12 +24,19 @@ export default feature({
     await field.type(SLOW);
     await page.click(tid('gin-submit'));
 
-    // a command outside the safe list asks the person first; the card waits, then runs once they say yes
+    // a command outside the safe list asks the person first, as a yes-or-no card with explicit buttons; the run card
+    // says it waits on them (not that it is running), then runs once they say yes
     await find(page, 'handler-card', 30_000);
     await show(page, tid('handler-card'));
+    check(await page.$eval(tid('handler-card'), (el) => el.getAttribute('data-kind')) === 'confirm', 'the shell confirm is a yes-or-no card');
+    const yes = await page.$eval(tid('handler-yes'), (el) => el.textContent.trim());
+    check(yes === 'Run', `the yes button says what it does (saw "${yes}")`);
+    check(await page.$(tid('handler-no')) !== null, 'the card can be cancelled');
+    await page.waitForSelector('[data-testid="run-card"][data-status="waiting"]', { timeout: 10_000 });
+    const waiting = await page.$eval('[data-testid="run-card"][data-status="waiting"]', (el) => el.textContent);
+    check(waiting.includes('Waiting for your answer'), 'the run card says it waits for the person');
     await ctx.shot('asking');
-    await page.click(`${tid('handler-card')} [role="switch"]`);
-    await page.click(`${tid('handler-card')} ${tid('gin-submit')}`);
+    await page.click(tid('handler-yes'));
     await page.waitForSelector('[data-testid="run-card"][data-status="running"]', { timeout: 30_000 });
     // the card shows the command's latest line as it prints
     await page.waitForFunction(() => {

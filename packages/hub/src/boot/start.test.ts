@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { client, wsTransport } from '@ayepi/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hubWebSpec, type HubWebSpec, type UserEvent } from '@harness/core';
-import { fakeModules, quietLog, recordingPush, testSettings } from '../api/testing/rig.ts';
+import { fakeModules, recordingPush, testSettings } from '../api/testing/rig.ts';
+import { memoryLog } from '../testing.ts';
 import type { HubSettings } from './env.ts';
 import type { RunningHub } from './index.ts';
 import { ensureHubActor, startHub } from './start.ts';
@@ -34,7 +35,7 @@ function settingsFor(data: string): HubSettings {
 
 beforeAll(async () => {
   hub = await startHub({
-    settings: settingsFor(dir), port: 0, log: quietLog().log, pushSender: recordingPush(),
+    settings: settingsFor(dir), port: 0, log: memoryLog().log, pushSender: recordingPush(),
     keyMaker: { secret: () => `secret-${Math.random().toString(36).padEnd(40, '0')}`, vapid: () => ({ publicKey: 'pub', privateKey: 'priv' }) },
     modules: fakeModules({
       catalog: { manifest: () => Promise.resolve(undefined) },
@@ -123,7 +124,7 @@ describe('stopping', () => {
   it('stops installed systems, tells links, then closes the port', async () => {
     const order: string[] = [];
     const second = await startHub({
-      settings: settingsFor(mkdtempSync(join(dir, 'second-'))), port: 0, log: quietLog().log, pushSender: recordingPush(),
+      settings: settingsFor(mkdtempSync(join(dir, 'second-'))), port: 0, log: memoryLog().log, pushSender: recordingPush(),
       keyMaker: { secret: () => 'x'.repeat(40), vapid: () => ({ publicKey: 'pub', privateKey: 'priv' }) },
       modules: fakeModules({
         catalog: { manifest: () => Promise.resolve(undefined) },

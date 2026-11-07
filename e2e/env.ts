@@ -10,6 +10,8 @@ export const e2eEnv = env({
   HARNESS_E2E_URL: z.string().optional(),
   HARNESS_E2E_PORT: z.number().int().min(4301).max(65535).default(4330),
   HARNESS_E2E_DATA: z.string().default('.harness/e2e'),
+  /** The port of the hub the restart test starts for itself, which installs and supervises fs. */
+  HARNESS_E2E_RESTART_PORT: z.number().int().min(4301).max(65535).default(4331),
   HARNESS_E2E_EMAIL: z.email().default('e2e@harness.local'),
   HARNESS_E2E_PASSWORD: z.string().min(10).default('e2e-admin-password'),
   /** How long one agent turn may take with a free model. */

@@ -6,10 +6,9 @@
  * leaves drawing to the components. Panels (a run, the tree, an LLM call) open through the URL, by emitting.
  */
 import {
-  QualifiedName, ResourceUri, splitName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
+  ResourceUri, splitName, type QualifiedName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
   type RunId, type SessionId, type TurnId,
 } from '@harness/core';
-import { json } from '@harness/sdk';
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useStores } from '../../state/stores.ts';
@@ -35,11 +34,11 @@ import UserMessage from '../components/UserMessage.vue';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import { isTouch } from '../dom.ts';
 import { FORM_INPUTS } from '../forms/inputs.ts';
-import { mentionToken, placeholderFor, type DraftMention } from '../logic/composer.ts';
+import { mentionToken, methodArgs, methodsOf, placeholderFor, type DraftMention, type MethodOffer } from '../logic/composer.ts';
 import { clamp } from '../logic/format.ts';
 import { agentName, fnLabel, humanize, localName } from '../logic/labels.ts';
-import { runError, runResult, STATUS_LINE, statusLine, type RunView } from '../logic/runs.ts';
-import { budgetMeter, messageSuggestions, whoAnswers, type SuggestionItem } from '../logic/session.ts';
+import { STATUS_LINE, statusLine, type RunView } from '../logic/runs.ts';
+import { agentOptions, budgetMeter, messageSuggestions, modelLabel, whoAnswers, type SuggestionItem } from '../logic/session.ts';
 import { messageText, threadItems, type MentionPart } from '../logic/thread.ts';
 import { sendDraft } from '../state/send.ts';
 import type { ChatPanel } from '../url.ts';
@@ -55,7 +54,7 @@ const props = withDefaults(defineProps<{
 }>(), { narrow: false, nav: false, flash: undefined });
 const emit = defineEmits<{
   run: [id: RunId]; llm: [id: LlmInteractionId]; details: [turn: TurnId]; tree: [turn: TurnId]; resource: [uri: ResourceUri];
-  panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: [];
+  panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: []; remove: [];
 }>();
 
 const { chat, toasts, session: auth } = useStores();
@@ -89,49 +88,23 @@ function nameOf(actor: string): string {
 
 function runsOfTurn(turn: TurnId): RunView[] {
   const listed = new Set(thread.messages.value.filter((m) => m.turn === turn).flatMap((m) => m.runs));
-  return [...thread.runs.value.values()].filter((run) => run.turn === turn || listed.has(run.id));
+  return [...thread.runs.value.values()].filter((run) => run.turn === turn || listed.has(run.id)).map((run) => thread.shown(run));
 }
 
 const liveTurn = computed(() => (thread.running.value ? (thread.awaiting.value ?? thread.lastTurn.value) : undefined));
 const liveLine = computed(() => (liveTurn.value === undefined ? undefined : statusLine(runsOfTurn(liveTurn.value), now.value, STATUS_LINE, record.value?.agent)));
 const hasAnswer = computed(() => liveTurn.value !== undefined && thread.messages.value.some((m) => m.turn === liveTurn.value && m.role === 'assistant'));
 
-/** A system's session state fields, by name (the thread keys them `system/name`). */
-function stateOf(system: string): Record<string, Json> {
-  const out: Record<string, Json> = {};
-  const prefix = `${system}/`;
-  for (const [key, value] of thread.state.value) {
-    if (key.startsWith(prefix)) { out[key.slice(prefix.length)] = value; }
-  }
-  return out;
+/** A run's renderer, with the session state fields its fn declared (the first draw loads them). */
+function viewOf(run: RunView): RenderView<'fn'> | undefined {
+  return chat.renderers.fnView(run, thread.stateOf(run.id));
 }
 
-function viewOf(run: RunView): RenderView | undefined {
-  // a run known only from live status events has no args yet; its renderer draws once its record has arrived
-  if (run.args === undefined) { return undefined; }
-  const kind = run.kind === undefined || run.kind === 'native' ? undefined : run.kind;
-  const component = chat.renderers.fn(run.fn, kind);
-  if (component === undefined) { return undefined; }
-  const system = splitName(run.fn).system;
-  return {
-    component,
-    props: {
-      run: run.id, status: run.status, args: run.args, result: runResult(run), error: runError(run), progress: run.progress,
-      state: stateOf(system), submit: (value: Json) => chat.renderers.runtime.submit(run.id, json(), value), system: chat.renderers.runtime.systemClient(system, run.id),
-    },
-  };
+function attachmentView(part: Extract<MessagePart, { type: 'attachment' }>): RenderView<'attachment'> | undefined {
+  return chat.renderers.attachmentView(part);
 }
 
-function attachmentView(part: Extract<MessagePart, { type: 'attachment' }>): RenderView | undefined {
-  const component = chat.renderers.attachment(part.attachment);
-  return component === undefined ? undefined : { component, props: { data: part.data, title: part.title, system: chat.renderers.runtime.systemClient(splitName(part.attachment).system) } };
-}
-
-provide(FORM_INPUTS, (type) => {
-  const name = QualifiedName.safeParse(type);
-  const component = name.success ? chat.renderers.input(name.data) : undefined;
-  return component === undefined || !name.success ? undefined : { component, props: { system: chat.renderers.runtime.systemClient(splitName(name.data).system) } };
-});
+provide(FORM_INPUTS, (type) => chat.renderers.inputView(type));
 
 // ── messages ──────────────────────────────────────────────────────────────────
 
@@ -203,12 +176,28 @@ const hoverAnchor = ref<HTMLElement | null>(null);
 const hoverOpen = ref(false);
 let hoverTimer: ReturnType<typeof setTimeout> | undefined;
 const card = computed(() => (hovered.value === undefined ? undefined : chat.mentions.card(hovered.value.provider, hovered.value.target)));
-const customCard = computed<RenderView | undefined>(() => {
-  const part = hovered.value;
-  const component = part === undefined ? undefined : chat.renderers.mention(part.provider);
-  if (part === undefined || component === undefined) { return undefined; }
-  return { component, props: { label: part.label, target: part.target, hover: card.value?.hover, system: chat.renderers.runtime.systemClient(splitName(part.provider).system) } };
+const customCard = computed(() => (hovered.value === undefined ? undefined : chat.renderers.mentionView(hovered.value, card.value?.hover)));
+
+/** The methods the hovered thing's type offers people. */
+const hoverMethods = computed(() => {
+  const provider = hovered.value?.provider;
+  const of = caps.value.value?.mentions.find((m) => m.provider === provider)?.of;
+  return methodsOf(caps.value.value?.methods ?? [], of);
 });
+
+/** Run a type method on the hovered thing: at once when it takes nothing else, else through its form. */
+async function runMethod(method: MethodOffer): Promise<void> {
+  const self = card.value?.hover?.value;
+  if (self === undefined) { return; }
+  hoverOpen.value = false;
+  if (method.own !== undefined) {
+    composer.openInvocation({ fn: method.fn, description: method.description, args: method.own }, self);
+    return;
+  }
+  const run = await thread.invoke(method.fn, methodArgs({}, self));
+  if (run === undefined) { toasts.error(`Couldn't ${method.label.toLowerCase()}`, thread.problem.value); return; }
+  scroller.value?.toBottom();
+}
 
 function showCard(part: MentionPart, anchor: HTMLElement): void {
   clearTimeout(hoverTimer);
@@ -326,7 +315,7 @@ async function stop(action: 'pause' | 'cancel'): Promise<void> {
 async function invoke(args: Json): Promise<void> {
   const invocation = composer.invoking.value;
   if (invocation === undefined) { return; }
-  const run = await thread.invoke(invocation.fn, args);
+  const run = await thread.invoke(invocation.fn, composer.invocationArgs(args));
   if (run === undefined) { toasts.error(`Couldn't run ${fnLabel(invocation.fn)}`, thread.problem.value); return; }
   composer.closeInvocation();
   scroller.value?.toBottom();
@@ -373,8 +362,16 @@ function header(action: HeaderAction): void {
     case 'people': emit('panel', 'people'); return;
     case 'shortcuts': emit('shortcuts'); return;
     case 'archive': void archive(); return;
+    case 'delete': emit('remove'); return;
     case 'rename': return;
   }
+}
+
+/** The agents the meta row's menu offers, the current one first. */
+const agents = computed(() => agentOptions(caps.value.value?.agents ?? [], record.value?.agent));
+
+async function switchAgent(fn: QualifiedName): Promise<void> {
+  if (await thread.update({ agent: fn })) { toasts.ok(`${agentName(fn)} answers from now on`); } else { toasts.error("Couldn't switch agents", thread.problem.value); }
 }
 
 async function rename(title: string): Promise<void> {
@@ -452,7 +449,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
           :suggestions="messageSuggestions(item.message, record)" :actions="userActions(item.mine)" :quote="quoteOf(item.message)" :flash="flash === item.message.id"
           :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
           @action="act($event, [item.message])" @quote="quote(item.message)" @mention-hover="showCard" @mention-leave="hideCard" @mention-open="showCard"
-          @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
+          @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)" @background="thread.toBackground($event)"
         />
         <AssistantAnswer
           v-else-if="item.kind === 'answer'" :messages="item.messages" :author-name="nameOf(item.author)" :now="now" :streaming="item.streaming" :failed="item.failed"
@@ -496,8 +493,8 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
           @focus="(focused) => thread.reportPresence({ typing: focused && composer.text.value !== '' })"
         />
         <ComposerMeta
-          :agent="agent" :systems="systems" :background="thread.background.value.length" :spent="thread.spent.value" :meter="meter" :compact="compact || narrow"
-          @settings="emit('panel', 'settings')" @background="thread.background.value[0] && emit('run', thread.background.value[0].id)"
+          :agent="agent" :agents="agents" :model="modelLabel(record?.model, caps.value.value?.models ?? [])" :systems="systems" :background="thread.background.value.length" :spent="thread.spent.value" :meter="meter" :compact="compact || narrow"
+          @settings="emit('panel', 'settings')" @agent="switchAgent" @background="thread.background.value[0] && emit('run', thread.background.value[0].id)"
         />
       </div>
     </div>
@@ -512,7 +509,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       <div @mouseenter="keepCard" @mouseleave="hideCard">
         <HoverCard
           v-if="hovered && card" :label="hovered.label" :hover="card.hover" :loading="card.loading" :problem="card.problem" :custom="customCard"
-          @open="card.hover?.open && openLink(card.hover.open)"
+          :methods="hoverMethods" @open="card.hover?.open && openLink(card.hover.open)" @method="runMethod"
         />
       </div>
     </UiPopover>

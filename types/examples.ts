@@ -174,7 +174,7 @@ void serve(fs, {
   lifecycle: {
     async started(ctx) { ctx.log.info('fs.started', { roots: ctx.config.roots.length }); },
     // someone changed the config: react if it matters (here, watch the new set of folders)
-    async configured(ctx) { ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous.roots.length }); },
+    async configured(ctx) { ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous?.roots.length ?? 0 }); },
     async stopping(ctx) { ctx.log.info('fs.stopping', { reason: ctx.reason }); },
   },
 }, { hub: 'ws://localhost:4100', state: '.system' });

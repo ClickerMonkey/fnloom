@@ -10,9 +10,10 @@
  * - `status`: what a run says it is doing (status templates and their resolution).
  * - `resources`: resources, sections, content refs, links.
  * - `llm`: LLM requests and chunks on the wire.
- * - `manifest`: a system's contract as JSON, hooks, mentions, events.
+ * - `manifest`: a system's contract as JSON, hooks and mentions.
  * - `link`: the system link specs (`hubLinkSpec`, `systemLinkSpec`).
  * - `records/*`: what the hub stores, and `HUB_TABLES`.
+ * - `system-events`: the hub events systems subscribe to.
  * - `web`: the web API spec (`hubWebSpec`) and its events.
  */
 export * from './primitives.ts';
@@ -33,5 +34,6 @@ export * from './records/runs.ts';
 export * from './records/chat.ts';
 export * from './records/content.ts';
 export * from './records/tables.ts';
+export * from './system-events.ts';
 export * from './admin.ts';
 export * from './web.ts';

@@ -186,17 +186,6 @@ export function createFsImpl(deps: FsDeps): FsServer {
         },
       },
     },
-    actions: {
-      rerun: async (input, ctx) => {
-        const state = await ctx.state.get();
-        // the person pressed "run again" on a command they saw run, so that is the confirmation
-        const run = await commands.run({ command: input.command, cwd: undefined, timeout: undefined }, {
-          guard: guard(ctx.config), policy: await ctx.setting(fs.settings.shell), sessionCwd: state.cwd, signal: ctx.signal, confirm: () => Promise.resolve(true),
-        });
-        ctx.log.info('fs.rerun.ran', { cwd: run.cwd, exitCode: run.exitCode, ended: run.ended });
-        return outputOf(run);
-      },
-    },
     context: {
       tree: async (args, ctx) => {
         const g = guard(ctx.config);
@@ -236,7 +225,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
       configured: (ctx) => {
         current = ctx.config;
         index.clear();
-        ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous.roots.length });
+        ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous?.roots.length ?? 0 });
         return Promise.resolve();
       },
       stopping: (ctx) => {

@@ -5,7 +5,7 @@
 import type {
   ActorId, AllowedOperations, ContentRef, DeliveryId, ErrorClass, FnError, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
-  Duration, TypeRecord, UserInfo,
+  Duration, TypeDefinitions, UserInfo,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -48,7 +48,7 @@ export interface Types {
    * The definitions of these named types and of every named type they reference, dependencies first, with the names
    * the hub doesn't know. Parse them with gin to read or check values of another system's types.
    */
-  definitions(names: readonly QualifiedName[]): Promise<{ types: TypeRecord[]; missing: string[] }>;
+  definitions(names: readonly QualifiedName[]): Promise<TypeDefinitions>;
 }
 
 /** Structured logging: a stable dotted key, then fields. */

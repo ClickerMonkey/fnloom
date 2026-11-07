@@ -168,6 +168,37 @@ export function createHubAi(input: HubAiInput) {
 /** The hub AI's type. */
 export type HubAi = ReturnType<typeof createHubAi>;
 
+/**
+ * The hub AI behind a switch: callers keep this one engine while `use` swaps in an AI built with new providers (an
+ * admin configured one). Calls already streaming finish on the AI they started on.
+ */
+export class SwitchingLlm implements LlmEngine {
+  #current: LlmEngine;
+  readonly #make: (providers: Providers) => LlmEngine;
+
+  constructor(make: (providers: Providers) => LlmEngine, providers: Providers) {
+    this.#make = make;
+    this.#current = make(providers);
+  }
+
+  get streamer(): Streamer<HubCallContext, HubCallMetadata> {
+    return this.#current.streamer;
+  }
+
+  embed(texts: readonly string[], scope?: LlmCallScope): Promise<{ vectors: number[][]; cost: Usd }> {
+    return this.#current.embed(texts, scope);
+  }
+
+  models(): ModelView[] {
+    return this.#current.models();
+  }
+
+  /** Build the AI again with these providers. */
+  use(providers: Providers): void {
+    this.#current = this.#make(providers);
+  }
+}
+
 /** The hub AI as the agent loop and gateway use it. */
 export class AeyeLlm implements LlmEngine {
   readonly #ai: HubAi;
@@ -185,8 +216,15 @@ export class AeyeLlm implements LlmEngine {
     return { vectors, cost: (scope?.cost ?? before) - before };
   }
 
+  /**
+   * The models of the providers this AI was built with, each once (the model list also knows models of providers it
+   * lacks, and can hold a model both from the given list and from its provider).
+   */
   models(): ModelView[] {
-    return this.#ai.models.list().map((model): ModelView => {
+    const providers = new Set(Object.keys(this.#ai.providers));
+    const seen = new Set<string>();
+    const fresh = (key: string): boolean => !seen.has(key) && seen.add(key).has(key);
+    return this.#ai.models.list().filter((model) => providers.has(model.provider) && fresh(`${model.provider}/${model.id}`)).map((model): ModelView => {
       const text = model.pricing.text;
       return {
         id: model.id, provider: model.provider, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities],

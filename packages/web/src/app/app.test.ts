@@ -1,4 +1,4 @@
-import { NotificationLink, SessionId } from '@harness/core';
+import { LlmInteractionId, MessageId, NotificationLink, RunId, SessionId } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -11,7 +11,8 @@ import App from './App.vue';
 import { navEntries } from './nav.ts';
 import { createAppRouter } from './router.ts';
 import { links, notificationTarget, ROUTES, safeNext } from './routes.ts';
-import { useParamChoice, useQueryChoice } from './url.ts';
+import { useChatUrl } from '../chat/url.ts';
+import { useParamChoice, useQueryChoice, useQueryDraft, useQueryText } from './url.ts';
 import { resyncOnReconnect } from './wire.ts';
 import { DesignSection } from './routes.ts';
 
@@ -134,27 +135,116 @@ describe('nav', () => {
 });
 
 describe('url state', () => {
-  it('reads and writes a query choice and a param choice through their schemas', async () => {
+  /** Mount a probe that runs `setup` inside a component on a router at `path`. */
+  async function probe<T>(path: string, setup: () => T): Promise<{ router: Router; got: T }> {
     const fakes = fakeStores({ signedIn: true });
     const router = createAppRouter(fakes.stores.session, createMemoryHistory());
-    await router.push('/design/overlays?filter=bogus');
-    let filter: ReturnType<typeof useQueryChoice<typeof InboxFilter>> | undefined;
-    let section: ReturnType<typeof useParamChoice<typeof DesignSection>> | undefined;
-    const Probe = defineComponent({ setup() { filter = useQueryChoice('filter', InboxFilter, 'all'); section = useParamChoice('section', DesignSection, 'actions'); return () => h('div'); } });
-    mount(Probe, { global: { plugins: [router] } });
-    expect(filter?.value).toBe('all');
-    expect(section?.value).toBe('overlays');
-    if (filter) { filter.value = 'unread'; }
+    await router.push(path);
+    let got: T | undefined;
+    mount(defineComponent({ setup() { got = setup(); return () => h('div'); } }), { global: { plugins: [router] } });
+    if (got === undefined) { throw new Error('the probe did not run'); }
+    return { router, got };
+  }
+
+  it('reads and writes a query choice and a param choice through their schemas', async () => {
+    const { router, got } = await probe('/design/overlays?filter=bogus', () => ({ filter: useQueryChoice('filter', InboxFilter, 'all'), section: useParamChoice('section', DesignSection, 'actions') }));
+    expect(got.filter.value).toBe('all');
+    expect(got.section.value).toBe('overlays');
+    got.filter.value = 'unread';
     await flushPromises();
     expect(router.currentRoute.value.query['filter']).toBe('unread');
-    if (filter) { filter.value = 'all'; }
+    got.filter.value = 'all';
     await flushPromises();
     expect(router.currentRoute.value.query['filter']).toBeUndefined();
-    if (section) { section.value = 'content'; }
+    got.section.value = 'content';
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/design/content');
   });
+
+  it('writes free text to the query, replacing the entry (or pushing one), and leaves empty text out', async () => {
+    const { router, got } = await probe('/admin/runs?status=failed#top', () => ({ q: useQueryText('q'), open: useQueryText('run', { push: true }) }));
+    got.q.value = 'bash';
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual({ status: 'failed', q: 'bash' });
+    expect(router.currentRoute.value.hash).toBe('#top');
+    got.q.value = '';
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual({ status: 'failed' });
+    got.open.value = 'run_1';
+    await flushPromises();
+    expect(got.open.value).toBe('run_1');
+    router.back();
+    await flushPromises();
+    expect(router.currentRoute.value.query['run']).toBeUndefined();
+  });
+
+  it('follows a typed draft into the URL once typing pauses, and the URL back into the draft', async () => {
+    vi.useFakeTimers();
+    try {
+      const { router, got } = await probe('/admin/resources?q=old', () => useQueryDraft('q', 300));
+      expect(got.draft.value).toBe('old');
+      got.draft.value = 'ne';
+      await flushPromises();
+      got.draft.value = ' new ';
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(299);
+      expect(router.currentRoute.value.query['q']).toBe('old');
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises();
+      expect(router.currentRoute.value.query['q']).toBe('new');
+      expect(got.value.value).toBe('new');
+      await router.replace({ query: { q: 'from a link' } });
+      await flushPromises();
+      expect(got.draft.value).toBe('from a link');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the chat list's search and view in the URL, and points it at a message", async () => {
+    const session = SessionId.parse('ses_1');
+    const { router, got } = await probe(`/chat/${session}?run=run_1`, () => useChatUrl());
+    got.setList({ search: '  deploy  ', archived: true });
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual({ run: 'run_1', q: 'deploy', chats: 'archived' });
+    expect(got.search.value).toBe('deploy');
+    expect(got.archived.value).toBe(true);
+    got.showMessage(IDS_MESSAGE);
+    await flushPromises();
+    expect(router.currentRoute.value.hash).toBe(`#m-${IDS_MESSAGE}`);
+    expect(got.message.value).toBe(IDS_MESSAGE);
+    got.setList({ search: '', archived: false });
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual({ run: 'run_1' });
+    // moving to another chat keeps the list's part of the query, and drops the panel
+    got.setList({ search: 'x' });
+    await flushPromises();
+    got.go(SessionId.parse('ses_2'));
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe('/chat/ses_2?q=x');
+  });
+
+  it('closes the panel on top, going back when that is where it came from', async () => {
+    const session = SessionId.parse('ses_1');
+    const { router, got } = await probe(`/chat/${session}`, () => useChatUrl());
+    got.open('run', RunId.parse('run_1'));
+    await flushPromises();
+    expect(got.top.value).toBe('run');
+    got.open('llm', LlmInteractionId.parse('llm_1'));
+    await flushPromises();
+    expect(got.top.value).toBe('llm');
+    got.close();
+    await flushPromises();
+    expect(got.top.value).toBe('run');
+    // reached straight from a link: nothing to go back to, so it replaces
+    await router.replace(`/chat/${session}?details=trn_1`);
+    got.close();
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe(`/chat/${session}`);
+  });
 });
+
+const IDS_MESSAGE = MessageId.parse('msg_7');
 
 describe('the shell', () => {
   it('shows the sidebar beside the page on wide screens, and collapses it', async () => {

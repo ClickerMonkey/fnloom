@@ -281,6 +281,25 @@ describe('InboxStore', () => {
     expect(inbox.unread.value).toBe(1);
   });
 
+  it('shows a notification the hub resolved as it is now, and stops counting it', async () => {
+    const api = fakeApi();
+    const events = fakeUserEvents();
+    const inbox = new InboxStore(api.notifications, events.subscribe);
+    inbox.start();
+    await inbox.load();
+    const asking = { ...notification(), reason: 'approval-needed' as const };
+    events.push({ type: 'notification', notification: asking });
+    expect(inbox.unread.value).toBe(1);
+    const resolved = { ...asking, read: true, resolved: 'Approved' };
+    events.push({ type: 'notification', notification: resolved });
+    expect(inbox.items.value).toEqual([resolved]);
+    expect(inbox.unread.value).toBe(0);
+    await inbox.load('unread');
+    events.push({ type: 'notification', notification: asking });
+    events.push({ type: 'notification', notification: resolved });
+    expect(inbox.items.value).toEqual([]);
+  });
+
   it('marks read at once and puts it back if the hub refuses', async () => {
     const api = fakeApi();
     const unread = [notification(), notification()];

@@ -1,29 +1,33 @@
 /**
- * A system as an MCP server, with no extra code. Its native fns the LLM may see become MCP tools
- * (`<system>_<fn>`), served by `@ayepi/mcp` over stdio or Streamable HTTP. `McpFace` is the `McpToolSource`: a
- * tool's input schema is the fn's args as gin's value schema with every field's docs, as JSON schema; fns added or
- * removed at runtime change the list, and clients hear `notifications/tools/list_changed`.
+ * A system as an MCP server, with no extra code, served by `@ayepi/mcp` over stdio or Streamable HTTP:
  *
- * MCP calls run here, as local runs on behalf of the MCP client: args and results are checked as usual, but nothing
+ * - its native fns the LLM may see are MCP tools (`<system>_<fn>`). `McpFace` is the `McpToolSource`: a tool's input
+ *   schema is the fn's args as gin's value schema with every field's docs, as JSON schema; fns added or removed at
+ *   runtime change the list, and clients hear `notifications/tools/list_changed`.
+ * - its resources, when it serves any, are MCP resources (`McpResources`): roots and their children, a URI template
+ *   per root, reads, and subscriptions when it can watch.
+ * - its `/commands` are MCP prompts (`McpPrompts`), filled exactly as the hub fills them.
+ *
+ * Tool calls run here, as local runs on behalf of the MCP client: args and results are checked as usual, but nothing
  * goes through the hub's queue, so a fn whose run calls other fns, the hub's LLM or session state needs the hub link.
  */
 import { createServer, type Server as HttpServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { createRequestListener } from '@ayepi/node';
 import {
-  errorResult, mcpHttp, mcpToolServer, serveStdio, textResult,
+  errorResult, mcpHttp, mcpSourceServer, serveStdio, textResult,
   type McpHttpHandler, type McpServer, type McpTool, type McpToolResult, type McpToolSource,
 } from '@ayepi/mcp';
-import { ActorId, Json, mintId, qualify, type RunRequest } from '@harness/core';
+import { Json, mintId, qualify, type RunRequest } from '@harness/core';
 import { z } from 'zod';
 import type { AnyFnDef } from '../fn.ts';
 import type { McpServe } from './index.ts';
+import { MCP_ACTOR, mcpAsker } from './mcp-caller.ts';
+import { McpPrompts, type ContextTexts } from './mcp-prompts.ts';
+import { McpResources } from './mcp-resources.ts';
 import { ActiveRun, type RunEnvironment } from './run.ts';
 import type { SystemTable } from './table.ts';
 import { messageOf } from './wire.ts';
-
-/** The actor MCP calls run as. */
-const MCP_ACTOR = ActorId.parse('act_mcp');
 
 /** A fn's MCP tool name (MCP tool names allow letters, digits, `_` and `-`). */
 function toolName(local: string): string {
@@ -42,7 +46,7 @@ interface Offered {
   readonly local: string;
 }
 
-/** The system's native fns as MCP tools, and the server and transport that offer them. */
+/** The system's native fns as MCP tools, with its resources and commands beside them, and the server and transport that offer them. */
 export class McpFace implements McpToolSource {
   readonly #table: SystemTable;
   readonly #env: RunEnvironment;
@@ -53,14 +57,21 @@ export class McpFace implements McpToolSource {
   /** The tools for the fns as they were last built, rebuilt when a fn is added, removed or replaced. */
   #offered: { readonly fns: ReadonlyArray<readonly [string, AnyFnDef]>; readonly byTool: ReadonlyMap<string, Offered> } | undefined;
 
-  constructor(table: SystemTable, env: RunEnvironment, version: string, limits: McpLimits) {
+  /** `contexts` fills the system's commands as prompts (the system runtime). */
+  constructor(table: SystemTable, env: RunEnvironment, version: string, limits: McpLimits, contexts: ContextTexts) {
     this.#table = table;
     this.#env = env;
     this.#limits = limits;
-    this.#server = mcpToolServer(this, { serverInfo: { name: table.contract.name, version }, instructions: table.contract.description });
+    const provider = table.impl.resources;
+    const prompts = new McpPrompts(table.contract.defs.context, contexts, () => mcpAsker(env.now()));
+    this.#server = mcpSourceServer({
+      tools: this,
+      ...(provider === undefined ? {} : { resources: McpResources.of(provider, env.content) }),
+      ...(prompts.empty ? {} : { prompts }),
+    }, { serverInfo: { name: table.contract.name, version }, instructions: table.contract.description });
   }
 
-  /** The MCP server (JSON-RPC: `initialize`, `ping`, `tools/list`, `tools/call`). */
+  /** The MCP server (JSON-RPC: `initialize`, `ping`, `tools/*`, and `resources/*` and `prompts/*` when the system has them). */
   get server(): McpServer {
     return this.#server;
   }
@@ -146,13 +157,14 @@ export class McpFace implements McpToolSource {
     const now = this.#env.now();
     const config = this.#env.currentConfig();
     if (config === undefined) { throw new Error('This system has no valid config yet.'); }
+    const { user, time } = mcpAsker(now);
     const request: RunRequest = {
       run: {
         id: mintId('run'),
         fn: qualify(this.#table.contract.name, local),
         turn: mintId('turn'),
-        user: { id: MCP_ACTOR, name: 'MCP client', email: '', role: 'member', groups: [], timeZone: 'UTC', locale: 'en' },
-        time: { now, timeZone: 'UTC', local: new Date(now).toISOString() },
+        user,
+        time,
         system: { name: this.#table.contract.name, instance: 'mcp' },
         caller: MCP_ACTOR,
         attempt: 1,

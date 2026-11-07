@@ -1,8 +1,9 @@
 import { manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ChatMessage, GinTypeDef, Membership, HUB_TABLES, IDS, ID_PREFIXES, Json, MANIFEST_SECTION_NAMES, Manifest, QualifiedName, RunId, SystemName,
-  hubLinkSpec, hubWebSpec, mintId, qualify, splitName, systemLinkSpec,
+  ChatMessage, GinTypeDef, Membership, HUB_TABLES, IDS, ID_PREFIXES, Json, MANIFEST_SECTION_NAMES, Manifest, MessageView, OutgoingPart, QualifiedName, RunId,
+  SystemName, SystemStatus, TypeRecord, adminSlice, authSlice, chatSlice, contentSlice, eventsSlice, findSlice, hubLinkSpec, hubWebSpec, inboxSlice,
+  isHeardSystemStatus, mintId, qualify, runsSlice, settingsSlice, splitName, systemLinkSpec, systemsSlice,
 } from './index.ts';
 
 describe('ids', () => {
@@ -54,6 +55,27 @@ describe('schemas', () => {
     expect(ChatMessage.parse(message).parts).toHaveLength(3);
   });
 
+  it('lets a person send a mention without the text the hub writes for it', () => {
+    const mention = { type: 'mention', provider: 'fs/files', label: 'a.md', target: { path: 'a.md' } };
+    expect(OutgoingPart.parse({ ...mention, text: 'File a.md' })).toEqual(mention);
+    expect(OutgoingPart.safeParse({ type: 'reasoning', text: 'hm' }).success).toBe(false);
+  });
+
+  it('shows systems a message with the fields of the chat message it comes from', () => {
+    expect(Object.keys(MessageView.shape).sort()).toEqual(['author', 'createdAt', 'id', 'replyAll', 'replyTo', 'role', 'session', 'text']);
+    expect(MessageView.shape.role).toBe(ChatMessage.shape.role);
+  });
+
+  it('tells systems only about statuses that change whether a system can be reached', () => {
+    expect(SystemStatus.options.filter(isHeardSystemStatus)).toEqual(['connected', 'disconnected', 'removed']);
+  });
+
+  it('keeps the references of a type record as qualified names', () => {
+    const record = { name: 'shop/Order', system: 'shop', description: '', def: { name: 'obj' }, display: { label: 'Order' }, references: ['shop/Product'], updatedAt: 0 };
+    expect(TypeRecord.safeParse(record).success).toBe(true);
+    expect(TypeRecord.safeParse({ ...record, references: ['Product'] }).success).toBe(false);
+  });
+
   it('lists every manifest section in the manifest', () => {
     const keys = Object.keys(Manifest.shape);
     for (const section of MANIFEST_SECTION_NAMES) { expect(keys).toContain(section); }
@@ -74,6 +96,13 @@ describe('specs', () => {
       expect(new Set(ids).size).toBe(ids.length);
     });
   }
+
+  it('joins the web spec from its slices, every endpoint the same object as in its slice', () => {
+    const slices = [authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice];
+    const fromSlices = slices.flatMap((slice) => Object.entries(slice.endpoints));
+    expect(Object.keys(hubWebSpec.endpoints)).toHaveLength(fromSlices.length);
+    for (const [name, endpoint] of fromSlices) { expect(Object.entries(hubWebSpec.endpoints)).toContainEqual([name, endpoint]); }
+  });
 
   it('gives the web spec its realtime channels', () => {
     expect(Object.keys(manifestFromSpec(hubWebSpec).events).sort()).toEqual(['session', 'systemLog', 'user']);

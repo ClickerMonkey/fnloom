@@ -1,6 +1,6 @@
 import { ActorId, BudgetId, LedgerId, PriorityRuleId, RunId, SessionId, TurnId, type BudgetRule, type PriorityRule, type UserInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryStore } from '../catalog/testing.ts';
+import { testStore } from '../testing.ts';
 import { applicableBudgets, HubLimitResolver, priorityRank, resolveBudgets, resolvePriority } from './limits.ts';
 import { LedgerSpend } from './spend.ts';
 import { testSettings } from './testing.ts';
@@ -92,7 +92,7 @@ describe('budgets', () => {
 
 describe('the resolver', () => {
   it('resolves from stored rules and the spend so far', async () => {
-    const store = new MemoryStore();
+    const store = await testStore();
     const total = budget({ scope: 'user', user: ADA }, { maxCost: 1, period: { window: 3_600_000 } });
     await store.table('budgets').insert(total);
     await store.table('priorityRules').insert(rule({ scope: 'user', user: ADA }, { default: 'normal' }));

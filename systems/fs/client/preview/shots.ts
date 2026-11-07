@@ -2,7 +2,7 @@
  * `npm run preview:shots -w @harness/system-fs`: serve the preview page with Vite, shoot each renderer section at
  * phone, tablet and desktop sizes in light and dark into `client/preview/shots/`, and check the web app's layout rules
  * (no page overflow, no overlapping or off-screen controls). Exits non-zero on any problem. Also clicks "Run again"
- * and opens a diff fold, so those states are shot too.
+ * (shot once it says it started) and opens a diff fold, so those states are shot too.
  */
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,8 @@ const settings = previewEnv.parse();
 const root = fileURLToPath(new URL('.', import.meta.url));
 const shots = fileURLToPath(new URL('./shots/', import.meta.url));
 const SECTIONS = ['bash', 'diff', 'input'] as const;
+/** How long to let an entrance animation finish before a shot. */
+const SETTLE = 500;
 
 await mkdir(shots, { recursive: true });
 const server = await createServer({ root, configFile: false, plugins: [vue()], logLevel: 'warn', server: { host: '0.0.0.0', port: settings.FS_PREVIEW_PORT, strictPort: true } });
@@ -46,6 +48,9 @@ try {
         await shoot('start');
         if (section === 'bash') {
           await page.click('.bash .action.primary');
+          await page.waitForSelector('.bash .note.started');
+          // let the note finish fading in
+          await new Promise((resolve) => setTimeout(resolve, SETTLE));
           await shoot('rerun');
         }
         if (section === 'diff') {

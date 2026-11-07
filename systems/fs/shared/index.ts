@@ -3,7 +3,7 @@
  * so changes to its own code go live. Other systems import this to call its fns with typed refs; its server
  * implements it and its client draws it.
  */
-import { type Infer, type ValueOf, action, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { type Infer, type ValueOf, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
 
 /** A file or folder under one of the roots. */
 export const Entry = type({
@@ -198,15 +198,6 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
     },
     hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
-    actions: {
-      // the bash card's "run again" button
-      rerun: action({
-        description: 'Run a command again from its card.',
-        input: g.obj({ command: g.text() }),
-        returns: CommandResult,
-        state: Shell,
-      }),
-    },
   })
   // mentions, context and the agent use the types and fns declared above
   .with(({ fns, types }) => ({

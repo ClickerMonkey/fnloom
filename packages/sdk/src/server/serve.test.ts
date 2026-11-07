@@ -3,6 +3,9 @@
  * their outcomes, progress, attachments, settings, state, child calls and handlers, pause and resume by call key,
  * cancel, forms, actions, mentions, hooks, context, resources, runtime adds and removes, reconnects, restart and stop.
  */
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
 import { action, attachment, context, embedder, hook, kind, mention, sectioner, sectionKeys, setting, type } from '../declare.ts';
@@ -151,7 +154,7 @@ function impl(overrides: { onPauseCopy?: boolean } = {}): Parameters<typeof serv
     lifecycle: {
       started: async (ctx) => { lifecycle.push(`started:${ctx.config.folder}`); },
       installed: async () => { lifecycle.push('installed'); },
-      configured: async (ctx) => { lifecycle.push(`configured:${ctx.previous.folder}->${ctx.config.folder}`); },
+      configured: async (ctx) => { lifecycle.push(`configured:${ctx.previous?.folder ?? 'none'}->${ctx.config.folder}`); },
       stopping: async (ctx) => { lifecycle.push(`stopping:${ctx.reason}`); },
     },
   };
@@ -220,6 +223,35 @@ describe('connecting', () => {
     await vi.waitFor(() => { expect(system.status).toBe('connected'); });
     expect(hub.manifests).toHaveLength(1);
     expect(hub.hellos).toHaveLength(2);
+  });
+
+  it('uploads its client renderers with its manifest, and not again when the hub already has them', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'harness-client-'));
+    try {
+      const entry = 'export default {};\n';
+      await writeFile(join(folder, 'index.js'), entry);
+      await writeFile(join(folder, 'style.css'), '.a { color: red; }\n');
+      const hub = new FakeHub({ config: { folder: '/n' } });
+      lifecycle.length = 0;
+      running = await serve(notes, impl(), { hub: 'ws://hub.test/link', state: 'unused', version: '1', client: folder }, hub.host());
+      await running.ready();
+      const assets = hub.manifests[0]?.client;
+      expect(assets?.entry).toBe('index.js');
+      expect(assets?.files.map((f) => f.path).sort()).toEqual(['index.js', 'style.css']);
+      // every file reached the hub before the manifest that lists it
+      for (const file of assets?.files ?? []) { expect(hub.content.has(file.hash)).toBe(true); }
+      expect(new TextDecoder().decode(hub.content.get(assets?.files.find((f) => f.path === 'index.js')?.hash ?? ''))).toBe(entry);
+      const stored = hub.content.size;
+      hub.content.clear();
+      hub.drop(5);
+      await hub.whenConnected();
+      await vi.waitFor(() => { expect(running?.status).toBe('connected'); });
+      expect(hub.manifests).toHaveLength(1);
+      expect(hub.content.size).toBe(0);
+      expect(stored).toBeGreaterThanOrEqual(2);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 });
 

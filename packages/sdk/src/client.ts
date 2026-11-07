@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import type { DeliveryId, DeliveryStatus, FnError, MentionHover, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
+import type { DeliveryId, DeliveryStatus, FnError, Json, MentionHover, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -41,8 +41,14 @@ export interface FnView<T extends FnTypes> {
 export interface SystemClient<C extends ContractShape> {
   /** Whether the system is connected now. Actions sent while it is offline wait in the hub. */
   readonly online: boolean;
-  /** Send an action: `system.send.rerun({ command })`. */
+  /** Send an action: `system.send.save({ draft })`. */
   readonly send: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? (input: I) => Delivery<R> : never };
+  /**
+   * Run one of the system's fns in the renderer's session, as a person would with `!fn`: `system.run.bash(args)`. The
+   * args are checked with the fn's gin type. It resolves with the new run's id once the hub has started it; the run
+   * shows in the chat like any other, with its approval, status, cost and undo.
+   */
+  readonly run: { readonly [K in keyof C['fns']]: (args: FnTypesOf<C, K>['args']) => Promise<RunId> };
 }
 
 /** The props every renderer of a system gets besides its view. */
@@ -91,6 +97,20 @@ export type FnViewOf<S extends AnyContract, K extends keyof S['defs']['fns']> = 
 export type AttachmentViewOf<S extends AnyContract, K extends keyof S['defs']['attachments']> = AttachmentView<Infer<S['defs']['attachments'][K]['data']>> & WithSystem<S['defs']>;
 /** The props of the input for one of a contract's types. */
 export type InputViewOf<S extends AnyContract, K extends keyof S['defs']['types']> = InputView<ValueOf<S['defs']['types'][K]>> & WithSystem<S['defs']>;
+
+/**
+ * The views a host (the chat) builds for any system's renderers, with the contract's types erased to JSON. Each is
+ * the typed view above at its widest, so a change to a view changes what every host must pass.
+ */
+export interface AnyViews {
+  /** A fn's renderer. `submit` is undefined for a fn that declares no form, as its typed view says. */
+  fn: Omit<FnView<UntypedFn>, 'submit'> & { submit: FnView<UntypedFn>['submit'] | undefined } & WithSystem<ContractShape>;
+  attachment: AttachmentView<Json> & WithSystem<ContractShape>;
+  /** A custom input's extra props; the form adds the `InputView` ones (`modelValue`, `problems`) as it draws. */
+  input: WithSystem<ContractShape>;
+  mention: MentionView<Json> & WithSystem<ContractShape>;
+  resource: ResourceView & WithSystem<ContractShape>;
+}
 
 /** A system's renderers, typed by its contract. Every renderer also gets `system` to send its system actions. */
 export interface ClientRenderers<C extends ContractShape> {

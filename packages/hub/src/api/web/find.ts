@@ -3,10 +3,9 @@
  * mentions and their hover cards, and reading a resource from the system that serves it.
  */
 import { plugin } from '@ayepi/plugin';
-import { INDEXED_KINDS } from '@harness/core';
+import { findSlice, INDEXED_KINDS } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { visibleSession, type FullHandlers } from './access.ts';
-import { findSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
 /** How many search hits when the browser doesn't say. */

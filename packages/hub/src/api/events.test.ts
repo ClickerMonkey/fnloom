@@ -5,7 +5,7 @@ import {
 import { MemoryEventBus } from '../bus/memory.ts';
 import { BusEventRelay } from './events.ts';
 import type { WebEmit } from './index.ts';
-import { settle } from './testing/rig.ts';
+import { settle } from '../testing.ts';
 
 const session = SessionId.parse('ses_1');
 const fn = QualifiedName.parse('fs/read');

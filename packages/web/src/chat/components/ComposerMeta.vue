@@ -1,31 +1,57 @@
 <script setup lang="ts">
 /**
- * The quiet row under the composer: the agent answering, how many systems the chat uses (and how many are offline),
- * background work, and the cost and budget meter. On a phone it keeps to one line, dropping words before numbers.
+ * The quiet row under the composer: the agent answering (a menu switches it), the model it answers with (opening the
+ * chat's settings to change it), how many systems the chat uses (and how many are offline), background work, and the
+ * cost and budget meter. On a phone it keeps to one line, dropping words before numbers.
  */
-import { UiIcon } from '../../ui/index.ts';
+import type { QualifiedName } from '@harness/core';
+import { computed } from 'vue';
+import { UiIcon, UiMenu, type MenuItem } from '../../ui/index.ts';
 import type { BudgetMeter as Meter } from '../logic/session.ts';
 import BudgetMeter from './BudgetMeter.vue';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   agent: string;
-  /** A switch of agent waiting for the next message. */
-  pendingAgent?: string;
+  /** The agents the chat can switch to, the current one first. */
+  agents?: readonly { readonly fn: QualifiedName; readonly name: string }[];
+  /** The model the agent answers with, in words. */
+  model?: string;
   systems: { readonly total: number; readonly offline: number };
   background: number;
   spent: number;
   meter?: Meter | undefined;
   compact: boolean;
-}>(), { pendingAgent: '', meter: undefined });
+}>(), { agents: () => [], model: '', meter: undefined });
 
-const emit = defineEmits<{ settings: []; background: [] }>();
+const emit = defineEmits<{ settings: []; background: []; agent: [fn: QualifiedName] }>();
+
+/** The agent menu: every agent (the current one checked), then the chat's settings. */
+const agentItems = computed<MenuItem<QualifiedName | 'settings'>[]>(() => [
+  ...props.agents.map((a, at) => ({ value: a.fn, label: a.name, icon: at === 0 ? 'check' as const : 'sparkles' as const })),
+  ...(props.agents.length > 0 ? [{ kind: 'separator' as const }] : []),
+  { value: 'settings', label: 'Chat settings…', icon: 'settings' },
+]);
+
+function chooseAgent(value: QualifiedName | 'settings'): void {
+  if (value === 'settings') { emit('settings'); return; }
+  if (value !== props.agents[0]?.fn) { emit('agent', value); }
+}
 </script>
 
 <template>
   <div class="meta" :class="{ compact }" data-testid="composer-meta">
-    <button type="button" class="item agent" :title="pendingAgent === '' ? agent : `Switching to ${pendingAgent} on your next message`" @click="emit('settings')">
-      <UiIcon name="sparkles" :size="14" />
-      <span class="text">{{ pendingAgent === '' ? agent : `→ ${pendingAgent}` }}</span>
+    <UiMenu :items="agentItems" label="Who answers" side="top" align="start" @select="chooseAgent">
+      <template #trigger="{ toggle, attrs }">
+        <button type="button" class="item agent" :title="`${agent} answers here`" v-bind="attrs" data-testid="agent-picker" @click="toggle">
+          <UiIcon name="sparkles" :size="14" />
+          <span class="text">{{ agent }}</span>
+          <UiIcon name="chevron-down" :size="12" />
+        </button>
+      </template>
+    </UiMenu>
+    <button v-if="model !== '' && !compact" type="button" class="item model" :title="`Answers with ${model}`" data-testid="model-chip" @click="emit('settings')">
+      <UiIcon name="cpu" :size="14" />
+      <span class="text">{{ model }}</span>
     </button>
     <button type="button" class="item" :class="{ warn: systems.offline > 0 }" :title="`${systems.total} systems, ${systems.offline} offline`" @click="emit('settings')">
       <UiIcon name="server" :size="14" />
@@ -49,7 +75,8 @@ const emit = defineEmits<{ settings: []; background: [] }>();
 .item:hover { background: var(--surface-2); color: var(--text-dim); }
 .item:focus-visible { outline: none; box-shadow: var(--ring); }
 .item.warn { color: var(--warn); }
-.agent { flex-shrink: 1; }
+.agent, .model { flex-shrink: 1; }
+.model { max-width: 220px; }
 .text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .spacer { flex: 1; }
 </style>

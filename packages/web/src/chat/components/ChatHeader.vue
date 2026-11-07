@@ -38,6 +38,7 @@ const overflow = computed<MenuItem<HeaderAction>[]>(() => [
   { kind: 'separator' },
   { value: 'shortcuts', label: 'Keyboard shortcuts', icon: 'keyboard', hint: '?' },
   { value: 'archive', label: props.archived ? 'Restore' : 'Archive', icon: 'archive' },
+  { value: 'delete', label: 'Delete chat…', icon: 'trash', danger: true },
 ]);
 
 function choose(action: HeaderAction): void {

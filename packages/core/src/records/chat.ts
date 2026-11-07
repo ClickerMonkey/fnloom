@@ -1,7 +1,7 @@
 /** Sessions, messages, presence and what the chat UI may offer. */
 import { z } from 'zod';
 import { GinTypeDef } from '../gin.ts';
-import { LlmMessage } from '../llm.ts';
+import { LlmMessage, ModelChoice } from '../llm.ts';
 import { CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
 import { ContentRef, Link } from '../resources.ts';
@@ -29,6 +29,8 @@ export const Session = z.object({
   owner: ActorId,
   /** The agent fn that answers. Default `hub/chat`. */
   agent: QualifiedName,
+  /** The model the agent answers with in this chat, instead of the one its fn chooses. */
+  model: ModelChoice.optional(),
   participants: z.array(Participant),
   /** Only these systems' fns, context, mentions and hooks apply. The hub's own message extras always do. */
   systems: z.union([z.array(SystemName), z.literal('all')]),
@@ -52,16 +54,21 @@ export type SessionSummary = z.infer<typeof SessionSummary>;
 export const ExtraKind = z.enum(['local-time', 'suggested-context', 'suggested-fns']);
 export type ExtraKind = z.infer<typeof ExtraKind>;
 
+const TextPart = z.object({ type: z.literal('text'), text: z.string() });
+/** Something picked with `@`: the chat shows `label` as a chip; the LLM gets `text` (written at send time) in its place. */
+const MentionPart = z.object({ type: z.literal('mention'), provider: QualifiedName, label: z.string(), target: Json, text: z.string() });
+const CommandPart = z.object({ type: z.literal('command'), context: QualifiedName, args: z.record(z.string(), z.string()) });
+const FilePart = z.object({ type: z.literal('file'), ref: ContentRef, name: z.string() });
+
 /** A piece of a message. */
 export const MessagePart = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text'), text: z.string() }),
+  TextPart,
   /** An assistant's reasoning before its answer, kept as it streamed. Shown collapsed; the LLM never reads it back. */
   z.object({ type: z.literal('reasoning'), text: z.string() }),
-  /** Something picked with `@`: the chat shows `label` as a chip; the LLM gets `text` (written at send time) in its place. */
-  z.object({ type: z.literal('mention'), provider: QualifiedName, label: z.string(), target: Json, text: z.string() }),
-  z.object({ type: z.literal('command'), context: QualifiedName, args: z.record(z.string(), z.string()) }),
+  MentionPart,
+  CommandPart,
   z.object({ type: z.literal('invocation'), run: RunId, fn: QualifiedName }),
-  z.object({ type: z.literal('file'), ref: ContentRef, name: z.string() }),
+  FilePart,
   /** What the hub added by itself. Shown dimmed; the LLM sees it tagged. */
   z.object({ type: z.literal('extra'), extra: ExtraKind, blocks: z.array(HookBlock) }),
   /** What a system's hook added. Shown dimmed; the LLM sees it tagged. */
@@ -71,13 +78,8 @@ export const MessagePart = z.discriminatedUnion('type', [
 ]);
 export type MessagePart = z.infer<typeof MessagePart>;
 
-/** The parts a person can send (the rest are added by the hub and by fns). */
-export const OutgoingPart = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text'), text: z.string() }),
-  z.object({ type: z.literal('mention'), provider: QualifiedName, label: z.string(), target: Json }),
-  z.object({ type: z.literal('command'), context: QualifiedName, args: z.record(z.string(), z.string()) }),
-  z.object({ type: z.literal('file'), ref: ContentRef, name: z.string() }),
-]);
+/** The parts a person can send (the rest are added by the hub and by fns). A mention's text is written by the hub. */
+export const OutgoingPart = z.discriminatedUnion('type', [TextPart, MentionPart.omit({ text: true }), CommandPart, FilePart]);
 export type OutgoingPart = z.infer<typeof OutgoingPart>;
 
 /** A message's role. `note`: something the hub says (a turn was undone, a system went away). */
@@ -123,10 +125,18 @@ export const ChatCapabilities = z.object({
   voiceInput: z.boolean(),
   voiceOutput: z.boolean(),
   uploads: z.boolean(),
-  mentions: z.array(z.object({ provider: QualifiedName, title: z.string() })),
+  /** `of` is the named type of the things a provider points at, whose methods its hover card offers. */
+  mentions: z.array(z.object({ provider: QualifiedName, title: z.string(), of: QualifiedName.optional() })),
   commands: z.array(z.object({ name: z.string(), context: QualifiedName, args: z.array(CommandArg), description: z.string() })),
+  /** Agent fns (of the hub's `llm` kind) that can answer in a chat, for the agent picker. */
+  agents: z.array(z.object({ fn: QualifiedName, description: z.string() })),
   /** Fns a user may run with `!`. */
   invocations: z.array(z.object({ fn: QualifiedName, description: z.string(), args: GinTypeDef })),
+  /**
+   * Methods of named types a person may run on a value, from its mention's hover card. `fn` is the method's fn
+   * (`fs/Entry.reveal`), whose args are the value as `self` plus the method's own.
+   */
+  methods: z.array(z.object({ type: QualifiedName, method: z.string(), fn: QualifiedName, description: z.string(), args: GinTypeDef })),
   clients: z.array(z.object({ system: SystemName, url: z.string(), hash: z.string() })),
   systems: z.array(z.object({ name: SystemName, status: SystemStatus, enabled: z.boolean() })),
   models: z.array(z.object({ id: z.string(), name: z.string() })),

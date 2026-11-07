@@ -14,7 +14,7 @@ const props = withDefaults(defineProps<{
   title: string;
   attachment: QualifiedName;
   data: Json;
-  view?: RenderView | undefined;
+  view?: RenderView<'attachment'> | undefined;
 }>(), { view: undefined });
 
 const open = ref(false);
@@ -28,7 +28,7 @@ const peek = computed(() => JSON.stringify(props.data, null, 2));
       <span class="title">{{ title }}</span>
       <span class="kind">{{ fnLabel(attachment) }}</span>
     </header>
-    <RendererHost v-if="view" :component="view.component" :props="view.props" :label="title" @inspect="open = true" />
+    <RendererHost v-if="view" :view="view" :label="title" @inspect="open = true" />
     <template v-else>
       <pre class="peek" :class="{ open }">{{ peek }}</pre>
       <button v-if="peek.split('\n').length > 6" type="button" class="toggle" @click="open = !open">{{ open ? 'Show less' : 'Show all' }}</button>

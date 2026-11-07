@@ -275,7 +275,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const scope = new LlmCallScope({
       run: run.id, turn: run.turn, session: run.session, fn: run.fn, actor: run.actor, iteration: state.iteration, priority: run.priority, limits: turn.limits, queuedAt: clock(),
     });
-    const metadata = await this.#deps.models.resolve(ModelChoice.optional().parse(payload.model));
+    // a chat's own model choice wins over the one its agent fn makes
+    const metadata = await this.#deps.models.resolve(session?.model ?? ModelChoice.optional().parse(payload.model));
     const prompt = new Prompt<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, [], AgentOutput>({
       name: 'agent',
       description: fn.decl.description,
@@ -317,7 +318,11 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
         case 'suspend':
           suspended = true;
           break;
-        default:
+        // the rest are seen through the scope's own hooks (usage, requests) or do not change the turn
+        case 'text': case 'textReset': case 'textComplete': case 'reason': case 'audioPartial': case 'images': case 'citations':
+        case 'refusal': case 'moderation': case 'request': case 'requestUsage': case 'responseTokens': case 'usage':
+        case 'reviewStart': case 'reviewPass': case 'reviewFeedback': case 'schemaFallback':
+        case 'toolArgRepairAttempt': case 'toolParseArguments':
           break;
       }
     }
@@ -328,7 +333,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       const index = lastToolCallsIndex(collected);
       const assistant = collected[index];
       const ids = assistant?.toolCalls?.map((c) => c.id) ?? [];
-      const pending = await this.#startCalls(run, calls.inOrder(ids), scope.last?.interaction);
+      const pending = await this.#startCalls(run, state.iteration, calls.inOrder(ids), scope.last?.interaction);
       if (message !== undefined) await this.#deps.turns.track(message, pending.flatMap((call) => (call.run === undefined ? [] : [call.run])));
       const next: AgentState = { ...state, iteration: state.iteration + 1, pending, anchor: at + index, ...this.#saved(conversation) };
       await store.table('runs').update(run.id, { status: 'waiting', resume: Json.parse(next) });
@@ -464,13 +469,18 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
   }
 
   /** Start a run for each tool call; a call that can't start is answered with why. */
-  async #startCalls(run: Run, calls: ReturnType<PendingCalls['inOrder']>, llmCall: Run['llmCall']): Promise<PendingCall[]> {
+  /**
+   * Start an iteration's tool calls as child runs. Each is keyed by its iteration and tool call id: a job that runs the
+   * iteration again gets the same runs back, while a model that reuses ids across iterations (some do) still gets new
+   * runs for its new calls.
+   */
+  async #startCalls(run: Run, iteration: number, calls: ReturnType<PendingCalls['inOrder']>, llmCall: Run['llmCall']): Promise<PendingCall[]> {
     const caller = await this.#agentActor(run);
     const pending: PendingCall[] = [];
     for (const call of calls) {
       try {
         const started = await this.#deps.runs.start({
-          fn: call.fn, args: call.args, turn: run.turn, parent: run.id, key: call.toolCallId, actor: run.actor, caller, priority: run.priority,
+          fn: call.fn, args: call.args, turn: run.turn, parent: run.id, key: toolCallKey(iteration, call.toolCallId), actor: run.actor, caller, priority: run.priority,
           background: false, handlers: [], toolCallId: call.toolCallId, ...(run.session === undefined ? {} : { session: run.session }), ...(llmCall === undefined ? {} : { llmCall }),
         });
         pending.push({ toolCallId: call.toolCallId, fn: call.fn, run: started.run });
@@ -498,7 +508,11 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     return { messages, allFailed: pending.length > 0 && failed === pending.length };
   }
 
-  /** The fns an agent may call now: its own tools and, for a session's agent, the session's loaded fns. */
+  /**
+   * The fns an agent may call now: its own tools first, then, for a session's agent, the session's loaded fns, in
+   * that order up to `maxTools`. Fns that are switched off or unavailable, and fns of systems the session doesn't use,
+   * are left out.
+   */
   async #tools(payload: LlmPayload, session: Session | undefined): Promise<Array<{ fn: FnRecord; signature: FnSignature }>> {
     const { catalog } = this.#deps;
     const names = unique([...payload.tools, ...(session?.tools ?? [])].flatMap((name) => {
@@ -506,9 +520,10 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       return parsed.success ? [parsed.data] : [];
     }));
     const allowed = session?.systems ?? 'all';
-    const fns = (await catalog.fns({ names, available: true }))
+    const usable = new Map((await catalog.fns({ names, available: true }))
       .filter((fn) => !fn.disabled && (allowed === 'all' || fn.system === HUB_SYSTEM || allowed.includes(fn.system)))
-      .slice(0, payload.maxTools);
+      .map((fn) => [fn.name, fn]));
+    const fns = names.flatMap((name) => { const fn = usable.get(name); return fn === undefined ? [] : [fn]; }).slice(0, payload.maxTools);
     return Promise.all(fns.map(async (fn) => ({ fn, signature: await catalog.signature(fn.name) })));
   }
 
@@ -579,6 +594,11 @@ function outputOf(signature: FnSignature): { schema: z.ZodType<object> | false; 
   if (isObjectSchema(returns)) return { schema: returns, result: (output) => Json.parse(output) };
   const wrapped = z.object({ result: returns });
   return { schema: wrapped, result: (output) => Json.parse(wrapped.parse(output).result) };
+}
+
+/** The key of a tool call's run within its agent run. */
+export function toolCallKey(iteration: number, toolCallId: string): string {
+  return `${iteration}:${toolCallId}`;
 }
 
 function unique<T>(items: readonly T[]): T[] {

@@ -7,10 +7,10 @@
  * On a reconnect `refresh` fetches what may have changed while events were lost, so nothing is left spinning.
  */
 import {
-  isSettled, type ActorId, type Approval, type ApprovalId, type ChatMessage, type ClientInfo, type DeliveryId, type DeliveryView, type HandlerCall,
+  compositeKey, isSettled, type ActorId, type Approval, type ApprovalId, type ChatMessage, type ClientInfo, type DeliveryId, type DeliveryView, type HandlerCall,
   type HandlerCallId, type Json, type MessageId, type NotifyChoice, type OutgoingPart, type Presence, type QualifiedName, type Remember,
-  type ResolvedLimits, type RunId, type Session, type SessionControls, type SessionEvent, type SessionId, type SessionSummary, type SystemName,
-  type TurnId, type UndoReport,
+  type ResolvedLimits, type RunId, type Session, type SessionControls, type SessionEvent, type SessionId, type SessionSummary, type StateFieldValue,
+  type SystemName, type TurnId, type UndoReport,
 } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import { problemText } from '../../state/problems.ts';
@@ -22,7 +22,7 @@ import { summaryOf } from './sessions.ts';
 
 /** The callers a thread uses. */
 export type ThreadApi = Pick<ChatApi,
-  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'background' | 'undoTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit' | 'waiting'>;
+  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'background' | 'undoTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit' | 'waiting' | 'state'>;
 
 /** What a thread needs besides its callers. */
 export interface ThreadDeps {
@@ -98,6 +98,20 @@ export function undoSummary(reports: readonly UndoReport[]): UndoSummary {
   };
 }
 
+/**
+ * Where a session state field is kept. Two fields are the same only when system, name and type all match (as the hub
+ * keys them), so a same-named field of another type never reaches a renderer that didn't declare it.
+ */
+export function stateKey(system: SystemName, field: Pick<StateFieldValue, 'name' | 'type'>): string {
+  return compositeKey(system, field.name, field.type);
+}
+
+/** The state fields a run's fn declared: its system, and each field's name and type. */
+interface DeclaredState {
+  readonly system: SystemName;
+  readonly fields: readonly Pick<StateFieldValue, 'name' | 'type'>[];
+}
+
 interface Follower {
   readonly status: (status: DeliveryView['status']) => void;
   readonly resolve: (result: Json) => void;
@@ -115,6 +129,7 @@ export class ThreadStore {
   readonly #pendingTokens = new Map<MessageId, string>();
   readonly #typingTimers = new Map<ActorId, ReturnType<typeof setTimeout>>();
   readonly #followers = new Map<DeliveryId, Follower[]>();
+  readonly #loadingState = new Set<RunId>();
   #lastPresence = 0;
   #typing = false;
   #focused = false;
@@ -133,8 +148,10 @@ export class ThreadStore {
   readonly deliveries = shallowRef<ReadonlyMap<DeliveryId, DeliveryView>>(new Map());
   readonly presence = shallowRef<readonly Presence[]>([]);
   readonly controls = shallowRef<SessionControls | undefined>(undefined);
-  /** Session state fields by `system/name`. */
+  /** Session state field values by `stateKey` (system, name and type). */
   readonly state = shallowRef<ReadonlyMap<string, Json>>(new Map());
+  /** The fields each run's fn declared, once read (see `stateOf`). */
+  readonly #declared = shallowRef<ReadonlyMap<RunId, DeclaredState>>(new Map());
   readonly limits = shallowRef<ResolvedLimits | undefined>(undefined);
   readonly status = ref<ThreadStatus>('loading');
   readonly problem = ref('');
@@ -228,11 +245,43 @@ export class ThreadStore {
     if (this.#typing || this.#focused) { this.#sendPresence(false, false); }
   }
 
-  /** Fetch what may have changed while offline: the session, the latest page, controls and unsettled runs. */
+  /** Fetch what may have changed while offline: the session, the latest page, controls, unsettled runs and state. */
   async refresh(): Promise<void> {
     await this.open();
     const unsettled = [...this.runs.value.values()].filter((run) => !isSettled(run.status)).map((run) => run.id);
-    await this.#fetchRuns(unsettled, true);
+    await Promise.all([this.#fetchRuns(unsettled, true), ...[...this.#declared.value.keys()].map((run) => this.loadState(run))]);
+  }
+
+  /**
+   * A run's session state: the fields its fn declared, by name, live. The first read loads them from the hub (so a
+   * renderer drawn after a reload has its state); until then it is empty.
+   */
+  stateOf(run: RunId): Readonly<Record<string, Json>> {
+    const declared = this.#declared.value.get(run);
+    if (declared === undefined) { void this.loadState(run); return {}; }
+    const values: Record<string, Json> = {};
+    for (const field of declared.fields) {
+      const value = this.state.value.get(stateKey(declared.system, field));
+      if (value !== undefined) { values[field.name] = value; }
+    }
+    return values;
+  }
+
+  /** Read the state fields a run's fn declared, with their values now. */
+  async loadState(run: RunId): Promise<void> {
+    if (this.#loadingState.has(run)) { return; }
+    this.#loadingState.add(run);
+    try {
+      const { system, fields } = await this.#deps.api.state.call({ run });
+      this.#applyState(system, fields);
+      const declared = new Map(this.#declared.value);
+      declared.set(run, { system, fields: fields.map(({ name, type }) => ({ name, type })) });
+      this.#declared.value = declared;
+    } catch {
+      // the renderer draws without state; events fill it in as it changes
+    } finally {
+      this.#loadingState.delete(run);
+    }
   }
 
   /** Load the page before the oldest message held. */
@@ -291,6 +340,7 @@ export class ThreadStore {
       });
       this.messages.value = upsertMessage(this.messages.value, sent.message);
       this.awaiting.value = sent.turn;
+      this.#newTurn();
       this.reportPresence({ typing: false });
       return true;
     } catch (error) {
@@ -307,6 +357,7 @@ export class ThreadStore {
       const started = await this.#deps.api.invoke.call({ session: this.id, fn, args, client: this.#deps.client() });
       this.#upsertRun(this.runs.value.get(started.run) ?? emptyRun(started.run, fn));
       this.awaiting.value = started.turn;
+      this.#newTurn();
       void this.#fetchRuns([started.run], true);
       return started.run;
     } catch (error) {
@@ -502,12 +553,18 @@ export class ThreadStore {
     return this.reasoning.value.get(message.id) ?? storedReasoning(message);
   }
 
-  /** The runs a message made, in call order, as far as known. */
+  /** The runs a message made, in call order, as far as known, as they show (see `shown`). */
   runsOf(message: Pick<ChatMessage, 'runs'>): RunView[] {
     return message.runs.flatMap((id) => {
       const run = this.runs.value.get(id);
-      return run === undefined ? [] : [run];
+      return run === undefined ? [] : [this.shown(run)];
     });
+  }
+
+  /** A run as the thread shows it: `asking` while one of its handlers waits on the person's answer. */
+  shown(run: RunView): RunView {
+    const asking = this.handlers.value.some((h) => h.run === run.id);
+    return asking === (run.asking === true) ? run : { ...run, asking };
   }
 
   /** Fetch a run's record (when it isn't known, or `again`). */
@@ -620,15 +677,7 @@ export class ThreadStore {
         return;
       }
       case 'presence': this.#onPresence(event.presence); return;
-      case 'state': {
-        const state = new Map(this.state.value);
-        for (const field of event.fields) {
-          const key = `${event.system}/${field.name}`;
-          if (field.value === undefined) { state.delete(key); } else { state.set(key, field.value); }
-        }
-        this.state.value = state;
-        return;
-      }
+      case 'state': this.#applyState(event.system, event.fields); return;
       case 'session': {
         const current = this.session.value;
         if (current !== undefined) { this.session.value = { ...current, ...event.session }; }
@@ -641,6 +690,24 @@ export class ThreadStore {
         return;
       }
     }
+  }
+
+  #applyState(system: SystemName, fields: readonly StateFieldValue[]): void {
+    const state = new Map(this.state.value);
+    for (const field of fields) {
+      const key = stateKey(system, field);
+      if (field.value === undefined) { state.delete(key); } else { state.set(key, field.value); }
+    }
+    this.state.value = state;
+  }
+
+  /**
+   * A turn started: the controls the hub last sent were for the turn before (the hub sends them again as the turn
+   * settles), so Stop offers Cancel until it says what this one allows.
+   */
+  #newTurn(): void {
+    this.controls.value = undefined;
+    this.stopping.value = false;
   }
 
   /** A settled run waits on no one: its approval and questions go, even if their own events were missed. */

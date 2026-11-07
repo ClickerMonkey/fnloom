@@ -6,11 +6,10 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { compact, RunSummary, type LlmInteraction, type Run, type RunId, type TreeNode, type Turn } from '@harness/core';
+import { runsSlice, compact, RunSummary, type LlmInteraction, type Run, type RunId, type TreeNode, type Turn } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { visibleRun, visibleSession, visibleTurn, type FullHandlers } from './access.ts';
 import { collect } from '../paging.ts';
-import { runsSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
 const PAGE = 200;
@@ -106,7 +105,7 @@ export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
       },
       state: async ({ data, user }) => {
         await visibleRun(hub, data.run, user);
-        return { values: await chat.state.forRun(data.run) };
+        return chat.state.forRun(data.run);
       },
     }));
 }

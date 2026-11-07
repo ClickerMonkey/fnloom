@@ -1,5 +1,5 @@
-import { fn, g, handler, system } from '@harness/sdk';
-import { ApprovalId, RunId, type Json, type QualifiedName, type Turn } from '@harness/core';
+import { fn, g, handler, hub, system } from '@harness/sdk';
+import { ApprovalId, PolicyId, RunId, type Json, type QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunRefused } from './errors.ts';
 import type { RunInput } from './index.ts';
@@ -35,7 +35,7 @@ let rig: ExecutionRig;
 afterEach(async () => { await rig.module.stop(); });
 
 async function started(): Promise<ExecutionRig> {
-  rig = executionRig();
+  rig = await executionRig();
   rig.catalog.add('fs', 'read', read);
   rig.catalog.add('fs', 'write', write);
   rig.catalog.add('fs', 'remove', confirmable);
@@ -303,5 +303,128 @@ describe('progress and settled shapes', () => {
     expect(settledOf({ status: 'done', result: 1 }, run)).toEqual({ status: 'done', result: 1 });
     expect(settledOf({ status: 'paused', resume: null }, run)).toEqual({ status: 'background', run });
     expect(settledOf(undefined, run)).toEqual({ status: 'background', run });
+  });
+});
+
+/** A run of fs/read that keeps running until the test ends. */
+async function running(r: ExecutionRig, turn: Turn): Promise<RunId> {
+  r.connect('fs').behaviour.run = () => new Promise(() => undefined);
+  const { run } = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'slow' }), key: 'slow' });
+  await until(async () => (await r.module.runs.get(run))?.status === 'running', 'the run to start');
+  return run;
+}
+
+describe('refusing runs', () => {
+  it('refuses a fn an admin switched off, or one that is unavailable, before making a run', async () => {
+    const r = await started();
+    r.connect('fs');
+    const turn = await r.turn();
+    r.catalog.set('fs/read', { disabled: true });
+    await expect(r.module.runs.start(input(turn, 'fs/read', { path: 'a' }))).rejects.toMatchObject({ error: { code: 'disabled', class: 'caller', message: 'fs/read is turned off.' } });
+    r.catalog.set('fs/read', { disabled: false, available: { unavailable: 'system-disconnected', detail: 'fs is offline' } });
+    await expect(r.module.runs.start(input(turn, 'fs/read', { path: 'a' }))).rejects.toMatchObject({ error: { code: 'unavailable', class: 'retry', message: 'fs/read is unavailable: fs is offline' } });
+    expect(await r.store.table('runs').count()).toBe(0);
+  });
+
+  it('refuses a child call (ctx.fns) to a fn that was switched off', async () => {
+    const r = await started();
+    r.connect('fs');
+    const turn = await r.turn();
+    const parent = await r.module.runs.start(input(turn, 'fs/copy', { from: 'x' }));
+    r.catalog.set('fs/read', { disabled: true });
+    await expect(r.module.runs.start({ ...input(turn, 'fs/read', { path: 'x' }), parent: parent.run, key: 'read' })).rejects.toMatchObject({ error: { code: 'disabled' } });
+  });
+
+  it('fails a run a policy denies, without asking anyone', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    await r.store.table('policies').insert({
+      id: PolicyId.parse('pol_deny'), description: 'No reading today.', subject: { everyone: true }, target: { fn: 'fs/read' },
+      decision: { effect: 'deny', reason: 'reading is off today' }, priority: 10, createdBy: ALICE, createdAt: 0,
+    });
+    const turn = await r.turn();
+    const { settled } = await r.module.runs.start(input(turn, 'fs/read', { path: 'a' }));
+    expect(await settled).toEqual({ status: 'failed', error: { class: 'caller', message: 'Not allowed: reading is off today', code: 'denied' } });
+    expect(fs.requests).toEqual([]);
+    expect(r.bus.of('approval')).toEqual([]);
+  });
+
+  it('holds a queued run while its fn is paused, and fails one whose fn is gone when its turn comes', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    const turn = await r.turn();
+    r.catalog.set('fs/read', { paused: true });
+    const held = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'a' }), key: 'held' });
+    await settle(40);
+    expect((await r.module.runs.get(held.run))?.status).toBe('queued');
+    expect(fs.requests).toEqual([]);
+    r.catalog.set('fs/read', { paused: false });
+    expect(await held.settled).toEqual({ status: 'done', result: { echo: { path: 'a' } } });
+
+    r.catalog.set('fs/read', { paused: true });
+    const gone = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'b' }), key: 'gone' });
+    r.catalog.records.delete('fs/read');
+    expect(await gone.settled).toMatchObject({ status: 'failed', error: { code: 'not-found', message: 'fs/read no longer exists.' } });
+  });
+
+  it('starts a run straight in the background, so its caller stops waiting at once', async () => {
+    const r = await started();
+    r.connect('fs').behaviour.run = () => new Promise(() => undefined);
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'a' }), background: true });
+    expect(await settled).toEqual({ status: 'background', run });
+    expect((await r.module.runs.get(run))?.background).toBe(true);
+  });
+});
+
+describe('controlling runs', () => {
+  /** `hub/run_wait` with pause allowed: a hub run that runs until it is stopped. */
+  async function hubRun(r: ExecutionRig, turn: Turn, waitFor: RunId) {
+    r.catalog.add('hub', 'run_wait', fn({ description: 'Wait.', args: hub.fns.run_wait.args, returns: hub.fns.run_wait.returns, tags: ['read'], resume: g.obj({}) }));
+    const begun = await r.module.runs.start({ ...input(turn, 'hub/run_wait', { run: waitFor, timeout: 60_000 }), key: 'wait' });
+    await until(async () => (await r.module.runs.get(begun.run))?.status === 'running', 'the hub run to start');
+    return begun;
+  }
+
+  it('cancels a running hub run by aborting it', async () => {
+    const r = await started();
+    const turn = await r.turn();
+    const { run, settled } = await hubRun(r, turn, await running(r, turn));
+    expect(await r.module.runs.cancel(run, ALICE)).toEqual({ accepted: true });
+    expect(await settled).toEqual({ status: 'cancelled' });
+  });
+
+  it('pauses a running hub run, accepts pausing it again, and cancels it while paused', async () => {
+    const r = await started();
+    const turn = await r.turn();
+    const { run, settled } = await hubRun(r, turn, await running(r, turn));
+    expect(await r.module.runs.pause(run, ALICE)).toEqual({ accepted: true });
+    await until(async () => (await r.module.runs.get(run))?.status === 'paused', 'the hub run to pause');
+    expect(await r.module.runs.pause(run, ALICE)).toEqual({ accepted: true });
+    expect(await r.module.runs.cancel(run, ALICE)).toEqual({ accepted: true });
+    expect(await settled).toEqual({ status: 'cancelled' });
+  });
+
+  it('refuses to control a missing run, a run that does not allow it, and a run whose fn is gone', async () => {
+    const r = await started();
+    const turn = await r.turn();
+    expect(await r.module.runs.cancel(RunId.parse('run_none'), ALICE)).toEqual({ accepted: false, reason: 'There is no run run_none.' });
+    const run = await running(r, turn);
+    expect(await r.module.runs.pause(run, ALICE)).toEqual({ accepted: false, reason: 'This run can\'t be paused now.' });
+    r.catalog.records.delete('fs/read');
+    expect(await r.module.runs.cancel(run, ALICE)).toEqual({ accepted: false, reason: 'fs/read no longer exists.' });
+  });
+
+  it('refuses to undo a run that is still going, or whose fn has no undo', async () => {
+    const r = await started();
+    const turn = await r.turn();
+    const run = await running(r, turn);
+    await r.module.runs.undoWith(run, { path: 'slow' });
+    expect(await r.module.runs.undo(run, ALICE)).toEqual({ status: 'failed', error: { class: 'caller', message: 'The run has not finished yet.', code: 'running' } });
+    r.connect('fs').behaviour.run = () => Promise.resolve({ status: 'done', result: 'x', undo: { path: 'a' } });
+    const read = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'a' }), key: 'read' });
+    await read.settled;
+    expect(await r.module.runs.undo(read.run, ALICE)).toEqual({ status: 'failed', error: { class: 'caller', message: 'fs/read can\'t be undone.', code: 'not-undoable' } });
+    expect(await r.module.runs.undo(RunId.parse('run_none'), ALICE)).toMatchObject({ status: 'failed', error: { code: 'not-found' } });
   });
 });

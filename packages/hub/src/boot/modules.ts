@@ -21,7 +21,7 @@ import type { HubModules, HubServices, ModuleContext, ModuleFactory } from './in
 
 /** What the production modules can be given instead of their defaults (tests, the e2e hub). */
 export interface ModuleSeams {
-  /** How systems the hub installs are started (default: Node child processes with this process's env). */
+  /** How systems the hub installs are started (default: Node child processes with this process's env and Node flags). */
   readonly launcher?: ProcessLauncher;
   /** How systems are installed from a folder, npm or git (default: npm and git on this machine). */
   readonly installer?: Installer;
@@ -48,7 +48,7 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     const built = buildSystems({
       store: hub.store, bus: hub.bus, log: hub.log, clock: hub.clock, peers: context.peers, tokens: context.systemTokens,
       settings: { hub: hub.settings.hubEnv, link: hub.settings.linkEnv, model: hub.settings.modelEnv, index: hub.settings.indexEnv, search: hub.settings.storeEnv },
-      launcher: seams.launcher ?? new NodeLauncher({ baseEnv: process.env }),
+      launcher: seams.launcher ?? new NodeLauncher({ baseEnv: process.env, nodeArgs: process.execArgv }),
       installer: seams.installer ?? new NodeInstaller(),
     });
     builds.set(context, built);

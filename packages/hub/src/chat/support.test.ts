@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { ChatError } from './errors.ts';
 import { agentActorId, agentName, allowsSystem, asQualified, clip, collect, unmark, escapeAttribute, escapeBody, readAll, sameJson, turnScope } from './support.ts';
 import { knownZone, timeInfo, weekday } from '../execution/time.ts';
-import { MemoryStore, actorId } from './testing.ts';
+import { testStore } from '../testing.ts';
+import { actorId } from './testing.ts';
 
 const at = Date.UTC(2026, 10, 7, 14, 30, 5);
 
@@ -71,7 +72,7 @@ describe('text', () => {
 
 describe('paging', () => {
   it('collects filtered rows across store pages with an exact cursor', async () => {
-    const s = new MemoryStore();
+    const s = await testStore();
     for (let i = 0; i < 10; i++) {
       await s.table('sessions').insert({
         id: IDS.session.parse(`ses_${i}`), title: i % 2 === 0 ? `even ${i}` : `odd ${i}`, owner: actorId('act_a'), agent: 'hub/chat', participants: [], systems: 'all', tools: [], context: [],
@@ -90,7 +91,7 @@ describe('paging', () => {
   });
 
   it('stops a long scan with a cursor to go on from', async () => {
-    const s = new MemoryStore();
+    const s = await testStore();
     for (let i = 0; i < 6; i++) {
       await s.table('sessions').insert({
         id: IDS.session.parse(`ses_${i}`), title: `t${i}`, owner: actorId('act_a'), agent: 'hub/chat', participants: [], systems: 'all', tools: [], context: [],
@@ -103,11 +104,11 @@ describe('paging', () => {
   });
 
   it('refuses a cursor it did not give out', async () => {
-    await expect(collect(new MemoryStore().table('sessions'), { limit: 1, cursor: 'nonsense' }, () => true)).rejects.toBeInstanceOf(ChatError);
+    await expect(collect((await testStore()).table('sessions'), { limit: 1, cursor: 'nonsense' }, () => true)).rejects.toBeInstanceOf(ChatError);
   });
 
   it('reads every row up to a maximum', async () => {
-    const s = new MemoryStore();
+    const s = await testStore();
     for (let i = 0; i < 5; i++) { await s.table('memberships').insert({ group: actorId('act_g'), user: actorId(`act_${i}`), addedBy: actorId('act_a'), addedAt: i }); }
     expect(await readAll(s.table('memberships'), { where: { group: actorId('act_g') } }, 3)).toHaveLength(3);
     expect(await readAll(s.table('memberships'), {}, 100)).toHaveLength(5);

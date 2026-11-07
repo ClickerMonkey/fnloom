@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ActorId, NotificationId, PushId, SessionId, type Notification } from '@harness/core';
 import { pushPayload, WebPushService } from './push.ts';
-import { memoryStore, quietLog, recordingPush } from './testing/rig.ts';
+import { testStore } from '../testing.ts';
+import { recordingPush } from './testing/rig.ts';
 
 const user = ActorId.parse('act_user');
 const notification: Notification = {
@@ -10,7 +11,7 @@ const notification: Notification = {
 };
 
 async function make(status: (endpoint: string) => number) {
-  const store = await memoryStore(quietLog().log);
+  const store = await testStore();
   const sender = recordingPush(status);
   const errors: unknown[] = [];
   const push = new WebPushService({ store, sender, publicKey: 'BPub', onError: (error) => { errors.push(error); } });

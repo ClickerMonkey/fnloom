@@ -57,7 +57,7 @@ export interface Catalog {
   kind(name: QualifiedName): Promise<KindRecord | undefined>;
   type(name: QualifiedName): Promise<TypeRecord | undefined>;
   /** The named types a type refers to, transitively, dependencies first, with any it couldn't find. */
-  typeClosure(names: readonly QualifiedName[]): Promise<{ order: QualifiedName[]; missing: string[] }>;
+  typeClosure(names: readonly QualifiedName[]): Promise<{ order: QualifiedName[]; missing: QualifiedName[] }>;
   context(name: QualifiedName): Promise<ContextRecord | undefined>;
   availability(name: QualifiedName): Promise<Availability>;
 

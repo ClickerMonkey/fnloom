@@ -1,5 +1,5 @@
 /**
- * Test helpers for the store: an in-memory or temp-file store that logs into an array, and row builders for the
+ * Test helpers for the store: an in-memory or temp-file store (the shared `testStore` with the test embedder), and row builders for the
  * tables the tests use. Only tests import this file.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -8,26 +8,17 @@ import { join } from 'node:path';
 import {
   ActorId, LedgerId, NotificationId, RunId, SessionId, SystemName, type LedgerEntry, type Notification, type UserActor,
 } from '@harness/core';
-import { type LogRecord, type Logger, createLogger } from '@ayepi/log';
 import type { StoreOptions } from './index.ts';
-import { SqliteStore } from './sqlite.ts';
+import type { SqliteStore } from './sqlite.ts';
+import { testStore } from '../testing.ts';
 
 /** The embedder the tests give vectors for, and its (small) dimensions. */
 export const TEST_EMBEDDER = 'embedder/test';
 export const TEST_DIMENSIONS = 3;
 
-/** A logger that keeps its records. */
-export function memoryLog(): { log: Logger; records: LogRecord[] } {
-  const records: LogRecord[] = [];
-  const log = createLogger({ level: 'debug', transports: [{ name: 'memory', write: (record) => { records.push(record); } }] });
-  return { log, records };
-}
-
-/** Open and migrate a store; `:memory:` unless a file is given. */
-export async function openTestStore(options: Partial<StoreOptions> = {}): Promise<SqliteStore> {
-  const store = SqliteStore.open({ file: ':memory:', dimensions: { [TEST_EMBEDDER]: TEST_DIMENSIONS }, log: memoryLog().log, ...options });
-  await store.migrate();
-  return store;
+/** Open and migrate a store with the test embedder's table; `:memory:` unless a file is given. */
+export function openTestStore(options: Partial<StoreOptions> = {}): Promise<SqliteStore> {
+  return testStore({ dimensions: { [TEST_EMBEDDER]: TEST_DIMENSIONS }, ...options });
 }
 
 /** A temporary folder, removed by `dispose`. */

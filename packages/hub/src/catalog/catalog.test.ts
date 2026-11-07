@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StoreCatalog } from './catalog.ts';
 import { ADMIN, declOf, manifestFor, orders, shop, systemRow, vectors } from './fixtures.ts';
 import type { KindDescriber } from './index.ts';
-import { MemoryBus, MemoryStore, memoryLog } from './testing.ts';
+import { RecordingBus, memoryLog, testStore } from '../testing.ts';
 
 const q = (name: string) => QualifiedName.parse(name);
 /** A definition gin refuses, typed as a wire definition (its outer shape passes). */
@@ -28,9 +28,9 @@ function reportDescriber(): KindDescriber & { calls: Array<{ kind: string; paylo
   };
 }
 
-function setup(describer: KindDescriber = reportDescriber()) {
-  const store = new MemoryStore();
-  const bus = new MemoryBus();
+async function setup(describer: KindDescriber = reportDescriber()) {
+  const store = await testStore();
+  const bus = new RecordingBus();
   const { log, records } = memoryLog();
   const catalog = new StoreCatalog({ store, bus, log, clock: () => 1_000, describer });
   return { store, bus, log, records, catalog, describer };
@@ -41,7 +41,7 @@ describe('importing a manifest', () => {
   beforeEach(async () => { shopManifest = await manifestFor(shop); });
 
   it('adds every entry, stores the records and the manifest, and announces it', async () => {
-    const { catalog, store, bus } = setup();
+    const { catalog, store, bus } = await setup();
     const report = await catalog.importManifest(shopManifest);
     expect(report.refused).toEqual([]);
     expect(report.added).toEqual(expect.arrayContaining(['shop/Product', 'shop/report', 'shop/get', 'shop/list', 'shop/Product.discount', 'shop/guide', 'shop/products', 'shop/csv']));
@@ -56,19 +56,19 @@ describe('importing a manifest', () => {
   });
 
   it('finds the fns and context a context mentions in its text', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(shopManifest);
     expect((await catalog.context(q('shop/guide')))?.mentions).toEqual({ fns: ['shop/get'], context: ['shop/guide'] });
   });
 
   it('changes nothing when the same manifest comes again', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(shopManifest);
     expect(await catalog.importManifest(shopManifest)).toEqual({ added: [], updated: [], removed: [], refused: [] });
   });
 
   it('reports what was updated and removed', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(shopManifest);
     const get = declOf(shopManifest, 'get');
     const next: Manifest = { ...shopManifest, fns: [{ ...get, description: 'Find a product.' }], context: [] };
@@ -81,7 +81,7 @@ describe('importing a manifest', () => {
   });
 
   it('refuses a fn whose type is not a gin type and keeps the one it had', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(shopManifest);
     const get = declOf(shopManifest, 'get');
     const broken: FnDecl = { ...get, description: 'changed', args: invalid({ name: 'obj', props: {}, nonsense: true }) };
@@ -92,14 +92,14 @@ describe('importing a manifest', () => {
   });
 
   it('refuses the whole manifest when its config type is invalid', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     const report = await catalog.importManifest({ ...shopManifest, config: invalid({ name: 'obj', wrong: 1 }) });
     expect(report.refused.map((r) => r.name)).toEqual(['shop (config)']);
     expect(await catalog.manifest(SHOP)).toBeUndefined();
   });
 
   it('refuses a type that refers to a type nobody declared', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     const product = shopManifest.types[0];
     if (product === undefined) { throw new Error('no type'); }
     const report = await catalog.importManifest({ ...shopManifest, types: [{ ...product, def: { name: 'list', generic: { V: { name: 'ghost/Thing' } } } }] });
@@ -109,7 +109,7 @@ describe('importing a manifest', () => {
 
 describe('changes other systems depend on', () => {
   async function both() {
-    const ctx = setup();
+    const ctx = await setup();
     const shopManifest = await manifestFor(shop);
     await ctx.catalog.importManifest(shopManifest);
     await ctx.catalog.importManifest(await manifestFor(orders));
@@ -147,7 +147,7 @@ describe('changes other systems depend on', () => {
 
 describe('fns of a kind', () => {
   it('asks the kind to describe the payload and stores what it works out', async () => {
-    const { catalog, describer } = setup();
+    const { catalog, describer } = await setup();
     await catalog.importManifest(await manifestFor(shop));
     await catalog.importManifest(await manifestFor(orders));
     const sales = await catalog.fn(q('orders/sales'));
@@ -157,7 +157,7 @@ describe('fns of a kind', () => {
   });
 
   it('refuses a payload the kind’s payload type does not accept', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(await manifestFor(shop));
     const manifest = await manifestFor(orders);
     const sales = declOf(manifest, 'sales');
@@ -167,13 +167,13 @@ describe('fns of a kind', () => {
 
   it('refuses what the kind refuses, and a description that does not fit the declared result', async () => {
     const refusing: KindDescriber = { describe: () => Promise.resolve({ problems: ['no such table'] }) };
-    const a = setup(refusing);
+    const a = await setup(refusing);
     await a.catalog.importManifest(await manifestFor(shop));
     expect((await a.catalog.importManifest(await manifestFor(orders))).refused).toEqual([{ name: 'orders/sales', problems: ['no such table'] }]);
 
     const manifest = await manifestFor(orders);
     const sales = declOf(manifest, 'sales');
-    const b = setup();
+    const b = await setup();
     await b.catalog.importManifest(await manifestFor(shop));
     const report = await b.catalog.importManifest({ ...manifest, fns: [{ ...sales, returns: wireType(g.text()) }] });
     expect(report.refused[0]?.problems).toEqual(['the result its kind works out does not fit the declared result']);
@@ -183,7 +183,7 @@ describe('fns of a kind', () => {
     let reachable = false;
     const inner = reportDescriber();
     const flaky: KindDescriber = { describe: (k, p) => (reachable ? inner.describe(k, p) : Promise.reject(new Error('shop is not connected'))) };
-    const { catalog, store } = setup(flaky);
+    const { catalog, store } = await setup(flaky);
     await catalog.importManifest(await manifestFor(shop));
     expect((await catalog.importManifest(await manifestFor(orders))).refused).toEqual([]);
     expect((await catalog.fn(q('orders/sales')))?.decl.deps).toEqual([]);
@@ -203,7 +203,7 @@ describe('when a type changes', () => {
         return answer.description === undefined ? answer : { ...answer, description: { ...answer.description, types: [q('shop/Product')] } };
       },
     };
-    const { catalog } = setup(typed);
+    const { catalog } = await setup(typed);
     const shopManifest = await manifestFor(shop);
     await catalog.importManifest(shopManifest);
     await catalog.importManifest(await manifestFor(orders));
@@ -226,7 +226,7 @@ describe('when a type changes', () => {
 
 describe('availability', () => {
   async function imported() {
-    const ctx = setup();
+    const ctx = await setup();
     await ctx.catalog.importManifest(await manifestFor(shop));
     await ctx.catalog.importManifest(await manifestFor(orders));
     return ctx;
@@ -280,14 +280,14 @@ describe('availability', () => {
   });
 
   it('treats the hub as always connected', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     expect(await catalog.availability(q('hub/search_fns'))).toBe(true);
   });
 });
 
 describe('patches, runtime fns and re-imports', () => {
   it('applies a patch over the stored manifest', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     const manifest = await manifestFor(shop);
     await catalog.importManifest(manifest);
     const get = declOf(manifest, 'get');
@@ -298,12 +298,12 @@ describe('patches, runtime fns and re-imports', () => {
   });
 
   it('refuses a patch before any manifest', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     expect((await catalog.importPatch(SHOP, { hash: 'h', upsert: {}, remove: {} })).refused[0]?.problems).toEqual(['no manifest to patch: send the whole manifest first']);
   });
 
   it('declares a fn at runtime, and refuses one that clashes with the contract', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     const manifest = await manifestFor(shop);
     await catalog.importManifest(manifest);
     const get = declOf(manifest, 'get');
@@ -317,7 +317,7 @@ describe('patches, runtime fns and re-imports', () => {
 
   it('re-imports the stored manifest, describing kinds afresh', async () => {
     const describer = reportDescriber();
-    const { catalog } = setup(describer);
+    const { catalog } = await setup(describer);
     await catalog.importManifest(await manifestFor(shop));
     await catalog.importManifest(await manifestFor(orders));
     const report = await catalog.reimport(ORDERS);
@@ -329,13 +329,13 @@ describe('patches, runtime fns and re-imports', () => {
 
 describe('types and values', () => {
   it('works out the closure of named types, with the missing ones', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(await manifestFor(shop));
     expect(await catalog.typeClosure([q('shop/Product'), q('ghost/Thing')])).toEqual({ order: ['shop/Product'], missing: ['ghost/Thing'] });
   });
 
   it('checks values against a type, refusing unknown keys and broken constraints', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     const manifest = await manifestFor(shop);
     await catalog.importManifest(manifest);
     expect(await catalog.check(SHOP, manifest.config, { currency: 'EUR' })).toEqual([]);
@@ -345,7 +345,7 @@ describe('types and values', () => {
   });
 
   it('builds a signature once per fn version', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(await manifestFor(shop));
     const first = await catalog.signature(q('shop/get'));
     expect(first.argsJsonSchema).toMatchObject({ type: 'object', required: ['sku'] });
@@ -354,7 +354,7 @@ describe('types and values', () => {
   });
 
   it('lists fns by name and availability', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     await catalog.importManifest(await manifestFor(shop));
     await catalog.importManifest(await manifestFor(vectors));
     expect((await catalog.fns({ names: [q('shop/get'), q('shop/none')] })).map((f) => f.name)).toEqual(['shop/get']);
@@ -363,7 +363,7 @@ describe('types and values', () => {
   });
 
   it('imports one system at a time', async () => {
-    const { catalog } = setup();
+    const { catalog } = await setup();
     const manifest = await manifestFor(shop);
     const spy = vi.spyOn(catalog, 'manifest');
     const reports = await Promise.all([catalog.importManifest(manifest), catalog.importManifest(manifest)]);

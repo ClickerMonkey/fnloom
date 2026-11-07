@@ -217,13 +217,34 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
-        "session",
         "title",
         "systems",
         "agent",
-        "priority",
         "archived",
-        "notify"
+        "session",
+        "priority",
+        "notify",
+        "model"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "deleteSession": {
+      "method": "POST",
+      "path": "/deleteSession",
+      "ws": "deleteSession",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session"
       ],
       "f": [],
       "hasBody": true,
@@ -341,6 +362,28 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "presence": {
+      "method": "POST",
+      "path": "/presence",
+      "ws": "presence",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session",
+        "focused",
+        "typing"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "background": {
       "method": "POST",
       "path": "/background",
@@ -441,6 +484,136 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "waiting": {
+      "method": "POST",
+      "path": "/waiting",
+      "ws": "waiting",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/approve",
+      "ws": "approve",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "approval",
+        "approve",
+        "remember",
+        "reason"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "answer": {
+      "method": "POST",
+      "path": "/answer",
+      "ws": "answer",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "call",
+        "value"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "act": {
+      "method": "POST",
+      "path": "/act",
+      "ws": "act",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session",
+        "system",
+        "action",
+        "input",
+        "run",
+        "client"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "submit": {
+      "method": "POST",
+      "path": "/submit",
+      "ws": "submit",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "run",
+        "value"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "state": {
+      "method": "POST",
+      "path": "/state",
+      "ws": "state",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "run"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "suggest": {
       "method": "POST",
       "path": "/suggest",
@@ -529,10 +702,10 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
-    "waiting": {
+    "resource": {
       "method": "POST",
-      "path": "/waiting",
-      "ws": "waiting",
+      "path": "/resource",
+      "ws": "resource",
       "httpOnly": false,
       "streamIn": null,
       "itemsIn": false,
@@ -541,73 +714,8 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
-        "session"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
-    "approve": {
-      "method": "POST",
-      "path": "/approve",
-      "ws": "approve",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "approval",
-        "approve",
-        "remember",
-        "reason"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
-    "answer": {
-      "method": "POST",
-      "path": "/answer",
-      "ws": "answer",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "call",
-        "value"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
-    "presence": {
-      "method": "POST",
-      "path": "/presence",
-      "ws": "presence",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "session",
-        "focused",
-        "typing"
+        "uri",
+        "want"
       ],
       "f": [],
       "hasBody": true,
@@ -697,27 +805,6 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
-    "resource": {
-      "method": "POST",
-      "path": "/resource",
-      "ws": "resource",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "uri",
-        "want"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
     "upload": {
       "method": "POST",
       "path": "/upload",
@@ -773,72 +860,6 @@ export const manifest = {
       "q": [],
       "b": [
         "audio"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
-    "act": {
-      "method": "POST",
-      "path": "/act",
-      "ws": "act",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "session",
-        "system",
-        "action",
-        "input",
-        "run",
-        "client"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
-    "submit": {
-      "method": "POST",
-      "path": "/submit",
-      "ws": "submit",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "run",
-        "value"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
-    "state": {
-      "method": "POST",
-      "path": "/state",
-      "ws": "state",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "run"
       ],
       "f": [],
       "hasBody": true,
@@ -1600,6 +1621,10 @@ export const manifest = {
     }
   },
   "events": {
+    "systemLog": {
+      "ws": "on.systemLog",
+      "hasParams": true
+    },
     "session": {
       "ws": "on.session",
       "hasParams": true
@@ -1607,10 +1632,6 @@ export const manifest = {
     "user": {
       "ws": "on.user",
       "hasParams": false
-    },
-    "systemLog": {
-      "ws": "on.systemLog",
-      "hasParams": true
     }
   }
 } as const satisfies Manifest;

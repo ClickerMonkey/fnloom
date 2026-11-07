@@ -5,9 +5,9 @@
  */
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
-import { ActorKind, Audience, Duration, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, ActorId, Usd } from './primitives.ts';
-import { ResourceChange, SectionMatch, Link } from './resources.ts';
-import { Display, FnLimits, Operations, ProgressDecl, RunUpdate, TimeInfo, UserInfo } from './run.ts';
+import { ActorKind, Audience, Duration, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
+import { SectionMatch, Link } from './resources.ts';
+import { Display, FnLimits, Operations, ProgressDecl, TimeInfo, UserInfo } from './run.ts';
 import { StatusTemplates } from './status.ts';
 
 /** A local name inside a system: letters, digits, `_`, `-` and `.` (methods are `Type.method`). */
@@ -36,8 +36,6 @@ export const TypeDecl = z.object({
   def: GinTypeDef,
   display: TypeDisplay,
   methods: z.array(LocalName),
-  /** The named types its definition refers to (gin `typeReferences`), so a receiver can load them first. */
-  references: z.array(z.string()),
 });
 export type TypeDecl = z.infer<typeof TypeDecl>;
 
@@ -322,26 +320,3 @@ export const MentionHover = z.object({
   value: Json.optional(),
 });
 export type MentionHover = z.infer<typeof MentionHover>;
-
-/** A message as systems see it. */
-export const MessageView = z.object({
-  id: MessageId,
-  session: SessionId,
-  author: ActorId,
-  role: z.enum(['user', 'assistant', 'note']),
-  text: z.string(),
-  replyTo: MessageId.optional(),
-  replyAll: z.boolean(),
-  createdAt: Timestamp,
-});
-export type MessageView = z.infer<typeof MessageView>;
-
-/** Hub events a system can subscribe to. */
-export const SystemEvent = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('message'), message: MessageView }),
-  z.object({ type: z.literal('run'), run: RunId, fn: QualifiedName, update: RunUpdate }),
-  z.object({ type: z.literal('resources'), changes: z.array(ResourceChange) }),
-  z.object({ type: z.literal('system'), system: SystemName, status: z.enum(['connected', 'disconnected', 'removed']) }),
-  z.object({ type: z.literal('fns'), added: z.array(QualifiedName), removed: z.array(QualifiedName) }),
-]);
-export type SystemEvent = z.infer<typeof SystemEvent>;

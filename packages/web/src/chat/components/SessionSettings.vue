@@ -1,25 +1,41 @@
 <script setup lang="ts">
 /**
- * A chat's settings: who answers, how urgent its turns are (its priority, as the hub resolved it), how you hear
+ * A chat's settings: who answers and with which model (the agent's own choice, or one model for this chat), how urgent its turns are (its priority, as the hub resolved it), how you hear
  * about it (every message, replies to you, nothing), which systems it uses (each with its status, names, switches
  * and badges in fixed columns), and who is in it. Changes save as they are made.
  */
-import { PRIORITIES, type ChatCapabilities, type NotifyChoice, type Priority, type Session, type SystemName } from '@harness/core';
+import { PRIORITIES, type ChatCapabilities, type ModelChoice, type NotifyChoice, type Priority, type QualifiedName, type Session, type SystemName } from '@harness/core';
 import { computed } from 'vue';
-import { UiAvatar, UiBadge, UiSegmented, UiSwitch, type SegmentOption } from '../../ui/index.ts';
+import { UiAvatar, UiBadge, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { humanize } from '../logic/labels.ts';
+import { agentOptions, modelChoiceOf, modelPick, type ModelPick } from '../logic/session.ts';
 
 const props = withDefaults(defineProps<{
   session: Session;
   systems: ChatCapabilities['systems'];
   notify: NotifyChoice;
   agent: string;
+  /** The agents that can answer here. */
+  agents?: ChatCapabilities['agents'];
+  /** The models the hub can call. */
+  models?: ChatCapabilities['models'];
   /** The priority its turns get now, once the hub has said. */
   priority?: Priority | undefined;
   /** A person's or agent's name. */
   nameOf: (actor: Session['participants'][number]) => string;
-}>(), { priority: undefined });
-const emit = defineEmits<{ notify: [choice: NotifyChoice]; systems: [systems: SystemName[] | 'all']; priority: [priority: Priority] }>();
+}>(), { priority: undefined, agents: () => [], models: () => [] });
+const emit = defineEmits<{
+  notify: [choice: NotifyChoice]; systems: [systems: SystemName[] | 'all']; priority: [priority: Priority]; agent: [fn: QualifiedName]; model: [choice: ModelChoice | null];
+}>();
+
+const agentChoices = computed<SelectOption<QualifiedName>[]>(() => agentOptions(props.agents, props.session.agent).map((a) => ({ value: a.fn, label: a.name })));
+const agentAbout = computed(() => agentOptions(props.agents, props.session.agent)[0]?.description ?? '');
+const modelChoices = computed<SelectOption<ModelPick>[]>(() => {
+  const current = modelPick(props.session.model);
+  const listed: SelectOption<ModelPick>[] = props.models.map((m) => ({ value: `model:${m.id}`, label: m.name }));
+  const missing = current !== 'default' && !listed.some((o) => o.value === current) ? [{ value: current, label: current.slice('model:'.length) }] : [];
+  return [{ value: 'default', label: 'The agent’s own choice' }, ...missing, ...listed];
+});
 
 const PRIORITY: readonly SegmentOption<Priority>[] = PRIORITIES.map((p) => ({ value: p, label: humanize(p) }));
 
@@ -37,7 +53,19 @@ function toggle(name: SystemName, on: boolean): void {
   <div class="settings" data-testid="session-settings">
     <section class="section">
       <h3 class="heading">Agent</h3>
-      <p class="dim">{{ agent }} answers in this chat.</p>
+      <UiSelect
+        :model-value="session.agent" :options="agentChoices" label="Who answers" hide-label data-testid="session-agent"
+        @update:model-value="$event !== session.agent && emit('agent', $event)"
+      />
+      <p class="dim">{{ agentAbout === '' ? `${agent} answers in this chat.` : agentAbout }}</p>
+    </section>
+    <section class="section">
+      <h3 class="heading">Model</h3>
+      <UiSelect
+        :model-value="modelPick(session.model)" :options="modelChoices" label="Model" hide-label data-testid="session-model"
+        @update:model-value="emit('model', modelChoiceOf($event))"
+      />
+      <p class="dim">The agent answers with this model here. Budgets and an admin's rules still apply.</p>
     </section>
     <section v-if="priority" class="section">
       <h3 class="heading">Priority</h3>

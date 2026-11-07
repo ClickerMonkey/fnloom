@@ -364,9 +364,8 @@ export const sessionsPlugin = sessionsDef
 - **Shared middleware.** `hubAuth` and `tel` defs are imported by every slice and bound **once**,
   in the `auth` plugin's `.middleware(...)`. Binding them again throws `duplicate implementation`.
 - **Client type.** The browser needs one spec type. `hubWebSpec` is assembled in shared code from
-  the slices: `spec({ endpoints: { ...authSpec.endpoints, ...sessionsSpec.endpoints, … }, events:
-  { … } })`. A key that appears in two slices silently wins at the type level (gap G9: a
-  `mergeSpecs` with a compile-time collision error).
+  the slices with ayepi's `mergeSpecs(authSlice, chatSlice, …)`, which refuses a name used by two
+  slices at compile time and at runtime (gap G9, closed).
 - **Namespacing.** Prefix each slice's paths with `.path('/sessions')` and similar.
 
 ## 6. `@ayepi/work`: LLM queue, run queue, embed batches
@@ -449,9 +448,10 @@ const rateLimit: { (opts?: { requires?; name? }): RateLimitDef; server(def, opts
 - **Per model and provider call starts.** The model is chosen inside the LLM handler (aeye picks
   it), so a doer cannot key on it when it admits the job. Use one `limiter` per configured
   provider/model rule, checked in the hub `AI`'s `beforeRequest`. When `!allowed`, throw
-  `new WorkDelayError({ delay: retryAfter })`. That keeps `priorityDoer`'s ordering intact. Do not
-  wrap the LLM queue in `rateLimitedDoer`: its waiting tasks are admitted **oldest-first**, so
-  priority is lost while rate-limited (gap G10). `memoryStore` here is rate's own, which clashes by
+  `new WorkDelayError({ delay: retryAfter })`. That keeps `priorityDoer`'s ordering intact. The
+  global cap on LLM call starts is the hub's `llmDoer`: `rateLimitedDoer({ order: 'priority', doer:
+  priorityDoer({ max, buffer: 0 }) })`, which admits the most urgent waiting call first (gap G10,
+  closed). `memoryStore` here is rate's own, which clashes by
   name with work's `memoryStore`, so import it with an alias.
 - **Dollar and token budgets** stay a hub ledger. Rate counts one hit per call (gap G11: weighted
   hits).
@@ -522,7 +522,10 @@ function toStream(body: FileBody): ReadableStream<Uint8Array>; function collect(
   them through a cached GET endpoint (section 14).
 - `mountFiles` installs its routes onto the live server (`ayepiFilesDownload`/`ayepiFilesUpload` at
   `basePath`, default `/_files`), and downloads support HTTP Range. `expiresIn` is in **seconds**.
-  Presigned uploads have no size cap and no hash check (gap G13).
+  `presignUpload` takes `maxSize` and `sha256`: the files server refuses a body over the cap
+  (`413`) or with another hash (`422`) while it streams, and stores nothing (gap G13, closed). The
+  hub caps each upload at its declared size; `finish` still hashes the bytes, since the hash is the
+  content address the browser does not send.
 
 ## 10. `@ayepi/env`: one slice per module
 
@@ -555,8 +558,10 @@ export type HubEnv = ReturnType<typeof hubEnv.parse>
   at boot, so a bad value fails start-up with one aggregated `EnvError`.
 - `types/hub.ts`'s `HubConfig` interface becomes derived from the slices' parsed types. Keeping both
   would give two sources of truth.
-- Gaps: no key prefix option (every key repeats `HARNESS_`), no way to merge several slices into one
-  `Env`, and no description export for an admin "settings" page or `.env.example` (gap G14).
+- `env(input, { prefix })`, `mergeEnvs(...slices)` (one typed view; a field in two slices fails to
+  compile), `describe()` and `envExample(fields)` exist (gap G14, closed in the library). Harness has
+  not adopted them yet: every key still spells `HARNESS_`, and the slices are parsed one by one.
+  Adopting `prefix` renames every settings field across the hub modules, so it is a separate change.
 
 ## 11. `@ayepi/log`: logs and console interception
 
@@ -631,8 +636,9 @@ await lc.up(); await lc.whenDown()
   lifecycle event over the link with a deadline. `child.kill()` is only a fallback, because on
   Windows it terminates the process at once.
 - `/healthz` reports `isLive()` and `/readyz` reports `isReady()`.
-- `deps` are plain strings, so a misspelled dependency only fails at `up()` (gap G16: typed names).
-  Harness keeps component names in one `const` object to limit the risk.
+- `updown<N>()` types every component's `name` and `deps` by the union `N` (gap G16, closed). The
+  hub's lifecycle is `updown<ComponentName>()` over the `COMPONENTS` const, so a misspelt name or
+  dependency fails to compile.
 
 ## 14. `@ayepi/cache`
 
@@ -659,8 +665,9 @@ interface TypeCodec<T> { tag: string; test(v): boolean; encode(v: T, recurse); d
 
 - `createCodec()` is the work codec (it structurally satisfies work's
   `JsonCodec { stringify; parse }`), so job inputs keep `undefined`, `Date` and `Error` intact.
-  work also ships its own tagged codec (`$ayepi` tag) that repeats this package's job (gap G17:
-  work should use `@ayepi/codec`).
+  work also ships its own tagged codec (`$ayepi` tag) that repeats this package's job (gap G17,
+  deferred: switching needs `@ayepi/codec` added to `@ayepi/work`'s dependencies and a `pnpm
+  install` in ayepi, which no lane may run unasked).
 - The browser keeps drafts and UI state with `stringify`/`parse` in `localStorage`.
 - Not used on the link. gin JSON is the wire form for fn values.
 
@@ -749,15 +756,15 @@ by what blocks the first milestone.
 | G6 | core | Client types say `z.output` but the client skips parsing by default, so `z.date()` and transforms lie. Fix: type the client by the JSON wire form (zod 4 codecs / `z.encode`), or decode by default. | type safety | JSON-shaped wire schemas only |
 | G7 | core/client | `wsTransport.reconnect()` (today `close()` is permanent), so a refreshed token can reopen the socket | token rotation | long-lived access token, revocation checked in `toUser` |
 | G8 | core/doer | A per-group concurrency cap (`groupMax`) on bounded doers | per-system run concurrency | a `priorityDoer` per system with `doWith` |
-| G9 | core | `mergeSpecs(...slices)` with a compile-time error on key collisions | one browser spec from plugin slices | spread with a collision test |
-| G10 | rate | `rateLimitedDoer` admits waiting tasks oldest-first, so priority is lost. Needs `order: 'priority'`. | priority under rate limits | `limiter` in `beforeRequest` + `WorkDelayError` |
+| G9 | core | `mergeSpecs(...slices)` with a compile-time error on key collisions | one browser spec from plugin slices | done: `mergeSpecs` in `@ayepi/core` |
+| G10 | rate | `rateLimitedDoer` admits waiting tasks oldest-first, so priority is lost. Needs `order: 'priority'`. | priority under rate limits | done: `order: 'priority'`; the hub's `llmDoer` uses it |
 | G11 | rate | Weighted hits (`consume(key, rule, now, weight)`), so limits can count tokens or dollars | token-based limits | hub ledger |
 | G12 | auth | `hashPassword`/`verifyPassword` (scrypt) in `@ayepi/auth/server` | admin sign-in | `PasswordHasher` on `node:crypto` |
-| G13 | files | Presigned upload `maxSize` and expected `sha256` | upload safety | hub checks after `PUT` |
-| G14 | env | Key prefix, merging slices, and a description export | settings page, `.env.example` | repeat the `HARNESS_` prefix |
+| G13 | files | Presigned upload `maxSize` and expected `sha256` | upload safety | done: the hub presigns `maxSize` |
+| G14 | env | Key prefix, merging slices, and a description export | settings page, `.env.example` | done in the library (`prefix`, `mergeEnvs`, `describe`, `envExample`); harness adoption open |
 | G15 | otel | Real spans, OTLP export, `traceparent` propagation | external tracing (later) | hub run and LLM records |
-| G16 | updown | Typed component names in `deps` | compile-time order checks | names in one `const` object |
-| G17 | work | Use `@ayepi/codec` instead of its own `$ayepi` codec (DRY) | — | pass `createCodec()` |
+| G16 | updown | Typed component names in `deps` | compile-time order checks | done: `updown<ComponentName>()` |
+| G17 | work | Use `@ayepi/codec` instead of its own `$ayepi` codec (DRY) | — | deferred: needs a dependency + `pnpm install` in ayepi; harness uses work's default codec |
 | G18 | mcp | A dynamic tool source (not spec-bound), resources, prompts, `list_changed`, Streamable HTTP, an MCP client | system MCP face, MCP bridge | none; SDK `serveMcp` waits on it |
 | G19 | mock | Event emission (`mockEvents`) and a per-endpoint typed `mockHandlers` | realtime UI on mocks | closed on the ayepi `harness` branch |
 | G20 | core/client | `Tagger`'s `result` argument is `unknown`. Type it by the endpoint's response. | tag precision | tags from `data` only |

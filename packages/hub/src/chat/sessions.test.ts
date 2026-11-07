@@ -71,6 +71,16 @@ describe('sessions', () => {
     expect(quiet.participants.find((p) => p.actor === w.admin.id)?.notify).toBe('all');
   });
 
+  it("keep a model of their own until set back to the agent's choice", async () => {
+    const w = await chatWorld();
+    const bo = await w.user('Bo');
+    expect((await w.chat.sessions.update(w.session.id, { model: { model: 'openai/gpt-oss-20b:free' } }, w.admin.id)).model).toEqual({ model: 'openai/gpt-oss-20b:free' });
+    await expect(w.chat.sessions.update(w.session.id, { model: { category: 'fast' } }, bo.id)).rejects.toMatchObject({ code: 'not-found' });
+    const cleared = await w.chat.sessions.update(w.session.id, { model: null }, w.admin.id);
+    expect('model' in cleared).toBe(false);
+    expect((await w.store.table('sessions').get(w.session.id))?.model).toBeUndefined();
+  });
+
   it('switch agents by swapping the agent participant', async () => {
     const w = await chatWorld();
     w.catalog.addFn('crm', { name: 'coach', kind: 'hub/llm' });
@@ -139,6 +149,27 @@ describe('session controls', () => {
     expect(w.runs.controlled.map((c) => c.run).sort()).toEqual(['run_a', 'run_c']);
     await settle();
     expect(w.bus.of('session.controls').at(-1)).toEqual({ session: w.session.id, controls });
+  });
+
+  it('are deleted by their owner only, cancelling what runs and taking their messages and state along', async () => {
+    const w = await busy();
+    const bo = await w.user('Bo');
+    await w.store.table('messages').insert({
+      id: IDS.message.parse('msg_1'), session: w.session.id, turn: IDS.turn.parse('trn_busy'), author: w.admin.id, role: 'user', parts: [{ type: 'text', text: 'hi' }], runs: [],
+      status: 'done', replyAll: false, answerers: [], createdAt: 1,
+    });
+    await w.chat.sessions.update(w.session.id, { priority: 'interactive' }, w.admin.id);
+    await expect(w.chat.sessions.delete(w.session.id, bo.id)).rejects.toMatchObject({ code: 'not-found' });
+    expect(await w.chat.sessions.delete(w.session.id, w.admin.id)).toBe(true);
+    expect(w.runs.controlled.map((c) => [c.action, c.run]).sort()).toEqual([['cancel', 'run_a'], ['cancel', 'run_c']]);
+    expect(await w.store.table('sessions').get(w.session.id)).toBeUndefined();
+    expect(await w.store.table('messages').get('msg_1')).toBeUndefined();
+    expect(await w.store.table('priorityRules').get(sessionPriorityRule(w.session.id))).toBeUndefined();
+    // the runs stay, for the admin's history
+    expect(await w.store.table('runs').get('run_d')).toBeDefined();
+    await settle();
+    expect(w.bus.of('session.deleted')).toEqual([{ session: w.session.id, participants: [w.admin.id] }]);
+    await expect(w.chat.sessions.delete(w.session.id, w.admin.id)).rejects.toMatchObject({ code: 'not-found' });
   });
 
   it('offer undo of the last turn once it has ended and nothing runs', async () => {

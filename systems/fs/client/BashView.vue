@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
  * The bash card: the command and where it ran, a live status chip and progress while it runs (with the last line
- * it printed), its output folded until expanded, copy, and "Run again" through the system's `rerun` action.
+ * it printed), its output folded until expanded, copy, and "Run again", which starts a new `bash` run with the same args
+ * (its own card follows in the chat).
  */
 import { isSettled, type FnViewOf } from '@harness/sdk';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import type { fs } from '../shared/index.ts';
-import { deliveryChip, failedOutput, percent, statusChip } from './bash.ts';
+import { failedOutput, percent, statusChip } from './bash.ts';
 import OutputBlock from './OutputBlock.vue';
 import { useRerun } from './rerun.ts';
 
@@ -24,13 +25,12 @@ const where = computed(() => view.args.cwd ?? view.state.cwd);
 const fraction = computed(() => percent(view.progress?.fraction));
 const live = computed(() => view.progress?.message ?? '');
 
-const rerun = useRerun(() => view.system.send.rerun({ command: view.args.command }));
-const rerunChip = computed(() => (rerun.delivery.value === undefined ? undefined : deliveryChip(rerun.delivery.value.status, rerun.result.value?.exitCode)));
+const rerun = useRerun(() => view.system.run.bash({ ...view.args }));
 
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 async function copy(): Promise<void> {
-  const shown = rerun.result.value ?? output.value;
+  const shown = output.value;
   const text = [`$ ${view.args.command}`, shown?.stdout ?? '', shown?.stderr ?? ''].filter((part) => part.trim() !== '').join('\n');
   await navigator.clipboard.writeText(text);
   copied.value = true;
@@ -62,21 +62,17 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); });
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="9" rx="1.5" /><path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H10" /></svg>
         {{ copied ? 'Copied' : 'Copy' }}
       </button>
-      <button type="button" class="action primary" :disabled="rerun.busy.value" @click="rerun.run()">
+      <button type="button" class="action primary" :disabled="rerun.busy.value || !view.system.online" @click="rerun.run()">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" /></svg>
-        Run again
+        {{ rerun.busy.value ? 'Starting…' : 'Run again' }}
       </button>
-      <span v-if="!view.system.online" class="offline">fs is offline; it will run when it reconnects</span>
+      <span v-if="!view.system.online" class="note">fs is offline; Run again works once it reconnects</span>
+      <span v-else-if="rerun.started.value" class="note started" role="status">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" /></svg>
+        Started again below
+      </span>
     </footer>
-
-    <section v-if="rerunChip" class="again" aria-label="Run again">
-      <header class="again-head">
-        <span>Again</span>
-        <span class="chip" :class="rerunChip.tone"><span class="dot" aria-hidden="true" />{{ rerunChip.label }}</span>
-      </header>
-      <OutputBlock v-if="rerun.result.value" :stdout="rerun.result.value.stdout" :stderr="rerun.result.value.stderr" />
-      <p v-if="rerun.error.value" class="problem">{{ rerun.error.value }}</p>
-    </section>
+    <p v-if="rerun.error.value" class="problem" role="alert">{{ rerun.error.value }}</p>
   </article>
 </template>
 
@@ -154,13 +150,13 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); });
 .action:disabled { opacity: 0.5; cursor: default; }
 .action.primary { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 35%, var(--border)); }
 .action svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.offline { color: var(--text-dim); font-size: var(--text-xs); }
-.again { display: grid; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); animation: rise var(--slow) var(--ease); }
-.again-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); color: var(--text-dim); font-size: var(--text-xs); }
+.note { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-dim); font-size: var(--text-xs); }
+.note.started { color: var(--ok); animation: rise var(--slow) var(--ease); }
+.note svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
 @keyframes flow { to { background-position: -200% 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) {
-  .bar, .chip.busy .dot { animation: none; }
+  .bar, .chip.busy .dot, .note.started { animation: none; }
 }
 </style>

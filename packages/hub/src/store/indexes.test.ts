@@ -1,7 +1,8 @@
 import type { IndexedKind } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StoreError } from './errors.ts';
-import { TEST_EMBEDDER, memoryLog, openTestStore, tempDir } from './fixtures.ts';
+import { memoryLog } from '../testing.ts';
+import { TEST_EMBEDDER, openTestStore, tempDir } from './fixtures.ts';
 import { HybridSearch, fuseRanks } from './hybrid.ts';
 import type { TextIndex, VectorIndex } from './index.ts';
 import { SqliteStore } from './sqlite.ts';
@@ -108,12 +109,13 @@ describe('vector index', () => {
     await store.vectors.upsert(TEST_EMBEDDER, []);
   });
 
-  it('refuses unknown embedders and wrong vectors', async () => {
+  it('finds and removes nothing for an embedder with no table, and refuses to store for it or store wrong vectors', async () => {
     const code = (p: Promise<unknown>) => p.then(() => 'no error', (e: unknown) => (e instanceof StoreError ? e.code : 'another error'));
-    expect(await code(store.vectors.nearest('embedder/other', [1, 0, 0], 1))).toBe('unknown-embedder');
+    expect(await store.vectors.nearest('embedder/other', [1, 0, 0], 1)).toEqual([]);
+    expect(await code(store.vectors.upsert('embedder/other', [{ kind: 'fn', key: 'a', vector: [1, 0, 0] }]))).toBe('unknown-embedder');
     expect(await code(store.vectors.upsert(TEST_EMBEDDER, [{ kind: 'fn', key: 'a', vector: [1, 0] }]))).toBe('bad-vector');
     expect(await code(store.vectors.upsert(TEST_EMBEDDER, [{ kind: 'fn', key: 'a', vector: [1, Number.NaN, 0] }]))).toBe('bad-vector');
-    expect(await code(store.vectors.remove('embedder/other', 'fn', ['a']))).toBe('unknown-embedder');
+    expect(await code(store.vectors.remove('embedder/other', 'fn', ['a']))).toBe('no error');
     expect(() => SqliteStore.open({ file: ':memory:', dimensions: { a: 0 }, log: memoryLog().log })).not.toThrow();
     const bad = SqliteStore.open({ file: ':memory:', dimensions: { 'e/x': 1.5 }, log: memoryLog().log });
     await expect(bad.migrate()).rejects.toMatchObject({ code: 'bad-vector' });
@@ -154,9 +156,28 @@ describe('vector index', () => {
     }
   });
 
+  it('remembers tables made by `ensure` when the store opens again', async () => {
+    const tmp = tempDir();
+    try {
+      const file = tmp.file('remember.db');
+      const first = SqliteStore.open({ file, log: memoryLog().log });
+      await first.migrate();
+      await first.vectors.ensure('embedder/later', 2);
+      await first.vectors.upsert('embedder/later', [{ kind: 'fn', key: 'a', vector: [1, 0] }]);
+      await first.close();
+      const again = SqliteStore.open({ file, log: memoryLog().log });
+      await again.migrate();
+      expect((await again.vectors.nearest('embedder/later', [1, 0], 1)).map((h) => h.key)).toEqual(['a']);
+      expect(await again.vectors.ensure('embedder/later', 2)).toBe(false);
+      await again.close();
+    } finally {
+      tmp.dispose();
+    }
+  });
+
   it('makes an embedder’s table at its declared size when asked, and remakes it empty when the size changes', async () => {
     const later = 'embedder/later';
-    await expect(store.vectors.nearest(later, [1, 0], 1)).rejects.toMatchObject({ code: 'unknown-embedder' });
+    expect(await store.vectors.nearest(later, [1, 0], 1)).toEqual([]);
     expect(await store.vectors.ensure(later, 2)).toBe(false);
     expect(await store.vectors.ensure(later, 2)).toBe(false);
     await store.vectors.upsert(later, [{ kind: 'fn', key: 'a', vector: [1, 0] }]);

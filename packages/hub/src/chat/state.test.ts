@@ -59,7 +59,9 @@ describe('session state', () => {
     expect(await w.chat.state.get({ run: bash })).toEqual({ values: { cwd: '/repo' }, version: 1 });
     expect(await w.chat.state.get({ run: odd })).toEqual({ values: {}, version: 0 });
     expect(await w.chat.state.get({ run: git })).toEqual({ values: {}, version: 0 });
-    expect(await w.chat.state.forRun(bash)).toEqual({ cwd: '/repo' });
+    expect(await w.chat.state.forRun(bash)).toEqual({ system: 'fs', fields: [{ name: 'cwd', type: await fieldType(text), value: '/repo' }, { name: 'last', type: await fieldType(num) }] });
+    // a declared field with no value is still listed with its type, so the chat knows which fields belong to the fn
+    expect(await w.chat.state.forRun(odd)).toEqual({ system: 'fs', fields: [{ name: 'cwd', type: await fieldType(num) }] });
   });
 
   it('refuses undeclared fields and values of the wrong type', async () => {

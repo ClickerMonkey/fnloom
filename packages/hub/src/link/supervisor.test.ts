@@ -6,11 +6,11 @@ import { ApiError } from '@ayepi/core';
 import { SystemName, type InstallSource, type Manifest } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, manifestFor, shop, vectors } from '../catalog/fixtures.ts';
-import { settle } from '../catalog/testing.ts';
+import { settle } from '../testing.ts';
 import { StoredKeyPair } from './keys.ts';
 import { NodeInstaller, NodeLauncher, SystemPackageJson, type Installer, type ProcessExit, type ProcessLauncher, type SystemCommand, type SystemPackage, type SystemProcess } from './process.ts';
 import { FakeSystem, linkRig, type LinkRig } from './rig.ts';
-import { SYSTEM_ENV } from '@harness/sdk/server';
+import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
 import { ProcessSupervisor } from './supervisor.ts';
 
 /** A process the test ends by hand. */
@@ -105,7 +105,10 @@ describe('installing', () => {
     expect(launcher.last.command).toMatchObject({
       run: process.execPath,
       args: [join(dir, 'shop', 'versions', '1.0.0', 'server', 'main.ts')],
-      env: { [SYSTEM_ENV.hub]: 'ws://hub:4300/link', [SYSTEM_ENV.state]: join(dir, 'shop', 'state'), [SYSTEM_ENV.name]: 'shop' },
+      env: {
+        [SYSTEM_ENV.hub]: 'ws://hub:4300/link', [SYSTEM_ENV.state]: join(dir, 'shop', 'state'), [SYSTEM_ENV.name]: 'shop',
+        [SYSTEM_ENV.supervised]: 'true', [SYSTEM_ENV.restartCode]: String(RESTART_CODE),
+      },
     });
     expect((await rig.store.table('systems').get('shop'))?.pairedBy).toBe(ADMIN);
 
@@ -172,6 +175,21 @@ describe('running', () => {
     expect(launcher.last.command.args[0]).toContain(join('versions', '1.0.0'));
   });
 
+  it('starts a system that exits with the restart code again at once, without counting a crash', async () => {
+    const sup = supervisor('shop', 1);
+    await sup.install({ source: { package: '@x/shop', version: '1.0.0' }, by: ADMIN });
+    for (let restart = 1; restart <= 3; restart++) {
+      launcher.last.exit(RESTART_CODE);
+      await settle(5);
+      expect(launcher.launched).toHaveLength(restart + 1);
+    }
+    expect((await sup.list())[0]).toMatchObject({ status: 'starting', lastExit: { code: RESTART_CODE } });
+    // a real crash after the restarts is still the first one, so it is restarted too
+    launcher.last.exit(1);
+    await settle(20);
+    expect(launcher.launched).toHaveLength(5);
+  });
+
   it('does not restart a system that exits cleanly, or one it stopped', async () => {
     const sup = supervisor();
     await sup.install({ source: { package: '@x/shop', version: '1.0.0' }, by: ADMIN });
@@ -228,5 +246,11 @@ describe('the Node ports', () => {
     expect(await child.exited).toEqual({ code: 3, output: 'hi there\n' });
     const missing = real.launch({ run: join(dir, 'no-such-binary'), args: [], env: {} });
     expect((await missing.exited).code).toBe(-1);
+  });
+
+  it('runs Node commands with its Node flags first', async () => {
+    const flagged = new NodeLauncher({ baseEnv: { PATH: process.env['PATH'] }, nodeArgs: ['--title=harness-test'] });
+    const child = flagged.launch({ run: process.execPath, args: ['-e', 'console.log(process.title)'], env: {} });
+    expect(await child.exited).toEqual({ code: 0, output: 'harness-test\n' });
   });
 });

@@ -1,16 +1,16 @@
 <script setup lang="ts">
 /**
  * One chat in the list: its title, when it was last active, and a live status dot (working, paused, idle). Its menu
- * renames, archives or restores it. Renaming happens in place: Enter saves, Escape cancels.
+ * renames, archives or restores, or deletes it (the list asks first). Renaming happens in place: Enter saves, Escape cancels.
  */
 import type { SessionSummary } from '@harness/core';
 import { computed, nextTick, ref } from 'vue';
 import { UiIconButton, UiMenu, fullTime, relativeTime, type MenuItem } from '../../ui/index.ts';
 
-type RowAction = 'rename' | 'archive' | 'restore';
+type RowAction = 'rename' | 'archive' | 'restore' | 'delete';
 
 const props = defineProps<{ session: SessionSummary; active: boolean; now: number }>();
-const emit = defineEmits<{ open: []; rename: [title: string]; archive: [archived: boolean] }>();
+const emit = defineEmits<{ open: []; rename: [title: string]; archive: [archived: boolean]; remove: [] }>();
 
 const editing = ref(false);
 const draft = ref('');
@@ -19,6 +19,8 @@ const input = ref<HTMLInputElement | null>(null);
 const items = computed<MenuItem<RowAction>[]>(() => [
   { value: 'rename', label: 'Rename', icon: 'edit' },
   props.session.archived ? { value: 'restore', label: 'Restore', icon: 'refresh' } : { value: 'archive', label: 'Archive', icon: 'archive' },
+  { kind: 'separator' },
+  { value: 'delete', label: 'Delete…', icon: 'trash', danger: true },
 ]);
 const status = computed(() => (props.session.status === 'running' ? 'Working' : props.session.status === 'paused' ? 'Paused' : ''));
 
@@ -30,6 +32,7 @@ async function choose(action: RowAction): Promise<void> {
     input.value?.select();
     return;
   }
+  if (action === 'delete') { emit('remove'); return; }
   emit('archive', action === 'archive');
 }
 

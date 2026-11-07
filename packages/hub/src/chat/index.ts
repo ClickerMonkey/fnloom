@@ -10,8 +10,8 @@
  */
 import type {
   ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
-  MessageId, MessagePart, Notification, NotificationLink, NotificationReason, NotifyChoice, OutgoingPart, Page, Presence, Priority, QualifiedName, RunId,
-  Session, SessionControls, SessionId, SessionSummary, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
+  MessageId, MessagePart, ModelChoice, Notification, NotificationLink, NotificationReason, NotifyChoice, OutgoingPart, Page, Presence, Priority, QualifiedName, RunId,
+  Session, SessionControls, SessionId, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
 } from '@harness/core';
 
 /** Sessions. */
@@ -22,9 +22,14 @@ export interface SessionService {
   /** Change a session. `notify` is the choice of `by` alone; everything else needs `by` to own the session. */
   update(
     session: SessionId,
-    patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; priority?: Priority; archived?: boolean; notify?: NotifyChoice },
+    patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; model?: ModelChoice | null; priority?: Priority; archived?: boolean; notify?: NotifyChoice },
     by: ActorId,
   ): Promise<Session>;
+  /**
+   * Delete a session for good: its owner only. Work still running in it is cancelled first; its messages, session
+   * state, deliveries and its own priority rule go with it. Runs, turns and the ledger stay, for the admin's history.
+   */
+  delete(session: SessionId, by: ActorId): Promise<boolean>;
   /** Messages, newest first. A message still streaming carries the text streamed so far. */
   messages(session: SessionId, viewer: ActorId, query: { cursor?: string; limit?: number }): Promise<Page<ChatMessage>>;
   controls(session: SessionId): Promise<SessionControls>;
@@ -86,8 +91,8 @@ export interface MessageEnricher {
 export interface StateService {
   get(owner: StateOwner): Promise<{ values: Record<string, Json>; version: number }>;
   set(owner: StateOwner, input: { patch: Record<string, Json>; clear: readonly string[]; version?: number }): Promise<{ version: number } | { conflict: true }>;
-  /** The fields a run's fn declared, for its renderer's first draw. */
-  forRun(run: RunId): Promise<Record<string, Json>>;
+  /** Every field a run's fn declared, with its type and current value (if any), for its renderer's first draw. */
+  forRun(run: RunId): Promise<{ system: SystemName; fields: StateFieldValue[] }>;
   /** Put back what a run changed (undo). */
   revert(run: RunId): Promise<void>;
 }

@@ -13,6 +13,7 @@ import { useStores } from '../../state/stores.ts';
 import { UiButton, UiEmpty, UiModal, useMediaQuery } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import { COMPACT_QUERY } from '../../state/layout.ts';
+import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import LlmCallDetails from '../components/LlmCallDetails.vue';
 import PanelFrame from '../components/PanelFrame.vue';
 import PanelHost from '../components/PanelHost.vue';
@@ -89,13 +90,36 @@ async function archive(id: SessionId, archived: boolean): Promise<void> {
   toasts.ok(archived ? 'Archived' : 'Restored');
 }
 
+/** The chat waiting for the person to confirm its deletion. */
+const deleting = shallowRef<SessionId | undefined>(undefined);
+const deletingOpen = computed({ get: () => deleting.value !== undefined, set: (open) => { if (!open) { deleting.value = undefined; } } });
+const deletingTitle = computed(() => (deleting.value === undefined ? '' : (sessions.find(deleting.value)?.title ?? thread.value?.session.value?.title ?? 'this chat')));
+const removing = ref(false);
+
+function askRemove(id: SessionId): void {
+  deleting.value = id;
+}
+
+/** Delete the chat being confirmed; leaving it when it is the one open. */
+async function remove(): Promise<void> {
+  const id = deleting.value;
+  if (id === undefined) { return; }
+  removing.value = true;
+  const done = await sessions.remove(id);
+  removing.value = false;
+  deleting.value = undefined;
+  if (!done) { toasts.error("Couldn't delete that chat", sessions.problem.value); return; }
+  toasts.ok('Chat deleted');
+  if (url.session.value === id) { url.go(undefined); }
+}
+
 /** The list's state and moves, the same wherever it is drawn (its column, the drawer, the page on a phone). */
 const listBind = computed(() => ({
   items: sessions.items.value, search: sessions.search.value, archived: sessions.archived.value, loading: sessions.loading.value, loaded: sessions.loaded.value,
   problem: sessions.problem.value, hasMore: sessions.hasMore.value, loadingMore: sessions.loadingMore.value, creating: sessions.creating.value, now: now.value,
 }));
 const listOn = {
-  open, create, search, archived: showArchived, rename, archive, more: () => { void sessions.loadMore(); }, retry: () => { void sessions.load(); },
+  open, create, search, archived: showArchived, rename, archive, remove: askRemove, more: () => { void sessions.loadMore(); }, retry: () => { void sessions.load(); },
 };
 
 function step(by: number): void {
@@ -139,7 +163,7 @@ const panelSubtitle = computed(() => {
     case 'run': return runView.value?.fn ?? '';
     case 'llm': return llmCall.value?.model ?? '';
     case 'resource': return url.resource.value ?? '';
-    default: return '';
+    case 'details': case 'tree': case 'panel': case undefined: return '';
   }
 });
 
@@ -220,7 +244,7 @@ onBeforeUnmount(() => {
         v-if="url.session.value" ref="pane" :key="url.session.value" :session="url.session.value" :compact="compact" :narrow="roomy && panelOpen" :nav="shellCompact" :flash="url.message.value"
         @run="url.open('run', $event)" @llm="url.open('llm', $event)" @details="url.open('details', $event)" @tree="url.openTree($event)"
         @resource="url.open('resource', $event)" @panel="url.open('panel', $event)" @sessions="listOpen = true" @nav="layout.drawerOpen.value = true" @new-chat="create"
-        @message="showMessage" @shortcuts="shortcutsOpen = true"
+        @message="showMessage" @shortcuts="shortcutsOpen = true" @remove="url.session.value && askRemove(url.session.value)"
       />
       <SessionList v-else-if="phone" ref="list" class="home-list" v-bind="listBind" v-on="listOn" />
       <div v-else class="start" :class="{ split: compact }">
@@ -253,13 +277,19 @@ onBeforeUnmount(() => {
         />
         <SessionSettings
           v-else-if="url.top.value === 'panel' && record && thread" :session="record" :systems="chat.capabilities.value.value?.systems ?? []" :notify="thread.notify.value"
-          :agent="agentName(record.agent)" :priority="thread.limits.value?.priority" :name-of="nameOf" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
-          @priority="thread.update({ priority: $event })"
+          :agent="agentName(record.agent)" :agents="chat.capabilities.value.value?.agents ?? []" :models="chat.capabilities.value.value?.models ?? []"
+          :priority="thread.limits.value?.priority" :name-of="nameOf" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
+          @priority="thread.update({ priority: $event })" @agent="thread.update({ agent: $event })" @model="thread.update({ model: $event })"
         />
       </PanelFrame>
     </PanelHost>
 
     <ShortcutsDialog v-model:open="shortcutsOpen" />
+    <ConfirmDialog
+      v-model:open="deletingOpen" :title="`Delete “${deletingTitle}”?`" confirm="Delete chat" :busy="removing" data-testid="confirm-delete"
+      body="Its messages and what its fns kept in this chat go for good. Work still running in it is stopped. Changes fns already made stay."
+      @confirm="remove"
+    />
   </div>
 </template>
 

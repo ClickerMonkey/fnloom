@@ -184,6 +184,8 @@ export const RunUpdate = z.discriminatedUnion('type', [
   z.object({ type: z.literal('progress'), progress: ProgressWire }),
   z.object({ type: z.literal('allowed'), operations: AllowedOperations }),
   z.object({ type: z.literal('cost'), cost: Usd, total: Usd }),
+  /** The run went to the background: whoever called it stopped waiting, and its result is posted when it settles. */
+  z.object({ type: z.literal('background') }),
 ]);
 export type RunUpdate = z.infer<typeof RunUpdate>;
 

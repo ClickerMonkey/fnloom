@@ -16,7 +16,7 @@ import type { Catalog } from '../catalog/index.ts';
 import type {
   ApproverDirectory, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, TurnService, UndoService,
 } from '../chat/index.ts';
-import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, RunService } from '../execution/index.ts';
+import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, ProviderService, RunService } from '../execution/index.ts';
 import type { Embedders, Indexer, Search, Suggester } from '../index/index.ts';
 import type { ConfigService, LinkService, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens } from '../link/index.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
@@ -45,7 +45,7 @@ export interface HubServices {
   };
   readonly execution: {
     readonly runs: RunService; readonly agents: AgentLoop; readonly llm: LlmGateway; readonly limits: LimitResolver; readonly ledger: Ledger;
-    readonly policies: PolicyEngine; readonly handlers: HandlerAnswers;
+    readonly policies: PolicyEngine; readonly handlers: HandlerAnswers; readonly providers: ProviderService;
   };
   readonly chat: {
     readonly sessions: SessionService; readonly turns: TurnService; readonly reply: ReplyRule; readonly enrich: MessageEnricher;
@@ -56,7 +56,7 @@ export interface HubServices {
   readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault };
 }
 
-/** The updown component names, in start order. One const so a misspelt dependency can't compile. */
+/** The updown component names, in start order. The lifecycle is typed by them, so a misspelt name or dependency cannot compile. */
 export const COMPONENTS = {
   log: 'log',
   store: 'store',

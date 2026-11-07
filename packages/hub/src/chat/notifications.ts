@@ -4,10 +4,14 @@
  * the replies and finished turns chat itself reports, it turns hub events into notifications: approvals and input a
  * person must give, pairings waiting for an admin, systems that went away or need config, and budgets that say `ask`
  * when they are used up (admins are asked to raise them).
+ *
+ * An action item resolves itself once what it asked for has happened (the approval was decided, the question
+ * answered, the pairing approved, the system connected, or the run ended first): it is marked read and keeps a
+ * past-tense note of what became of it, so the bell counts only what still needs someone.
  */
 import {
-  mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationLink, type NotificationReason, type Page,
-  type PairingRequest, type RunId, type SystemName, type SystemStatus,
+  isSettled, mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationLink, type NotificationReason,
+  type Page, type PairingRequest, type RunId, type RunStatus, type SystemName, type SystemStatus,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
@@ -22,6 +26,18 @@ const REMEMBERED = 2_000;
 
 /** Notifications per page when a request gives no limit. */
 const PAGE = 30;
+
+/** How many of the newest notifications of a reason are checked when something resolves them. */
+const RESOLVE_WINDOW = 200;
+
+/** The words for what became of an approval, a question, a pairing or a run once nobody needs to act on it. */
+const APPROVAL_END = { approved: 'Approved', denied: 'Denied', expired: 'Timed out' } as const satisfies Record<Exclude<Approval['status'], 'pending'>, string>;
+const HANDLER_END = { answered: 'Answered', failed: 'No longer needed' } as const satisfies Record<Exclude<HandlerCall['status'], 'pending'>, string>;
+const PAIRING_END = { approved: 'Paired', rejected: 'Rejected', expired: 'Expired' } as const satisfies Record<Exclude<PairingRequest['status'], 'pending'>, string>;
+const RUN_END = { done: 'Run finished', failed: 'Run failed', cancelled: 'Run cancelled', undone: 'Run undone' } as const satisfies Record<Extract<RunStatus, 'done' | 'failed' | 'cancelled' | 'undone'>, string>;
+
+/** The action items about a run, which end when it does. */
+const RUN_ITEMS = ['approval-needed', 'input-needed', 'spend-limit'] as const satisfies readonly NotificationReason[];
 
 /** An insertion-ordered set that forgets its oldest entries past a size. */
 class RecentSet {
@@ -117,6 +133,11 @@ export class StoreNotifications implements NotificationService {
       bus.subscribe('pairing', (e) => { this.#guard('pairing', this.#pairing(e.pairing)); }),
       bus.subscribe('system.status', (e) => { this.#guard('system', this.#system(e.system, e.status)); }),
       bus.subscribe('budget.reached', (e) => { this.#guard('budget', this.#budget(e.budget, e.run, e.reason)); }),
+      bus.subscribe('run.update', (e) => {
+        if (e.update.type === 'status' && isSettled(e.update.status)) {
+          this.#guard('run', this.#resolve(RUN_ITEMS, (link) => 'run' in link && link.run === e.run, RUN_END[e.update.status]));
+        }
+      }),
     ];
     return () => { for (const stop of stops) { stop(); } };
   }
@@ -125,26 +146,62 @@ export class StoreNotifications implements NotificationService {
     work.catch((error: unknown) => { this.#deps.log.error('chat.notification.event.failed', { event, error: messageOf(error) }); });
   }
 
+  /**
+   * Resolve the open action items of some reasons whose link matches: each is marked read with what became of it,
+   * and published again so open inboxes update.
+   */
+  async #resolve(reasons: readonly NotificationReason[], matches: (link: NotificationLink) => boolean, outcome: string): Promise<void> {
+    const table = this.#deps.store.table('notifications');
+    for (const reason of reasons) {
+      const { items } = await table.find({ where: { reason }, order: [['createdAt', 'desc']], limit: RESOLVE_WINDOW });
+      for (const row of items) {
+        if (row.resolved !== undefined || !matches(row.link)) { continue; }
+        const resolved = await table.update(row.id, { read: true, resolved: outcome });
+        this.#deps.bus.publish('notification', { notification: resolved });
+      }
+    }
+  }
+
   async #approval(approval: Approval, approvers: readonly ActorId[]): Promise<void> {
-    if (approval.status !== 'pending' || !this.#seen.add(`approval:${approval.id}`)) { return; }
+    if (approval.status !== 'pending') {
+      await this.#resolve(['approval-needed'], (link) => 'run' in link && link.run === approval.run, APPROVAL_END[approval.status]);
+      return;
+    }
+    if (!this.#seen.add(`approval:${approval.id}`)) { return; }
     for (const user of approvers) {
       await this.notify({ user, reason: 'approval-needed', title: `Approve ${approval.fn}?`, body: `A run is waiting for your approval to call ${approval.fn}.`, link: { run: approval.run } });
     }
   }
 
   async #handler(call: HandlerCall): Promise<void> {
-    if (call.status !== 'pending' || !('user' in call.answerer) || !this.#seen.add(`handler:${call.id}`)) { return; }
+    if (call.status !== 'pending') {
+      await this.#resolve(['input-needed'], (link) => 'run' in link && link.run === call.run, HANDLER_END[call.status]);
+      return;
+    }
+    if (!('user' in call.answerer) || !this.#seen.add(`handler:${call.id}`)) { return; }
     await this.notify({ user: call.answerer.user, reason: 'input-needed', title: 'Your answer is needed', body: call.decl.description, link: { run: call.run } });
   }
 
   async #pairing(pairing: PairingRequest): Promise<void> {
-    if (pairing.status !== 'pending' || !this.#seen.add(`pairing:${pairing.id}`)) { return; }
+    if (pairing.status !== 'pending') {
+      await this.#resolve(['pairing-requested'], (link) => 'pairing' in link && link.pairing === pairing.id, PAIRING_END[pairing.status]);
+      return;
+    }
+    if (!this.#seen.add(`pairing:${pairing.id}`)) { return; }
     await this.#admins((user) => this.notify({
       user, reason: 'pairing-requested', title: `${pairing.name} wants to pair`, body: `From ${pairing.address}. Check the code before approving.`, link: { pairing: pairing.id },
     }));
   }
 
   async #system(system: SystemName, status: SystemStatus): Promise<void> {
+    const about = (link: NotificationLink): boolean => 'system' in link && link.system === system;
+    if (status === 'connected' || status === 'removed') {
+      await this.#resolve(['config-needed', 'system-disconnected'], about, status === 'connected' ? 'Connected' : 'Removed');
+      return;
+    }
+    // a system that went away no longer needs config until it is back; one that needs config is no longer just gone
+    if (status === 'disconnected') { await this.#resolve(['config-needed'], about, 'Disconnected'); }
+    if (status === 'needs-config') { await this.#resolve(['system-disconnected'], about, 'Reconnected'); }
     if (status !== 'disconnected' && status !== 'needs-config') { return; }
     const reason = status === 'disconnected' ? 'system-disconnected' : 'config-needed';
     const body = status === 'disconnected' ? 'Its fns are unavailable until it connects again.' : 'It connected without a valid config, so it can\'t be used yet.';

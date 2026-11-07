@@ -10,7 +10,7 @@ import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
 import { isSettled } from '@harness/core';
-import { argSummary, isActive, resultBrief, runElapsed, runError, runResult, runText, type RunView } from '../logic/runs.ts';
+import { argSummary, isBusy, resultBrief, runElapsed, runError, runResult, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
   now: number;
   collapsed: boolean;
   /** The fn's renderer and its props, when its system has one. */
-  view?: RenderView | undefined;
+  view?: RenderView<'fn'> | undefined;
   /** Who started it, when it wasn't the agent ("You ran this"). */
   byline?: string;
 }>(), { view: undefined, byline: '' });
@@ -33,7 +33,8 @@ const about = computed(() => argSummary(props.run.args));
 const error = computed(() => runError(props.run));
 const result = computed(() => runResult(props.run));
 const elapsed = computed(() => runElapsed(props.run, props.now));
-const active = computed(() => isActive(props.run.status));
+const active = computed(() => isBusy(props.run));
+const status = computed(() => shownStatus(props.run));
 const brief = computed(() => resultBrief(result.value));
 const showStatus = computed(() => !isSettled(props.run.status) || props.run.background || props.byline !== '');
 const showResult = computed(() => props.view === undefined && brief.value !== '' && props.run.status === 'done');
@@ -43,12 +44,12 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 
 <template>
   <article
-    class="run-card" :class="[`status-${run.status}`, { active, collapsed }]" data-testid="run-card" :data-run="run.id" :data-status="run.status"
+    class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true }]" data-testid="run-card" :data-run="run.id" :data-status="status"
     :aria-label="`${label}: ${runText(run)}`"
   >
     <header class="line">
       <button type="button" class="summary" :aria-expanded="collapsed ? 'false' : 'true'" @click="emit('open')">
-        <RunDot :status="run.status" />
+        <RunDot :status="status" />
         <span class="label">{{ label }}</span>
         <span v-if="error" class="about error-text" :title="error.message">{{ error.message }}</span>
         <span v-else-if="about !== ''" class="about" :title="about">{{ about }}</span>
@@ -62,12 +63,12 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
       <UiIconButton size="sm" :icon="collapsed ? 'chevron-down' : 'chevron-up'" :label="collapsed ? 'Expand' : 'Collapse'" @click="emit('toggle', !collapsed)" />
     </header>
     <div v-if="!collapsed && hasBody" class="body">
-      <p v-if="showStatus" class="status" :class="{ shimmer: active }" data-testid="run-status">
-        <span v-if="byline !== ''" class="byline">{{ byline }} · </span>{{ runText(run) }}
-        <span v-if="run.background" class="tag"><UiIcon name="arrow-right" :size="12" /> background</span>
+      <p v-if="showStatus" class="status" data-testid="run-status">
+        <span v-if="byline !== ''" class="byline">{{ byline }} · </span><span :class="{ shimmer: active }">{{ runText(run) }}</span>
+        <span v-if="run.background" class="tag" data-testid="background-tag"><UiIcon name="arrow-right" :size="12" /> background</span>
       </p>
       <RunProgress v-if="run.progress && !isSettled(run.status)" :progress="run.progress" />
-      <RendererHost v-if="view" :component="view.component" :props="view.props" :label="label" @inspect="emit('open')" />
+      <RendererHost v-if="view" :view="view" :label="label" @inspect="emit('open')" />
       <pre v-else-if="showResult" class="result">{{ brief }}</pre>
     </div>
   </article>
@@ -80,7 +81,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 }
 .run-card.active { border-color: var(--accent-soft-strong); box-shadow: 0 0 0 3px var(--accent-soft); animation: ui-rise-in var(--medium) var(--ease), card-glow 2.4s var(--ease-in-out) infinite; }
 .run-card.status-failed { border-color: var(--danger-soft); }
-.run-card.status-awaiting-approval { border-color: var(--warn-soft); }
+.run-card.status-awaiting-approval, .run-card.asking { border-color: var(--warn-soft); }
 .run-card.status-done { animation: ui-rise-in var(--medium) var(--ease); }
 @keyframes card-glow { 0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); } 50% { box-shadow: 0 0 0 1px var(--accent-soft); } }
 .line { display: flex; align-items: center; gap: var(--space-1); min-width: 0; padding: 2px var(--space-1) 2px 0; }
@@ -98,7 +99,10 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 .body { display: grid; gap: var(--space-2); min-width: 0; padding: 0 var(--space-3) var(--space-3); }
 .status { margin: 0; color: var(--text-dim); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .byline { color: var(--text-faint); }
-.tag { display: inline-flex; align-items: center; gap: 2px; margin-left: var(--space-2); padding: 0 6px; border-radius: var(--radius-full); background: var(--surface-2); font-size: var(--text-xs); }
+.tag {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: var(--space-2); padding: 0 6px; border-radius: var(--radius-full);
+  background: var(--surface-2); color: var(--text-dim); font-size: var(--text-xs); vertical-align: 1px;
+}
 .shimmer {
   background: linear-gradient(90deg, var(--text-dim) 40%, var(--text-faint) 50%, var(--text-dim) 60%) 0 0 / 300% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent; animation: ui-shimmer 2.2s linear infinite;

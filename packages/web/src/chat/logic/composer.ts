@@ -4,7 +4,8 @@
  * a command), the placeholder that names only the powers the hub offers, and editing text at the caret. Pure, so it
  * is tested alone.
  */
-import type { ChatCapabilities, OutgoingPart } from '@harness/core';
+import type { ChatCapabilities, GinTypeDef, Json, OutgoingPart, QualifiedName } from '@harness/core';
+import { humanize } from './labels.ts';
 
 /** A mention picked into the draft. Its chip is `@label` in the text; deleting that text drops it. */
 export type DraftMention = Extract<OutgoingPart, { type: 'mention' }>;
@@ -14,6 +15,33 @@ export type Command = ChatCapabilities['commands'][number];
 
 /** A fn the person may run with `!`. */
 export type Invocation = ChatCapabilities['invocations'][number];
+
+/** A method of a named type that a hover card offers on the hovered value. */
+export type Method = ChatCapabilities['methods'][number];
+
+/** A method as a hover card offers it: its words, and the args it takes besides `self` (undefined when none). */
+export interface MethodOffer {
+  readonly fn: QualifiedName;
+  readonly label: string;
+  readonly description: string;
+  readonly own: GinTypeDef | undefined;
+}
+
+/** A method's own args: its args type without `self`, or undefined when `self` is all it takes. */
+export function ownArgs(args: GinTypeDef): GinTypeDef | undefined {
+  const rest = Object.entries(args.props ?? {}).filter(([key]) => key !== 'self');
+  return args.name !== 'obj' || rest.length === 0 ? undefined : { ...args, props: Object.fromEntries(rest) };
+}
+
+/** The methods a hover card offers for a thing of a named type. */
+export function methodsOf(methods: readonly Method[], type: QualifiedName | undefined): MethodOffer[] {
+  return type === undefined ? [] : methods.filter((m) => m.type === type).map((m) => ({ fn: m.fn, label: humanize(m.method), description: m.description, own: ownArgs(m.args) }));
+}
+
+/** A method's args: the form's answer (its own args) with the value it runs on as `self`. */
+export function methodArgs(own: Json, self: Json): Json {
+  return { ...(own !== null && typeof own === 'object' && !Array.isArray(own) ? own : {}), self };
+}
 
 /** What the text at the caret asks for: a picker, and the span of text a pick replaces. */
 export interface Trigger {

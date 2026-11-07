@@ -3,14 +3,15 @@
  * Mounts a system's renderer and keeps the message safe from it: a renderer that throws shows a quiet placeholder
  * ("Couldn't show this", with Inspect) instead, the error is logged once, and the rest of the thread keeps working.
  */
-import { onErrorCaptured, ref, watch, type Component } from 'vue';
+import { onErrorCaptured, ref, watch } from 'vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
+import type { RenderView } from './types.ts';
 
-const props = defineProps<{ component: Component; props: Readonly<Record<string, unknown>>; label: string }>();
+const props = defineProps<{ view: RenderView; label: string }>();
 const emit = defineEmits<{ failed: [error: unknown]; inspect: [] }>();
 const broken = ref(false);
 
-watch(() => props.component, () => { broken.value = false; });
+watch(() => props.view.component, () => { broken.value = false; });
 
 onErrorCaptured((error) => {
   if (!broken.value) {
@@ -28,7 +29,7 @@ onErrorCaptured((error) => {
     <span class="text">Couldn't show this {{ label }}.</span>
     <UiButton size="sm" variant="ghost" @click="emit('inspect')">Inspect</UiButton>
   </div>
-  <div v-else class="host" data-testid="renderer"><component :is="component" v-bind="props.props" /></div>
+  <div v-else class="host" data-testid="renderer"><component :is="view.component" v-bind="view.props" /></div>
 </template>
 
 <style scoped>

@@ -106,6 +106,39 @@ describe('notifications from hub events', () => {
     expect(await reasons(w.admin.id)).toHaveLength(3);
   });
 
+  it('resolve action items once what they asked for has happened, keeping what became of them', async () => {
+    const w = await chatWorld();
+    const stop = w.chat.start();
+    const pairing: PairingRequest = {
+      id: IDS.pairing.parse('par_1'), name: SystemName.parse('crm'), keyFingerprint: 'f', publicKey: 'k', version: '1', address: '10.0.0.2', method: 'code', code: '1234', status: 'pending', createdAt: 0, expiresAt: 1,
+    };
+    const call: HandlerCall = {
+      id: IDS.handlerCall.parse('hcl_1'), run: IDS.run.parse('run_2'), handler: 'confirm', args: {}, decl: { description: 'Run it?', args: gin({ name: 'any' }), returns: gin({ name: 'bool' }) },
+      answerer: { user: w.admin.id }, status: 'pending', createdAt: 0,
+    };
+    w.bus.publish('approval', { approval: approval(), approvers: [w.admin.id] });
+    w.bus.publish('handler', { call });
+    w.bus.publish('pairing', { pairing });
+    w.bus.publish('system.status', { system: SystemName.parse('fs'), status: 'needs-config' });
+    w.bus.publish('system.status', { system: SystemName.parse('git'), status: 'needs-config' });
+    await settle();
+    expect((await w.chat.notifications.list(w.admin.id, { unread: true })).items).toHaveLength(5);
+
+    w.bus.publish('approval', { approval: approval('approved'), approvers: [w.admin.id] });
+    w.bus.publish('pairing', { pairing: { ...pairing, status: 'approved' } });
+    w.bus.publish('system.status', { system: SystemName.parse('fs'), status: 'connected' });
+    // the run asking the question ended (it timed out) before anyone answered
+    w.bus.publish('run.update', { run: call.run, fn: 'fs/bash', update: { type: 'status', status: 'failed' } });
+    await settle();
+    const items = (await w.chat.notifications.list(w.admin.id, {})).items;
+    const outcome = (reason: string): string | undefined => items.find((n) => n.reason === reason && !('system' in n.link && n.link.system === 'git'))?.resolved;
+    expect([outcome('approval-needed'), outcome('input-needed'), outcome('pairing-requested'), outcome('config-needed')]).toEqual(['Approved', 'Run failed', 'Paired', 'Connected']);
+    // only git still needs someone
+    expect((await w.chat.notifications.list(w.admin.id, { unread: true })).items.map((n) => n.title)).toEqual(['git needs config']);
+    expect(w.bus.of('notification').filter((e) => e.notification.resolved !== undefined)).toHaveLength(4);
+    stop();
+  });
+
   it('ask admins once to raise a budget that says ask, linking the waiting run', async () => {
     const w = await chatWorld();
     await w.user('Bo');

@@ -7,13 +7,14 @@
  *   renderers share the chat's Vue.
  * - **Lookup.** Renderers by fn (falling back to the fn's kind), attachment, input type, mention provider and resource
  *   format. Resource viewers are shared by format across systems.
- * - **Talking back.** `systemClient(name)` is what renderers get as `system`: `online`, live, and `send.<action>(input)`,
- *   whose input and result are checked with the contract's gin types. `submit(run, value)` sends a form the same way.
+ * - **Talking back.** `systemClient(name)` is what renderers get as `system`: `online`, live, `send.<action>(input)`,
+ *   whose input and result are checked with the contract's gin types, and `run.<fn>(args)`, which starts a run of one
+ *   of the system's fns in the session, its args checked the same way. `submit(run, value)` sends a form the same way.
  *   Each send is a `Delivery` whose `status` is reactive.
  *
  * This module is browser code: it imports Vue and the SDK's contract builders, nothing from Node.
  */
-import { DeliveryStatus, type DeliveryId, type Json, type QualifiedName, type RunId } from '@harness/core';
+import { DeliveryStatus, qualify, type DeliveryId, type Json, type QualifiedName, type RunId } from '@harness/core';
 import { reactive, type Component } from 'vue';
 import type { ClientModule, Delivery, SystemClient } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
@@ -25,6 +26,8 @@ export interface ClientBridge {
   online(system: string): boolean;
   /** Store an action with the hub; resolves with its delivery id. */
   act(input: { system: string; action: string; input: Json; run?: RunId }): Promise<DeliveryId>;
+  /** Start a run of a fn in the session, as `!fn` does; resolves with the run's id. */
+  invoke(input: { fn: QualifiedName; args: Json }): Promise<RunId>;
   /** Store a form submission for a waiting run; resolves with its delivery id. */
   submit(input: { run: RunId; value: Json }): Promise<DeliveryId>;
   /** Follow a delivery: `status` on every change; resolves with its result once done, rejects when it fails or expires. */
@@ -62,6 +65,9 @@ type Section = 'fns' | 'kinds' | 'attachments' | 'inputs' | 'mentions';
 interface Registered {
   readonly renderers: { readonly [S in Section]: Readonly<Record<string, AnyRenderer | undefined>> };
   readonly actions: ContractShape['actions'];
+  readonly fns: ContractShape['fns'];
+  /** Each fn's declared form type, by local name; undefined for a fn without one. */
+  readonly forms: Readonly<Record<string, GinType | undefined>>;
 }
 
 /** Erase a module's contract types. Every typed renderer is a Vue component, which is all the chat needs to mount it. */
@@ -70,6 +76,8 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
   return {
     renderers: { fns: r.fns ?? {}, kinds: r.kinds ?? {}, attachments: r.attachments ?? {}, inputs: r.inputs ?? {}, mentions: r.mentions ?? {} },
     actions: module.contract.defs.actions,
+    fns: module.contract.defs.fns,
+    forms: Object.fromEntries(Object.entries(module.contract.defs.fns).map(([name, def]) => [name, def.form])),
   };
 }
 
@@ -77,7 +85,7 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
 export class ClientRuntime {
   readonly #bridge: ClientBridge;
   readonly #modules = new Map<string, Registered>();
-  readonly #viewers = new Map<string, AnyRenderer>();
+  readonly #viewers = new Map<string, { readonly viewer: AnyRenderer; readonly system: string }>();
   readonly #clients = new Map<string, SystemClient<ContractShape>>();
 
   constructor(bridge: ClientBridge) {
@@ -89,7 +97,7 @@ export class ClientRuntime {
     this.#modules.set(module.system, erase(module));
     for (const key of this.#clients.keys()) { if (key === module.system || key.startsWith(`${module.system} `)) { this.#clients.delete(key); } }
     const viewers: Readonly<Record<string, AnyRenderer>> = module.renderers.resources ?? {};
-    for (const [format, viewer] of Object.entries(viewers)) { this.#viewers.set(format, viewer); }
+    for (const [format, viewer] of Object.entries(viewers)) { this.#viewers.set(format, { viewer, system: module.system }); }
   }
 
   /** Import a system's built module from its URL and register it. */
@@ -128,7 +136,12 @@ export class ClientRuntime {
 
   /** The viewer for a resource format, from whichever system registered one. */
   resourceViewer(format: string): AnyRenderer | undefined {
-    return this.#viewers.get(format);
+    return this.#viewers.get(format)?.viewer;
+  }
+
+  /** The system whose viewer draws a resource format; its client is the viewer's `system`. */
+  viewerSystem(format: string): string | undefined {
+    return this.#viewers.get(format)?.system;
   }
 
   /**
@@ -146,7 +159,11 @@ export class ClientRuntime {
       action,
       (input: unknown) => this.#deliver((json) => parseValue(def.returns, json), () => bridge.act({ system, action, input: encodeValue(def.input, input), ...from })),
     ]));
-    const client: SystemClient<ContractShape> = { get online() { return bridge.online(system); }, send };
+    const runs = Object.fromEntries(Object.entries(module?.fns ?? {}).map(([fn, def]) => [
+      fn,
+      (args: unknown) => Promise.resolve().then(() => bridge.invoke({ fn: qualify(system, fn), args: encodeValue(def.args, args) })),
+    ]));
+    const client: SystemClient<ContractShape> = { get online() { return bridge.online(system); }, send, run: runs };
     this.#clients.set(key, client);
     return client;
   }
@@ -155,6 +172,16 @@ export class ClientRuntime {
   submit<T>(run: RunId, form: GinType<T>, value: T): Delivery<void> {
     const encoded = encodeValue(form, value);
     return this.#deliver(() => undefined, () => this.#bridge.submit({ run, value: encoded }));
+  }
+
+  /**
+   * What a fn's renderer gets as `submit`: sends its form to the run, checked with the fn's declared form type.
+   * Undefined when the fn declares no form, or its system's module isn't loaded.
+   */
+  formSubmit(fn: QualifiedName, run: RunId): ((value: unknown) => Delivery<void>) | undefined {
+    const at = fn.indexOf('/');
+    const form = this.#modules.get(fn.slice(0, at))?.forms[fn.slice(at + 1)];
+    return form === undefined ? undefined : (value) => this.submit(run, form, value);
   }
 
   #lookup(name: QualifiedName, section: Section): AnyRenderer | undefined {

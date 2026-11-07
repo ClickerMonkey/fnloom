@@ -4,7 +4,7 @@
  * event channel a test pushes into, a file sender, a recorder, and the chat store built on them.
  */
 import {
-  ActorId, Approval, ChatCapabilities, ChatMessage, DeliveryId, HandlerCall, LlmInteraction, Run, RunId, Session, SessionSummary, TreeNode, TurnId, UndoReport,
+  ActorId, Approval, ChatCapabilities, ChatMessage, DeliveryId, HandlerCall, LlmInteraction, Run, RunId, Session, SessionSummary, SystemName, TreeNode, TurnId, UndoReport,
   type SessionEvent, type SessionId,
 } from '@harness/core';
 import { fakeCaller, memoryStore } from '../../test/fakes.ts';
@@ -89,8 +89,16 @@ export function llmCall(overrides: Loose<LlmInteraction> = {}): LlmInteraction {
 export function capabilities(overrides: Loose<ChatCapabilities> = {}): ChatCapabilities {
   return ChatCapabilities.parse({
     voiceInput: true, voiceOutput: false, uploads: true,
-    mentions: [{ provider: 'fs/files', title: 'Files' }],
+    mentions: [{ provider: 'fs/files', title: 'Files', of: 'fs/Entry' }],
+    methods: [
+      { type: 'fs/Entry', method: 'reveal', fn: 'fs/Entry.reveal', description: 'Show it in the file manager', args: { name: 'obj', props: { self: { type: { name: 'fs/Entry' } } } } },
+      {
+        type: 'fs/Entry', method: 'rename', fn: 'fs/Entry.rename', description: 'Rename it',
+        args: { name: 'obj', props: { self: { type: { name: 'fs/Entry' } }, to: { type: { name: 'text' } } } },
+      },
+    ],
     commands: [{ name: 'tree', context: 'fs/tree', args: [{ name: 'root', hint: 'Folder to start from', required: false }], description: 'Show the file tree' }],
+    agents: [{ fn: 'hub/chat', description: 'The chat agent.' }, { fn: 'fs/explore', description: 'Explores the files.' }],
     invocations: [{
       fn: 'fs/edit', description: 'Edit a file',
       args: { name: 'obj', props: { path: { type: { name: 'text', options: { minLength: 1 } } }, find: { type: { name: 'text' } }, replace: { type: { name: 'text' } } } },
@@ -139,7 +147,8 @@ export function fakeChatApi() {
     transcribe: fakeCaller<'transcribe'>(() => Promise.resolve(({ text: 'dictated words' }))),
     act: fakeCaller<'act'>(() => Promise.resolve(({ delivery: DeliveryId.parse('dlv_act') }))),
     submit: fakeCaller<'submit'>(() => Promise.resolve(({ delivery: DeliveryId.parse('dlv_form') }))),
-    state: fakeCaller<'state'>(() => Promise.resolve(({ values: {} }))),
+    deleteSession: fakeCaller<'deleteSession'>(() => Promise.resolve({ deleted: true })),
+    state: fakeCaller<'state'>(() => Promise.resolve({ system: SystemName.parse('fs'), fields: [] })),
   };
 }
 

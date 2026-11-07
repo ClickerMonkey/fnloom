@@ -32,7 +32,9 @@ function issueText(issue: z.core.$ZodIssue): string {
     case 'too_big': return issue.origin === 'string' ? `At most ${Number(issue.maximum)} characters.` : `At most ${Number(issue.maximum)}.`;
     case 'invalid_format': return issue.format === 'email' ? 'Enter an email address.' : issue.format === 'url' ? 'Enter a web address.' : 'Check the format.';
     case 'invalid_type': return 'Required.';
-    default: return 'Check this value.';
+    case 'invalid_value': case 'invalid_union': case 'invalid_key': case 'invalid_element': case 'not_multiple_of':
+    case 'unrecognized_keys': case 'custom':
+      return 'Check this value.';
   }
 }
 

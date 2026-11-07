@@ -145,7 +145,13 @@ export class SystemStore {
 
   #onEvent(event: UserEvent): void {
     const view = this.view.value.value;
-    if (event.type !== 'system' || view === undefined || event.system !== view.name) { return; }
-    this.view.set({ ...view, status: event.status });
+    if (view === undefined || (event.type !== 'system' && event.type !== 'fn') || event.system !== view.name) { return; }
+    if (event.type === 'system') {
+      this.view.set({ ...view, status: event.status });
+      return;
+    }
+    // a run of one of this system's fns settled: its numbers change in place
+    const fns = this.fns.value.value;
+    if (fns?.some((fn) => fn.name === event.fn) === true) { this.fns.set(fns.map((fn) => (fn.name === event.fn ? { ...fn, stats: event.stats } : fn))); }
   }
 }

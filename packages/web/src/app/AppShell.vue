@@ -102,7 +102,7 @@ async function readAll(): Promise<void> {
       </div>
       <RouterView v-slot="{ Component, route: shown }">
         <Transition name="page" mode="out-in">
-          <component :is="Component" :key="shown.meta.group ?? shown.matched[0]?.path ?? shown.path" />
+          <component :is="Component" :key="shown.meta.group ?? shown.matched[0]?.path ?? shown.path" class="routed" />
         </Transition>
       </RouterView>
     </main>
@@ -128,8 +128,10 @@ async function readAll(): Promise<void> {
 .shell.compact.no-bar { grid-template-rows: minmax(0, 1fr); }
 .shell.bare { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .side { border-right: 1px solid var(--border); }
-.page { position: relative; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.connection { position: sticky; top: 0; z-index: var(--z-sticky); padding: var(--space-2) var(--space-4) 0; }
+/* the banner's height comes out of the page's: the page below it shrinks (and scrolls) instead of being pushed off screen */
+.page { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; }
+.connection { grid-row: 1; z-index: var(--z-sticky); padding: var(--space-2) var(--space-4); }
+.routed { grid-row: 2; position: relative; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .page-enter-active, .page-leave-active { transition: opacity var(--fast) var(--ease), transform var(--medium) var(--ease); }
 .page-enter-from { opacity: 0; transform: translateY(6px); }
 .page-leave-to { opacity: 0; }

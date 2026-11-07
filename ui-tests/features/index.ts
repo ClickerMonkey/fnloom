@@ -11,7 +11,9 @@ import adminRuns from './admin-runs.ts';
 import adminSystem from './admin-system.ts';
 import adminSystems from './admin-systems.ts';
 import approvals from './approvals.ts';
+import attachments from './attachments.ts';
 import budget from './budget.ts';
+import chatManage from './chat-manage.ts';
 import chatShell from './chat-shell.ts';
 import commands from './commands.ts';
 import composer from './composer.ts';
@@ -42,15 +44,17 @@ import streaming from './streaming.ts';
 import suggestions from './suggestions.ts';
 import themes from './themes.ts';
 import timestamps from './timestamps.ts';
+import turnControls from './turn-controls.ts';
 import turnTree from './turn-tree.ts';
 import undo from './undo.ts';
 import uploads from './uploads.ts';
+import urlReload from './url-reload.ts';
 import urlState from './url-state.ts';
 
 export const FEATURES: readonly Feature[] = [
-  signIn, chatShell, urlState, responsive, header, themes, motion, scrolling, markdown, messageActions, messageDetails, reasoning, timestamps,
+  signIn, chatShell, urlState, urlReload, responsive, header, themes, motion, scrolling, markdown, messageActions, messageDetails, reasoning, timestamps,
   runCards, runDrawer, turnTree, renderers, composer, mentions, commands, suggestions, people, budget, sessionSettings, shortcuts, accessibility,
-  inbox, settings, invoke, liveRuns, uploads, undo, reconnect, states,
+  inbox, settings, invoke, liveRuns, turnControls, chatManage, attachments, uploads, undo, reconnect, states,
   adminSystems, pairing, adminSystem, adminModels, adminLimits, adminPolicies, adminActorSettings, adminRuns, adminLlm, adminResources,
   streaming, approvals,
 ];

@@ -60,17 +60,24 @@ export const SystemPackageJson = z.object({
 /** How much of a process's output is kept for the admin page. */
 export const OUTPUT_TAIL = 8_192;
 
-/** Starts processes with `child_process.spawn`, keeping the tail of their output. */
+/**
+ * Starts processes with `child_process.spawn`, keeping the tail of their output. Commands that run this Node binary
+ * get `nodeArgs` first, so systems run with the hub's own Node flags (under `tsx`, its loader, so a system can run
+ * from its TypeScript source).
+ */
 export class NodeLauncher implements ProcessLauncher {
   readonly #baseEnv: Readonly<Record<string, string | undefined>>;
+  readonly #nodeArgs: readonly string[];
 
-  /** `baseEnv` is what every system process inherits (boot passes the hub's own environment). */
-  constructor(options: { baseEnv: Readonly<Record<string, string | undefined>> }) {
+  /** `baseEnv` is what every system process inherits (boot passes the hub's own environment and `process.execArgv`). */
+  constructor(options: { baseEnv: Readonly<Record<string, string | undefined>>; nodeArgs?: readonly string[] }) {
     this.#baseEnv = options.baseEnv;
+    this.#nodeArgs = options.nodeArgs ?? [];
   }
 
   launch(command: SystemCommand): SystemProcess {
-    const child = spawn(command.run, command.args, {
+    const args = command.run === process.execPath ? [...this.#nodeArgs, ...command.args] : command.args;
+    const child = spawn(command.run, args, {
       ...(command.cwd === undefined ? {} : { cwd: command.cwd }),
       env: { ...this.#baseEnv, ...command.env },
       stdio: ['ignore', 'pipe', 'pipe'],

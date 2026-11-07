@@ -1,7 +1,7 @@
 /**
- * Running a command for `bash` and the `rerun` action: the user's shell setting, the working folder from session
- * state, confirmation for commands outside the safe list, and the timeout. Both paths share this, so a command runs
- * the same way from the agent and from its card.
+ * Running a command for `bash`: the user's shell setting, the working folder from session state, confirmation for
+ * commands outside the safe list, and the timeout. The bash card's "Run again" starts a new `bash` run, so a command
+ * runs the same way from the agent and from its card.
  */
 import type { ShellPolicyValue } from '../shared/index.ts';
 import type { FileService } from './files.ts';
@@ -38,7 +38,7 @@ export interface CommandScope {
   /** The session's working folder, from `cd`. */
   readonly sessionCwd: string | undefined;
   readonly signal: AbortSignal;
-  /** Asked when the command isn't safe. The rerun action passes "yes": the person pressed the button. */
+  /** Asked when the command isn't safe; undefined when nobody can be asked. */
   readonly confirm: Confirm;
   readonly onOutput?: CommandProgress;
 }
@@ -54,7 +54,7 @@ export function outputOf(run: CommandRun): CommandOutput {
   return { exitCode: run.exitCode, stdout: run.stdout, stderr: run.stderr };
 }
 
-/** Runs commands for fns and actions. */
+/** Runs commands for fns. */
 export class CommandRunner {
   private readonly shell: Shell;
   private readonly files: FileService;

@@ -71,6 +71,7 @@ export class StorePairingService implements PairingService {
       const request = await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'token', status: 'approved' });
       await this.#pair(request, token.createdBy);
       this.#options.bus.publish('pairing', { pairing: request });
+      await this.#supersede(request);
       this.#tellPaired(request.id, asker.peer);
       return { kind: 'pairing', pairing: request.id, url: this.approvalUrl(request.id), expiresAt: request.expiresAt };
     }
@@ -92,7 +93,7 @@ export class StorePairingService implements PairingService {
     for (const request of await allRows(this.#options.store.table('pairings'), { status: 'pending' })) {
       if (request.expiresAt > now) { out.push(request); continue; }
       this.#waiting.delete(request.id);
-      await this.#options.store.table('pairings').update(request.id, { status: 'expired' });
+      this.#options.bus.publish('pairing', { pairing: await this.#options.store.table('pairings').update(request.id, { status: 'expired' }) });
     }
     return out;
   }
@@ -102,6 +103,7 @@ export class StorePairingService implements PairingService {
     const record = await this.#pair(request, by);
     const approved = await this.#options.store.table('pairings').update(pairing, { status: 'approved' });
     this.#options.bus.publish('pairing', { pairing: approved });
+    await this.#supersede(approved);
     const peer = this.#waiting.get(pairing);
     this.#waiting.delete(pairing);
     if (peer !== undefined) { this.#tellPaired(pairing, peer); }
@@ -141,6 +143,19 @@ export class StorePairingService implements PairingService {
       throw refuse(410, 'PAIRING_EXPIRED', `pairing ${pairing} expired`);
     }
     return request;
+  }
+
+  /**
+   * A system is paired: its other requests still waiting (an earlier code it never used, say) can't be approved any
+   * more, so they end as expired and are announced, and nobody is left asked to approve them.
+   */
+  async #supersede(paired: PairingRequest): Promise<void> {
+    const { store, bus } = this.#options;
+    for (const request of await allRows(store.table('pairings'), { name: paired.name, status: 'pending' })) {
+      if (request.id === paired.id) { continue; }
+      this.#waiting.delete(request.id);
+      bus.publish('pairing', { pairing: await store.table('pairings').update(request.id, { status: 'expired' }) });
+    }
   }
 
   /** Check and use up a one-time token. Re-keying a paired system needs a token made for its name. */

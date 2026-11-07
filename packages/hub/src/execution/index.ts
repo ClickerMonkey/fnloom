@@ -115,6 +115,12 @@ export interface LlmGateway {
   models(): Promise<ModelInfo[]>;
 }
 
+/** The model providers behind the hub AI. */
+export interface ProviderService {
+  /** Rebuild the hub AI from the stored provider records (after one was added or changed). */
+  reload(): Promise<void>;
+}
+
 /** One agent (`AGENT_KIND` fn) run, iterated one LLM call per queued job. */
 export interface AgentLoop {
   /** Start an agent run for a turn. */

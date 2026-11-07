@@ -3,7 +3,7 @@ import { limiter } from '@ayepi/rate';
 import { WorkDelayError } from '@ayepi/work';
 import { BudgetId, ModelCategoryId, RunId, SystemName, TurnId, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryBus, MemoryStore, memoryLog } from '../catalog/testing.ts';
+import { RecordingBus, testStore, memoryLog } from '../testing.ts';
 import { HubAiHooks } from './ai.ts';
 import { BudgetRefused, causeOf, LlmRateLimited } from './errors.ts';
 import { InteractionRecorder } from './interactions.ts';
@@ -22,10 +22,10 @@ const reply = (content: string, model: string): Response => ({ content, finishRe
 
 /** A run and its turn in a store, for the hooks to reserve against. */
 async function seeded(turnCost = 1) {
-  const store = new MemoryStore();
+  const store = await testStore();
   const { log } = memoryLog();
   let n = 0;
-  const base = { store, bus: new MemoryBus(), clock: () => 1_000, random: () => `${++n}`, settings: testSettings(), log };
+  const base = { store, bus: new RecordingBus(), clock: () => 1_000, random: () => `${++n}`, settings: testSettings(), log };
   const limits = { ...OPEN_LIMITS, turn: { cost: turnCost, time: 60_000 } };
   const turn = await store.table('turns').insert({
     id: TurnId.parse('trn_1'), actor: ALICE, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running', limits, cost: 0, errors: 'feed-back', createdAt: 0,
@@ -111,7 +111,7 @@ describe('transient failures', () => {
 
 describe('model choices', () => {
   it('resolve ids, categories and weights, with the hub default otherwise', async () => {
-    const store = new MemoryStore();
+    const store = await testStore();
     await store.table('modelCategories').insert({ id: ModelCategoryId.parse('mct_1'), name: 'fast', description: 'Fast ones', models: ['m-fast', 'm-slow'] });
     const models = new ModelResolver({ store, settings: testSettings() });
     expect(await models.resolve(undefined)).toEqual({ model: 'test-model' });
@@ -132,7 +132,7 @@ describe('providers', () => {
   });
 
   it('list the models the hub AI can pick from', async () => {
-    const rig = executionRig();
+    const rig = await executionRig();
     expect(await rig.module.llm.models()).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'test-model', name: 'Test model', capabilities: ['chat', 'streaming', 'tools', 'json', 'structured'] })]));
   });
 });
