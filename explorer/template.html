@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness — type explorer</title>
+<style>
+:root{--bg:#0f1115;--panel:#161922;--line:#262b38;--txt:#d7dae3;--mut:#8a90a3;--acc:#7aa2f7;--type:#7dcfff;--fn:#e0af68;--ok:#9ece6a;--warn:#f7768e;--code:#1b1f2a;--note:#bb9af7}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--txt);font:14px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;display:grid;grid-template-columns:300px 1fr;grid-template-rows:100%}
+body.collapsed{grid-template-columns:0 1fr}body.collapsed #side{display:none}
+a{color:var(--acc);text-decoration:none;cursor:pointer}a:hover{text-decoration:underline}
+code,pre,.sig{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+code{background:var(--code);padding:1px 5px;border-radius:4px}
+pre{background:var(--code);padding:12px 14px;border-radius:8px;overflow:auto;border:1px solid var(--line)}
+#side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#side header{padding:12px 12px 8px;border-bottom:1px solid var(--line)}
+#side h1{font-size:15px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+#q{width:100%;padding:7px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--txt)}
+.tabs{display:flex;gap:4px;margin-top:8px}.tabs button{flex:1}
+button{background:var(--code);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:5px 9px;cursor:pointer;font:inherit;font-size:12.5px}
+button:hover{border-color:var(--acc)}button.on,button.pri{background:#24304d;border-color:var(--acc)}
+#list{overflow:auto;padding:6px 6px 20px;flex:1}
+#list details{margin:2px 0}#list summary{cursor:pointer;padding:4px 6px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.04em;list-style:none;display:flex;justify-content:space-between}
+#list summary::-webkit-details-marker{display:none}#list summary:before{content:'▸ ';}#list details[open]>summary:before{content:'▾ '}
+#list a.item{display:flex;justify-content:space-between;gap:6px;padding:3px 8px 3px 18px;border-radius:6px;color:var(--txt);font-size:13px}
+#list a.item:hover{background:var(--code);text-decoration:none}#list a.item.cur{background:#24304d}
+.nc{color:var(--note);font-size:11px}
+.k{font-size:10px;padding:0 5px;border-radius:4px;border:1px solid var(--line);color:var(--mut);margin-left:4px;vertical-align:middle;text-transform:uppercase}
+.k.interface{color:var(--type)}.k.type{color:var(--ok)}.k.class{color:var(--fn)}.k.function,.k.const{color:var(--note)}
+.k.status{color:var(--warn);border-color:#5a2a35}
+#foot{padding:8px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#main{overflow:auto;padding:22px 34px 80px;min-width:0}
+#main .wrap{max-width:1000px}
+#main h1{font-size:24px;margin:0 0 4px;word-break:break-word}
+#main h2{font-size:16px;margin:26px 0 8px;color:var(--fn)}
+#main h3{font-size:14.5px;margin:20px 0 6px;color:var(--type)}
+.meta{color:var(--mut);font-size:12.5px;margin-bottom:12px}
+.doc{white-space:pre-wrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chips a,.chips span{background:var(--code);border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-size:12.5px}
+.ext{color:var(--mut)}a.t{color:var(--type)}
+table{border-collapse:collapse;width:100%}td{border-top:1px solid var(--line);padding:7px 6px;vertical-align:top}
+td.n{white-space:nowrap;font-weight:600;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}td.n .opt{color:var(--mut)}
+td.s{font:12.5px/1.5 ui-monospace,Consolas,monospace;word-break:break-word;width:45%}
+td.b{width:28px;text-align:right}
+.mdoc{color:#b9bdca;font-size:13px;margin-top:3px}
+.notebtn{background:none;border:none;color:var(--mut);padding:2px 6px;font-size:15px}.notebtn.has{color:var(--note)}
+textarea{width:100%;min-height:70px;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;font:13px/1.5 system-ui,sans-serif;resize:vertical}
+textarea:focus{outline:none;border-color:var(--note)}
+tr.noterow td{border-top:0;padding-top:0}
+.sec-note{margin:6px 0 4px}
+.guide p,.guide li{max-width:78ch}.guide table td,.guide table th{border:1px solid var(--line);padding:5px 8px;text-align:left}
+.guide blockquote{border-left:3px solid var(--line);margin:8px 0;padding:2px 12px;color:#b9bdca}
+.hnote{font-size:13px;margin-left:6px}
+#tog{position:fixed;top:8px;left:8px;z-index:5;display:none}
+[hidden]{display:none!important}
+.notes-list .n{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0}
+.notes-list .n b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+@media (max-width:800px){
+  body{grid-template-columns:1fr}#side{position:fixed;inset:0 25% 0 0;z-index:4;display:none}body.open #side{display:flex}
+  #tog{display:block}#main{padding:46px 14px 80px}td.s{width:auto}
+  table,tbody,tr,td{display:block}tr{border-top:1px solid var(--line);padding:6px 0}td{border:0;padding:2px 0}td.b{text-align:left}
+}
+</style>
+</head>
+<body>
+<button id="tog" aria-label="Menu">☰</button>
+<nav id="side">
+  <header>
+    <h1>Harness <span class="k">types</span> <button id="col" title="Hide the list" style="margin-left:auto">⟨</button></h1>
+    <input id="q" placeholder="Search types, members, docs…" autocomplete="off">
+    <div class="tabs"><button id="tabGuide">Guide</button><button id="tabTypes">Types</button><button id="tabNotes">Notes</button></div>
+  </header>
+  <div id="list"></div>
+  <div id="foot"><span id="stats"></span><button class="pri" id="exp">Export notes</button><button id="imp">Import</button><input type="file" id="file" accept=".json" hidden></div>
+</nav>
+<main id="main"><div class="wrap" id="view"></div></main>
+<script>
+const D=/*DATA*/null;
+const KEY='harness-notes-v1';
+const notes=JSON.parse(localStorage.getItem(KEY)||'{}');
+const T=new Map(D.decls.map(d=>[d.name,d]));
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const save=()=>{for(const k in notes)if(!String(notes[k]).trim())delete notes[k];localStorage.setItem(KEY,JSON.stringify(notes));stats()};
+const slug=s=>s.toLowerCase().replace(/[`*]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+// link every known name inside a signature / code span
+const link=s=>esc(s).replace(/\b([A-Za-z_]\w*)\b/g,(m,n)=>T.has(n)?`<a class="t" href="#t/${n}">${n}</a>`:(D.external[n]?`<span class="ext" title="${esc(D.external[n])}">${n}</span>`:m));
+const inline=s=>esc(s).replace(/`([^`]+)`/g,(m,c)=>`<code>${link(c.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'))}</code>`).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/\[([^\]]+)\]\(([^)]+)\)/g,(m,t,h)=>`<a href="${h.startsWith('#')?h:h}">${t}</a>`);
+const chip=n=>{const b=n.split('.')[0];return T.has(b)?`<a href="#t/${b}">${esc(n)}</a>`:`<span class="ext">${esc(n)}</span>`};
+const chips=a=>a&&a.length?`<div class="chips">${a.map(chip).join('')}</div>`:'<span class="meta">none</span>';
+const noteCount=n=>Object.keys(notes).filter(k=>k===n||k.startsWith(n+'.')).length;
+
+let mode=localStorage.getItem(KEY+':mode')||'guide';
+const openGroups=JSON.parse(localStorage.getItem(KEY+':groups')||'{}');
+function renderList(){
+  const q=document.getElementById('q').value.trim().toLowerCase();const L=document.getElementById('list');
+  ['Guide','Types','Notes'].forEach(x=>document.getElementById('tab'+x).classList.toggle('on',mode===x.toLowerCase()));
+  if(mode==='guide'&&!q){const hs=[...D.guide.matchAll(/^(#{2,3}) (.+)$/gm)];
+    L.innerHTML=hs.map(h=>{const k='guide:'+slug(h[2]);return `<a class="item" style="padding-left:${h[1].length===2?10:24}px" href="#g/${slug(h[2])}"><span>${esc(h[2].replace(/`/g,''))}</span>${notes[k]?'<span class="nc">✎</span>':''}</a>`}).join('');return}
+  if(mode==='notes'&&!q){L.innerHTML=Object.keys(notes).sort().map(k=>`<a class="item" href="${k.startsWith('guide:')?'#g/'+k.slice(6):'#t/'+k.split('.')[0]}"><span>${esc(k)}</span></a>`).join('')||'<p class="meta" style="padding:8px">No notes yet.</p>';return}
+  const hit=d=>!q||d.name.toLowerCase().includes(q)||d.doc.toLowerCase().includes(q)||d.members.some(m=>m.name.toLowerCase().includes(q)||m.doc.toLowerCase().includes(q));
+  const cur=decodeURIComponent(location.hash.slice(3));
+  L.innerHTML=D.groups.map(g=>{const ds=D.decls.filter(d=>d.group===g&&hit(d));if(!ds.length)return'';
+    const open=q||openGroups[g]!==false;
+    return `<details data-g="${esc(g)}" ${open?'open':''}><summary><span>${esc(g)}</span><span>${ds.length}</span></summary>${ds.map(d=>{const c=noteCount(d.name);
+      return `<a class="item ${cur===d.name?'cur':''}" href="#t/${d.name}"><span>${d.name}<span class="k ${d.kind}">${d.kind[0]}</span>${d.tags.status?`<span class="k status">${esc(d.tags.status)}</span>`:''}</span>${c?`<span class="nc">✎${c}</span>`:''}</a>`}).join('')}</details>`}).join('');
+  L.querySelectorAll('details').forEach(x=>x.ontoggle=()=>{if(!q){openGroups[x.dataset.g]=x.open;localStorage.setItem(KEY+':groups',JSON.stringify(openGroups))}});
+}
+const noteBox=(key,label)=>`<h2>Notes on ${esc(label)}</h2><textarea data-note="${esc(key)}" placeholder="What should change about ${esc(label)}?">${esc(notes[key]||'')}</textarea>`;
+function showType(n){
+  const d=T.get(n);const v=document.getElementById('view');
+  if(!d){v.innerHTML=`<h1>${esc(n)}</h1><p class="meta">${D.external[n]?'From '+esc(D.external[n]):'Not defined in the model.'}</p><h2>Used by</h2>${chips(D.usedBy[n])}${noteBox(n,n)}`;bind();return}
+  let h=`<h1>${d.name}<span class="k ${d.kind}">${d.kind}</span>${d.tags.status?`<span class="k status">${esc(d.tags.status)}</span>`:''}</h1>
+  <div class="meta">${esc(d.group)} · types/${esc(d.file)}:${d.line}</div>`;
+  if(d.doc)h+=`<div class="doc">${inline(d.doc)}</div>`;
+  for(const [k,val] of Object.entries(d.tags))if(!['group','status'].includes(k))h+=`<p class="meta"><b>@${esc(k)}</b> ${inline(val)}</p>`;
+  if(d.typeParams)h+=`<h2>Type parameters</h2><div class="sig">${link(d.typeParams)}</div>`;
+  if(d.extends.length)h+=`<h2>Extends</h2><div class="sig">${d.extends.map(link).join(', ')}</div>`;
+  if(d.implements.length)h+=`<h2>Implements</h2><div class="sig">${d.implements.map(link).join(', ')}</div>`;
+  if(d.alias)h+=`<h2>Definition</h2><pre class="sig">${link(d.alias)}</pre>`;
+  if(d.signature)h+=`<h2>Signature</h2><pre class="sig">${link(d.signature)}</pre>`;
+  if(d.members.length){h+=`<h2>Members</h2><table>${d.members.map(m=>{const key=d.name+'.'+m.name;const has=!!notes[key];
+    return `<tr><td class="n">${esc(m.readonly?'readonly ':'')}${esc(m.name)}${m.optional?'<span class="opt">?</span>':''}</td><td class="s">${link(m.type)}</td><td>${m.doc?`<div class="mdoc">${inline(m.doc)}</div>`:''}${Object.entries(m.tags).map(([k,x])=>`<div class="meta">@${esc(k)} ${inline(x)}</div>`).join('')}</td>
+    <td class="b"><button class="notebtn ${has?'has':''}" data-toggle="${esc(key)}" title="Note on ${esc(key)}">✎</button></td></tr>
+    <tr class="noterow" data-for="${esc(key)}" ${has?'':'hidden'}><td colspan="4"><textarea data-note="${esc(key)}" placeholder="Note on ${esc(key)}">${esc(notes[key]||'')}</textarea></td></tr>`}).join('')}</table>`}
+  if(d.unionOf.length)h+=`<h2>One of</h2>${chips(d.unionOf)}`;
+  const sub=D.subtypes[d.name]||[];if(sub.length)h+=`<h2>${d.kind==='interface'?'Extended / implemented by':'Extended by'}</h2>${chips(sub)}`;
+  const un=D.unions[d.name]||[];if(un.length)h+=`<h2>Member of</h2>${chips(un)}`;
+  h+=`<h2>Uses</h2>${chips(d.refs)}<h2>Used by</h2>${chips(D.usedBy[d.name])}${noteBox(d.name,d.name)}`;
+  v.innerHTML=h;bind();
+}
+function md(src){ // small markdown renderer for the guide: headings, lists, tables, code, quotes, paragraphs
+  const out=[];const lines=src.replace(/\r/g,'').split('\n');let i=0;
+  while(i<lines.length){const l=lines[i];
+    if(/^```/.test(l)){const b=[];i++;while(i<lines.length&&!/^```/.test(lines[i]))b.push(lines[i++]);i++;out.push(`<pre>${link(b.join('\n'))}</pre>`);continue}
+    const hm=l.match(/^(#{1,4}) (.+)$/);if(hm){const s=slug(hm[2]);const lvl=hm[1].length;const k='guide:'+s;
+      out.push(`<h${lvl} id="g-${s}">${inline(hm[2])}${lvl>=2&&lvl<=3?` <button class="notebtn hnote ${notes[k]?'has':''}" data-toggle="${k}" title="Note on this section">✎</button>`:''}</h${lvl}>`);
+      if(lvl>=2&&lvl<=3)out.push(`<div class="noterow sec-note" data-for="${k}" ${notes[k]?'':'hidden'}><textarea data-note="${k}" placeholder="Note on “${esc(hm[2].replace(/`/g,''))}”">${esc(notes[k]||'')}</textarea></div>`);i++;continue}
+    if(/^\|/.test(l)){const rows=[];while(i<lines.length&&/^\|/.test(lines[i]))rows.push(lines[i++]);
+      const cells=r=>r.replace(/^\||\|$/g,'').split('|').map(c=>c.trim());const body=rows.filter((r,j)=>j!==1||!/^\|[\s:|-]+\|$/.test(r));
+      out.push(`<table>${body.map((r,j)=>`<tr>${cells(r).map(c=>j===0?`<th>${inline(c)}</th>`:`<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</table>`);continue}
+    if(/^\s*([-*]|\d+\.) /.test(l)){const items=[];const ordered=/^\s*\d+\./.test(l);
+      while(i<lines.length&&(/^\s*([-*]|\d+\.) /.test(lines[i])||/^\s{2,}\S/.test(lines[i]))){const x=lines[i++];
+        if(/^\s*([-*]|\d+\.) /.test(x))items.push({d:x.match(/^\s*/)[0].length,t:x.replace(/^\s*([-*]|\d+\.) /,'')});else items[items.length-1].t+=' '+x.trim()}
+      // nested items (indented) render as bullets under their parent; only top-level items are numbered
+      let n=0;out.push(`<${ordered?'ol':'ul'}>${items.map(it=>it.d>0?`<li style="margin-left:${it.d*8}px;list-style-type:disc">${inline(it.t)}</li>`:`<li${ordered?` value="${++n}"`:''}>${inline(it.t)}</li>`).join('')}</${ordered?'ol':'ul'}>`);continue}
+    if(/^> ?/.test(l)){const b=[];while(i<lines.length&&/^> ?/.test(lines[i]))b.push(lines[i++].replace(/^> ?/,''));out.push(`<blockquote>${inline(b.join(' '))}</blockquote>`);continue}
+    if(!l.trim()){i++;continue}
+    const p=[];while(i<lines.length&&lines[i].trim()&&!/^(#{1,4} |```|\||\s*([-*]|\d+\.) |> ?)/.test(lines[i]))p.push(lines[i++]);out.push(`<p>${inline(p.join(' '))}</p>`)}
+  return out.join('\n');
+}
+function showGuide(sec){const v=document.getElementById('view');v.innerHTML=`<div class="guide">${md(D.guide)}</div>`;bind();
+  const el=sec&&document.getElementById('g-'+sec);document.getElementById('main').scrollTop=el?el.offsetTop-12:0}
+function showNotes(){const v=document.getElementById('view');const ks=Object.keys(notes).sort();
+  v.innerHTML=`<h1>All notes <span class="k">${ks.length}</span></h1><p class="meta">Export writes these to a JSON file. Put it at <code>review/notes.json</code> in the repo and the next session reads it.</p><div class="notes-list">${ks.map(k=>`<div class="n"><b>${k.startsWith('guide:')?`<a href="#g/${k.slice(6)}">Guide § ${esc(k.slice(6))}</a>`:chip(k)}</b><div class="doc">${esc(notes[k])}</div></div>`).join('')||'<p class="meta">No notes yet.</p>'}</div>`}
+function bind(){
+  document.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{const r=document.querySelector(`[data-for="${CSS.escape(b.dataset.toggle)}"]`);r.hidden=!r.hidden;if(!r.hidden)r.querySelector('textarea').focus()});
+  document.querySelectorAll('textarea[data-note]').forEach(x=>x.oninput=()=>{notes[x.dataset.note]=x.value;save();
+    const b=document.querySelector(`[data-toggle="${CSS.escape(x.dataset.note)}"]`);if(b)b.classList.toggle('has',!!x.value.trim());renderList()});
+}
+function route(){const h=decodeURIComponent(location.hash.slice(1));document.body.classList.remove('open');
+  if(h.startsWith('t/')){if(mode!=='types'){mode='types';localStorage.setItem(KEY+':mode',mode)}showType(h.slice(2));document.getElementById('main').scrollTop=0}
+  else if(h==='notes'){showNotes()}
+  else showGuide(h.startsWith('g/')?h.slice(2):'');
+  renderList()}
+function stats(){document.getElementById('stats').textContent=`${D.decls.length} types · ${Object.keys(notes).length} notes · built ${D.generated}`}
+const setMode=m=>{mode=m;localStorage.setItem(KEY+':mode',m);if(m==='guide')location.hash='g/';else if(m==='notes')location.hash='notes';renderList()};
+tabGuide.onclick=()=>setMode('guide');tabTypes.onclick=()=>setMode('types');tabNotes.onclick=()=>setMode('notes');
+q.oninput=renderList;tog.onclick=()=>document.body.classList.toggle('open');
+col.onclick=()=>document.body.classList.add('collapsed');document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement.tagName!=='TEXTAREA'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();document.body.classList.remove('collapsed');q.focus()}});
+document.getElementById('main').addEventListener('dblclick',e=>{if(e.target.id==='main')document.body.classList.remove('collapsed')});
+exp.onclick=()=>{const out={exported:new Date().toISOString(),modelBuilt:D.generated,notes:Object.entries(notes).map(([target,note])=>({target,note}))};
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:'application/json'}));a.download='notes.json';a.click()};
+imp.onclick=()=>file.click();file.onchange=async()=>{const j=JSON.parse(await file.files[0].text());for(const n of j.notes)notes[n.target]=n.note;save();route()};
+window.onhashchange=route;stats();route();
+</script>
+</body>
+</html>
