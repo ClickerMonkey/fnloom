@@ -748,6 +748,9 @@ the library later. Which way to go is your call.
 - **Libraries:** harness links the local aeye and ayepi repos (`file:../aits/packages/*`,
   `file:../ayepi/packages/*`) so library changes are picked up right away. Switch to npm versions for a release.
 - **UI:** Vue, and system renderers are Vue components.
+- **Groups and limits:** a user in several groups gets the highest group priority and the highest group
+  ceiling. Group budgets are either pooled (one pot shared by the members, and it always applies) or per
+  member (each member's own allowance; a user in several gets the most generous one).
 
 ## Open questions
 
