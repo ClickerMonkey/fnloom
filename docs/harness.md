@@ -197,7 +197,32 @@ A fn also declares:
 - **Undo and resume payload types:** when a run finishes it may register an undo payload; the fn's undo
   implementation receives it later. A paused run returns a resume payload; resuming re-runs the fn with
   it.
+- **State:** the fields of its system's session state it reads and writes. See [Session state](#g/session-state).
+- **Form:** a type its renderer can submit back to the run while it waits.
+- **Display:** how a finished run looks in the chat: its card, a plain message, or nothing.
 - **Limits:** timeout, retries, and an estimated cost.
+
+### Session state
+
+Each system has a scratch pad per session: data its fns pass to each other without the LLM seeing it (the
+working folder, the rows of the last query, a selection). A fn declares the fields it uses as a gin type,
+and `ctx.state` reads and writes only those:
+
+```ts
+const Shell = g.obj({ cwd: g.text() });
+cd:   fn({ …, state: Shell }),     // run: await ctx.state.set({ cwd: args.path })
+bash: fn({ …, state: Shell }),     // run: const { cwd } = await ctx.state.get()
+```
+
+- **Fields are matched by name and type.** Two fns share a field only if both declare that name with the same
+  type. A system's state may hold a hundred fields; each fn sees just its own.
+- **Scoped to the system.** One system's state is invisible to every other system.
+- **Safe to share.** `ctx.state.update(change)` reads and writes in one step, so runs working at the same
+  time don't overwrite each other.
+- **Undoable.** Changes are recorded on the run, so undoing a turn puts state back.
+- **Live.** Renderers see their fn's fields, and they update as the state changes. Actions declare fields
+  the same way.
+- A run outside a session (a scheduled run) gets state scoped to its turn.
 
 ### Running a fn
 
@@ -296,6 +321,9 @@ What a fn declares changes what it can do, and the types follow:
   so the fn has to check before calling it.
 - **`deps`** → the only fns `ctx.fns` can call.
 - **context without `content`** is dynamic: the server must implement it, with the command's args typed.
+- **`state`** → `ctx.state` reads and writes exactly those fields, typed.
+- **`form`** → `await ctx.form()` waits for the renderer's submit; without one, `ctx.form` doesn't exist.
+- **`actions`** in the contract → each must be implemented, and every renderer of the system can send them.
 
 ### The server (`server/`)
 
@@ -382,6 +410,31 @@ export default client(fs, {
 });
 ```
 
+### Talking back to the system
+
+A renderer can call code on its own system. Two ways, both typed by the contract, both through the hub:
+
+- **Actions.** A system declares typed messages its renderers may send (`rerun`, `approve`, `save`) and
+  implements them. Any renderer sends one with `view.system.send.rerun({ command })` and gets back a
+  **delivery**: its status (queued, delivered, done, failed) is live, and `delivery.result` is the typed
+  result. The hub **stores every message before delivering it**, so nothing is lost: if the system is
+  offline, it waits and is delivered, in order, when the system connects. `view.system.online` says which.
+- **Forms.** A fn that declares a `form` type can be shown as a form: the run waits in `await ctx.form()`, the
+  renderer calls `view.submit(value)`, and the run carries on with the typed value. A tool can be just a form
+  the user fills in, with the agent getting the answer as the tool's result.
+
+Everything a renderer sees is live: the run's status, progress and result, its state fields, and its
+deliveries. A renderer can change as the run goes, and `display` decides what stays once it's done: the card,
+a plain message, or nothing.
+
+```ts
+// a fn shown as a form; the agent gets the user's answer as the result
+approve: fn({ description: 'Ask the user to approve a deploy plan.', args: g.obj({ plan: g.text() }),
+  returns: Decision, form: Decision, display: 'message' }),
+// server: async run(args, ctx) { return ctx.done(await ctx.form()); }
+// renderer: view.submit({ approved: true, note: 'ship it' })
+```
+
 ### Mistakes that don't compile
 
 `types/examples.ts` checks each of these, and that each fails for the stated reason:
@@ -394,6 +447,10 @@ export default client(fs, {
 - leaving out `undo` on a fn that declares an undo type
 - leaving out any declared fn, kind, dynamic context, hook or mention provider
 - a mention target of the wrong shape, or reading a field the target doesn't have
+- reading or writing a state field the fn didn't declare, or writing the wrong type
+- waiting for a form on a fn that doesn't declare one, or submitting the wrong shape
+- sending an action the contract doesn't declare, or with the wrong input
+- leaving out the implementation of a declared action
 - implementing anything the contract doesn't declare
 - attaching data of the wrong shape
 - a renderer for something the contract doesn't have, or a component whose props don't match

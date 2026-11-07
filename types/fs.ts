@@ -3,7 +3,7 @@
 // agent files and a shell over chosen folders, serves those folders as resources, and can restart itself so
 // changes to its own code go live.
 
-import { system, fn, handler, linear, context, setting, attachment, hook, mention, arg, agent, g, hub } from './sdk.ts';
+import { system, fn, handler, linear, context, setting, attachment, hook, mention, action, arg, agent, g, hub } from './sdk.ts';
 
 /** A file or folder. */
 export const Entry = g.obj({
@@ -12,6 +12,9 @@ export const Entry = g.obj({
   size: g.num({ min: 0, whole: true }),
   modifiedAt: g.timestamp(),
 });
+
+/** The shell's session state: the working folder cd sets and bash uses. */
+const Shell = g.obj({ cwd: g.text() });
 
 /** What undo needs to put a file back: its earlier content, or nothing if it didn't exist. */
 const Previous = g.obj({ path: g.text(), previous: g.nullable(g.content()) });
@@ -69,10 +72,19 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         progress: linear,
         tags: ['read'],
       }),
+      cd: fn({
+        description: 'Change the working folder for later commands in this chat.',
+        args: g.obj({ path: g.text() }),
+        returns: g.obj({ cwd: g.text() }),
+        // shared with bash through session state; the LLM never has to pass it around
+        state: Shell,
+        display: 'hidden',
+      }),
       bash: fn({
-        description: 'Run a shell command in a root.',
+        description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
         args: g.obj({ command: g.text(), cwd: g.optional(g.text()), timeout: g.optional(g.duration()) }),
         returns: g.obj({ exitCode: g.num(), stdout: g.text(), stderr: g.text() }),
+        state: Shell,
         progress: linear,
         handlers: {
           confirm: handler({
@@ -97,6 +109,15 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
     },
     hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
+    actions: {
+      // the bash card's "run again" button
+      rerun: action({
+        description: 'Run a command again from its card.',
+        input: g.obj({ command: g.text() }),
+        returns: g.obj({ exitCode: g.num(), stdout: g.text(), stderr: g.text() }),
+        state: Shell,
+      }),
+    },
     mentions: {
       files: mention({ title: 'Files', description: 'Files and folders under the roots.', target: g.obj({ root: g.text(), path: g.text() }) }),
     },

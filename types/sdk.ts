@@ -208,6 +208,10 @@ export interface FnTypes {
   resume: unknown;
   /** The undo payload type; `never` when the fn can't be undone. */
   undo: unknown;
+  /** The fields of its system's session state this fn reads and writes; `{}` when none. */
+  state: object;
+  /** What its renderer's form submits back to the run; `never` when it has no form. */
+  form: unknown;
 }
 
 /** A fn's deps by local name: `{ stat: fs.fns.stat }`. */
@@ -226,6 +230,10 @@ export interface FnDef<T extends FnTypes> {
   readonly progress: T['progress'];
   readonly resume?: GinType<T['resume']>;
   readonly undo?: GinType<T['undo']>;
+  readonly state?: GinType<T['state']>;
+  readonly form?: GinType<T['form']>;
+  /** How a run looks in the chat once it is done. */
+  readonly display: Display;
   readonly operations: Operations;
   readonly limits: FnLimits;
   readonly visibility: Audience;
@@ -240,7 +248,7 @@ export type AnyFnDef = FnDef<FnTypes>;
 export type TypesOf<F> = F extends FnDef<infer T> ? T : never;
 
 /** What `fn()` takes. Only `description`, `args` and `returns` are required. */
-export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U> {
+export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F> {
   description: string;
   /** Extra guidance the LLM sees when the fn is in its toolset. */
   instructions?: string;
@@ -255,6 +263,16 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   resume?: GinType<S>;
   /** Declaring an undo type makes the fn undoable, and requires an `undo` implementation. */
   undo?: GinType<U>;
+  /**
+   * The session state fields this fn uses: `g.obj({ cwd: g.text() })`. State is a scratch pad shared by the fns of
+   * one system within one session, invisible to the LLM. A fn sees only the fields it declares, and a field is shared
+   * only with fns that declare the same name with the same type.
+   */
+  state?: GinType<St>;
+  /** Declaring a form type lets the run wait for its renderer to submit one (`await ctx.form()`). */
+  form?: GinType<F>;
+  /** Default `card`. */
+  display?: Display;
   /** Defaults: cancel yes, background yes. Pause and undo follow `resume` and `undo`. */
   operations?: Partial<Pick<Operations, 'cancel' | 'background'>>;
   limits?: FnLimits;
@@ -264,14 +282,22 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
 }
 
 /** The types of a native fn. */
-export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U> {
-  kind: 'native'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U;
+export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object = {}, F = never> {
+  kind: 'native'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U; state: St; form: F;
 }
 
 /** Declare a native fn: a fn its system implements in code. */
-export declare function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never>(
-  def: FnInput<A, R, D, H, P, S, U>,
-): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>>>;
+export declare function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never>(
+  def: FnInput<A, R, D, H, P, S, U, St, F>,
+): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>>;
+
+/**
+ * How a run looks in the chat once it is done. While it runs, its renderer (or the default card) shows.
+ * - `card`: its renderer stays, live.
+ * - `message`: its result is shown as a message (text results read like the agent wrote them).
+ * - `hidden`: it disappears; the run is still in the tree.
+ */
+export type Display = 'card' | 'message' | 'hidden';
 
 /** What a fn's runs support. Pause and undo are set by declaring `resume` and `undo` types. */
 export interface Operations {
@@ -411,6 +437,10 @@ export interface FnCtx<T extends FnTypes> extends Services {
   readonly handlers: HandlersInRun<T['handlers']>;
   /** Report progress in the shape the fn declared. */
   readonly progress: ProgressReporter<T['progress']>;
+  /** The session state fields this fn declared. */
+  readonly state: SessionState<T['state']>;
+  /** Wait for the run's renderer to submit its form. Only fns that declare a `form` type have it. */
+  readonly form: [T['form']] extends [never] ? undefined : () => Promise<T['form']>;
   /** Set when this run is resuming after a pause or a hub restart. */
   readonly resume: Resume<T['resume']> | undefined;
   /** Called when the run is asked to pause: return the state to resume from. Only fns with a resume type can pause. */
@@ -603,6 +633,71 @@ export interface Log {
   error(key: string, fields?: Record<string, Json> & { error?: Error }): void;
 }
 
+// ═══ Session state ═══
+
+/**
+ * A system's scratch pad for one session: data fns pass to each other without the LLM seeing it (the working
+ * folder, the last query's rows, a selection). Each fn, action and renderer sees only the fields it declared,
+ * matched by name and type. Changes are recorded on the run, so undoing a turn puts state back, and they reach
+ * renderers live. Runs outside a session (a scheduled run) get state scoped to their turn.
+ */
+export interface SessionState<S extends object> {
+  /** The current values. A field nothing has set yet is absent. */
+  get(): Promise<Readonly<Partial<S>>>;
+  set(patch: Partial<S>): Promise<void>;
+  /** Read, change and write in one step, so concurrent runs don't overwrite each other. */
+  update(change: (current: Readonly<Partial<S>>) => Partial<S>): Promise<void>;
+  /** Remove fields. */
+  clear(...fields: Array<keyof S & string>): Promise<void>;
+}
+
+// ═══ Actions ═══
+
+/**
+ * A typed message a system accepts from its renderers ("approve", "load more", "save these settings"). The hub
+ * stores each one before delivering it, so nothing is lost while the system is offline; it is delivered, in
+ * order, when the system connects. The sender gets a live delivery and, when handled, the typed result.
+ */
+export interface ActionDef<I, R, St extends object> {
+  readonly description: string;
+  readonly input: GinType<I>;
+  readonly returns: GinType<R>;
+  readonly state?: GinType<St>;
+  /** Drop it if it can't be delivered within this long. Default: never. */
+  readonly expires?: Duration;
+}
+
+/** Declare an action. */
+export declare function action<I, R = undefined, St extends object = {}>(def: { description: string; input: GinType<I>; returns?: GinType<R>; state?: GinType<St>; expires?: Duration }): ActionDef<I, R, St>;
+
+/** A typed handle to an action. */
+export interface ActionRef<N extends QualifiedName, I, R> {
+  readonly name: N;
+  readonly input: GinType<I>;
+  readonly returns: GinType<R>;
+}
+
+/** What an action's implementation gets. */
+export interface ActionCtx<St extends object> extends SystemCtx, Omit<Services, 'log' | 'llm' | 'resources'> {
+  readonly session: SessionId;
+  /** Who sent it. */
+  readonly actor: ActorId;
+  /** The run whose renderer sent it, if any. */
+  readonly run?: RunId;
+  readonly state: SessionState<St>;
+}
+
+/** An action's implementation. */
+export type ActionImpl<I, R, St extends object> = (input: I, ctx: ActionCtx<St>) => Promise<R>;
+
+/** A message on its way: stored by the hub, delivered when the system is online. Its status is live. */
+export interface Delivery<R> {
+  readonly id: Id<'delivery'>;
+  readonly status: 'queued' | 'delivered' | 'done' | 'failed' | 'expired';
+  /** Resolves when the system has handled it. */
+  readonly result: Promise<R>;
+}
+
 // ═══ Kinds ═══
 
 /** A fn kind as declared in a contract: what its payload looks like and when to use it. */
@@ -634,7 +729,7 @@ export interface KindFnInput<P, A, R> {
 
 /** The types of a fn of some kind. Its deps, handlers and progress come from the kind at runtime. */
 export interface KindFnTypes<K extends AnyKindRef, P, A, R> {
-  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never;
+  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never;
 }
 
 /** What a kind works out from one payload. */
@@ -666,7 +761,7 @@ export interface KindCheckCtx {
 
 /** The types of a fn known only at runtime. */
 export interface UntypedFn {
-  kind: AnyKindRef; payload: unknown; args: Json; result: Json; deps: {}; handlers: Handlers; progress: ProgressDef; resume: Json; undo: Json;
+  kind: AnyKindRef; payload: unknown; args: Json; result: Json; deps: {}; handlers: Handlers; progress: ProgressDef; resume: Json; undo: Json; state: Record<string, Json>; form: Json;
 }
 
 /** A kind's run context: like `FnCtx`, but calls are by name (limited to the deps `describe` returned). */
@@ -1051,11 +1146,12 @@ export interface ContractShape {
   mentions: Record<string, MentionDef<unknown>>;
   embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
+  actions: Record<string, ActionDef<unknown, unknown, object>>;
 }
 
 /** A contract with nothing in it yet. */
 export interface EmptyContract {
-  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {};
+  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {};
 }
 
 /** A contract with more sections merged in. */
@@ -1077,6 +1173,7 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T> ? MentionRef<Q<N, K>, T> : never };
   readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
+  readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
 }
 
 /**
@@ -1123,6 +1220,7 @@ export type SystemImpl<C extends ContractShape> =
   Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T> ? MentionImpl<T> : never }> &
   Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
+  Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St> : never }> &
   {
     /** Resources this system serves. */
     readonly resources?: ResourceProvider;
@@ -1219,6 +1317,23 @@ export interface FnView<T extends FnTypes> {
   result?: T['result'];
   error?: FnError;
   progress?: ProgressState<T['progress']>;
+  /** The fn's session state fields, live. Change them through an action. */
+  state: Readonly<Partial<T['state']>>;
+  /** Submit the fn's form to the waiting run. Only fns that declare a `form` type have it. */
+  submit: [T['form']] extends [never] ? undefined : (value: T['form']) => Delivery<void>;
+}
+
+/** What every renderer gets to talk to its own system. */
+export interface SystemClient<C extends ContractShape> {
+  /** Whether the system is connected now. Actions sent while it is offline wait in the hub. */
+  readonly online: boolean;
+  /** Send an action: `system.send.approve({ id })`. */
+  readonly send: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? (input: I) => Delivery<R> : never };
+}
+
+/** The props every renderer of a system gets besides its view. */
+export interface WithSystem<C extends ContractShape> {
+  system: SystemClient<C>;
 }
 
 /** The props of an attachment renderer. */
@@ -1254,25 +1369,25 @@ export interface ResourceView {
 }
 
 /** The props of the renderer for one of a contract's fns: `defineProps<FnViewOf<typeof fs, 'bash'>>()`. */
-export type FnViewOf<S extends AnyContract, K extends keyof S['defs']['fns']> = FnView<TypesOf<S['defs']['fns'][K]>>;
+export type FnViewOf<S extends AnyContract, K extends keyof S['defs']['fns']> = FnView<TypesOf<S['defs']['fns'][K]>> & WithSystem<S['defs']>;
 /** The props of the renderer for one of a contract's attachments. */
-export type AttachmentViewOf<S extends AnyContract, K extends keyof S['defs']['attachments']> = AttachmentView<Infer<S['defs']['attachments'][K]['data']>>;
+export type AttachmentViewOf<S extends AnyContract, K extends keyof S['defs']['attachments']> = AttachmentView<Infer<S['defs']['attachments'][K]['data']>> & WithSystem<S['defs']>;
 /** The props of the input for one of a contract's types. */
-export type InputViewOf<S extends AnyContract, K extends keyof S['defs']['types']> = InputView<Infer<S['defs']['types'][K]>>;
+export type InputViewOf<S extends AnyContract, K extends keyof S['defs']['types']> = InputView<Infer<S['defs']['types'][K]>> & WithSystem<S['defs']>;
 
-/** A system's renderers, typed by its contract. */
+/** A system's renderers, typed by its contract. Every renderer also gets `system` to send its system actions. */
 export interface ClientRenderers<C extends ContractShape> {
   /** How calls of a fn are drawn in the chat. */
-  fns?: { readonly [K in keyof C['fns']]?: Renderer<FnView<TypesOf<C['fns'][K]>>> };
+  fns?: { readonly [K in keyof C['fns']]?: Renderer<FnView<TypesOf<C['fns'][K]>> & WithSystem<C>> };
   /** How a fn of a kind is drawn when the fn has no renderer of its own. */
-  kinds?: { readonly [K in keyof C['kinds']]?: Renderer<FnView<UntypedFn>> };
-  attachments?: { readonly [K in keyof C['attachments']]?: Renderer<AttachmentView<Infer<C['attachments'][K]['data']>>> };
+  kinds?: { readonly [K in keyof C['kinds']]?: Renderer<FnView<UntypedFn> & WithSystem<C>> };
+  attachments?: { readonly [K in keyof C['attachments']]?: Renderer<AttachmentView<Infer<C['attachments'][K]['data']>> & WithSystem<C>> };
   /** Inputs for the system's named types (used in `!` forms and handler prompts). */
-  inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<Infer<C['types'][K]>>> };
+  inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<Infer<C['types'][K]>> & WithSystem<C>> };
   /** Custom hover cards for mentions (otherwise the hub draws the `MentionHover`). */
-  mentions?: { readonly [K in keyof C['mentions']]?: Renderer<MentionView<Infer<C['mentions'][K]['target']>>> };
+  mentions?: { readonly [K in keyof C['mentions']]?: Renderer<MentionView<Infer<C['mentions'][K]['target']>> & WithSystem<C>> };
   /** Previews for resource formats. */
-  resources?: Record<string, Renderer<ResourceView>>;
+  resources?: Record<string, Renderer<ResourceView & WithSystem<C>>>;
 }
 
 /** A built client module. The chat UI loads it from the hub. */

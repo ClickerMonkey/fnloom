@@ -82,8 +82,23 @@ void serve(fs, {
           const ok = ctx.handlers.confirm ? await ctx.handlers.confirm({ command: args.command, reason: 'not in safe list' }) : false;
           if (!ok) { return ctx.fail('caller', 'The command needs confirmation and none was given.', { code: 'denied' }); }
         }
-        const out = await shell(args.command, ctx.signal, f => ctx.progress.set(f));
+        // the working folder cd left in session state; bash sees only the fields it declared
+        const state = await ctx.state.get();
+        expect<Equal<typeof state, Readonly<{ cwd?: string }>>>(true);
+        // @ts-expect-error bash didn't declare this field, so it can't see it
+        void state.lastQuery;
+        const out = await shell(`cd ${args.cwd ?? state.cwd ?? '.'} && ${args.command}`, ctx.signal, f => ctx.progress.set(f));
         return ctx.done(out);
+      },
+    },
+    cd: {
+      async run(args, ctx) {
+        await ctx.state.set({ cwd: args.path });
+        // @ts-expect-error state values are typed
+        await ctx.state.set({ cwd: 42 });
+        // @ts-expect-error cd has no form, so there's nothing to wait for
+        await ctx.form();
+        return ctx.done({ cwd: args.path });
       },
     },
     remove: {
@@ -102,6 +117,13 @@ void serve(fs, {
     },
   },
   // tree is dynamic context, so it must be implemented; its args are typed from the command
+  // actions sent from renderers; this one has the same state view as bash
+  actions: {
+    rerun: async (input, ctx) => {
+      const { cwd } = await ctx.state.get();
+      return shell(`cd ${cwd ?? '.'} && ${input.command}`, ctx.signal, () => undefined);
+    },
+  },
   context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}` },
   hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
   mentions: {
@@ -237,9 +259,60 @@ void serve(crm, {
 
 // ── Renderers are typed by the contract ───────────────────────────────────────
 
-// A functional component: the props are the typed view.
+// A functional component: the props are the typed view, live. It shows the shared working folder and has a
+// "run again" button that sends the rerun action to the fs system through the hub.
 const BashView = (view: FnViewOf<typeof fs, 'bash'>) =>
-  h('pre', { 'data-fraction': view.progress?.fraction ?? 0 }, [`$ ${view.args.command}\n`, view.result?.stdout ?? '']);
+  h('div', [
+    h('pre', { 'data-fraction': view.progress?.fraction ?? 0 }, [`${view.state.cwd ?? '.'} $ ${view.args.command}\n`, view.result?.stdout ?? '']),
+    h('button', {
+      disabled: !view.system.online,
+      onClick: async () => {
+        const delivery = view.system.send.rerun({ command: view.args.command });   // stored by the hub, delivered when fs is online
+        const again = await delivery.result;
+        expect<Equal<typeof again, { exitCode: number; stdout: string; stderr: string }>>(true);
+        // @ts-expect-error only actions the contract declares can be sent
+        view.system.send.deploy({});
+        // @ts-expect-error action input is checked
+        view.system.send.rerun({ cmd: 'ls' });
+      },
+    }, 'Run again'),
+  ]);
+
+// ── A fn shown as a form: the run waits until the user submits ────────────────
+
+const deploy = system('deploy', { description: 'Deploys after a person approves.' }).with({
+  fns: {
+    approve: fn({
+      description: 'Ask the user to approve a deploy plan. Returns their decision.',
+      args: g.obj({ plan: g.text({ multiline: true }) }),
+      returns: g.obj({ approved: g.bool(), note: g.optional(g.text()) }),
+      form: g.obj({ approved: g.bool(), note: g.optional(g.text()) }),
+      // once answered, the card turns into a plain message
+      display: 'message',
+    }),
+  },
+});
+
+void serve(deploy, {
+  fns: {
+    approve: {
+      async run(_args, ctx) {
+        const answer = await ctx.form();   // waits for the renderer's submit (stored by the hub if the system is offline)
+        return ctx.done(answer);
+      },
+    },
+  },
+}, { hub: '', state: '' });
+
+const ApproveForm = (view: FnViewOf<typeof deploy, 'approve'>) =>
+  h('form', { onSubmit: () => view.submit({ approved: true, note: 'ship it' }) }, [
+    h('pre', view.args.plan),
+    h('button', 'Approve'),
+  ]);
+// @ts-expect-error the form value is checked
+void ((view: FnViewOf<typeof deploy, 'approve'>) => view.submit({ approved: 'yes' }));
+
+export const deployClient = client(deploy, { fns: { approve: ApproveForm } });
 
 // What a `.vue` file compiles to. In the SFC: `const props = defineProps<AttachmentViewOf<typeof fs, 'diff'>>()`.
 declare const DiffView: DefineComponent<AttachmentViewOf<typeof fs, 'diff'>>;

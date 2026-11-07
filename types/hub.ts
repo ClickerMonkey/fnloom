@@ -9,7 +9,7 @@ import type {
   Id, RunId, TurnId, SessionId, ActorId, MessageId, Duration, Timestamp, Usd, Json, QualifiedName, Priority, Audience, ActorKind, Page,
   GinTypeDef, FnError, RunStatus, RunUpdate, Operations, FnLimits, ModelChoice, KindDescription,
   ResourceUri, ResourceStat, ResourceLink, ResourceRead, ResourceRoot, ResourceChange, ReadWant, ContentRef, Section, SectionKey, SectionMatch,
-  HookInput, MentionOption, MentionHover, SystemEvent, UndoOutcome, Link,
+  HookInput, MentionOption, MentionHover, SystemEvent, UndoOutcome, Link, Display,
 } from './sdk.ts';
 
 // ═══ Wire: what a system sends ═══
@@ -37,6 +37,7 @@ export interface Manifest {
   mentions: Array<{ name: string; title: string; description: string; target: GinTypeDef }>;
   embedders: Array<{ name: string; dimensions: number; maxInput: number; pricePerMillionTokens: Usd }>;
   sectioners: Array<{ name: string; description: string; match: SectionMatch }>;
+  actions: Array<{ name: string; description: string; input: GinTypeDef; returns: GinTypeDef; state?: GinTypeDef; expires?: Duration }>;
   /** Events it handles; the hub only sends those. */
   events: SystemEvent['type'][];
   /** Whether it serves resources. Roots are fetched separately (they can change). */
@@ -47,7 +48,7 @@ export interface Manifest {
 }
 
 /** The sections of a manifest a patch can change. */
-export type ManifestSection = 'types' | 'settings' | 'attachments' | 'kinds' | 'fns' | 'context' | 'hooks' | 'mentions' | 'embedders' | 'sectioners';
+export type ManifestSection = 'types' | 'settings' | 'attachments' | 'kinds' | 'fns' | 'context' | 'hooks' | 'mentions' | 'embedders' | 'sectioners' | 'actions';
 
 /** A runtime change to a manifest. */
 export interface ManifestPatch {
@@ -95,6 +96,11 @@ export interface FnDecl {
   operations: Operations;
   undo?: GinTypeDef;
   resume?: GinTypeDef;
+  /** The session state fields it uses (an object type). */
+  state?: GinTypeDef;
+  /** What its renderer's form submits. */
+  form?: GinTypeDef;
+  display: Display;
   limits: FnLimits;
   visibility: Audience;
   tags: string[];
@@ -191,6 +197,13 @@ export interface HubLink {
   resource(input: { uri: ResourceUri; want: ReadWant[]; run?: RunId }): Promise<ResourceRead>;
   content(input: { ref: ContentRef; offset: number; length: number }): Promise<{ chunk: string }>;
   setting(input: { run: RunId; setting: QualifiedName }): Promise<{ value?: Json }>;
+  /**
+   * Session state for a run (or an action). The hub knows which fields the fn or action declared and only reads or
+   * writes those, matched by name and type. `update` takes the version it read, and is refused if another write
+   * came in between (the SDK retries).
+   */
+  stateGet(input: { run: RunId } | { delivery: Id<'delivery'> }): Promise<{ values: Record<string, Json>; version: number }>;
+  stateSet(input: ({ run: RunId } | { delivery: Id<'delivery'> }) & { patch: Record<string, Json>; clear: string[]; version?: number }): Promise<{ version: number } | { conflict: true }>;
   log(input: { level: 'debug' | 'info' | 'warn' | 'error'; key: string; fields: Record<string, Json> }): Promise<void>;
 }
 
@@ -219,6 +232,10 @@ export interface SystemLink {
   /** A mention's text for the LLM, asked for when the message is sent. */
   mentionText(input: { provider: string; target: Json; session: SessionId; actor: ActorId }): Promise<{ text: string }>;
   event(input: SystemEvent): Promise<void>;
+  /** Deliver a stored action. Replies with the result; the hub keeps it with the delivery. */
+  action(input: { delivery: Id<'delivery'>; action: string; input: Json; session: SessionId; actor: ActorId; run?: RunId }): Promise<{ result: Json }>;
+  /** Deliver a form submission to the run waiting in `ctx.form()`. */
+  form(input: { delivery: Id<'delivery'>; run: RunId; value: Json }): Promise<void>;
   restart(input: { reason: string }): Promise<void>;
 }
 
@@ -504,9 +521,52 @@ export interface Run {
   errors: Array<{ attempt: number; error: FnError; cost: Usd; at: Timestamp }>;
   undo?: Json;
   resume?: Json;
+  /** Session state it changed, with the values before, so undoing the turn can put them back. */
+  stateChanges: Array<{ field: string; type: string; before?: Json; after?: Json }>;
   createdAt: Timestamp;
   startedAt?: Timestamp;
   endedAt?: Timestamp;
+}
+
+/**
+ * One field of a system's session state. A field is identified by its name and type together: two fns share it
+ * only if both declare that name with the same type.
+ */
+export interface StateField {
+  session: SessionId;
+  system: SystemName;
+  name: string;
+  /** Hash of the field's gin type. */
+  type: string;
+  def: GinTypeDef;
+  value: Json;
+  /** Bumped on every write. */
+  version: number;
+  updatedBy: { run: RunId } | { delivery: Id<'delivery'> };
+  updatedAt: Timestamp;
+}
+
+/**
+ * A message from the browser to a system: an action, or a form submission to a waiting run. Stored before it is
+ * delivered, so nothing is lost while the system is offline; delivered in order when it connects. The sender sees
+ * its status and result live.
+ */
+export interface DeliveryRecord {
+  id: Id<'delivery'>;
+  system: SystemName;
+  kind: { action: string; input: Json } | { form: RunId; value: Json };
+  session: SessionId;
+  actor: ActorId;
+  /** The run whose renderer sent it. */
+  run?: RunId;
+  status: 'queued' | 'delivered' | 'done' | 'failed' | 'expired';
+  result?: Json;
+  error?: FnError;
+  attempts: number;
+  createdAt: Timestamp;
+  deliveredAt?: Timestamp;
+  doneAt?: Timestamp;
+  expiresAt?: Timestamp;
 }
 
 /** A handler call relayed between a run and its caller. */
@@ -818,7 +878,10 @@ export type BrowserEvent =
   | { type: 'system'; system: SystemName; status: SystemStatus }
   | { type: 'pairing'; pairing: PairingRequest }
   | { type: 'capabilities'; capabilities: ChatCapabilities }
-  | { type: 'notification'; notification: Notification };
+  | { type: 'notification'; notification: Notification }
+  /** Session state changed; each renderer gets the fields it declared. */
+  | { type: 'state'; session: SessionId; system: SystemName; fields: Array<{ name: string; type: string; value?: Json }> }
+  | { type: 'delivery'; delivery: Pick<DeliveryRecord, 'id' | 'status' | 'result' | 'error'> };
 
 /** Why someone is notified. */
 export type NotificationReason = 'approval-needed' | 'input-needed' | 'replied' | 'turn-finished' | 'pairing-requested' | 'system-disconnected' | 'spend-limit';
@@ -863,6 +926,12 @@ export interface HubWebApi {
   subscribePush(input: Omit<PushSubscription, 'id' | 'user' | 'createdAt'>): Promise<{ id: Id<'push'> }>;
   resource(input: { uri: ResourceUri; want: ReadWant[] }): Promise<ResourceRead>;
   transcribe(input: { audio: ContentRef }): Promise<{ text: string }>;
+  /** Send an action from a renderer. Stored, then delivered when the system is online. */
+  act(input: { session: SessionId; system: SystemName; action: string; input: Json; run?: RunId }): Promise<{ delivery: Id<'delivery'> }>;
+  /** Submit a fn's form to its waiting run. */
+  submit(input: { run: RunId; value: Json }): Promise<{ delivery: Id<'delivery'> }>;
+  /** The state fields a renderer declared (its fn's), for its first render; changes then arrive as events. */
+  state(input: { run: RunId }): Promise<{ values: Record<string, Json> }>;
 }
 
 /**
@@ -906,6 +975,8 @@ export interface HubTables {
   turns: Turn;
   runs: Run;
   handlerCalls: HandlerCall;
+  stateFields: StateField;
+  deliveries: DeliveryRecord;
   llmInteractions: LlmInteraction;
   resources: ResourceRecord;
   sections: Section & { uri: ResourceUri; version: string; hash: string };
