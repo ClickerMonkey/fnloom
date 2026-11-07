@@ -1,16 +1,21 @@
 /**
  * Inline markdown: code spans, emphasis (`*`, `_`), strong (`**`, `__`), strikethrough (`~~`), links, images,
- * autolinks (`<https://…>` and bare `https://…`), backslash escapes and hard line breaks. A delimiter that never
+ * autolinks (`<https://…>`, bare `https://…` and bare `file:///…`), backslash escapes and hard line breaks. A delimiter that never
  * closes stays literal text, so half-streamed text renders as typed.
  */
 import type { MdInline } from './ast.ts';
 
 const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
-/** A resource URI (`fs://docs/a.md`): a scheme, then `://`; never one a browser would run or load as a page. */
-export const RESOURCE_LINK = /^(?!(?:javascript|data|vbscript|file|https?|blob):)[a-z][a-z0-9+.-]*:\/\/\S+$/i;
+/**
+ * A resource URI a system serves (`fs://docs/a.md`, and `file:///C:/…`, which the fs system's resources are): a
+ * scheme, then `://`; never one a browser would run or load as a page. The chat opens these in its resource viewer.
+ */
+export const RESOURCE_LINK = /^(?!(?:javascript|data|vbscript|https?|blob):)[a-z][a-z0-9+.-]*:\/\/\S+$/i;
 const SAFE_LINK = /^(https?:|mailto:|\/(?!\/)|#|\.{1,2}\/)/i;
 const SAFE_IMAGE = /^(https?:|\/(?!\/)|\.{1,2}\/)/i;
 const BARE_URL = /^https?:\/\/[^\s<>"]+/;
+/** A bare `file:///…` URI in text, linked like a web address so a file the agent names opens in the viewer. */
+const BARE_FILE = /^file:\/\/\/[^\s<>"`]+/i;
 const TRAILING = /[.,;:!?)\]'"]+$/;
 
 /**
@@ -178,8 +183,8 @@ export function parseInline(text: string): MdInline[] {
       }
     }
 
-    if ((ch === 'h' || ch === 'H') && !isWordChar(text[i - 1])) {
-      const bare = BARE_URL.exec(rest)?.[0];
+    if ((ch === 'h' || ch === 'H' || ch === 'f' || ch === 'F') && !isWordChar(text[i - 1])) {
+      const bare = (BARE_URL.exec(rest) ?? BARE_FILE.exec(rest))?.[0];
       if (bare !== undefined) {
         const url = bare.replace(TRAILING, '');
         out.push({ type: 'link', href: url, children: [{ type: 'text', text: url }] });
@@ -199,7 +204,7 @@ export function parseInline(text: string): MdInline[] {
       }
     }
 
-    const plain = /^[^\\\n`![<*_~hH]+/.exec(rest)?.[0];
+    const plain = /^[^\\\n`![<*_~hHfF]+/.exec(rest)?.[0];
     if (plain !== undefined) { pushText(out, plain); i += plain.length; continue; }
     pushText(out, ch);
     i++;

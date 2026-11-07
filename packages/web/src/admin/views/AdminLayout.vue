@@ -25,5 +25,9 @@ onBeforeUnmount(() => { admin.stop(); });
 </template>
 
 <style scoped>
-.admin { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 100%; }
+.admin {
+  /* the section nav stays at the top while a page scrolls; a page's own pinned bar (its filters) sits under it */
+  --admin-nav-height: calc(var(--control-sm) + 2 * var(--space-2) + 1px); --pinned-top: var(--admin-nav-height);
+  display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 100%;
+}
 </style>

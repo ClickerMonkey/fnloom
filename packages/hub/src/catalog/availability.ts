@@ -33,10 +33,13 @@ export interface AvailabilityInputs {
   readonly fns: ReadonlyMap<string, FnRecord>;
 }
 
-/** Works out the availability of fns, following deps (a dep cycle counts as available as far as the cycle goes). */
+/**
+ * Works out the availability of fns, following deps. A dep cycle counts as available as far as the cycle goes: the fns
+ * of a cycle (a strongly connected component of the dep graph) are settled together, so each one's answer is the same
+ * whichever fn is asked about first.
+ */
 export class AvailabilityRules {
   readonly #memo = new Map<string, Availability>();
-  readonly #visiting = new Set<string>();
 
   private readonly inputs: AvailabilityInputs;
 
@@ -51,19 +54,90 @@ export class AvailabilityRules {
 
   /** The availability of a fn, by name. */
   fn(name: QualifiedName): Availability {
-    const known = this.#memo.get(name);
+    const known = this.#settled(name);
     if (known !== undefined) { return known; }
-    const record = this.inputs.fns.get(name);
-    if (record === undefined) { return unavailable('dep-unavailable', `${name} does not exist`); }
-    if (this.#visiting.has(name)) { return true; }
-    this.#visiting.add(name);
-    const result = this.#work(record);
-    this.#visiting.delete(name);
-    this.#memo.set(name, result);
+    this.#components(name);
+    const result = this.#memo.get(name);
+    if (result === undefined) { throw new Error(`availability of ${name} was not settled`); }
     return result;
   }
 
-  #work(record: FnRecord): Availability {
+  /** An answer already known: memoized, or a fn that does not exist. */
+  #settled(name: string): Availability | undefined {
+    if (!this.inputs.fns.has(name)) { return unavailable('dep-unavailable', `${name} does not exist`); }
+    return this.#memo.get(name);
+  }
+
+  /** Tarjan's walk from one fn, settling every component it reaches; components finish deps first. */
+  #components(root: string): void {
+    const index = new Map<string, number>();
+    const low = new Map<string, number>();
+    const stack: string[] = [];
+    const onStack = new Set<string>();
+    const visit = (name: string): void => {
+      const order = index.size;
+      index.set(name, order);
+      low.set(name, order);
+      stack.push(name);
+      onStack.add(name);
+      for (const dep of this.#deps(name)) {
+        if (this.#settled(dep) !== undefined) { continue; }
+        if (!index.has(dep)) {
+          visit(dep);
+          low.set(name, Math.min(lowOf(name), lowOf(dep)));
+        } else if (onStack.has(dep)) {
+          low.set(name, Math.min(lowOf(name), index.get(dep) ?? order));
+        }
+      }
+      if (lowOf(name) !== order) { return; }
+      const members = new Set<string>();
+      for (let top = stack.pop(); top !== undefined; top = stack.pop()) {
+        onStack.delete(top);
+        members.add(top);
+        if (top === name) { break; }
+      }
+      this.#settle(members);
+    };
+    const lowOf = (name: string): number => low.get(name) ?? 0;
+    visit(root);
+  }
+
+  /** The deps a fn declares (none for a fn that does not exist). */
+  #deps(name: string): readonly string[] {
+    return this.inputs.fns.get(name)?.decl.deps ?? [];
+  }
+
+  /**
+   * Settle one component. Every dep outside it is already settled. A member is unavailable when its own checks fail or
+   * a dep is unavailable; failures spread through the component in rounds, members in name order, until nothing
+   * changes. Members left standing are available.
+   */
+  #settle(members: ReadonlySet<string>): void {
+    const results = new Map<string, Availability>();
+    const order = [...members].sort();
+    for (const name of order) {
+      const record = this.inputs.fns.get(name);
+      const own = record === undefined ? unavailable('dep-unavailable', `${name} does not exist`) : this.#own(record);
+      if (own !== true) { results.set(name, own); }
+    }
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const name of order) {
+        if (results.has(name)) { continue; }
+        for (const dep of this.#deps(name)) {
+          const found = members.has(dep) ? results.get(dep) : this.#settled(dep);
+          if (found === undefined || found === true) { continue; }
+          results.set(name, unavailable('dep-unavailable', `${dep}: ${found.detail}`));
+          changed = true;
+          break;
+        }
+      }
+    }
+    for (const name of order) { this.#memo.set(name, results.get(name) ?? true); }
+  }
+
+  /** The checks a fn passes or fails on its own, before its deps. */
+  #own(record: FnRecord): Availability {
     const own = this.system(record.system);
     if (own !== true) { return own; }
     const system = this.inputs.systems.get(record.system);
@@ -74,10 +148,6 @@ export class AvailabilityRules {
       if (kind === undefined) { return unavailable('kind-missing', `its kind ${record.decl.kind} does not exist`); }
       const kindSystem = this.system(splitName(kind.name).system);
       if (kindSystem !== true) { return unavailable('kind-system-disconnected', `its kind ${kind.name}: ${kindSystem.detail}`); }
-    }
-    for (const dep of record.decl.deps) {
-      const found = this.fn(dep);
-      if (found !== true) { return unavailable('dep-unavailable', `${dep}: ${found.detail}`); }
     }
     return true;
   }

@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core/client';
-import { ActorId, DeliveryId, MessageId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ChatCapabilities } from '@harness/core';
+import { ActorId, BudgetRule, DeliveryId, MessageId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ChatCapabilities } from '@harness/core';
 import { action, client, g, system } from '@harness/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
@@ -142,6 +142,31 @@ describe('ThreadStore', () => {
     await t.store.control('cancel');
     await flush();
     expect(t.store.approvals.value).toEqual([]);
+  });
+
+  it('shows a used-up budget a run waits on, raises it by setBudget, and drops it once the run spends or the person leaves it', async () => {
+    const t = thread();
+    await t.store.open();
+    const budget = BudgetRule.parse({ id: 'bgt_s', target: { scope: 'session', session: S1 }, period: { window: 86_400_000 }, maxCost: 1, onLimit: 'ask', setBy: 'act_admin' });
+    const run = RunId.parse('run_b');
+    t.push({ type: 'budget', run, budget, reason: 'the session budget of $1.00 is used up' });
+    t.push({ type: 'budget', run, budget, reason: 'the session budget of $1.00 is used up' });
+    expect(t.store.budgets.value).toHaveLength(1);
+    const [ask] = t.store.budgets.value;
+    if (ask === undefined) { throw new Error('no budget card'); }
+    expect(await t.store.raiseBudget(ask, 1)).toBe(true);
+    expect(t.api.setBudget.calls[0]?.[0]).toEqual({ id: 'bgt_s', target: { scope: 'session', session: S1 }, period: { window: 86_400_000 }, maxCost: 2, onLimit: 'ask' });
+    expect(t.store.budgets.value).toEqual([]);
+
+    t.push({ type: 'budget', run, budget, reason: 'again' });
+    t.push({ type: 'run', run, fn: 'hub/chat', update: { type: 'cost', cost: 0.1, total: 0.1 } });
+    expect(t.store.budgets.value).toEqual([]);
+    t.push({ type: 'budget', run, budget, reason: 'again' });
+    t.store.leaveBudget(ask);
+    expect(t.store.budgets.value).toEqual([]);
+    t.api.setBudget = failingCaller<'setBudget'>(new Error('not an admin'));
+    expect(await t.store.raiseBudget(ask, 1)).toBe(false);
+    expect(t.store.problem.value).not.toBe('');
   });
 
   it('keeps what it knows waits when the hub cannot say', async () => {

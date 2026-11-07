@@ -12,13 +12,14 @@ import type {
   ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
   MessageId, MessagePart, ModelChoice, Notification, NotificationLink, NotificationReason, NotifyChoice, OutgoingPart, Page, Presence, Priority, QualifiedName, RunId,
   Session, SessionControls, SessionId, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
+  Compact, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
 } from '@harness/core';
 
 /** Sessions. */
 export interface SessionService {
   create(input: { owner: ActorId; agent?: QualifiedName; systems?: SystemName[] | 'all'; title?: string }): Promise<Session>;
   get(session: SessionId, viewer: ActorId): Promise<Session | undefined>;
-  list(viewer: ActorId, query: { cursor?: string; limit?: number; search?: string; archived?: boolean }): Promise<Page<SessionSummary>>;
+  list(viewer: ActorId, query: Compact<SessionListQuery>): Promise<Page<SessionSummary>>;
   /** Change a session. `notify` is the choice of `by` alone; everything else needs `by` to own the session. */
   update(
     session: SessionId,
@@ -31,9 +32,9 @@ export interface SessionService {
    */
   delete(session: SessionId, by: ActorId): Promise<boolean>;
   /** Messages, newest first. A message still streaming carries the text streamed so far. */
-  messages(session: SessionId, viewer: ActorId, query: { cursor?: string; limit?: number }): Promise<Page<ChatMessage>>;
+  messages(session: SessionId, viewer: ActorId, query: Compact<Omit<MessageListQuery, 'session'>>): Promise<Page<ChatMessage>>;
   controls(session: SessionId): Promise<SessionControls>;
-  control(session: SessionId, action: 'pause' | 'resume' | 'cancel', by: ActorId): Promise<SessionControls>;
+  control(session: SessionId, action: SessionControlAction, by: ActorId): Promise<SessionControls>;
   presence(presence: Omit<Presence, 'lastActiveAt'>): Promise<void>;
   /** Whether a person is active in a session now (for the tool-timeout rule). */
   active(session: SessionId): Promise<boolean>;
@@ -71,6 +72,13 @@ export interface TurnService {
   track(message: MessageId, runs: readonly RunId[]): Promise<void>;
   /** A turn ended (the agent answered without tool calls, failed, or was cancelled): record it and tell people who are away. */
   settle(turn: TurnId, status: TurnEnd): Promise<void>;
+  /**
+   * Wake a session's agent to follow up on something that happened after its turn ended (a run it stopped waiting
+   * for settled, its result already in the session's transcript): a new turn for the person of `turn`, with no
+   * message of its own, in which `agent` answers. Nothing starts while an agent is answering in the session (it reads
+   * the transcript on its next step) or when the session is gone or archived. Returns the turn started, if any.
+   */
+  followUp(input: { turn: TurnId; agent: ActorId }): Promise<TurnId | undefined>;
 }
 
 /** Who answers a message: with one person, the session's agent; with more, only agents replied to, or every agent on reply-all. */
@@ -154,7 +162,7 @@ export interface PresenceTracker {
 /** The inbox: every notification is stored, published live, and pushed (web push) when the user isn't looking. */
 export interface NotificationService {
   notify(input: { user: ActorId; reason: NotificationReason; title: string; body: string; link: NotificationLink }): Promise<Notification>;
-  list(user: ActorId, query: { cursor?: string; limit?: number; unread?: boolean }): Promise<Page<Notification>>;
+  list(user: ActorId, query: Compact<NotificationListQuery>): Promise<Page<Notification>>;
   /** Mark some of a user's notifications read; returns how many changed. Others' ids are ignored. */
   read(user: ActorId, ids: readonly string[]): Promise<number>;
 }

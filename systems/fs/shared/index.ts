@@ -171,7 +171,7 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         },
         handlers: {
           confirm: handler({
-            description: 'Run a command your shell setting would ask about?',
+            description: 'Run this command? Your shell setting asks first.',
             args: g.obj({ command: g.text(), reason: g.text() }),
             returns: g.bool(),
             required: false,

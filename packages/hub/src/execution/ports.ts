@@ -5,8 +5,8 @@
 import type { Streamer } from '@aeye/core';
 import type { Logger } from '@ayepi/log';
 import type {
-  FnRecord, IdRandom, Json, LlmMessage, OutcomeWire, Run, RunId, RunInfo, RunRequest, RunSettled, UndoOutcome, Usd,
-  ModelInfo,
+  FnError, FnRecord, IdRandom, Json, LlmMessage, OutcomeWire, Run, RunId, RunInfo, RunRequest, RunSettled, UndoOutcome, Usd,
+  ModelInfo, RunControlAction,
 } from '@harness/core';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
@@ -20,7 +20,7 @@ import type { HubCallContext, HubCallMetadata, LlmCallScope } from './scope.ts';
 /** The settings execution reads: the shared queue slice, the default model, and its own. */
 export interface ExecutionSettings {
   readonly queue: HubSettings['queueEnv'];
-  readonly model: Pick<HubSettings['modelEnv'], 'HARNESS_DEFAULT_MODEL'>;
+  readonly model: Pick<HubSettings['modelEnv'], 'HARNESS_DEFAULT_MODEL' | 'HARNESS_TRANSCRIBE_MODEL'>;
   readonly execution: ExecutionEnv;
 }
 
@@ -43,7 +43,7 @@ export interface ExecutionDeps extends ExecutionBase {
   /** Whether a person is active in a session (the global tool timeout only unblocks the agent then). */
   readonly presence: Pick<SessionService, 'active'>;
   /** Where an agent's answer streams, and where a turn is settled. */
-  readonly turns: Pick<TurnService, 'begin' | 'stream' | 'finish' | 'settle' | 'track'>;
+  readonly turns: Pick<TurnService, 'begin' | 'stream' | 'finish' | 'settle' | 'track' | 'followUp'>;
   readonly approvers: ApproverDirectory;
 }
 
@@ -74,7 +74,12 @@ export interface ControlAnswer {
  */
 export interface RunExecutor {
   execute(job: ExecutionJob, signal: AbortSignal): Promise<OutcomeWire | 'detached'>;
-  control(run: Run, action: 'cancel' | 'pause'): Promise<ControlAnswer>;
+  control(run: Run, action: RunControlAction): Promise<ControlAnswer>;
+  /**
+   * The hub stopped a run whose deadline passed: end the work it is doing (tell its system, stop its iteration and
+   * tool calls). The run service settles the run as failed with `error` itself, so this never settles it.
+   */
+  stop(run: Run, error: FnError): Promise<void>;
   undo(job: UndoJob): Promise<UndoOutcome>;
 }
 
@@ -99,6 +104,8 @@ export interface LlmEngine {
   readonly streamer: Streamer<HubCallContext, HubCallMetadata>;
   /** Embeddings through a provider model; `scope` pays for them. */
   embed(texts: readonly string[], scope?: LlmCallScope): Promise<{ vectors: number[][]; cost: Usd }>;
+  /** The text spoken in a recording, heard by `model` (a model with hearing from a configured provider). */
+  transcribe(audio: Uint8Array, model: string): Promise<string>;
   models(): ModelInfo[];
 }
 

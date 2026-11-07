@@ -144,8 +144,12 @@ export type Asker = z.infer<typeof Asker>;
 export const LogLine = z.object({ level: z.enum(['debug', 'info', 'warn', 'error']), key: z.string(), fields: JsonObject });
 export type LogLine = z.infer<typeof LogLine>;
 
+/** What can be done to a running run: stop it for good, or pause it to resume later. */
+export const RunControlAction = z.enum(['cancel', 'pause']);
+export type RunControlAction = z.infer<typeof RunControlAction>;
+
 /** Cancel or pause a run. The hub sends it to the system running the run; a system sends it for its own child calls. */
-export const RunControl = z.object({ run: RunId, action: z.enum(['cancel', 'pause']) });
+export const RunControl = z.object({ run: RunId, action: RunControlAction });
 export type RunControl = z.infer<typeof RunControl>;
 
 /** Whether a cancel or pause was taken up, and why not. */

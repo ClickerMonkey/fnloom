@@ -13,8 +13,8 @@ import { fnDecl, type AnyFnDef } from '@harness/sdk';
 import {
   ActorId, MessageId, SystemName, mintId, systemLinkSpec,
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
-  type OutcomeWire, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
-  type TurnId, type TurnStatus, type UndoOutcome, type UserInfo,
+  type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
+  type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -35,20 +35,25 @@ export const AGENT = ActorId.parse('act_agent');
 export const ALICE_INFO: UserInfo = { id: ALICE, name: 'Alice', email: 'alice@example.com', role: 'admin', groups: [], timeZone: 'America/New_York', locale: 'en-US' };
 
 /** Settings for tests: short timeouts, small limits. */
-export function testSettings(overrides: Partial<ExecutionSettings['queue']> = {}, execution: Partial<ExecutionSettings['execution']> = {}, model = 'test-model'): ExecutionSettings {
+export function testSettings(
+  overrides: Partial<ExecutionSettings['queue']> = {}, execution: Partial<ExecutionSettings['execution']> = {}, model = 'test-model', transcribe = '',
+): ExecutionSettings {
   return {
     queue: {
       HARNESS_LLM_CONCURRENCY: 2, HARNESS_RUN_CONCURRENCY: 4, HARNESS_TOOL_TIMEOUT: 60_000, HARNESS_ACTIVE_WINDOW: 120_000,
       HARNESS_DEFAULT_PRIORITY: 'interactive', HARNESS_TURN_COST: 1, HARNESS_TURN_TIME: 600_000, HARNESS_BUDGET_MARGIN: 1.25, ...overrides,
     },
-    model: { HARNESS_DEFAULT_MODEL: model },
+    model: { HARNESS_DEFAULT_MODEL: model, HARNESS_TRANSCRIBE_MODEL: transcribe },
     execution: { ...executionEnv.parse(), HARNESS_RUN_RETRY_BASE: 10, HARNESS_QUEUE_POLL: 5, ...execution },
   };
 }
 
+/** The configurable provider kind the scripted provider stands in for, so its models show on the admin pages. */
+export const SCRIPTED_AS = 'openrouter' satisfies ProviderKind;
+
 /** A model the scripted provider serves: $1 per million input tokens, $2 per million output. */
 export const TEST_MODEL: ModelInfo = {
-  id: 'test-model', provider: 'scripted', name: 'Test model', tier: 'flagship', contextWindow: 100_000, maxOutputTokens: 4_000,
+  id: 'test-model', provider: SCRIPTED_AS, name: 'Test model', tier: 'flagship', contextWindow: 100_000, maxOutputTokens: 4_000,
   capabilities: new Set(['chat', 'streaming', 'tools', 'json', 'structured']), pricing: { text: { input: 1, output: 2 } },
 };
 
@@ -194,7 +199,7 @@ export class TestCatalog implements Catalog {
 /** What a fake system does with the hub's requests, set per test. */
 export interface SystemBehaviour {
   run: (request: RunRequest, signal: AbortSignal) => Promise<OutcomeWire>;
-  control: (input: { run: string; action: 'cancel' | 'pause' }) => { accepted: boolean; reason?: string };
+  control: (input: { run: string; action: RunControlAction }) => { accepted: boolean; reason?: string };
   undo: (input: { fn: string; payload: Json }) => UndoOutcome;
   handler: (input: { handler: string; args: Json; key: string }) => { ok: true; value: Json } | { ok: false; error: { class: 'caller'; message: string } };
 }
@@ -260,6 +265,8 @@ export interface ChatRecord {
   readonly settled: Array<{ turn: TurnId; status: Exclude<TurnStatus, 'running' | 'paused' | 'undone'> }>;
   /** Runs recorded on assistant messages (`track`). */
   readonly tracked: Array<{ message: MessageId; runs: readonly RunId[] }>;
+  /** Follow-up turns the agent loop asked for. */
+  readonly followUps: Array<{ turn: TurnId; agent: ActorId }>;
 }
 
 /** Limits that let a turn spend up to $1 at interactive priority. */
@@ -278,7 +285,7 @@ export async function executionRig(options: { settings?: ExecutionSettings; acti
   const hub = linkServer();
   const systems = new Map<string, TestSystem>();
   const provider = new ScriptedProvider();
-  const chat: ChatRecord = { begun: [], streamed: [], finished: [], settled: [], tracked: [] };
+  const chat: ChatRecord = { begun: [], streamed: [], finished: [], settled: [], tracked: [], followUps: [] };
   const presence = { active: options.active ?? false };
   const configs = new Map<string, ConfigValue>();
   const approverSets = new Map<ApprovalId, ActorId[]>();
@@ -307,11 +314,12 @@ export async function executionRig(options: { settings?: ExecutionSettings; acti
       },
       settle: (turn, status) => { chat.settled.push({ turn, status }); return Promise.resolve(); },
       track: (message, runs) => { chat.tracked.push({ message, runs }); return Promise.resolve(); },
+      followUp: (input) => { chat.followUps.push(input); return Promise.resolve(undefined); },
     },
     enrich: { render: (message) => message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') },
     approvers: { approvers: (approver: Approver, turnUser: ActorId) => Promise.resolve(approver.by === 'turn-user' ? [turnUser] : approver.by === 'actor' ? [approver.actor] : []) },
     ports: { work: memoryBackend(), rate: rateMemory() },
-    llm: options.llm ?? { providers: { scripted: provider }, models: [TEST_MODEL] },
+    llm: options.llm ?? { providers: { [SCRIPTED_AS]: provider }, models: [TEST_MODEL] },
   });
 
   /** Connect a fake system. */

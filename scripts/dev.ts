@@ -12,28 +12,23 @@
  *
  * For the web app with hot reload instead of a build, run `npm run dev:web` beside it (Vite on HARNESS_WEB_PORT).
  */
-import { env } from '@ayepi/env';
+import { env, mergeEnvs } from '@ayepi/env';
 import { loadEnv } from '@ayepi/env/load';
 import { HUB_PORT } from '@harness/core';
 import { z } from 'zod';
+import { COMPONENTS, devEnv } from './dev-env.ts';
 import { fsConfig, ROOT, startStack, type ComponentName } from './stack.ts';
 
-for (const [key, value] of Object.entries(loadEnv({ files: ['.env'] }))) {
-  process.env[key] ??= typeof value === 'string' ? value : JSON.stringify(value);
-}
-
-const COMPONENTS = ['web', 'hub', 'fs', 'embedder'] as const satisfies readonly ComponentName[];
-
-const devEnv = env({
+/** What the stack needs of the hub's settings; the admin account is required here, since dev signs in as it. */
+const stackEnv = env({
   ...HUB_PORT,
   HARNESS_DATA: z.string().default('.harness'),
-  HARNESS_DEV_ONLY: z.string().default(COMPONENTS.join(',')),
-  HARNESS_DEV_ROOT: z.string().default(ROOT),
-  HARNESS_EMBEDDER_URL: z.string().default('http://127.0.0.1:8760'),
   HARNESS_ADMIN_EMAIL: z.email(),
   HARNESS_ADMIN_PASSWORD: z.string().min(10),
 });
-const settings = devEnv.parse();
+const devSettings = mergeEnvs(stackEnv, devEnv);
+devSettings.set({ ...loadEnv({ files: ['.env'] }), ...process.env });
+const settings = devSettings.parse();
 
 const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32 } as const satisfies Record<ComponentName, number>;
 const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
@@ -45,7 +40,7 @@ const stack = await startStack({
   build: true,
   watch: true,
   only: new Set(settings.HARNESS_DEV_ONLY.split(',').map((s) => s.trim()).filter(isComponent)),
-  systems: { fs: fsConfig(settings.HARNESS_DEV_ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL } },
+  systems: { fs: fsConfig(settings.HARNESS_DEV_ROOT ?? ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL } },
   output: (component, line, stream) => {
     (stream === 'err' ? process.stderr : process.stdout).write(`\u001b[${COLOURS[component]}m${component.padEnd(9)}\u001b[0m ${line}\n`);
   },

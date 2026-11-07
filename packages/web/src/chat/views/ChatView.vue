@@ -7,11 +7,11 @@
  * (`?q=`) and its active or archived view (`?chats=archived`) are in the URL too, and kept moving between chats. A
  * side panel takes the list's column unless the screen is very wide, so the thread keeps a readable width.
  */
-import type { LlmInteraction, MessageId, SessionId } from '@harness/core';
+import { isSettled, type LlmInteraction, type MessageId, type SessionId } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useStores } from '../../state/stores.ts';
 import { UiButton, UiEmpty, UiModal, useMediaQuery } from '../../ui/index.ts';
-import { useNow } from '../../ui/now.ts';
+import { useTicker } from '../clock.ts';
 import { COMPACT_QUERY } from '../../state/layout.ts';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import LlmCallDetails from '../components/LlmCallDetails.vue';
@@ -30,9 +30,16 @@ import { LlmCallTab, RunTab, TAB_KEYS } from '../logic/inspect.ts';
 import { isTyping, shortcutFor } from '../logic/keys.ts';
 import { useQueryChoice } from '../../app/url.ts';
 import { agentName, fnLabel } from '../logic/labels.ts';
-import { mergeRecord } from '../logic/runs.ts';
+import { drawerRun, recordIsBehind } from '../logic/runs.ts';
 import { useChatUrl } from '../url.ts';
 import ThreadPane from './ThreadPane.vue';
+import ModelPicker from '../components/ModelPicker.vue';
+import SessionPeople from '../components/SessionPeople.vue';
+import { modelChoiceOf, modelPick, type ModelPick } from '../logic/session.ts';
+import type { ChatPanel } from '../url.ts';
+
+/** Each chat panel's title. */
+const PANEL_TITLE = { settings: 'Chat settings', people: 'People', model: 'Model' } as const satisfies Record<ChatPanel, string>;
 
 const { chat, toasts, session: auth, layout } = useStores();
 /** The shell's top bar is hidden on a chat when the screen is compact: the chat's header takes its place. */
@@ -40,7 +47,6 @@ const shellCompact = useMediaQuery(COMPACT_QUERY);
 const url = useChatUrl();
 const runTab = useQueryChoice(TAB_KEYS.run, RunTab, 'overview');
 const callTab = useQueryChoice(TAB_KEYS.llm, LlmCallTab, 'saw');
-const now = useNow();
 const wide = useMediaQuery('(min-width: 1100px)');
 const roomy = useMediaQuery('(min-width: 1360px)');
 const spacious = useMediaQuery('(min-width: 1720px)');
@@ -140,8 +146,10 @@ const runView = computed(() => {
   if (id === undefined) { return undefined; }
   const live = thread.value?.runs.value.get(id);
   const fetched = chat.inspector.run.value.value;
-  return fetched?.id === id ? mergeRecord(live, fetched) : live;
+  return drawerRun(live, fetched?.id === id ? fetched : undefined);
 });
+/** Ticks every second while the open run is going, so its drawer's elapsed time counts up. */
+const now = useTicker(() => runView.value !== undefined && !isSettled(runView.value.status));
 const llmCall = computed(() => (url.llm.value === undefined ? undefined : chat.inspector.calls.value.get(url.llm.value)));
 const turnCalls = shallowRef<readonly LlmInteraction[]>([]);
 const turnLoading = ref(false);
@@ -154,7 +162,7 @@ const panelTitle = computed(() => {
     case 'details': return 'Answer details';
     case 'tree': return 'Run tree';
     case 'resource': return chat.inspector.resource.value.value?.stat.name ?? 'Resource';
-    case 'panel': return url.panel.value === 'people' ? 'People' : 'Chat settings';
+    case 'panel': return url.panel.value === undefined ? '' : PANEL_TITLE[url.panel.value];
     case undefined: return '';
   }
 });
@@ -168,6 +176,10 @@ const panelSubtitle = computed(() => {
 });
 
 watch(url.run, (id) => { if (id !== undefined) { void chat.inspector.openRun(id); } }, { immediate: true });
+// once the thread hears the open run settle, fetch its record again for the result and errors
+watch(() => (url.run.value === undefined ? undefined : thread.value?.runs.value.get(url.run.value)), (live) => {
+  if (recordIsBehind(live, chat.inspector.run.value.value) && live !== undefined) { void chat.inspector.openRun(live.id); }
+});
 watch(url.llm, (id) => { if (id !== undefined) { void chat.inspector.loadCalls([id]); } }, { immediate: true });
 watch(url.resource, (uri) => { if (uri !== undefined) { void chat.inspector.openResource(uri); } }, { immediate: true });
 watch(url.treeTurn, (turn) => { if (turn === undefined) { chat.inspector.closeTree(); } else { void chat.inspector.openTree(turn); } }, { immediate: true });
@@ -182,6 +194,13 @@ watch(() => thread.value?.runs.value, () => { if (url.treeTurn.value !== undefin
 
 const liveStatus = (run: Parameters<typeof chat.inspector.openRun>[0]) => thread.value?.runs.value.get(run)?.status;
 const nameOf = (p: { actor: string; role: string }): string => (p.actor === auth.user.value?.id ? (auth.user.value.name) : p.role === 'agent' ? (record.value === undefined ? 'Agent' : agentName(record.value.agent)) : 'Someone');
+
+/** Save the chat's model and go back to where the picker was opened from. */
+async function pickModel(pick: ModelPick): Promise<void> {
+  if (thread.value === undefined) { return; }
+  await thread.value.update({ model: modelChoiceOf(pick) });
+  url.close();
+}
 
 async function backgroundRun(): Promise<void> {
   const id = url.run.value;
@@ -275,11 +294,16 @@ onBeforeUnmount(() => {
           v-else-if="url.top.value === 'resource'" :read="chat.inspector.resource.value.value" :loading="chat.inspector.resource.loading.value"
           :problem="chat.inspector.resource.problem.value" :custom="resourceView" @retry="url.resource.value && chat.inspector.openResource(url.resource.value)"
         />
+        <SessionPeople v-else-if="url.top.value === 'panel' && url.panel.value === 'people' && record" :participants="record.participants" :name-of="nameOf" />
+        <ModelPicker
+          v-else-if="url.top.value === 'panel' && url.panel.value === 'model' && record && thread" :models="chat.capabilities.value.value?.models ?? []"
+          :current="modelPick(record.model)" @pick="pickModel"
+        />
         <SessionSettings
           v-else-if="url.top.value === 'panel' && record && thread" :session="record" :systems="chat.capabilities.value.value?.systems ?? []" :notify="thread.notify.value"
           :agent="agentName(record.agent)" :agents="chat.capabilities.value.value?.agents ?? []" :models="chat.capabilities.value.value?.models ?? []"
           :priority="thread.limits.value?.priority" :name-of="nameOf" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
-          @priority="thread.update({ priority: $event })" @agent="thread.update({ agent: $event })" @model="thread.update({ model: $event })"
+          @priority="thread.update({ priority: $event })" @agent="thread.update({ agent: $event })" @pick-model="url.open('panel', 'model')"
         />
       </PanelFrame>
     </PanelHost>

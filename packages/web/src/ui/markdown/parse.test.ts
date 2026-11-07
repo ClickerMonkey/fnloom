@@ -52,6 +52,15 @@ describe('parseInline', () => {
     expect(safeImage('mailto:a@b.co')).toBeUndefined();
   });
 
+  it('links the resource URIs systems serve, file:/// ones included, bare or in a link', () => {
+    const uri = 'file:///C:/work/docs/harness.md';
+    expect(safeLink(uri)).toBe(uri);
+    expect(safeLink('fs://docs/a.md')).toBe('fs://docs/a.md');
+    expect(parseInline(`read ${uri}, then`)).toEqual([text('read '), { type: 'link', href: uri, children: [text(uri)] }, text(', then')]);
+    expect(parseInline(`[harness.md](${uri})`)).toEqual([{ type: 'link', href: uri, children: [text('harness.md')] }]);
+    expect(parseInline('profile://x')).toEqual([text('profile://x')]);
+  });
+
   it('reads escapes and hard breaks', () => {
     expect(parseInline('\\*not\\*')).toEqual([text('*not*')]);
     expect(parseInline('a  \nb')).toEqual([text('a'), { type: 'break' }, text('b')]);

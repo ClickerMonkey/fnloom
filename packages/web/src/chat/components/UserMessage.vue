@@ -6,12 +6,14 @@
  * as one dimmed, collapsed row, and what the index suggested shows as chips. Runs the person started with `!` show
  * as live run cards under it. The action bar sits in the margin.
  */
-import type { ChatMessage, MessagePart, QualifiedName, RunId } from '@harness/core';
+import type { ChatMessage, Link, MessagePart, QualifiedName, RunId } from '@harness/core';
 import { computed, onMounted, ref } from 'vue';
 import { UiAvatar, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
 import type { MessageSuggestions, SuggestionItem } from '../logic/session.ts';
 import type { RunView } from '../logic/runs.ts';
 import { splitParts, type MentionPart } from '../logic/thread.ts';
+import AttachmentCard from './AttachmentCard.vue';
+import LinkCard from './LinkCard.vue';
 import MessageActions from './MessageActions.vue';
 import PartList from './PartList.vue';
 import RunCard from './RunCard.vue';
@@ -37,7 +39,11 @@ const props = withDefaults(defineProps<{
   viewOf?: (run: RunView) => RenderView<'fn'> | undefined;
   /** Whether a run's card is collapsed. */
   collapsed?: (run: RunView) => boolean;
-}>(), { quote: undefined, flash: false, clampLines: 8, runs: () => [], viewOf: () => undefined, collapsed: () => false });
+  /** The messages carrying what its runs attached (diffs, files, links), shown under its run cards. */
+  carried?: readonly ChatMessage[];
+  /** An attachment's renderer and its props, when its system has one. */
+  attachmentView?: (part: Attachment) => RenderView<'attachment'> | undefined;
+}>(), { quote: undefined, flash: false, clampLines: 8, runs: () => [], viewOf: () => undefined, collapsed: () => false, carried: () => [], attachmentView: () => undefined });
 
 const emit = defineEmits<{
   action: [action: MessageAction];
@@ -49,7 +55,12 @@ const emit = defineEmits<{
   run: [run: RunId];
   runToggle: [run: RunId, collapsed: boolean];
   background: [run: RunId];
+  link: [link: Link];
 }>();
+
+type Attachment = Extract<MessagePart, { type: 'attachment' }>;
+/** What its runs attached, in order. */
+const outputs = computed(() => props.carried.flatMap((m) => m.parts.flatMap((part, i) => (part.type === 'attachment' || part.type === 'link' ? [{ key: `${m.id}-${i}`, part }] : []))));
 
 const split = computed(() => splitParts(props.message.parts));
 const added = computed(() => split.value.added.flatMap((part: MessagePart) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : [])));
@@ -111,6 +122,12 @@ onMounted(() => {
           v-for="run in runs" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)" :byline="mine ? 'You ran this' : `${authorName} ran this`"
           @open="emit('run', run.id)" @toggle="emit('runToggle', run.id, $event)" @background="emit('background', run.id)"
         />
+        <template v-for="output in outputs" :key="output.key">
+          <AttachmentCard
+            v-if="output.part.type === 'attachment'" :title="output.part.title" :attachment="output.part.attachment" :data="output.part.data" :view="attachmentView(output.part)"
+          />
+          <LinkCard v-else :link="output.part.link" @open="emit('link', $event)" />
+        </template>
       </div>
       <SuggestionChips :suggestions="suggestions" @use="(item, kind) => emit('suggestion', item, kind)" />
       <div class="meta">

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ChatMessage, GinTypeDef, Membership, HUB_TABLES, IDS, ID_PREFIXES, Json, MANIFEST_SECTION_NAMES, Manifest, MessageView, OutgoingPart, QualifiedName, RunId,
   SystemName, SystemStatus, TypeRecord, adminSlice, authSlice, chatSlice, contentSlice, eventsSlice, findSlice, hubLinkSpec, hubWebSpec, inboxSlice,
+  ProviderConfig, ProviderInput, ProviderKind, RunControl, RunControlAction, SessionControlAction, SessionId, isIdKind,
   isHeardSystemStatus, mintId, qualify, runsSlice, settingsSlice, splitName, systemLinkSpec, systemsSlice,
 } from './index.ts';
 
@@ -18,6 +19,43 @@ describe('ids', () => {
     expect(Object.keys(IDS).sort()).toEqual(Object.keys(ID_PREFIXES).sort());
     const prefixes = Object.values(ID_PREFIXES);
     expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+
+  it('parses text as an id only when it starts with the prefix of its kind', () => {
+    expect(SessionId.safeParse('ses_x').success).toBe(true);
+    expect(SessionId.safeParse('run_abc').success).toBe(false);
+    expect(RunId.safeParse('ses_x').success).toBe(false);
+    expect(RunId.safeParse('run_').success).toBe(false);
+    expect(RunId.safeParse('run').success).toBe(false);
+    expect(RunId.safeParse('xrun_1').success).toBe(false);
+    for (const kind of Object.keys(ID_PREFIXES).filter(isIdKind)) {
+      expect(IDS[kind].safeParse(mintId(kind)).success).toBe(true);
+      expect(IDS[kind].safeParse('zzz_1').success).toBe(false);
+    }
+  });
+});
+
+describe('providers', () => {
+  it('reads the provider kinds off the one provider table, and both unions agree on them', () => {
+    expect(ProviderKind.options).toEqual(['openai', 'openrouter']);
+    expect(ProviderInput.options.map((o) => o.shape.provider.value)).toEqual(ProviderKind.options);
+    expect(Object.keys(ProviderInput.options[0].shape)).toEqual(Object.keys(ProviderConfig.options[0].shape));
+  });
+
+  it('holds a key as a secret id in the stored config and as the key itself in the input', () => {
+    expect(ProviderConfig.safeParse({ provider: 'openrouter', apiKey: mintId('secret') }).success).toBe(true);
+    expect(ProviderConfig.safeParse({ provider: 'openrouter', apiKey: 'sk-or-1' }).success).toBe(false);
+    expect(ProviderInput.safeParse({ provider: 'openrouter', apiKey: 'sk-or-1' }).success).toBe(true);
+    expect(ProviderInput.safeParse({ provider: 'openrouter', apiKey: '' }).success).toBe(false);
+    expect(ProviderInput.safeParse({ provider: 'aws', region: 'us-east-1' }).success).toBe(false);
+  });
+});
+
+describe('controls', () => {
+  it('names the run and session control actions the schemas use', () => {
+    expect(RunControl.shape.action).toBe(RunControlAction);
+    expect(RunControlAction.options).toEqual(['cancel', 'pause']);
+    expect(SessionControlAction.options).toEqual(['pause', 'resume', 'cancel']);
   });
 });
 

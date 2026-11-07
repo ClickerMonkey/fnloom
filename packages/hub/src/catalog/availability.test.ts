@@ -40,5 +40,31 @@ describe('availability rules', () => {
     expect(cycle.fn('shop/b')).toBe(true);
     const broken = new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds: new Map(), fns: fns({ a: ['b'], b: ['a', 'gone'] }) });
     expect(broken.fn('shop/a')).toMatchObject({ unavailable: 'dep-unavailable' });
+    expect(broken.fn('shop/b')).toMatchObject({ unavailable: 'dep-unavailable' });
+  });
+
+  it('gives every member of a broken cycle the same answer whichever fn is asked first', () => {
+    const make = (): AvailabilityRules => new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds: new Map(), fns: fns({ a: ['b', 'gone'], b: ['a'], c: ['b'] }) });
+    const aFirst = make();
+    const fromA = [aFirst.fn('shop/a'), aFirst.fn('shop/b'), aFirst.fn('shop/c')];
+    const bFirst = make();
+    const fromB = [bFirst.fn('shop/b'), bFirst.fn('shop/c'), bFirst.fn('shop/a')];
+    expect(fromA).toEqual([
+      { unavailable: 'dep-unavailable', detail: 'shop/gone: shop/gone does not exist' },
+      { unavailable: 'dep-unavailable', detail: 'shop/a: shop/gone: shop/gone does not exist' },
+      { unavailable: 'dep-unavailable', detail: 'shop/b: shop/a: shop/gone: shop/gone does not exist' },
+    ]);
+    expect([fromB[2], fromB[0], fromB[1]]).toEqual(fromA);
+  });
+
+  it('makes a cycle unavailable when one member is paused, and leaves fns outside it alone', () => {
+    const all = fns({ a: ['b'], b: ['a'], free: [] });
+    const b = all.get('shop/b');
+    if (b === undefined) { throw new Error('missing fixture'); }
+    all.set('shop/b', { ...b, paused: true });
+    const rules = new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds: new Map(), fns: all });
+    expect(rules.fn('shop/a')).toEqual({ unavailable: 'dep-unavailable', detail: 'shop/b: shop/b is paused' });
+    expect(rules.fn('shop/b')).toEqual({ unavailable: 'paused', detail: 'shop/b is paused' });
+    expect(rules.fn('shop/free')).toBe(true);
   });
 });

@@ -58,7 +58,7 @@ export type SearchHit = z.infer<typeof SearchHit>;
 
 /** Why someone is notified. */
 export const NotificationReason = z.enum([
-  'approval-needed', 'input-needed', 'config-needed', 'replied', 'turn-finished', 'turn-failed', 'pairing-requested', 'system-disconnected', 'spend-limit',
+  'approval-needed', 'input-needed', 'config-needed', 'message', 'replied', 'turn-finished', 'turn-failed', 'pairing-requested', 'system-disconnected', 'spend-limit',
 ]);
 export type NotificationReason = z.infer<typeof NotificationReason>;
 

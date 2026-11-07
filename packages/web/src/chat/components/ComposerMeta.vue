@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The quiet row under the composer: the agent answering (a menu switches it), the model it answers with (opening the
- * chat's settings to change it), how many systems the chat uses (and how many are offline), background work, and the
+ * model picker to change it), how many systems the chat uses (and how many are offline), background work, and the
  * cost and budget meter. On a phone it keeps to one line, dropping words before numbers.
  */
 import type { QualifiedName } from '@harness/core';
@@ -23,7 +23,7 @@ const props = withDefaults(defineProps<{
   compact: boolean;
 }>(), { agents: () => [], model: '', meter: undefined });
 
-const emit = defineEmits<{ settings: []; background: []; agent: [fn: QualifiedName] }>();
+const emit = defineEmits<{ settings: []; model: []; background: []; agent: [fn: QualifiedName] }>();
 
 /** The agent menu: every agent (the current one checked), then the chat's settings. */
 const agentItems = computed<MenuItem<QualifiedName | 'settings'>[]>(() => [
@@ -49,7 +49,7 @@ function chooseAgent(value: QualifiedName | 'settings'): void {
         </button>
       </template>
     </UiMenu>
-    <button v-if="model !== '' && !compact" type="button" class="item model" :title="`Answers with ${model}`" data-testid="model-chip" @click="emit('settings')">
+    <button v-if="model !== '' && !compact" type="button" class="item model" :title="`Answers with ${model}`" data-testid="model-chip" @click="emit('model')">
       <UiIcon name="cpu" :size="14" />
       <span class="text">{{ model }}</span>
     </button>

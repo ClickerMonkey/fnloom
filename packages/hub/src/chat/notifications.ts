@@ -10,8 +10,8 @@
  * past-tense note of what became of it, so the bell counts only what still needs someone.
  */
 import {
-  isSettled, mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationLink, type NotificationReason,
-  type Page, type PairingRequest, type RunId, type RunStatus, type SystemName, type SystemStatus,
+  argSummary, isSettled, mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationLink, type NotificationReason,
+  type Page, type PairingRequest, type RunId, type RunStatus, type SystemName, type SystemStatus, type Compact, type NotificationListQuery,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
@@ -107,7 +107,7 @@ export class StoreNotifications implements NotificationService {
     }
   }
 
-  async list(user: ActorId, query: { cursor?: string; limit?: number; unread?: boolean }): Promise<Page<Notification>> {
+  async list(user: ActorId, query: Compact<NotificationListQuery>): Promise<Page<Notification>> {
     return this.#deps.store.table('notifications').find({
       where: { user, ...(query.unread === true ? { read: false } : {}) }, order: [['createdAt', 'desc']], limit: query.limit ?? PAGE, cursor: query.cursor,
     });
@@ -179,7 +179,19 @@ export class StoreNotifications implements NotificationService {
       return;
     }
     if (!('user' in call.answerer) || !this.#seen.add(`handler:${call.id}`)) { return; }
-    await this.notify({ user: call.answerer.user, reason: 'input-needed', title: 'Your answer is needed', body: call.decl.description, link: { run: call.run } });
+    await this.notify({ user: call.answerer.user, reason: 'input-needed', title: call.decl.description, body: await this.#whereAsked(call), link: { run: call.run } });
+  }
+
+  /**
+   * Where a question comes from, so questions can be told apart: what it is about (its most telling arg, such as the
+   * command) and the chat it was asked in. "`sleep 20; echo never` in “Deploy notes”".
+   */
+  async #whereAsked(call: HandlerCall): Promise<string> {
+    const about = argSummary(call.args, 80);
+    const run = await this.#deps.store.table('runs').get(call.run);
+    const session = run?.session === undefined ? undefined : await this.#deps.store.table('sessions').get(run.session);
+    const what = about === '' ? 'A run is waiting for your answer' : `\`${about}\``;
+    return session === undefined ? what : `${what} in “${session.title}”`;
   }
 
   async #pairing(pairing: PairingRequest): Promise<void> {

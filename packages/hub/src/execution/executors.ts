@@ -4,7 +4,7 @@
  */
 import { encodeValue, parseValue, type FnRef } from '@harness/sdk';
 import {
-  splitName, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome,
+  splitName, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome, type RunControlAction,
 } from '@harness/core';
 import { fnError, messageOf, RunStopped } from './errors.ts';
 import type { ControlAnswer, ExecutionDeps, ExecutionJob, RunExecutor, UndoJob } from './ports.ts';
@@ -37,11 +37,16 @@ export class SystemExecutor implements RunExecutor {
     }
   }
 
-  async control(run: Run, action: 'cancel' | 'pause'): Promise<ControlAnswer> {
+  async control(run: Run, action: RunControlAction): Promise<ControlAnswer> {
     const connection = this.#deps.link.connection(run.system);
     if (connection === undefined) return { accepted: false, reason: `${run.system} is not connected` };
     const answer = await connection.peer.call('control', { run: run.id, action });
     return answer.reason === undefined ? { accepted: answer.accepted } : { accepted: answer.accepted, reason: answer.reason };
+  }
+
+  /** Tell the system to cancel the run; a system that doesn't answer is settled by the hub all the same. */
+  async stop(run: Run): Promise<void> {
+    await this.control(run, 'cancel');
   }
 
   async undo(job: UndoJob): Promise<UndoOutcome> {
@@ -97,6 +102,11 @@ export class HubFns implements RunExecutor {
   /** Hub fns stop through their signal, which the run service aborts. */
   control(): Promise<ControlAnswer> {
     return Promise.resolve({ accepted: true });
+  }
+
+  /** Hub fns stop through their signal, which the run service aborts; one that ignores it is settled all the same. */
+  stop(): Promise<void> {
+    return Promise.resolve();
   }
 
   undo(): Promise<UndoOutcome> {

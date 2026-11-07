@@ -2,5 +2,5 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "rootDir": "..", "outDir": "../.types/scripts", "tsBuildInfoFile": "../.types/scripts.tsbuildinfo" },
   "include": ["./**/*.ts", "../e2e/**/*.ts", "../ui-tests/**/*.ts", "../vitest.config.ts", "../eslint.config.ts"],
-  "references": [{ "path": "../packages/core" }, { "path": "../packages/sdk" }, { "path": "../systems/fs" }, { "path": "../systems/embedder" }]
+  "references": [{ "path": "../packages/core" }, { "path": "../packages/sdk" }, { "path": "../packages/hub" }, { "path": "../systems/fs" }, { "path": "../systems/embedder" }]
 }

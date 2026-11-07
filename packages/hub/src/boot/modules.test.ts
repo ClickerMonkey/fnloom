@@ -10,7 +10,7 @@ import { mintId, SystemName } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordingPush, testSettings } from '../api/testing/rig.ts';
 import { memoryLog } from '../testing.ts';
-import { ScriptedProvider, TEST_MODEL } from '../execution/testing.ts';
+import { SCRIPTED_AS, ScriptedProvider, TEST_MODEL } from '../execution/testing.ts';
 import type { RunningHub } from './index.ts';
 import { hubModules } from './modules.ts';
 import { startHub } from './start.ts';
@@ -28,7 +28,7 @@ beforeAll(async () => {
       hubEnv: { ...base.hubEnv, HARNESS_DB_FILE: ':memory:', HARNESS_KEYS_FILE: join(dir, 'keys.json'), HARNESS_FILES_DIR: join(dir, 'files'), HARNESS_SYSTEMS_DIR: join(dir, 'systems') },
       logEnv: { ...base.logEnv, HARNESS_LOG_FILES: false },
     },
-    modules: hubModules({ llm: () => ({ providers: { scripted: new ScriptedProvider() }, models: [TEST_MODEL] }) }),
+    modules: hubModules({ llm: () => ({ providers: { [SCRIPTED_AS]: new ScriptedProvider() }, models: [TEST_MODEL] }) }),
   });
 });
 

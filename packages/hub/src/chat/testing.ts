@@ -7,7 +7,7 @@ import { ApiError, type CallReturn, type Peer, type PeerCallArgs, type PeerKeys,
 import {
   GinTypeDef, IDS, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
   type Notification, type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
-  type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor,
+  type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor, type SessionControlAction,
 } from '@harness/core';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
@@ -198,7 +198,7 @@ export function makeRun(input: Partial<Run> & Pick<Run, 'id' | 'fn' | 'turn' | '
 /** Records runs it is asked to start, writes their rows, and settles them when a test says. */
 export class FakeRuns implements RunService {
   readonly started: RunInput[] = [];
-  readonly controlled: Array<{ action: 'cancel' | 'pause' | 'resume' | 'undo'; run: RunId }> = [];
+  readonly controlled: Array<{ action: SessionControlAction | 'undo'; run: RunId }> = [];
   readonly undoOutcomes = new Map<RunId, UndoOutcome | Error>();
   /** When set, the next start is refused with this error (a policy denial, an unknown fn). */
   refuseStart: Error | undefined;

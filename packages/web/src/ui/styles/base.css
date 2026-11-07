@@ -35,6 +35,12 @@ img, svg, video { max-width: 100%; }
   .touch-target::before { content: ''; position: absolute; inset: -10px -4px; }
 }
 
+/* A bar that stays at the top of its scrolling page (filters, a search): `--pinned-top` is the height of what is pinned above it. */
+.pinned {
+  position: sticky; top: var(--pinned-top, 0px); z-index: 4; margin-inline: calc(-1 * var(--space-2)); padding: var(--space-2);
+  background: color-mix(in oklab, var(--bg) 92%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+
 /* Hidden but read by screen readers. */
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

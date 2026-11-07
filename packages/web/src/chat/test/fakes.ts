@@ -103,7 +103,7 @@ export function capabilities(overrides: Loose<ChatCapabilities> = {}): ChatCapab
       fn: 'fs/edit', description: 'Edit a file',
       args: { name: 'obj', props: { path: { type: { name: 'text', options: { minLength: 1 } } }, find: { type: { name: 'text' } }, replace: { type: { name: 'text' } } } },
     }],
-    clients: [], systems: [{ name: 'fs', status: 'connected', enabled: true }], models: [{ id: 'meta/llama-free', name: 'Llama (free)' }], ...overrides,
+    display: {}, clients: [], systems: [{ name: 'fs', status: 'connected', enabled: true }], models: [{ id: 'meta/llama-free', provider: 'openrouter', name: 'Llama (free)', contextWindow: 131_072, pricing: { input: 0, output: 0 }, capabilities: ['chat', 'tools'] }], ...overrides,
   });
 }
 
@@ -117,6 +117,7 @@ export function fakeChatApi() {
   const current = session();
   return {
     capabilities: fakeCaller<'capabilities'>(() => Promise.resolve(capabilities())),
+    types: fakeCaller<'types'>(({ names }) => Promise.resolve({ types: [], missing: names })),
     sessions: fakeCaller<'sessions'>(() => Promise.resolve(({ items: [summary({ id: 'ses_1', title: current.title })] }))),
     session: fakeCaller<'session'>(({ session: id }) => Promise.resolve(session({ id }))),
     createSession: fakeCaller<'createSession'>(() => Promise.resolve(session({ id: 'ses_new', title: 'New chat' }))),
@@ -140,6 +141,7 @@ export function fakeChatApi() {
     waiting: fakeCaller<'waiting'>(() => Promise.resolve({ approvals: [], handlers: [] })),
     approve: fakeCaller<'approve'>(({ approval: id, approve }) => Promise.resolve(approval({ id, status: approve ? 'approved' : 'denied' }))),
     answer: fakeCaller<'answer'>(() => Promise.resolve(undefined)),
+    setBudget: fakeCaller<'setBudget'>(({ id }) => Promise.resolve({ id: id ?? 'bgt_new' })),
     presence: fakeCaller<'presence'>(() => Promise.resolve(undefined)),
     resource: fakeCaller<'resource'>(({ uri }) => Promise.resolve(({ stat: { uri, name: 'harness.md', type: 'file', format: 'markdown', version: '1' }, text: { inline: '# Harness' } }))),
     upload: fakeCaller<'upload'>(({ name }) => Promise.resolve(({ url: `/_files?put=${name}`, upload: `up_${name}` }))),

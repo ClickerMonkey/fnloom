@@ -1,9 +1,9 @@
 import { agent, fn, g, system } from '@harness/sdk';
 import { RunId, type Run, type RunSettled, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { backgroundReply, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
+import { backgroundReply, backgroundResult, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
 import { AGENT_KIND, type AgentKind, type RunInput } from './index.ts';
-import { AGENT, ALICE, calls, executionRig, says, SESSION, testSettings, until, type ExecutionRig } from './testing.ts';
+import { AGENT, ALICE, calls, executionRig, OPEN_LIMITS, says, SESSION, testSettings, until, type ExecutionRig } from './testing.ts';
 
 const files = system('fs', { description: 'Files.' }).with({
   fns: {
@@ -145,7 +145,7 @@ describe('a session agent', () => {
     expect(r.provider.requests[1]?.messages.find((m) => m.role === 'tool')?.content).toBe('all of it');
   });
 
-  it('posts a background tool run’s result in the session when it finishes, and adds it to the transcript', async () => {
+  it('puts a background tool run’s result in the transcript when it finishes and wakes the agent to follow up, posting nothing itself', async () => {
     const r = await started();
     const tool: { release?: (o: { status: 'done'; result: string }) => void } = {};
     r.connect('fs').behaviour.run = () => new Promise((resolve) => { tool.release = resolve; });
@@ -159,15 +159,17 @@ describe('a session agent', () => {
     const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0];
     if (child === undefined) throw new Error('no tool run');
     expect(child.background).toBe(true);
-    const before = r.chat.finished.length;
+    const [finished, tracked] = [r.chat.finished.length, r.chat.tracked.length];
     await until(() => tool.release !== undefined, 'the tool run to reach its system');
     tool.release?.({ status: 'done', result: 'the big file' });
-    await until(() => r.chat.finished.length > before, 'the result to be posted');
-    const posted = r.chat.finished.at(-1);
-    expect(posted?.parts).toEqual([{ type: 'text', text: `The background run ${child.id} (fs/read) finished. the big file` }]);
-    expect(r.chat.tracked.at(-1)).toEqual({ message: posted?.message, runs: [child.id] });
+    await until(() => r.chat.followUps.length > 0, 'the agent to be woken');
+    expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: AGENT }]);
     const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
-    expect(transcript.at(-1)).toEqual({ role: 'assistant', content: `The background run ${child.id} (fs/read) finished. the big file` });
+    const note = transcript.at(-1);
+    expect(note).toEqual({ role: 'user', content: backgroundResult(child, { status: 'done', result: 'the big file' }) });
+    expect(note?.content).toContain('<background-result fn="fs/read" status="done">\nthe big file\n</background-result>');
+    expect(note?.content).not.toContain(child.id);
+    expect([r.chat.finished.length, r.chat.tracked.length]).toEqual([finished, tracked]);
   });
 
   it('hands over to a new message: tool calls go to the background and the run ends', async () => {
@@ -246,6 +248,31 @@ describe('a session agent', () => {
     r.provider.script(...[1, 2, 3, 4].map((i) => calls([['fs__read', { path: `f${i}` }]])));
     const { run } = await r.module.agents.start(agentInput(turn));
     expect((await runTo(r, run)).settled).toMatchObject({ status: 'failed', error: { code: 'max-iterations' } });
+  });
+});
+
+describe('an agent that runs out of time', () => {
+  it('is stopped by the hub when its turn runs out of time while it waits for a tool: the tool is cancelled and the answer says so', async () => {
+    const r = await started();
+    const system = r.connect('fs');
+    const controls: string[] = [];
+    system.behaviour.run = () => new Promise(() => undefined);
+    system.behaviour.control = (c) => { controls.push(c.action); return { accepted: true }; };
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'read it', limits: { ...OPEN_LIMITS, turn: { cost: 1, time: 150 } } });
+    r.provider.script(calls([['fs__read', { path: 'big' }]]));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    const { settled, row } = await runTo(r, run);
+    expect(settled).toMatchObject({ status: 'failed', error: { class: 'fatal', code: 'timeout' } });
+    expect(row.status).toBe('failed');
+    const child = async () => (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0];
+    // the tool ignores the cancel, so its own deadline (the same turn's) stops it too
+    await until(async () => (await child())?.status === 'failed', 'the tool run to be stopped');
+    expect((await child())?.outcome).toMatchObject({ error: { code: 'timeout' } });
+    expect(controls).toContain('cancel');
+    const answer = r.chat.finished.at(-1);
+    expect(answer?.status).toBe('failed');
+    expect(answer?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')).toContain('ran out of time');
   });
 });
 

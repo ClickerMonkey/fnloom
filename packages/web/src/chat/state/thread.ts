@@ -20,9 +20,18 @@ import { applyRunUpdate, emptyRun, isActive, mergeRecord, type RunView } from '.
 import { appendToken, messageTextLength, prependPage, resendParts, storedReasoning, undoneTurns, upsertMessage } from '../logic/thread.ts';
 import { summaryOf } from './sessions.ts';
 
+/** What the session controls can do, from the `control` endpoint's body. */
+export type ControlAction = BodyOf<'control'>['action'];
+/** The controls that stop work: every control but resuming. */
+export type StopAction = Exclude<ControlAction, 'resume'>;
+
 /** The callers a thread uses. */
 export type ThreadApi = Pick<ChatApi,
-  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'background' | 'undoTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit' | 'waiting' | 'state'>;
+  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'background' | 'undoTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit' | 'waiting' | 'state'
+  | 'setBudget'>;
+
+/** A used-up budget a run here waits on until someone raises it: the budget, the run, and which budget and how much in words. */
+export type BudgetAsk = Omit<Extract<SessionEvent, { type: 'budget' }>, 'type'>;
 
 /** What a thread needs besides its callers. */
 export interface ThreadDeps {
@@ -145,6 +154,8 @@ export class ThreadStore {
   /** Waiting on the person, oldest first. */
   readonly approvals = shallowRef<readonly Approval[]>([]);
   readonly handlers = shallowRef<readonly HandlerCall[]>([]);
+  /** Used-up budgets runs here wait on, one per budget, until it is raised, the run goes on, or the person leaves it. */
+  readonly budgets = shallowRef<readonly BudgetAsk[]>([]);
   readonly deliveries = shallowRef<ReadonlyMap<DeliveryId, DeliveryView>>(new Map());
   readonly presence = shallowRef<readonly Presence[]>([]);
   readonly controls = shallowRef<SessionControls | undefined>(undefined);
@@ -367,7 +378,7 @@ export class ThreadStore {
   }
 
   /** Pause, resume or cancel the turn. The UI shows it stopping at once; events confirm. */
-  async control(action: 'pause' | 'resume' | 'cancel'): Promise<boolean> {
+  async control(action: ControlAction): Promise<boolean> {
     this.stopping.value = action !== 'resume';
     try {
       this.controls.value = await this.#deps.api.control.call({ session: this.id, action });
@@ -474,6 +485,24 @@ export class ThreadStore {
   async approveAll(approve: boolean, remember: Remember): Promise<boolean> {
     const results = await Promise.all(this.approvals.value.map((a) => this.approve(a.id, approve, remember)));
     return results.every(Boolean);
+  }
+
+  /** Raise a used-up budget by `by` (USD) so the run waiting on it goes on; the card goes once it is saved. */
+  async raiseBudget(ask: BudgetAsk, by: number): Promise<boolean> {
+    const { setBy: _, ...rule } = ask.budget;
+    try {
+      await this.#deps.api.setBudget.call({ ...rule, maxCost: rule.maxCost + by });
+      this.leaveBudget(ask);
+      return true;
+    } catch (error) {
+      this.problem.value = problemText(error, "Couldn't raise the budget.");
+      return false;
+    }
+  }
+
+  /** Leave a used-up budget as it is: the card goes; the run keeps waiting until someone raises it or its window frees up. */
+  leaveBudget(ask: BudgetAsk): void {
+    this.budgets.value = this.budgets.value.filter((b) => b.budget.id !== ask.budget.id);
   }
 
   /** Answer a handler a run asked the person for. */
@@ -651,7 +680,8 @@ export class ThreadStore {
         // a run seen for the first time, or just settled, is read whole: its args, then its outcome
         const settled = event.update.type === 'status' && isSettled(event.update.status);
         if (known.createdAt === undefined || settled) { void this.#fetchRuns([event.run], settled); }
-        if (settled) { this.#dropWaiting(event.run); }
+        // a run that settles, or spends again, isn't waiting on its budget any more
+        if (settled || event.update.type === 'cost') { this.#dropWaiting(event.run); }
         if (event.update.type === 'status' && isActive(event.update.status)) { this.awaiting.value = undefined; }
         return;
       }
@@ -674,6 +704,11 @@ export class ThreadStore {
         const followers = this.#followers.get(event.delivery.id) ?? [];
         const waiting = followers.filter((f) => !this.#settle(event.delivery, f));
         if (waiting.length === 0) { this.#followers.delete(event.delivery.id); } else { this.#followers.set(event.delivery.id, waiting); }
+        return;
+      }
+      case 'budget': {
+        const { type: _, ...ask } = event;
+        this.budgets.value = [...this.budgets.value.filter((b) => b.budget.id !== ask.budget.id), ask];
         return;
       }
       case 'presence': this.#onPresence(event.presence); return;
@@ -714,6 +749,7 @@ export class ThreadStore {
   #dropWaiting(run: RunId): void {
     if (this.approvals.value.some((a) => a.run === run)) { this.approvals.value = this.approvals.value.filter((a) => a.run !== run); }
     if (this.handlers.value.some((h) => h.run === run)) { this.handlers.value = this.handlers.value.filter((h) => h.run !== run); }
+    if (this.budgets.value.some((b) => b.run === run)) { this.budgets.value = this.budgets.value.filter((b) => b.run !== run); }
   }
 
   /** Note where in a streaming answer's text each of its new runs appeared. */

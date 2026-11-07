@@ -13,7 +13,7 @@
 import { Prompt } from '@aeye/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 import {
-  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, type ActorId, type FnError, type FnRecord, type OutcomeWire, type Run, type RunSettled, type Session,
+  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, type ActorId, type FnError, type FnRecord, type OutcomeWire, type Run, type RunSettled, type Session, type RunControlAction,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -398,7 +398,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     await conversation.append([{ role: 'user', content: this.#deps.enrich.render(row) }]);
   }
 
-  async control(run: Run, action: 'cancel' | 'pause'): Promise<ControlAnswer> {
+  async control(run: Run, action: RunControlAction): Promise<ControlAnswer> {
     this.#iterating.get(run.id)?.abort(action);
     const job = this.#jobs.get(run.id);
     if (job !== undefined) await this.#deps.queues.cancel(job, action);
@@ -415,27 +415,39 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     return { accepted: true };
   }
 
+  /** The run's deadline passed: stop its iteration and its tool calls, and say so in its message. The run service settles it. */
+  async stop(run: Run, error: FnError): Promise<void> {
+    this.#iterating.get(run.id)?.abort('timeout');
+    const job = this.#jobs.get(run.id);
+    if (job !== undefined) await this.#deps.queues.cancel(job, 'timeout');
+    this.#jobs.delete(run.id);
+    const state = stateOf((await this.#deps.runs.get(run.id)) ?? run);
+    for (const call of state.pending) if (call.run !== undefined) await this.#deps.runs.cancel(call.run, run.actor);
+    if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: failureText(error) }], 'failed');
+    this.#deps.log.info('agent.stopped', { run: run.id, code: error.code });
+  }
+
   /** Agents have no undo of their own: their tool runs are undone one by one. */
   undo(): Promise<{ status: 'gone' }> {
     return Promise.resolve({ status: 'gone' });
   }
 
   /**
-   * A tool run the agent stopped waiting for (it went to the background) has settled: post its result in the session
-   * as the agent, with the run's card under it, and add it to the session's transcript, so the agent knows on its
-   * next turn. Runs of other callers, and runs outside a session, are left alone.
+   * A tool run a session's agent stopped waiting for (it went to the background) has settled. Its result goes into the
+   * session's transcript, for the agent alone to read, and the agent is woken to follow up in its own words (a new
+   * turn, unless it is answering in the session already and will read it on its next step). The run's card stays where
+   * it was, under the answer that started it, and resolves there. Runs of other callers, of agents that aren't the
+   * session's, and runs outside a session are left alone.
    */
   async reportBack(run: Run, settled: RunSettled): Promise<void> {
     if (!run.background || run.parent === undefined || run.session === undefined || settled.status === 'background') return;
     const parent = await this.#deps.runs.get(run.parent);
-    if (parent?.kind !== AGENT_KIND) return;
-    const text = `The background run ${run.id} (${run.fn}) finished. ${settledReply(settled)}`;
-    const message = await this.#deps.turns.begin({ turn: run.turn, author: await this.#agentActor(parent) });
-    await this.#deps.turns.track(message.id, [run.id]);
-    await this.#deps.turns.finish(message.id, [{ type: 'text', text }], 'done');
+    if (parent?.kind !== AGENT_KIND || parent.parent !== undefined) return;
     const session = await this.#deps.store.table('sessions').get(run.session);
-    if (session?.agent === parent.fn) await new SessionConversation(this.#deps, session.id).append([{ role: 'assistant', content: text }]);
-    this.#deps.log.info('agent.reported-back', { run: run.id, fn: run.fn, parent: parent.id, status: settled.status });
+    if (session?.agent !== parent.fn) return;
+    await new SessionConversation(this.#deps, session.id).append([{ role: 'user', content: backgroundResult(run, settled) }]);
+    const turn = await this.#deps.turns.followUp({ turn: run.turn, agent: await this.#agentActor(parent) });
+    this.#deps.log.info('agent.reported-back', { run: run.id, fn: run.fn, parent: parent.id, status: settled.status, followUp: turn ?? null });
   }
 
   /** Re-arm the wait of every agent run that was waiting for its tools (after a restart). */
@@ -567,10 +579,24 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
 
   async #fail(run: Run, state: AgentState, failed: FnError): Promise<void> {
     await this.#deps.store.table('runs').update(run.id, { resume: Json.parse(state) });
-    if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: `I couldn't finish: ${failed.message}` }], 'failed');
+    if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: failureText(failed) }], 'failed');
     const outcome: OutcomeWire = { status: 'failed', error: failed };
     await this.#deps.runs.settle(run.id, outcome);
   }
+}
+
+/**
+ * What a session's agent reads when a run it stopped waiting for settles: the fn, how it ended and what it gave,
+ * tagged so the agent can tell it from what a person wrote, and asked to tell the person what came of it.
+ */
+export function backgroundResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>): string {
+  return `<background-result fn="${run.fn}" status="${settled.status}">\n${settledReply(settled)}\n</background-result>\n`
+    + 'A call you made earlier finished after you stopped waiting for it. Tell the person what came of it, briefly, in your own words.';
+}
+
+/** What an agent's message says when its run fails. */
+function failureText(error: FnError): string {
+  return `I couldn't finish: ${error.message}`;
 }
 
 /** An agent run's loop state. */

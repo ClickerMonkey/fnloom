@@ -8,7 +8,7 @@ import { SettingDecl } from './manifest.ts';
 import { BudgetId, ModelCategoryId, PolicyId, PriorityRuleId, ProviderId, QualifiedName, SessionId, SystemName, Timestamp, Usd } from './primitives.ts';
 import { RunStatus } from './run.ts';
 import { LlmInteraction, LlmStatus } from './records/runs.ts';
-import { BudgetRule } from './records/spend.ts';
+import { BudgetRule, ProviderKind } from './records/spend.ts';
 
 /**
  * One line of a system's output: what a connected system logged over the link (`stdout` for info and below,
@@ -17,10 +17,10 @@ import { BudgetRule } from './records/spend.ts';
 export const OutputLine = z.object({ at: Timestamp, stream: z.enum(['stdout', 'stderr', 'hub']), text: z.string() });
 export type OutputLine = z.infer<typeof OutputLine>;
 
-/** A model a provider offers, as aeye's model list describes it. `provider` is the provider's name (`openrouter`). Prices are per million tokens. */
+/** A model a provider offers, as aeye's model list describes it. `provider` is the kind of provider that serves it. Prices are per million tokens. */
 export const ModelInfo = z.object({
   id: z.string(),
-  provider: z.string(),
+  provider: ProviderKind,
   name: z.string(),
   contextWindow: z.number().int().min(0).optional(),
   pricing: z.object({ input: Usd, output: Usd }).optional(),

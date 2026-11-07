@@ -7,7 +7,7 @@
  */
 import {
   ACTIVE_RUN_STATUSES, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart,
-  type QualifiedName, type ResolvedLimits, type RunId, type RunSettled, type Session, type SessionId, type Turn, type TurnId, type UserInfo,
+  type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type Turn, type TurnId, type UserInfo,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
@@ -91,7 +91,7 @@ export class StoreTurnService implements TurnService {
     };
     const answerers = this.#parts.reply.answerers({ session, message: draft, ...(repliedTo === undefined ? {} : { repliedTo }) });
     const message: ChatMessage = { ...draft, answerers: [...answerers] };
-    const record = this.#turn({ id: turn, session, message: message.id, user, asker, client: input.client, limits, running: answerers.length > 0 });
+    const record = this.#turn({ id: turn, session, message: message.id, user, actor: asker.actor, client: input.client, limits, running: answerers.length > 0 });
     await this.#deps.store.tx(async (store) => {
       await store.table('turns').insert(record);
       await store.table('messages').insert(message);
@@ -99,7 +99,7 @@ export class StoreTurnService implements TurnService {
     this.#deps.log.info('chat.turn.sent', { session: session.id, turn, message: message.id, answerers: answerers.length, parts: message.parts.length });
     this.#deps.bus.publish('message', { message });
     await this.#parts.sessions.save(session.id, this.#sessionAfterSend(session, message, text, await this.#loads(session, extras), commanded));
-    await this.#notifyReply(session, message, repliedTo);
+    await this.#notifyMessage(session, message, repliedTo);
     await this.#wake(session, record, answerers);
     return { turn, message };
   }
@@ -113,7 +113,7 @@ export class StoreTurnService implements TurnService {
     const turn = mintId('turn', this.#deps.random);
     const limits = await this.#deps.limits.resolve({ user, session: session.id, turn });
     const messageId = mintId('message', this.#deps.random);
-    const record = this.#turn({ id: turn, session, message: messageId, user, asker, client: input.client, limits, running: true });
+    const record = this.#turn({ id: turn, session, message: messageId, user, actor: asker.actor, client: input.client, limits, running: true });
     await this.#deps.store.table('turns').insert(record);
     let started: Awaited<ReturnType<ChatDeps['runs']['start']>>;
     try {
@@ -266,14 +266,36 @@ export class StoreTurnService implements TurnService {
     return message;
   }
 
-  #turn(input: { id: TurnId; session: Session; message: MessageId; user: UserInfo; asker: Asker; client: ClientInfo; limits: ResolvedLimits; running: boolean }): Turn {
+  #turn(input: { id: TurnId; session: Session; message?: MessageId | undefined; user: UserInfo; actor: ActorId; client?: ClientInfo | undefined; limits: ResolvedLimits; running: boolean }): Turn {
     const now = this.#deps.clock();
     const errors = this.#deps.settings.chat.HARNESS_TURN_ERRORS;
     return {
-      id: input.id, session: input.session.id, message: input.message, actor: input.asker.actor, user: input.user, time: timeInfo(now, input.user.timeZone),
-      client: input.client, status: input.running ? 'running' : 'done', limits: input.limits, cost: 0, errors: errors === 0 ? 'feed-back' : { max: errors },
-      createdAt: now, ...(input.running ? {} : { endedAt: now }),
+      id: input.id, session: input.session.id, ...(input.message === undefined ? {} : { message: input.message }), actor: input.actor, user: input.user,
+      time: timeInfo(now, input.user.timeZone), ...(input.client === undefined ? {} : { client: input.client }), status: input.running ? 'running' : 'done',
+      limits: input.limits, cost: 0, errors: errors === 0 ? 'feed-back' : { max: errors }, createdAt: now, ...(input.running ? {} : { endedAt: now }),
     };
+  }
+
+  async followUp(input: { turn: TurnId; agent: ActorId }): Promise<TurnId | undefined> {
+    const { store, random, log } = this.#deps;
+    const earlier = await store.table('turns').get(input.turn);
+    const session = earlier?.session === undefined ? undefined : await store.table('sessions').get(earlier.session);
+    if (earlier === undefined || session === undefined || session.archived) { return undefined; }
+    if ((await this.#answering(session)).length > 0) { return undefined; }
+    const id = mintId('turn', random);
+    const limits = await this.#deps.limits.resolve({ user: earlier.user, session: session.id, turn: id });
+    const record = this.#turn({ id, session, user: earlier.user, actor: earlier.actor, client: earlier.client, limits, running: true });
+    await store.table('turns').insert(record);
+    await this.#parts.sessions.save(session.id, { status: 'running' });
+    log.info('chat.turn.follow-up', { session: session.id, turn: id, after: earlier.id });
+    await this.#wake(session, record, [input.agent]);
+    return id;
+  }
+
+  /** The agent runs answering in a session now (each a turn's root, not a tool call). */
+  async #answering(session: Session, except?: TurnId): Promise<Run[]> {
+    return (await readAll(this.#deps.store.table('runs'), { where: { session: session.id, kind: AGENT_KIND, status: { in: ACTIVE_RUN_STATUSES } } }, MAX_SESSION_RUNS))
+      .filter((run) => run.parent === undefined && run.turn !== except);
   }
 
   /** What sending changes on the session: the first message names it, hooks' loads join its tools and context. */
@@ -320,8 +342,7 @@ export class StoreTurnService implements TurnService {
   /** Wake each answering agent; any agent run still busy in the session goes to the background first. */
   async #wake(session: Session, turn: Turn, answerers: readonly ActorId[]): Promise<void> {
     if (answerers.length === 0) { return; }
-    const busy = (await readAll(this.#deps.store.table('runs'), { where: { session: session.id, kind: AGENT_KIND, status: { in: ACTIVE_RUN_STATUSES } } }, MAX_SESSION_RUNS))
-      .filter((run) => run.parent === undefined && run.turn !== turn.id);
+    const busy = await this.#answering(session, turn.id);
     await Promise.all(busy.map(async (run) => this.#deps.agents.interrupt(run.id)));
     const started: RunId[] = [];
     for (const actor of answerers) {
@@ -348,6 +369,22 @@ export class StoreTurnService implements TurnService {
   async #agent(actor: ActorId): Promise<AgentActor | undefined> {
     const row = await this.#deps.store.table('actors').get(actor);
     return row?.kind === 'agent' && !row.disabled ? row : undefined;
+  }
+
+  /**
+   * Tell the people in a session about a new message, each as their notify choice asks and only while they aren't
+   * looking: the author of the message replied to hears of the reply (unless they chose `none`), and everyone else who
+   * chose `all` hears of the message. The author is never told of their own message.
+   */
+  async #notifyMessage(session: Session, message: ChatMessage, repliedTo: ChatMessage | undefined): Promise<void> {
+    await this.#notifyReply(session, message, repliedTo);
+    const repliedAuthor = repliedTo?.author;
+    for (const person of peopleOf(session)) {
+      if (person.actor === message.author || person.actor === repliedAuthor || person.notify !== 'all' || this.#parts.presence.looking(person.actor, session.id)) { continue; }
+      await this.#parts.notifications.notify({
+        user: person.actor, reason: 'message', title: `New message in ${session.title}`, body: clip(unmark(plainText(message.parts)), NOTIFICATION_BODY), link: { session: session.id },
+      });
+    }
   }
 
   /** Tell the author of the message replied to, when they are someone else and not looking. */

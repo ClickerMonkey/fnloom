@@ -1,11 +1,13 @@
 /** Sessions, messages, presence and what the chat UI may offer. */
 import { z } from 'zod';
+import { ModelInfo } from '../admin.ts';
 import { GinTypeDef } from '../gin.ts';
 import { LlmMessage, ModelChoice } from '../llm.ts';
 import { CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
 import { ContentRef, Link } from '../resources.ts';
 import { SystemStatus } from './systems.ts';
+import { Display } from '../run.ts';
 
 /** How a person wants to hear about a session's messages. */
 export const NotifyChoice = z.enum(['all', 'replies', 'none']);
@@ -106,6 +108,10 @@ export const ChatMessage = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
+/** What a person can do to the work running in a session: pause it, resume what was paused, or cancel it. */
+export const SessionControlAction = z.enum(['pause', 'resume', 'cancel']);
+export type SessionControlAction = z.infer<typeof SessionControlAction>;
+
 /** What the session's controls can do, given what's running. */
 export const SessionControls = z.object({
   pause: z.boolean(),
@@ -130,6 +136,11 @@ export const ChatCapabilities = z.object({
   commands: z.array(z.object({ name: z.string(), context: QualifiedName, args: z.array(CommandArg), description: z.string() })),
   /** Agent fns (of the hub's `llm` kind) that can answer in a chat, for the agent picker. */
   agents: z.array(z.object({ fn: QualifiedName, description: z.string() })),
+  /**
+   * How each fn's finished runs look in the chat, for the fns that don't keep their card (`message` or `hidden`, by
+   * qualified name). A fn not listed keeps its card.
+   */
+  display: z.record(z.string(), Display),
   /** Fns a user may run with `!`. */
   invocations: z.array(z.object({ fn: QualifiedName, description: z.string(), args: GinTypeDef })),
   /**
@@ -139,6 +150,7 @@ export const ChatCapabilities = z.object({
   methods: z.array(z.object({ type: QualifiedName, method: z.string(), fn: QualifiedName, description: z.string(), args: GinTypeDef })),
   clients: z.array(z.object({ system: SystemName, url: z.string(), hash: z.string() })),
   systems: z.array(z.object({ name: SystemName, status: SystemStatus, enabled: z.boolean() })),
-  models: z.array(z.object({ id: z.string(), name: z.string() })),
+  /** The chat models the hub can call (no embedding or rerank models), with their prices, context and abilities, for the model picker. */
+  models: z.array(ModelInfo),
 });
 export type ChatCapabilities = z.infer<typeof ChatCapabilities>;

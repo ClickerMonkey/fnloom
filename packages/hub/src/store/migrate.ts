@@ -10,18 +10,20 @@
  */
 import { sql } from 'kysely';
 import { z } from 'zod';
+import { type AuxTableName, SQL_TYPE, TableMeta, createAuxTable } from './aux.ts';
 import type { Db } from './db.ts';
 import { StoreError } from './errors.ts';
 import { type ColumnKind, ColumnKind as ColumnKindSchema, KEY_COLUMN, type Layout, indexName } from './schema.ts';
 
 /** The meta table: one row per table this store made. */
-export const META_TABLE = '_tables';
+export const META_TABLE = '_tables' satisfies AuxTableName;
 
-const MetaRow = z.object({
-  name: z.string(),
-  columns: z.string().transform((text) => z.record(z.string(), ColumnKindSchema).parse(JSON.parse(text))),
-  indexes: z.string().transform((text) => z.array(z.string()).parse(JSON.parse(text))),
-});
+/** A meta row with its JSON text read back. */
+const MetaRow = TableMeta.transform((row) => ({
+  ...row,
+  columns: z.record(z.string(), ColumnKindSchema).parse(JSON.parse(row.columns)),
+  indexes: z.array(z.string()).parse(JSON.parse(row.indexes)),
+}));
 
 /** What one table should look like. */
 export interface TablePlan {
@@ -41,17 +43,9 @@ export interface TableChange {
   readonly indexesDropped: readonly string[];
 }
 
-const SQL_TYPE = { text: 'text', integer: 'integer', real: 'real', bool: 'integer', json: 'text' } as const satisfies Record<ColumnKind, string>;
-
 /** Create the meta table. */
 export async function ensureMeta(db: Db): Promise<void> {
-  await db.schema
-    .createTable(META_TABLE)
-    .ifNotExists()
-    .addColumn('name', 'text', (c) => c.primaryKey().notNull())
-    .addColumn('columns', 'text', (c) => c.notNull())
-    .addColumn('indexes', 'text', (c) => c.notNull())
-    .execute();
+  await createAuxTable(db, META_TABLE);
 }
 
 /** Bring one table up to its plan. Run inside a transaction. Returns what changed (nothing, when it was current). */
@@ -105,7 +99,7 @@ export async function migrateTable(db: Db, plan: TablePlan): Promise<TableChange
 
   const retired = [...remembered.keys()].filter((column) => !plan.layout.has(column));
   const columns = Object.fromEntries([...remembered, ...plan.layout]);
-  const row = { name: plan.name, columns: JSON.stringify(columns), indexes: JSON.stringify([...wanted.keys()]) };
+  const row: TableMeta = { name: plan.name, columns: JSON.stringify(columns), indexes: JSON.stringify([...wanted.keys()]) };
   await db
     .insertInto(META_TABLE)
     .values(row)

@@ -11,14 +11,11 @@ import { IndexedKind, type QualifiedName, compositeKey } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import { sql } from 'kysely';
 import { z } from 'zod';
+import { VectorMeta, createAuxTable } from './aux.ts';
 import type { Scope } from './db.ts';
 import { StoreError } from './errors.ts';
 import type { VectorIndex } from './index.ts';
 
-/** The meta table: one row per embedder. */
-export const VECTOR_META = '_vectors';
-
-const VectorMeta = z.object({ embedder: z.string(), table: z.string(), dimensions: z.number().int() });
 const Nearest = z.object({ kind: IndexedKind, key: z.string(), distance: z.number() });
 
 /** The `vec0` table of an embedder: readable, and unique even when two names slug the same. */
@@ -38,13 +35,7 @@ export const similarity = (distance: number): number => Math.min(1, Math.max(0, 
 
 /** Make the table that records each embedder's vector table and size. */
 async function createVectorMeta(scope: Scope): Promise<void> {
-  await scope.db.schema
-    .createTable(VECTOR_META)
-    .ifNotExists()
-    .addColumn('embedder', 'text', (c) => c.primaryKey().notNull())
-    .addColumn('table', 'text', (c) => c.notNull())
-    .addColumn('dimensions', 'integer', (c) => c.notNull())
-    .execute();
+  await createAuxTable(scope.db, '_vectors');
 }
 
 /** Make one embedder's table at a size, remaking it when it was made at another. Returns whether it was remade. */
@@ -52,7 +43,7 @@ async function ensureVectorTable(scope: Scope, embedder: string, size: number, l
   const { db } = scope;
   if (!Number.isInteger(size) || size < 1) throw new StoreError('bad-vector', `embedder ${embedder}: dimensions must be a positive whole number, not ${size}`);
   const table = vectorTable(embedder);
-  const found = await db.selectFrom(VECTOR_META).selectAll().where('embedder', '=', embedder).executeTakeFirst();
+  const found = await db.selectFrom('_vectors').selectAll().where('embedder', '=', embedder).executeTakeFirst();
   const meta = found === undefined ? undefined : VectorMeta.parse(found);
   const rebuilt = meta !== undefined && meta.dimensions !== size;
   if (rebuilt) {
@@ -61,11 +52,8 @@ async function ensureVectorTable(scope: Scope, embedder: string, size: number, l
   }
   await sql`create virtual table if not exists ${sql.table(table)} using vec0(
     id text primary key, embedding float[${sql.raw(String(size))}] distance_metric=cosine, kind text, +key text)`.execute(db);
-  await db
-    .insertInto(VECTOR_META)
-    .values({ embedder, table, dimensions: size })
-    .onConflict((oc) => oc.column('embedder').doUpdateSet({ table, dimensions: size }))
-    .execute();
+  const row: VectorMeta = { embedder, table, dimensions: size };
+  await db.insertInto('_vectors').values(row).onConflict((oc) => oc.column('embedder').doUpdateSet({ table: row.table, dimensions: row.dimensions })).execute();
   return rebuilt;
 }
 
@@ -79,7 +67,7 @@ export async function createVectorTables(scope: Scope, dimensions: Map<string, n
   for (const [embedder, size] of dimensions) {
     if (await ensureVectorTable(scope, embedder, size, log)) rebuilt.push(embedder);
   }
-  for (const row of await scope.db.selectFrom(VECTOR_META).selectAll().execute()) {
+  for (const row of await scope.db.selectFrom('_vectors').selectAll().execute()) {
     const meta = VectorMeta.parse(row);
     if (!dimensions.has(meta.embedder)) dimensions.set(meta.embedder, meta.dimensions);
   }

@@ -3,6 +3,7 @@
  * (git, the file manager), the safe-command check, and output kept to a size with its end preserved.
  */
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import type { CommandEnd, CommandProgress, CommandRun, Exec, Shell } from './index.ts';
 
 /** Which shell runs command lines: a POSIX shell by path, or the platform's own (`cmd.exe`, `/bin/sh`). */
@@ -68,19 +69,72 @@ export interface ProcessLimits {
 
 /** How long taskkill gets on Windows before the process itself is killed. */
 const TREE_KILL_WAIT = 1_000;
+/** How long a stopped process's output may stay open after it exits, held by something it started, before the run ends anyway. */
+const CLOSE_GRACE = 250;
 
-/** Stop a process and everything it started. */
-function killTree(pid: number | undefined, kill: () => void): void {
-  if (pid === undefined) { kill(); return; }
-  if (process.platform === 'win32') {
-    // taskkill walks the tree from the live parent, so the parent is killed directly only once taskkill is done
-    // (or has had long enough on a loaded machine); killing a dead process is a no-op.
+/** How a process and everything it started are stopped. One per run, since a tree may mark its processes. */
+export interface ProcessTree {
+  /** The environment the process starts with; `undefined` inherits this one. */
+  readonly env: NodeJS.ProcessEnv | undefined;
+  /** Stop the process and everything it started; `kill` ends the process itself. */
+  stop(pid: number | undefined, kill: () => void): void;
+}
+
+/** A POSIX process group: the process starts detached as its leader, and the whole group is killed. */
+export class GroupTree implements ProcessTree {
+  readonly env = undefined;
+
+  stop(pid: number | undefined, kill: () => void): void {
+    if (pid === undefined) { kill(); return; }
+    try { process.kill(-pid, 'SIGKILL'); } catch { kill(); }
+  }
+}
+
+/** A Windows process tree, walked by taskkill from the live parent. */
+export class TaskTree implements ProcessTree {
+  readonly env: NodeJS.ProcessEnv | undefined = undefined;
+
+  stop(pid: number | undefined, kill: () => void): void {
+    if (pid === undefined) { kill(); return; }
+    // the parent is killed directly only once taskkill is done (or has had long enough on a loaded machine), since
+    // taskkill walks the tree from it; killing a dead process is a no-op.
     const fallback = setTimeout(kill, TREE_KILL_WAIT);
     const after = () => { clearTimeout(fallback); kill(); };
     spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', after).on('exit', after);
-    return;
   }
-  try { process.kill(-pid, 'SIGKILL'); } catch { kill(); }
+}
+
+/** The variable that marks every process of one MSYS run. */
+const RUN_MARK = 'HARNESS_FS_RUN';
+
+/**
+ * A POSIX shell from MSYS or Cygwin (Git Bash) on Windows. Its programs are started the MSYS way, so taskkill can't
+ * follow them from the shell: `sleep` under `bash -c` outlives the shell and holds its output open. Every process of a
+ * run carries a marker variable instead, and stopping kills each MSYS process that has it, as well as the taskkill tree.
+ */
+export class MsysTree extends TaskTree {
+  override readonly env: NodeJS.ProcessEnv;
+  private readonly bash: string;
+  private readonly mark: string;
+
+  constructor(bash: string) {
+    super();
+    this.bash = bash;
+    this.mark = randomUUID();
+    this.env = { ...process.env, [RUN_MARK]: this.mark };
+  }
+
+  override stop(pid: number | undefined, kill: () => void): void {
+    // the sweeping shell starts with this process's environment, which has no marker, so it never matches itself
+    const sweep = `for p in /proc/[0-9]*; do grep -qz '^${RUN_MARK}=${this.mark}$' "$p/environ" 2>/dev/null && kill -9 "\${p#/proc/}" 2>/dev/null; done; true`;
+    spawn(this.bash, ['-c', sweep], { windowsHide: true, stdio: 'ignore' }).on('error', () => undefined);
+    super.stop(pid, kill);
+  }
+}
+
+/** The tree for programs this platform starts itself. */
+export function platformTree(): ProcessTree {
+  return process.platform === 'win32' ? new TaskTree() : new GroupTree();
 }
 
 /** Exit codes reported when a command didn't end on its own: 124 (timeout) and 130 (interrupted), as shells do. */
@@ -91,19 +145,27 @@ export const NOT_STARTED = 127;
 /** Run a program to the end, its timeout or its signal, keeping the end of its output. */
 export function runProcess(
   file: string, args: readonly string[],
-  options: { cwd?: string | undefined; timeout: number; signal?: AbortSignal | undefined; onOutput?: CommandProgress | undefined; shell?: boolean },
+  options: {
+    cwd?: string | undefined; timeout: number; signal?: AbortSignal | undefined; onOutput?: CommandProgress | undefined; shell?: boolean;
+    /** How it and what it starts are stopped; the platform's own way by default. */
+    tree?: ProcessTree | undefined;
+  },
   limits: ProcessLimits,
 ): Promise<CommandRun> {
   return new Promise((done) => {
     const stdout = new TailBuffer(limits.outputMax);
     const stderr = new TailBuffer(limits.outputMax);
     const started = performance.now();
+    const tree = options.tree ?? platformTree();
     let ended: CommandEnd = 'exit';
-    const child = spawn(file, args, { cwd: options.cwd, windowsHide: true, detached: process.platform !== 'win32', shell: options.shell ?? false, stdio: ['ignore', 'pipe', 'pipe'] });
+    let settled = false;
+    const child = spawn(file, args, {
+      cwd: options.cwd, env: tree.env, windowsHide: true, detached: process.platform !== 'win32', shell: options.shell ?? false, stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const stop = (why: Exclude<CommandEnd, 'exit'>) => {
       if (ended !== 'exit') { return; }
       ended = why;
-      killTree(child.pid, () => child.kill('SIGKILL'));
+      tree.stop(child.pid, () => child.kill('SIGKILL'));
     };
     const timer = setTimeout(() => { stop('timeout'); }, options.timeout);
     const onAbort = () => { stop('cancelled'); };
@@ -113,6 +175,8 @@ export function runProcess(
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout.push(chunk); });
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr.push(chunk); });
     const finish = (exitCode: number) => {
+      if (settled) { return; }
+      settled = true;
       clearTimeout(timer);
       if (ticker !== undefined) { clearInterval(ticker); }
       options.signal?.removeEventListener('abort', onAbort);
@@ -120,8 +184,23 @@ export function runProcess(
     };
     child.on('error', (error) => { stderr.push(error.message); finish(NOT_STARTED); });
     child.on('close', (code) => { finish(ended === 'exit' ? (code ?? 1) : END_CODES[ended]); });
+    // a stopped process may leave something behind that still holds its output open; the run ends shortly after it does
+    child.on('exit', () => {
+      if (ended === 'exit') { return; }
+      const why = ended;
+      setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(END_CODES[why]);
+      }, CLOSE_GRACE).unref();
+    });
     if (options.signal?.aborted === true) { onAbort(); }
   });
+}
+
+/** The tree for a POSIX shell: on Windows it is an MSYS one (Git Bash, Cygwin), whose programs taskkill can't follow. */
+export function posixTree(path: string, platform: NodeJS.Platform = process.platform): ProcessTree {
+  return platform === 'win32' ? new MsysTree(path) : new GroupTree();
 }
 
 /** The real shell. */
@@ -136,7 +215,7 @@ export class NodeShell implements Shell {
   run(input: Parameters<Shell['run']>[0]): Promise<CommandRun> {
     const options = { cwd: input.cwd, timeout: input.timeout, signal: input.signal, onOutput: input.onOutput };
     return this.choice.type === 'posix'
-      ? runProcess(this.choice.path, ['-c', input.command], options, this.limits)
+      ? runProcess(this.choice.path, ['-c', input.command], { ...options, tree: posixTree(this.choice.path) }, this.limits)
       : runProcess(input.command, [], { ...options, shell: true }, this.limits);
   }
 }

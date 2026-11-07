@@ -1,8 +1,8 @@
 import { ActorId, mintId, SecretId, type SecretId as SecretIdType } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { memoryLog, testStore } from '../testing.ts';
-import { buildProvider, openRouterProviders, ProviderUnavailable, StoredProviders, type ProviderSource } from './providers.ts';
-import { ScriptedProvider, TEST_MODEL, executionRig, type ExecutionRig } from './testing.ts';
+import { buildProvider, openRouterProviders, StoredProviders, type ProviderSource } from './providers.ts';
+import { SCRIPTED_AS, ScriptedProvider, TEST_MODEL, executionRig, type ExecutionRig } from './testing.ts';
 
 const OWNER = ActorId.parse('act_hub');
 
@@ -33,8 +33,6 @@ describe('stored providers', () => {
     const openai = await buildProvider({ provider: 'openai', apiKey: SecretId.parse('sec_1'), baseURL: 'https://llm.example.com/v1' }, key);
     expect(openai.name).toBe('openai');
     expect((await buildProvider({ provider: 'openrouter', apiKey: SecretId.parse('sec_2') }, key)).name).toBe('openrouter');
-    await expect(buildProvider({ provider: 'aws', region: 'us-east-1' }, key)).rejects.toBeInstanceOf(ProviderUnavailable);
-    await expect(buildProvider({ provider: 'replicate', apiKey: SecretId.parse('sec_3') }, key)).rejects.toMatchObject({ provider: 'replicate' });
   });
 
   it('seeds the bootstrap OpenRouter key as the first record, once', async () => {
@@ -53,9 +51,8 @@ describe('stored providers', () => {
     const apiKey = await vault.store({ value: 'sk-openai' });
     await store.table('providers').insert({ id: mintId('provider'), config: { provider: 'openai', apiKey }, createdAt: 1 });
     await store.table('providers').insert({ id: mintId('provider'), config: { provider: 'openrouter', apiKey: SecretId.parse('sec_gone') }, createdAt: 2 });
-    await store.table('providers').insert({ id: mintId('provider'), config: { provider: 'aws', region: 'eu-west-1' }, createdAt: 3 });
     expect(Object.keys(await providers.load())).toEqual(['openai']);
-    expect(records.filter((r) => r.msg === 'provider.unusable').map((r) => r['provider']).sort()).toEqual(['aws', 'openrouter']);
+    expect(records.filter((r) => r.msg === 'provider.unusable').map((r) => r['provider']).sort()).toEqual(['openrouter']);
     expect(records.some((r) => r.msg === 'provider.seeded')).toBe(false);
   });
 
@@ -76,7 +73,7 @@ describe('the hub AI over stored providers', () => {
     const r = await executionRig({ llm: { stored: source, models: [TEST_MODEL] } });
     rig = r;
     expect(await r.module.llm.models()).toEqual([]);
-    current = { scripted: new ScriptedProvider() };
+    current = { [SCRIPTED_AS]: new ScriptedProvider() };
     await r.module.start();
     expect((await r.module.llm.models()).map((m) => m.id)).toEqual(['test-model']);
     current = {};

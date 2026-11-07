@@ -57,7 +57,10 @@ const look = computed(() => lookOf(props.notification));
 .body { color: var(--text-dim); font-size: var(--text-sm); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .reason { display: flex; align-items: center; gap: 6px; color: var(--text-faint); font-size: var(--text-xs); }
 .reason.tone-danger, .reason.tone-warn { color: var(--tone); font-weight: var(--weight-medium); }
-.resolved .title { color: var(--text-dim); }
+/* what was already settled steps back, so what still needs someone stands out */
+.resolved .open { opacity: 0.62; }
+.resolved .title { color: var(--text-dim); font-weight: var(--weight-medium); }
+.resolved .mark { background: var(--surface-2); color: var(--text-faint); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .side { display: grid; place-items: center; flex: none; width: var(--control-sm); }
 .read { opacity: 0; transition: opacity var(--fast) var(--ease); }

@@ -2,20 +2,20 @@
  * Forms from gin types. A fn's args, a handler's answer and a renderer's form arrive as gin type definitions (JSON);
  * `formOf` reads one into a `FormNode` tree with a node for every gin type (text with its constraints, numbers,
  * booleans, enums, dates and timestamps, durations, colours, lists, maps, tuples, objects with optional fields,
- * nullables, unions, literals, refs to named types, and any JSON). A `Draft` holds what the person has typed so far
- * for a node; `encode` checks a draft and turns it into the JSON the hub expects, with a problem per field. gin
- * itself makes the final check (`ginCheck`) where the type can be rebuilt in the browser.
- *
- * Wire forms follow gin: dates `YYYY-MM-DD`, timestamps ISO strings, durations ms, colours packed ints, maps
- * `[{ key, value }]`.
+ * nullables, unions, literals, refs to named types, and any JSON). A ref to a named type the browser holds (see
+ * `types.ts`) carries the form of its definition, so it is entered as that shape when no system input is registered.
+ * A `Draft` holds what the person has typed so far for a node; `encode` reads a draft into the JSON value it stands
+ * for, with a problem only where the typing can't be read (a number that isn't one). Whether the value fits its type
+ * (lengths, ranges, patterns, wire forms) is gin's call: `issueProblems` turns gin's value-schema issues into a
+ * problem per field.
  */
 import type {
   EnumOptions as GinEnumOptions, ListOptions as GinListOptions, NewExprDef, NumOptions as GinNumOptions, PropDef, TextOptions as GinTextOptions, TypeDef,
 } from '@aeye/gin';
-import { isGinTypeDef, Json } from '@harness/core';
-import { g, referencesOf } from '@harness/sdk';
+import { Json } from '@harness/core';
 import { z } from 'zod';
 import { humanize } from '../logic/labels.ts';
+import type { Issue } from './types.ts';
 
 /** Every key of `T` also accepts `undefined`, as zod's output for an optional field does. */
 type Loose<T> = { [K in keyof T]: T[K] | undefined };
@@ -30,7 +30,7 @@ const NewDefault = z.object({ kind: z.literal('new'), value: Json }) satisfies z
  * The part of a gin type definition a form reads. Its keys are picked from gin's `TypeDef` and `PropDef`, so a rename
  * in gin breaks here. gin's own `parse` is the full check.
  */
-interface DefShape extends Loose<Pick<TypeDef<Record<string, unknown>>, 'docs' | 'options'>> {
+interface DefShape extends Loose<Pick<TypeDef<Record<string, unknown>>, 'docs' | 'options' | 'extends'>> {
   name: TypeDef['name'];
   generic?: Record<string, DefShape> | undefined;
   props?: Record<string, PropShape> | undefined;
@@ -45,6 +45,7 @@ interface PropShape extends Loose<Pick<PropDef, 'docs'>> {
 const Def: z.ZodType<DefShape> = z.lazy(() => z.object({
   name: z.string(),
   docs: z.string().optional(),
+  extends: z.string().optional(),
   options: z.record(z.string(), z.unknown()).optional(),
   generic: z.record(z.string(), Def).optional(),
   props: z.record(z.string(), z.object({ type: Def, docs: z.string().optional(), default: z.unknown().optional() })).optional(),
@@ -87,7 +88,8 @@ export type FormNode =
   | { readonly kind: 'obj'; readonly docs: string; readonly fields: readonly FormField[] }
   | { readonly kind: 'nullable'; readonly docs: string; readonly inner: FormNode }
   | { readonly kind: 'or'; readonly docs: string; readonly options: readonly { readonly label: string; readonly node: FormNode }[] }
-  | { readonly kind: 'ref'; readonly docs: string; readonly name: string };
+  /** `inner` is the form of the named type's definition, when the browser holds it (and it isn't recursive). */
+  | { readonly kind: 'ref'; readonly docs: string; readonly name: string; readonly inner?: FormNode };
 
 /** Every kind of form node. */
 export type FormKind = FormNode['kind'];
@@ -97,18 +99,25 @@ const SCALARS = { bool: 'bool', date: 'date', timestamp: 'timestamp', duration: 
 
 const TEXTY_NAMES = /^(content|body|text|description|message|prompt|code|notes?)$/i;
 
-/** Read a gin type definition into a form. Anything unreadable becomes a JSON field rather than failing. */
-export function formOf(def: unknown, field = ''): FormNode {
+/** Finds the definition of a named type (`hub/LongText`), or undefined when the browser doesn't hold it. */
+export type Resolve = (name: string) => unknown;
+
+/**
+ * Read a gin type definition into a form. Anything unreadable becomes a JSON field rather than failing. `resolve`
+ * finds named types, so a ref can be entered as its definition's shape.
+ */
+export function formOf(def: unknown, field = '', resolve: Resolve = () => undefined): FormNode {
   const parsed = Def.safeParse(def);
   if (!parsed.success) { return { kind: 'json', docs: '' }; }
-  return nodeOf(parsed.data, field);
+  return nodeOf(parsed.data, field, resolve, new Set());
 }
 
-function nodeOf(def: DefShape, field: string): FormNode {
+function nodeOf(def: DefShape, field: string, resolve: Resolve, within: ReadonlySet<string>): FormNode {
   const docs = def.docs ?? '';
+  const sub = (inner: DefShape, name: string): FormNode => nodeOf(inner, name, resolve, within);
   const generic = (key: string): FormNode => {
     const inner = def.generic?.[key];
-    return inner === undefined ? { kind: 'json', docs: '' } : nodeOf(inner, field);
+    return inner === undefined ? { kind: 'json', docs: '' } : sub(inner, field);
   };
   switch (def.name) {
     case 'text': {
@@ -142,7 +151,7 @@ function nodeOf(def: DefShape, field: string): FormNode {
     case 'map': return { kind: 'map', docs, key: generic('K'), value: generic('V') };
     case 'tuple': {
       const elements = z.array(Def).safeParse(def.options?.['elements']);
-      return { kind: 'tuple', docs, elements: elements.success ? elements.data.map((e, i) => nodeOf(e, `${field}${i}`)) : [] };
+      return { kind: 'tuple', docs, elements: elements.success ? elements.data.map((e, i) => sub(e, `${field}${i}`)) : [] };
     }
     case 'obj': {
       const fields = Object.entries(def.props ?? {}).map(([name, prop]): FormField => {
@@ -151,7 +160,7 @@ function nodeOf(def: DefShape, field: string): FormNode {
         const fallback = NewDefault.safeParse(prop.default);
         return {
           name, label: humanize(name), docs: prop.docs ?? prop.type.docs ?? '', optional,
-          node: inner === undefined ? { kind: 'json', docs: '' } : nodeOf(inner, name),
+          node: inner === undefined ? { kind: 'json', docs: '' } : sub(inner, name),
           ...(fallback.success ? { fallback: fallback.data.value } : {}),
         };
       });
@@ -160,14 +169,28 @@ function nodeOf(def: DefShape, field: string): FormNode {
     case 'optional': case 'nullable': return { kind: 'nullable', docs, inner: generic('T') };
     case 'or': {
       const types = z.array(Def).safeParse(def.options?.['types']);
-      const options = types.success ? types.data.map((t, i) => ({ label: optionLabel(t, i), node: nodeOf(t, field) })) : [];
+      const options = types.success ? types.data.map((t, i) => ({ label: optionLabel(t, i), node: sub(t, field) })) : [];
       return { kind: 'or', docs, options };
     }
     default: {
       const scalar = Object.entries(SCALARS).find(([name]) => name === def.name)?.[1];
-      return scalar === undefined ? { kind: 'ref', docs, name: def.name } : { kind: scalar, docs };
+      return scalar === undefined ? refNode(def.name, docs, field, resolve, within) : { kind: scalar, docs };
     }
   }
+}
+
+/** Words in a named text type's docs that say it runs over many lines (the hub's `LongText`). */
+const LONG_TEXT_DOCS = /many lines|text area/i;
+
+/** A ref to a named type, with the form of its definition when it resolves and isn't one it is already inside. */
+function refNode(name: string, docs: string, field: string, resolve: Resolve, within: ReadonlySet<string>): FormNode {
+  const found = within.has(name) ? undefined : Def.safeParse(resolve(name));
+  if (found === undefined || !found.success) { return { kind: 'ref', docs, name }; }
+  // a named type is an extension of the type it `extends`: its form is that type's, with the extension's options and props
+  const def = found.data.extends === undefined ? found.data : { ...found.data, name: found.data.extends };
+  const inner = nodeOf(def, field, resolve, new Set([...within, name]));
+  const shaped = inner.kind === 'text' && LONG_TEXT_DOCS.test(found.data.docs ?? '') ? { ...inner, multiline: true } : inner;
+  return { kind: 'ref', docs: docs === '' ? shaped.docs : docs, name, inner: shaped };
 }
 
 function optionLabel(def: DefShape, i: number): string {
@@ -217,7 +240,7 @@ export function draftOf(node: FormNode, value?: Json): Draft {
     case 'bool': return { kind: 'bool', value: value === true };
     case 'enum': return { kind: 'choice', index: node.choices.findIndex((c) => c.value === value) };
     case 'literal': return { kind: 'value', value: node.value };
-    case 'ref': return { kind: 'value', value };
+    case 'ref': return node.inner === undefined ? { kind: 'value', value } : draftOf(node.inner, value);
     case 'list': return { kind: 'items', items: Array.isArray(value) ? value.map((v) => draftOf(node.item, v)) : [] };
     case 'tuple': return { kind: 'items', items: node.elements.map((e, i) => draftOf(e, Array.isArray(value) ? value[i] : undefined)) };
     case 'map': {
@@ -258,7 +281,8 @@ function fits(node: FormNode, value: Json | undefined): boolean {
     case 'obj': return value !== null && typeof value === 'object' && !Array.isArray(value);
     case 'enum': return node.choices.some((c) => c.value === value);
     case 'literal': return node.value === value;
-    case 'json': case 'nullable': case 'or': case 'ref': return true;
+    case 'ref': return node.inner === undefined || fits(node.inner, value);
+    case 'json': case 'nullable': case 'or': return true;
   }
 }
 
@@ -283,7 +307,7 @@ export function parseDuration(text: string): number | undefined {
   return Math.round(Number(match[1]) * factor);
 }
 
-/** Check a draft against its node and make its JSON. */
+/** Read a draft into the JSON it stands for, with a problem where the typing can't be read. gin checks the rest. */
 export function encode(node: FormNode, draft: Draft, path = ''): Encoded {
   const problems: FormProblem[] = [];
   const value = walk(node, draft, path, problems);
@@ -293,27 +317,17 @@ export function encode(node: FormNode, draft: Draft, path = ''): Encoded {
 function walk(node: FormNode, draft: Draft, path: string, problems: FormProblem[]): Json | undefined {
   const fail = (message: string): Json | undefined => { problems.push({ path, message }); return undefined; };
   switch (node.kind) {
-    case 'text': {
-      const text = draft.kind === 'text' ? draft.text : '';
-      if (node.minLength !== undefined && text.length < node.minLength) { return fail(node.minLength <= 1 ? 'Required.' : `At least ${node.minLength} characters.`); }
-      if (node.maxLength !== undefined && text.length > node.maxLength) { return fail(`At most ${node.maxLength} characters.`); }
-      if (node.pattern !== undefined && !safeRegex(node.pattern, node.flags).test(text)) { return fail('Check the format.'); }
-      return text;
-    }
+    case 'text': return draft.kind === 'text' ? draft.text : '';
     case 'num': {
       const text = draft.kind === 'text' ? draft.text.trim() : '';
       if (text === '') { return fail('Required.'); }
       const n = Number(text);
-      if (!Number.isFinite(n)) { return fail('Enter a number.'); }
-      if (node.whole && !Number.isInteger(n)) { return fail('Enter a whole number.'); }
-      if (node.min !== undefined && n < node.min) { return fail(`At least ${node.min}.`); }
-      if (node.max !== undefined && n > node.max) { return fail(`At most ${node.max}.`); }
-      return n;
+      return Number.isFinite(n) ? n : fail('Enter a number.');
     }
     case 'bool': return draft.kind === 'bool' ? draft.value : false;
     case 'date': {
       const text = draft.kind === 'text' ? draft.text : '';
-      return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fail('Pick a date.');
+      return text === '' ? fail('Pick a date.') : text;
     }
     case 'timestamp': {
       const text = draft.kind === 'text' ? draft.text : '';
@@ -343,11 +357,13 @@ function walk(node: FormNode, draft: Draft, path: string, problems: FormProblem[
       return choice === undefined ? fail('Choose one.') : choice.value;
     }
     case 'literal': return node.value;
-    case 'ref': return draft.kind === 'value' && draft.value !== undefined ? draft.value : fail('Required.');
+    case 'ref': {
+      // a system's input sets the value itself; otherwise the definition's own form was typed into
+      if (draft.kind === 'value') { return draft.value !== undefined ? draft.value : fail('Required.'); }
+      return node.inner === undefined ? fail('Required.') : walk(node.inner, draft, path, problems);
+    }
     case 'list': {
       const items = draft.kind === 'items' ? draft.items : [];
-      if (node.minLength !== undefined && items.length < node.minLength) { problems.push({ path, message: `Add at least ${node.minLength}.` }); }
-      if (node.maxLength !== undefined && items.length > node.maxLength) { problems.push({ path, message: `At most ${node.maxLength}.` }); }
       const out = items.map((item, i) => walk(node.item, item, join(path, i), problems));
       return present(out);
     }
@@ -402,39 +418,32 @@ function present(values: readonly (Json | undefined)[]): Json[] | undefined {
   return out;
 }
 
-function safeRegex(pattern: string, flags: string | undefined): RegExp {
-  try {
-    return new RegExp(pattern, flags);
-  } catch {
-    return /[\s\S]*/;
-  }
-}
-
 /** The problem for a path, if any. */
 export function problemAt(problems: readonly FormProblem[], path: string): string {
   return problems.find((p) => p.path === path)?.message ?? '';
 }
 
-/**
- * gin's own check of a value against the type definition, where the type can be rebuilt here (a type naming a
- * system's own types, such as `fs/Entry`, needs that system's contract, which the browser doesn't hold). Returns a
- * problem, `''` when it fits, or undefined when it couldn't check.
- */
-export function ginCheck(def: unknown, value: Json): string | undefined {
-  if (!isGinTypeDef(def)) { return undefined; }
-  let type: ReturnType<typeof g.parse>;
-  try {
-    type = g.parse(def);
-  } catch {
-    return undefined;
+const count = (n: number | bigint | undefined): string => (n === undefined ? '' : String(n));
+
+/** One gin issue in plain words, by what it is about: "Required.", "At most 10 characters.", "Enter a whole number.". */
+export function issueText(issue: Issue): string {
+  const { code, origin } = issue;
+  if (code === 'too_small') {
+    if (origin === 'string') { return issue.minimum !== undefined && Number(issue.minimum) <= 1 ? 'Required.' : `At least ${count(issue.minimum)} characters.`; }
+    if (origin === 'array' || origin === 'set') { return `Add at least ${count(issue.minimum)}.`; }
+    return `At least ${count(issue.minimum)}.`;
   }
-  if (referencesOf(type).some((name) => g.lookup(name) === undefined)) { return undefined; }
-  try {
-    type.parse(value);
-    return '';
-  } catch (error) {
-    return error instanceof Error ? error.message : 'This value does not fit.';
-  }
+  if (code === 'too_big') { return origin === 'string' ? `At most ${count(issue.maximum)} characters.` : `At most ${count(issue.maximum)}.`; }
+  if (code === 'invalid_format') { return 'Check the format.'; }
+  if ((code === 'invalid_type' && issue.expected === 'int') || code === 'not_multiple_of') { return 'Enter a whole number.'; }
+  const message = issue.message.trim();
+  if (message === '') { return 'This value does not fit.'; }
+  return `${message.charAt(0).toUpperCase()}${message.slice(1)}${/[.!?]$/.test(message) ? '' : '.'}`;
+}
+
+/** gin's issues as form problems, each at its field's path (`files.0.path`; '' for the value as a whole). */
+export function issueProblems(issues: readonly Issue[]): FormProblem[] {
+  return issues.map((issue) => ({ path: issue.path.flatMap((key) => (typeof key === 'symbol' ? [] : [String(key)])).join('.'), message: issueText(issue) }));
 }
 
 /** A hint line for a node from its constraints: "1 to 10, whole numbers", "Up to 200 characters". */

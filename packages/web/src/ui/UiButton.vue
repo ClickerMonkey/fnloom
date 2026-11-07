@@ -50,7 +50,8 @@ const slots = defineSlots<{ default?: () => unknown }>();
 .ui-button:focus-visible { outline: none; box-shadow: var(--ring); }
 .ui-button:disabled:not(.loading) { opacity: 0.5; }
 .content { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-width: 0; }
-.label { overflow: hidden; text-overflow: ellipsis; }
+/* room for descenders (g, j, p, q, y): the clip of the ellipsis must not cut them */
+.label { overflow: hidden; text-overflow: ellipsis; line-height: 1.25; padding-block: 1px; }
 .loading .content { visibility: hidden; }
 .spinner { position: absolute; }
 .block { display: grid; width: 100%; }

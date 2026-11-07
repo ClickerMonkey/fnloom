@@ -122,6 +122,7 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
       }));
       await agents.recover();
       await runs.resend(HUB_SYSTEM);
+      await runs.watchDeadlines();
       input.log.info('execution.started', {});
     },
     async stop() {
@@ -187,6 +188,7 @@ export function executionModule(options: {
         finish: (message, parts, status) => hub.chat.turns.finish(message, parts, status),
         settle: (turn, status) => hub.chat.turns.settle(turn, status),
         track: (message, runs) => hub.chat.turns.track(message, runs),
+        followUp: (input) => hub.chat.turns.followUp(input),
       },
       enrich: { render: (message) => hub.chat.enrich.render(message) },
       approvers: { approvers: (approver, turnUser) => hub.chat.approvers.approvers(approver, turnUser) },

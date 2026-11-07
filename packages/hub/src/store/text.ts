@@ -6,28 +6,18 @@
 import { IndexedKind } from '@harness/core';
 import { sql } from 'kysely';
 import { z } from 'zod';
+import { type AuxDb, TEXT_FTS, TextDoc, createAuxTable, createTextFts } from './aux.ts';
 import type { Scope } from './db.ts';
 import type { TextIndex } from './index.ts';
 
-/** The table of indexed items. */
-export const TEXT_DOCS = '_text_docs';
-/** The FTS5 table. */
-export const TEXT_FTS = '_text_fts';
-
-const DocId = z.object({ id: z.number() });
+/** The id of a doc, as read back. */
+const DocId = TextDoc.pick({ id: true });
 const Hit = z.object({ kind: IndexedKind, key: z.string(), rank: z.number() });
 
 /** Create the text tables. */
 export async function createTextTables(scope: Scope): Promise<void> {
-  await scope.db.schema
-    .createTable(TEXT_DOCS)
-    .ifNotExists()
-    .addColumn('id', 'integer', (c) => c.primaryKey())
-    .addColumn('kind', 'text', (c) => c.notNull())
-    .addColumn('key', 'text', (c) => c.notNull())
-    .addUniqueConstraint(`${TEXT_DOCS}_item`, ['kind', 'key'])
-    .execute();
-  await sql`create virtual table if not exists ${sql.table(TEXT_FTS)} using fts5(text, tokenize = 'porter unicode61 remove_diacritics 2')`.execute(scope.db);
+  await createAuxTable(scope.db, '_text_docs');
+  await createTextFts(scope.db);
 }
 
 /** The words of a query, each quoted so FTS5 reads it as a plain term, joined with `OR`. Empty when there are none. */
@@ -48,9 +38,9 @@ export class SqliteTextIndex implements TextIndex {
     if (entries.length === 0) return;
     await this.#scope.atomic(async ({ db }) => {
       for (const { kind, key, text } of entries) {
-        const found = await db.selectFrom(TEXT_DOCS).select('id').where('kind', '=', kind).where('key', '=', key).executeTakeFirst();
+        const found = await db.selectFrom('_text_docs').select('id').where('kind', '=', kind).where('key', '=', key).executeTakeFirst();
         const id = found === undefined
-          ? DocId.parse(await db.insertInto(TEXT_DOCS).values({ kind, key }).returning('id').executeTakeFirstOrThrow()).id
+          ? DocId.parse(await db.insertInto('_text_docs').values({ kind, key }).returning('id').executeTakeFirstOrThrow()).id
           : DocId.parse(found).id;
         await db.deleteFrom(TEXT_FTS).where('rowid', '=', id).execute();
         await db.insertInto(TEXT_FTS).values({ rowid: id, text }).execute();
@@ -61,11 +51,11 @@ export class SqliteTextIndex implements TextIndex {
   async remove(kind: IndexedKind, keys: readonly string[]): Promise<void> {
     if (keys.length === 0) return;
     await this.#scope.atomic(async ({ db }) => {
-      const rows = await db.selectFrom(TEXT_DOCS).select('id').where('kind', '=', kind).where('key', 'in', [...keys]).execute();
+      const rows = await db.selectFrom('_text_docs').select('id').where('kind', '=', kind).where('key', 'in', [...keys]).execute();
       const ids = rows.map((row) => DocId.parse(row).id);
       if (ids.length === 0) return;
       await db.deleteFrom(TEXT_FTS).where('rowid', 'in', ids).execute();
-      await db.deleteFrom(TEXT_DOCS).where('id', 'in', ids).execute();
+      await db.deleteFrom('_text_docs').where('id', 'in', ids).execute();
     });
   }
 
@@ -74,7 +64,7 @@ export class SqliteTextIndex implements TextIndex {
     if (match === '' || query.kinds.length === 0 || query.limit < 1) return [];
     const result = await sql`
       select d.kind as kind, d.key as key, bm25(${sql.table(TEXT_FTS)}) as rank
-      from ${sql.table(TEXT_FTS)} join ${sql.table(TEXT_DOCS)} d on d.id = ${sql.table(TEXT_FTS)}.rowid
+      from ${sql.table(TEXT_FTS)} join ${sql.table('_text_docs' satisfies keyof AuxDb)} d on d.id = ${sql.table(TEXT_FTS)}.rowid
       where ${sql.table(TEXT_FTS)} match ${match} and d.kind in (${sql.join([...query.kinds])})
       order by rank limit ${Math.floor(query.limit)}`.execute(this.#scope.db);
     // BM25 is lower for better matches; flip it so higher is better

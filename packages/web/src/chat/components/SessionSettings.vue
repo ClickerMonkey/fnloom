@@ -4,11 +4,12 @@
  * about it (every message, replies to you, nothing), which systems it uses (each with its status, names, switches
  * and badges in fixed columns), and who is in it. Changes save as they are made.
  */
-import { PRIORITIES, type ChatCapabilities, type ModelChoice, type NotifyChoice, type Priority, type QualifiedName, type Session, type SystemName } from '@harness/core';
+import { PRIORITIES, type ChatCapabilities, type NotifyChoice, type Priority, type QualifiedName, type Session, type SystemName } from '@harness/core';
 import { computed } from 'vue';
-import { UiAvatar, UiBadge, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import { UiBadge, UiButton, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { humanize } from '../logic/labels.ts';
-import { agentOptions, modelChoiceOf, modelPick, type ModelPick } from '../logic/session.ts';
+import { agentOptions, modelLabel } from '../logic/session.ts';
+import SessionPeople from './SessionPeople.vue';
 
 const props = withDefaults(defineProps<{
   session: Session;
@@ -25,17 +26,14 @@ const props = withDefaults(defineProps<{
   nameOf: (actor: Session['participants'][number]) => string;
 }>(), { priority: undefined, agents: () => [], models: () => [] });
 const emit = defineEmits<{
-  notify: [choice: NotifyChoice]; systems: [systems: SystemName[] | 'all']; priority: [priority: Priority]; agent: [fn: QualifiedName]; model: [choice: ModelChoice | null];
+  notify: [choice: NotifyChoice]; systems: [systems: SystemName[] | 'all']; priority: [priority: Priority]; agent: [fn: QualifiedName];
+  /** The person wants to change the model: the chat opens the model picker. */
+  pickModel: [];
 }>();
 
 const agentChoices = computed<SelectOption<QualifiedName>[]>(() => agentOptions(props.agents, props.session.agent).map((a) => ({ value: a.fn, label: a.name })));
 const agentAbout = computed(() => agentOptions(props.agents, props.session.agent)[0]?.description ?? '');
-const modelChoices = computed<SelectOption<ModelPick>[]>(() => {
-  const current = modelPick(props.session.model);
-  const listed: SelectOption<ModelPick>[] = props.models.map((m) => ({ value: `model:${m.id}`, label: m.name }));
-  const missing = current !== 'default' && !listed.some((o) => o.value === current) ? [{ value: current, label: current.slice('model:'.length) }] : [];
-  return [{ value: 'default', label: 'The agent’s own choice' }, ...missing, ...listed];
-});
+const model = computed(() => modelLabel(props.session.model, props.models));
 
 const PRIORITY: readonly SegmentOption<Priority>[] = PRIORITIES.map((p) => ({ value: p, label: humanize(p) }));
 
@@ -61,10 +59,10 @@ function toggle(name: SystemName, on: boolean): void {
     </section>
     <section class="section">
       <h3 class="heading">Model</h3>
-      <UiSelect
-        :model-value="modelPick(session.model)" :options="modelChoices" label="Model" hide-label data-testid="session-model"
-        @update:model-value="emit('model', modelChoiceOf($event))"
-      />
+      <div class="model" data-testid="session-model">
+        <span class="model-name">{{ model }}</span>
+        <UiButton size="sm" icon="cpu" data-testid="change-model" @click="emit('pickModel')">Change</UiButton>
+      </div>
       <p class="dim">The agent answers with this model here. Budgets and an admin's rules still apply.</p>
     </section>
     <section v-if="priority" class="section">
@@ -90,13 +88,7 @@ function toggle(name: SystemName, on: boolean): void {
     </section>
     <section class="section">
       <h3 class="heading">People</h3>
-      <ul class="people" data-testid="people">
-        <li v-for="p in session.participants" :key="p.actor" class="member">
-          <UiAvatar :name="nameOf(p)" :kind="p.role === 'agent' ? 'agent' : 'person'" :size="28" />
-          <span class="name">{{ nameOf(p) }}</span>
-          <span class="role">{{ p.role }}</span>
-        </li>
-      </ul>
+      <SessionPeople :participants="session.participants" :name-of="nameOf" />
     </section>
   </div>
 </template>
@@ -106,11 +98,10 @@ function toggle(name: SystemName, on: boolean): void {
 .section { display: grid; gap: var(--space-2); }
 .heading { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .dim { margin: 0; color: var(--text-faint); font-size: var(--text-sm); }
-.systems, .people { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.model { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 40px; }
+.model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-medium); }
+.systems { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .system { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); min-height: 40px; }
 .system-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fill { width: 100%; }
-.member { display: flex; align-items: center; gap: var(--space-3); }
-.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.role { color: var(--text-faint); font-size: var(--text-xs); }
 </style>

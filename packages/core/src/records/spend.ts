@@ -5,18 +5,26 @@ import {
   ReservationId, RunId, SecretId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 
-/** The model providers harness can configure, one per aeye provider package. */
-export const ProviderKind = z.enum(['openai', 'openrouter', 'aws', 'replicate']);
-export type ProviderKind = z.infer<typeof ProviderKind>;
+/**
+ * The one table of model providers harness can configure (one per aeye provider package the hub builds, in
+ * `execution/providers.ts`) and the fields each takes. A provider joins here only once the hub can build it.
+ * `secret` is the schema of a field that holds a key: a stored `SecretId` in `ProviderConfig`, the key itself in the
+ * web's `ProviderInput`. Both unions, and `ProviderKind`, are built from here.
+ */
+export function providerVariants<S extends z.ZodType<string>>(secret: S) {
+  return z.discriminatedUnion('provider', [
+    z.object({ provider: z.literal('openai'), apiKey: secret, baseURL: z.url().optional() }),
+    z.object({ provider: z.literal('openrouter'), apiKey: secret }),
+  ]);
+}
 
 /** A model provider. Keys are stored as secrets. */
-export const ProviderConfig = z.discriminatedUnion('provider', [
-  z.object({ provider: z.literal('openai'), apiKey: SecretId, baseURL: z.url().optional() }),
-  z.object({ provider: z.literal('openrouter'), apiKey: SecretId }),
-  z.object({ provider: z.literal('aws'), region: z.string(), credentials: SecretId.optional() }),
-  z.object({ provider: z.literal('replicate'), apiKey: SecretId }),
-]);
+export const ProviderConfig = providerVariants(SecretId);
 export type ProviderConfig = z.infer<typeof ProviderConfig>;
+
+/** The model providers harness can configure, read off `providerVariants`. */
+export const ProviderKind = z.enum(ProviderConfig.options.map((option) => option.shape.provider.value));
+export type ProviderKind = z.infer<typeof ProviderKind>;
 
 /** A configured provider row. */
 export const ProviderRecord = z.object({ id: ProviderId, config: ProviderConfig, createdAt: Timestamp });

@@ -99,7 +99,7 @@ through each other's implementation files. Each module's handlers are installed 
 | `chat/` | `SessionService`, `TurnService`, `ReplyRule`, `MessageEnricher`, `StateService`, `DeliveryService`, `UndoService` | core records |
 | `index/` | `Embedder`, `Embedders`, `Indexer`, `Search`, `Suggester` | `@ayepi/work` batches, `@aeye/resources` |
 | `api/` | `PasswordHasher`, `Authenticator`, `ContentStore`, `PushService`, `EventRelay` | `@ayepi/auth`, `@ayepi/files`, `@ayepi/otel`, `@ayepi/cache`, `@ayepi/rate` (sign-in), web-push |
-| `boot/` | `HubServices`, `RunningHub`, `StartHub`, `COMPONENTS`; env slices in `env.ts` | `@ayepi/env`, `@ayepi/log`, `@ayepi/updown`, `@ayepi/codec` |
+| `boot/` | `HubServices`, `RunningHub`, `StartHub`, `COMPONENTS`; env slices in `env.ts`, merged as `HUB_SETTINGS` (`mergeEnvs`; `.env.example` is generated from it by `scripts/env-example.ts`); the hub fns (`hub-fns.ts`) and the admin fns (`admin-fns.ts`), which run the same `AdminOperations` (`api/admin-ops.ts`) as the web admin endpoints | `@ayepi/env`, `@ayepi/log`, `@ayepi/updown`, `@ayepi/codec` |
 | `bus.ts` | `EventBus`, `HubEvents` | — |
 
 ## Lanes and what they own
@@ -135,6 +135,7 @@ contract change writes it in its report (the schema, and why); it is made betwee
 | `npm run e2e:mock` | the web lane's puppeteer scenarios against its mock hub at phone, tablet and desktop in light and dark; shots in `packages/web/e2e/shots/` |
 | `npm run build` | manifest, typecheck, then the web build (`packages/web/dist`, served by the hub) |
 | `npm run check` | manifest check, typecheck, lint, tests, explorer build |
+| `npm run check:full` | `check`, then `test:live` and `e2e`: the gate before a phase commit (needs `OPENROUTER_API_KEY` and the embedder) |
 
 Tests sit beside the code as `*.test.ts`. Type-level tests use `expectType<Equal<A, B>>(true)` from `@harness/sdk`
 and `@ts-expect-error` for mistakes that must not compile. Ports for anything started while testing: the given port,

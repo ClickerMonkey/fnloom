@@ -150,7 +150,28 @@ describe('sending a message', () => {
     expect(w.agents.started).toHaveLength(0);
     const inbox = await w.chat.notifications.list(bo.id, {});
     expect(inbox.items).toEqual([expect.objectContaining({ reason: 'replied', body: 'Sure, at noon.', link: { session: w.session.id }, pushed: true })]);
-    expect(w.push.sent.map((p) => p.user)).toEqual([bo.id]);
+    expect(w.push.sent.map((p) => p.user)).toEqual([w.admin.id, bo.id]);
+    expect((await w.chat.notifications.list(w.admin.id, {})).items).toEqual([expect.objectContaining({ reason: 'message', title: `New message in ${w.session.title}`, body: 'Lunch?' })]);
+  });
+
+  it('tells everyone who chose all about a message from another person, but not those who chose replies or none, or who are looking', async () => {
+    const w = await chatWorld();
+    const bo = await addPerson(w, 'Bo', 'all');
+    const cy = await addPerson(w, 'Cy', 'replies');
+    const di = await addPerson(w, 'Di', 'none');
+    const ed = await addPerson(w, 'Ed', 'all');
+    await w.chat.sessions.presence({ session: w.session.id, user: ed.id, focused: true, typing: false });
+    await w.chat.turns.send({ session: w.session.id, author: bo.id, client: CLIENT, parts: [{ type: 'text', text: 'Standup moved to **ten**.' }] });
+    expect((await w.chat.notifications.list(w.admin.id, {})).items).toEqual([expect.objectContaining({ reason: 'message', body: 'Standup moved to ten.', link: { session: w.session.id } })]);
+    for (const quiet of [bo, cy, di, ed]) expect((await w.chat.notifications.list(quiet.id, {})).items).toEqual([]);
+  });
+
+  it('tells the person replied to once, as a reply, even when they chose all', async () => {
+    const w = await chatWorld();
+    const bo = await addPerson(w, 'Bo', 'all');
+    const first = await w.chat.turns.send({ session: w.session.id, author: bo.id, client: CLIENT, parts: [{ type: 'text', text: 'Lunch?' }] });
+    await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, replyTo: first.message.id, parts: [{ type: 'text', text: 'Yes.' }] });
+    expect((await w.chat.notifications.list(bo.id, {})).items.map((n) => n.reason)).toEqual(['replied']);
   });
 
   it('wakes every agent on reply-all', async () => {
@@ -319,7 +340,39 @@ describe('an agent\'s answer', () => {
     const mine = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, replyAll: true, parts: [{ type: 'text', text: 'Agents, answer Bo' }] });
     const answer = await w.chat.turns.begin({ turn: mine.turn, author: chatAgent, replyTo: theirs.message.id });
     await w.chat.turns.finish(answer.id, [{ type: 'text', text: '4' }], 'done');
-    expect((await w.chat.notifications.list(bo.id, {})).items).toEqual([expect.objectContaining({ reason: 'replied', body: '4' })]);
+    const inbox = (await w.chat.notifications.list(bo.id, {})).items;
+    expect(inbox.filter((n) => n.reason === 'replied')).toEqual([expect.objectContaining({ body: '4' })]);
+    expect(inbox.filter((n) => n.reason === 'message')).toEqual([expect.objectContaining({ body: 'Agents, answer Bo' })]);
+  });
+});
+
+describe('following up', () => {
+  it('wakes the session agent in a new turn of the same person, with no message, once nobody is answering', async () => {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'Run the build' }], client: CLIENT });
+    expect(await w.chat.turns.followUp({ turn: sent.turn, agent: chatAgent })).toBeUndefined();
+    const answering = (await w.store.table('runs').find({ where: { turn: sent.turn }, limit: 1 })).items[0];
+    if (answering === undefined) throw new Error('no agent run');
+    await w.store.table('runs').update(answering.id, { status: 'done' });
+    await w.chat.turns.settle(sent.turn, 'done');
+    const turn = await w.chat.turns.followUp({ turn: sent.turn, agent: chatAgent });
+    if (turn === undefined) throw new Error('no follow-up turn');
+    const record = await w.store.table('turns').get(turn);
+    expect(record).toMatchObject({ session: w.session.id, actor: w.admin.id, status: 'running', client: CLIENT });
+    expect(record?.root).toBeTypeOf('string');
+    expect(record?.message).toBeUndefined();
+    expect(w.agents.started.at(-1)).toMatchObject({ kind: 'hub/llm', fn: 'hub/chat', turn, session: w.session.id, actor: w.admin.id, caller: chatAgent });
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('running');
+  });
+
+  it('starts nothing for a turn outside a session or a session that is archived', async () => {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'hi' }], client: CLIENT });
+    for (const run of (await w.store.table('runs').find({ where: { turn: sent.turn }, limit: 5 })).items) await w.store.table('runs').update(run.id, { status: 'done' });
+    await w.store.table('sessions').update(w.session.id, { archived: true });
+    expect(await w.chat.turns.followUp({ turn: sent.turn, agent: chatAgent })).toBeUndefined();
+    expect(await w.chat.turns.followUp({ turn: IDS.turn.parse('trn_none'), agent: chatAgent })).toBeUndefined();
+    expect(w.agents.started).toHaveLength(1);
   });
 });
 

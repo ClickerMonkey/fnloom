@@ -6,7 +6,7 @@
  * leaves drawing to the components. Panels (a run, the tree, an LLM call) open through the URL, by emitting.
  */
 import {
-  ResourceUri, splitName, type QualifiedName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
+  ResourceUri, splitName, type Display, type QualifiedName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
   type RunId, type SessionId, type TurnId,
 } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
@@ -17,6 +17,7 @@ import { useTicker } from '../clock.ts';
 import ApprovalTray from '../components/ApprovalTray.vue';
 import AssistantAnswer from '../components/AssistantAnswer.vue';
 import BackgroundStrip from '../components/BackgroundStrip.vue';
+import BudgetCard from '../components/BudgetCard.vue';
 import ChatHeader from '../components/ChatHeader.vue';
 import ChatScroller from '../components/ChatScroller.vue';
 import Composer from '../components/Composer.vue';
@@ -41,6 +42,7 @@ import { STATUS_LINE, statusLine, type RunView } from '../logic/runs.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelLabel, whoAnswers, type SuggestionItem } from '../logic/session.ts';
 import { messageText, threadItems, type MentionPart } from '../logic/thread.ts';
 import { sendDraft } from '../state/send.ts';
+import type { BudgetAsk, StopAction } from '../state/thread.ts';
 import type { ChatPanel } from '../url.ts';
 
 const props = withDefaults(defineProps<{
@@ -100,11 +102,25 @@ function viewOf(run: RunView): RenderView<'fn'> | undefined {
   return chat.renderers.fnView(run, thread.stateOf(run.id));
 }
 
+/** How a fn's finished runs look in the thread, as its system declared. */
+function displayOf(run: RunView): Display {
+  return caps.value.value?.display[run.fn] ?? 'card';
+}
+
 function attachmentView(part: Extract<MessagePart, { type: 'attachment' }>): RenderView<'attachment'> | undefined {
   return chat.renderers.attachmentView(part);
 }
 
 provide(FORM_INPUTS, (type) => chat.renderers.inputView(type));
+
+/** A budget raise is being saved. */
+const raisingBudget = ref(false);
+async function raiseBudget(ask: BudgetAsk, by: number): Promise<void> {
+  raisingBudget.value = true;
+  const raised = await thread.raiseBudget(ask, by);
+  raisingBudget.value = false;
+  if (raised) { toasts.ok('Budget raised. The run goes on.'); } else { toasts.error("Couldn't raise the budget", thread.problem.value); }
+}
 
 // ── messages ──────────────────────────────────────────────────────────────────
 
@@ -308,7 +324,7 @@ function recall(): void {
   if (mine !== undefined) { void act('edit', [mine]); }
 }
 
-async function stop(action: 'pause' | 'cancel'): Promise<void> {
+async function stop(action: StopAction): Promise<void> {
   if (!(await thread.control(action))) { toasts.error("Couldn't stop", thread.problem.value); }
 }
 
@@ -447,14 +463,14 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         <UserMessage
           v-else-if="item.kind === 'user'" :message="item.message" :mine="item.mine" :author-name="nameOf(item.message.author)" :now="now" :command-name="commandName"
           :suggestions="messageSuggestions(item.message, record)" :actions="userActions(item.mine)" :quote="quoteOf(item.message)" :flash="flash === item.message.id"
-          :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
+          :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)" :carried="item.carried" :attachment-view="attachmentView"
           @action="act($event, [item.message])" @quote="quote(item.message)" @mention-hover="showCard" @mention-leave="hideCard" @mention-open="showCard"
-          @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)" @background="thread.toBackground($event)"
+          @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)" @background="thread.toBackground($event)" @link="openLink"
         />
         <AssistantAnswer
           v-else-if="item.kind === 'answer'" :messages="item.messages" :author-name="nameOf(item.author)" :now="now" :streaming="item.streaming" :failed="item.failed"
           :runs-of="(m: ChatMessage) => thread.runsOf(m)" :marks="thread.marks.value" :reasoning-of="(m: ChatMessage) => thread.reasoningOf(m)" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
-          :view-of="viewOf" :attachment-view="attachmentView" :actions="answerActions(item.turn)" :flash="item.messages.some((m) => m.id === flash)"
+          :view-of="viewOf" :display-of="displayOf" :attachment-view="attachmentView" :actions="answerActions(item.turn)" :flash="item.messages.some((m) => m.id === flash)"
           :status-line="item.turn === liveTurn ? liveLine : undefined" :navigate="navigate"
           @action="act($event, item.messages)" @run-open="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
           @collapse-all="(collapsed) => chat.collapse.setAll(item.messages.flatMap((m) => m.runs), collapsed)" @background="thread.toBackground($event)"
@@ -473,6 +489,10 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       <div class="dock-inner">
         <BackgroundStrip :runs="thread.background.value" :now="now" @open="emit('run', $event)" />
         <ApprovalTray :items="approvals" @decide="decide" @decide-all="(approve, remember) => thread.approveAll(approve, remember)" />
+        <BudgetCard
+          v-for="ask in thread.budgets.value" :key="ask.budget.id" :ask="ask" :fn-label="fnLabel(thread.runs.value.get(ask.run)?.fn ?? 'hub/run')"
+          :can-raise="auth.user.value?.role === 'admin'" :busy="raisingBudget" @raise="raiseBudget(ask, $event)" @leave="thread.leaveBudget(ask)"
+        />
         <HandlerCard
           v-for="call in thread.handlers.value" :key="call.id" :call="call" :fn-label="fnLabel(thread.runs.value.get(call.run)?.fn ?? 'hub/run')"
           @answer="thread.answer(call.id, $event)"
@@ -494,7 +514,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         />
         <ComposerMeta
           :agent="agent" :agents="agents" :model="modelLabel(record?.model, caps.value.value?.models ?? [])" :systems="systems" :background="thread.background.value.length" :spent="thread.spent.value" :meter="meter" :compact="compact || narrow"
-          @settings="emit('panel', 'settings')" @agent="switchAgent" @background="thread.background.value[0] && emit('run', thread.background.value[0].id)"
+          @settings="emit('panel', 'settings')" @model="emit('panel', 'model')" @agent="switchAgent" @background="thread.background.value[0] && emit('run', thread.background.value[0].id)"
         />
       </div>
     </div>

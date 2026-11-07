@@ -4,8 +4,8 @@
  * words. Pure, so it is tested alone.
  */
 import {
-  countedText, isSettled, phaseOf as runPhase, resolveStatus, type FnError, type Json, type PhasedRunStatus, type QualifiedName, type Run, type RunId,
-  type RunStatus, type RunText, type RunUpdate,
+  argSummary, countedText, isSettled, type Display, phaseOf as runPhase, resolveStatus, RUN_PHASES, RUN_STATUS_WORDS, type FnError, type Json, type PhasedRunStatus, type QualifiedName, type Run, type RunId,
+  type RunPhase, type RunStatus, type RunText, type RunUpdate,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { IconName, Tone } from '../../ui/index.ts';
@@ -39,9 +39,18 @@ export function emptyRun(id: RunId, fn: QualifiedName, status: RunStatus = 'queu
   return { id, fn, status, cost: 0, totalCost: 0, attempt: 1, background: false, errors: [] };
 }
 
+/**
+ * Whether each status means the run is doing something now: not settled, and not held for a person (an approval, a
+ * pause). Every status must be classed, so a new one fails to compile until it is.
+ */
+const ACTIVE_BY_STATUS = {
+  'awaiting-approval': false, queued: true, running: true, waiting: true, paused: false,
+  done: false, failed: false, cancelled: false, undone: false,
+} as const satisfies Record<RunStatus, boolean>;
+
 /** Whether a run is doing something now (not waiting on a person, not settled). */
 export function isActive(status: RunStatus): boolean {
-  return status === 'queued' || status === 'running' || status === 'waiting';
+  return ACTIVE_BY_STATUS[status];
 }
 
 /** Apply a live update. `now` stamps when it started and ended, as this browser saw it, until the record says. */
@@ -67,41 +76,62 @@ export function mergeRecord(live: RunView | undefined, record: Run): RunView {
   return { ...record, status: live.status, ...(live.endedAt === undefined ? {} : { endedAt: live.endedAt }), ...(live.text === undefined ? {} : { text: live.text }) };
 }
 
-/** How a status looks: its tone, icon and word. */
+/**
+ * A run as an open drawer shows it: the record it fetched, with what the thread has heard live since laid over it
+ * (status, progress, cost, timing, words) while the record is not settled, so the drawer moves with the card. A settled
+ * record already holds everything, so it stands as it is.
+ */
+export function drawerRun(live: RunView | undefined, record: Run | undefined): RunView | undefined {
+  if (record === undefined) { return live; }
+  if (live === undefined || isSettled(record.status)) { return record; }
+  return { ...record, ...live };
+}
+
+/** Whether an open drawer's record is behind its run: the thread heard it settle, but the record was fetched before. */
+export function recordIsBehind(live: Pick<RunView, 'id' | 'status'> | undefined, record: Pick<Run, 'id' | 'status'> | undefined): boolean {
+  return live !== undefined && record !== undefined && live.id === record.id && isSettled(live.status) && !isSettled(record.status);
+}
+
+/** How a status looks: its tone and icon, and its word from core's `RUN_STATUS_WORDS`. */
 export const STATUS_LOOK = {
-  'awaiting-approval': { tone: 'warn', icon: 'shield', word: 'Needs approval' },
-  queued: { tone: 'neutral', icon: 'clock', word: 'Queued' },
-  running: { tone: 'accent', icon: 'dot', word: 'Running' },
-  waiting: { tone: 'warn', icon: 'clock', word: 'Waiting' },
-  paused: { tone: 'neutral', icon: 'clock', word: 'Paused' },
-  done: { tone: 'ok', icon: 'success', word: 'Done' },
-  failed: { tone: 'danger', icon: 'error', word: 'Failed' },
-  cancelled: { tone: 'neutral', icon: 'x', word: 'Cancelled' },
-  undone: { tone: 'neutral', icon: 'refresh', word: 'Undone' },
+  'awaiting-approval': { tone: 'warn', icon: 'shield', word: RUN_STATUS_WORDS['awaiting-approval'] },
+  queued: { tone: 'neutral', icon: 'clock', word: RUN_STATUS_WORDS.queued },
+  running: { tone: 'accent', icon: 'dot', word: RUN_STATUS_WORDS.running },
+  waiting: { tone: 'warn', icon: 'clock', word: RUN_STATUS_WORDS.waiting },
+  paused: { tone: 'neutral', icon: 'clock', word: RUN_STATUS_WORDS.paused },
+  done: { tone: 'ok', icon: 'success', word: RUN_STATUS_WORDS.done },
+  failed: { tone: 'danger', icon: 'error', word: RUN_STATUS_WORDS.failed },
+  cancelled: { tone: 'neutral', icon: 'x', word: RUN_STATUS_WORDS.cancelled },
+  undone: { tone: 'neutral', icon: 'refresh', word: RUN_STATUS_WORDS.undone },
 } as const satisfies Record<RunStatus, { tone: Tone; icon: IconName; word: string }>;
 
-/** The keys whose value best says what a run is about, most telling first. */
-const TELLING_KEYS = ['path', 'file', 'uri', 'query', 'command', 'url', 'name', 'title', 'text', 'pattern', 'message'] as const;
-
-/** A one-line summary of a run's args: the most telling value ("harness.md"), clamped. Empty when there are none. */
-export function argSummary(args: Json | undefined, max = 60): string {
-  if (args === undefined || args === null) { return ''; }
-  if (typeof args === 'string') { return clamp(args, max); }
-  if (typeof args === 'number' || typeof args === 'boolean') { return String(args); }
-  if (Array.isArray(args)) { return args.length === 0 ? '' : `${args.length} item${args.length === 1 ? '' : 's'}`; }
-  const entries = Object.entries(args);
-  const telling = TELLING_KEYS.map((key) => args[key]).find((value) => typeof value === 'string' && value !== '');
-  if (typeof telling === 'string') { return clamp(telling, max); }
-  for (const [key, value] of entries) {
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') { return clamp(`${key}: ${String(value)}`, max); }
-  }
-  return '';
-}
+/** A one-line summary of a run's args (core's, shared with the hub's notifications). */
+export { argSummary };
 
 /** The error a run ended with, if it failed: its outcome's, or its last attempt's. */
 export function runError(run: RunView): FnError | undefined {
   if (run.outcome?.status === 'failed') { return run.outcome.error; }
   return run.status === 'failed' ? run.errors.at(-1)?.error : undefined;
+}
+
+/**
+ * How a run shows in the thread now: its card while it runs or when it failed (so the failure stays in view), and once
+ * it is done (or stopped) as its fn's `display` says: its card, a line of text, or nothing.
+ */
+export function runShows(run: Pick<RunView, 'status'>, display: Display): Display {
+  return !isSettled(run.status) || run.status === 'failed' ? 'card' : display;
+}
+
+/**
+ * The line a run shown as a message reads: its status words, then its result when it is short text, or how many it
+ * found when it is a list ("Search fns done: 4 found"). Anything else stays in the run's details.
+ */
+export function runMessage(run: RunView, max = 120): string {
+  const text = runText(run);
+  const result = runResult(run);
+  if (Array.isArray(result)) { return `${text}: ${result.length} found`; }
+  const brief = typeof result === 'string' ? clamp(result, max) : '';
+  return brief === '' ? text : `${text}: ${brief}`;
 }
 
 /** The result of a run that is done. */
@@ -169,9 +199,14 @@ export function progressFraction(run: Pick<RunView, 'progress'>): number | undef
   return steps.filter((step) => step.status === 'done' || step.status === 'skipped').length / steps.length;
 }
 
-/** The phases the status line sorts by: what is happening first. */
-export const PHASES = ['active', 'retry', 'waiting', 'failed', 'done'] as const;
-export type Phase = (typeof PHASES)[number];
+/** A phase on the status line: core's run phases, plus `waiting` for runs held for a person. */
+export type Phase = RunPhase | 'waiting';
+
+/** Where each phase sorts on the status line: what is happening first. Every phase must be placed. */
+const PHASE_ORDER = { active: 0, retry: 1, waiting: 2, failed: 3, done: 4 } as const satisfies Record<Phase, number>;
+
+/** The phases the status line sorts by, built from core's `RUN_PHASES`: what is happening first. */
+export const PHASES: readonly Phase[] = [...RUN_PHASES, 'waiting' as const].sort((a, b) => PHASE_ORDER[a] - PHASE_ORDER[b]);
 
 /** Which phase a run is in on the status line: its own, `waiting` while it waits on a person, `done` once stopped. */
 export function phaseOf(run: Pick<RunView, 'status' | 'attempt' | 'asking'>): Phase {
@@ -251,7 +286,7 @@ export function statusLine(runs: readonly RunView[], now: number, options: Statu
     const group = groups.get(key);
     if (group === undefined) { groups.set(key, { first: run, phase, count: 1 }); } else { group.count++; }
   }
-  const sorted = [...groups.entries()].sort(([, a], [, b]) => PHASES.indexOf(a.phase) - PHASES.indexOf(b.phase));
+  const sorted = [...groups.entries()].sort(([, a], [, b]) => PHASE_ORDER[a.phase] - PHASE_ORDER[b.phase]);
   const shown = sorted.slice(0, options.max).map(([key, group]) => ({
     key, fn: group.first.fn, phase: group.phase, count: group.count, text: groupText(group.first, group.count), tone: PHASE_TONE[group.phase],
   }));

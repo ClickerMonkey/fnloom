@@ -5,7 +5,7 @@
  */
 import {
   ACTIVE_RUN_STATUSES, IDS, SessionSummary, compositeKey, isUnsettled, mintId, type ActorId, type ChatMessage, type ModelChoice, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
-  type Run, type Session, type SessionControls, type SessionId, type SystemName,
+  type Run, type Session, type SessionControls, type SessionId, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ChatDeps } from './deps.ts';
@@ -90,7 +90,7 @@ export class StoreSessionService implements SessionService {
     return row !== undefined && participantOf(row, viewer) !== undefined ? row : undefined;
   }
 
-  async list(viewer: ActorId, query: { cursor?: string; limit?: number; search?: string; archived?: boolean }): Promise<Page<SessionSummary>> {
+  async list(viewer: ActorId, query: Compact<SessionListQuery>): Promise<Page<SessionSummary>> {
     const words = query.search?.trim().toLowerCase().split(/\s+/).filter((w) => w !== '') ?? [];
     const page = await collect(
       this.#deps.store.table('sessions'),
@@ -154,7 +154,7 @@ export class StoreSessionService implements SessionService {
     return true;
   }
 
-  async messages(session: SessionId, viewer: ActorId, query: { cursor?: string; limit?: number }): Promise<Page<ChatMessage>> {
+  async messages(session: SessionId, viewer: ActorId, query: Compact<Omit<MessageListQuery, 'session'>>): Promise<Page<ChatMessage>> {
     await this.require(session, viewer);
     const page = await this.#deps.store.table('messages').find({
       where: { session }, order: [['createdAt', 'desc']], limit: query.limit ?? this.#deps.settings.chat.HARNESS_MESSAGE_PAGE, cursor: query.cursor,
@@ -173,7 +173,7 @@ export class StoreSessionService implements SessionService {
     };
   }
 
-  async control(session: SessionId, action: 'pause' | 'resume' | 'cancel', by: ActorId): Promise<SessionControls> {
+  async control(session: SessionId, action: SessionControlAction, by: ActorId): Promise<SessionControls> {
     await this.require(session, by);
     const active = await this.#active(session);
     const results = await Promise.all(active.map(async (run): Promise<boolean> => {

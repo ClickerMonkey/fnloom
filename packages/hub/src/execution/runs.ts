@@ -12,11 +12,12 @@
 import {
   isSettled, mintId, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
-  type Turn, type UndoOutcome, type Usd,
+  type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
-import { fnError, HubStopping, messageOf, RunRefused, RunStopped } from './errors.ts';
+import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
+import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from './pages.ts';
 import { SystemGone } from './executors.ts';
 import { AGENT_KIND, type Ledger, type PolicyEngine, type RunInput, type RunService } from './index.ts';
@@ -24,6 +25,25 @@ import type { ControlAnswer, ExecutionDeps, RunCosts, RunEvents, RunExecutor, Ru
 import type { ExecutionQueues } from './queues.ts';
 import { timeInfo } from './time.ts';
 import { RunWording } from './wording.ts';
+
+/** Why a signal aborted, as an error. */
+function abortError(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  return reason instanceof Error ? reason : new Error(`stopped: ${String(reason)}`);
+}
+
+/** `work`, or the stop reason as soon as `signal` aborts, whichever comes first. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortError(signal));
+  return new Promise<T>((resolve, reject) => {
+    const stop = (): void => { reject(abortError(signal)); };
+    signal.addEventListener('abort', stop, { once: true });
+    work.then(
+      (value) => { signal.removeEventListener('abort', stop); resolve(value); },
+      (error: unknown) => { signal.removeEventListener('abort', stop); reject(error instanceof Error ? error : new Error(String(error))); },
+    );
+  });
+}
 
 /** Which executor runs a run. */
 export type ExecutorKind = 'system' | 'hub' | 'agent';
@@ -104,10 +124,13 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   readonly #executing = new Set<RunId>();
   readonly #listeners = new Set<(run: Run, settled: RunSettled) => void>();
   readonly #wording: RunWording;
+  /** A timer per started run, at its deadline (`deadlines.ts`). */
+  readonly #deadlines: DeadlineTimers;
 
   constructor(deps: RunServiceDeps) {
     this.#deps = deps;
     this.#wording = new RunWording(deps.catalog);
+    this.#deadlines = new DeadlineTimers(deps.clock);
     deps.bus.subscribe('approval', ({ approval }) => {
       if (approval.status === 'pending') return;
       void this.#approved(approval.run, approval.status === 'approved', approval.decisions.at(-1)?.reason).catch((error: unknown) => {
@@ -251,8 +274,16 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     signal.addEventListener('abort', stop, { once: true });
     this.#running.set(run.id, controller);
     try {
-      const request = await this.#request(run, fn);
-      const outcome = await executor.execute({ run, fn, request }, controller.signal);
+      const turn = await this.#turn(run);
+      const deadline = runDeadline(clock(), turn, fn);
+      if (deadline.at <= clock()) {
+        await this.settle(run.id, { status: 'failed', error: deadlineError(deadline, run, turn, fn) });
+        return;
+      }
+      this.#watch(run, turn, fn, deadline);
+      const request = await this.#request(run, fn, turn, deadline);
+      // a stop (cancel, pause, timeout, shutdown) ends the wait even when the executor ignores its signal
+      const outcome = await untilAborted(executor.execute({ run, fn, request }, controller.signal), controller.signal);
       if (outcome !== 'detached') await this.settle(run.id, outcome);
     } catch (error) {
       await this.#failed(run, error, controller.signal);
@@ -264,6 +295,10 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
 
   /** An executor threw: a stop request settles as asked, a lost system waits for it to come back, else the run fails. */
   async #failed(run: Run, error: unknown, signal: AbortSignal): Promise<void> {
+    if (signal.aborted && signal.reason instanceof RunTimedOut) {
+      await this.settle(run.id, { status: 'failed', error: signal.reason.error });
+      return;
+    }
     const stopped = signal.aborted && signal.reason instanceof RunStopped ? signal.reason : error instanceof RunStopped ? error : undefined;
     if (stopped?.how === 'cancel') {
       await this.settle(run.id, { status: 'cancelled' });
@@ -272,6 +307,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     } else if (error instanceof SystemGone || (signal.aborted && signal.reason instanceof HubStopping)) {
       // The system may have started it, so it is sent again as a restart, with the child calls that finished.
       this.#resumes.set(run.id, 'restart');
+      this.#deadlines.disarm(run.id);
       await this.#moveTo(run, { status: 'queued' });
       this.#deps.log.warn('run.system-gone', { run: run.id, system: run.system });
     } else {
@@ -293,6 +329,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const { store, clock, catalog, log } = this.#deps;
     const run = await store.table('runs').get(id);
     if (run === undefined || isSettled(run.status)) return;
+    // settled, paused or queued to retry: either way this attempt's deadline no longer applies
+    this.#deadlines.disarm(id);
     const now = clock();
     const cost = outcome.cost ?? 0;
     const errors = outcome.status === 'failed' ? [...run.errors, { attempt: run.attempt, error: outcome.error, cost, at: now }] : run.errors;
@@ -337,7 +375,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     return this.#stop(id, 'pause', by);
   }
 
-  async #stop(id: RunId, how: 'cancel' | 'pause', by: ActorId): Promise<ControlAnswer> {
+  async #stop(id: RunId, how: RunControlAction, by: ActorId): Promise<ControlAnswer> {
     const run = await this.get(id);
     if (run === undefined) return { accepted: false, reason: `There is no run ${id}.` };
     if (isSettled(run.status)) return { accepted: false, reason: 'The run has already finished.' };
@@ -366,7 +404,52 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
 
   /** Stop every run in flight for a shutdown; each stays queued, to be sent again when its system is back. */
   drain(): void {
+    this.#deadlines.clear();
     for (const controller of this.#running.values()) controller.abort(new HubStopping());
+  }
+
+  /**
+   * Watch the deadline of every run that was started before the hub restarted and is still running or waiting (an
+   * agent waiting for its tools), timed from when it started. A run the worker starts again gets a fresh deadline.
+   */
+  async watchDeadlines(): Promise<void> {
+    const { store, catalog, clock } = this.#deps;
+    for await (const run of rows(store.table('runs'), { where: { status: { in: ['running', 'waiting'] } } })) {
+      if (this.#deadlines.armed(run.id)) continue;
+      const [turn, fn] = await Promise.all([store.table('turns').get(run.turn), catalog.fn(run.fn)]);
+      if (turn === undefined || fn === undefined) continue;
+      this.#watch(run, turn, fn, runDeadline(run.startedAt ?? clock(), turn, fn));
+    }
+  }
+
+  /** Arm a run's deadline: when it passes, the hub stops the run. */
+  #watch(run: Run, turn: Turn, fn: FnRecord, deadline: RunDeadline): void {
+    const error = deadlineError(deadline, run, turn, fn);
+    this.#deadlines.arm(run.id, deadline.at, () => {
+      void this.#timeOut(run.id, error).catch((thrown: unknown) => { this.#deps.log.error('run.timeout-failed', { run: run.id, error: messageOf(thrown) }); });
+    });
+  }
+
+  /**
+   * A run's deadline passed. The worker's wait on its executor is ended (the worker settles the run from there), the
+   * executor is told to stop the work, and a run no worker waits on (an agent between iterations) is settled here.
+   */
+  async #timeOut(id: RunId, error: FnError): Promise<void> {
+    const { catalog, log } = this.#deps;
+    const run = await this.get(id);
+    if (run === undefined || (run.status !== 'running' && run.status !== 'waiting')) return;
+    log.warn('run.timed-out', { run: id, fn: run.fn, class: error.class, error: error.message });
+    const worker = this.#running.get(id);
+    worker?.abort(new RunTimedOut(error));
+    const fn = await catalog.fn(run.fn);
+    if (fn !== undefined) {
+      try {
+        await this.#executor(fn).stop(run, error);
+      } catch (thrown) {
+        log.warn('run.stop-failed', { run: id, fn: run.fn, error: messageOf(thrown) });
+      }
+    }
+    if (worker === undefined) await this.settle(id, { status: 'failed', error });
   }
 
   async resume(id: RunId, by: ActorId): Promise<void> {
@@ -448,15 +531,16 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     await this.#addToAncestors(run, cost);
   }
 
-  /** The run request an executor gets: who and when, the args, the budget left, and what to resume from. */
-  async #request(run: Run, fn: FnRecord): Promise<RunRequest> {
+  /**
+   * The run request an executor gets: who and when, the args, the budget left (money, and the turn's time), the
+   * deadline the hub enforces, and what to resume from.
+   */
+  async #request(run: Run, fn: FnRecord, turn: Turn, deadline: RunDeadline): Promise<RunRequest> {
     const { ledger, config, clock } = this.#deps;
-    const turn = await this.#turn(run);
     const info = await this.#info(run, turn);
     const left = await ledger.remaining(turn.limits, { turn: turn.id, actor: run.actor });
     const now = clock();
     const turnDeadline = turn.createdAt + turn.limits.turn.time;
-    const deadline = fn.decl.limits.timeout === undefined ? turnDeadline : Math.min(turnDeadline, now + fn.decl.limits.timeout);
     const reason = this.#resumes.get(run.id);
     this.#resumes.delete(run.id);
     const resume = reason === undefined ? undefined : { state: run.resume ?? null, calls: await this.#finishedCalls(run.id), reason };
@@ -470,7 +554,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       budget: { cost: left.cost, time: Math.max(0, turnDeadline - now), limitedBy: left.limitedBy },
       handlers: [...(this.#handlers.get(run.id) ?? [])],
       ...(resume === undefined ? {} : { resume }),
-      deadline,
+      deadline: deadline.at,
       configVersion: configured?.version ?? 0,
     };
   }

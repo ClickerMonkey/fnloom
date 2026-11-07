@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -52,6 +53,25 @@ describe('links', () => {
     expect((await files.read(guard.resolve('alias/a.txt', { write: false }))).text).toBe('inside');
     expect(() => guard.resolve('escape/key.txt', { write: false })).toThrow(FsProblem);
     expect(() => guard.resolve('escape', { write: true })).toThrow(/outside/);
+  });
+
+  it('refuses a new file or a new nested path made through a link that leads out', async () => {
+    expect(() => guard.resolve('escape/new.txt', { write: true })).toThrow(/outside/);
+    expect(() => guard.resolve('escape/sub/deeper.txt', { write: true })).toThrow(/outside/);
+    expect(() => guard.resolve(`${root}/escape/new.txt`, { write: false })).toThrow(/outside/);
+    expect(await code(Promise.resolve().then(() => guard.resolve('escape/new.txt', { write: true })))).toBe('outside');
+    expect(existsSync(`${tmp.path}/secret/new.txt`)).toBe(false);
+  });
+
+  it('allows a new file or a new nested path made through a link that stays inside', () => {
+    expect(guard.resolve('alias/new.txt', { write: true }).path).toBe(`${root}/alias/new.txt`);
+    expect(guard.resolve('alias/sub/deeper.txt', { write: true }).relative).toBe('alias/sub/deeper.txt');
+    expect(guard.resolve('fresh/folder/file.txt', { write: true }).relative).toBe('fresh/folder/file.txt');
+  });
+
+  it('refuses a path through a link that leads nowhere, since writing would follow it', async () => {
+    await linkFolder(`${tmp.path}/gone`, `${root}/dangling`);
+    expect(() => guard.resolve('dangling/new.txt', { write: true })).toThrow(/leads nowhere/);
   });
 
   it('treats a linked folder as a folder for reading, writing and cd', async () => {

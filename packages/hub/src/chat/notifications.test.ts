@@ -69,14 +69,14 @@ describe('notifications from hub events', () => {
     const w = await chatWorld();
     const stop = w.chat.start();
     const call: HandlerCall = {
-      id: IDS.handlerCall.parse('hcl_1'), run: IDS.run.parse('run_1'), handler: 'confirm', args: {}, decl: { description: 'Overwrite a.md?', args: gin({ name: 'any' }), returns: gin({ name: 'bool' }) },
+      id: IDS.handlerCall.parse('hcl_1'), run: IDS.run.parse('run_1'), handler: 'confirm', args: { path: 'a.md' }, decl: { description: 'Overwrite a.md?', args: gin({ name: 'any' }), returns: gin({ name: 'bool' }) },
       answerer: { user: w.admin.id }, status: 'pending', createdAt: 0,
     };
     w.bus.publish('handler', { session: w.session.id, call });
     w.bus.publish('handler', { call: { ...call, id: IDS.handlerCall.parse('hcl_2'), answerer: { system: SystemName.parse('fs'), run: call.run } } });
     w.bus.publish('handler', { call: { ...call, id: IDS.handlerCall.parse('hcl_3'), status: 'answered' } });
     await settle();
-    expect((await w.chat.notifications.list(w.admin.id, {})).items).toEqual([expect.objectContaining({ reason: 'input-needed', body: 'Overwrite a.md?', link: { run: 'run_1' } })]);
+    expect((await w.chat.notifications.list(w.admin.id, {})).items).toEqual([expect.objectContaining({ reason: 'input-needed', title: 'Overwrite a.md?', body: '`a.md`', link: { run: 'run_1' } })]);
     stop();
   });
 

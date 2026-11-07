@@ -10,6 +10,7 @@ import type { UserEvents } from '../../api/notifications.ts';
 import type { KeyValueStore } from '../../state/persisted.ts';
 import type { ChatApi, FileSender, SessionEvents } from '../api.ts';
 import { CapabilitiesStore } from './capabilities.ts';
+import { TypeLibrary } from '../forms/types.ts';
 import { CollapseStore } from './collapse.ts';
 import { ComposerStore } from './composer.ts';
 import { Inspector } from './inspect.ts';
@@ -52,6 +53,8 @@ export class ChatStore {
   readonly sessions: SessionListStore;
   readonly capabilities: CapabilitiesStore;
   readonly inspector: Inspector;
+  /** The named gin types forms need, fetched from the hub as they come up. */
+  readonly types: TypeLibrary;
   readonly collapse: CollapseStore;
   readonly renderers: RendererHub;
   readonly mentions: MentionCards;
@@ -68,6 +71,7 @@ export class ChatStore {
     this.sessions = new SessionListStore(deps.api, deps.userEvents);
     this.capabilities = new CapabilitiesStore(deps.api, deps.userEvents);
     this.inspector = new Inspector(deps.api);
+    this.types = new TypeLibrary((names) => deps.api.types.call({ names: [...names] }));
     this.collapse = new CollapseStore(deps.store);
     this.mentions = new MentionCards(deps.api);
     this.renderers = new RendererHub({

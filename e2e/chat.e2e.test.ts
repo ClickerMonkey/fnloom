@@ -158,15 +158,18 @@ describe('the chat agent', () => {
     bashRun = run.id;
   });
 
-  it('runs the command again from the bash card, as a new run with its approval', async () => {
-    // the card's "Run again" starts fs/bash with the same args, as `!fs/bash` does
+  it('runs the command again from the bash card, as a new run the person started without being asked', async () => {
+    // the card's "Run again" starts fs/bash with the same args, as `!fs/bash` does. A fn the person runs themselves
+    // needs no approval from them (the turn-user approver is the caller), so none is asked for; `approving` still
+    // answers any that appear, so a regression shows up as a failed expectation rather than a hang.
     const first = await me.hub.call('run', { run: bashRun });
     const { result: again, approvals } = await approving((async () => {
       const invoked = await me.hub.call('invoke', { session: id(), fn: fsFn('bash'), args: first.args, client: clientInfo() });
       await watch.next('run', (e) => e.run === invoked.run && finished(e.update), 60_000);
       return invoked;
     })());
-    expect(approvals.map((a) => a.fn)).toContain(fsFn('bash'));
+    expect(approvals.filter((a) => a.run === again.run)).toEqual([]);
+    expect(watch.of('run').filter((e) => e.run === again.run).map((e) => statusOf(e.update))).not.toContain('awaiting-approval');
     const run = await me.hub.call('run', { run: again.run });
     expect(run.id).not.toBe(bashRun);
     expect(run.status).toBe('done');

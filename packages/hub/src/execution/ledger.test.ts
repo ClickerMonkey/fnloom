@@ -171,7 +171,7 @@ describe('a budget that asks', () => {
     await store.table('ledger').insert({ ...line(1, 0), id: LedgerId.parse('led_ask') });
     const held = await ledger.reserve({ limits: limits([rule], 10), estimate: 0.5, run: RUN, site: SITE });
     expect(held).toMatchObject({ ok: false, budget: rule.id, wait: testSettings().execution.HARNESS_BUDGET_RECHECK });
-    expect(bus.of('budget.reached')).toEqual([{ budget: rule, run: RUN, reason: 'the your budget of $1.00 is used up' }]);
+    expect(bus.of('budget.reached')).toEqual([{ budget: rule, run: RUN, reason: 'the your budget of $1.00 is used up', session: 'ses_1' }]);
     await store.table('budgets').update(rule.id, { maxCost: 5 });
     expect((await ledger.reserve({ limits: limits([rule], 10), estimate: 0.5, run: RUN, site: SITE })).ok).toBe(true);
   });

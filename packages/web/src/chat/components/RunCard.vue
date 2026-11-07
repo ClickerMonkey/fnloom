@@ -44,7 +44,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 
 <template>
   <article
-    class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true }]" data-testid="run-card" :data-run="run.id" :data-status="status"
+    class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true }]" data-testid="run-card" :data-run="run.id" :data-fn="run.fn" :data-status="status"
     :aria-label="`${label}: ${runText(run)}`"
   >
     <header class="line">

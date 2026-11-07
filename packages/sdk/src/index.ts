@@ -8,6 +8,7 @@ export { ACTIVE_RUN_STATUSES, SETTLED_RUN_STATUSES, isSettled, isUnsettled, type
 export { DEFAULT_STATUS, type StatusTemplates, type StatusForms, type RunPhase } from '@harness/core';
 export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens, PathsOf, TokensOf } from './status.ts';
 export { g, json, wireType, parseValue, encodeValue, referencesOf, type GinType, type Infer } from './gin.ts';
+export { ginOf, toolArgsOf } from './zod-gin.ts';
 export {
   fn, handler, linear, steps, noProgress, progressDecl, kindFn,
   type FnDef, type AnyFnDef, type FnTypes, type FnInput, type NativeFnTypes, type KindFnInput, type KindFnTypes, type UntypedFn, type TypesOf, type Deps,
@@ -37,7 +38,7 @@ export {
   type ContractShape, type ContractSection, type EmptyContract, type Merge, type SystemRefs, type SystemContract, type AnyContract, type ConfigOf,
   type EventHandlers, type Lifecycle, type SystemImpl,
 } from './system.ts';
-export { hub, LlmPayloadType, ModelChoiceType, FnErrorType, type HubContract } from './hub.ts';
+export { hub, ADMIN_ENDPOINTS, LlmPayloadType, ModelChoiceType, FnErrorType, type AdminFnName, type HubContract } from './hub.ts';
 export { agent, type AgentInput, type AgentFnTypes, type LlmPayload, type LlmKind } from './agent.ts';
 export { manifestOf, manifestBody, fnDecl, canonicalJson, sha256, type ManifestOptions } from './manifest.ts';
 export {

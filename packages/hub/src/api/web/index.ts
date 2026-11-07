@@ -6,6 +6,7 @@
 import { plugin, type AnyPlugin } from '@ayepi/plugin';
 import { eventsSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
+import { adminOperations } from '../admin-ops.ts';
 import { adminPlugin } from './admin.ts';
 import { authPlugin, type AuthPluginOptions } from './auth.ts';
 import { chatPlugin } from './chat.ts';
@@ -31,7 +32,8 @@ export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugi
 /** Every web API plugin, in the order they must be installed. */
 export function webPlugins(hub: HubServices, options: AuthPluginOptions): readonly AnyPlugin[] {
   const auth = authPlugin(hub, options);
-  const systems = systemsPlugin(hub, auth);
+  const ops = adminOperations(hub);
+  const systems = systemsPlugin(hub, auth, ops);
   return [
     auth,
     chatPlugin(hub, auth),
@@ -40,8 +42,8 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     inboxPlugin(hub, auth),
     contentPlugin(hub, auth),
     systems,
-    settingsPlugin(hub, systems),
-    adminPlugin(hub, systems),
+    settingsPlugin(hub, systems, ops),
+    adminPlugin(hub, systems, ops),
     eventsPlugin(hub, auth),
   ];
 }

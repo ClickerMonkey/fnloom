@@ -39,7 +39,7 @@ export interface HubEvents {
   'resources.roots': { system: SystemName; roots: readonly ResourceRoot[] };
   'capabilities.changed': Record<string, never>;
   /** A budget whose rule says `ask` is used up: a call is waiting for someone to raise it. */
-  'budget.reached': { budget: BudgetRule; run: RunId; reason: string };
+  'budget.reached': { budget: BudgetRule; run: RunId; reason: string; session?: SessionId | undefined };
 }
 
 export type HubEventName = keyof HubEvents;

@@ -4,11 +4,12 @@
  * offered). Submit is enabled once the value checks out; problems show under each field as the person types.
  */
 import type { Json } from '@harness/core';
-import { computed, shallowRef, watch } from 'vue';
+import { computed, inject, shallowRef, watch } from 'vue';
 import { UiButton } from '../../ui/index.ts';
 import GinInput from './GinInput.vue';
 import { problemAt } from './model.ts';
 import { FormState } from './state.ts';
+import { FORM_TYPES, LOCAL_TYPES } from './types.ts';
 
 const props = withDefaults(defineProps<{
   /** The gin type definition. */
@@ -22,8 +23,14 @@ const props = withDefaults(defineProps<{
 }>(), { initial: undefined, submitLabel: 'Submit', busy: false, cancellable: true, label: 'Value' });
 
 const emit = defineEmits<{ submit: [value: Json]; cancel: [] }>();
-const form = shallowRef(new FormState(props.type, props.initial));
-watch(() => props.type, (type) => { form.value = new FormState(type, props.initial); });
+const types = inject(FORM_TYPES, LOCAL_TYPES);
+const form = shallowRef(new FormState(props.type, props.initial, types));
+/** Load the named types the type refers to; once they arrive, the form knows their shapes and gin can check them. */
+async function load(type: unknown): Promise<void> {
+  if (await types.need([type]) && form.value.def === type && !form.value.tried.value) { form.value = new FormState(type, props.initial, types); }
+}
+void load(props.type);
+watch(() => props.type, (type) => { form.value = new FormState(type, props.initial, types); void load(type); });
 const whole = computed(() => problemAt(form.value.problems.value, ''));
 
 function submit(): void {

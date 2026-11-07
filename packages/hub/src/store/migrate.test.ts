@@ -84,7 +84,7 @@ describe('migrateTable', () => {
     expect(change.indexesCreated).toEqual([indexName('things', ['b'])]);
     expect(await indexes()).toEqual([indexName('things', ['b'])]);
     const meta = await db.selectFrom(META_TABLE).selectAll().where('name', '=', 'things').executeTakeFirstOrThrow();
-    expect(JSON.parse(String(meta['indexes']))).toEqual([indexName('things', ['b'])]);
+    expect(JSON.parse(meta.indexes)).toEqual([indexName('things', ['b'])]);
   });
 });
 

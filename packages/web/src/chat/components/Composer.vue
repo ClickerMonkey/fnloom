@@ -16,6 +16,7 @@ import { UiButton, UiIcon, UiIconButton, UiMenu, type MenuItem } from '../../ui/
 import { enterSends, type CommandHint } from '../logic/composer.ts';
 import { formatDuration } from '../logic/format.ts';
 import type { PickerItem } from '../state/composer.ts';
+import type { StopAction } from '../state/thread.ts';
 import type { StagedFile } from '../state/uploads.ts';
 import type { VoiceState } from '../state/voice.ts';
 import FileChips from './FileChips.vue';
@@ -56,7 +57,7 @@ const emit = defineEmits<{
   input: [text: string, caret: number];
   caret: [caret: number];
   send: [];
-  stop: [action: 'pause' | 'cancel'];
+  stop: [action: StopAction];
   resume: [];
   pickerMove: [delta: number];
   pickerHover: [index: number];
@@ -101,9 +102,9 @@ const segments = computed(() => {
   return out;
 });
 
-const stopItems = computed<MenuItem<'pause' | 'cancel'>[]>(() => {
+const stopItems = computed<MenuItem<StopAction>[]>(() => {
   const controls = props.controls;
-  const items: MenuItem<'pause' | 'cancel'>[] = [];
+  const items: MenuItem<StopAction>[] = [];
   if (controls?.pause === true) { items.push({ value: 'pause', label: 'Pause', icon: 'pause', hint: 'Resumable' }); }
   if (controls === undefined || controls.cancel) {
     const left = controls?.uncancellable.length ?? 0;

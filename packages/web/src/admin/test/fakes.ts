@@ -99,7 +99,7 @@ export function policy(overrides: Loose<Policy> = {}): Policy {
 
 /** A model a provider offers. */
 export function model(overrides: Loose<ModelInfo> = {}): ModelInfo {
-  return ModelInfo.parse({ id: 'openai/gpt-oss-20b:free', provider: 'prv_or', name: 'GPT OSS 20B (free)', contextWindow: 131_072, pricing: { input: 0, output: 0 }, capabilities: ['chat', 'tools'], ...overrides });
+  return ModelInfo.parse({ id: 'openai/gpt-oss-20b:free', provider: 'openrouter', name: 'GPT OSS 20B (free)', contextWindow: 131_072, pricing: { input: 0, output: 0 }, capabilities: ['chat', 'tools'], ...overrides });
 }
 
 /** A model category. */

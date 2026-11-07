@@ -7,7 +7,7 @@
  */
 import {
   ImportReport, SystemName, mintId, type ActorKind, type QualifiedName, type ActorId, type BudgetId, type InstallSource, type Json, type LlmInteraction, type ModelCategory, type PairingId, type PairingRequest,
-  type Policy, type PriorityRule, type ProviderId, type ResolvedLimits, type ResourceRead, type ResourceRecord, type ResourceUri, type Run, type SystemStatus, type SystemView,
+  type Policy, type PriorityRule, type ProviderId, type ProviderKind, type ResolvedLimits, type ResourceRead, type ResourceRecord, type ResourceUri, type Run, type SystemStatus, type SystemView,
   type UserEvent,
 } from '@harness/core';
 import type { BudgetView, LlmFilter, OutputLine, ModelInfo, ResourceFilter, RuleRef, RunFilter } from '@harness/core';
@@ -47,7 +47,7 @@ export class MockAdmin {
   readonly systems = new Map<SystemName, SystemView>();
   readonly logs = new Map<SystemName, OutputLine[]>();
   pairings: PairingRequest[];
-  providers: { id: ProviderId; provider: 'openrouter' | 'openai' | 'aws' | 'replicate'; models: number }[];
+  providers: { id: ProviderId; provider: ProviderKind; models: number }[];
   models: ModelInfo[];
   categories: ModelCategory[];
   budgets: BudgetView[];
@@ -78,7 +78,7 @@ export class MockAdmin {
     for (const s of [fs, notes, embedder]) { this.systems.set(s.name, s); }
     this.logs.set(fs.name, [logLine('started fs 0.4.0', { stream: 'hub', at: at - 3 * MINUTE }), ...OUTPUT.slice(0, 4).map((text, i) => logLine(text, { at: at - (4 - i) * 30_000 }))]);
     this.pairings = [pairing({ id: 'pr_notes', name: 'calendar', version: '1.0.2', createdAt: at - MINUTE, expiresAt: at + 9 * MINUTE })];
-    this.providers = [{ id: model().provider, provider: 'openrouter', models: 3 }];
+    this.providers = [{ id: mintId('provider'), provider: model().provider, models: 3 }];
     this.models = [
       model(),
       model({ id: 'meta-llama/llama-3.3-8b-instruct:free', name: 'Llama 3.3 8B (free)', contextWindow: 128_000 }),
@@ -202,7 +202,7 @@ export class MockAdmin {
     return (this.logs.get(name) ?? []).slice(-(limit ?? 500));
   }
 
-  saveProvider(provider: 'openrouter' | 'openai' | 'aws' | 'replicate'): { models: number } {
+  saveProvider(provider: ProviderKind): { models: number } {
     const existing = this.providers.find((p) => p.provider === provider);
     if (existing === undefined) { this.providers.push({ id: mintId('provider'), provider, models: 12 }); }
     return { models: existing?.models ?? 12 };

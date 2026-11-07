@@ -258,9 +258,10 @@ describe('dialogs', () => {
     await type(field('API key'), 'sk-1');
     await click('[data-testid=provider-save]');
     expect(dialog.emitted('save')?.[0]).toEqual([{ provider: 'openai', apiKey: 'sk-1' }]);
-    await choose(field('Provider'), 'aws');
-    expect(() => field('API key')).toThrow();
-    expect(field('Region')).toBeDefined();
+    expect(field('Base URL')).toBeDefined();
+    await choose(field('Provider'), 'openrouter');
+    expect(() => field('Base URL')).toThrow();
+    expect(field('API key')).toBeDefined();
     dialog.unmount();
   });
 

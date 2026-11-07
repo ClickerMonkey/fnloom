@@ -12,12 +12,6 @@ export type Json = z.infer<typeof Json>;
 export const JsonObject = z.record(z.string(), Json);
 export type JsonObject = z.infer<typeof JsonObject>;
 
-/**
- * A schema for an opaque id of one kind. Ids of different kinds are branded differently, so a `RunId` can't be
- * passed where a `TurnId` is wanted.
- */
-export const id = <const K extends string>(kind: K) => z.string().min(1).brand<K>().describe(`${kind} id`);
-
 /** Every kind of id the hub mints, with the prefix its ids start with. */
 export const ID_PREFIXES = {
   run: 'run',
@@ -48,32 +42,33 @@ export const ID_PREFIXES = {
 /** The kinds of id. */
 export type IdKind = keyof typeof ID_PREFIXES;
 
+/**
+ * A schema for an opaque id of one kind: its kind's prefix, an underscore, then at least one more character. Ids of
+ * different kinds are branded differently, so a `RunId` can't be passed where a `TurnId` is wanted, and text from
+ * outside (model-written args, URL params, form input) only parses as the kind its prefix names.
+ */
+export const id = <const K extends IdKind>(kind: K) =>
+  z
+    .string()
+    .regex(new RegExp(`^${ID_PREFIXES[kind]}_.+$`), `expected a ${kind} id starting with "${ID_PREFIXES[kind]}_"`)
+    .brand<K>()
+    .describe(`${kind} id`);
+
+/** The schema type of one kind's id. */
+type IdSchema<K extends IdKind> = ReturnType<typeof id<K>>;
+
+/** Whether a name is a kind of id. */
+export const isIdKind = (name: string): name is IdKind => Object.hasOwn(ID_PREFIXES, name);
+
+/** Build the id schema of every kind from `ID_PREFIXES`, so the kinds are listed once. */
+function idSchemas(): { readonly [K in IdKind]: IdSchema<K> } {
+  const schemas = Object.fromEntries(Object.keys(ID_PREFIXES).filter(isIdKind).map((kind) => [kind, id(kind)]));
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one entry per key of ID_PREFIXES, each built by `id` from its own key
+  return schemas as { readonly [K in IdKind]: IdSchema<K> };
+}
+
 /** The id schemas by kind. */
-export const IDS = {
-  run: id('run'),
-  turn: id('turn'),
-  session: id('session'),
-  actor: id('actor'),
-  message: id('message'),
-  delivery: id('delivery'),
-  handlerCall: id('handlerCall'),
-  llmInteraction: id('llmInteraction'),
-  pairing: id('pairing'),
-  pairingToken: id('pairingToken'),
-  policy: id('policy'),
-  approval: id('approval'),
-  budget: id('budget'),
-  priorityRule: id('priorityRule'),
-  reservation: id('reservation'),
-  ledger: id('ledger'),
-  notification: id('notification'),
-  push: id('push'),
-  secret: id('secret'),
-  modelCategory: id('modelCategory'),
-  provider: id('provider'),
-  sectionRule: id('sectionRule'),
-  authSession: id('authSession'),
-} as const satisfies Record<IdKind, z.ZodType<string>>;
+export const IDS = idSchemas();
 
 /** The branded id type of a kind. */
 export type IdOf<K extends IdKind> = z.infer<(typeof IDS)[K]>;
@@ -184,12 +179,8 @@ export type ActorKind = z.infer<typeof ActorKind>;
 
 /** A schema for a page of items with a cursor for the next page (absent on the last page). */
 export const page = <T extends z.ZodType>(item: T) => z.object({ items: z.array(item), cursor: z.string().optional() });
-/** A page of items. */
-export interface Page<T> {
-  items: T[];
-  /** Absent on the last page. */
-  cursor?: string | undefined;
-}
+/** A page of items; `cursor` is absent on the last page. */
+export type Page<T> = z.infer<ReturnType<typeof page<z.ZodType<T>>>>;
 
 /** A cursor-paged request. */
 export const PageRequest = z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional() });

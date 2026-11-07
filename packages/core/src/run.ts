@@ -157,6 +157,15 @@ const SETTLED_BY_STATUS = {
   done: true, failed: true, cancelled: true, undone: true,
 } as const satisfies Record<RunStatus, boolean>;
 
+/**
+ * Each status in a word or two, as people read it ("Needs approval", "Cancelled"). Every status must have one, so a
+ * new status fails to compile until it is worded; the web chat and every system's renderers read these.
+ */
+export const RUN_STATUS_WORDS = {
+  'awaiting-approval': 'Needs approval', queued: 'Queued', running: 'Running', waiting: 'Waiting', paused: 'Paused',
+  done: 'Done', failed: 'Failed', cancelled: 'Cancelled', undone: 'Undone',
+} as const satisfies Record<RunStatus, string>;
+
 /** A status a run never leaves on its own. */
 export type SettledRunStatus = { [S in RunStatus]: (typeof SETTLED_BY_STATUS)[S] extends true ? S : never }[RunStatus];
 /** A status of a run that is not finished yet. */

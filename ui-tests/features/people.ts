@@ -1,8 +1,9 @@
 /**
  * People (chat-features 8.3): who is in the chat, and who will answer the next message. The header's participants
- * button (on a phone, the chat menu) opens the people panel, which lists the owner and the agent.
+ * button (on a phone, the chat menu) opens the people panel, which lists the owner and the agent on its own (not the
+ * whole settings sheet) and in view without scrolling.
  */
-import { check, feature, find, isPhone, openSession, settle, show, textOf, tid } from '../kit.ts';
+import { check, feature, find, isPhone, onScreen, openSession, settle, textOf, tid, visible } from '../kit.ts';
 
 export default feature({
   id: 'people', ref: 'chat-features 8.3', title: 'Participants and who will answer',
@@ -23,8 +24,9 @@ export default feature({
     const names = await list.evaluate((el) => el.textContent.toLowerCase());
     check(names.includes('agent'), 'the people list includes the chat agent');
     check(await list.evaluate((el) => el.querySelectorAll('li').length) >= 2, 'the people list has the owner and the agent');
-    await show(page, tid('people'));
     await settle(page);
+    check(!(await visible(page, 'session-settings')), 'the people panel shows people, not the chat settings');
+    check(await onScreen(page, 'people'), 'the people list is in view without scrolling');
     await ctx.shot('people');
   },
 });

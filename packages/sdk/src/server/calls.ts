@@ -5,7 +5,7 @@
  * while waiting, pending calls reject with `Suspended`, which the runtime turns into the paused outcome.
  */
 import {
-  HandlerAnswer, type ControlReply, type Json, type QualifiedName, type ResumeWire, type RunId, type RunSettled, type RunUpdate,
+  HandlerAnswer, type ControlReply, type Json, type QualifiedName, type ResumeWire, type RunId, type RunSettled, type RunUpdate, type RunControlAction,
 } from '@harness/core';
 import { CallFailed, HandlerFailed, type Suspended, type CallOptions, type FnCall, type Settled } from '../ctx.ts';
 import type { Handlers } from '../fn.ts';
@@ -37,11 +37,11 @@ class ChildCall<R> implements FnCall<R>, OpenCall {
   readonly #settled = new Deferred<Settled<R>>();
   readonly #watchers = new Set<(update: RunUpdate) => void>();
   readonly #abort = new AbortController();
-  readonly #control: (run: RunId, action: 'cancel' | 'pause') => Promise<ControlReply>;
+  readonly #control: (run: RunId, action: RunControlAction) => Promise<ControlReply>;
   #result: Promise<R> | undefined;
   #known: RunId | undefined;
 
-  constructor(key: string, control: (run: RunId, action: 'cancel' | 'pause') => Promise<ControlReply>) {
+  constructor(key: string, control: (run: RunId, action: RunControlAction) => Promise<ControlReply>) {
     this.key = key;
     this.#control = control;
     this.run = this.#run.promise;
@@ -234,7 +234,7 @@ export class CallSet {
     }
   }
 
-  async #control(run: RunId, action: 'cancel' | 'pause'): Promise<ControlReply> {
+  async #control(run: RunId, action: RunControlAction): Promise<ControlReply> {
     const hub = await this.#hub.ready(this.#signal);
     return hub.call('control', { run, action });
   }

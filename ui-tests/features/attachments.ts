@@ -29,6 +29,11 @@ export default feature({
       check(await page.$(`${tid('attachment')} ${tid('renderer')}, ${tid('attachment')} .peek`) !== null, 'the attachment draws through its renderer or shows its data');
       await show(page, tid('attachment'));
       await settle(page);
+      const cards = await page.$$eval(`[data-testid="run-card"][data-run="${write.run}"]`, (els) => els.length);
+      check(cards === 1, `the write's run shows one card, not ${cards}`);
+      const thread = await page.$eval(tid('thread'), (el) => el.textContent);
+      check(!thread.includes('Someone'), 'nothing in the thread is credited to "Someone"');
+      check(await page.$(`${tid('user-message')} ${tid('attachment')}`) !== null, 'the diff sits under the message that ran the write');
       await ctx.shot('attachment');
       const undone = await api.hub.call('undoTurn', { turn: write.turn });
       check(undone.undone.length > 0, 'the write is undone, so the scratch file goes');

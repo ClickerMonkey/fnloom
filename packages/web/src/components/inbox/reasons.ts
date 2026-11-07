@@ -15,6 +15,7 @@ export const REASONS = {
   'approval-needed': { icon: 'shield', tone: 'warn', label: 'Approval needed' },
   'input-needed': { icon: 'edit', tone: 'warn', label: 'Input needed' },
   'config-needed': { icon: 'settings', tone: 'warn', label: 'Setup needed' },
+  message: { icon: 'chat', tone: 'accent', label: 'Message' },
   replied: { icon: 'chat', tone: 'accent', label: 'Reply' },
   'turn-finished': { icon: 'success', tone: 'ok', label: 'Finished' },
   'turn-failed': { icon: 'error', tone: 'danger', label: 'Failed' },

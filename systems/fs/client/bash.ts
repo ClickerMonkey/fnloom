@@ -1,5 +1,5 @@
 /** What the bash card shows, worked out from its view so the component only draws. Pure and browser-safe. */
-import type { FnError, RunStatus } from '@harness/core';
+import { RUN_STATUS_WORDS, type FnError, type RunStatus } from '@harness/core';
 
 /** The tone of the card's status chip. */
 export type Tone = 'busy' | 'ok' | 'bad' | 'quiet';
@@ -10,17 +10,18 @@ export interface Chip {
   readonly tone: Tone;
 }
 
-const WAITING: ReadonlySet<RunStatus> = new Set(['awaiting-approval', 'queued', 'waiting', 'paused']);
-
-/** The chip for a run: running, its exit code, or how it ended. */
+/**
+ * The chip for a run: its status in core's words, except that a finished command says its exit code and a failure
+ * says when it timed out. Every status is handled, so a new one fails to compile until it is.
+ */
 export function statusChip(status: RunStatus, exitCode: number | undefined, error: FnError | undefined): Chip {
-  if (status === 'running') { return { label: 'Running', tone: 'busy' }; }
-  if (status === 'awaiting-approval') { return { label: 'Needs approval', tone: 'quiet' }; }
-  if (WAITING.has(status)) { return { label: status === 'paused' ? 'Paused' : 'Waiting', tone: 'quiet' }; }
-  if (status === 'cancelled') { return { label: 'Stopped', tone: 'quiet' }; }
-  if (status === 'undone') { return { label: 'Undone', tone: 'quiet' }; }
-  if (status === 'failed') { return { label: error?.code === 'timeout' ? 'Timed out' : 'Failed', tone: 'bad' }; }
-  return exitCode === undefined || exitCode === 0 ? { label: 'Done', tone: 'ok' } : { label: `Exit ${exitCode}`, tone: 'bad' };
+  const label = RUN_STATUS_WORDS[status];
+  switch (status) {
+    case 'running': return { label, tone: 'busy' };
+    case 'awaiting-approval': case 'queued': case 'waiting': case 'paused': case 'cancelled': case 'undone': return { label, tone: 'quiet' };
+    case 'failed': return { label: error?.code === 'timeout' ? 'Timed out' : label, tone: 'bad' };
+    case 'done': return exitCode === undefined || exitCode === 0 ? { label, tone: 'ok' } : { label: `Exit ${exitCode}`, tone: 'bad' };
+  }
 }
 
 /** The output a failed run still carries (a timeout keeps what was printed). */

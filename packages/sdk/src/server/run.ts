@@ -10,7 +10,7 @@
  */
 import {
   OutcomeWire, type AllowedOperations, type ControlReply, type FnError, type Json, type Link, type QualifiedName, type RunId,
-  type RunRequest, type StepStatus, type Usd,
+  type RunRequest, type StepStatus, type Usd, type RunControlAction,
 } from '@harness/core';
 import { Suspended, type BudgetInfo, type CallOptions, type Resume, type Services, type Settled } from '../ctx.ts';
 import type { Deps, Handlers, ProgressDef } from '../fn.ts';
@@ -186,7 +186,7 @@ export class ActiveRun {
   }
 
   /** Cancel or pause, as the hub asks. */
-  async control(action: 'cancel' | 'pause'): Promise<ControlReply> {
+  async control(action: RunControlAction): Promise<ControlReply> {
     if (action === 'cancel') {
       if (!this.#allowed.cancel) { return { accepted: false, reason: 'This run can\'t be cancelled right now.' }; }
       this.#abort.abort(new Stop('cancel'));

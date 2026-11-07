@@ -34,11 +34,5 @@ export function formatTokens(count: number): string {
   return `${(count / 1_000_000).toFixed(1)}M`;
 }
 
-/** Shorten text to `max` characters on a word boundary where one is near, ending with "…". */
-export function clamp(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  if (flat.length <= max) { return flat; }
-  const cut = flat.slice(0, max - 1);
-  const space = cut.lastIndexOf(' ');
-  return `${space > max * 0.6 ? cut.slice(0, space) : cut}…`;
-}
+/** Shorten text to `max` characters on a word boundary (core's, shared with the hub). */
+export { clamp } from '@harness/core';

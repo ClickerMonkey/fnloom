@@ -17,11 +17,11 @@ import {
 import { ReadWant, ResourceRead, ResourceUri, ContentRef } from './resources.ts';
 import { ClientInfo, RunUpdate } from './run.ts';
 import { Actor, ActorSetting, Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
-import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControls, SessionSummary } from './records/chat.ts';
+import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControlAction, SessionControls, SessionSummary } from './records/chat.ts';
 import { IndexedKind, Notification, ResourceRecord, SearchHit } from './records/content.ts';
 import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNode, UndoReport } from './records/runs.ts';
-import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, ResolvedLimits } from './records/spend.ts';
-import { FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus } from './records/systems.ts';
+import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
+import { FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
 import { Policy } from './records/actors.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
@@ -54,12 +54,7 @@ export const Suggestion = z.object({
 export type Suggestion = z.infer<typeof Suggestion>;
 
 /** A provider as an admin enters it: like `ProviderConfig`, but with the key itself. */
-export const ProviderInput = z.discriminatedUnion('provider', [
-  z.object({ provider: z.literal('openai'), apiKey: z.string().min(1), baseURL: z.url().optional() }),
-  z.object({ provider: z.literal('openrouter'), apiKey: z.string().min(1) }),
-  z.object({ provider: z.literal('aws'), region: z.string(), credentials: z.string().optional() }),
-  z.object({ provider: z.literal('replicate'), apiKey: z.string().min(1) }),
-]);
+export const ProviderInput = providerVariants(z.string().min(1));
 export type ProviderInput = z.infer<typeof ProviderInput>;
 
 /** What waits on a person in a session, so a reload shows it again. */
@@ -90,6 +85,11 @@ export const SessionEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('delivery'), delivery: DeliveryView }),
   z.object({ type: z.literal('handler'), call: HandlerCall }),
   z.object({ type: z.literal('approval'), approval: Approval }),
+  /**
+   * A budget whose rule says `ask` is used up, and a run here waits until someone raises it (an admin, with
+   * `setBudget`). `reason` says which budget and how much, in words.
+   */
+  z.object({ type: z.literal('budget'), run: RunId, budget: BudgetRule, reason: z.string() }),
   z.object({ type: z.literal('presence'), presence: Presence }),
   z.object({ type: z.literal('session'), session: SessionSummary }),
 ]);
@@ -134,11 +134,25 @@ export const authSlice = mergeSpecs(
   }),
 );
 
+/** What the session list is filtered and paged by. */
+export const SessionListQuery = PageRequest.extend({ search: z.string().optional(), archived: z.boolean().optional() });
+export type SessionListQuery = z.infer<typeof SessionListQuery>;
+
+/** A page of a session's messages, newest first, paged backwards with the cursor. */
+export const MessageListQuery = PageRequest.extend({ session: SessionId });
+export type MessageListQuery = z.infer<typeof MessageListQuery>;
+
+/** What the inbox is filtered and paged by. */
+export const NotificationListQuery = PageRequest.extend({ unread: z.boolean().optional() });
+export type NotificationListQuery = z.infer<typeof NotificationListQuery>;
+
 /** Sessions, messages, turns and what the composer may offer. */
 export const chatSlice = spec({
   endpoints: use(tel, hubAuth).group({
     capabilities: { body: z.object({ session: SessionId.optional() }), response: ChatCapabilities, ws: 'capabilities' },
-    sessions: { body: PageRequest.extend({ search: z.string().optional(), archived: z.boolean().optional() }), response: page(SessionSummary), ws: 'sessions' },
+    /** Named type definitions and every named type they reference, dependencies first, so the browser's forms can check values with gin. */
+    types: { body: z.object({ names: z.array(QualifiedName).min(1) }), response: TypeDefinitions, ws: 'types' },
+    sessions: { body: SessionListQuery, response: page(SessionSummary), ws: 'sessions' },
     session: { body: z.object({ session: SessionId }), response: Session, ws: 'session' },
     createSession: { body: Session.pick({ agent: true, systems: true, title: true }).partial(), response: Session, ws: 'createSession' },
     updateSession: {
@@ -157,7 +171,7 @@ export const chatSlice = spec({
     /** The priority and budgets the next turn in a session would get, for the budget meter. */
     limits: { body: z.object({ session: SessionId }), response: ResolvedLimits, ws: 'limits' },
     /** Messages, newest first, paged backwards with the cursor. */
-    messages: { body: PageRequest.extend({ session: SessionId }), response: page(ChatMessage), ws: 'messages' },
+    messages: { body: MessageListQuery, response: page(ChatMessage), ws: 'messages' },
     send: {
       body: z.object({ session: SessionId, parts: z.array(OutgoingPart).min(1), replyTo: MessageId.optional(), replyAll: z.boolean().optional(), client: ClientInfo }),
       response: z.object({ turn: TurnId, message: ChatMessage }),
@@ -165,7 +179,7 @@ export const chatSlice = spec({
     },
     /** Run a fn by hand (`!fn`). */
     invoke: { body: z.object({ session: SessionId, fn: QualifiedName, args: Json, client: ClientInfo }), response: z.object({ turn: TurnId, run: RunId }), ws: 'invoke' },
-    control: { body: z.object({ session: SessionId, action: z.enum(['pause', 'resume', 'cancel']) }), response: SessionControls, ws: 'control' },
+    control: { body: z.object({ session: SessionId, action: SessionControlAction }), response: SessionControls, ws: 'control' },
     presence: { body: Presence.omit({ user: true, lastActiveAt: true }), ws: 'presence' },
   }),
 });
@@ -211,7 +225,7 @@ export const findSlice = spec({
 /** The inbox and web push. */
 export const inboxSlice = spec({
   endpoints: use(tel, hubAuth).group({
-    notifications: { body: PageRequest.extend({ unread: z.boolean().optional() }), response: page(Notification), ws: 'notifications' },
+    notifications: { body: NotificationListQuery, response: page(Notification), ws: 'notifications' },
     readNotifications: { body: z.object({ ids: z.array(z.string()) }), ws: 'readNotifications' },
     pushKey: { method: 'GET', response: z.object({ publicKey: z.string() }), ws: 'pushKey' },
     subscribePush: { body: z.object({ endpoint: z.url(), keys: z.object({ p256dh: z.string(), auth: z.string() }), device: z.string() }), response: z.object({ id: z.string() }), ws: 'subscribePush' },

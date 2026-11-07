@@ -20,6 +20,9 @@ export const ROUTES: { readonly [E in HubEventName]?: Route<E> } = {
   },
   'session.deleted': ({ session }, emit) => { emit('user', { type: 'session-deleted', session }); },
   'session.controls': ({ session, controls }, emit) => { emit('session', { session }, { type: 'controls', controls }); },
+  'budget.reached': ({ session, run, budget, reason }, emit) => {
+    if (session !== undefined) { emit('session', { session }, { type: 'budget', run, budget, reason }); }
+  },
   'run.update': ({ run, fn, session, update }, emit) => {
     if (session !== undefined) { emit('session', { session }, { type: 'run', run, fn, update }); }
   },

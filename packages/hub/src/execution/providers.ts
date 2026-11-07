@@ -8,22 +8,11 @@ import type { Provider, Providers } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import type { Logger } from '@ayepi/log';
-import { mintId, type ActorId, type ProviderConfig, type ProviderKind, type SecretId } from '@harness/core';
+import { mintId, type ActorId, type ProviderConfig, type SecretId } from '@harness/core';
 import type { SecretVault } from '../api/index.ts';
 import { allRows } from '../catalog/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
-
-/** Why a stored provider can't be built. */
-export class ProviderUnavailable extends Error {
-  readonly provider: ProviderKind;
-
-  constructor(provider: ProviderKind, reason: string) {
-    super(`${provider}: ${reason}`);
-    this.name = 'ProviderUnavailable';
-    this.provider = provider;
-  }
-}
 
 /** The app name OpenRouter shows for the hub's calls. */
 const APP_NAME = 'harness';
@@ -33,8 +22,6 @@ export async function buildProvider(config: ProviderConfig, key: (id: SecretId) 
   switch (config.provider) {
     case 'openai': return new OpenAIProvider({ apiKey: await key(config.apiKey), ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }) });
     case 'openrouter': return new OpenRouterProvider({ apiKey: await key(config.apiKey), defaultParams: { appName: APP_NAME } });
-    case 'aws': throw new ProviderUnavailable('aws', 'the hub has no AWS Bedrock provider installed (@aeye/aws)');
-    case 'replicate': throw new ProviderUnavailable('replicate', 'the hub has no Replicate provider installed (@aeye/replicate)');
   }
 }
 

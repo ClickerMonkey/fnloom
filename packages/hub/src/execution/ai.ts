@@ -9,7 +9,7 @@
 import type { BaseRequest, BaseResponse, Request, Response, Streamer, Usage } from '@aeye/core';
 import { AI, type ModelInfo, type Providers } from '@aeye/ai';
 import { models as knownModels, strictSupport } from '@aeye/models';
-import type { LlmInteractionId, ModelInfo as ModelView, ReservationId, Usd } from '@harness/core';
+import { ProviderKind, type LlmInteractionId, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
 import type { CallSite, Ledger } from './index.ts';
@@ -189,6 +189,10 @@ export class SwitchingLlm implements LlmEngine {
     return this.#current.embed(texts, scope);
   }
 
+  transcribe(audio: Uint8Array, model: string): Promise<string> {
+    return this.#current.transcribe(audio, model);
+  }
+
   models(): ModelView[] {
     return this.#current.models();
   }
@@ -216,20 +220,27 @@ export class AeyeLlm implements LlmEngine {
     return { vectors, cost: (scope?.cost ?? before) - before };
   }
 
+  async transcribe(audio: Uint8Array, model: string): Promise<string> {
+    return (await this.#ai.transcribe.get({ audio, model })).text;
+  }
+
   /**
    * The models of the providers this AI was built with, each once (the model list also knows models of providers it
-   * lacks, and can hold a model both from the given list and from its provider).
+   * lacks, and can hold a model both from the given list and from its provider). Providers that aren't a configurable
+   * `ProviderKind` are left out: the admin pages only know those.
    */
   models(): ModelView[] {
     const providers = new Set(Object.keys(this.#ai.providers));
     const seen = new Set<string>();
     const fresh = (key: string): boolean => !seen.has(key) && seen.add(key).has(key);
-    return this.#ai.models.list().filter((model) => providers.has(model.provider) && fresh(`${model.provider}/${model.id}`)).map((model): ModelView => {
+    return this.#ai.models.list().flatMap((model): ModelView[] => {
+      const kind = ProviderKind.safeParse(model.provider);
+      if (!kind.success || !providers.has(kind.data) || !fresh(`${kind.data}/${model.id}`)) return [];
       const text = model.pricing.text;
-      return {
-        id: model.id, provider: model.provider, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities],
+      return [{
+        id: model.id, provider: kind.data, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities],
         ...(text?.input === undefined && text?.output === undefined ? {} : { pricing: { input: text.input ?? 0, output: text.output ?? 0 } }),
-      };
+      }];
     });
   }
 }

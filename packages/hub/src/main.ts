@@ -5,12 +5,11 @@
  * (SIGINT), SIGTERM or Ctrl+Break (SIGBREAK). A failed start is logged and exits with status 1.
  */
 import { loadEnv } from '@ayepi/env/load';
+import { HUB_SETTINGS } from './boot/env.ts';
 import { hubModules } from './boot/modules.ts';
 import { startHub } from './boot/start.ts';
 
-for (const [key, value] of Object.entries(loadEnv({ files: ['.env'] }))) {
-  process.env[key] ??= typeof value === 'string' ? value : JSON.stringify(value);
-}
+HUB_SETTINGS.set({ ...loadEnv({ files: ['.env'] }), ...process.env });
 
 try {
   await startHub({ modules: hubModules(), signals: true });

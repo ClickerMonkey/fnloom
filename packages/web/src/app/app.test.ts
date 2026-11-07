@@ -52,7 +52,7 @@ describe('routes', () => {
     const at = (link: unknown) => notificationTarget(NotificationLink.parse(link), (run) => Promise.resolve(inChat.get(run)));
     expect(await at({ session: 'ses_1' })).toMatchObject({ name: ROUTES.session, params: { session: 'ses_1' } });
     expect(await at({ system: 'fs' })).toMatchObject({ name: ROUTES.system, params: { name: 'fs' } });
-    expect(await at({ pairing: 'pr_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'pr_1' } });
+    expect(await at({ pairing: 'par_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'par_1' } });
     expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.inbox, query: { approval: 'apr_1' } });
     expect(await at({ run: 'run_1' })).toEqual({ name: ROUTES.runs, query: { run: 'run_1' } });
     expect(await at({ run: 'run_chat' })).toEqual({ name: ROUTES.session, params: { session: 'ses_9' } });

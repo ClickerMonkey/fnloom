@@ -44,7 +44,7 @@ onBeforeUnmount(() => { observer?.disconnect(); });
 <template>
   <div class="browser" :class="{ split: roomy && panelOpen }">
     <div class="list-side">
-      <div v-if="slots.filters" class="filters" role="search" :aria-label="`Filter ${label}`"><slot name="filters" /></div>
+      <div v-if="slots.filters" class="filters pinned" role="search" :aria-label="`Filter ${label}`"><slot name="filters" /></div>
       <LoadState :loading="loading" :problem="problem" :ready="loaded" :empty="empty" :empty-icon="emptyIcon" :empty-title="emptyTitle" :empty-body="emptyBody" :lines="8" @retry="emit('retry')">
         <ul class="rows" :aria-label="label"><slot /></ul>
         <div v-if="hasMore" ref="sentinel" class="more">
@@ -64,7 +64,7 @@ onBeforeUnmount(() => { observer?.disconnect(); });
 .browser { display: grid; gap: var(--space-4); min-width: 0; }
 .browser.split { grid-template-columns: minmax(0, 1fr) 440px; align-items: start; }
 .browser.split :deep([data-testid='chat-panel']) {
-  position: sticky; top: var(--space-4); max-height: calc(100dvh - 2 * var(--space-4)); overflow: auto;
+  position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto;
   border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
 }
 .list-side { display: grid; gap: var(--space-3); min-width: 0; align-content: start; }

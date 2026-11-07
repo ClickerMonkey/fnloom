@@ -21,6 +21,7 @@ npm run dev         # builds the web app, then the hub (serving it), fs and embe
 npm run e2e         # the whole stack end to end with a free OpenRouter model (boots its own on :4330)
 npm run ui-tests    # puppeteer checks of every UI feature against a running harness (HARNESS_UI_URL)
 npm run check       # everything above that runs offline, plus the explorer
+npm run check:full  # check, then the live tests and the e2e suite (needs OPENROUTER_API_KEY and the embedder)
 ```
 
 ## Running it

@@ -5,7 +5,7 @@
 import { ApiError, manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, BudgetId, compositeKey, hubWebSpec, mintId, NotificationId, QualifiedName, RunId, SessionId, SystemName, TurnId, type Run, type Session, type SystemRecord, type Tokens,
+  ActorId, BudgetId, compositeKey, hubWebSpec, mintId, NotificationId, QualifiedName, RunId, SessionId, SystemName, TurnId, type ModelInfo, type Run, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
 import { fn, g, wireType } from '@harness/sdk';
 import { TestCatalog } from '../../execution/testing.ts';
@@ -179,14 +179,18 @@ describe('chat', () => {
         fns: () => Promise.resolve([]),
         manifest: () => Promise.resolve(undefined),
       },
-      execution: { llm: { models: () => Promise.resolve([{ id: 'openrouter/auto', provider: 'openrouter', name: 'Auto', capabilities: ['chat'] }]) } },
+      execution: { llm: { canTranscribe: () => false, models: () => Promise.resolve([
+        { id: 'openrouter/auto', provider: 'openrouter', name: 'Auto', capabilities: ['chat'] },
+        { id: 'amazon/titan-embed', provider: 'openrouter', name: 'Titan Embeddings', capabilities: ['chat', 'embedding'] },
+      ]) } },
     });
     await r.store.table('systems').insert(systemRow('fs'));
     await r.store.table('systems').insert(systemRow('off', { enabled: { functions: false, renderers: true } }));
     const caps = await web.client.call('capabilities', { session: sessionId }, as);
     expect(caps.mentions).toEqual([{ provider: 'fs/file', title: 'Files' }]);
     expect(caps.systems).toEqual([{ name: fs, status: 'connected', enabled: true }, { name: off, status: 'connected', enabled: false }]);
-    expect(caps.models).toEqual([{ id: 'openrouter/auto', name: 'Auto' }]);
+    // the picker gets chat models with what it shows, and no embedding models
+    expect(caps.models).toEqual([{ id: 'openrouter/auto', provider: 'openrouter', name: 'Auto', capabilities: ['chat'] }]);
     expect(caps).toMatchObject({ voiceInput: false, uploads: true, commands: [], invocations: [], clients: [] });
   });
 
@@ -207,7 +211,7 @@ describe('chat', () => {
         fns: () => Promise.resolve([read, reveal]),
         manifest: () => Promise.resolve(undefined),
       },
-      execution: { llm: { models: () => Promise.resolve([]) } },
+      execution: { llm: { canTranscribe: () => false, models: () => Promise.resolve([]) } },
     });
     await r.store.table('systems').insert(systemRow('fs'));
     const caps = await web.client.call('capabilities', { session: sessionId }, as);
@@ -320,11 +324,26 @@ describe('inbox and content', () => {
     expect(read).toEqual([{ user: me, ids: ['ntf_1'] }]);
   });
 
-  it('presigns uploads and has no transcription yet', async () => {
-    const { web, as } = await signedIn();
+  it('presigns uploads, and refuses to transcribe without a transcription model', async () => {
+    const { web, as } = await signedIn({ execution: { llm: { canTranscribe: () => false } } });
     const presigned = await web.client.call('upload', { name: 'a.png', mime: 'image/png', size: 3 }, as);
     expect(presigned.url).toContain('/_files');
     await expect(web.client.call('transcribe', { audio: { hash: 'a'.repeat(64), size: 1, mime: 'audio/webm' } }, as)).rejects.toMatchObject({ status: 501 });
+  });
+
+  it('transcribes an uploaded recording through the transcription model, and offers voice input', async () => {
+    const heard: number[] = [];
+    const { r, web, as } = await signedIn({
+      execution: { llm: { canTranscribe: () => true, transcribe: (audio) => { heard.push(audio.length); return Promise.resolve('book a table for two'); }, models: () => Promise.resolve([]) } },
+      chat: { sessions: { get: (_id, viewer) => Promise.resolve(session(viewer)) } },
+      catalog: { entries: entriesFrom({}), fns: () => Promise.resolve([]), manifest: () => Promise.resolve(undefined) },
+    });
+    const audio = await r.api.content.put(new Uint8Array([1, 2, 3, 4, 5]), 'audio/webm');
+    await expect(web.client.call('transcribe', { audio }, as)).resolves.toEqual({ text: 'book a table for two' });
+    expect(heard).toEqual([5]);
+    const picture = await r.api.content.put(new Uint8Array([9]), 'image/png');
+    await expect(web.client.call('transcribe', { audio: picture }, as)).rejects.toMatchObject({ status: 422 });
+    expect((await web.client.call('capabilities', { session: sessionId }, as)).voiceInput).toBe(true);
   });
 });
 
@@ -374,7 +393,7 @@ describe('admin', () => {
 
   it('stores provider keys sealed and replaces a provider’s old key', async () => {
     let reloads = 0;
-    const models = [
+    const models: ModelInfo[] = [
       { id: 'a', provider: 'openrouter', name: 'A', capabilities: [] }, { id: 'b', provider: 'openrouter', name: 'B', capabilities: [] },
       { id: 'c', provider: 'openai', name: 'C', capabilities: [] },
     ];
@@ -437,7 +456,7 @@ describe('admin', () => {
 
 describe('admin reads', () => {
   it('lists models, narrowed to a provider, even when the body is empty', async () => {
-    const models = [{ id: 'a', provider: 'openrouter', name: 'A', capabilities: ['chat'] }, { id: 'b', provider: 'openai', name: 'B', capabilities: [] }];
+    const models: ModelInfo[] = [{ id: 'a', provider: 'openrouter', name: 'A', capabilities: ['chat'] }, { id: 'b', provider: 'openai', name: 'B', capabilities: [] }];
     const { r, web, as } = await signedIn({ execution: { llm: { models: () => Promise.resolve(models) } } });
     await expect(web.client.call('models', {}, as)).resolves.toEqual(models);
     const provider = mintId('provider');

@@ -2,7 +2,7 @@
  * The execution module's errors. Each carries what its handler needs (a `FnError` to hand back, a wait before trying
  * again), and `causeOf` finds one inside a wrapper (aeye wraps errors thrown by hooks in its own).
  */
-import { messageOf, type BudgetId, type ErrorClass, type FnError } from '@harness/core';
+import { messageOf, type BudgetId, type ErrorClass, type FnError, type RunControlAction } from '@harness/core';
 
 /** Make a `FnError`. */
 export function fnError(errorClass: ErrorClass, message: string, code?: string): FnError {
@@ -47,11 +47,22 @@ export class LlmRateLimited extends Error {
 /** A run was cancelled or paused while an executor was working on it. */
 export class RunStopped extends Error {
   override readonly name = 'RunStopped';
-  readonly how: 'cancel' | 'pause';
+  readonly how: RunControlAction;
 
-  constructor(how: 'cancel' | 'pause') {
+  constructor(how: RunControlAction) {
     super(how === 'cancel' ? 'the run was cancelled' : 'the run was paused');
     this.how = how;
+  }
+}
+
+/** A run's deadline passed and the hub stopped it; it settles with `error`. */
+export class RunTimedOut extends Error {
+  override readonly name = 'RunTimedOut';
+  readonly error: FnError;
+
+  constructor(error: FnError) {
+    super(error.message);
+    this.error = error;
   }
 }
 

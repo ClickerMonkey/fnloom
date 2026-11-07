@@ -12,7 +12,11 @@ export type MentionPart = Extract<MessagePart, { type: 'mention' }>;
 /** One row of the thread. */
 export type ThreadItem =
   | { readonly kind: 'day'; readonly key: string; readonly label: string }
-  | { readonly kind: 'user'; readonly key: string; readonly message: ChatMessage; readonly mine: boolean }
+  /**
+   * A person's message. `carried` are the messages that carry what its `!` runs attached (the hub posts them by the
+   * system that ran the fn); they show under the message's own run cards, not as an answer of their own.
+   */
+  | { readonly kind: 'user'; readonly key: string; readonly message: ChatMessage; readonly mine: boolean; readonly carried: readonly ChatMessage[] }
   | { readonly kind: 'answer'; readonly key: string; readonly turn: TurnId; readonly author: ActorId; readonly messages: readonly ChatMessage[]; readonly streaming: boolean; readonly failed: boolean }
   /** A note; an undo note carries the messages of the turn it undid, which the thread no longer shows in place. */
   | { readonly kind: 'note'; readonly key: string; readonly message: ChatMessage; readonly undone: readonly ChatMessage[] };
@@ -41,12 +45,29 @@ export function undoneTurns(messages: readonly ChatMessage[]): ReadonlySet<TurnI
 }
 
 /**
+ * The messages that carry what a person's `!` runs attached, by the message that started the runs: an assistant
+ * message replying to a message with an invocation (no agent answers those).
+ */
+export function invocationCarriers(messages: readonly ChatMessage[]): ReadonlyMap<MessageId, readonly ChatMessage[]> {
+  const invoked = new Set(messages.filter((m) => m.role === 'user' && m.parts.some((part) => part.type === 'invocation')).map((m) => m.id));
+  const carriers = new Map<MessageId, ChatMessage[]>();
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.replyTo === undefined || !invoked.has(message.replyTo)) { continue; }
+    carriers.set(message.replyTo, [...(carriers.get(message.replyTo) ?? []), message]);
+  }
+  return carriers;
+}
+
+/**
  * Group messages (oldest first) into the thread's rows. The question and answer of an undone turn leave the thread;
- * its note keeps them, so a retry or an edit reads as the question asked once.
+ * its note keeps them, so a retry or an edit reads as the question asked once. What a `!` run attached rides with the
+ * message that ran it (`carried`), so each run shows once, under the person who ran it.
  */
 export function threadItems(messages: readonly ChatMessage[], me: ActorId | undefined, now: number, locale?: string): ThreadItem[] {
   const items: ThreadItem[] = [];
   const undone = undoneTurns(messages);
+  const carriers = invocationCarriers(messages);
+  const carried = new Set([...carriers.values()].flat().map((m) => m.id));
   const hidden = new Map<TurnId, ChatMessage[]>();
   let day: number | undefined;
   let answer: { turn: TurnId; author: ActorId; messages: ChatMessage[]; at: number } | undefined;
@@ -72,6 +93,7 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
       day = start;
       items.push({ kind: 'day', key: `d-${start}`, label: dayLabel(message.createdAt, now, locale) });
     }
+    if (carried.has(message.id)) { continue; }
     if (message.role === 'assistant') {
       if (answer !== undefined && answer.turn === message.turn && answer.author === message.author) {
         answer.messages.push(message);
@@ -83,7 +105,7 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
     }
     closeAnswer();
     items.push(message.role === 'user'
-      ? { kind: 'user', key: `u-${message.id}`, message, mine: message.author === me }
+      ? { kind: 'user', key: `u-${message.id}`, message, mine: message.author === me, carried: carriers.get(message.id) ?? [] }
       : { kind: 'note', key: `n-${message.id}`, message, undone: hidden.get(message.turn) ?? [] });
   }
   closeAnswer();

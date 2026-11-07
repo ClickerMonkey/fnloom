@@ -16,6 +16,7 @@ export const CAPABILITIES_TAG = 'capabilities';
 export function chatApi(hub: Hub) {
   return {
     capabilities: hub.caller('capabilities', { cache: { ttl: 60_000, tags: [CAPABILITIES_TAG] }, dedupe: true }),
+    types: hub.caller('types', { cache: { ttl: 300_000, tags: [CAPABILITIES_TAG] }, dedupe: true }),
     sessions: hub.caller('sessions', { cache: { ttl: 5_000, tags: [SESSIONS_TAG] }, dedupe: true }),
     session: hub.caller('session', { dedupe: true }),
     createSession: hub.caller('createSession', { invalidates: [SESSIONS_TAG] }),
@@ -36,6 +37,8 @@ export function chatApi(hub: Hub) {
     mentionHover: hub.caller('mentionHover', { cache: { ttl: 30_000 }, dedupe: true }),
     waiting: hub.caller('waiting'),
     approve: hub.caller('approve'),
+    /** Raise a used-up budget (admins): the run waiting on it goes on at its next check. */
+    setBudget: hub.caller('setBudget'),
     answer: hub.caller('answer'),
     presence: hub.caller('presence'),
     resource: hub.caller('resource', { cache: { ttl: 30_000 }, dedupe: true }),

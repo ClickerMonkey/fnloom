@@ -1,4 +1,4 @@
-import { RunId, type Notification } from '@harness/core';
+import { BudgetRule, RunId, type ModelInfo, type Notification } from '@harness/core';
 import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
@@ -7,10 +7,12 @@ import { notification } from '../../test/fakes.ts';
 import { handlerCall, run, session, summary, T0 } from '../test/fakes.ts';
 import AttachmentCard from './AttachmentCard.vue';
 import BackgroundStrip from './BackgroundStrip.vue';
+import BudgetCard from './BudgetCard.vue';
 import ComposerMeta from './ComposerMeta.vue';
 import HandlerCard from './HandlerCard.vue';
 import HoverCard from './HoverCard.vue';
 import LinkCard from './LinkCard.vue';
+import ModelPicker from './ModelPicker.vue';
 import RunCard from './RunCard.vue';
 import SessionRow from './SessionRow.vue';
 import SessionSettings from './SessionSettings.vue';
@@ -22,11 +24,11 @@ describe('HandlerCard', () => {
   it('asks a yes-or-no question like an approval, with buttons named for what they do', async () => {
     const call = handlerCall({
       args: { command: 'seq 1 30', reason: 'not on the safe list' },
-      decl: { description: 'Run a command your shell setting would ask about?', args: { name: 'obj' }, returns: { name: 'bool' } },
+      decl: { description: 'Run this command? Your shell setting asks first.', args: { name: 'obj' }, returns: { name: 'bool' } },
     });
     const card = mount(HandlerCard, { props: { call, fnLabel: 'Bash' } });
     expect(card.attributes('data-kind')).toBe('confirm');
-    expect(card.get('.title').text()).toBe('Run a command your shell setting would ask about?');
+    expect(card.get('.title').text()).toBe('Run this command? Your shell setting asks first.');
     expect(card.text()).toContain('Bash is waiting for your answer.');
     expect(card.get('[data-testid=arg-list]').text()).toContain('seq 1 30');
     expect(card.find('[role=switch]').exists()).toBe(false);
@@ -126,7 +128,7 @@ describe('HoverCard', () => {
 });
 
 describe('ComposerMeta', () => {
-  it('switches agents from its menu and shows the model, which opens the settings', async () => {
+  it('switches agents from its menu and shows the model, which opens the model picker', async () => {
     const meta = mount(ComposerMeta, {
       props: {
         agent: 'Chat agent', agents: [{ fn: 'hub/chat', name: 'Chat agent' }, { fn: 'fs/explore', name: 'Explore agent' }], model: 'Llama (free)',
@@ -143,28 +145,57 @@ describe('ComposerMeta', () => {
     items[1]?.click();
     expect(meta.emitted('agent')).toEqual([['fs/explore']]);
     await meta.get('[data-testid=model-chip]').trigger('click');
-    expect(meta.emitted('settings')).toHaveLength(1);
+    expect(meta.emitted('model')).toHaveLength(1);
     expect(meta.get('[data-testid=background-count]').text()).toContain('1');
   });
 });
 
+/** Chat models as the hub lists them: a free one with tools, a paid one with vision and a long context. */
+const MODELS: ModelInfo[] = [
+  { id: 'meta/llama-free', provider: 'openrouter', name: 'Llama (free)', contextWindow: 131_072, pricing: { input: 0, output: 0 }, capabilities: ['chat', 'tools'] },
+  { id: 'acme/vision-pro', provider: 'openrouter', name: 'Vision Pro', contextWindow: 1_000_000, pricing: { input: 3, output: 15 }, capabilities: ['chat', 'vision', 'reasoning'] },
+];
+
 describe('SessionSettings', () => {
-  it('picks the agent and the model, and goes back to the agent’s own model', async () => {
+  it('picks the agent, names the model and asks for the model picker', async () => {
     const record = session({ model: { model: 'meta/llama-free' } });
     const settings = mount(SessionSettings, {
       props: {
         session: record, systems: [], notify: 'all', agent: 'Chat agent', nameOf: () => 'Ada',
         agents: [{ fn: 'hub/chat', description: 'The chat agent.' }, { fn: 'fs/explore', description: 'Explores the files.' }],
-        models: [{ id: 'meta/llama-free', name: 'Llama (free)' }],
+        models: MODELS,
       },
     });
     expect(settings.text()).toContain('The chat agent.');
-    const [agent, model] = settings.findAll('select');
-    expect(model?.element.value).toBe('model:meta/llama-free');
-    await agent?.setValue('fs/explore');
-    await model?.setValue('default');
+    expect(settings.get('[data-testid=session-model]').text()).toContain('Llama (free)');
+    await settings.get('select').setValue('fs/explore');
+    await settings.get('[data-testid=change-model]').trigger('click');
     expect(settings.emitted('agent')).toEqual([['fs/explore']]);
-    expect(settings.emitted('model')).toEqual([[null]]);
+    expect(settings.emitted('pickModel')).toHaveLength(1);
+    expect(settings.get('[data-testid=people]').text()).toContain('Ada');
+  });
+});
+
+describe('ModelPicker', () => {
+  it('searches, filters and sorts models, shows price and context, and picks one', async () => {
+    const picker = mount(ModelPicker, { props: { models: MODELS, current: 'model:meta/llama-free' } });
+    const names = (): string[] => picker.findAll('[data-model]').map((row) => row.attributes('data-model') ?? '');
+    expect(names()).toEqual(['default', 'meta/llama-free', 'acme/vision-pro']);
+    expect(picker.text()).toContain('Free');
+    expect(picker.text()).toContain('131k context');
+    expect(picker.text()).toContain('$3.00 in · $15.00 out per M tokens');
+    expect(picker.get('[data-model="meta/llama-free"]').attributes('aria-selected')).toBe('true');
+    await picker.get('[data-testid=model-search] input').setValue('free');
+    expect(names()).toEqual(['default', 'meta/llama-free']);
+    await picker.get('[data-testid=model-search] input').setValue('');
+    await picker.get('[data-filter=vision]').trigger('click');
+    expect(names()).toEqual(['default', 'acme/vision-pro']);
+    await picker.get('[data-filter=vision]').trigger('click');
+    await picker.findAll('[data-testid=model-sort] button').find((b) => b.text() === 'Context')?.trigger('click');
+    expect(names()).toEqual(['default', 'acme/vision-pro', 'meta/llama-free']);
+    await picker.get('[data-model="acme/vision-pro"]').trigger('click');
+    await picker.get('[data-model=default]').trigger('click');
+    expect(picker.emitted('pick')).toEqual([['model:acme/vision-pro'], ['default']]);
   });
 });
 
@@ -194,5 +225,26 @@ describe('NotificationRow', () => {
     expect(row.classes()).toContain('resolved');
     expect(row.get('.mark').classes()).toContain('tone-neutral');
     expect(row.get('[data-testid=notification-reason]').text()).toBe('Approval needed · Approved');
+  });
+});
+
+describe('BudgetCard', () => {
+  const budget = BudgetRule.parse({ id: 'bgt_s', target: { scope: 'hub' }, period: { window: 86_400_000 }, maxCost: 5, onLimit: 'ask', setBy: 'act_admin' });
+  const ask = { run: RunId.parse('run_b'), budget, reason: 'the hub budget of $5.00 is used up' };
+
+  it('says which budget and how much, and lets an admin raise it or leave it', async () => {
+    const card = mount(BudgetCard, { props: { ask, fnLabel: 'Chat', canRaise: true } });
+    expect(card.text()).toContain('The hub budget of $5.00 is used up. Chat waits until it is raised.');
+    expect(card.get('[data-testid=budget-raise]').text()).toBe('Raise by $5.00 and resume');
+    await card.get('[data-testid=budget-raise]').trigger('click');
+    await card.get('[data-testid=budget-leave]').trigger('click');
+    expect(card.emitted('raise')).toEqual([[5]]);
+    expect(card.emitted('leave')).toHaveLength(1);
+  });
+
+  it('tells anyone else an admin was asked', () => {
+    const card = mount(BudgetCard, { props: { ask, fnLabel: 'Chat', canRaise: false } });
+    expect(card.find('[data-testid=budget-raise]').exists()).toBe(false);
+    expect(card.get('[data-testid=budget-asked]').text()).toBe('An admin has been asked to raise it.');
   });
 });

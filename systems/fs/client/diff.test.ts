@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RUN_STATUSES, RUN_STATUS_WORDS } from '@harness/core';
 import { statusChip, failedOutput, percent } from './bash.ts';
 import { diffBlocks, diffLines, diffStats, splitLines, type DiffLine } from './diff.ts';
 
@@ -69,7 +70,8 @@ describe('the bash card\'s logic', () => {
     expect(statusChip('queued', undefined, undefined).tone).toBe('quiet');
     expect(statusChip('awaiting-approval', undefined, undefined).label).toBe('Needs approval');
     expect(statusChip('paused', undefined, undefined).label).toBe('Paused');
-    expect(statusChip('cancelled', undefined, undefined).label).toBe('Stopped');
+    expect(statusChip('cancelled', undefined, undefined).label).toBe(RUN_STATUS_WORDS.cancelled);
+    for (const status of RUN_STATUSES) { expect(statusChip(status, undefined, undefined).label).not.toBe(''); }
     expect(statusChip('undone', undefined, undefined).label).toBe('Undone');
   });
 

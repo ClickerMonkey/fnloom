@@ -5,7 +5,7 @@ import { testStore, memoryLog } from '../testing.ts';
 import { LlmRateLimited } from './errors.ts';
 import { abortableSleep, HubLlmGateway } from './gateway.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
-import { ALICE, ALICE_INFO, OPEN_LIMITS } from './testing.ts';
+import { ALICE, ALICE_INFO, OPEN_LIMITS, testSettings } from './testing.ts';
 
 const RUN = RunId.parse('run_fwd');
 const TURN = TurnId.parse('trn_fwd');
@@ -13,7 +13,7 @@ const FS = SystemName.parse('fs');
 const forward: LlmForward & { system: string } = { run: RUN, request: { messages: [{ role: 'user', content: 'hi' }] }, stream: true, system: FS };
 
 /** A gateway over a stored run, a streamer that is rate limited `limited` times first, and a recording LLM doer. */
-async function gateway(limited: number, retryAfter = 40) {
+async function gateway(limited: number, retryAfter = 40, transcribe = '') {
   const store = await testStore();
   await store.table('turns').insert({
     id: TURN, actor: ALICE, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running', limits: OPEN_LIMITS, cost: 0, errors: 'feed-back', createdAt: 0,
@@ -29,12 +29,13 @@ async function gateway(limited: number, retryAfter = 40) {
   const streamer: Streamer<HubCallContext, HubCallMetadata> = async function* (_request, context): AsyncGenerator<Chunk, Response> {
     calls += 1;
     if (calls <= limited) throw new LlmRateLimited('test-model', retryAfter);
-    context.call?.record({ interaction: LlmInteractionId.parse('lli_1'), model: 'test-model', cost: 0.001, usage: { input: 1, output: 1 } });
+    context.call?.record({ interaction: LlmInteractionId.parse('llm_1'), model: 'test-model', cost: 0.001, usage: { input: 1, output: 1 } });
     yield { content: 'hello' };
     return { content: 'hello', finishReason: 'stop', model: 'test-model' };
   };
+  const heard: Array<{ bytes: number; model: string }> = [];
   const hub = new HubLlmGateway({
-    store, clock: () => 0, log: memoryLog().log,
+    store, clock: () => 0, log: memoryLog().log, settings: testSettings({}, {}, 'test-model', transcribe),
     runs: { get: (id) => store.table('runs').get(id) },
     queues: {
       llm: async (_priority, task) => {
@@ -43,11 +44,14 @@ async function gateway(limited: number, retryAfter = 40) {
         try { return await task(); } finally { held -= 1; events.push('free'); }
       },
     },
-    llm: { streamer, embed: () => Promise.reject(new Error('no embeddings here')), models: () => [] },
+    llm: {
+      streamer, embed: () => Promise.reject(new Error('no embeddings here')), models: () => [],
+      transcribe: (audio, model) => { heard.push({ bytes: audio.length, model }); return Promise.resolve('hello there'); },
+    },
     models: { resolve: () => Promise.resolve({}) },
     sleep: (ms, signal) => { events.push(`sleep ${ms} holding ${held}`); return abortableSleep(ms, signal); },
   });
-  return { hub, events, calls: () => calls };
+  return { hub, events, heard, calls: () => calls };
 }
 
 async function collect(stream: AsyncIterable<LlmForwardChunk>): Promise<LlmForwardChunk[]> {
@@ -55,6 +59,22 @@ async function collect(stream: AsyncIterable<LlmForwardChunk>): Promise<LlmForwa
   for await (const chunk of stream) out.push(chunk);
   return out;
 }
+
+describe('transcription', () => {
+  it('is off without a transcription model, and refuses to transcribe', async () => {
+    const { hub, heard } = await gateway(0);
+    expect(hub.canTranscribe()).toBe(false);
+    await expect(hub.transcribe(new Uint8Array(4))).rejects.toThrow(/no transcription model/);
+    expect(heard).toEqual([]);
+  });
+
+  it('hears a recording through the transcription model', async () => {
+    const { hub, heard } = await gateway(0, 40, 'whisper-1');
+    expect(hub.canTranscribe()).toBe(true);
+    expect(await hub.transcribe(new Uint8Array(12))).toBe('hello there');
+    expect(heard).toEqual([{ bytes: 12, model: 'whisper-1' }]);
+  });
+});
 
 describe('the forwarded-LLM retry', () => {
   it('waits out a rate limit between attempts, holding no LLM slot while it waits, then streams', async () => {

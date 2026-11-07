@@ -32,7 +32,7 @@ watch(() => props.entries.find((e) => e.active)?.id, reveal);
 </template>
 
 <style scoped>
-.admin-nav { min-width: 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+.admin-nav { position: sticky; top: 0; z-index: 5; min-width: 0; border-bottom: 1px solid var(--border); background: var(--bg); }
 .strip {
   display: flex; gap: var(--space-1); margin: 0 auto; padding: var(--space-2) var(--space-5); max-width: var(--content); list-style: none;
   overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--space-5);

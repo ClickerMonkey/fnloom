@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { NOT_STARTED, NodeExec, NodeShell, TailBuffer, chooseShell, isSafe, runProcess } from './shell.ts';
+import { GroupTree, MsysTree, NOT_STARTED, NodeExec, NodeShell, TailBuffer, chooseShell, isSafe, posixTree, runProcess } from './shell.ts';
 
 const limits = { outputMax: 1_000, progressEvery: 20 };
 const node = process.execPath;
@@ -93,5 +93,33 @@ describe('NodeShell', () => {
     if (choice.type !== 'posix') { return; }
     const run = await new NodeShell(choice, limits).run({ command: 'echo "$((2 + 3))"', cwd: process.cwd(), timeout: 10_000, signal: new AbortController().signal });
     expect(run.stdout.trim()).toBe('5');
+  });
+
+  it('cancels at once, ending programs the shell started too', async () => {
+    const choice = chooseShell(undefined, process.platform, existsSync);
+    if (choice.type !== 'posix') { return; }
+    const controller = new AbortController();
+    const shell = new NodeShell(choice, limits);
+    const running = shell.run({
+      command: 'echo up; sleep 25 && echo slept', cwd: process.cwd(), timeout: 60_000, signal: controller.signal,
+      onOutput: (_, line) => { if (line === 'up') { controller.abort(); } },
+    });
+    const started = performance.now();
+    const run = await running;
+    expect(run).toMatchObject({ ended: 'cancelled', exitCode: 130 });
+    expect(run.stdout).not.toContain('slept');
+    expect(performance.now() - started).toBeLessThan(5_000);
+  }, 30_000);
+});
+
+describe('process trees', () => {
+  it('marks every process of an MSYS run with its own marker, and uses process groups off Windows', () => {
+    const one = posixTree('C:/Program Files/Git/bin/bash.exe', 'win32');
+    const two = posixTree('C:/Program Files/Git/bin/bash.exe', 'win32');
+    expect(one).toBeInstanceOf(MsysTree);
+    expect(one.env?.['HARNESS_FS_RUN']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(one.env?.['HARNESS_FS_RUN']).not.toBe(two.env?.['HARNESS_FS_RUN']);
+    expect(posixTree('/bin/bash', 'linux')).toBeInstanceOf(GroupTree);
+    expect(posixTree('/bin/bash', 'linux').env).toBeUndefined();
   });
 });

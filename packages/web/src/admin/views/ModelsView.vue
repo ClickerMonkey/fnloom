@@ -40,10 +40,7 @@ const tabs = computed<readonly TabItem<ModelsTab>[]>(() => [
   { value: 'categories', label: 'Categories', count: categories.value.length },
 ]);
 const ready = computed(() => models.providers.value.value !== undefined);
-const providerName = (model: ModelInfo): string => {
-  const row = providers.value.find((p) => p.id === model.provider);
-  return row === undefined ? model.provider : PROVIDER_NAME[row.provider];
-};
+const providerName = (model: ModelInfo): string => PROVIDER_NAME[model.provider];
 
 onMounted(() => { void models.load(ready.value); });
 

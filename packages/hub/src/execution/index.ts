@@ -113,6 +113,10 @@ export interface LlmGateway {
   embed(texts: readonly string[], run?: RunId): Promise<{ vectors: number[][]; cost: Usd }>;
   /** The models configured providers offer. */
   models(): Promise<ModelInfo[]>;
+  /** Whether voice input can be transcribed: a transcription model is set (`HARNESS_TRANSCRIBE_MODEL`). */
+  canTranscribe(): boolean;
+  /** The text spoken in a recording, through the transcription model. Refused when none is set. */
+  transcribe(audio: Uint8Array): Promise<string>;
 }
 
 /** The model providers behind the hub AI. */

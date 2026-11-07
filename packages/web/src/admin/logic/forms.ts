@@ -228,12 +228,10 @@ export type ProviderField = Exclude<KeysOfUnion<ProviderInput>, 'provider'>;
 export const PROVIDER_FIELDS = {
   apiKey: { label: 'API key', secret: true },
   baseURL: { label: 'Base URL', secret: false },
-  region: { label: 'Region', secret: false },
-  credentials: { label: 'Credentials', secret: true },
 } as const satisfies Record<ProviderField, { readonly label: string; readonly secret: boolean }>;
 
 /** Every provider kind's name. */
-export const PROVIDER_NAME = { openai: 'OpenAI', openrouter: 'OpenRouter', aws: 'AWS Bedrock', replicate: 'Replicate' } as const satisfies Record<ProviderKindInput, string>;
+export const PROVIDER_NAME = { openai: 'OpenAI', openrouter: 'OpenRouter' } as const satisfies Record<ProviderKindInput, string>;
 
 const isProviderField = (key: string): key is ProviderField => key in PROVIDER_FIELDS;
 

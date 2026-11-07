@@ -12,6 +12,7 @@ import {
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { userInfo, type FullHandlers } from './access.ts';
+import type { AdminOperations } from '../admin-ops.ts';
 import type { systemsPlugin } from './systems.ts';
 
 /** How many output lines `systemLogs` returns when not asked. */
@@ -25,7 +26,7 @@ function all<T extends TableName>(hub: Pick<HubServices, 'store'>, table: T) {
 }
 
 /** The admin reads plugin. */
-export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>) {
+export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>, ops: AdminOperations) {
   const { store, catalog } = hub;
   return plugin({ name: 'web.admin', spec: adminSlice, requires: [systems] })
     .lifecycle((ctx) => {
@@ -110,19 +111,6 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
         } while (items.length < limit && cursor !== undefined && search !== '');
         return { items, ...(cursor === undefined ? {} : { cursor }) };
       },
-      removeRule: async ({ data, user }) => {
-        const removed = await (() => {
-          switch (data.kind) {
-            case 'budget': return store.table('budgets').remove(data.id);
-            case 'priority': return store.table('priorityRules').remove(data.id);
-            case 'policy': return store.table('policies').remove(data.id);
-            case 'category': return store.table('modelCategories').remove(data.id);
-            case 'provider': return store.table('providers').remove(data.id);
-          }
-        })();
-        if (removed) { hub.bus.publish('capabilities.changed', {}); }
-        hub.log.info('rule.removed', { kind: data.kind, id: data.id, removed, user: user.id });
-        return { ok: removed };
-      },
+      removeRule: ({ data, user }) => ops.remove_rule(data, user.id),
     }));
 }

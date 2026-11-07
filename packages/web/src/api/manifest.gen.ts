@@ -140,6 +140,26 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "types": {
+      "method": "POST",
+      "path": "/types",
+      "ws": "types",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "names"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "sessions": {
       "method": "POST",
       "path": "/sessions",

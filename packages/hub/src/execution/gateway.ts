@@ -21,7 +21,7 @@ import { chunkToWire, descriptorsOf, requestFromWire } from './wire.ts';
 const TRANSIENT_TRIES = 3;
 
 /** What the gateway uses. */
-export interface GatewayDeps extends Pick<ExecutionDeps, 'store' | 'clock' | 'log'> {
+export interface GatewayDeps extends Pick<ExecutionDeps, 'store' | 'clock' | 'log' | 'settings'> {
   readonly runs: { get(run: RunId): Promise<Run | undefined> };
   readonly queues: Pick<ExecutionQueues, 'llm'>;
   readonly llm: LlmEngine;
@@ -108,6 +108,16 @@ export class HubLlmGateway implements LlmGateway {
 
   models(): Promise<ModelInfo[]> {
     return Promise.resolve(this.#deps.llm.models());
+  }
+
+  canTranscribe(): boolean {
+    return this.#deps.settings.model.HARNESS_TRANSCRIBE_MODEL !== '';
+  }
+
+  async transcribe(audio: Uint8Array): Promise<string> {
+    const model = this.#deps.settings.model.HARNESS_TRANSCRIBE_MODEL;
+    if (model === '') throw new Error('no transcription model is set (HARNESS_TRANSCRIBE_MODEL)');
+    return this.#deps.llm.transcribe(audio, model);
   }
 
   /** The scope that pays for a call made inside a run (by its system, when one forwarded it); a reason when there is none. */

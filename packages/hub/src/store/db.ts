@@ -2,15 +2,16 @@
  * The database handle every part of the store works through: Kysely over one better-sqlite3 connection, and the
  * scope a piece of work runs in (the whole store, or one open transaction).
  *
- * Kysely sees the tables structurally (any table, any column, cells of SQL values) because the table names and
+ * Kysely sees the hub tables structurally (any table, any column, cells of SQL values) because their names and
  * columns are derived from core's schemas at runtime; the typing that matters is the row schema each cell set is
- * parsed with on the way out. Kysely's SQLite driver gives the one connection to one holder at a time, so a
+ * parsed with on the way out. The store's own bookkeeping tables (`AuxDb`) are named, so their columns are checked. Kysely's SQLite driver gives the one connection to one holder at a time, so a
  * transaction left open across `await`s never interleaves with other statements; the ayepi ports, which drive the
  * connection synchronously, go through the same gate (`Scope.exclusive`).
  */
 import { type ControlledTransaction, Kysely, SqliteDialect } from 'kysely';
 import type BetterSqlite3 from 'better-sqlite3';
 import { z } from 'zod';
+import type { AuxDb } from './aux.ts';
 
 /** A value as SQLite stores it. */
 export type Cell = string | number | bigint | Uint8Array | null;
@@ -20,8 +21,8 @@ export interface StoredRow {
   [column: string]: Cell;
 }
 
-/** The database as Kysely sees it: any table of stored rows. */
-export interface StoredDb {
+/** The database as Kysely sees it: the bookkeeping tables by name, and any other table of stored rows. */
+export interface StoredDb extends AuxDb {
   [table: string]: StoredRow;
 }
 

@@ -24,10 +24,10 @@ export function agentName(agent: QualifiedName): string {
 }
 
 /**
- * The yes button of a yes-or-no question, from the question's own verb: "Run a command …?" → "Run", "Overwrite
+ * The yes button of a yes-or-no question, from its first sentence's verb: "Run this command? …" → "Run", "Overwrite
  * a.md?" → "Overwrite". A question that doesn't start with a word gets "Yes".
  */
 export function confirmVerb(question: string): string {
-  const word = /^\s*([A-Za-z]+)\b[^?]*\?\s*$/.exec(question)?.[1];
+  const word = /^\s*([A-Za-z]+)\b[^?!]*\?(?:\s|$)/.exec(question)?.[1];
   return word === undefined ? 'Yes' : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }

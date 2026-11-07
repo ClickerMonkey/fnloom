@@ -1,7 +1,7 @@
 /**
  * The chat's place in the URL, so a refresh (or a shared link) returns to the same view: the session
  * (`/chat/:session`), a turn's tree (`/chat/:session/turn/:turn/tree`), the panel open over it (`?run=`, `?llm=`,
- * `?details=` for an answer's turn, `?resource=`, `?panel=settings|people`) and a message (`#m-:id`). Every value is
+ * `?details=` for an answer's turn, `?resource=`, `?panel=settings|people|model`) and a message (`#m-:id`). Every value is
  * read through its schema, so a bad URL reads as nothing open. Opening a panel adds a history entry, so Back closes
  * it before it leaves the session; closing one goes back when that is where it came from. The list of chats keeps its
  * search (`?q=`) and view (`?chats=archived`) in the URL as well; moving between chats keeps them.
@@ -14,7 +14,7 @@ import { links, ROUTES } from '../app/routes.ts';
 import { TAB_KEYS } from './logic/inspect.ts';
 
 /** The panels a session can have open besides inspectors. */
-export const ChatPanel = z.enum(['settings', 'people']);
+export const ChatPanel = z.enum(['settings', 'people', 'model']);
 export type ChatPanel = z.infer<typeof ChatPanel>;
 
 /** Each query key, and the schema of its value. */

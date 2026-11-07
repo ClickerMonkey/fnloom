@@ -5,8 +5,9 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { systemsSlice, adminOnly, compact, SystemView, type SystemName, type SystemRecord } from '@harness/core';
+import { systemsSlice, adminOnly, SystemView, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
+import { knownSystem, type AdminOperations } from '../admin-ops.ts';
 import { collect, PAGE } from '../paging.ts';
 import { type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
@@ -21,13 +22,8 @@ export async function systemView(hub: Pick<HubServices, 'catalog'>, record: Syst
 }
 
 /** The systems plugin. */
-export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
-  const { link, store, bus } = hub;
-  const system = async (name: SystemName): Promise<SystemRecord> => {
-    const record = await store.table('systems').get(name);
-    if (record === undefined) { throw reject(404, 'SYSTEM_NOT_FOUND', `no system ${name}`); }
-    return record;
-  };
+export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, ops: AdminOperations) {
+  const { link, store } = hub;
   return plugin({ name: 'web.systems', spec: systemsSlice, requires: [auth] })
     .middleware(adminOnly, () => async (io) => {
       if (io.ctx.user.role !== 'admin') { throw reject(403, 'ADMIN_ONLY', 'only an admin can do this'); }
@@ -38,57 +34,22 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         const records = await collect((cursor) => store.table('systems').find({ order: [['name', 'asc']], limit: PAGE, cursor }), MAX_SYSTEMS);
         return Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r)));
       },
-      system: async ({ data }) => systemView(hub, await system(data.system)),
+      system: async ({ data }) => systemView(hub, await knownSystem(hub, data.system)),
       pairings: async (io) => {
         const { status } = io.data;
         return (await store.table('pairings').find({ ...(status === undefined ? {} : { where: { status } }), order: [['createdAt', 'desc']], limit: MAX_SYSTEMS })).items;
       },
-      approvePairing: async ({ data, user }) => {
-        if (!data.approve) {
-          await link.pairing.reject(data.pairing, user.id);
-          hub.log.info('pairing.rejected', { pairing: data.pairing, user: user.id });
-          return {};
-        }
-        const record = await link.pairing.approve(data.pairing, user.id);
-        hub.log.info('pairing.approved', { pairing: data.pairing, system: record.name, user: user.id });
-        return { system: record.name };
-      },
-      createPairingToken: ({ data, user }) => link.pairing.createToken({ ...compact(data), by: user.id }),
-      configureSystem: async ({ data, user }) => {
-        await system(data.system);
-        const result = await link.config.set(data.system, data.config, user.id);
-        hub.log.info('system.configured', { system: data.system, user: user.id, ok: 'version' in result });
-        return result;
-      },
-      enableSystem: async ({ data: { system: name, ...change }, user }) => {
-        await system(name);
-        const enabled = await link.admin.setEnabled(name, compact(change), user.id);
-        bus.publish('capabilities.changed', {});
-        hub.log.info('system.enabled', { system: name, ...enabled, user: user.id });
-        return { enabled };
-      },
-      removeSystem: async ({ data, user }) => {
-        await system(data.system);
-        const removed = await link.admin.remove(data.system, user.id);
-        hub.log.info('system.removed', { system: data.system, fns: removed.fnsUnavailable, user: user.id });
-        return removed;
-      },
-      installSystem: async ({ data, user }) => {
-        const installed = await link.supervisor.install({ ...compact(data), by: user.id });
-        hub.log.info('system.installed', { system: installed.name, version: installed.version, user: user.id });
-        return { name: installed.name };
-      },
-      startSystem: async ({ data }) => {
-        await link.supervisor.start(data.system);
-        return { ok: true };
-      },
-      stopSystem: async ({ data }) => {
-        await link.supervisor.stop(data.system, 'shutdown');
-        return { ok: true };
-      },
-      upgradeSystem: ({ data }) => link.supervisor.upgrade(data.system, data.version),
+      approvePairing: ({ data, user }) => ops.approve_pairing(data, user.id),
+      createPairingToken: ({ data, user }) => ops.create_pairing_token(data, user.id),
+      configureSystem: ({ data, user }) => ops.configure_system(data, user.id),
+      enableSystem: ({ data, user }) => ops.enable_system(data, user.id),
+      removeSystem: ({ data, user }) => ops.remove_system(data, user.id),
+      installSystem: ({ data, user }) => ops.install_system(data, user.id),
+      startSystem: ({ data, user }) => ops.start_system(data, user.id),
+      stopSystem: ({ data, user }) => ops.stop_system(data, user.id),
+      upgradeSystem: ({ data, user }) => ops.upgrade_system(data, user.id),
       reimport: async ({ data }) => {
-        await system(data.system);
+        await knownSystem(hub, data.system);
         return link.admin.reimport(data.system);
       },
     }));

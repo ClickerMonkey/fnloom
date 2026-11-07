@@ -3,7 +3,8 @@
  * The input for one gin type, chosen by its form node: text (one line or many), numbers, a switch, choices
  * (segmented for a few, a list for more), dates, date-times, durations, colours, JSON, lists (add, remove, reorder),
  * tuples, maps (key and value rows), objects (optional fields can be removed and added back), nullables, unions (a
- * switch between options) and named types (a system's own input when it has one). It draws the draft it is given and
+ * switch between options) and named types (a system's own input when it has one, else the input for the type's
+ * definition when the browser holds it, else JSON). It draws the draft it is given and
  * emits the changed draft; problems show under the field they belong to.
  */
 import { Json } from '@harness/core';
@@ -171,6 +172,10 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
           @update:model-value="setCustom"
         />
       </UiField>
+      <GinInput
+        v-else-if="node.inner" :node="node.inner" :draft="draft" :path="path" :problems="problems" :label="label" :docs="docs || node.docs" :required="required" :flat="flat"
+        @update="emit('update', $event)"
+      />
       <UiTextarea v-else class="mono" :model-value="refText" :label="label" :hint="hint || `A ${node.name} value, as JSON`" :error="error" :rows="3" @update:model-value="setRefText" />
     </template>
 

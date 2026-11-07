@@ -3,7 +3,7 @@
  * hub sends again (same `RunId`, after a dropped link) is answered from the journal, and one sent again while still
  * running joins the run already going.
  */
-import type { ControlReply, HandlerAnswer, Json, OutcomeWire, RunId, RunRequest, RunUpdate } from '@harness/core';
+import type { ControlReply, HandlerAnswer, Json, OutcomeWire, RunId, RunRequest, RunUpdate, RunControlAction } from '@harness/core';
 import type { OutcomeJournal } from './journal.ts';
 import { ActiveRun, type RunEnvironment } from './run.ts';
 import type { SystemTable } from './table.ts';
@@ -70,7 +70,7 @@ export class RunRegistry {
     return new Promise((resolve) => { this.#idle.add(resolve); });
   }
 
-  control(run: RunId, action: 'cancel' | 'pause'): Promise<ControlReply> {
+  control(run: RunId, action: RunControlAction): Promise<ControlReply> {
     const active = this.#active.get(run);
     return active === undefined ? Promise.resolve({ accepted: false, reason: `Run ${run} is not running here.` }) : active.control(action);
   }

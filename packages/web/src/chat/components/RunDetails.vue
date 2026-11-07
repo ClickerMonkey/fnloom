@@ -47,7 +47,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
 </script>
 
 <template>
-  <div class="details" data-testid="run-details">
+  <div class="details" data-testid="run-details" :data-status="run?.status">
     <UiBanner v-if="problem !== ''" tone="danger">
       {{ problem }}
       <template #actions><UiButton size="sm" variant="ghost" @click="emit('retry')">Retry</UiButton></template>
@@ -62,7 +62,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
       <dl class="facts">
         <dt>Fn</dt><dd><code>{{ run.fn }}</code> · {{ fnLabel(run.fn) }}</dd>
         <template v-if="run.system"><dt>System</dt><dd>{{ run.system }}</dd></template>
-        <template v-if="elapsed !== undefined"><dt>{{ isSettled(run.status) ? 'Took' : 'Running for' }}</dt><dd>{{ formatDuration(elapsed) }}</dd></template>
+        <template v-if="elapsed !== undefined"><dt>{{ isSettled(run.status) ? 'Took' : 'Running for' }}</dt><dd data-testid="run-elapsed">{{ formatDuration(elapsed) }}</dd></template>
         <template v-if="run.startedAt"><dt>Started</dt><dd>{{ fullTime(run.startedAt) }}</dd></template>
         <dt>Cost</dt><dd>{{ formatCost(run.cost) }} <span class="dim">· {{ formatCost(run.totalCost) }} with what it called</span></dd>
         <template v-if="run.attempt > 1"><dt>Attempt</dt><dd>{{ run.attempt }}</dd></template>

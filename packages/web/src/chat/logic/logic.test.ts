@@ -1,4 +1,4 @@
-import { ActorId, HookBlock, ResolvedLimits, RunId, type ChatCapabilities } from '@harness/core';
+import { ActorId, HookBlock, ResolvedLimits, RUN_STATUSES, RunId, type ChatCapabilities, type ModelInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { capabilities, llmCall, message, run, session, T0, tree } from '../test/fakes.ts';
 import {
@@ -10,11 +10,12 @@ import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage 
 import { isTyping, shortcutFor } from './keys.ts';
 import { agentName, confirmVerb, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
 import {
-  applyRunUpdate, argSummary, ASKING_TEXT, emptyRun, isBusy, mergeRecord, phaseOf, progressFraction, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
+  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
 } from './runs.ts';
+import { abilities, contextText, findModels, isFree, priceText, type ModelQuery } from './models.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, whoAnswers } from './session.ts';
 import {
-  answerPieces, appendToken, dayLabel, messageText, messageTextLength, prependPage, resendParts, splitParts, storedReasoning, threadItems, undoneTurns, upsertMessage,
+  answerPieces, appendToken, dayLabel, invocationCarriers, messageText, messageTextLength, prependPage, resendParts, splitParts, storedReasoning, threadItems, undoneTurns, upsertMessage,
 } from './thread.ts';
 
 const caps: ChatCapabilities = capabilities();
@@ -347,7 +348,7 @@ describe('a result in brief', () => {
 
 describe('yes-or-no questions', () => {
   it("name the yes button with the question's own verb", () => {
-    expect(confirmVerb('Run a command your shell setting would ask about?')).toBe('Run');
+    expect(confirmVerb('Run this command? Your shell setting asks first.')).toBe('Run');
     expect(confirmVerb('overwrite a.md?')).toBe('Overwrite');
     expect(confirmVerb('Pick a folder')).toBe('Yes');
     expect(confirmVerb('42?')).toBe('Yes');
@@ -405,5 +406,79 @@ describe('a run waiting on the person', () => {
 
   it('applies a move to the background', () => {
     expect(applyRunUpdate(emptyRun(RunId.parse('run_1'), 'fs/bash', 'running'), { type: 'background' }, T0).background).toBe(true);
+  });
+});
+
+describe('run statuses, the drawer and fn display', () => {
+  it('classes every status, and sorts the status line by phase', () => {
+    expect(RUN_STATUSES.filter(isActive)).toEqual(['queued', 'running', 'waiting']);
+    expect(PHASES).toEqual(['active', 'retry', 'waiting', 'failed', 'done']);
+  });
+
+  it('lays what the thread heard live over the drawer’s record until the record settles, then refetches', () => {
+    const record = run({ id: RunId.parse('run_d'), status: 'running', progress: { fraction: 0.01 } });
+    const live = { ...record, progress: { fraction: 0.3 }, cost: 0.02 };
+    expect(drawerRun(live, record)).toMatchObject({ progress: { fraction: 0.3 }, cost: 0.02, args: record.args });
+    expect(drawerRun(live, undefined)).toBe(live);
+    expect(drawerRun(undefined, record)).toBe(record);
+    const settled = run({ id: RunId.parse('run_d'), status: 'done', outcome: { status: 'done', result: { exitCode: 0 } } });
+    expect(drawerRun({ ...live, status: 'running' }, settled)).toBe(settled);
+    expect(recordIsBehind({ id: record.id, status: 'done' }, record)).toBe(true);
+    expect(recordIsBehind({ id: record.id, status: 'running' }, record)).toBe(false);
+    expect(recordIsBehind({ id: record.id, status: 'done' }, settled)).toBe(false);
+    expect(recordIsBehind(undefined, record)).toBe(false);
+  });
+
+  it('keeps a card while a run goes or fails, then shows it as its fn declares', () => {
+    expect(runShows({ status: 'running' }, 'hidden')).toBe('card');
+    expect(runShows({ status: 'failed' }, 'hidden')).toBe('card');
+    expect(runShows({ status: 'done' }, 'hidden')).toBe('hidden');
+    expect(runShows({ status: 'done' }, 'message')).toBe('message');
+    const found = run({ fn: 'hub/search_fns', status: 'done', outcome: { status: 'done', result: 'fs/read_file and fs/write' } });
+    expect(runMessage(found)).toBe('Search fns done: fs/read_file and fs/write');
+    expect(runMessage(run({ fn: 'hub/search_fns', status: 'done', outcome: { status: 'done', result: [{ fn: 'fs/read' }, { fn: 'fs/edit' }] } }))).toBe('Search fns done: 2 found');
+    expect(runMessage(run({ fn: 'hub/load_fns', status: 'done' }))).toBe('Load fns done');
+  });
+});
+
+describe('model picker', () => {
+  const free = { id: 'meta/llama-free', provider: 'openrouter', name: 'Llama (free)', contextWindow: 131_072, pricing: { input: 0, output: 0 }, capabilities: ['chat', 'tools'] } as const;
+  const paid = { id: 'acme/vision', provider: 'openrouter', name: 'Acme vision', contextWindow: 1_000_000, pricing: { input: 3, output: 15 }, capabilities: ['chat', 'vision', 'reasoning'] } as const;
+  const unknown = { id: 'x/mystery', provider: 'openrouter', name: 'Mystery', capabilities: ['chat'] } as const;
+  const variant = { id: 'google/gemma:free', provider: 'openrouter', name: 'Gemma (free)', capabilities: ['chat'] } as const;
+  const models: ModelInfo[] = [paid, free, unknown].map((m) => ({ ...m, capabilities: [...m.capabilities] }));
+  const ids = (query: Partial<ModelQuery>): string[] => findModels(models, { text: '', filters: new Set(), sort: 'name', ...query }).map((m) => m.id);
+
+  it('searches by words, where a filter word filters, and narrows by filter chips', () => {
+    expect(ids({})).toEqual(['acme/vision', 'meta/llama-free', 'x/mystery']);
+    expect(ids({ text: 'free' })).toEqual(['meta/llama-free']);
+    expect(ids({ text: 'acme vision' })).toEqual(['acme/vision']);
+    expect(ids({ filters: new Set(['tools']) })).toEqual(['meta/llama-free']);
+    expect(ids({ filters: new Set(['reasoning', 'vision']) })).toEqual(['acme/vision']);
+    expect(ids({ text: 'nothing like it' })).toEqual([]);
+  });
+
+  it('sorts by price (unknown last) and context (largest first), and says price, context and abilities', () => {
+    expect(ids({ sort: 'price' })).toEqual(['meta/llama-free', 'acme/vision', 'x/mystery']);
+    expect(ids({ sort: 'context' })).toEqual(['acme/vision', 'meta/llama-free', 'x/mystery']);
+    const [p, f, u] = models;
+    if (p === undefined || f === undefined || u === undefined) { throw new Error('models missing'); }
+    expect([priceText(f), priceText(p), priceText(u)]).toEqual(['Free', '$3.00 in · $15.00 out per M tokens', 'Price unknown']);
+    expect([contextText(f), contextText(p), contextText(u)]).toEqual(['131k context', '1.0M context', '']);
+    expect([isFree(f), isFree(u), isFree({ ...variant, capabilities: [...variant.capabilities] })]).toEqual([true, false, true]);
+    expect(abilities(p)).toEqual(['vision', 'reasoning']);
+  });
+});
+
+describe('invocation carriers', () => {
+  it('shows what a `!` run attached under the message that ran it, not as an answer by its system', () => {
+    const asked = message({ id: 'msg_inv', turn: 'trn_inv', parts: [{ type: 'invocation', run: 'run_w', fn: 'fs/write' }], runs: ['run_w'] });
+    const carrier = message({ id: 'msg_car', turn: 'trn_inv', role: 'assistant', author: 'act_fs', replyTo: 'msg_inv', runs: ['run_w'], parts: [] });
+    const other = message({ id: 'msg_ans', turn: 'trn_x', role: 'assistant', author: 'act_agent', replyTo: 'msg_other', parts: [{ type: 'text', text: 'Hi' }] });
+    expect(invocationCarriers([asked, carrier, other])).toEqual(new Map([['msg_inv', [carrier]]]));
+    const items = threadItems([asked, carrier, other], ActorId.parse(asked.author), T0);
+    expect(items.filter((i) => i.kind !== 'day').map((i) => i.kind)).toEqual(['user', 'answer']);
+    const user = items.find((i) => i.kind === 'user');
+    expect(user?.kind === 'user' ? user.carried : []).toEqual([carrier]);
   });
 });

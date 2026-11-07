@@ -10,6 +10,7 @@ import { HUB_SYSTEM } from '../../catalog/availability.ts';
 import { AGENT_KIND } from '../../execution/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { CLIENTS_PATH } from '../serve.ts';
+import { typeDefinitions } from '../../catalog/definitions.ts';
 import { userInfo, visibleSession, type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
 
@@ -37,7 +38,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   /** Whether a person may run a fn by hand: its system is usable here and its visibility lets people see it. */
   const byHand = (f: (typeof fns)[number]): boolean => usable.has(f.system) && f.decl.visibility !== 'llm' && f.decl.visibility !== 'none';
   return {
-    voiceInput: false,
+    voiceInput: hub.execution.llm.canTranscribe(),
     voiceOutput: false,
     uploads: true,
     mentions: mentions.filter((m) => usable.has(m.system)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
@@ -45,6 +46,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
       name: c.decl.command.name, context: c.name, args: c.decl.command.args, description: c.decl.description,
     }])),
     agents: fns.filter((f) => (f.system === HUB_SYSTEM || usable.has(f.system)) && f.decl.kind === AGENT_KIND).map((f) => ({ fn: f.name, description: f.decl.description })),
+    display: Object.fromEntries(fns.filter((f) => f.decl.display !== 'card').map((f) => [f.name, f.decl.display])),
     invocations: fns.filter((f) => byHand(f) && !methods.has(f.name)).map((f) => ({ fn: f.name, description: f.decl.description, args: f.decl.args })),
     methods: types.flatMap((t) => t.decl.methods.flatMap((method) => {
       const f = byName.get(qualify(t.system, `${t.decl.name}.${method}`));
@@ -54,7 +56,8 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
       system, url: clientUrl(system, manifest.client.hash, manifest.client.entry), hash: manifest.client.hash,
     }])),
     systems: systems.filter((s) => allows(scope, s.name)).map((s) => ({ name: s.name, status: s.status, enabled: s.enabled.functions })),
-    models,
+    // the picker offers models that chat: an embedding or rerank model can't answer
+    models: models.filter((model) => model.capabilities.includes('chat') && !model.capabilities.some((c) => c === 'embedding' || c === 'rerank')),
   };
 }
 
@@ -69,6 +72,7 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
   return plugin({ name: 'web.chat', spec: chatSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof chatSlice> => ({
       capabilities: (io) => capabilities(hub, io.user, io.data.session),
+      types: (io) => typeDefinitions(hub.catalog, io.data.names),
       sessions: (io) => chat.sessions.list(io.user.id, compact(io.data)),
       session: ({ data, user }) => visibleSession(hub, data.session, user),
       createSession: async (io) => {

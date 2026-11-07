@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ApprovalId, DeliveryId, HandlerCallId, MessageId, TurnId, NotificationId, PairingId, QualifiedName, RunId, SessionId, SystemName, ActorId, type Approval, type SessionSummary,
+  ApprovalId, BudgetRule, DeliveryId, HandlerCallId, MessageId, TurnId, NotificationId, PairingId, QualifiedName, RunId, SessionId, SystemName, ActorId, type Approval, type SessionSummary,
 } from '@harness/core';
 import { MemoryEventBus } from '../bus/memory.ts';
 import { BusEventRelay } from './events.ts';
@@ -78,11 +78,14 @@ describe('BusEventRelay', () => {
       },
     });
     bus.publish('presence', { presence: { session, user, focused: true, typing: true, lastActiveAt: 1 } });
+    const budget = BudgetRule.parse({ id: 'bgt_1', target: { scope: 'hub' }, period: 'all-time', maxCost: 1, onLimit: 'ask', setBy: user });
+    bus.publish('budget.reached', { budget, run, reason: 'the hub budget of $1.00 is used up', session });
+    bus.publish('budget.reached', { budget, run, reason: 'no session to tell' });
     bus.publish('catalog.changed', { added: [], removed: [], fns: [] });
     await settle();
     expect(sent.map(([name, , data]) => [name, typeof data === 'object' && data !== null && 'type' in data ? data.type : data])).toEqual([
       ['session', 'message'], ['session', 'reasoning'], ['session', 'controls'], ['session', 'state'], ['session', 'delivery'], ['session', 'handler'],
-      ['session', 'presence'], ['user', undefined],
+      ['session', 'presence'], ['session', 'budget'], ['user', undefined],
     ]);
   });
 

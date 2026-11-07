@@ -2,7 +2,7 @@
  * Paths: the guard that keeps every fn inside the configured roots, and the conversions between paths, roots and
  * `file://` resource URIs.
  */
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ResourceUri } from '@harness/core';
@@ -55,6 +55,29 @@ function realOrSelf(path: string): string {
   return existsSync(path) ? normalize(realpathSync.native(path)) : path;
 }
 
+/** Whether anything, even a link that leads nowhere, is at a path. */
+function present(path: string): boolean {
+  try { lstatSync(path); return true; } catch { return false; }
+}
+
+/**
+ * Where a normalized path really is: its deepest existing ancestor (or itself) with links followed, plus the part that
+ * doesn't exist yet. `undefined` when that ancestor is a link that leads nowhere, since a write would follow it.
+ */
+export function reallyAt(path: string): string | undefined {
+  const missing: string[] = [];
+  let at = path;
+  while (!present(at)) {
+    const up = parentOf(at);
+    if (up === at) { return path; }
+    missing.unshift(at.slice(up.length + 1));
+    at = up;
+  }
+  if (!existsSync(at)) { return undefined; }
+  const real = normalize(realpathSync.native(at));
+  return missing.reduce(childPath, real);
+}
+
 /** The guard over a config's roots. Cheap to build, so it is made from whatever config a run carries. */
 export class RootGuard implements PathGuard {
   readonly roots: readonly ResolvedRoot[];
@@ -104,12 +127,19 @@ export class RootGuard implements PathGuard {
     return normalize(named === undefined ? join(first.folder, path) : join(named.folder, ...rest));
   }
 
-  /** Refuse a path that is inside a root by name but leads outside it through a link. */
+  /**
+   * Refuse a path that is inside a root by name but leads outside it through a link. A path that doesn't exist yet
+   * is judged by where its deepest existing folder really is, so a new file can't be made through a link that leads out.
+   */
   private checkLinks(located: Located): void {
-    const real = realOrSelf(located.path);
+    const real = reallyAt(located.path);
     if (real === located.path) { return; }
-    const ok = this.roots.some((root) => inside(this.real.get(root) ?? root.folder, real) !== undefined || inside(root.folder, real) !== undefined);
-    if (!ok) { throw new FsProblem('outside', `${located.path} links to ${real}, which is outside the folders this system works in.`); }
+    const ok = real !== undefined
+      && this.roots.some((root) => inside(this.real.get(root) ?? root.folder, real) !== undefined || inside(root.folder, real) !== undefined);
+    if (!ok) {
+      const where = real === undefined ? 'a link that leads nowhere' : real;
+      throw new FsProblem('outside', `${located.path} links to ${where}, which is outside the folders this system works in.`);
+    }
   }
 
   private describe(): string {

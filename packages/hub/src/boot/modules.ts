@@ -15,6 +15,8 @@ import { buildSystems, type HubSystems } from '../link/build.ts';
 import { linkServicesPlugin, serviceCatalog } from '../link/services.ts';
 import { NodeInstaller, NodeLauncher, type Installer, type ProcessLauncher } from '../link/process.ts';
 import { openSqliteStore } from '../store/sqlite.ts';
+import { adminOperations, type AdminOperations } from '../api/admin-ops.ts';
+import { registerAdminFns } from './admin-fns.ts';
 import { registerHubFns } from './hub-fns.ts';
 import { HUB_INFO } from './info.ts';
 import type { HubModules, HubServices, ModuleContext, ModuleFactory } from './index.ts';
@@ -107,6 +109,8 @@ export function hubModules(seams: ModuleSeams = {}): HubModules {
         registerHubFns(module.hubFns, {
           store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
         });
+        let ops: AdminOperations | undefined;
+        registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));
       },
     }),
     chat: chatModule,

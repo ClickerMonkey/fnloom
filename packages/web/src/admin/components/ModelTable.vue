@@ -6,7 +6,8 @@
  */
 import type { ModelInfo } from '@harness/core';
 import { computed } from 'vue';
-import { formatCost, formatTokens } from '../../chat/logic/format.ts';
+import { formatCost } from '../../chat/logic/format.ts';
+import { contextSize, findModels, isFree } from '../../chat/logic/models.ts';
 import { UiBadge, UiEmpty, UiInput } from '../../ui/index.ts';
 
 const props = defineProps<{ models: readonly ModelInfo[]; providerName: (model: ModelInfo) => string }>();
@@ -15,20 +16,17 @@ const query = defineModel<string>('query', { default: '' });
 
 const keyOf = (model: ModelInfo): string => `${model.provider}/${model.id}`;
 const unique = computed(() => [...new Map(props.models.map((m) => [keyOf(m), m])).values()]);
-const shown = computed(() => {
-  const words = query.value.trim().toLowerCase().split(/\s+/).filter((w) => w !== '');
-  return unique.value.filter((m) => words.every((w) => `${m.id} ${m.name} ${m.provider} ${m.capabilities.join(' ')}`.toLowerCase().includes(w)));
-});
-const context = (model: ModelInfo): string => (model.contextWindow === undefined || model.contextWindow === 0 ? '—' : formatTokens(model.contextWindow));
+const shown = computed(() => findModels(unique.value, { text: query.value, filters: new Set(), sort: 'name' }));
+const context = (model: ModelInfo): string => contextSize(model) || '—';
 const price = (model: ModelInfo): string => {
   if (model.pricing === undefined) { return '—'; }
-  return model.pricing.input === 0 && model.pricing.output === 0 ? 'Free' : `${formatCost(model.pricing.input)} / ${formatCost(model.pricing.output)}`;
+  return isFree(model) ? 'Free' : `${formatCost(model.pricing.input)} / ${formatCost(model.pricing.output)}`;
 };
 </script>
 
 <template>
   <div class="model-table">
-    <UiInput v-model="query" type="search" icon="search" label="Find a model" hide-label placeholder="Find by name, id or what it can do" clearable />
+    <div class="pinned"><UiInput v-model="query" type="search" icon="search" label="Find a model" hide-label placeholder="Find by name, id or what it can do" clearable /></div>
     <UiEmpty v-if="shown.length === 0" icon="search" title="No models match" :body="query === '' ? 'Add a provider to see its models.' : 'Try fewer words.'" />
     <ul v-else class="rows" data-testid="models">
       <li class="row head" aria-hidden="true"><span>Model</span><span>Can</span><span>Provider</span><span class="num">Context</span><span class="num">Per 1M in / out</span></li>

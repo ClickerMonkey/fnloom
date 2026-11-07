@@ -86,7 +86,7 @@ export class HubLedger implements Ledger {
         // an all-time budget never frees up by itself, so waiting on it would never end
         case 'wait': return rule.period === 'all-time' ? refuse : wait;
         case 'ask':
-          this.#deps.bus.publish('budget.reached', { budget: rule, run: run.id, reason });
+          this.#deps.bus.publish('budget.reached', { budget: rule, run: run.id, reason, session: run.session });
           return wait;
       }
     }

@@ -16,6 +16,8 @@ import budget from './budget.ts';
 import chatManage from './chat-manage.ts';
 import chatShell from './chat-shell.ts';
 import commands from './commands.ts';
+import drawerLive from './drawer-live.ts';
+import fnDisplay from './fn-display.ts';
 import composer from './composer.ts';
 import header from './header.ts';
 import inbox from './inbox.ts';
@@ -23,6 +25,7 @@ import invoke from './invoke.ts';
 import liveRuns from './live-runs.ts';
 import markdown from './markdown.ts';
 import mentions from './mentions.ts';
+import modelPicker from './model-picker.ts';
 import pairing from './pairing.ts';
 import messageActions from './message-actions.ts';
 import messageDetails from './message-details.ts';
@@ -53,8 +56,8 @@ import urlState from './url-state.ts';
 
 export const FEATURES: readonly Feature[] = [
   signIn, chatShell, urlState, urlReload, responsive, header, themes, motion, scrolling, markdown, messageActions, messageDetails, reasoning, timestamps,
-  runCards, runDrawer, turnTree, renderers, composer, mentions, commands, suggestions, people, budget, sessionSettings, shortcuts, accessibility,
-  inbox, settings, invoke, liveRuns, turnControls, chatManage, attachments, uploads, undo, reconnect, states,
+  runCards, runDrawer, fnDisplay, turnTree, renderers, composer, mentions, commands, suggestions, people, budget, sessionSettings, modelPicker, shortcuts, accessibility,
+  inbox, settings, invoke, drawerLive, liveRuns, turnControls, chatManage, attachments, uploads, undo, reconnect, states,
   adminSystems, pairing, adminSystem, adminModels, adminLimits, adminPolicies, adminActorSettings, adminRuns, adminLlm, adminResources,
   streaming, approvals,
 ];
