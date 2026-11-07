@@ -1,0 +1,52 @@
+/**
+ * The composition root: the one hub client, its callers and every store, built for a browser window. Nothing else
+ * makes a client; stores get only the callers they use.
+ */
+import { AdminStore } from '../admin/state/admin.ts';
+import { createApi } from '../api/index.ts';
+import { XhrFileSender } from '../chat/api.ts';
+import { browserClient, ChatStore } from '../chat/state/chat.ts';
+import { MediaRecorderSource } from '../chat/state/voice.ts';
+import { createHub } from '../api/client.ts';
+import { SessionKeeper, SignInForm } from '../state/auth.ts';
+import { ConnectionStore } from '../state/connection.ts';
+import { InboxStore } from '../state/inbox.ts';
+import { LayoutStore } from '../state/layout.ts';
+import { SessionStore } from '../state/session.ts';
+import type { Stores } from '../state/stores.ts';
+import { ThemeStore } from '../state/theme.ts';
+import { Toasts } from '../state/toasts.ts';
+
+/** Build the app's stores for `win`. */
+export function createStores(win: Window): Stores {
+  const session = new SessionStore(win.localStorage);
+  const { hub } = createHub({ origin: win.location.origin, token: () => session.accessToken.value });
+  const api = createApi(hub);
+  const connection = new ConnectionStore(api.connection);
+  const inbox = new InboxStore(api.notifications, api.userEvents);
+  const chat = new ChatStore({
+    api: api.chat, userEvents: api.userEvents, sessionEvents: api.sessionEvents, store: win.localStorage, sender: new XhrFileSender(),
+    clock: Date.now, client: () => browserClient(), me: () => session.user.value?.id,
+    recorder: () => (MediaRecorderSource.available() ? new MediaRecorderSource() : undefined),
+    renderers: { share: async () => { (await import('../chat/shared.ts')).shareChatModules(); } },
+  });
+  const admin = new AdminStore({ api: api.admin, chat: api.chat, userEvents: api.userEvents, systemLogs: api.systemLogs });
+  connection.onReconnect(() => {
+    if (!session.signedIn.value) { return; }
+    void inbox.refresh();
+    void chat.refresh();
+    if (admin.systems.list.value.value !== undefined) { void admin.systems.load(true); }
+  });
+  return {
+    session,
+    keeper: new SessionKeeper(api.auth, session),
+    theme: new ThemeStore({ store: win.localStorage, media: (query) => win.matchMedia(query), root: win.document.documentElement }),
+    layout: new LayoutStore(win.localStorage),
+    toasts: new Toasts(),
+    inbox,
+    connection,
+    chat,
+    admin,
+    signInForm: () => new SignInForm(api.auth, session),
+  };
+}

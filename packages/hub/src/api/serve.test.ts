@@ -1,0 +1,119 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SystemName, type Manifest } from '@harness/core';
+import { clientUrl } from './web/chat.ts';
+import { ClientBuildRoute, WebAppRoute, type FileRoute } from './serve.ts';
+
+/** Serve some routes on a free local port; 404 when none answers. */
+async function serveRoutes(routes: readonly FileRoute[]): Promise<{ url: string; close: () => Promise<void> }> {
+  const server: Server = createServer((req, res) => {
+    void (async () => {
+      const path = new URL(req.url ?? '/', 'http://x').pathname;
+      for (const route of routes) { if (await route.serve(req, res, path)) { return; } }
+      res.writeHead(404).end('none');
+    })();
+  });
+  await new Promise<void>((resolve) => { server.listen(0, '0.0.0.0', resolve); });
+  const address = server.address();
+  const port = typeof address === 'object' && address !== null ? address.port : 0;
+  return { url: `http://127.0.0.1:${port}`, close: () => new Promise((resolve) => { server.close(() => { resolve(); }); }) };
+}
+
+describe('WebAppRoute', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'harness-web-'));
+  let site: Awaited<ReturnType<typeof serveRoutes>>;
+  beforeAll(async () => {
+    mkdirSync(join(dir, 'assets'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>app</title>');
+    writeFileSync(join(dir, 'assets', 'app-1a2b.js'), 'console.log(1)');
+    writeFileSync(join(tmpdir(), 'harness-outside.txt'), 'secret');
+    site = await serveRoutes([new WebAppRoute(dir)]);
+  });
+  afterAll(async () => {
+    await site.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('serves files with their type, caching hashed assets for good', async () => {
+    const res = await fetch(`${site.url}/assets/app-1a2b.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/javascript');
+    expect(res.headers.get('cache-control')).toContain('immutable');
+    expect(await res.text()).toBe('console.log(1)');
+  });
+
+  it('answers app routes with index.html, checked again each time', async () => {
+    for (const path of ['/', '/sessions/ses_1', '/admin/systems?tab=pairing']) {
+      const res = await fetch(`${site.url}${path}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('no-cache');
+      expect(await res.text()).toContain('<title>app</title>');
+    }
+  });
+
+  it('leaves missing files and paths outside the folder alone', async () => {
+    expect((await fetch(`${site.url}/assets/missing.js`)).status).toBe(404);
+    expect((await fetch(`${site.url}/..%2f..%2fharness-outside.txt`)).status).toBe(404);
+    expect((await fetch(`${site.url}/%E0%A4%A`)).status).toBe(200);
+  });
+
+  it('only serves reads', async () => {
+    expect((await fetch(`${site.url}/`, { method: 'POST' })).status).toBe(404);
+    const head = await fetch(`${site.url}/assets/app-1a2b.js`, { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(head.headers.get('content-length')).toBe('14');
+  });
+});
+
+describe('ClientBuildRoute', () => {
+  const fs = SystemName.parse('fs');
+  const fileHash = 'b'.repeat(64);
+  const manifest = { client: { entry: 'index.js', hash: 'build1', files: [{ path: 'chunks/view.js', size: 6, hash: fileHash }] } };
+  let site: Awaited<ReturnType<typeof serveRoutes>>;
+  beforeAll(async () => {
+    const route = new ClientBuildRoute({
+      catalog: { manifest: (system) => Promise.resolve(system === fs ? parseManifest(manifest) : undefined) },
+      content: {
+        open: (hash) => Promise.resolve(hash === fileHash
+          ? { stream: new Blob(['view()']).stream(), size: 6, mime: 'application/octet-stream' }
+          : undefined),
+      },
+    });
+    site = await serveRoutes([route]);
+  });
+  afterAll(async () => { await site.close(); });
+
+  it('serves a file of the current build by its path, cached for good', async () => {
+    const res = await fetch(`${site.url}${clientUrl(fs, 'build1', 'chunks/view.js')}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/javascript');
+    expect(res.headers.get('cache-control')).toContain('immutable');
+    expect(res.headers.get('etag')).toBe(`"${fileHash}"`);
+    expect(await res.text()).toBe('view()');
+  });
+
+  it('says not modified when the browser has it', async () => {
+    const res = await fetch(`${site.url}${clientUrl(fs, 'build1', 'chunks/view.js')}`, { headers: { 'if-none-match': `"${fileHash}"` } });
+    expect(res.status).toBe(304);
+  });
+
+  it('refuses another build, an unknown file or system, and bad paths, without falling through to the app', async () => {
+    expect((await fetch(`${site.url}/clients/fs/old/chunks/view.js`)).status).toBe(404);
+    expect((await fetch(`${site.url}/clients/fs/build1/nope.js`)).status).toBe(404);
+    expect((await fetch(`${site.url}/clients/other/build1/chunks/view.js`)).status).toBe(404);
+    expect((await fetch(`${site.url}/clients/Bad!/x/y`)).status).toBe(404);
+    expect((await fetch(`${site.url}/clients/fs/build1/%E0%A4%A`)).status).toBe(404);
+    expect((await fetch(`${site.url}/clients/fs`)).status).toBe(404);
+  });
+});
+
+/** Only the client part of a manifest matters to the route; the rest is filled with empty sections. */
+function parseManifest(part: { client: NonNullable<Manifest['client']> }): Manifest {
+  return {
+    name: SystemName.parse('fs'), version: '1', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [],
+    mentions: [], embedders: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [], ...part,
+  };
+}

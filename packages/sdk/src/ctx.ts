@@ -151,14 +151,26 @@ export class Suspended extends Error {
   }
 }
 
-/** Thrown when a called fn fails or is cancelled. */
+/** Thrown when a called fn fails or is cancelled. `run` is the child run, when the hub reported it. */
 export class CallFailed extends Error {
   override readonly name = 'CallFailed';
-  readonly run: RunId;
+  readonly run: RunId | undefined;
   readonly error: FnError | { class: 'cancelled' };
-  constructor(run: RunId, error: FnError | { class: 'cancelled' }) {
-    super(error.class === 'cancelled' ? `Run ${run} was cancelled.` : error.message);
+  constructor(run: RunId | undefined, error: FnError | { class: 'cancelled' }) {
+    super(error.class === 'cancelled' ? `Run ${run ?? '(not started)'} was cancelled.` : error.message);
     this.run = run;
+    this.error = error;
+  }
+}
+
+/** Thrown when a handler the run called (`ctx.handlers.confirm(...)`) gave no answer: refused, failed or timed out. */
+export class HandlerFailed extends Error {
+  override readonly name = 'HandlerFailed';
+  readonly handler: string;
+  readonly error: FnError;
+  constructor(handler: string, error: FnError) {
+    super(`Handler ${handler}: ${error.message}`);
+    this.handler = handler;
     this.error = error;
   }
 }

@@ -43,6 +43,8 @@ export const IndexEntry = z.object({
   text: z.string(),
   /** Hash of `text`, so unchanged items are not embedded again. */
   hash: z.string(),
+  /** The `hash` of the text whose vector is stored; absent (or older) while the item waits for an embedder. */
+  vectorHash: z.string().optional(),
   embedder: QualifiedName,
   updatedAt: Timestamp,
 });

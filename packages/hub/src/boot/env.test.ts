@@ -9,6 +9,11 @@ describe('hub settings', () => {
     expect(settings.modelEnv.HARNESS_EMBED_DIMENSIONS).toBe(768);
   });
 
+  it('derives the public URL from the port unless it is given', () => {
+    hubEnv.set('HARNESS_PORT', 4321);
+    expect(hubEnv.get('HARNESS_URL')).toBe('http://localhost:4321');
+  });
+
   it('derives the data paths from the data folder', () => {
     hubEnv.set('HARNESS_DATA', 'test-data');
     expect(hubEnv.get('HARNESS_DB_FILE')).toBe('test-data/hub.sqlite');

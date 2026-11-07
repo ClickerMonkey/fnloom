@@ -1,0 +1,152 @@
+/**
+ * Test doubles for the web app: callers that answer from a function and record their calls, an in-memory storage,
+ * a connection whose status a test sets, and a full set of stores built on them.
+ */
+import type { CallArgs, CallReturn } from '@ayepi/core';
+import { Notification, Tokens, type UserEvent } from '@harness/core';
+import type { WebSpec } from '../admin/contract.ts';
+import type { CallerOf, Connection, Endpoint } from '../api/client.ts';
+import { SessionKeeper, SignInForm } from '../state/auth.ts';
+import { ConnectionStore } from '../state/connection.ts';
+import { InboxStore } from '../state/inbox.ts';
+import { LayoutStore } from '../state/layout.ts';
+import type { KeyValueStore } from '../state/persisted.ts';
+import { SessionStore } from '../state/session.ts';
+import type { Stores } from '../state/stores.ts';
+import { ThemeStore, type DeviceQuery } from '../state/theme.ts';
+import { Toasts } from '../state/toasts.ts';
+import { fakeChat } from '../chat/test/fakes.ts';
+import { fakeAdmin } from '../admin/test/fakes.ts';
+
+type EndpointOf<K extends Endpoint> = WebSpec['endpoints'][K];
+
+/** A caller of endpoint `K` that answers with `impl` and keeps every call's arguments in `calls`. */
+export interface FakeCaller<K extends Endpoint> extends CallerOf<K> {
+  readonly calls: CallArgs<EndpointOf<K>>[];
+}
+
+/** Make a fake caller for endpoint `K`. */
+export function fakeCaller<K extends Endpoint>(impl: (...args: CallArgs<EndpointOf<K>>) => CallReturn<EndpointOf<K>>): FakeCaller<K> {
+  const calls: CallArgs<EndpointOf<K>>[] = [];
+  return {
+    calls,
+    call: (...args) => { calls.push(args); return impl(...args); },
+    cancel: () => undefined,
+    invalidate: () => undefined,
+    pending: 0,
+  };
+}
+
+/** A caller of endpoint `K` that fails every call with `error`. */
+export function failingCaller<K extends Endpoint>(error: unknown): FakeCaller<K> {
+  return fakeCaller<K>(() => { throw error; });
+}
+
+/** Storage backed by a map. */
+export function memoryStore(initial: Record<string, string> = {}): KeyValueStore & { readonly data: Map<string, string> } {
+  const data = new Map(Object.entries(initial));
+  return {
+    data,
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => { data.set(key, value); },
+    removeItem: (key) => { data.delete(key); },
+  };
+}
+
+/** A connection whose status the test sets with `set`. */
+export function fakeConnection(initial: 'online' | 'offline' = 'online'): Connection & { set(status: 'online' | 'offline'): void } {
+  let status = initial;
+  const listeners = new Set<(status: 'online' | 'offline') => void>();
+  return {
+    get status() { return status; },
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    set: (next) => { status = next; for (const listener of listeners) { listener(next); } },
+  };
+}
+
+/** A media query list whose `matches` the test sets with `set`. */
+export function fakeMedia(matches = false): { media: () => DeviceQuery; set(matches: boolean): void } {
+  let current = matches;
+  const listeners = new Set<(event: { readonly matches: boolean }) => void>();
+  const list: DeviceQuery = {
+    get matches() { return current; },
+    addEventListener: (_type, listener) => { listeners.add(listener); },
+    removeEventListener: (_type, listener) => { listeners.delete(listener); },
+  };
+  return {
+    media: () => list,
+    set: (next) => { current = next; for (const listener of listeners) { listener({ matches: next }); } },
+  };
+}
+
+/** Tokens for a signed-in admin. */
+export function tokens(overrides: Partial<Tokens> = {}): Tokens {
+  return Tokens.parse({
+    access: 'access.token', refresh: 'refresh-token', expiresIn: 900_000,
+    user: { id: 'act_ada', kind: 'user', name: 'Ada Lovelace', email: 'ada@example.com', role: 'admin' },
+    ...overrides,
+  });
+}
+
+let nextNotification = 1;
+/** A notification, parsed through the hub's schema so its ids are the real branded types. */
+export function notification(overrides: Partial<Record<keyof Notification, unknown>> = {}): Notification {
+  const n = nextNotification++;
+  return Notification.parse({
+    id: `ntf_${n}`, user: 'act_ada', reason: 'turn-finished', title: `Notification ${n}`, body: 'Done.', link: { session: 'ses_1' },
+    read: false, pushed: false, createdAt: 1_700_000_000_000 + n, ...overrides,
+  });
+}
+
+/** The callers the stores use, each answering with a sensible default. */
+export function fakeApi() {
+  return {
+    auth: {
+      setup: fakeCaller<'setup'>(() => Promise.resolve({ needsAdmin: false, name: 'Test hub', version: '1.0.0' })),
+      createAdmin: fakeCaller<'createAdmin'>(() => Promise.resolve(tokens())),
+      signIn: fakeCaller<'signIn'>(() => Promise.resolve(tokens())),
+      refresh: fakeCaller<'refresh'>(() => Promise.resolve(tokens({ access: 'access.fresh' }))),
+      signOut: fakeCaller<'signOut'>(() => Promise.resolve()),
+      me: fakeCaller<'me'>(() => Promise.resolve(tokens().user)),
+    },
+    notifications: {
+      list: fakeCaller<'notifications'>(() => Promise.resolve({ items: [] })),
+      markRead: fakeCaller<'readNotifications'>(() => Promise.resolve()),
+    },
+  };
+}
+
+/** A user-event channel a test pushes events into. */
+export function fakeUserEvents(): { subscribe: (listener: (event: UserEvent) => void) => () => void; push(event: UserEvent): void; readonly listeners: number } {
+  const listeners = new Set<(event: UserEvent) => void>();
+  return {
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    push: (event) => { for (const listener of listeners) { listener(event); } },
+    get listeners() { return listeners.size; },
+  };
+}
+
+/** Every store, built on fakes. `signedIn` starts the session signed in. */
+export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeof fakeApi> } = {}) {
+  const store = memoryStore();
+  const api = options.api ?? fakeApi();
+  const events = fakeUserEvents();
+  const connection = fakeConnection();
+  const session = new SessionStore(store);
+  if (options.signedIn === true) { session.keep(tokens()); }
+  const chat = fakeChat();
+  const admin = fakeAdmin();
+  const stores: Stores = {
+    session,
+    keeper: new SessionKeeper(api.auth, session),
+    theme: new ThemeStore({ store, media: fakeMedia().media, root: document.documentElement }),
+    layout: new LayoutStore(store),
+    toasts: new Toasts(),
+    inbox: new InboxStore(api.notifications, events.subscribe),
+    connection: new ConnectionStore(connection),
+    chat: chat.chat,
+    admin: admin.admin,
+    signInForm: () => new SignInForm(api.auth, session),
+  };
+  return { stores, api, events, connection, store, chat, admin };
+}

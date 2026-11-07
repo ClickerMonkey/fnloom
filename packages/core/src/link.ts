@@ -12,7 +12,9 @@ import {
   ActorId, DeliveryId, Duration, HandlerCallId, Json, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
 import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section } from './resources.ts';
-import { AllowedOperations, BudgetLeft, HandlerAnswer, OutcomeWire, ProgressReport, RunInfo, RunSettled, UndoOutcome } from './run.ts';
+import {
+  AllowedOperations, BudgetLeft, HandlerAnswer, OutcomeWire, ProgressReport, RunInfo, RunSettled, RunUpdate, TimeInfo, UndoOutcome, UserInfo,
+} from './run.ts';
 
 // ─── Handshake ────────────────────────────────────────────────────────────────
 
@@ -123,13 +125,24 @@ export type RunRequest = z.infer<typeof RunRequest>;
 export const StateOwner = z.union([z.object({ run: RunId }), z.object({ delivery: DeliveryId })]);
 export type StateOwner = z.infer<typeof StateOwner>;
 
-/** Where the caller of a session-scoped request is. */
-export const Asker = z.object({ session: SessionId, actor: ActorId });
+/**
+ * Who is asking, for requests a person causes (mentions, actions, dynamic context): their session, their actor, and
+ * the same who-and-when a run gets, so a system never guesses at the person or their "today".
+ */
+export const Asker = z.object({ session: SessionId, actor: ActorId, user: UserInfo, time: TimeInfo });
 export type Asker = z.infer<typeof Asker>;
 
 /** A log line forwarded from a system. */
 export const LogLine = z.object({ level: z.enum(['debug', 'info', 'warn', 'error']), key: z.string(), fields: JsonObject });
 export type LogLine = z.infer<typeof LogLine>;
+
+/** Cancel or pause a run. The hub sends it to the system running the run; a system sends it for its own child calls. */
+export const RunControl = z.object({ run: RunId, action: z.enum(['cancel', 'pause']) });
+export type RunControl = z.infer<typeof RunControl>;
+
+/** Whether a cancel or pause was taken up, and why not. */
+export const ControlReply = z.object({ accepted: z.boolean(), reason: z.string().optional() });
+export type ControlReply = z.infer<typeof ControlReply>;
 
 /** Why a system is told to stop. */
 export const StopReason = z.enum(['restart', 'upgrade', 'shutdown', 'removed']);
@@ -155,14 +168,19 @@ const linked = use(linkSession).group({
     response: RunSettled,
     ws: 'call',
   },
+  /** A run calls one of its caller's handlers (`ctx.handlers.confirm(...)`). The hub relays it to whoever answers. */
+  handle: { body: z.object({ run: RunId, handler: z.string(), args: Json }), response: HandlerAnswer, ws: 'ha' },
+  /** Cancel or pause a child run this system called (`FnCall.cancel()` / `pause()`). */
+  control: { body: RunControl, response: ControlReply, ws: 'cl' },
   progress: { body: z.object({ run: RunId, progress: ProgressReport }), ws: 'pg' },
   allow: { body: z.object({ run: RunId, operations: AllowedOperations.partial() }), ws: 'al' },
   undoWith: { body: z.object({ run: RunId, undo: Json }), ws: 'uw' },
+  /** Attach to the run's assistant message: a system attachment (its data checked by the hub too) or a link. */
   attach: {
-    body: z.union([
-      z.object({ run: RunId, attachment: QualifiedName, data: Json, title: z.string() }),
-      z.object({ run: RunId, link: Link }),
-    ]),
+    body: z.object({
+      run: RunId,
+      item: z.union([z.object({ attachment: QualifiedName, data: Json, title: z.string() }), z.object({ link: Link })]),
+    }),
     ws: 'at',
   },
   /** Answer a handler call the hub relayed to this system (it was the caller). */
@@ -178,7 +196,7 @@ const linked = use(linkSession).group({
   upload: { body: z.object({ upload: z.string(), chunk: z.string(), last: z.boolean(), mime: z.string() }), response: z.object({ ref: ContentRef.optional() }), ws: 'up' },
   setting: { body: z.object({ run: RunId, setting: QualifiedName }), response: z.object({ value: Json.optional() }), ws: 'st' },
   /** Session state: the hub reads and writes only the fields the fn or action declared, matched by name and type. */
-  stateGet: { body: StateOwner, response: z.object({ values: JsonObject, version: z.number().int() }), ws: 'sg' },
+  stateGet: { body: z.object({ owner: StateOwner }), response: z.object({ values: JsonObject, version: z.number().int() }), ws: 'sg' },
   /** Refused with `conflict` if another write came in after `version` (the SDK retries). */
   stateSet: {
     body: z.object({ owner: StateOwner, patch: JsonObject, clear: z.array(z.string()), version: z.number().int().optional() }),
@@ -206,12 +224,29 @@ export const systemLinkSpec = spec({
     /** The pairing was approved: say hello again to get a challenge. */
     paired: endpoint({ body: z.object({ pairing: PairingId }), ws: 'pd' }),
     run: endpoint({ body: RunRequest, response: OutcomeWire, ws: 'run' }),
-    control: endpoint({ body: z.object({ run: RunId, action: z.enum(['cancel', 'pause']) }), response: z.object({ accepted: z.boolean(), reason: z.string().optional() }), ws: 'ctl' }),
-    undo: endpoint({ body: z.object({ run: RunId, fn: z.string(), payload: Json }), response: UndoOutcome, ws: 'un' }),
-    /** Relay a handler call to the system whose run supplied the handler. */
-    handler: endpoint({ body: z.object({ call: HandlerCallId, run: RunId, handler: z.string(), args: Json }), response: HandlerAnswer, ws: 'hd' }),
+    control: endpoint({ body: RunControl, response: ControlReply, ws: 'ctl' }),
+    /**
+     * Undo a finished run with the undo payload it registered. `run` is the run as it ran (who it was for); a fn of a
+     * kind also carries its kind and the fn's payload, since the kind's system undoes it.
+     */
+    undo: endpoint({
+      body: z.object({ run: RunInfo, fn: z.string(), kind: z.union([z.literal('native'), QualifiedName]), fnPayload: Json.optional(), payload: Json }),
+      response: UndoOutcome,
+      ws: 'un',
+    }),
+    /**
+     * Relay a handler call to the system whose run supplied the handler. `run` is that (calling) run and `key` the
+     * call key it made the call under, so concurrent calls supplying the same handler stay apart.
+     */
+    handler: endpoint({ body: z.object({ call: HandlerCallId, run: RunId, key: z.string(), handler: z.string(), args: Json }), response: HandlerAnswer, ws: 'hd' }),
+    /**
+     * About a child call this system made: the hub created its run (`update` absent), or the run changed. Lets
+     * `FnCall.run` resolve as soon as the child exists and `FnCall.watch` follow it.
+     */
+    child: endpoint({ body: z.object({ parent: RunId, key: z.string(), run: RunId, update: RunUpdate.optional() }), ws: 'ch' }),
     check: endpoint({ body: z.object({ kind: z.string(), payload: Json }), response: z.object({ problems: z.array(z.string()), description: KindDescription.optional() }), ws: 'ck' }),
-    context: endpoint({ body: z.object({ name: z.string(), args: z.record(z.string(), z.string()), session: SessionId.optional(), actor: ActorId }), response: z.object({ text: z.string() }), ws: 'cx' }),
+    /** Dynamic context for a `/command` or a load. `session` is absent for a load outside a session. */
+    context: endpoint({ body: Asker.partial({ session: true }).extend({ name: z.string(), args: z.record(z.string(), z.string()) }), response: z.object({ text: z.string() }), ws: 'cx' }),
     roots: endpoint({ response: z.array(ResourceRoot), ws: 'ro' }),
     list: endpoint({ body: z.object({ uri: ResourceUri, cursor: z.string().optional() }), response: page(ResourceStat), ws: 'ls' }),
     stat: endpoint({ body: z.object({ uri: ResourceUri }), response: z.object({ stat: ResourceStat.optional() }), ws: 'sa' }),

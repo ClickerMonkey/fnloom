@@ -16,7 +16,8 @@ export type Renderer<P> = Component<P>;
 
 /** A message on its way: stored by the hub, delivered when the system is online. Its status is live. */
 export interface Delivery<R> {
-  readonly id: DeliveryId;
+  /** The hub's id for it, once the hub has stored it. */
+  readonly id: DeliveryId | undefined;
   readonly status: DeliveryStatus;
   /** Resolves when the system has handled it. */
   readonly result: Promise<R>;
@@ -106,15 +107,19 @@ export interface ClientRenderers<C extends ContractShape> {
   resources?: Record<string, Renderer<ResourceView & WithSystem<C>>>;
 }
 
-/** A built client module: a system's renderers, typed by its contract. The chat UI loads it from the hub. */
+/**
+ * A built client module: a system's renderers, typed by its contract, and the contract itself (so the chat checks
+ * action inputs and results with the system's own gin types). The chat UI loads it from the hub.
+ */
 export interface ClientModule<C extends ContractShape = ContractShape> {
   readonly system: string;
+  readonly contract: SystemContract<string, C>;
   readonly renderers: ClientRenderers<C>;
 }
 
 /** Declare a system's renderers in `client/`. */
 export function client<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, renderers: ClientRenderers<C>): ClientModule<C> {
-  return { system: contract.name, renderers };
+  return { system: contract.name, contract, renderers };
 }
 
 /** The props of `ResourceViewer`. */
@@ -127,6 +132,7 @@ export interface ResourceViewerProps {
 
 /**
  * Shows any resource with the viewer for its format, from the hub or any system. The chat provides it under this
- * key; inside a renderer, `inject(RESOURCE_VIEWER)` gives the component.
+ * key; inside a renderer, `inject(RESOURCE_VIEWER)` gives the component. The key is a global symbol, so a system's
+ * separately built bundle sees the same one.
  */
-export const RESOURCE_VIEWER: InjectionKey<Component<ResourceViewerProps>> = Symbol('harness.resourceViewer');
+export const RESOURCE_VIEWER: InjectionKey<Component<ResourceViewerProps>> = Symbol.for('harness.resourceViewer');

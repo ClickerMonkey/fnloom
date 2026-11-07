@@ -1,0 +1,163 @@
+/**
+ * Builds the execution module from the other modules' interfaces: the ledger and limits over the store, the
+ * policies, the two queues, the run service with its three executors (systems, the hub's own fns, the agent loop),
+ * the hub AI with its hooks, the gateway systems forward LLM calls through, the handler relay, and the link
+ * endpoints it serves. `executionModule` is the same as a boot `ModuleFactory`.
+ */
+import type { ModelInfo, Providers } from '@aeye/ai';
+import { plugin } from '@ayepi/plugin';
+import { hubLinkSpec } from '@harness/core';
+import { spec } from '@ayepi/core';
+import type { HubServices, ModuleFactory } from '../boot/index.ts';
+import { AeyeLlm, createHubAi, HubAiHooks, modelLimiter } from './ai.ts';
+import { HubAgentLoop, type AgentLoopDeps } from './agent.ts';
+import { executionEnv } from './env.ts';
+import { HubFns, SystemExecutor } from './executors.ts';
+import { HubLlmGateway } from './gateway.ts';
+import { HandlerRelay } from './handlers.ts';
+import { registerRunFns } from './hub-fns.ts';
+import { InteractionRecorder } from './interactions.ts';
+import { HubLedger } from './ledger.ts';
+import { HubLimitResolver } from './limits.ts';
+import { ChildRelay, executionLinkHandlers, type ExecutionLinkEndpoints, type LinkHandler } from './link-handlers.ts';
+import { ModelResolver } from './models.ts';
+import { HubPolicyEngine } from './policies.ts';
+import { openRouterProviders } from './providers.ts';
+import type { ExecutionDeps, LlmEngine } from './ports.ts';
+import { ExecutionQueues, type QueuePorts } from './queues.ts';
+import { HubRunService } from './runs.ts';
+import { LedgerSpend } from './spend.ts';
+import { messageOf } from './errors.ts';
+import { HUB_SYSTEM } from '../catalog/availability.ts';
+
+/** How the module reaches models: providers for the hub AI, or (in tests) an engine built on the hooks. */
+export type LlmSource =
+  | { readonly providers: Providers; readonly models?: ModelInfo[] }
+  | { readonly engine: (hooks: HubAiHooks) => LlmEngine };
+
+/** What the module is built from. */
+export interface ExecutionInput extends ExecutionDeps, Pick<AgentLoopDeps, 'enrich'> {
+  /** The ayepi ports the queues and rate limits run on (the store's, in production). */
+  readonly ports: QueuePorts;
+  readonly llm: LlmSource;
+}
+
+/** The execution services every other module sees. */
+type ExecutionServices = HubServices['execution'];
+
+/** The execution module: its services, the extras other modules wire in, and its start and stop. */
+export interface ExecutionModule extends ExecutionServices {
+  readonly runs: HubRunService;
+  readonly agents: HubAgentLoop;
+  readonly handlers: HandlerRelay;
+  /** The hub's own native fns: other modules register theirs here (`hub/search_fns`, …). */
+  readonly hubFns: HubFns;
+  /** The hub link endpoints execution serves, for the link server. */
+  readonly linkHandlers: { [K in ExecutionLinkEndpoints]: LinkHandler<K> };
+  /**
+   * Start the queues, pick up agents that were waiting for tools and hub fn runs a stop cut short, relay child runs
+   * to their callers, and send a system its unsettled runs again each time it is connected.
+   */
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
+/** Build the execution module. */
+export function createExecution(input: ExecutionInput): ExecutionModule {
+  const spend = new LedgerSpend(input.store);
+  const ledger = new HubLedger(input, spend);
+  const limits = new HubLimitResolver(input, spend);
+  const policies = new HubPolicyEngine(input);
+  const recorder = new InteractionRecorder(input);
+  const queues: ExecutionQueues = new ExecutionQueues(input, input.ports, {
+    run: (job, signal): Promise<void> => runs.execute(job, signal),
+    llm: (job, signal): Promise<void> => agents.handle(job, signal),
+  });
+  const runs: HubRunService = new HubRunService({ ...input, policies, ledger, queues });
+  const hooks = new HubAiHooks({ ...input, ledger, recorder, costs: runs, modelLimit: modelLimiter(input.settings, input.ports.rate) });
+  const source = input.llm;
+  const engine = 'engine' in source
+    ? source.engine(hooks)
+    : new AeyeLlm(createHubAi({ providers: source.providers, hooks, log: input.log, ...(source.models === undefined ? {} : { models: source.models }) }));
+  const models = new ModelResolver(input);
+  const agents: HubAgentLoop = new HubAgentLoop({ ...input, runs, queues, llm: engine, models });
+  const hubFns = new HubFns();
+  registerRunFns(hubFns, runs);
+  runs.use('system', new SystemExecutor(input));
+  runs.use('hub', hubFns);
+  runs.use('agent', agents);
+  const llm = new HubLlmGateway({ ...input, runs, queues, llm: engine, models });
+  const handlers = new HandlerRelay({ ...input, runs });
+  const relay = new ChildRelay(input);
+  const stops: Array<() => void> = [];
+
+  return {
+    runs, agents, llm, limits, ledger, policies, handlers, hubFns,
+    linkHandlers: executionLinkHandlers({ ...input, runs, gateway: llm, handlers }),
+    async start() {
+      queues.start();
+      stops.push(relay.start(), input.bus.subscribe('system.status', ({ system, status }) => {
+        if (status !== 'connected') return;
+        void runs.resend(system).catch((error: unknown) => { input.log.error('run.resend-failed', { system, error: messageOf(error) }); });
+      }));
+      await agents.recover();
+      await runs.resend(HUB_SYSTEM);
+      input.log.info('execution.started', {});
+    },
+    async stop() {
+      for (const stop of stops.splice(0)) stop();
+      runs.drain();
+      await queues.stop();
+      input.log.info('execution.stopped', {});
+    },
+  };
+}
+
+/** The slice of the hub link execution serves: the same endpoint objects, so its types are the spec's. */
+export const EXECUTION_LINK_SPEC = spec({
+  endpoints: {
+    call: hubLinkSpec.endpoints.call,
+    handle: hubLinkSpec.endpoints.handle,
+    control: hubLinkSpec.endpoints.control,
+    progress: hubLinkSpec.endpoints.progress,
+    allow: hubLinkSpec.endpoints.allow,
+    undoWith: hubLinkSpec.endpoints.undoWith,
+    llm: hubLinkSpec.endpoints.llm,
+  },
+});
+
+/**
+ * The execution module as a boot module factory. Other services are read lazily (inside methods), so the module can
+ * be built before the ones it uses.
+ */
+export function executionModule(options: {
+  /** Who answers approvals, as people (chat's `StoreApprovers`). */
+  readonly approvers: ExecutionDeps['approvers'];
+  /** Where models come from; defaults to OpenRouter with the key in the model env slice. */
+  readonly llm?: (hub: HubServices) => LlmSource;
+}): ModuleFactory<'execution'> {
+  return ({ hub }) => {
+    const settings = { queue: hub.settings.queueEnv, model: hub.settings.modelEnv, execution: executionEnv.parse() };
+    const module = createExecution({
+      settings,
+      get log() { return hub.log; },
+      clock: () => hub.clock(),
+      get store() { return hub.store; },
+      get bus() { return hub.bus; },
+      get catalog() { return hub.catalog; },
+      get link() { return hub.link.connections; },
+      get config() { return hub.link.config; },
+      get presence() { return hub.chat.sessions; },
+      get turns() { return hub.chat.turns; },
+      get enrich() { return hub.chat.enrich; },
+      approvers: options.approvers,
+      get ports() { return hub.store.ports; },
+      llm: options.llm?.(hub) ?? { providers: openRouterProviders(hub.settings.modelEnv.OPENROUTER_API_KEY) },
+    });
+    return {
+      services: module,
+      hooks: { work: { up: () => module.start(), pre: () => module.stop() } },
+      linkPlugins: [plugin({ name: 'execution', spec: EXECUTION_LINK_SPEC }).handlers(() => module.linkHandlers)],
+    };
+  };
+}

@@ -1294,11 +1294,11 @@ export const manifest = {
   },
   "events": {
     "session": {
-      "ws": "session",
+      "ws": "on.session",
       "hasParams": true
     },
     "user": {
-      "ws": "user",
+      "ws": "on.user",
       "hasParams": false
     }
   }

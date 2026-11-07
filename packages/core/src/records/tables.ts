@@ -9,7 +9,7 @@ import { ChatMessage, Session } from './chat.ts';
 import { IndexEntry, Notification, PushSubscription, ResourceRecord, SectionRule } from './content.ts';
 import { DeliveryRecord, HandlerCall, LlmInteraction, Run, StateField, Turn } from './runs.ts';
 import { BudgetRule, LedgerEntry, ModelCategory, PriorityRule, ProviderRecord, Reservation, Secret } from './spend.ts';
-import { ContextRecord, FnRecord, KindRecord, PairingRequest, PairingToken, SystemRecord, TypeRecord } from './systems.ts';
+import { ContextRecord, FnRecord, KindRecord, PairingRequest, PairingToken, SystemManifest, SystemRecord, TypeRecord } from './systems.ts';
 import { Section } from '../resources.ts';
 import { ResourceUri } from '../resources.ts';
 
@@ -37,6 +37,7 @@ export const HUB_TABLES = {
   policies: table(Policy, (r) => r.id),
   approvals: table(Approval, (r) => r.id),
   systems: table(SystemRecord, (r) => r.name),
+  manifests: table(SystemManifest, (r) => r.system),
   pairings: table(PairingRequest, (r) => r.id),
   pairingTokens: table(PairingToken, (r) => r.id),
   types: table(TypeRecord, (r) => r.name),

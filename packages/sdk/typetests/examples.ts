@@ -2,14 +2,15 @@
 // `npm run typecheck` fails if an expectation breaks. Every `@ts-expect-error` marks a mistake a system author must
 // not be able to make.
 
-import { h, type DefineComponent } from 'vue';
+import { h, type Component, type DefineComponent } from 'vue';
 import {
   client, expectType, fn, g, handler, hub, json, kind, mention, steps, system, type,
   type AttachmentViewOf, type ContextRef, type Equal, type FnRef, type FnViewOf, type Infer, type InputViewOf, type ValueOf,
 } from '@harness/sdk';
-import { serve } from '@harness/sdk/server';
+import { harnessAiOf, serve, type HarnessAi } from '@harness/sdk/server';
+import { type ClientRuntime } from '@harness/sdk/client';
 import { fs, type Entry } from '@harness/system-fs';
-import type { ContentRef } from '@harness/core';
+import { mintId, type ContentRef } from '@harness/core';
 
 // Stand-ins for real file and shell code.
 declare function readText(path: string): Promise<string>;
@@ -388,3 +389,27 @@ client(fs, { attachments: { diff: WrongView } });
 client(fs, { fns: { read: (view: FnViewOf<typeof fs, 'bash'>) => h('pre', view.args.command) } });
 // @ts-expect-error renderers only for things the contract has
 client(fs, { fns: { nope: BashView } });
+
+// ── The runtime surface is typed by the contract too ──────────────────────────
+
+declare const runningFs: Awaited<ReturnType<typeof serve<'fs', typeof fs.defs>>>;
+// a fn added at runtime gets a ref named under its system, typed by its def; its implementation is checked
+void runningFs.add('shout', fn({ description: 'Shout.', args: g.obj({ text: g.text() }), returns: g.text() }), {
+  async run(args, ctx) { return ctx.done(args.text.toUpperCase()); },
+}).then((ref) => {
+  expectType<Equal<typeof ref.name, 'fs/shout'>>(true);
+  expectType<Equal<Infer<typeof ref.args>, { text: string }>>(true);
+});
+// @ts-expect-error a runtime native fn's result is checked as well
+void runningFs.add('bad', fn({ description: 'Bad.', args: g.obj({}), returns: g.num() }), { async run(_a, ctx) { return ctx.done('x'); } });
+
+// the chat registers any system's module, whatever its contract, and looks renderers up by qualified name
+declare const runtime: ClientRuntime;
+runtime.register(fsClient);
+runtime.register(deployClient);
+expectType<Equal<ReturnType<ClientRuntime['fnRenderer']>, Component | undefined>>(true);
+// a form is submitted with the fn's own form type
+void runtime.submit(mintId('run'), deploy.defs.fns.approve.form ?? g.obj({ approved: g.bool(), note: g.optional(g.text()) }), { approved: true });
+
+// the hub-backed aeye AI for a run, for prompts, tools and agents
+void serve(tiny, { fns: { ping: { async run(_a, ctx) { expectType<Equal<ReturnType<typeof harnessAiOf>, HarnessAi>>(true); void harnessAiOf(ctx.llm); return ctx.done('pong'); } } } }, { hub: '', state: '' });

@@ -1,0 +1,314 @@
+import { IDS, SystemName, type OutgoingPart, type Participant } from '@harness/core';
+import { describe, expect, it } from 'vitest';
+import { agentActorId } from './support.ts';
+import { CLIENT, LIMITS, chatWorld, gin, makeRun, settle } from './testing.ts';
+import { plainText } from './turns.ts';
+
+const chatAgent = agentActorId('hub/chat');
+
+/** Add a person to a session. */
+async function addPerson(w: Awaited<ReturnType<typeof chatWorld>>, name: string, notify: Participant['notify'] = 'all') {
+  const person = await w.user(name);
+  const row = await w.store.table('sessions').get(w.session.id);
+  await w.store.table('sessions').update(w.session.id, { participants: [...(row?.participants ?? []), { actor: person.id, role: 'member', notify, joinedAt: 0 }] });
+  return person;
+}
+
+describe('sending a message', () => {
+  it('stores the turn and message, wakes the agent, and names the session', async () => {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'Plan a trip to Lisbon' }], client: CLIENT });
+    expect(sent.message).toMatchObject({ session: w.session.id, turn: sent.turn, author: w.admin.id, role: 'user', status: 'done', replyAll: false, answerers: [chatAgent] });
+    expect(sent.message.parts[0]).toEqual({ type: 'text', text: 'Plan a trip to Lisbon' });
+    expect(sent.message.parts[1]).toMatchObject({ type: 'extra', extra: 'local-time' });
+    const turn = await w.store.table('turns').get(sent.turn);
+    expect(turn).toMatchObject({ session: w.session.id, message: sent.message.id, actor: w.admin.id, status: 'running', limits: LIMITS, cost: 0, errors: { max: 3 }, client: CLIENT });
+    expect(turn?.user).toMatchObject({ id: w.admin.id, timeZone: 'America/New_York', locale: 'en-US', groups: [] });
+    expect(turn?.time.local).toBe('2026-11-07T09:30:00-05:00');
+    expect(w.agents.started).toEqual([expect.objectContaining({
+      kind: 'hub/llm', fn: 'hub/chat', turn: sent.turn, session: w.session.id, actor: w.admin.id, caller: chatAgent, priority: 'interactive', background: false,
+      budget: { cost: LIMITS.turn.cost, time: LIMITS.turn.time },
+    })]);
+    expect((await w.store.table('turns').get(sent.turn))?.root).toBeDefined();
+    const session = await w.store.table('sessions').get(w.session.id);
+    expect(session).toMatchObject({ title: 'Plan a trip to Lisbon', status: 'running' });
+    expect(w.limits.asked[0]).toMatchObject({ session: w.session.id, turn: sent.turn });
+    await settle();
+    expect(w.bus.of('message').map((e) => e.message.id)).toEqual([sent.message.id]);
+  });
+
+  it('keeps errors flowing back to the agent when the turn error limit is 0', async () => {
+    const w = await chatWorld();
+    const deps = { ...w.deps, settings: { ...w.deps.settings, chat: { ...w.deps.settings.chat, HARNESS_TURN_ERRORS: 0 } } };
+    const { createChat } = await import('./chat.ts');
+    const chat = createChat(deps);
+    const sent = await chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'x' }], client: CLIENT });
+    expect((await w.store.table('turns').get(sent.turn))?.errors).toBe('feed-back');
+  });
+
+  it('writes each mention\'s LLM text at send time, asking its system as the person', async () => {
+    const w = await chatWorld();
+    w.catalog.addEntry('mentions', 'crm/rows', { name: 'rows', title: 'Rows', description: 'Rows.', target: gin({ name: 'obj', props: { id: { type: { name: 'text' } } } }) });
+    const crm = w.link.connect('crm', { mentionText: async ({ target, user, time }) => Promise.resolve({ text: `Row ${JSON.stringify(target)} for ${user.name} at ${time.local}` }) });
+    const sent = await w.chat.turns.send({
+      session: w.session.id, author: w.admin.id, client: CLIENT,
+      parts: [{ type: 'text', text: 'Look at ' }, { type: 'mention', provider: 'crm/rows', label: 'Acme', target: { id: '42' } }],
+    });
+    expect(sent.message.parts[1]).toEqual({ type: 'mention', provider: 'crm/rows', label: 'Acme', target: { id: '42' }, text: 'Row {"id":"42"} for Ada at 2026-11-07T09:30:00-05:00' });
+    expect(crm.calls[0]?.data).toMatchObject({ session: w.session.id, actor: w.admin.id, provider: 'rows', target: { id: '42' } });
+    expect((await w.store.table('sessions').get(w.session.id))?.title).toBe('Look at @Acme');
+  });
+
+  it('falls back to a plain mention text when the system can\'t be asked', async () => {
+    const w = await chatWorld();
+    w.catalog.addEntry('mentions', 'crm/rows', { name: 'rows', title: 'Rows', description: 'Rows.', target: gin({ name: 'any' }) });
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'mention', provider: 'crm/rows', label: 'Acme', target: 1 }] });
+    expect(sent.message.parts[0]).toMatchObject({ type: 'mention', text: '"Acme" from crm/rows (its details could not be fetched when this was sent).' });
+    expect(w.logs.some((l) => l.msg === 'chat.mention.text.failed')).toBe(true);
+  });
+
+  it('refuses a mention target that isn\'t the provider\'s type, an unknown provider, and one the session excludes', async () => {
+    const w = await chatWorld({ systems: [SystemName.parse('crm')] });
+    w.catalog.addEntry('mentions', 'crm/rows', { name: 'rows', title: 'Rows', description: 'Rows.', target: gin({ name: 'text' }) });
+    w.catalog.checker = (_, type, value) => (type.name === 'text' && typeof value !== 'string' ? ['expected text'] : []);
+    const send = (provider: `${string}/${string}`, target: number | string) => w.chat.turns.send({
+      session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'mention', provider, label: 'x', target }],
+    });
+    await expect(send('crm/rows', 42)).rejects.toMatchObject({ code: 'invalid' });
+    await expect(send('crm/none', 42)).rejects.toMatchObject({ code: 'not-found' });
+    await expect(send('fs/files', 42)).rejects.toMatchObject({ code: 'unavailable' });
+    w.catalog.unavailable.set('crm/rows', { unavailable: 'system-disconnected', detail: 'crm is offline' });
+    await expect(send('crm/rows', 42)).rejects.toMatchObject({ code: 'unavailable' });
+    expect(await w.store.table('turns').count()).toBe(0);
+  });
+
+  it('resolves the hub\'s own mentions in the hub', async () => {
+    const w = await chatWorld();
+    w.catalog.addFn('fs', { name: 'read', description: 'Read a file.' });
+    w.catalog.addEntry('mentions', 'hub/fns', { name: 'fns', title: 'Fns', description: 'Fns.', target: gin({ name: 'any' }) });
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'mention', provider: 'hub/fns', label: 'read', target: { fn: 'fs/read' } }] });
+    expect(sent.message.parts[0]).toMatchObject({ text: 'The fn fs/read of the fs system: Read a file.' });
+  });
+
+  it('adds what hooks load to the session\'s tools and context, when usable', async () => {
+    const w = await chatWorld();
+    w.catalog.addEntry('hooks', 'git/load', { name: 'load', description: 'Loads.', order: 0, timeout: 1_000 });
+    w.catalog.unavailable.set('git/off', { unavailable: 'disabled', detail: 'off' });
+    w.link.connect('git', { hook: async () => Promise.resolve([{ type: 'load', fns: ['git/log', 'git/off'], context: ['git/guide'] }]) });
+    await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'x' }] });
+    const session = await w.store.table('sessions').get(w.session.id);
+    expect(session?.tools).toEqual(['git/log']);
+    expect(session?.context).toEqual(['git/guide']);
+  });
+
+  it('refuses an empty message', async () => {
+    const w = await chatWorld();
+    for (const parts of [[], [{ type: 'text', text: '  ' }]] satisfies OutgoingPart[][]) {
+      await expect(w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts })).rejects.toMatchObject({ code: 'invalid' });
+    }
+    expect(await w.store.table('turns').count({ session: w.session.id })).toBe(0);
+  });
+
+  it('pulls in the context of each /command, refusing unknown, excluded, unusable and incomplete ones', async () => {
+    const w = await chatWorld({ systems: [SystemName.parse('git')] });
+    w.catalog.addContext('git', { name: 'guide', command: { name: 'guide', args: [{ name: 'topic', hint: 'What about', required: true }] } });
+    w.catalog.addContext('git', { name: 'plain' });
+    w.catalog.addContext('crm', { name: 'deals', command: { name: 'deals', args: [] } });
+    const send = async (part: OutgoingPart) => w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [part] });
+    await expect(send({ type: 'command', context: 'git/none', args: {} })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(send({ type: 'command', context: 'git/plain', args: {} })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(send({ type: 'command', context: 'crm/deals', args: {} })).rejects.toMatchObject({ code: 'unavailable' });
+    await expect(send({ type: 'command', context: 'git/guide', args: { topic: ' ' } })).rejects.toMatchObject({ code: 'invalid' });
+    w.catalog.unavailable.set('git/guide', { unavailable: 'disabled', detail: 'off' });
+    await expect(send({ type: 'command', context: 'git/guide', args: { topic: 'rebase' } })).rejects.toMatchObject({ code: 'unavailable' });
+    expect(await w.store.table('turns').count({ session: w.session.id })).toBe(0);
+    w.catalog.unavailable.delete('git/guide');
+    await send({ type: 'command', context: 'git/guide', args: { topic: 'rebase' } });
+    expect((await w.store.table('sessions').get(w.session.id))?.context).toEqual(['git/guide']);
+  });
+
+  it('moves agents still busy in the session to the background before waking the next', async () => {
+    const w = await chatWorld();
+    await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_old'), fn: 'hub/chat', kind: 'hub/llm', turn: IDS.turn.parse('trn_old'), actor: w.admin.id, session: w.session.id, status: 'waiting' }));
+    await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_child'), fn: 'hub/chat', kind: 'hub/llm', turn: IDS.turn.parse('trn_old'), actor: w.admin.id, session: w.session.id, status: 'running', parent: IDS.run.parse('run_old') }));
+    await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'actually, stop' }] });
+    expect(w.agents.interrupted).toEqual(['run_old']);
+    expect(w.agents.started).toHaveLength(1);
+  });
+
+  it('wakes no agent when several people talk among themselves, and tells the person replied to', async () => {
+    const w = await chatWorld();
+    const bo = await addPerson(w, 'Bo');
+    const first = await w.chat.turns.send({ session: w.session.id, author: bo.id, client: CLIENT, parts: [{ type: 'text', text: 'Lunch?' }] });
+    expect(first.message.answerers).toEqual([]);
+    const quiet = await w.store.table('turns').get(first.turn);
+    expect(quiet?.status).toBe('done');
+    expect(quiet?.endedAt).toBeTypeOf('number');
+    w.push.subscribed.add(bo.id);
+    const reply = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, replyTo: first.message.id, parts: [{ type: 'text', text: 'Sure, at noon.' }] });
+    expect(reply.message.replyTo).toBe(first.message.id);
+    expect(w.agents.started).toHaveLength(0);
+    const inbox = await w.chat.notifications.list(bo.id, {});
+    expect(inbox.items).toEqual([expect.objectContaining({ reason: 'replied', body: 'Sure, at noon.', link: { session: w.session.id }, pushed: true })]);
+    expect(w.push.sent.map((p) => p.user)).toEqual([bo.id]);
+  });
+
+  it('wakes every agent on reply-all', async () => {
+    const w = await chatWorld();
+    await addPerson(w, 'Bo');
+    w.catalog.addFn('crm', { name: 'coach', kind: 'hub/llm' });
+    await w.chat.sessions.update(w.session.id, { agent: 'crm/coach' }, w.admin.id);
+    const row = await w.store.table('sessions').get(w.session.id);
+    await w.store.table('sessions').update(w.session.id, { participants: [...(row?.participants ?? []), { actor: chatAgent, role: 'agent', notify: 'none', joinedAt: 0 }] });
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, replyAll: true, parts: [{ type: 'text', text: 'Ideas?' }] });
+    expect(sent.message.answerers).toEqual([agentActorId('crm/coach'), chatAgent]);
+    expect(w.agents.started.map((s) => s.fn)).toEqual(['crm/coach', 'hub/chat']);
+  });
+
+  it('refuses replies into another session, archived sessions, outsiders and agents', async () => {
+    const w = await chatWorld();
+    const other = await w.chat.sessions.create({ owner: w.admin.id });
+    const there = await w.chat.turns.send({ session: other.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'x' }] });
+    await expect(w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, replyTo: there.message.id, parts: [{ type: 'text', text: 'y' }] })).rejects.toMatchObject({ code: 'invalid' });
+    const bo = await w.user('Bo');
+    await expect(w.chat.turns.send({ session: w.session.id, author: bo.id, client: CLIENT, parts: [{ type: 'text', text: 'y' }] })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(w.chat.turns.send({ session: w.session.id, author: chatAgent, client: CLIENT, parts: [{ type: 'text', text: 'y' }] })).rejects.toMatchObject({ code: 'forbidden' });
+    await w.chat.sessions.update(w.session.id, { archived: true }, w.admin.id);
+    await expect(w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'y' }] })).rejects.toMatchObject({ code: 'conflict' });
+  });
+
+  it('fails the turn when no agent could be started', async () => {
+    const w = await chatWorld();
+    w.agents.failWith = new Error('queue down');
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'x' }] });
+    expect((await w.store.table('turns').get(sent.turn))?.status).toBe('failed');
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('idle');
+    expect(w.logs.some((l) => l.msg === 'chat.turn.wake.failed')).toBe(true);
+  });
+});
+
+describe('running a fn by hand', () => {
+  it('starts the run, records an invocation message, and settles the turn with the run', async () => {
+    const w = await chatWorld();
+    w.catalog.addFn('fs', { name: 'ls' });
+    const { turn, run } = await w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/ls', args: { path: '.' }, client: CLIENT });
+    expect(w.runs.started[0]).toMatchObject({ fn: 'fs/ls', args: { path: '.' }, turn, session: w.session.id, key: 'invoke', actor: w.admin.id, caller: w.admin.id });
+    const message = (await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0];
+    expect(message).toMatchObject({ role: 'user', parts: [{ type: 'invocation', run, fn: 'fs/ls' }], runs: [run], answerers: [] });
+    expect((await w.store.table('turns').get(turn))).toMatchObject({ status: 'running', root: run, message: message?.id });
+    w.runs.finish(run, { status: 'done', result: ['a'] });
+    await settle();
+    expect((await w.store.table('turns').get(turn))?.status).toBe('done');
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('idle');
+  });
+
+  it('ends the turn as the run did', async () => {
+    const w = await chatWorld();
+    w.catalog.addFn('fs', { name: 'ls' });
+    const failed = await w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/ls', args: {}, client: CLIENT });
+    w.runs.finish(failed.run, { status: 'failed', error: { class: 'caller', message: 'no' } });
+    const cancelled = await w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/ls', args: {}, client: CLIENT });
+    w.runs.finish(cancelled.run, { status: 'cancelled' });
+    const lost = await w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/ls', args: {}, client: CLIENT });
+    w.runs.lose(lost.run, new Error('worker gone'));
+    await settle();
+    expect((await w.store.table('turns').get(lost.turn))?.status).toBe('failed');
+    expect(w.logs.some((l) => l.msg === 'chat.turn.invoke.failed')).toBe(true);
+    expect((await w.store.table('turns').get(failed.turn))?.status).toBe('failed');
+    expect((await w.store.table('turns').get(cancelled.turn))?.status).toBe('cancelled');
+  });
+
+  it('fails the turn, and passes the refusal on, when the run is refused before it starts', async () => {
+    const w = await chatWorld();
+    w.catalog.addFn('fs', { name: 'rm' });
+    w.runs.refuseStart = new Error('denied by policy');
+    await expect(w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/rm', args: {}, client: CLIENT })).rejects.toThrow('denied by policy');
+    const turn = (await w.store.table('turns').find({ where: { session: w.session.id }, limit: 1 })).items[0];
+    expect(turn?.status).toBe('failed');
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('idle');
+  });
+
+  it('refuses unknown fns, fns of excluded systems and unavailable fns', async () => {
+    const w = await chatWorld({ systems: [SystemName.parse('fs')] });
+    w.catalog.addFn('crm', { name: 'find' });
+    const off = w.catalog.addFn('fs', { name: 'off' });
+    w.catalog.fnRecords.set(off.name, { ...off, available: { unavailable: 'system-disconnected', detail: 'fs is offline' } });
+    await expect(w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/none', args: {}, client: CLIENT })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'crm/find', args: {}, client: CLIENT })).rejects.toMatchObject({ code: 'unavailable' });
+    await expect(w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/off', args: {}, client: CLIENT })).rejects.toMatchObject({ code: 'unavailable' });
+  });
+});
+
+describe('an agent\'s answer', () => {
+  it('streams into an open message that pages show mid-stream, then finishes', async () => {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'hi' }] });
+    const answer = await w.chat.turns.begin({ turn: sent.turn, author: chatAgent });
+    expect(answer).toMatchObject({ role: 'assistant', status: 'streaming', replyTo: sent.message.id, parts: [] });
+    w.chat.turns.stream(answer.id, { text: 'Hel' });
+    w.chat.turns.stream(answer.id, { text: 'lo', reasoning: 'greet' });
+    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([{ type: 'text', text: 'Hello' }]);
+    const done = await w.chat.turns.finish(answer.id, [{ type: 'text', text: 'Hello!' }], 'done');
+    expect(done).toMatchObject({ status: 'done', parts: [{ type: 'text', text: 'Hello!' }] });
+    w.chat.turns.stream(answer.id, { text: 'late' });
+    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([{ type: 'text', text: 'Hello!' }]);
+    await settle();
+    expect(w.bus.of('message.token').map((t) => t.text)).toEqual(['Hel', 'lo']);
+    expect(w.bus.of('message.reasoning')).toEqual([{ session: w.session.id, message: answer.id, text: 'greet' }]);
+    expect(w.logs.some((l) => l.msg === 'chat.stream.closed')).toBe(true);
+  });
+
+  it('refuses to open an answer outside a session turn, or to finish a user message', async () => {
+    const w = await chatWorld();
+    await expect(w.chat.turns.begin({ turn: IDS.turn.parse('trn_none'), author: chatAgent })).rejects.toMatchObject({ code: 'not-found' });
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'hi' }] });
+    await expect(w.chat.turns.finish(sent.message.id, [], 'done')).rejects.toMatchObject({ code: 'conflict' });
+    await expect(w.chat.turns.finish(IDS.message.parse('msg_none'), [], 'done')).rejects.toMatchObject({ code: 'not-found' });
+  });
+
+  it('tells a person away that the turn they started finished, with the answer', async () => {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'Summarise' }] });
+    const answer = await w.chat.turns.begin({ turn: sent.turn, author: chatAgent });
+    await w.chat.turns.finish(answer.id, [{ type: 'text', text: 'Here is the summary.' }], 'done');
+    expect((await w.chat.notifications.list(w.admin.id, {})).items).toEqual([]);
+    await w.chat.turns.settle(sent.turn, 'done');
+    await w.chat.turns.settle(sent.turn, 'failed');
+    const inbox = await w.chat.notifications.list(w.admin.id, {});
+    expect(inbox.items).toEqual([expect.objectContaining({ reason: 'turn-finished', title: 'Summarise finished', body: 'Here is the summary.', link: { session: w.session.id }, pushed: false })]);
+    expect((await w.store.table('turns').get(sent.turn))?.status).toBe('done');
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('idle');
+  });
+
+  it('does not tell people who are looking, or who chose replies only for others\' turns', async () => {
+    const w = await chatWorld();
+    const bo = await addPerson(w, 'Bo', 'replies');
+    await w.chat.sessions.presence({ session: w.session.id, user: w.admin.id, focused: true, typing: false });
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, replyAll: true, parts: [{ type: 'text', text: 'x' }] });
+    await w.chat.turns.settle(sent.turn, 'cancelled');
+    expect((await w.chat.notifications.list(w.admin.id, {})).items).toEqual([]);
+    expect((await w.chat.notifications.list(bo.id, {})).items).toEqual([]);
+  });
+
+  it('tells another person when an agent answers their message in someone else\'s turn', async () => {
+    const w = await chatWorld();
+    const bo = await addPerson(w, 'Bo');
+    const theirs = await w.chat.turns.send({ session: w.session.id, author: bo.id, client: CLIENT, parts: [{ type: 'text', text: 'What is 2+2?' }] });
+    const mine = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, replyAll: true, parts: [{ type: 'text', text: 'Agents, answer Bo' }] });
+    const answer = await w.chat.turns.begin({ turn: mine.turn, author: chatAgent, replyTo: theirs.message.id });
+    await w.chat.turns.finish(answer.id, [{ type: 'text', text: '4' }], 'done');
+    expect((await w.chat.notifications.list(bo.id, {})).items).toEqual([expect.objectContaining({ reason: 'replied', body: '4' })]);
+  });
+});
+
+describe('plain text of parts', () => {
+  it('reads like what the person wrote', () => {
+    expect(plainText([
+      { type: 'text', text: 'Run ' },
+      { type: 'command', context: 'fs/plan', args: { goal: 'ship' } },
+      { type: 'text', text: ' on ' },
+      { type: 'mention', provider: 'fs/files', label: 'a.md', target: null, text: '' },
+      { type: 'extra', extra: 'local-time', blocks: [] },
+    ])).toBe('Run /plan ship on @a.md');
+  });
+});

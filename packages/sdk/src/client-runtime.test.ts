@@ -1,0 +1,151 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { mintId, type DeliveryId, type DeliveryStatus, type Json } from '@harness/core';
+import { afterAll, describe, expect, it } from 'vitest';
+import * as vue from 'vue';
+import { h, watchEffect } from 'vue';
+import { buildClient } from './build.ts';
+import { client, type AttachmentViewOf, type FnView, type FnViewOf, type ResourceView } from './client.ts';
+import { ClientRuntime, isClientModule, shareModules, type ClientBridge } from './client-runtime.ts';
+import { action, attachment, kind } from './declare.ts';
+import { fn, type UntypedFn } from './fn.ts';
+import { g } from './gin.ts';
+import * as sdk from './index.ts';
+import { system } from './system.ts';
+
+const shop = system('shop', { description: 'A shop.' })
+  .with({
+    kinds: { query: kind({ description: 'A query.', applicability: 'Reads.', payload: g.obj({ sql: g.text() }) }) },
+    fns: { buy: fn({ description: 'Buy.', args: g.obj({ sku: g.text() }), returns: g.bool(), form: g.obj({ yes: g.bool() }) }) },
+    attachments: { receipt: attachment({ description: 'A receipt.', data: g.obj({ total: g.num() }) }) },
+    actions: { refund: action({ description: 'Refund.', input: g.obj({ sku: g.text() }), returns: g.obj({ at: g.timestamp() }) }) },
+  });
+
+// functional renderers, typed by the contract like a `.vue` file's defineProps
+const BuyView = (view: FnViewOf<typeof shop, 'buy'>) => h('div', view.args.sku);
+const QueryView = (view: FnView<UntypedFn>) => h('div', view.run);
+const ReceiptView = (view: AttachmentViewOf<typeof shop, 'receipt'>) => h('div', String(view.data.total));
+const CsvView = (view: ResourceView) => h('table', view.stat.name);
+
+const module = client(shop, { fns: { buy: BuyView }, kinds: { query: QueryView }, attachments: { receipt: ReceiptView }, resources: { csv: CsvView } });
+
+/** A bridge whose deliveries settle when the test says so. */
+function fakeBridge() {
+  const acts: Array<{ system: string; action: string; input: Json }> = [];
+  const forms: Array<{ value: Json }> = [];
+  const followers = new Map<DeliveryId, { status: (s: DeliveryStatus) => void; settle: (result: Json) => void; fail: (e: Error) => void }>();
+  let online = true;
+  const bridge: ClientBridge = {
+    online: () => online,
+    act: (input) => { acts.push(input); return Promise.resolve(mintId('delivery')); },
+    submit: (input) => { forms.push(input); return Promise.resolve(mintId('delivery')); },
+    follow: (id, status) => new Promise((settle, fail) => { followers.set(id, { status, settle, fail }); }),
+  };
+  return { bridge, acts, forms, followers, setOnline: (value: boolean) => { online = value; } };
+}
+
+describe('ClientRuntime', () => {
+  it('looks renderers up by fn, falling back to the kind, and by attachment and resource format', () => {
+    const runtime = new ClientRuntime(fakeBridge().bridge);
+    runtime.register(module);
+    expect(runtime.systems()).toEqual(['shop']);
+    expect(runtime.fnRenderer('shop/buy')).toBe(BuyView);
+    expect(runtime.fnRenderer('other/report', 'shop/query')).toBe(QueryView);
+    expect(runtime.fnRenderer('other/report')).toBeUndefined();
+    expect(runtime.attachmentRenderer('shop/receipt')).toBe(ReceiptView);
+    expect(runtime.resourceViewer('csv')).toBe(CsvView);
+    expect(runtime.inputRenderer('shop/Nothing')).toBeUndefined();
+  });
+
+  it('sends actions with checked input, follows the delivery live, and decodes the result', async () => {
+    const fake = fakeBridge();
+    const runtime = new ClientRuntime(fake.bridge);
+    runtime.register(module);
+    const shopClient = runtime.systemClient('shop');
+    const seen: string[] = [];
+    const delivery = shopClient.send['refund']?.({ sku: 'a1' });
+    if (delivery === undefined) { throw new Error('refund is declared'); }
+    watchEffect(() => { seen.push(delivery.status); });
+    await vue.nextTick();
+    expect(fake.acts).toEqual([{ system: 'shop', action: 'refund', input: { sku: 'a1' } }]);
+    await waitUntil(() => fake.followers.size === 1);
+    const [id, follower] = [...fake.followers][0] ?? [];
+    expect(delivery.id).toBe(id);
+    follower?.status('delivered');
+    await vue.nextTick();
+    follower?.settle({ at: '2026-11-07T00:00:00.000Z' });
+    const result = await delivery.result;
+    expect(result).toEqual({ at: new Date('2026-11-07T00:00:00.000Z') });
+    expect(seen).toEqual(['queued', 'delivered']);
+  });
+
+  it('refuses action input that does not fit before sending', () => {
+    const fake = fakeBridge();
+    const runtime = new ClientRuntime(fake.bridge);
+    runtime.register(module);
+    expect(() => runtime.systemClient('shop').send['refund']?.({ sku: 1 })).toThrow();
+    expect(fake.acts).toEqual([]);
+  });
+
+  it('reports whether the system is online from the bridge', () => {
+    const fake = fakeBridge();
+    const runtime = new ClientRuntime(fake.bridge);
+    const shopClient = runtime.systemClient('shop');
+    expect(shopClient.online).toBe(true);
+    fake.setOnline(false);
+    expect(shopClient.online).toBe(false);
+  });
+
+  it('submits a run\'s form checked with its form type', async () => {
+    const fake = fakeBridge();
+    const runtime = new ClientRuntime(fake.bridge);
+    const delivery = runtime.submit(mintId('run'), g.obj({ yes: g.bool() }), { yes: true });
+    await waitUntil(() => fake.followers.size === 1);
+    [...fake.followers.values()][0]?.settle(null);
+    await expect(delivery.result).resolves.toBeUndefined();
+    expect(fake.forms[0]?.value).toEqual({ yes: true });
+  });
+
+  it('knows a client module when it sees one', () => {
+    expect(isClientModule(module)).toBe(true);
+    expect(isClientModule({ system: 'x' })).toBe(false);
+  });
+});
+
+describe('buildClient', () => {
+  const folders: string[] = [];
+  afterAll(async () => { await Promise.all(folders.map((f) => rm(f, { recursive: true, force: true }))); });
+
+  it('bundles a system\'s renderers with vue and the SDK external, and the chat loads it sharing its own copies', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'harness-client-'));
+    folders.push(root);
+    await writeFile(join(root, 'Hello.vue'), '<script setup lang="ts">\nimport { ref } from "vue";\nconst n = ref(1);\n</script>\n<template><b class="hello">hello {{ n }}</b></template>\n');
+    await writeFile(join(root, 'index.ts'), [
+      'import { client, fn, g, system } from "@harness/sdk";',
+      'import Hello from "./Hello.vue";',
+      'const greet = system("greet", { description: "Greets." }).with({ fns: { hi: fn({ description: "Hi.", args: g.obj({}), returns: g.text() }) } });',
+      'export default client(greet, { fns: { hi: Hello } });',
+    ].join('\n'));
+    const out = join(root, 'dist');
+    const bundle = await buildClient({ entry: join(root, 'index.ts'), outDir: out, minify: false });
+    expect(bundle.assets.entry).toBe('index.js');
+    const code = new TextDecoder().decode(bundle.files.find((f) => f.path === 'index.js')?.bytes);
+    expect(code).toMatch(/Symbol\.for\(["']harness\.shared["']\)/);
+    // Vue's and the SDK's implementations are not in the bundle, only reads of the chat's copies
+    expect(code).not.toMatch(/function (createRenderer|createRegistry)\(/);
+    expect(bundle.assets.files.find((f) => f.path === 'index.js')?.size).toBeLessThan(20_000);
+    shareModules({ vue, sdk });
+    const runtime = new ClientRuntime(fakeBridge().bridge);
+    const loaded = await runtime.load(pathToFileURL(join(out, 'index.js')).href);
+    expect(loaded.system).toBe('greet');
+    expect(runtime.fnRenderer('greet/hi')).toBeDefined();
+  }, 60_000);
+});
+
+/** Wait until a condition holds (a few ticks at most). */
+async function waitUntil(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !condition(); i += 1) { await new Promise((resolve) => setTimeout(resolve, 1)); }
+  if (!condition()) { throw new Error('condition never held'); }
+}

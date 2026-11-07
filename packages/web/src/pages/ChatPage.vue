@@ -1,11 +1,8 @@
 <script setup lang="ts">
-/** The chat. Owned by the web lane. A placeholder until its lane builds it. */
+/** The chat: the list of chats, the open one, and the panel over it. Everything it shows follows the URL. */
+import ChatView from '../chat/views/ChatView.vue';
 </script>
 
 <template>
-  <section class="placeholder"><p>The chat. Owned by the web lane.</p></section>
+  <ChatView />
 </template>
-
-<style scoped>
-.placeholder { padding: var(--space-6); color: var(--text-dim); }
-</style>

@@ -6,7 +6,10 @@
   "description": "The system author SDK: contracts (system, fn, type, ...), the serve runtime and client renderers.",
   "exports": {
     ".": "./src/index.ts",
-    "./server": "./src/server/index.ts"
+    "./server": "./src/server/index.ts",
+    "./server/testing": "./src/server/testing.ts",
+    "./build": "./src/build.ts",
+    "./client": "./src/client-runtime.ts"
   },
   "dependencies": {
     "@aeye/ai": "file:../../../aits/packages/ai",

@@ -1,0 +1,20 @@
+/**
+ * The index's tunables, as an `@ayepi/env` slice (the embedder names, dimensions, batch size and suggestion count are
+ * in boot's `modelEnv`). Durations are milliseconds.
+ */
+import { env } from '@ayepi/env';
+import { z } from 'zod';
+
+export const indexEnv = env({
+  /** How long an embed batch waits for more texts after its first before it is sent. */
+  HARNESS_EMBED_WAIT: z.number().int().min(0).default(15),
+  /** How often the embed queue looks for new texts. */
+  HARNESS_EMBED_POLL: z.number().int().min(1).default(10),
+  /** The most characters of a section, fn or context that are embedded. */
+  HARNESS_INDEX_MAX_TEXT: z.number().int().min(100).default(4_000),
+  /** How many extra candidates search asks for when it filters by system. */
+  HARNESS_SEARCH_OVERFETCH: z.number().int().min(1).default(3),
+});
+
+/** The parsed index tunables. */
+export type IndexTuning = ReturnType<typeof indexEnv.parse>;

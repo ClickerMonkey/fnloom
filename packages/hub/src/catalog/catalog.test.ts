@@ -1,0 +1,373 @@
+import { GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
+import { g, wireType } from '@harness/sdk';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StoreCatalog } from './catalog.ts';
+import { ADMIN, declOf, manifestFor, orders, shop, systemRow, vectors } from './fixtures.ts';
+import type { KindDescriber } from './index.ts';
+import { MemoryBus, MemoryStore, memoryLog } from './testing.ts';
+
+const q = (name: string) => QualifiedName.parse(name);
+/** A definition gin refuses, typed as a wire definition (its outer shape passes). */
+const invalid = (def: object): GinTypeDef => GinTypeDef.parse(def);
+const SHOP = SystemName.parse('shop');
+const ORDERS = SystemName.parse('orders');
+
+/** A describer that works the sales report out as a no-arg fn returning a number. */
+function reportDescriber(): KindDescriber & { calls: Array<{ kind: string; payload: unknown }> } {
+  const calls: Array<{ kind: string; payload: unknown }> = [];
+  return {
+    calls,
+    describe(kind, payload) {
+      calls.push({ kind, payload });
+      const description: KindDescription = {
+        args: wireType(g.obj({})), returns: wireType(g.num()), deps: [q('shop/list')],
+        operations: { cancel: true, pause: false, undo: false, background: true },
+      };
+      return Promise.resolve({ problems: [], description });
+    },
+  };
+}
+
+function setup(describer: KindDescriber = reportDescriber()) {
+  const store = new MemoryStore();
+  const bus = new MemoryBus();
+  const { log, records } = memoryLog();
+  const catalog = new StoreCatalog({ store, bus, log, clock: () => 1_000, describer });
+  return { store, bus, log, records, catalog, describer };
+}
+
+describe('importing a manifest', () => {
+  let shopManifest: Manifest;
+  beforeEach(async () => { shopManifest = await manifestFor(shop); });
+
+  it('adds every entry, stores the records and the manifest, and announces it', async () => {
+    const { catalog, store, bus } = setup();
+    const report = await catalog.importManifest(shopManifest);
+    expect(report.refused).toEqual([]);
+    expect(report.added).toEqual(expect.arrayContaining(['shop/Product', 'shop/report', 'shop/get', 'shop/list', 'shop/Product.discount', 'shop/guide', 'shop/products', 'shop/csv']));
+    expect(await catalog.type(q('shop/Product'))).toMatchObject({ system: 'shop', display: { label: 'Product' } });
+    expect(await catalog.kind(q('shop/report'))).toMatchObject({ system: 'shop' });
+    expect((await catalog.fn(q('shop/get')))?.origin).toBe('contract');
+    expect(await catalog.manifest(SHOP)).toEqual(shopManifest);
+    expect((await store.table('manifests').get('shop'))?.importedAt).toBe(1_000);
+    expect(bus.of('catalog.changed').at(-1)?.added).toContain('shop/get');
+    expect((await catalog.entries('mentions')).map((e) => e.name)).toEqual(['shop/products']);
+    expect((await catalog.entries('sectioners', { system: SHOP })).map((e) => e.decl.match)).toEqual([{ format: 'csv' }]);
+  });
+
+  it('finds the fns and context a context mentions in its text', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(shopManifest);
+    expect((await catalog.context(q('shop/guide')))?.mentions).toEqual({ fns: ['shop/get'], context: ['shop/guide'] });
+  });
+
+  it('changes nothing when the same manifest comes again', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(shopManifest);
+    expect(await catalog.importManifest(shopManifest)).toEqual({ added: [], updated: [], removed: [], refused: [] });
+  });
+
+  it('reports what was updated and removed', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(shopManifest);
+    const get = declOf(shopManifest, 'get');
+    const next: Manifest = { ...shopManifest, fns: [{ ...get, description: 'Find a product.' }], context: [] };
+    const report = await catalog.importManifest(next);
+    expect(report.updated).toEqual(['shop/get']);
+    expect(report.removed).toEqual(expect.arrayContaining(['shop/list', 'shop/Product.discount', 'shop/guide']));
+    expect(await catalog.fn(q('shop/list'))).toBeUndefined();
+    expect(await catalog.context(q('shop/guide'))).toBeUndefined();
+    expect((await catalog.fn(q('shop/get')))?.decl.description).toBe('Find a product.');
+  });
+
+  it('refuses a fn whose type is not a gin type and keeps the one it had', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(shopManifest);
+    const get = declOf(shopManifest, 'get');
+    const broken: FnDecl = { ...get, description: 'changed', args: invalid({ name: 'obj', props: {}, nonsense: true }) };
+    const report = await catalog.importManifest({ ...shopManifest, fns: shopManifest.fns.map((f) => (f.name === 'get' ? broken : f)) });
+    expect(report.refused).toEqual([{ name: 'shop/get', problems: [expect.stringContaining('nonsense')] }]);
+    expect((await catalog.fn(q('shop/get')))?.decl.description).toBe(get.description);
+    expect((await catalog.manifest(SHOP))?.fns.find((f) => f.name === 'get')).toEqual(get);
+  });
+
+  it('refuses the whole manifest when its config type is invalid', async () => {
+    const { catalog } = setup();
+    const report = await catalog.importManifest({ ...shopManifest, config: invalid({ name: 'obj', wrong: 1 }) });
+    expect(report.refused.map((r) => r.name)).toEqual(['shop (config)']);
+    expect(await catalog.manifest(SHOP)).toBeUndefined();
+  });
+
+  it('refuses a type that refers to a type nobody declared', async () => {
+    const { catalog } = setup();
+    const product = shopManifest.types[0];
+    if (product === undefined) { throw new Error('no type'); }
+    const report = await catalog.importManifest({ ...shopManifest, types: [{ ...product, def: { name: 'list', generic: { V: { name: 'ghost/Thing' } } } }] });
+    expect(report.refused).toEqual([{ name: 'shop/Product', problems: ['refers to the unknown type ghost/Thing'] }]);
+  });
+});
+
+describe('changes other systems depend on', () => {
+  async function both() {
+    const ctx = setup();
+    const shopManifest = await manifestFor(shop);
+    await ctx.catalog.importManifest(shopManifest);
+    await ctx.catalog.importManifest(await manifestFor(orders));
+    return { ...ctx, shopManifest };
+  }
+
+  it('refuses a type change that narrows what other systems pass', async () => {
+    const { catalog, shopManifest } = await both();
+    const [product] = shopManifest.types;
+    if (product === undefined) { throw new Error('no type'); }
+    const narrowed = { ...product, def: wireType(g.obj({ sku: g.text(), price: g.num(), stock: g.num() })) };
+    const report = await catalog.importManifest({ ...shopManifest, types: [narrowed] });
+    expect(report.refused[0]?.name).toBe('shop/Product');
+    const widened = { ...product, def: wireType(g.obj({ sku: g.text(), price: g.num(), stock: g.optional(g.num()) })) };
+    expect((await catalog.importManifest({ ...shopManifest, types: [widened] })).updated).toContain('shop/Product');
+  });
+
+  it('refuses a fn change that breaks the fns depending on it', async () => {
+    const { catalog, shopManifest } = await both();
+    const get = declOf(shopManifest, 'get');
+    const stricter = { ...get, args: wireType(g.obj({ sku: g.text(), shelf: g.num() })) };
+    const report = await catalog.importManifest({ ...shopManifest, fns: shopManifest.fns.map((f) => (f.name === 'get' ? stricter : f)) });
+    expect(report.refused).toEqual([{ name: 'shop/get', problems: ['its args no longer accept what orders/place pass'] }]);
+    const looser = { ...get, returns: wireType(g.text({ minLength: 1 })) };
+    expect((await catalog.importManifest({ ...shopManifest, fns: shopManifest.fns.map((f) => (f.name === 'get' ? looser : f)) })).updated).toEqual(['shop/get']);
+  });
+
+  it('parses a fn that names another system’s type', async () => {
+    const { catalog } = await both();
+    const signature = await catalog.signature(q('orders/place'));
+    expect(signature.argsSchema.safeParse({ product: { sku: 'a', price: 1 }, count: 2 }).success).toBe(true);
+    expect(signature.argsSchema.safeParse({ product: { sku: 'a', price: -1 }, count: 2, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe('fns of a kind', () => {
+  it('asks the kind to describe the payload and stores what it works out', async () => {
+    const { catalog, describer } = setup();
+    await catalog.importManifest(await manifestFor(shop));
+    await catalog.importManifest(await manifestFor(orders));
+    const sales = await catalog.fn(q('orders/sales'));
+    expect(sales?.decl.deps).toEqual(['shop/list']);
+    expect(sales?.decl.returns).toEqual(wireType(g.num()));
+    expect(describer).toMatchObject({ calls: [{ kind: 'shop/report', payload: { query: 'week' } }] });
+  });
+
+  it('refuses a payload the kind’s payload type does not accept', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(await manifestFor(shop));
+    const manifest = await manifestFor(orders);
+    const sales = declOf(manifest, 'sales');
+    const report = await catalog.importManifest({ ...manifest, fns: [{ ...sales, payload: { query: 4 } }] });
+    expect(report.refused[0]?.problems[0]).toMatch(/^payload: /);
+  });
+
+  it('refuses what the kind refuses, and a description that does not fit the declared result', async () => {
+    const refusing: KindDescriber = { describe: () => Promise.resolve({ problems: ['no such table'] }) };
+    const a = setup(refusing);
+    await a.catalog.importManifest(await manifestFor(shop));
+    expect((await a.catalog.importManifest(await manifestFor(orders))).refused).toEqual([{ name: 'orders/sales', problems: ['no such table'] }]);
+
+    const manifest = await manifestFor(orders);
+    const sales = declOf(manifest, 'sales');
+    const b = setup();
+    await b.catalog.importManifest(await manifestFor(shop));
+    const report = await b.catalog.importManifest({ ...manifest, fns: [{ ...sales, returns: wireType(g.text()) }] });
+    expect(report.refused[0]?.problems).toEqual(['the result its kind works out does not fit the declared result']);
+  });
+
+  it('keeps a fn as declared while its kind’s system is away, and describes it when that system connects', async () => {
+    let reachable = false;
+    const inner = reportDescriber();
+    const flaky: KindDescriber = { describe: (k, p) => (reachable ? inner.describe(k, p) : Promise.reject(new Error('shop is not connected'))) };
+    const { catalog, store } = setup(flaky);
+    await catalog.importManifest(await manifestFor(shop));
+    expect((await catalog.importManifest(await manifestFor(orders))).refused).toEqual([]);
+    expect((await catalog.fn(q('orders/sales')))?.decl.deps).toEqual([]);
+    reachable = true;
+    await store.table('systems').put(systemRow('shop', 'connected'));
+    await catalog.refreshAvailability(SHOP);
+    expect((await catalog.fn(q('orders/sales')))?.decl.deps).toEqual(['shop/list']);
+  });
+});
+
+describe('when a type changes', () => {
+  it('describes again the kind fns whose payload references it, and rebuilds signatures that use it', async () => {
+    const describer = reportDescriber();
+    const typed: KindDescriber = {
+      async describe(kind, payload) {
+        const answer = await describer.describe(kind, payload);
+        return answer.description === undefined ? answer : { ...answer, description: { ...answer.description, types: [q('shop/Product')] } };
+      },
+    };
+    const { catalog } = setup(typed);
+    const shopManifest = await manifestFor(shop);
+    await catalog.importManifest(shopManifest);
+    await catalog.importManifest(await manifestFor(orders));
+    expect(describer.calls).toHaveLength(1);
+    const byName = { ...declOf(await manifestFor(orders), 'place'), name: 'check', args: GinTypeDef.parse({ name: 'shop/Product' }) };
+    expect((await catalog.declare(ORDERS, byName, ADMIN)).added).toEqual(['orders/check']);
+    const before = await catalog.signature(q('orders/check'));
+
+    const [product] = shopManifest.types;
+    if (product === undefined) { throw new Error('no type'); }
+    const widened = { ...product, def: wireType(g.obj({ sku: g.text(), price: g.num({ min: 0 }), stock: g.optional(g.num()) })) };
+    expect((await catalog.importManifest({ ...shopManifest, types: [widened] })).updated).toContain('shop/Product');
+    expect(describer.calls).toHaveLength(2);
+    const after = await catalog.signature(q('orders/check'));
+    expect(after).not.toBe(before);
+    expect(after.argsSchema.safeParse({ sku: 'a', price: 1, stock: 2 }).success).toBe(true);
+    expect(before.argsSchema.safeParse({ sku: 'a', price: 1, stock: 2 }).success).toBe(false);
+  });
+});
+
+describe('availability', () => {
+  async function imported() {
+    const ctx = setup();
+    await ctx.catalog.importManifest(await manifestFor(shop));
+    await ctx.catalog.importManifest(await manifestFor(orders));
+    return ctx;
+  }
+
+  it('says why a fn of a system that never connected is unavailable', async () => {
+    const { catalog } = await imported();
+    expect(await catalog.availability(q('shop/get'))).toEqual({ unavailable: 'system-disconnected', detail: 'shop has never connected' });
+    expect(await catalog.availability(q('shop/guide'))).toMatchObject({ unavailable: 'system-disconnected' });
+  });
+
+  it('follows the system, its config, its switches, kinds and deps', async () => {
+    const { catalog, store, bus } = await imported();
+    const systems = store.table('systems');
+    await systems.put(systemRow('shop', 'connected'));
+    await systems.put(systemRow('orders', 'connected'));
+    await catalog.refreshAvailability(SHOP);
+    expect(await catalog.availability(q('shop/get'))).toBe(true);
+    expect(await catalog.availability(q('orders/place'))).toBe(true);
+    expect(await catalog.availability(q('orders/sales'))).toBe(true);
+    expect(bus.of('capabilities.changed').length).toBeGreaterThan(0);
+
+    await systems.update('shop', { status: 'needs-config' });
+    await catalog.refreshAvailability(SHOP);
+    expect(await catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'system-needs-config' });
+    expect(await catalog.availability(q('orders/place'))).toMatchObject({ unavailable: 'dep-unavailable' });
+    expect(await catalog.availability(q('orders/sales'))).toMatchObject({ unavailable: 'kind-system-disconnected' });
+
+    await systems.update('shop', { status: 'connected', enabled: { functions: false, renderers: true } });
+    await catalog.refreshAvailability(SHOP);
+    expect(await catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'disabled' });
+
+    await systems.update('shop', { enabled: { functions: true, renderers: true } });
+    await store.table('fns').update('shop/get', { paused: true });
+    await catalog.refreshAvailability(SHOP);
+    expect(await catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'paused' });
+
+    await systems.update('shop', { status: 'removed' });
+    await catalog.refreshAvailability(SHOP);
+    expect(await catalog.availability(q('shop/list'))).toMatchObject({ unavailable: 'system-removed' });
+    expect(await catalog.fns({ system: ORDERS, available: true })).toEqual([]);
+  });
+
+  it('marks a fn whose kind is gone', async () => {
+    const { catalog, store } = await imported();
+    await store.table('systems').put(systemRow('shop', 'connected'));
+    await store.table('systems').put(systemRow('orders', 'connected'));
+    const shopManifest = await manifestFor(shop);
+    await catalog.importManifest({ ...shopManifest, kinds: [] });
+    expect(await catalog.availability(q('orders/sales'))).toMatchObject({ unavailable: 'kind-missing' });
+  });
+
+  it('treats the hub as always connected', async () => {
+    const { catalog } = setup();
+    expect(await catalog.availability(q('hub/search_fns'))).toBe(true);
+  });
+});
+
+describe('patches, runtime fns and re-imports', () => {
+  it('applies a patch over the stored manifest', async () => {
+    const { catalog } = setup();
+    const manifest = await manifestFor(shop);
+    await catalog.importManifest(manifest);
+    const get = declOf(manifest, 'get');
+    const report = await catalog.importPatch(SHOP, { hash: 'h2', upsert: { fns: [{ ...get, name: 'find' }] }, remove: { fns: ['list'] } });
+    expect(report.added).toEqual(['shop/find']);
+    expect(report.removed).toEqual(['shop/list']);
+    expect((await catalog.manifest(SHOP))?.hash).toBe('h2');
+  });
+
+  it('refuses a patch before any manifest', async () => {
+    const { catalog } = setup();
+    expect((await catalog.importPatch(SHOP, { hash: 'h', upsert: {}, remove: {} })).refused[0]?.problems).toEqual(['no manifest to patch: send the whole manifest first']);
+  });
+
+  it('declares a fn at runtime, and refuses one that clashes with the contract', async () => {
+    const { catalog } = setup();
+    const manifest = await manifestFor(shop);
+    await catalog.importManifest(manifest);
+    const get = declOf(manifest, 'get');
+    expect(await catalog.declare(SHOP, { ...get, name: 'extra' }, ADMIN)).toMatchObject({ added: ['shop/extra'] });
+    expect(await catalog.fn(q('shop/extra'))).toMatchObject({ origin: 'runtime', addedBy: ADMIN });
+    expect((await catalog.declare(SHOP, get, ADMIN)).refused[0]?.problems).toEqual(['a fn of the contract has this name']);
+    // a whole manifest leaves runtime fns alone
+    await catalog.importManifest(manifest);
+    expect(await catalog.fn(q('shop/extra'))).toBeDefined();
+  });
+
+  it('re-imports the stored manifest, describing kinds afresh', async () => {
+    const describer = reportDescriber();
+    const { catalog } = setup(describer);
+    await catalog.importManifest(await manifestFor(shop));
+    await catalog.importManifest(await manifestFor(orders));
+    const report = await catalog.reimport(ORDERS);
+    expect(report.refused).toEqual([]);
+    expect(describer.calls).toHaveLength(2);
+    expect((await catalog.reimport(SystemName.parse('nobody'))).refused[0]?.problems).toEqual(['no manifest has been imported']);
+  });
+});
+
+describe('types and values', () => {
+  it('works out the closure of named types, with the missing ones', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(await manifestFor(shop));
+    expect(await catalog.typeClosure([q('shop/Product'), q('ghost/Thing')])).toEqual({ order: ['shop/Product'], missing: ['ghost/Thing'] });
+  });
+
+  it('checks values against a type, refusing unknown keys and broken constraints', async () => {
+    const { catalog } = setup();
+    const manifest = await manifestFor(shop);
+    await catalog.importManifest(manifest);
+    expect(await catalog.check(SHOP, manifest.config, { currency: 'EUR' })).toEqual([]);
+    expect(await catalog.check(SHOP, manifest.config, { currency: 'EURO' })).not.toEqual([]);
+    expect((await catalog.check(SHOP, manifest.config, { currency: 'EUR', typo: 1 }))[0]).toMatch(/typo/);
+    expect(await catalog.check(SHOP, invalid({ name: 'obj', bad: 1 }), {})).toEqual([expect.stringMatching(/^the type is invalid/)]);
+  });
+
+  it('builds a signature once per fn version', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(await manifestFor(shop));
+    const first = await catalog.signature(q('shop/get'));
+    expect(first.argsJsonSchema).toMatchObject({ type: 'object', required: ['sku'] });
+    expect(await catalog.signature(q('shop/get'))).toBe(first);
+    await expect(catalog.signature(q('shop/none'))).rejects.toThrow('no fn shop/none');
+  });
+
+  it('lists fns by name and availability', async () => {
+    const { catalog } = setup();
+    await catalog.importManifest(await manifestFor(shop));
+    await catalog.importManifest(await manifestFor(vectors));
+    expect((await catalog.fns({ names: [q('shop/get'), q('shop/none')] })).map((f) => f.name)).toEqual(['shop/get']);
+    expect((await catalog.fns({ system: SHOP })).length).toBe(3);
+    expect((await catalog.entries('embedders')).map((e) => e.name)).toEqual(['vectors/document', 'vectors/query']);
+  });
+
+  it('imports one system at a time', async () => {
+    const { catalog } = setup();
+    const manifest = await manifestFor(shop);
+    const spy = vi.spyOn(catalog, 'manifest');
+    const reports = await Promise.all([catalog.importManifest(manifest), catalog.importManifest(manifest)]);
+    expect(reports[1]).toEqual({ added: [], updated: [], removed: [], refused: [] });
+    spy.mockRestore();
+  });
+});

@@ -249,3 +249,12 @@ export type SystemImpl<C extends ContractShape> =
 
 /** Re-export for authors who write `FnTypes` by hand. */
 export type { FnTypes };
+
+/**
+ * A contract's config type, typed by its value. `ConfigOf<C>` is gin's `Infer` of `C['config']`, which TypeScript
+ * can't evaluate for a generic `C`; it is that type's value by definition.
+ */
+export function configTypeOf<C extends ContractShape>(defs: C): GinType<ConfigOf<C>> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Infer<C['config']> is exactly the value type of C['config']
+  return defs.config as GinType<ConfigOf<C>>;
+}

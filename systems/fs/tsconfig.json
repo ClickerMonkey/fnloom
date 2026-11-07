@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": ".", "outDir": "../../.types/system-fs", "tsBuildInfoFile": "../../.types/system-fs.tsbuildinfo", "jsx": "preserve" },
+  "compilerOptions": { "rootDir": ".", "outDir": "../../.types/system-fs", "tsBuildInfoFile": "../../.types/system-fs.tsbuildinfo", "jsx": "preserve", "types": ["vite/client", "node"] },
   "include": ["shared", "server", "client/**/*.ts", "client/**/*.vue"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }]
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }, { "path": "../../packages/web" }]
 }

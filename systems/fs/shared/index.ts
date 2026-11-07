@@ -3,7 +3,7 @@
  * so changes to its own code go live. Other systems import this to call its fns with typed refs; its server
  * implements it and its client draws it.
  */
-import { action, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { type Infer, type ValueOf, action, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
 
 /** A file or folder under one of the roots. */
 export const Entry = type({
@@ -38,6 +38,19 @@ export const Root = g.obj({
 /** What a command printed and how it ended. */
 export const CommandResult = g.obj({ exitCode: g.num({ whole: true }), stdout: g.text(), stderr: g.text() });
 
+/** The shell setting: whether commands may run at all, and which command prefixes run without asking. */
+export const ShellPolicy = g.obj({ allowed: g.bool(), safe: g.list(g.text()) });
+
+/** The diff attachment: a file's text before and after a change. */
+export const DiffData = g.obj({ path: g.text(), before: g.text(), after: g.text() });
+
+/** The files mention's target: a root by name and a path inside it, with `/` separators. */
+export const FileTarget = g.obj({ root: g.text(), path: g.text() });
+
+/** How fns take a path: absolute inside a root, or relative to the first root (or to a root named first). */
+const PATH_DOCS = 'Absolute, or relative to a root: `docs/a.md` is in the first root, `<root name>/docs/a.md` in the named one.';
+const path = () => g.field(g.text({ minLength: 1 }), { docs: PATH_DOCS });
+
 /** The fs system's contract. */
 export const fs = system('fs', { description: 'Files and a shell over chosen folders, served as resources. Can restart itself.' })
   .with({
@@ -52,47 +65,49 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
     settings: {
       shell: setting({
         description: 'Which commands run without asking.',
-        type: g.obj({ allowed: g.bool(), safe: g.list(g.text()) }),
+        type: ShellPolicy,
         appliesTo: ['user', 'group'],
         merge: 'most-restrictive',
       }),
     },
     attachments: {
-      diff: attachment({ description: 'A change to a file, drawn as a diff.', data: g.obj({ path: g.text(), before: g.text(), after: g.text() }) }),
+      diff: attachment({ description: 'A change to a file, drawn as a diff.', data: DiffData }),
     },
     fns: {
       read: fn({
         description: 'Read a text file, or part of it by line.',
-        args: g.obj({ path: g.text(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
+        args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
         tags: ['read'],
       }),
       write: fn({
         description: 'Write a file, creating it if needed.',
-        args: g.obj({ path: g.text(), text: hub.types.LongText }),
+        args: g.obj({ path: path(), text: hub.types.LongText }),
         returns: g.obj({ created: g.bool() }),
         undo: Previous,
       }),
       edit: fn({
         description: 'Replace exact text in a file.',
-        args: g.obj({ path: g.text(), find: g.text(), replace: g.text(), all: g.optional(g.bool()) }),
+        args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
         returns: g.obj({ replacements: g.num() }),
         undo: Previous,
       }),
       list: fn({
         description: 'List a folder.',
-        args: g.obj({ path: g.text(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
+        args: g.obj({ path: path(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
         returns: g.obj({ entries: g.list(Entry.shape) }),
         tags: ['read'],
       }),
       glob: fn({
         description: 'Find paths matching a glob.',
+        instructions: 'The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth.',
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
         returns: g.obj({ paths: g.list(g.text()) }),
         tags: ['read'],
       }),
       grep: fn({
         description: 'Search file contents with a regular expression.',
+        instructions: 'The pattern is a JavaScript regular expression tested on each line. Narrow big searches with glob (`*.ts`, `src/**/*.vue`).',
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()), glob: g.optional(g.text()), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })) }),
         progress: linear,
@@ -100,7 +115,7 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       cd: fn({
         description: 'Change the working folder for later commands in this chat.',
-        args: g.obj({ path: g.text() }),
+        args: g.obj({ path: path() }),
         returns: g.obj({ cwd: g.text() }),
         // shared with bash through session state; the LLM never has to pass it around
         state: Shell,
@@ -123,7 +138,7 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       remove: fn({
         description: 'Delete a file.',
-        args: g.obj({ path: g.text() }),
+        args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
         undo: Previous,
       }),
@@ -149,7 +164,7 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
   .with(({ fns, types }) => ({
     mentions: {
       // chips and cards show as Entry: its label, icon and color, and its reveal method on the card
-      files: mention({ title: 'Files', description: 'Files and folders under the roots.', target: g.obj({ root: g.text(), path: g.text() }), of: types.Entry }),
+      files: mention({ title: 'Files', description: 'Files and folders under the roots.', target: FileTarget, of: types.Entry }),
     },
     context: {
       guide: context({
@@ -178,3 +193,16 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
 
 /** The fs contract's type. */
 export type FsContract = typeof fs;
+
+/** A file or folder, as fns return it. */
+export type EntryValue = ValueOf<typeof Entry>;
+/** What a command printed and how it ended. */
+export type CommandOutput = Infer<typeof CommandResult>;
+/** The diff attachment's data. */
+export type DiffValue = Infer<typeof DiffData>;
+/** The shell setting's value. */
+export type ShellPolicyValue = Infer<typeof ShellPolicy>;
+/** The files mention's target. */
+export type FileTargetValue = Infer<typeof FileTarget>;
+/** What undo needs to put a file back. */
+export type PreviousValue = Infer<typeof Previous>;

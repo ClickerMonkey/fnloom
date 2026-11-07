@@ -1,0 +1,249 @@
+/**
+ * The fs system's implementation: every fn, method, action, hook, mention, context and resource the contract
+ * declares, wired to the server's parts. `createFsImpl` takes every seam (shell, git, snapshots, documents, the
+ * file manager, the restarter, the watcher and the clock), so tests run it against a temp folder with fakes.
+ */
+import type { FnCtx, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
+import { fs, type FsContract } from '../shared/index.ts';
+import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';
+import type { FsSettings } from './env.ts';
+import { FileService } from './files.ts';
+import { describeStatus } from './git.ts';
+import type { Documents, FsConfig, Git, Opener, PathGuard, Restarter, Shell, Snapshots, WatchFolder } from './index.ts';
+import { FileMentions, PathIndex } from './mentions.ts';
+import { RootGuard } from './paths.ts';
+import { FsProblem } from './problem.ts';
+import { FsResources } from './resources.ts';
+import { compilePattern, globPaths, grepFiles, searchBases, type SearchLimits } from './search.ts';
+import { renderTree } from './tree.ts';
+
+/** Everything the implementation is built from. */
+export interface FsDeps {
+  readonly settings: FsSettings;
+  readonly shell: Shell;
+  readonly git: Git;
+  readonly opener: Opener;
+  readonly snapshots: Snapshots;
+  readonly documents: Documents;
+  readonly restarter: Restarter;
+  readonly watch: WatchFolder;
+  readonly now: () => number;
+}
+
+/** The implementation and the parts tests and `main` reach into. */
+export interface FsServer {
+  readonly impl: SystemImpl<FsContract['defs']>;
+  readonly resources: FsResources;
+  /** The config the system last started or was configured with. */
+  config(): FsConfig;
+}
+
+/** Run fn code, turning a problem the caller can fix into a `caller` failure with its code. */
+async function attempt<T extends FnTypes>(ctx: Pick<FnCtx<T, FsConfig>, 'fail'>, work: () => Promise<Outcome<T>>): Promise<Outcome<T>> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof FsProblem) { return ctx.fail('caller', error.message, { code: error.code }); }
+    throw error;
+  }
+}
+
+/** Build the fs implementation. */
+export function createFsImpl(deps: FsDeps): FsServer {
+  const s = deps.settings;
+  const files = new FileService(deps.snapshots, { readLines: s.FS_READ_LINES, fileMax: s.FS_FILE_MAX, listLimit: s.FS_LIST_LIMIT, ignore: s.FS_IGNORE });
+  const commands = new CommandRunner(deps.shell, files, { timeout: s.FS_COMMAND_TIMEOUT, maxTimeout: s.FS_COMMAND_TIMEOUT_MAX, safe: s.FS_SAFE_COMMANDS });
+  const index = new PathIndex({ ttl: s.FS_INDEX_TTL, max: s.FS_INDEX_MAX, ignore: s.FS_IGNORE }, deps.now);
+  const mentions = new FileMentions({ index, files, documents: deps.documents, limits: { results: s.FS_MENTION_LIMIT, previewLines: s.FS_PREVIEW_LINES } });
+  const search: SearchLimits = { scanMax: s.FS_SCAN_MAX, lineMax: s.FS_LINE_MAX, ignore: s.FS_IGNORE };
+
+  // one guard per config value: runs keep the config they started with, so each gets the guard for it
+  const guards = new WeakMap<FsConfig, PathGuard>();
+  const guard = (config: FsConfig): PathGuard => {
+    const known = guards.get(config);
+    if (known !== undefined) { return known; }
+    const made = new RootGuard(config.roots);
+    guards.set(config, made);
+    return made;
+  };
+  let current: FsConfig = { roots: [] };
+  const resources = new FsResources({
+    guard: () => guard(current),
+    files,
+    documents: deps.documents,
+    limits: { page: s.FS_RESOURCE_PAGE, textMax: s.FS_RESOURCE_TEXT_MAX, ignore: s.FS_IGNORE, debounce: s.FS_WATCH_DEBOUNCE },
+    watch: deps.watch,
+  });
+
+  /** Attach a diff when it is small enough to draw. */
+  const attachDiff = (ctx: Pick<FnCtx<FnTypes, FsConfig>, 'attach'>, path: string, before: string, after: string, title: string) => {
+    if (before.length + after.length <= s.FS_DIFF_MAX) { ctx.attach(fs.attachments.diff, { path, before, after }, title); }
+  };
+  const logRun = (ctx: Pick<FnCtx<FnTypes, FsConfig>, 'log'>, key: string, run: CommandOutcome) => {
+    ctx.log.info(key, { cwd: run.cwd, exitCode: run.exitCode, ended: run.ended, timeout: run.timeout });
+  };
+
+  const impl: SystemImpl<FsContract['defs']> = {
+    fns: {
+      read: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const at = guard(ctx.config).resolve(args.path, { write: false });
+          return ctx.done(await files.read(at, args.offset, args.limit));
+        }),
+      },
+      write: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const at = guard(ctx.config).resolve(args.path, { write: true });
+          const change = await files.write(at, args.text);
+          index.clear();
+          attachDiff(ctx, at.path, change.before, change.after, change.created ? `Created ${at.relative}` : `Wrote ${at.relative}`);
+          return ctx.done({ created: change.created }, { undo: { path: at.path, previous: change.previous } });
+        }),
+        undo: (payload, ctx) => files.restore(payload, guard(ctx.config)),
+      },
+      edit: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const at = guard(ctx.config).resolve(args.path, { write: true });
+          const change = await files.edit(at, args.find, args.replace, args.all ?? false);
+          attachDiff(ctx, at.path, change.before, change.after, `Edited ${at.relative}`);
+          return ctx.done({ replacements: change.replacements }, { undo: { path: at.path, previous: change.previous } });
+        }),
+        undo: (payload, ctx) => files.restore(payload, guard(ctx.config)),
+      },
+      remove: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const at = guard(ctx.config).resolve(args.path, { write: true });
+          const change = await files.remove(at);
+          index.clear();
+          attachDiff(ctx, at.path, change.before, change.after, `Deleted ${at.relative}`);
+          return ctx.done({ removed: true }, { undo: { path: at.path, previous: change.previous } });
+        }),
+        undo: (payload, ctx) => files.restore(payload, guard(ctx.config)),
+      },
+      list: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const at = guard(ctx.config).resolve(args.path, { write: false });
+          return ctx.done({ entries: await files.list(at, args.depth ?? 1) });
+        }),
+      },
+      glob: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const bases = searchBases(guard(ctx.config), args.root);
+          return ctx.done({ paths: await globPaths(bases, args.pattern, s.FS_GLOB_LIMIT, search, ctx.signal) });
+        }),
+      },
+      grep: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const pattern = compilePattern(args.pattern);
+          const bases = searchBases(guard(ctx.config), args.root);
+          const query = { pattern, glob: args.glob, limit: args.limit ?? s.FS_GREP_LIMIT };
+          const matches = await grepFiles(files, bases, query, search, ctx.signal, (fraction, message) => { ctx.progress.set(fraction, message); });
+          return ctx.done({ matches });
+        }),
+      },
+      cd: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const { cwd } = await ctx.state.get();
+          const folder = await commands.folder(guard(ctx.config), args.path, cwd);
+          await ctx.state.set({ cwd: folder });
+          return ctx.done({ cwd: folder });
+        }),
+      },
+      bash: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const state = await ctx.state.get();
+          const run = await commands.run({ command: args.command, cwd: args.cwd, timeout: args.timeout }, {
+            guard: guard(ctx.config),
+            policy: await ctx.setting(fs.settings.shell),
+            sessionCwd: state.cwd,
+            signal: ctx.signal,
+            confirm: ctx.handlers.confirm,
+            onOutput: (fraction, line) => { ctx.progress.set(fraction, line); },
+          });
+          logRun(ctx, 'fs.bash.ran', run);
+          switch (run.ended) {
+            case 'cancelled': return ctx.cancelled({ partial: outputOf(run) });
+            case 'timeout': return ctx.fail('caller', `The command didn't finish within ${run.timeout} ms, so it was stopped.`, { code: 'timeout', data: outputOf(run) });
+            case 'exit': return ctx.done(outputOf(run));
+          }
+        }),
+      },
+      restart: {
+        run: (args, ctx) => {
+          ctx.log.info('fs.restart.scheduled', { reason: args.reason, delay: s.FS_RESTART_DELAY });
+          deps.restarter.schedule(args.reason);
+          return Promise.resolve(ctx.done({ restarting: true }));
+        },
+      },
+    },
+    types: {
+      Entry: {
+        reveal: {
+          run: (self, _args, ctx) => attempt(ctx, async () => {
+            const at = guard(ctx.config).resolve(self.path, { write: false });
+            return ctx.done(await deps.opener.reveal(at.path, self.type));
+          }),
+        },
+      },
+    },
+    actions: {
+      rerun: async (input, ctx) => {
+        const state = await ctx.state.get();
+        // the person pressed "run again" on a command they saw run, so that is the confirmation
+        const run = await commands.run({ command: input.command, cwd: undefined, timeout: undefined }, {
+          guard: guard(ctx.config), policy: await ctx.setting(fs.settings.shell), sessionCwd: state.cwd, signal: ctx.signal, confirm: () => Promise.resolve(true),
+        });
+        ctx.log.info('fs.rerun.ran', { cwd: run.cwd, exitCode: run.exitCode, ended: run.ended });
+        return outputOf(run);
+      },
+    },
+    context: {
+      tree: async (args, ctx) => {
+        const g = guard(ctx.config);
+        if (g.roots.length === 0) { return 'No folders are configured yet.'; }
+        const named = args.root === undefined ? undefined : g.root(args.root);
+        if (args.root !== undefined && named === undefined) {
+          return `There is no root named "${args.root}". The roots are: ${g.roots.map((r) => r.name).join(', ')}.`;
+        }
+        const roots = named === undefined ? g.roots : [named];
+        const limits = { depth: s.FS_TREE_DEPTH, entries: s.FS_TREE_ENTRIES, ignore: s.FS_IGNORE };
+        return (await Promise.all(roots.map((root) => renderTree(root, limits, ctx.signal)))).join('\n\n');
+      },
+    },
+    hooks: {
+      git: async (_input, ctx) => {
+        const roots = guard(ctx.config).roots;
+        const statuses = await Promise.all(roots.map(async (root) => ({ root, status: await deps.git.status(root.folder, ctx.signal) })));
+        const lines = statuses.flatMap(({ root, status }) => (status === undefined ? [] : [describeStatus(root.name, status, s.FS_GIT_FILES)]));
+        const blocks: HookContribution[] = lines.length === 0 ? [] : [{ type: 'text', tag: 'git', text: lines.join('\n') }];
+        return blocks;
+      },
+    },
+    mentions: {
+      files: {
+        search: (query, ctx) => mentions.search(guard(ctx.config), query),
+        hover: (target, ctx) => mentions.hover(guard(ctx.config), target, ctx.user),
+        llm: (target, ctx) => mentions.llm(guard(ctx.config), target),
+      },
+    },
+    resources,
+    lifecycle: {
+      started: (ctx) => {
+        current = ctx.config;
+        ctx.log.info('fs.started', { roots: ctx.config.roots.length });
+        return Promise.resolve();
+      },
+      configured: (ctx) => {
+        current = ctx.config;
+        index.clear();
+        ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous.roots.length });
+        return Promise.resolve();
+      },
+      stopping: (ctx) => {
+        ctx.log.info('fs.stopping', { reason: ctx.reason });
+        return Promise.resolve();
+      },
+    },
+  };
+  return { impl, resources, config: () => current };
+}

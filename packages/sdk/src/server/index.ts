@@ -3,14 +3,16 @@
  * time), sends the manifest, and serves the implementation over the system link. The implementation is checked
  * against the contract at compile time.
  *
- * The runtime sits behind `SystemHost`, so tests and other transports can supply their own. The SDK lane implements
- * `LinkHost` (WebSocket link, pairing keys, outcome helpers, the forwarding aeye provider, MCP face).
+ * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
+ * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
 import type { Duration, QualifiedName } from '@harness/core';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
 import type { ContractShape, SystemContract, SystemImpl } from '../system.ts';
+import type { FilesFactory } from './files.ts';
+import { LinkHost } from './host.ts';
 
 /** How a system process connects. */
 export interface ServeOptions {
@@ -18,17 +20,24 @@ export interface ServeOptions {
   hub: string;
   /** The folder where the system keeps its key pair and outcome journal. */
   state: string;
-  /** The system's version; defaults to its package version. */
+  /** The system's version; defaults to the version in the current folder's `package.json`. */
   version?: string;
-  /** A one-time pairing token, if an admin made one. Otherwise the system prints a pairing code. */
+  /** A one-time pairing token, if an admin made one. Otherwise the system logs a pairing code and link. */
   pairingToken?: string;
-  /** The folder of the built client assets, if the system has renderers. */
+  /** The folder of the built client assets (`buildClient`'s output), if the system has renderers. */
   client?: string;
-  /** Also serve the system as an MCP server. */
-  mcp?: { stdio: true } | { http: { port: number } };
-  /** How long to wait for the hub before giving up on one connection attempt. */
+  /** Also serve the system's native fns as an MCP server. */
+  mcp?: McpServe;
+  /** After this long without a connection, the system logs that the hub is unreachable (it keeps retrying). Default 10 s. */
   connectTimeout?: Duration;
+  /** The `ctx.files` each run gets. Default: the local disk, relative to the current folder. */
+  files?: FilesFactory;
+  /** The `ctx.fetch` each run gets. Default: the global `fetch`. */
+  fetch?: typeof fetch;
 }
+
+/** Where the MCP face listens: stdin/stdout, or HTTP (JSON-RPC over POST) on a port. */
+export type McpServe = { stdio: true } | { http: { port: number; host?: string } };
 
 /** Where a running system is. */
 export type RunningStatus = 'connecting' | 'pairing' | 'needs-config' | 'connected' | 'disconnected' | 'stopped';
@@ -65,18 +74,6 @@ export interface KeyStore {
   sign(nonce: string): Promise<string>;
 }
 
-/** Thrown by parts of the SDK runtime the SDK lane has not built yet. */
-export class NotBuilt extends Error {
-  override readonly name = 'NotBuilt';
-}
-
-/** The WebSocket link host. Its runtime belongs to the SDK lane. */
-export class LinkHost implements SystemHost {
-  start<N extends string, C extends ContractShape>(contract: SystemContract<N, C>): Promise<RunningSystem<N>> {
-    return Promise.reject(new NotBuilt(`serve(${contract.name}): the link runtime is not built yet`));
-  }
-}
-
 /**
  * Run a system: connect to the hub (pairing the first time), send the contract, and serve the implementation.
  * The implementation is checked against the contract at compile time.
@@ -84,3 +81,18 @@ export class LinkHost implements SystemHost {
 export function serve<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, host: SystemHost = new LinkHost()): Promise<RunningSystem<N>> {
   return host.start(contract, impl, options);
 }
+
+export { LinkHost, SystemStopped, type LinkHostDeps } from './host.ts';
+export { sdkEnv, type SdkEnv } from './env.ts';
+export { FileKeyStore, MemoryKeyStore, verifyNonce } from './keys.ts';
+export { FileJournal, MemoryJournal, type OutcomeJournal } from './journal.ts';
+export { WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
+export {
+  HarnessProvider, HubLlm, HubLlmError, harnessAi, harnessAiOf, wireRequest, HUB_MODEL, type HarnessAi, type HarnessMetadata, type HarnessProviderConfig,
+} from './llm.ts';
+export { NodeFiles, fileUri, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
+export { NodeProcess, type ProcessControl } from './process.ts';
+export { StateConflict } from './state.ts';
+export { McpFace } from './mcp.ts';
+export { LinkGap, InvalidValue } from './wire.ts';
+export { readClientBundle, CLIENT_ENTRY, type ClientBundle } from './assets.ts';

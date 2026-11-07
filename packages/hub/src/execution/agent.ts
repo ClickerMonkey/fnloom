@@ -1,0 +1,571 @@
+/**
+ * The agent loop: every `hub/llm` run is an aeye `Prompt`, run one iteration per queued LLM job. An iteration renders
+ * the agent's instructions and context, offers its tools (built from fn signatures), and streams one model answer
+ * (aeye retries bad tool arguments and bad output inside the job). Each tool call the model makes suspends the prompt
+ * and becomes a queued run; when every run of the iteration has settled or gone to the background, the next job
+ * continues from the saved conversation with the results appended. The run ends when the model answers without
+ * tool calls.
+ *
+ * A session's agent continues the session's transcript and streams its answer into an assistant message; any other
+ * agent keeps its conversation on its run. The run's `resume` holds the loop's state (`AgentState`), so a pause, a
+ * cancel or a restart picks up exactly where it was.
+ */
+import { Prompt } from '@aeye/core';
+import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
+import {
+  Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, type ActorId, type FnError, type FnRecord, type OutcomeWire, type Run, type RunSettled, type Session,
+} from '@harness/core';
+import { z } from 'zod';
+import { HUB_SYSTEM } from '../catalog/availability.ts';
+import type { FnSignature } from '../catalog/index.ts';
+import type { MessageEnricher } from '../chat/index.ts';
+import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
+import { rows } from './pages.ts';
+import type { AgentLoop, RunInput } from './index.ts';
+import type { ModelResolver } from './models.ts';
+import type { ControlAnswer, Conversation, ExecutionDeps, ExecutionJob, LlmEngine, RunExecutor } from './ports.ts';
+import { transientDelay, type ExecutionQueues } from './queues.ts';
+import { AGENT_KIND, isSettled, settledOf, type HubRunService } from './runs.ts';
+import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
+import { PendingCalls, toolset } from './tools.ts';
+import { isObjectSchema, messageFromWire, messageToWire, replyText } from './wire.ts';
+
+/** One tool call of the last iteration, and the run it became (or why it couldn't). */
+export const PendingCall = z.object({
+  toolCallId: z.string(),
+  fn: QualifiedName,
+  run: RunId.optional(),
+  error: z.string().optional(),
+});
+export type PendingCall = z.infer<typeof PendingCall>;
+
+/** The agent loop's state, kept on the agent run (`run.resume`). */
+export const AgentState = z.object({
+  /** The next iteration to run. */
+  iteration: z.number().int().min(0),
+  /** The tool calls of the last iteration, in call order, waiting to be answered. */
+  pending: z.array(PendingCall),
+  /** Where the assistant message holding those calls is in the conversation. */
+  anchor: z.number().int(),
+  /** Iterations in a row whose tool calls all failed. */
+  failures: z.number().int().min(0),
+  /** The conversation, for an agent that isn't a session's (a session's agent continues the session's transcript). */
+  messages: z.array(LlmMessage).optional(),
+  /** The assistant message a session's agent streams its answer into. */
+  message: MessageId.optional(),
+  /** Whether a session's agent has put its turn's user message into the transcript. */
+  seeded: z.boolean().optional(),
+});
+export type AgentState = z.infer<typeof AgentState>;
+
+/** What an agent's earlier run says when a new message takes over. */
+export const INTERRUPTED = 'A new message came in; carrying on there.';
+
+/** A fresh agent's state. */
+export const START: AgentState = { iteration: 0, pending: [], anchor: -1, failures: 0 };
+
+/** The marker a tool call gets when its run goes to the background. */
+export function backgroundReply(run: RunId): string {
+  return `Running in the background as run ${run}; its result will be posted when it finishes.`;
+}
+
+/** What the model reads for a settled tool run. */
+export function settledReply(settled: RunSettled): string {
+  switch (settled.status) {
+    case 'done': return replyText(settled.result);
+    case 'failed': return `Error: ${settled.error.message}`;
+    case 'cancelled': return 'The run was cancelled before it finished.';
+    case 'background': return backgroundReply(settled.run);
+  }
+}
+
+/** A session agent's conversation: the session's transcript, which chat appends each user message to. */
+export class SessionConversation implements Conversation {
+  readonly #deps: Pick<ExecutionDeps, 'store'>;
+  readonly #session: Session['id'];
+
+  constructor(deps: Pick<ExecutionDeps, 'store'>, session: Session['id']) {
+    this.#deps = deps;
+    this.#session = session;
+  }
+
+  async messages(): Promise<LlmMessage[]> {
+    return (await this.#deps.store.table('sessions').get(this.#session))?.transcript ?? [];
+  }
+
+  append(messages: readonly LlmMessage[]): Promise<number> {
+    return this.#change((transcript) => {
+      const at = transcript.length;
+      return { transcript: [...transcript, ...messages], result: at };
+    });
+  }
+
+  answer(anchor: number, replies: readonly LlmMessage[]): Promise<void> {
+    return this.#change((transcript) => ({ transcript: [...transcript.slice(0, anchor + 1), ...replies, ...transcript.slice(anchor + 1)], result: undefined }));
+  }
+
+  async #change<T>(change: (transcript: LlmMessage[]) => { transcript: LlmMessage[]; result: T }): Promise<T> {
+    return this.#deps.store.tx(async (tx) => {
+      const session = await tx.table('sessions').get(this.#session);
+      if (session === undefined) throw new Error(`no session ${this.#session}`);
+      const { transcript, result } = change(session.transcript);
+      await tx.table('sessions').update(session.id, { transcript });
+      return result;
+    });
+  }
+}
+
+/** Any other agent's conversation: kept in its state, saved with it. */
+export class RunConversation implements Conversation {
+  #messages: LlmMessage[];
+
+  constructor(messages: readonly LlmMessage[]) {
+    this.#messages = [...messages];
+  }
+
+  get saved(): LlmMessage[] {
+    return [...this.#messages];
+  }
+
+  messages(): Promise<LlmMessage[]> {
+    return Promise.resolve([...this.#messages]);
+  }
+
+  append(messages: readonly LlmMessage[]): Promise<number> {
+    const at = this.#messages.length;
+    this.#messages.push(...messages);
+    return Promise.resolve(at);
+  }
+
+  answer(anchor: number, replies: readonly LlmMessage[]): Promise<void> {
+    this.#messages.splice(anchor + 1, 0, ...replies);
+    return Promise.resolve();
+  }
+}
+
+/** What the agent loop uses. */
+export interface AgentLoopDeps extends ExecutionDeps {
+  readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel'>;
+  readonly queues: Pick<ExecutionQueues, 'enqueueLlm' | 'cancel'>;
+  readonly llm: Pick<LlmEngine, 'streamer'>;
+  readonly models: Pick<ModelResolver, 'resolve'>;
+  /** How a chat message reads to the LLM (mentions, extras and hooks as tagged blocks). */
+  readonly enrich: Pick<MessageEnricher, 'render'>;
+}
+
+/** The input an agent's instructions are rendered with. */
+interface AgentInput {
+  args: Json;
+  context: string;
+}
+
+/** An agent's answer: text, or a structured value (wrapped in `result` when it isn't an object). */
+type AgentOutput = string | object;
+
+/** How one iteration went. */
+type IterationEnd = 'waiting-for-tools' | 'done' | { failed: FnError };
+
+/** The agent loop, also the executor of `hub/llm` runs. */
+export class HubAgentLoop implements AgentLoop, RunExecutor {
+  readonly #deps: AgentLoopDeps;
+  readonly #iterating = new Map<RunId, AbortController>();
+  readonly #jobs = new Map<RunId, string>();
+  readonly #agents = new Map<QualifiedName, ActorId>();
+
+  constructor(deps: AgentLoopDeps) {
+    this.#deps = deps;
+  }
+
+  async start(input: RunInput & { kind: 'hub/llm' }): Promise<{ run: RunId }> {
+    const { kind: _kind, ...run } = input;
+    const started = await this.#deps.runs.start(run);
+    return { run: started.run };
+  }
+
+  /**
+   * The run worker dequeued an agent run (new, or resumed): queue its next iteration, after its tool calls settle if
+   * it was waiting on some. The loop settles the run itself.
+   */
+  async execute(job: ExecutionJob): Promise<'detached'> {
+    const state = stateOf(job.run);
+    if (state.pending.length === 0) {
+      this.#queue(job.run, state.iteration);
+    } else {
+      const waiting = await this.#deps.store.table('runs').update(job.run.id, { status: 'waiting' });
+      void this.#await(waiting, state);
+    }
+    return 'detached';
+  }
+
+  /** The LLM queue's handler: run one iteration; transient limits are rethrown so the queue defers the job. */
+  async handle(job: { run: RunId; iteration: number }, signal: AbortSignal): Promise<void> {
+    this.#jobs.delete(job.run);
+    const end = await this.iterate(job.run, job.iteration, signal);
+    if (typeof end === 'object') this.#deps.log.warn('agent.failed', { run: job.run, iteration: job.iteration, error: end.failed.message });
+  }
+
+  async iterate(id: RunId, iteration: number, signal: AbortSignal): Promise<IterationEnd> {
+    const { runs, store, log } = this.#deps;
+    const run = await runs.get(id);
+    if (run === undefined || (run.status !== 'running' && run.status !== 'waiting')) return 'done';
+    const state = stateOf(run);
+    if (state.iteration !== iteration) return 'done';
+    const controller = new AbortController();
+    const stop = (): void => { controller.abort(signal.reason); };
+    signal.addEventListener('abort', stop, { once: true });
+    this.#iterating.set(id, controller);
+    try {
+      if (run.status === 'waiting') await store.table('runs').update(id, { status: 'running' });
+      return await this.#iterate(run, state, controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) return 'done';
+      if (transientDelay(error) !== undefined) throw error;
+      const failed = fnError(causeOf(error, RunRefused)?.error.class ?? 'fatal', messageOf(error), 'agent');
+      log.error('agent.error', { run: id, iteration, error: failed.message });
+      const latest = await runs.get(id);
+      await this.#fail(run, latest === undefined ? state : stateOf(latest), failed);
+      return { failed };
+    } finally {
+      signal.removeEventListener('abort', stop);
+      this.#iterating.delete(id);
+    }
+  }
+
+  async #iterate(run: Run, given: AgentState, signal: AbortSignal): Promise<IterationEnd> {
+    let state = given;
+    const { catalog, store, clock } = this.#deps;
+    const fn = await catalog.fn(run.fn);
+    if (fn === undefined) throw new Error(`${run.fn} no longer exists`);
+    const payload = parseValue(LlmPayloadType, fn.decl.payload);
+    if (state.iteration >= payload.maxIterations) {
+      const failed = fnError('fatal', `${run.fn} stopped after ${payload.maxIterations} iterations without an answer.`, 'max-iterations');
+      await this.#fail(run, state, failed);
+      return { failed };
+    }
+    const session = await this.#session(run);
+    const conversation = this.#conversation(session, state);
+    const turn = await store.table('turns').get(run.turn);
+    if (turn === undefined) throw new Error(`run ${run.id} names no turn ${run.turn}`);
+    if (session !== undefined && state.seeded !== true) {
+      await this.#seed(conversation, turn.message);
+      state = { ...state, seeded: true };
+      await store.table('runs').update(run.id, { resume: Json.parse(state) });
+    }
+    if (state.pending.length > 0) {
+      // Answered and saved at once, so a job that runs again (after a rate limit) never answers twice.
+      const replies = await this.#replies(state.pending);
+      await conversation.answer(state.anchor, replies.messages);
+      state = { ...state, pending: [], failures: replies.allFailed ? state.failures + 1 : 0, ...this.#saved(conversation) };
+      await store.table('runs').update(run.id, { resume: Json.parse(state) });
+      if (state.failures >= this.#deps.settings.execution.HARNESS_AGENT_TOOL_FAILURES) {
+        const failed = fnError('fatal', `${run.fn} stopped: its tool calls failed ${state.failures} times in a row.`, 'tool-failures');
+        await this.#fail(run, state, failed);
+        return { failed };
+      }
+    }
+    const calls = new PendingCalls();
+    const tools = toolset(await this.#tools(payload, session), calls);
+    const signature = await catalog.signature(fn.name);
+    const output = outputOf(signature);
+    const message = session === undefined ? undefined : await this.#message(run, state, turn.message);
+    if (message !== undefined && state.message !== message) {
+      state = { ...state, message };
+      await store.table('runs').update(run.id, { resume: Json.parse(state) });
+    }
+    const scope = new LlmCallScope({
+      run: run.id, turn: run.turn, session: run.session, fn: run.fn, actor: run.actor, iteration: state.iteration, priority: run.priority, limits: turn.limits, queuedAt: clock(),
+    });
+    const metadata = await this.#deps.models.resolve(ModelChoice.optional().parse(payload.model));
+    const prompt = new Prompt<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, [], AgentOutput>({
+      name: 'agent',
+      description: fn.decl.description,
+      content: `${payload.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
+      input: (input) => ({ args: input?.args ?? null, context: input?.context ?? '' }),
+      schema: output.schema,
+      retool: () => tools.tools,
+      toolExecution: payload.toolExecution,
+      metadata,
+    });
+
+    const collected: LlmMessage[] = [];
+    let answer: AgentOutput | undefined;
+    let suspended = false;
+    let reasoning = '';
+    const ctx = { call: scope, messages: (await conversation.messages()).map(messageFromWire), signal, stream: this.#deps.llm.streamer };
+    for await (const event of prompt.get('stream', { args: run.args, context: await this.#context(payload, session) }, ctx)) {
+      switch (event.type) {
+        case 'textPartial':
+          scope.markFirstToken(clock());
+          if (message !== undefined) this.#deps.turns.stream(message, { text: event.content });
+          break;
+        case 'reasonPartial': {
+          scope.markFirstToken(clock());
+          const full = event.reasoning.content ?? '';
+          if (message !== undefined && full.length > reasoning.length) this.#deps.turns.stream(message, { reasoning: full.slice(reasoning.length) });
+          reasoning = full;
+          break;
+        }
+        case 'toolParseName':
+          scope.markFirstToken(clock());
+          break;
+        case 'message':
+          collected.push(messageToWire(event.message));
+          break;
+        case 'complete':
+          answer = event.output;
+          break;
+        case 'suspend':
+          suspended = true;
+          break;
+        default:
+          break;
+      }
+    }
+    if (signal.aborted) return 'done';
+    const at = await conversation.append(collected);
+
+    if (suspended) {
+      const index = lastToolCallsIndex(collected);
+      const assistant = collected[index];
+      const ids = assistant?.toolCalls?.map((c) => c.id) ?? [];
+      const pending = await this.#startCalls(run, calls.inOrder(ids), scope.last?.interaction);
+      const next: AgentState = { ...state, iteration: state.iteration + 1, pending, anchor: at + index, ...this.#saved(conversation) };
+      await store.table('runs').update(run.id, { status: 'waiting', resume: Json.parse(next) });
+      void this.#await(run, next);
+      return 'waiting-for-tools';
+    }
+
+    if (answer === undefined) throw new Error(`${run.fn} ended without an answer`);
+    const result = output.result(answer);
+    await store.table('runs').update(run.id, { resume: Json.parse({ ...state, ...this.#saved(conversation) }) });
+    if (message !== undefined) await this.#deps.turns.finish(message, [{ type: 'text', text: replyText(result) }], 'done');
+    await this.#deps.runs.settle(run.id, { status: 'done', result });
+    return 'done';
+  }
+
+  /**
+   * A new user message arrived while the agent works on an earlier one: its tool calls go to the background and are
+   * answered with that in the transcript, its streaming stops, and the run ends, so the agent run of the new message
+   * continues the conversation (it sees the "still running" replies and the new message) and can answer at once.
+   */
+  async interrupt(id: RunId): Promise<void> {
+    const run = await this.#deps.runs.get(id);
+    if (run === undefined || isSettled(run.status)) return;
+    this.#iterating.get(id)?.abort('interrupted');
+    const job = this.#jobs.get(id);
+    if (job !== undefined) await this.#deps.queues.cancel(job, 'interrupted');
+    this.#jobs.delete(id);
+    const state = stateOf(run);
+    await this.#backgroundCalls(state);
+    if (state.pending.length > 0) {
+      const conversation = this.#conversation(await this.#session(run), state);
+      await conversation.answer(state.anchor, (await this.#replies(state.pending)).messages);
+      await this.#deps.store.table('runs').update(id, { resume: Json.parse({ ...state, pending: [], ...this.#saved(conversation) }) });
+    }
+    if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: INTERRUPTED }], 'done');
+    await this.#deps.runs.settle(id, { status: 'done', result: INTERRUPTED });
+    this.#deps.log.info('agent.interrupted', { run: id, pending: state.pending.length });
+  }
+
+  /** Move an iteration's running tool calls to the background (those that allow it). */
+  async #backgroundCalls(state: AgentState): Promise<void> {
+    for (const call of state.pending) {
+      if (call.run !== undefined) await this.#deps.runs.background(call.run);
+    }
+  }
+
+  /** The session whose conversation an agent run continues: only a session's own agent (a turn's root run) has one. */
+  async #session(run: Run): Promise<Session | undefined> {
+    return run.session === undefined || run.parent !== undefined ? undefined : this.#deps.store.table('sessions').get(run.session);
+  }
+
+  /** The conversation an agent run continues. */
+  #conversation(session: Session | undefined, state: AgentState): Conversation {
+    return session === undefined ? new RunConversation(state.messages ?? []) : new SessionConversation(this.#deps, session.id);
+  }
+
+  /** Put the turn's user message, as the LLM reads it, into the session transcript. */
+  async #seed(conversation: Conversation, message: MessageId | undefined): Promise<void> {
+    if (message === undefined) return;
+    const row = await this.#deps.store.table('messages').get(message);
+    if (row === undefined) return;
+    await conversation.append([{ role: 'user', content: this.#deps.enrich.render(row) }]);
+  }
+
+  async control(run: Run, action: 'cancel' | 'pause'): Promise<ControlAnswer> {
+    this.#iterating.get(run.id)?.abort(action);
+    const job = this.#jobs.get(run.id);
+    if (job !== undefined) await this.#deps.queues.cancel(job, action);
+    this.#jobs.delete(run.id);
+    // Read after stopping: the iteration saves its state as it goes, so the run handed in may be behind.
+    const state = stateOf((await this.#deps.runs.get(run.id)) ?? run);
+    if (action === 'cancel') {
+      for (const call of state.pending) if (call.run !== undefined) await this.#deps.runs.cancel(call.run, run.actor);
+      if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: 'Cancelled.' }], 'failed');
+      await this.#deps.runs.settle(run.id, { status: 'cancelled' });
+    } else {
+      await this.#deps.runs.settle(run.id, { status: 'paused', resume: Json.parse(state) });
+    }
+    return { accepted: true };
+  }
+
+  /** Agents have no undo of their own: their tool runs are undone one by one. */
+  undo(): Promise<{ status: 'gone' }> {
+    return Promise.resolve({ status: 'gone' });
+  }
+
+  /** Re-arm the wait of every agent run that was waiting for its tools (after a restart). */
+  async recover(): Promise<void> {
+    for await (const run of rows(this.#deps.store.table('runs'), { where: { status: 'waiting', kind: AGENT_KIND } })) void this.#await(run, stateOf(run));
+  }
+
+  /** Wait until every call of an iteration has settled or gone to the background, then queue the next iteration. */
+  async #await(run: Run, state: AgentState): Promise<void> {
+    const { runs, presence, settings, log } = this.#deps;
+    const waits = state.pending.flatMap((call) => (call.run === undefined ? [] : [runs.wait(call.run)]));
+    const progress = { settled: false };
+    const all = Promise.all(waits).then(() => { progress.settled = true; });
+    const timeout = settings.queue.HARNESS_TOOL_TIMEOUT;
+    for (;;) {
+      await Promise.race([all, sleep(timeout)]);
+      if (progress.settled) break;
+      if (run.session !== undefined && (await presence.active(run.session))) {
+        log.info('agent.tool-timeout', { run: run.id, iteration: state.iteration });
+        await this.#backgroundCalls(state);
+      }
+    }
+    const current = await runs.get(run.id);
+    if (current?.status === 'waiting' && stateOf(current).iteration === state.iteration) this.#queue(current, state.iteration);
+  }
+
+  #queue(run: Run, iteration: number): void {
+    this.#jobs.set(run.id, this.#deps.queues.enqueueLlm({
+      run: run.id, turn: run.turn, iteration, priority: run.priority, ...(run.session === undefined ? {} : { session: run.session }),
+    }));
+  }
+
+  /** Start a run for each tool call; a call that can't start is answered with why. */
+  async #startCalls(run: Run, calls: ReturnType<PendingCalls['inOrder']>, llmCall: Run['llmCall']): Promise<PendingCall[]> {
+    const caller = await this.#agentActor(run);
+    const pending: PendingCall[] = [];
+    for (const call of calls) {
+      try {
+        const started = await this.#deps.runs.start({
+          fn: call.fn, args: call.args, turn: run.turn, parent: run.id, key: call.toolCallId, actor: run.actor, caller, priority: run.priority,
+          background: false, handlers: [], toolCallId: call.toolCallId, ...(run.session === undefined ? {} : { session: run.session }), ...(llmCall === undefined ? {} : { llmCall }),
+        });
+        pending.push({ toolCallId: call.toolCallId, fn: call.fn, run: started.run });
+      } catch (error) {
+        pending.push({ toolCallId: call.toolCallId, fn: call.fn, error: causeOf(error, RunRefused)?.error.message ?? messageOf(error) });
+      }
+    }
+    return pending;
+  }
+
+  /** The tool replies for an iteration's calls, in call order. */
+  async #replies(pending: readonly PendingCall[]): Promise<{ messages: LlmMessage[]; allFailed: boolean }> {
+    let failed = 0;
+    const messages = await Promise.all(pending.map(async (call): Promise<LlmMessage> => {
+      if (call.run === undefined) {
+        failed += 1;
+        return { role: 'tool', toolCallId: call.toolCallId, content: `Error: ${call.error ?? 'the call could not start'}` };
+      }
+      const child = await this.#deps.runs.get(call.run);
+      const settled: RunSettled = child === undefined ? { status: 'failed', error: fnError('fatal', 'the run is gone') }
+        : isSettled(child.status) ? settledOf(child.outcome, child.id) : { status: 'background', run: child.id };
+      if (settled.status === 'failed') failed += 1;
+      return { role: 'tool', toolCallId: call.toolCallId, content: settledReply(settled) };
+    }));
+    return { messages, allFailed: pending.length > 0 && failed === pending.length };
+  }
+
+  /** The fns an agent may call now: its own tools and, for a session's agent, the session's loaded fns. */
+  async #tools(payload: LlmPayload, session: Session | undefined): Promise<Array<{ fn: FnRecord; signature: FnSignature }>> {
+    const { catalog } = this.#deps;
+    const names = unique([...payload.tools, ...(session?.tools ?? [])].flatMap((name) => {
+      const parsed = QualifiedName.safeParse(name);
+      return parsed.success ? [parsed.data] : [];
+    }));
+    const allowed = session?.systems ?? 'all';
+    const fns = (await catalog.fns({ names, available: true }))
+      .filter((fn) => !fn.disabled && (allowed === 'all' || fn.system === HUB_SYSTEM || allowed.includes(fn.system)))
+      .slice(0, payload.maxTools);
+    return Promise.all(fns.map(async (fn) => ({ fn, signature: await catalog.signature(fn.name) })));
+  }
+
+  /** The context an agent always has: its own and, for a session's agent, the session's loaded context. */
+  async #context(payload: LlmPayload, session: Session | undefined): Promise<string> {
+    const names = unique([...payload.context, ...(session?.context ?? [])]);
+    const blocks: string[] = [];
+    for (const name of names) {
+      const parsed = QualifiedName.safeParse(name);
+      if (!parsed.success) continue;
+      const context = await this.#deps.catalog.context(parsed.data);
+      if (context?.decl.content === undefined) continue;
+      blocks.push(`<context name="${parsed.data}">\n${context.decl.content}\n</context>`);
+    }
+    return blocks.join('\n\n');
+  }
+
+  /** The assistant message a session's agent answers into, opened on its first iteration. */
+  async #message(run: Run, state: AgentState, replyTo: MessageId | undefined): Promise<MessageId> {
+    if (state.message !== undefined) return state.message;
+    const opened = await this.#deps.turns.begin({ turn: run.turn, author: await this.#agentActor(run), ...(replyTo === undefined ? {} : { replyTo }) });
+    return opened.id;
+  }
+
+  /** The actor of an agent fn (the author of its messages and the caller of its tools). */
+  async #agentActor(run: Run): Promise<ActorId> {
+    const known = this.#agents.get(run.fn);
+    if (known !== undefined) return known;
+    for await (const actor of rows(this.#deps.store.table('actors'), { where: { kind: 'agent' } })) {
+      if (actor.kind !== 'agent' || actor.fn !== run.fn) continue;
+      this.#agents.set(run.fn, actor.id);
+      return actor.id;
+    }
+    return run.caller;
+  }
+
+  /** The conversation to keep on the state (only for agents that aren't a session's). */
+  #saved(conversation: Conversation): Pick<AgentState, 'messages'> {
+    return conversation instanceof RunConversation ? { messages: conversation.saved } : {};
+  }
+
+  async #fail(run: Run, state: AgentState, failed: FnError): Promise<void> {
+    await this.#deps.store.table('runs').update(run.id, { resume: Json.parse(state) });
+    if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: `I couldn't finish: ${failed.message}` }], 'failed');
+    const outcome: OutcomeWire = { status: 'failed', error: failed };
+    await this.#deps.runs.settle(run.id, outcome);
+  }
+}
+
+/** An agent run's loop state. */
+export function stateOf(run: Run): AgentState {
+  const parsed = AgentState.safeParse(run.resume);
+  return parsed.success ? parsed.data : START;
+}
+
+/** The index of the last assistant message with tool calls. */
+function lastToolCallsIndex(messages: readonly LlmMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === 'assistant' && (messages[i]?.toolCalls?.length ?? 0) > 0) return i;
+  }
+  return -1;
+}
+
+/** How an agent's answer is asked for and read back: text as text, objects as they are, anything else wrapped. */
+function outputOf(signature: FnSignature): { schema: z.ZodType<object> | false; result: (output: AgentOutput) => Json } {
+  if (signature.returns.name === 'text') return { schema: false, result: (output) => (typeof output === 'string' ? output : JSON.stringify(output)) };
+  const returns = signature.returnsSchema;
+  if (isObjectSchema(returns)) return { schema: returns, result: (output) => Json.parse(output) };
+  const wrapped = z.object({ result: returns });
+  return { schema: wrapped, result: (output) => Json.parse(wrapped.parse(output).result) };
+}
+
+function unique<T>(items: readonly T[]): T[] {
+  return [...new Set(items)];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms).unref());
+}

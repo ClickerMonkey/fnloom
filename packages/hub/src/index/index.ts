@@ -3,8 +3,10 @@
  * dimensions), batched through `@ayepi/work`; hybrid search (vectors + full text, merged by reciprocal rank); the
  * suggestions shown in the composer and added to messages; and sectioning resources by structure.
  *
- * Owner: the data lane (with the store and the embedder system). Implement `Embedders`, `Indexer`, `Search`,
- * `Suggester` and `Sectioning`, each in its own file under `index/`.
+ * Owner: the hub-systems lane. `SystemEmbedders` (`embedders.ts`), `StoreIndexer` (`indexer.ts`), `IndexSearch`
+ * (`search.ts`) and `IndexSuggester` (`suggester.ts`) implement the interfaces below; `EmbedBatcher` (`batch.ts`)
+ * batches embeds, `Sectioning` (`sectioning.ts`) picks and runs sectioners (the hub's own are in `sectioners.ts`),
+ * and `IndexEmbedding` (`embedding.ts`) answers systems that ask the hub to embed.
  */
 import type { IndexedKind, QualifiedName, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName } from '@harness/core';
 import type { Suggestion } from '@harness/core';
@@ -28,9 +30,17 @@ export interface Embedders {
   onChange(listener: () => void): () => void;
 }
 
+/** One item to index: what it is, its key within that kind, its text, and the system it belongs to. */
+export interface IndexItem {
+  readonly kind: IndexedKind;
+  readonly key: string;
+  readonly text: string;
+  readonly system?: SystemName;
+}
+
 /** Keeps the index current: fns, context, types, sections and messages, re-embedded only when their text changes. */
 export interface Indexer {
-  upsert(items: ReadonlyArray<{ kind: IndexedKind; key: string; text: string; system?: SystemName }>): Promise<void>;
+  upsert(items: readonly IndexItem[]): Promise<void>;
   remove(kind: IndexedKind, keys: readonly string[]): Promise<void>;
   /** Re-index everything a system contributes (after a manifest import). */
   reindexSystem(system: SystemName): Promise<void>;

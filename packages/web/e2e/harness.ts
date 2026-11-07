@@ -65,7 +65,13 @@ export interface ScenarioResult {
   readonly error?: string;
 }
 
-/** Check the page against the layout rules. Runs in the browser. */
+/**
+ * Check the page against the layout rules. Runs in the browser. A control counts when it is drawn (bigger than 1px,
+ * not hidden, on screen vertically) and is the top thing at its centre, so controls under an open dialog or popover
+ * are not compared with the ones above them. A control inside a box that scrolls or clips sideways (a tab strip) may
+ * reach past the screen's edge, since that box keeps it in. Overlays (marked `data-layer`) float over the page on
+ * purpose, so only controls in the same layer are compared for overlap.
+ */
 export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
   return page.evaluate(() => {
     const problems: Array<{ rule: 'horizontal-scroll' | 'overlap' | 'offscreen'; detail: string }> = [];
@@ -74,34 +80,64 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       problems.push({ rule: 'horizontal-scroll', detail: `page is ${doc.scrollWidth}px wide in a ${doc.clientWidth}px window` });
     }
     const describe = (el: Element): string => `${el.tagName.toLowerCase()}${el.id === '' ? '' : `#${el.id}`}${el.getAttribute('aria-label') === null ? '' : `[${String(el.getAttribute('aria-label'))}]`} "${el.textContent.trim().slice(0, 30)}"`;
+    const onTop = (el: Element, r: DOMRect): boolean => {
+      const x = Math.min(Math.max(r.left + r.width / 2, 0), window.innerWidth - 1);
+      const y = Math.min(Math.max(r.top + r.height / 2, 0), window.innerHeight - 1);
+      const hit = document.elementFromPoint(x, y);
+      return hit !== null && (el === hit || el.contains(hit) || hit.contains(el));
+    };
+    /** The part of an element its scrolling or clipping ancestors let show (a row half scrolled out of the thread shows only its visible half). */
+    const shown = (el: Element): { left: number; top: number; right: number; bottom: number } => {
+      const r = el.getBoundingClientRect();
+      const box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+      for (let at = el.parentElement; at !== null && at !== document.body; at = at.parentElement) {
+        const style = getComputedStyle(at);
+        if (style.overflowX === 'visible' && style.overflowY === 'visible') { continue; }
+        const clip = at.getBoundingClientRect();
+        if (style.overflowX !== 'visible') { box.left = Math.max(box.left, clip.left); box.right = Math.min(box.right, clip.right); }
+        if (style.overflowY !== 'visible') { box.top = Math.max(box.top, clip.top); box.bottom = Math.min(box.bottom, clip.bottom); }
+      }
+      return box;
+    };
+    const clippedSideways = (el: Element): boolean => {
+      for (let at = el.parentElement; at !== null && at !== document.body; at = at.parentElement) {
+        if (getComputedStyle(at).overflowX !== 'visible') { return true; }
+      }
+      return false;
+    };
     const controls = Array.from(document.querySelectorAll('button, a, input, textarea, select, [role="button"]')).filter((el) => {
       const r = el.getBoundingClientRect();
+      const visible = shown(el);
       const style = getComputedStyle(el);
-      return r.width > 0 && r.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+      return r.width > 1 && r.height > 1 && visible.right - visible.left > 1 && visible.bottom - visible.top > 1 && style.visibility !== 'hidden' && style.display !== 'none'
+        && r.bottom > 0 && r.top < window.innerHeight && onTop(el, new DOMRect(visible.left, visible.top, visible.right - visible.left, visible.bottom - visible.top));
     });
     for (const el of controls) {
       const r = el.getBoundingClientRect();
-      if (r.right > window.innerWidth + 1 || r.left < -1) { problems.push({ rule: 'offscreen', detail: describe(el) }); }
+      if ((r.right > window.innerWidth + 1 || r.left < -1) && !clippedSideways(el)) { problems.push({ rule: 'offscreen', detail: describe(el) }); }
     }
     for (let i = 0; i < controls.length; i++) {
       for (let j = i + 1; j < controls.length; j++) {
         const a = controls[i];
         const b = controls[j];
         if (a === undefined || b === undefined || a.contains(b) || b.contains(a)) { continue; }
-        const ra = a.getBoundingClientRect();
-        const rb = b.getBoundingClientRect();
+        // an overlay (popover, dialog, toast; marked data-layer) floats over the page on purpose
+        if (a.closest('[data-layer]') !== b.closest('[data-layer]')) { continue; }
+        const ra = shown(a);
+        const rb = shown(b);
         const overlapX = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
         const overlapY = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
-        if (overlapX > 2 && overlapY > 2) { problems.push({ rule: 'overlap', detail: `${describe(a)} overlaps ${describe(b)}` }); }
+        if (overlapX > 2 && overlapY > 2) { problems.push({ rule: 'overlap', detail: `${describe(a)} at ${Math.round(ra.left)},${Math.round(ra.top)} overlaps ${describe(b)} at ${Math.round(rb.left)},${Math.round(rb.top)}` }); }
       }
     }
     return problems;
   });
 }
 
-/** Run scenarios at every viewport and theme. Returns every result; the caller decides how to report. */
-export async function runScenarios(scenarios: readonly Scenario[], options: { browser?: Browser } = {}): Promise<ScenarioResult[]> {
+/** Run scenarios at every viewport and theme, against `url` (default `HARNESS_E2E_URL`). Returns every result; the caller decides how to report. */
+export async function runScenarios(scenarios: readonly Scenario[], options: { browser?: Browser; url?: string } = {}): Promise<ScenarioResult[]> {
   const settings = e2eEnv.parse();
+  const base = options.url ?? settings.HARNESS_E2E_URL;
   const only = new Set(settings.HARNESS_E2E_ONLY.split(',').map((s) => s.trim()).filter((s) => s !== ''));
   const browser = options.browser ?? await puppeteer.launch({ headless: settings.HARNESS_E2E_HEADLESS });
   const shotsDir = fileURLToPath(new URL('./shots/', import.meta.url));
@@ -121,12 +157,12 @@ export async function runScenarios(scenarios: readonly Scenario[], options: { br
           const problems: LayoutProblem[] = [];
           const ctx: StepContext = {
             page, viewport, theme,
-            url: (path) => new URL(path, settings.HARNESS_E2E_URL).toString(),
+            url: (path) => new URL(path, base).toString(),
             shot: async (name) => {
               const file = `${shotsDir}${scenario.name}-${name}-${viewport}-${theme}.png`;
               await page.screenshot({ path: file, fullPage: true });
               shots.push(file);
-              problems.push(...await layoutProblems(page));
+              problems.push(...(await layoutProblems(page)).map((problem) => ({ ...problem, detail: `${name}: ${problem.detail}` })));
             },
           };
           try {

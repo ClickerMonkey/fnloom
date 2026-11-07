@@ -1,45 +1,72 @@
 <script setup lang="ts">
-/** Sign in, or make the admin account on a new hub. Returns to the page that sent you here. */
+/**
+ * Sign in, or make the admin account on a new hub. Afterwards it returns to the page that sent you here. The form's
+ * checks are the hub's own (see `SignInForm`).
+ */
 import { onMounted, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ROUTES } from '../router.ts';
-import { useSignIn } from '../state/signIn.ts';
+import AppBrand from '../app/AppBrand.vue';
+import { links, safeNext } from '../app/routes.ts';
+import { useStores } from '../state/stores.ts';
+import { UiBanner, UiButton, UiInput, UiSkeleton } from '../ui/index.ts';
 
-const { setup, busy, problem, load, submit } = useSignIn();
-const form = reactive({ email: '', password: '', name: '' });
+const form = useStores().signInForm();
+const input = reactive({ email: '', password: '', name: '' });
 const route = useRoute();
 const router = useRouter();
 
-onMounted(() => { void load(); });
+onMounted(() => { void form.load(); });
 
-async function onSubmit(): Promise<void> {
-  if (await submit(form)) {
-    const next = route.query['next'];
-    await router.replace(typeof next === 'string' && next.startsWith('/') ? next : { name: ROUTES.chat });
+async function submit(): Promise<void> {
+  if (await form.submit(input)) {
+    await router.replace(safeNext(route.query['next']) ?? links.chat());
   }
 }
 </script>
 
 <template>
   <div class="wrap">
-    <form class="card" @submit.prevent="onSubmit">
-      <h1>{{ setup?.needsAdmin ? 'Make the admin account' : 'Sign in' }}</h1>
-      <label v-if="setup?.needsAdmin">Name <input v-model="form.name" autocomplete="name" required /></label>
-      <label>Email <input v-model="form.email" type="email" autocomplete="email" required /></label>
-      <label>Password <input v-model="form.password" type="password" :autocomplete="setup?.needsAdmin ? 'new-password' : 'current-password'" required /></label>
-      <p v-if="problem" class="problem" role="alert">{{ problem }}</p>
-      <button type="submit" :disabled="busy">{{ busy ? 'One moment…' : setup?.needsAdmin ? 'Create and sign in' : 'Sign in' }}</button>
-    </form>
+    <div class="card">
+      <AppBrand class="brand" :size="36" />
+      <template v-if="form.loading.value">
+        <UiSkeleton shape="lines" :lines="1" />
+        <UiSkeleton shape="block" :size="40" />
+        <UiSkeleton shape="block" :size="40" />
+        <UiSkeleton shape="block" :size="40" />
+      </template>
+      <form v-else class="form" novalidate data-testid="sign-in-form" @submit.prevent="submit">
+        <div class="titles">
+          <h1 class="title">{{ form.needsAdmin ? 'Set up your hub' : 'Welcome back' }}</h1>
+          <p class="lead">{{ form.needsAdmin ? 'Make the admin account. You can add people later.' : `Sign in to ${form.setup.value?.name ?? 'your hub'}.` }}</p>
+        </div>
+        <UiBanner v-if="form.problem.value !== ''" tone="danger" data-testid="sign-in-problem">{{ form.problem.value }}</UiBanner>
+        <UiInput v-if="form.needsAdmin" v-model="input.name" label="Your name" autocomplete="name" required :error="form.fields.value.name ?? ''" autofocus />
+        <UiInput v-model="input.email" label="Email" type="email" autocomplete="email" required :error="form.fields.value.email ?? ''" :autofocus="!form.needsAdmin" />
+        <UiInput
+          v-model="input.password" label="Password" type="password" :autocomplete="form.needsAdmin ? 'new-password' : 'current-password'" required
+          :hint="form.needsAdmin ? 'At least 10 characters.' : ''" :error="form.fields.value.password ?? ''"
+        />
+        <UiButton type="submit" variant="primary" size="lg" block :loading="form.busy.value">{{ form.needsAdmin ? 'Create account and sign in' : 'Sign in' }}</UiButton>
+      </form>
+      <p v-if="form.setup.value" class="version">{{ form.setup.value.name }} · {{ form.setup.value.version }}</p>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.wrap { min-height: 100%; display: grid; place-items: center; padding: var(--space-5); }
-.card { width: min(380px, 100%); display: grid; gap: var(--space-4); padding: var(--space-6); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
-h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
-label { display: grid; gap: var(--space-1); color: var(--text-dim); font-size: 13px; }
-input { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
-button { padding: var(--space-3); border: 0; border-radius: var(--radius); background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; transition: opacity var(--fast) var(--ease); }
-button:disabled { opacity: 0.6; cursor: default; }
-.problem { margin: 0; color: var(--danger); font-size: 13px; }
+.wrap {
+  min-height: 100%; display: grid; place-items: center; padding: max(var(--space-5), var(--safe-top)) var(--space-4) max(var(--space-5), var(--safe-bottom));
+  background: radial-gradient(1200px 600px at 50% -10%, var(--accent-soft), transparent 70%);
+}
+.card {
+  width: min(400px, 100%); display: grid; gap: var(--space-4); padding: var(--space-6); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); animation: ui-rise-in var(--slow) var(--ease);
+}
+.brand { margin-bottom: var(--space-1); }
+.form { display: grid; gap: var(--space-4); animation: ui-fade-in var(--medium) var(--ease); }
+.titles { display: grid; gap: var(--space-1); }
+.title { margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-strong); }
+.lead { margin: 0; color: var(--text-dim); }
+.version { margin: 0; color: var(--text-faint); font-size: var(--text-xs); text-align: center; }
+@media (max-width: 420px) { .card { padding: var(--space-5); } }
 </style>

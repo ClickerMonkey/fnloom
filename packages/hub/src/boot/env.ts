@@ -11,15 +11,41 @@ import { z } from 'zod';
 export const hubEnv = env({
   HARNESS_PORT: z.number().int().min(1).max(65535).default(4300),
   HARNESS_HOST: z.string().default('0.0.0.0'),
-  /** The public URL, for pairing links and push. Defaults to the LAN-bound port. */
-  HARNESS_URL: z.string().default('http://localhost:4300'),
   /** The data folder: database, files, installed systems, logs. */
   HARNESS_DATA: z.string().default('.harness'),
 }).add({
+  /** The public URL, for pairing links and push. Defaults to this machine on `HARNESS_PORT`. */
+  HARNESS_URL: (e) => z.string().default(`http://localhost:${e.HARNESS_PORT}`),
   HARNESS_DB_FILE: (e) => z.string().default(`${e.HARNESS_DATA}/hub.sqlite`),
   HARNESS_FILES_DIR: (e) => z.string().default(`${e.HARNESS_DATA}/files`),
   HARNESS_SYSTEMS_DIR: (e) => z.string().default(`${e.HARNESS_DATA}/systems`),
   HARNESS_LOG_DIR: (e) => z.string().default(`${e.HARNESS_DATA}/logs`),
+  /** The secrets the hub makes for itself when they aren't given (JWT, encryption, files, VAPID keys). */
+  HARNESS_KEYS_FILE: (e) => z.string().default(`${e.HARNESS_DATA}/keys.json`),
+});
+
+/** The HTTP front: the built web app, uploads, docs, sockets and load shedding. */
+export const httpEnv = env({
+  /** The built web app the hub serves (`npm run build`). Empty: `packages/web/dist` beside the hub package. */
+  HARNESS_WEB_DIST: z.string().default(''),
+  /** Serve the API docs (`/docs/swagger`, `/docs/redoc`, `/docs/asyncapi`). */
+  HARNESS_DOCS: z.boolean().default(false),
+  /** The largest upload, in bytes. */
+  HARNESS_MAX_UPLOAD: z.number().int().min(1).default(100 * 1024 * 1024),
+  /** How long a presigned upload or download URL stays valid. */
+  HARNESS_PRESIGN_TTL: z.number().int().min(1_000).default(600_000),
+  /** The WebSocket ping interval; a connection that misses a pong is dropped. */
+  HARNESS_WS_HEARTBEAT: z.number().int().min(1_000).default(30_000),
+  /** A browser socket is closed this long before its access token expires, so it reconnects with a fresh one. */
+  HARNESS_WS_TOKEN_MARGIN: z.number().int().min(0).default(10_000),
+  /** Event-loop delay (running average) that counts as overloaded. */
+  HARNESS_SHED_THRESHOLD: z.number().int().min(1).default(200),
+  /** How long the loop must stay overloaded before requests are refused. */
+  HARNESS_SHED_SUSTAINED: z.number().int().min(0).default(1_000),
+  /** How long it must stay healthy before requests are accepted again. */
+  HARNESS_SHED_RECOVER: z.number().int().min(0).default(2_000),
+  /** How long the hub waits for everything to stop on shutdown. */
+  HARNESS_SHUTDOWN_TIMEOUT: z.number().int().min(1_000).default(30_000),
 });
 
 /** Sign-in and secrets. Secrets are generated and stored in the data folder when not given. */
@@ -32,6 +58,10 @@ export const authEnv = env({
   HARNESS_REFRESH_TTL: z.number().int().min(3_600_000).default(30 * 86_400_000),
   HARNESS_SIGN_IN_LIMIT: z.number().int().min(1).default(10),
   HARNESS_SIGN_IN_WINDOW: z.number().int().min(1_000).default(60_000),
+  /** scrypt's cost as a power of two (15: 32 768 rounds). */
+  HARNESS_PASSWORD_COST: z.number().int().min(10).max(20).default(15),
+  /** Signs presigned file URLs. */
+  HARNESS_FILES_SECRET: z.string().min(32).optional(),
 });
 
 /** Queues and timing. */
@@ -80,6 +110,10 @@ export const modelEnv = env({
 export const logEnv = env({
   HARNESS_LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   HARNESS_LOG_JSON: z.boolean().default(false),
+  /** Also write logs to daily files in the log folder. */
+  HARNESS_LOG_FILES: z.boolean().default(true),
+  /** How many daily log files to keep. */
+  HARNESS_LOG_KEEP: z.number().int().min(1).default(7),
 });
 
 /** Web push (VAPID). Keys are generated and stored when not given. */
@@ -90,7 +124,7 @@ export const pushEnv = env({
 });
 
 /** Every slice, so boot can parse them all and an admin page can list them. */
-export const HUB_ENV = { hubEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv } as const;
+export const HUB_ENV = { hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv } as const;
 
 /** The parsed hub settings, derived from the slices (never written by hand). */
 export type HubSettings = { [K in keyof typeof HUB_ENV]: ReturnType<(typeof HUB_ENV)[K]['parse']> };
@@ -98,7 +132,7 @@ export type HubSettings = { [K in keyof typeof HUB_ENV]: ReturnType<(typeof HUB_
 /** Parse every slice; throws one aggregated `EnvError` listing every bad value. */
 export function parseHubSettings(): HubSettings {
   return {
-    hubEnv: hubEnv.parse(), authEnv: authEnv.parse(), queueEnv: queueEnv.parse(), linkEnv: linkEnv.parse(),
+    hubEnv: hubEnv.parse(), httpEnv: httpEnv.parse(), authEnv: authEnv.parse(), queueEnv: queueEnv.parse(), linkEnv: linkEnv.parse(),
     modelEnv: modelEnv.parse(), logEnv: logEnv.parse(), pushEnv: pushEnv.parse(),
   };
 }

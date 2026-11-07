@@ -4,12 +4,12 @@
  * (gin `typeClosure`), so a fn that names `fs/Entry` resolves it, and re-declared types must stay compatible (gin
  * `compatible`).
  *
- * Owner: the link lane (catalog and link are one lane). Implement `Catalog` (`catalog/catalog.ts`).
+ * Owner: the link lane (catalog and link are one lane). `StoreCatalog` (`catalog/catalog.ts`) implements `Catalog`.
  */
 import type { Type } from '@aeye/gin';
 import type {
-  ActorId, Availability, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, QualifiedName, SystemName,
-  TypeRecord,
+  ActorId, Availability, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
+  QualifiedName, SectionDecl, SystemName, TypeRecord,
 } from '@harness/core';
 import type { z } from 'zod';
 
@@ -27,7 +27,14 @@ export interface FnSignature {
 
 /** Asks a kind's system to check and describe a payload (over the link). */
 export interface KindDescriber {
-  describe(kind: QualifiedName, payload: Json): Promise<{ problems: string[]; description?: KindDescription }>;
+  describe(kind: QualifiedName, payload: Json): Promise<{ problems: string[]; description?: KindDescription | undefined }>;
+}
+
+/** One entry of a manifest section, qualified by its system. */
+export interface CatalogEntry<S extends ManifestSection> {
+  readonly name: QualifiedName;
+  readonly system: SystemName;
+  readonly decl: SectionDecl<S>;
 }
 
 /** What the catalog knows and works out. */
@@ -35,8 +42,15 @@ export interface Catalog {
   /** Import a whole manifest: add, update and remove what changed; refuse what is invalid or incompatible. */
   importManifest(manifest: Manifest): Promise<ImportReport>;
   importPatch(system: SystemName, patch: ManifestPatch): Promise<ImportReport>;
+  /** Import the stored manifest again: re-check every entry and ask kinds to describe their fns afresh. */
+  reimport(system: SystemName): Promise<ImportReport>;
   /** A system connected, disconnected, was configured or removed: recompute availability of everything it touches. */
   refreshAvailability(system: SystemName): Promise<void>;
+
+  /** The last manifest accepted from a system (refused entries left out). */
+  manifest(system: SystemName): Promise<Manifest | undefined>;
+  /** The entries of one manifest section, across systems or for one. */
+  entries<S extends ManifestSection>(section: S, filter?: { system?: SystemName }): Promise<Array<CatalogEntry<S>>>;
 
   fn(name: QualifiedName): Promise<FnRecord | undefined>;
   fns(filter: { system?: SystemName; names?: readonly QualifiedName[]; available?: boolean }): Promise<FnRecord[]>;

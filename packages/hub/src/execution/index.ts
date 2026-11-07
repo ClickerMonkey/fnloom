@@ -1,14 +1,18 @@
 /**
- * The execution module: runs, the run queue and the LLM queue (`@ayepi/work` on the SQLite ports, priority doers,
- * `@ayepi/rate` per model), the agent loop (one aeye `Prompt` iteration per queued job, suspending on tool calls),
- * the hub as an aeye provider for systems, permissions, priority and budget resolution, and the ledger.
+ * The execution module: runs and the fn tree, the run queue and the LLM queue (`@ayepi/work`, a priority doer behind a
+ * rate cap on LLM call starts, at most `HARNESS_RUN_CONCURRENCY` runs per system), the agent loop (one aeye `Prompt`
+ * iteration per queued job, suspending on every tool call), the hub's one aeye `AI` (OpenRouter) whose hooks
+ * rate-check, reserve and settle budgets and save every `LlmInteraction`, the gateway systems forward LLM calls
+ * through, permissions and approvals, priority and budget resolution, the spend ledger, and handler relaying.
  *
- * Owner: the execution lane. Implement `RunService`, `AgentLoop`, `LlmGateway`, `LimitResolver`, `Ledger` and
- * `PolicyEngine`, each in its own file under `execution/`.
+ * These are the interfaces other modules use. The classes are beside them: `HubRunService` (runs.ts), `HubAgentLoop`
+ * (agent.ts), `HubLlmGateway` (gateway.ts), `HubLimitResolver` (limits.ts), `HubLedger` (ledger.ts),
+ * `HubPolicyEngine` (policies.ts) and `HandlerRelay` (handlers.ts); `createExecution` / `executionModule`
+ * (create.ts) build them all, and `testing.ts` is the rig the tests run them in.
  */
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
-  SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId,
+  SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
 } from '@harness/core';
 
 /** A request to run a fn: from an agent's tool call, a person's `!`, or a run's child call. */
@@ -51,11 +55,16 @@ export interface RunService {
   resend(system: string): Promise<void>;
 }
 
-/** Policies: may this actor run this fn now? Deny beats ask beats allow; with no match, `read` fns are allowed. */
+/** What the policies decided for one run. */
+export type RunDecision = { effect: 'allow' } | { effect: 'deny'; reason: string } | { effect: 'ask'; approval: Approval };
+
+/**
+ * Policies: may this actor run this fn now? The highest-priority matching policy decides (then the more specific, then
+ * deny over ask over allow); with no match, `read` fns are allowed and anything else asks the turn's user. A person
+ * running a fn themselves is not asked. `ask` records an approval for `run` and publishes it with its approvers.
+ */
 export interface PolicyEngine {
-  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId }): Promise<
-    { effect: 'allow' } | { effect: 'deny'; reason: string } | { effect: 'ask'; approval: Approval }
-  >;
+  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId }): Promise<RunDecision>;
   answer(approval: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval>;
 }
 
@@ -66,14 +75,22 @@ export interface LimitResolver {
 
 /** Spend: reservations before LLM calls, settlement after, and the record of every cost. */
 export interface Ledger {
-  /** Hold an estimate against every budget that applies; refused (or delayed) when one would go over. */
+  /**
+   * Hold an estimate against every budget that applies; refused (or delayed) when one would go over. Reservations
+   * are checked one at a time, so concurrent calls always see each other's holds.
+   */
   reserve(input: { limits: ResolvedLimits; estimate: Usd; run: RunId }): Promise<
-    { ok: true; reservation: string } | { ok: false; wait?: number; reason: string; budget: BudgetId }
+    { ok: true; reservation: ReservationId } | { ok: false; wait?: number; reason: string; budget: BudgetId }
   >;
-  settle(reservation: string, entry: Omit<LedgerEntry, 'id' | 'at'>): Promise<void>;
+  /** Turn a hold into a ledger line of what the call really cost. Settling a reservation twice records it once. */
+  settle(reservation: ReservationId, entry: Omit<LedgerEntry, 'id' | 'at'>): Promise<void>;
   /** A cost a system reported (`ctx.budget.spend`). */
   record(entry: Omit<LedgerEntry, 'id' | 'at'>): Promise<void>;
-  remaining(limits: ResolvedLimits): Promise<{ cost: Usd; limitedBy: string }>;
+  /**
+   * What is left to spend: the turn's cap lowered to every budget's remainder. Given the turn and actor, the turn's own
+   * spend and the actor's group allowance count too.
+   */
+  remaining(limits: ResolvedLimits, who?: { turn: TurnId; actor: ActorId }): Promise<{ cost: Usd; limitedBy: string }>;
 }
 
 /** The one caller of real LLM providers: queued by priority, rate-limited per model, budgeted and recorded. */

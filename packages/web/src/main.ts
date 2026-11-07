@@ -1,7 +1,12 @@
-/** The web app's entry: Vue, the router, the theme. */
+/** The web app's entry: the design system's styles, the stores, the router, the root. */
 import { createApp } from 'vue';
-import App from './App.vue';
-import { router } from './router.ts';
-import './styles/theme.css';
+import { createWebHistory } from 'vue-router';
+import App from './app/App.vue';
+import { createAppRouter } from './app/router.ts';
+import { createStores } from './app/wire.ts';
+import { STORES } from './state/stores.ts';
+import './ui/styles/tokens.css';
+import './ui/styles/base.css';
 
-createApp(App).use(router).mount('#app');
+const stores = createStores(window);
+createApp(App).provide(STORES, stores).use(createAppRouter(stores.session, createWebHistory())).mount('#app');

@@ -1,0 +1,113 @@
+/*
+ * The design tokens: every colour, size, space, radius, shadow, duration and layer the app uses. Components use
+ * these variables and never raw values, so a change here restyles everything.
+ *
+ * Light and dark: each colour is written once with `light-dark()`. The page follows the device until the theme store
+ * sets `data-theme` on <html> (a saved choice, or the device's), which pins `color-scheme`.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* One accent, calm neutrals. */
+  --accent: light-dark(oklch(0.55 0.17 268), oklch(0.7 0.14 268));
+  --accent-hover: light-dark(oklch(0.5 0.18 268), oklch(0.75 0.13 268));
+  --accent-soft: light-dark(oklch(0.55 0.17 268 / 0.1), oklch(0.7 0.14 268 / 0.16));
+  --accent-soft-strong: light-dark(oklch(0.55 0.17 268 / 0.18), oklch(0.7 0.14 268 / 0.26));
+  --on-accent: light-dark(#ffffff, oklch(0.18 0.03 268));
+
+  --bg: light-dark(oklch(0.985 0.002 270), oklch(0.16 0.006 270));
+  --surface: light-dark(#ffffff, oklch(0.2 0.007 270));
+  --surface-2: light-dark(oklch(0.965 0.003 270), oklch(0.235 0.008 270));
+  --surface-3: light-dark(oklch(0.935 0.004 270), oklch(0.28 0.009 270));
+  --overlay: light-dark(oklch(0.2 0.01 270 / 0.32), oklch(0.05 0.01 270 / 0.6));
+
+  --text: light-dark(oklch(0.22 0.01 270), oklch(0.94 0.004 270));
+  --text-dim: light-dark(oklch(0.45 0.012 270), oklch(0.74 0.01 270));
+  --text-faint: light-dark(oklch(0.58 0.01 270), oklch(0.6 0.01 270));
+  --border: light-dark(oklch(0.91 0.004 270), oklch(0.3 0.008 270));
+  --border-strong: light-dark(oklch(0.84 0.006 270), oklch(0.38 0.01 270));
+
+  --ok: light-dark(oklch(0.52 0.13 155), oklch(0.74 0.14 155));
+  --ok-soft: light-dark(oklch(0.52 0.13 155 / 0.12), oklch(0.74 0.14 155 / 0.16));
+  --warn: light-dark(oklch(0.55 0.13 70), oklch(0.8 0.13 80));
+  --warn-soft: light-dark(oklch(0.7 0.14 75 / 0.16), oklch(0.8 0.13 80 / 0.16));
+  --danger: light-dark(oklch(0.55 0.19 22), oklch(0.72 0.16 22));
+  --danger-soft: light-dark(oklch(0.55 0.19 22 / 0.1), oklch(0.72 0.16 22 / 0.16));
+
+  --code-bg: light-dark(oklch(0.97 0.004 270), oklch(0.18 0.007 270));
+  --selection: var(--accent-soft-strong);
+
+  /* Type. */
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --leading: 1.55;
+  --leading-tight: 1.25;
+  --weight-medium: 550;
+  --weight-strong: 650;
+
+  /* Space. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Shape. */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+  --control-sm: 32px;
+  --control: 40px;
+  --control-lg: 48px;
+
+  /* Depth. */
+  --shadow-color: light-dark(oklch(0.25 0.02 270 / 0.08), oklch(0 0 0 / 0.45));
+  --shadow-sm: 0 1px 2px var(--shadow-color);
+  --shadow: 0 1px 2px var(--shadow-color), 0 4px 16px var(--shadow-color);
+  --shadow-lg: 0 2px 6px var(--shadow-color), 0 16px 48px var(--shadow-color);
+  --ring: 0 0 0 3px var(--accent-soft-strong);
+
+  /* Motion. */
+  --fast: 120ms;
+  --medium: 200ms;
+  --slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /* Layers. */
+  --z-sticky: 10;
+  --z-drawer: 40;
+  --z-popover: 50;
+  --z-dialog: 60;
+  --z-toast: 70;
+
+  /* Layout. */
+  --sidebar: 272px;
+  --sidebar-collapsed: 64px;
+  --content: 1080px;
+  --readable: 72ch;
+  --topbar: 56px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --medium: 0ms; --slow: 0ms; }
+}

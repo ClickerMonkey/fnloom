@@ -207,8 +207,9 @@ export type UserEvent = z.infer<typeof UserEvent>;
 export const hubWebSpec = spec({
   endpoints: { ...open, ...signedIn, ...admin },
   events: {
-    session: { params: z.object({ session: SessionId }), data: SessionEvent, guard: [hubAuth], ws: 'session' },
-    user: { data: UserEvent, guard: [hubAuth], ws: 'user' },
+    // Event channel ids share the ws namespace with endpoint ids (`session` is an endpoint's), so events get an `on.` prefix.
+    session: { params: z.object({ session: SessionId }), data: SessionEvent, guard: [hubAuth], ws: 'on.session' },
+    user: { data: UserEvent, guard: [hubAuth], ws: 'on.user' },
   },
 });
 export type HubWebSpec = typeof hubWebSpec;

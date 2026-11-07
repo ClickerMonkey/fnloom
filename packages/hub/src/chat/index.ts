@@ -1,14 +1,17 @@
 /**
  * The chat module: sessions, turns and messages; the reply rule (who answers); approvals shown to people; session
  * state (fields matched by name and type, versioned, undoable); deliveries (actions and form submissions, stored
- * before delivery); undoing a turn; and what is added to a user message (the hub's own extras, then system hooks).
+ * before delivery); undoing a turn; what is added to a user message (the hub's own extras, then system hooks);
+ * mentions (searched, hovered and resolved to LLM text at send time); presence; and notifications with web push.
  *
- * Owner: the chat lane. Implement `SessionService`, `TurnService`, `ReplyRule`, `StateService`, `DeliveryService`,
- * `UndoService` and `MessageEnricher`, each in its own file under `chat/`.
+ * Owner: the chat lane. Each interface is implemented by a class in its own file under `chat/`, and `createChat`
+ * (`chat/chat.ts`) builds them all from `ChatDeps`. Hooks, mention providers and actions come from the catalog's
+ * manifest entries (`Catalog.entries`).
  */
 import type {
-  ActorId, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MessageId, MessagePart, OutgoingPart, Page, Presence, QualifiedName,
-  RunId, Session, SessionControls, SessionId, SessionSummary, StateOwner, SystemName, TurnId, UndoReport, UserInfo, Priority,
+  ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
+  MessageId, MessagePart, Notification, NotificationLink, NotificationReason, NotifyChoice, OutgoingPart, Page, Presence, Priority, QualifiedName, RunId,
+  Session, SessionControls, SessionId, SessionSummary, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
 } from '@harness/core';
 
 /** Sessions. */
@@ -16,7 +19,13 @@ export interface SessionService {
   create(input: { owner: ActorId; agent?: QualifiedName; systems?: SystemName[] | 'all'; title?: string }): Promise<Session>;
   get(session: SessionId, viewer: ActorId): Promise<Session | undefined>;
   list(viewer: ActorId, query: { cursor?: string; limit?: number; search?: string; archived?: boolean }): Promise<Page<SessionSummary>>;
-  update(session: SessionId, patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; priority?: Priority; archived?: boolean }, by: ActorId): Promise<Session>;
+  /** Change a session. `notify` is the choice of `by` alone; everything else needs `by` to own the session. */
+  update(
+    session: SessionId,
+    patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; priority?: Priority; archived?: boolean; notify?: NotifyChoice },
+    by: ActorId,
+  ): Promise<Session>;
+  /** Messages, newest first. A message still streaming carries the text streamed so far. */
   messages(session: SessionId, viewer: ActorId, query: { cursor?: string; limit?: number }): Promise<Page<ChatMessage>>;
   controls(session: SessionId): Promise<SessionControls>;
   control(session: SessionId, action: 'pause' | 'resume' | 'cancel', by: ActorId): Promise<SessionControls>;
@@ -25,13 +34,20 @@ export interface SessionService {
   active(session: SessionId): Promise<boolean>;
 }
 
+/** How a turn ends: done, failed or cancelled (never back to running, paused or undone). */
+export type TurnEnd = Exclude<TurnStatus, 'running' | 'paused' | 'undone'>;
+
 /** Turns: a user message (or `!` invocation) and everything it caused. */
 export interface TurnService {
   send(input: { session: SessionId; author: ActorId; parts: OutgoingPart[]; replyTo?: MessageId; replyAll?: boolean; client: ClientInfo }): Promise<{ turn: TurnId; message: ChatMessage }>;
   invoke(input: { session: SessionId; author: ActorId; fn: QualifiedName; args: Json; client: ClientInfo }): Promise<{ turn: TurnId; run: RunId }>;
+  /** Open an assistant message for an agent's answer (from the agent loop); it streams until `finish`. */
+  begin(input: { turn: TurnId; author: ActorId; replyTo?: MessageId }): Promise<ChatMessage>;
   /** Append streamed text to an assistant message (from the agent loop). */
   stream(message: MessageId, delta: { text?: string; reasoning?: string }): void;
   finish(message: MessageId, parts: MessagePart[], status: 'done' | 'failed'): Promise<ChatMessage>;
+  /** A turn ended (the agent answered without tool calls, failed, or was cancelled): record it and tell people who are away. */
+  settle(turn: TurnId, status: TurnEnd): Promise<void>;
 }
 
 /** Who answers a message: with one person, the session's agent; with more, only agents replied to, or every agent on reply-all. */
@@ -71,3 +87,57 @@ export interface DeliveryService {
 export interface UndoService {
   undoTurn(turn: TurnId, by: ActorId): Promise<UndoReport>;
 }
+
+// ─── Mentions ─────────────────────────────────────────────────────────────────
+
+/** A person's mention request from the browser: where they are, and which provider. */
+export interface MentionRequest {
+  session: SessionId;
+  actor: ActorId;
+  provider: QualifiedName;
+}
+
+/** What a provider is asked with: who is asking and when (core's `Asker`), and the provider. */
+export type MentionAsk = Asker & { provider: QualifiedName };
+
+/** One source of mentions: the hub's own providers, or a system's over the link. */
+export interface MentionProvider {
+  /** Whether this source answers for a provider. */
+  serves(provider: QualifiedName): boolean;
+  search(ask: MentionAsk, query: string): Promise<MentionOption[]>;
+  hover(ask: MentionAsk, target: Json): Promise<MentionHover | undefined>;
+  text(ask: MentionAsk, target: Json): Promise<string>;
+}
+
+/** Mentions across every provider a session allows. */
+export interface MentionService {
+  search(request: MentionRequest, query: string): Promise<MentionOption[]>;
+  hover(request: MentionRequest, target: Json): Promise<MentionHover | undefined>;
+  /** Turn the parts a person sent into stored parts, with each mention's LLM text written now (at send time). */
+  resolve(input: { session: Session; asker: Asker; parts: readonly OutgoingPart[] }): Promise<MessagePart[]>;
+}
+
+// ─── Presence and notifications ───────────────────────────────────────────────
+
+/** Who is looking at which session, from what browsers report. */
+export interface PresenceTracker {
+  report(presence: Omit<Presence, 'lastActiveAt'>): Presence;
+  /** Whether anyone has been focused on the session within the active window. */
+  active(session: SessionId): boolean;
+  /** Whether a user is focused on the session (or, without one, on any session) within the active window. */
+  looking(user: ActorId, session?: SessionId): boolean;
+}
+
+/** The inbox: every notification is stored, published live, and pushed (web push) when the user isn't looking. */
+export interface NotificationService {
+  notify(input: { user: ActorId; reason: NotificationReason; title: string; body: string; link: NotificationLink }): Promise<Notification>;
+  list(user: ActorId, query: { cursor?: string; limit?: number; unread?: boolean }): Promise<Page<Notification>>;
+  /** Mark some of a user's notifications read; returns how many changed. Others' ids are ignored. */
+  read(user: ActorId, ids: readonly string[]): Promise<number>;
+}
+
+/** Who answers an approval, as people: the execution module publishes `approval` events with these. */
+export interface ApproverDirectory {
+  approvers(approver: Approver, turnUser: ActorId): Promise<ActorId[]>;
+}
+
