@@ -118,7 +118,7 @@ function showType(n){
   if(d.extends.length)h+=`<h2>Extends</h2><div class="sig">${d.extends.map(link).join(', ')}</div>`;
   if(d.implements.length)h+=`<h2>Implements</h2><div class="sig">${d.implements.map(link).join(', ')}</div>`;
   if(d.alias)h+=`<h2>Definition</h2><pre class="sig">${link(d.alias)}</pre>`;
-  if(d.signature)h+=`<h2>Signature</h2><pre class="sig">${link(d.signature)}</pre>`;
+  if(d.signature)h+=`<h2>${d.kind==='const'?'Code':'Signature'}</h2><pre class="sig">${link(d.signature)}</pre>`;
   if(d.members.length){h+=`<h2>Members</h2><table>${d.members.map(m=>{const key=d.name+'.'+m.name;const has=!!notes[key];
     return `<tr><td class="n">${esc(m.readonly?'readonly ':'')}${esc(m.name)}${m.optional?'<span class="opt">?</span>':''}</td><td class="s">${link(m.type)}</td><td>${m.doc?`<div class="mdoc">${inline(m.doc)}</div>`:''}${Object.entries(m.tags).map(([k,x])=>`<div class="meta">@${esc(k)} ${inline(x)}</div>`).join('')}</td>
     <td class="b"><button class="notebtn ${has?'has':''}" data-toggle="${esc(key)}" title="Note on ${esc(key)}">✎</button></td></tr>

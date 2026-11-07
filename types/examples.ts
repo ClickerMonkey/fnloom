@@ -1,99 +1,217 @@
-// Compile-time checks that the station SDK types do what docs/harness.md promises. Nothing here runs; `npm run
-// typecheck` fails if an expectation breaks. Each `@ts-expect-error` is a mistake an author must not be able to make.
-import { station, fn, handler, serve, g, type Infer, type FnOutcome } from './harness.ts';
+// # Examples
+// Compile-time proof that the SDK reads well and catches mistakes. Nothing here runs: `npm run typecheck` fails if
+// an expectation breaks. Every `@ts-expect-error` marks a mistake a station author must not be able to make.
+
+import { station, fn, handler, steps, serve, client, kind, g, hub, type Infer, type FnRef, type ContextRef } from './sdk.ts';
+import { fs, Entry } from './fs.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const expect = <T extends true>(_: T): void => undefined;
 
-// ── shared/: the contract ──────────────────────────────────────────────────────
-const FileInfo = g.obj({ path: g.text(), size: g.num({ min: 0, whole: true }), note: g.optional(g.text()) });
-expect<Equal<Infer<typeof FileInfo>, { path: string; size: number; note?: string }>>(true);
+// Stand-ins for real file and shell code.
+declare function readText(path: string): Promise<string>;
+declare function shell(command: string, signal: AbortSignal, onOutput: (fraction: number) => void): Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
-const fsDemo = station('fs', {
-  description: 'Files and a shell.',
-  types: { FileInfo },
+// ── Types and refs are inferred ───────────────────────────────────────────────
+
+expect<Equal<Infer<typeof Entry>, { path: string; type: 'file' | 'folder' | 'link'; size: number; modifiedAt: number }>>(true);
+expect<Equal<typeof fs.fns.read.name, 'fs/read'>>(true);
+expect<Equal<typeof fs.fns.explore.name, 'fs/explore'>>(true);
+expect<Equal<typeof fs.types.Entry.name, 'fs/Entry'>>(true);
+// a command's args are typed: tree's root is optional
+expect<Equal<typeof fs.context.tree, ContextRef<'fs/tree', { root?: string }>>>(true);
+expect<Equal<typeof fs.fns.read, FnRef<'fs/read', { path: string; offset?: number; limit?: number }, { text: string; lines: number; truncated: boolean }, {}>>>(true);
+
+// ── The fs station's server: everything declared must be implemented ─────────
+
+void serve(fs, {
   fns: {
-    stat: fn({ description: 'Stat a path.', args: g.obj({ path: g.text() }), returns: FileInfo }),
-    copy: fn({
-      description: 'Copy a file.',
-      args: g.obj({ from: g.text(), to: g.text() }),
-      returns: g.obj({ bytes: g.num() }),
-      progress: { type: 'steps', steps: [{ name: 'read', title: 'Read' }, { name: 'write', title: 'Write' }] },
-      handlers: { overwrite: handler({ description: 'Target exists: overwrite?', args: g.obj({ path: g.text() }), returns: g.bool(), required: true }) },
-      undo: g.obj({ path: g.text() }),
-    }),
+    read: {
+      async run(args, ctx) {
+        const text = await ctx.files.readText(args.path);
+        const lines = text.split('\n');
+        const from = args.offset ?? 0;
+        const slice = lines.slice(from, args.limit === undefined ? undefined : from + args.limit);
+        return ctx.done({ text: slice.join('\n'), lines: lines.length, truncated: slice.length < lines.length });
+      },
+    },
+    write: {
+      async run(args, ctx) {
+        await ctx.files.write(args.path, args.text);
+        // undo payload is typed: { path: string; previous: ContentRef | null }
+        return ctx.done({ created: true }, { undo: { path: args.path, previous: null } });
+      },
+      async undo(payload, ctx) {
+        if (payload.previous === null) { await ctx.files.remove(payload.path); }
+        return { status: 'undone', summary: `restored ${payload.path}` };
+      },
+    },
+    edit: {
+      async run(args, ctx) {
+        const previous = await ctx.files.share(args.path);
+        const before = await ctx.files.readText(args.path);
+        const after = args.all ? before.split(args.find).join(args.replace) : before.replace(args.find, args.replace);
+        await ctx.files.write(args.path, after);
+        ctx.attach(fs.attachments.diff, { path: args.path, before, after }, `Edited ${args.path}`);
+        // @ts-expect-error attachment data is checked
+        ctx.attach(fs.attachments.diff, { path: args.path }, 'missing before and after');
+        return ctx.done({ replacements: 1 }, { undo: { path: args.path, previous } });
+      },
+      async undo(payload) { return { status: 'undone', summary: `restored ${payload.path}` }; },
+    },
+    list: { async run(_args, ctx) { return ctx.done({ entries: [] }); } },
+    glob: { async run(_args, ctx) { return ctx.done({ paths: [] }); } },
+    grep: {
+      async run(_args, ctx) {
+        ctx.progress.set(0.5, 'half way');
+        // @ts-expect-error grep reports linear progress, not steps
+        ctx.progress.step('scan', 'active');
+        return ctx.done({ matches: [] });
+      },
+    },
+    bash: {
+      async run(args, ctx) {
+        const policy = await ctx.setting(fs.settings.shell);
+        expect<Equal<typeof policy, { allowed: boolean; safe: string[] } | undefined>>(true);
+        const safe = policy?.safe.some(p => args.command.startsWith(p)) ?? false;
+        if (!safe) {
+          // confirm is optional: it may be missing, and the compiler makes us check
+          // @ts-expect-error may be undefined
+          await ctx.handlers.confirm({ command: args.command, reason: 'not in safe list' });
+          const ok = ctx.handlers.confirm ? await ctx.handlers.confirm({ command: args.command, reason: 'not in safe list' }) : false;
+          if (!ok) { return ctx.fail('caller', 'The command needs confirmation and none was given.', { code: 'denied' }); }
+        }
+        const out = await shell(args.command, ctx.signal, f => ctx.progress.set(f));
+        return ctx.done(out);
+      },
+    },
+    remove: {
+      async run(args, ctx) {
+        const previous = await ctx.files.share(args.path);
+        await ctx.files.remove(args.path);
+        return ctx.done({ removed: true }, { undo: { path: args.path, previous } });
+      },
+      async undo(payload) { return { status: 'undone', summary: `restored ${payload.path}` }; },
+    },
+    restart: {
+      async run(_args, ctx) {
+        // @ts-expect-error restart has no resume type, so it can't pause
+        return ctx.pause({ at: 'now' });
+      },
+    },
   },
+  // tree is dynamic context, so it must be implemented; its args are typed from the command
+  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}` },
+  hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
+  mentions: { files: async query => [{ label: query, target: { resource: `file:///${query}` }, text: query }] },
+  resources: {
+    async roots() { return []; },
+    async list() { return { items: [] }; },
+    async stat() { return undefined; },
+    async read(uri) { return { stat: { uri, name: uri, type: 'file', version: '1' }, text: { inline: await readText(uri) } }; },
+  },
+  events: { resources: async (event, ctx) => ctx.log.info('fs.resources.changed', { count: event.changes.length }) },
+}, { hub: 'ws://localhost:4100', state: '.station' });
+
+// ── Mistakes that don't compile ───────────────────────────────────────────────
+
+// @ts-expect-error every system fn must be implemented (most are missing here)
+void serve(fs, { fns: { read: { async run(_a, ctx) { return ctx.done({ text: '', lines: 0, truncated: false }); } } } }, { hub: '', state: '' });
+
+const tiny = station('tiny', { description: 'One fn.' }).with({
+  fns: { ping: fn({ description: 'Ping.', args: g.obj({}), returns: g.literal('pong') }) },
+});
+void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); } } } }, { hub: '', state: '' });
+// @ts-expect-error the result is checked
+void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pang'); } } } }, { hub: '', state: '' });
+// @ts-expect-error tiny declares no hooks, so none can be implemented
+void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); } } }, hooks: { extra: async () => [] } }, { hub: '', state: '' });
+// @ts-expect-error a fn that isn't in the contract can't be implemented
+void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); } }, pong: { async run(_a: {}, ctx: never) { return ctx; } } } }, { hub: '', state: '' });
+
+// ── Calling other stations' fns ───────────────────────────────────────────────
+
+const copyFn = fn({
+  description: 'Copy a file.',
+  args: g.obj({ from: g.text(), to: g.text() }),
+  returns: g.obj({ bytes: g.num() }),
+  progress: steps({ read: 'Read the file', write: 'Write the copy' }),
+  handlers: { overwrite: handler({ description: 'The target exists. Overwrite it?', args: g.obj({ path: g.text() }), returns: g.bool(), required: true }) },
+  deps: { read: fs.fns.read, write: fs.fns.write },
 });
 
-// refs carry qualified names and types
-expect<Equal<typeof fsDemo.fns.stat.name, 'fs/stat'>>(true);
-expect<Equal<typeof fsDemo.types.FileInfo.name, 'fs/FileInfo'>>(true);
+const backup = station('backup', { description: 'Backups.' })
+  .with({ fns: { copy: copyFn } })
+  // a later step can depend on an earlier step's fns
+  .with(({ fns }) => ({
+    fns: { snapshot: fn({ description: 'Copy a file next to itself.', args: g.obj({ path: g.text() }), returns: g.text(), deps: { copy: fns.copy, ask: hub.fns.ask_user } }) },
+  }));
 
-// another station depends on fs and calls it
-const backup = station('backup', {
-  description: 'Backs things up.',
-  fns: {
-    snapshot: fn({
-      description: 'Copy a file next to itself.',
-      args: g.obj({ path: g.text() }),
-      returns: g.obj({ copy: g.text() }),
-      deps: { stat: fsDemo.fns.stat, copy: fsDemo.fns.copy },
-    }),
-  },
-});
-
-// ── server/: the implementation ────────────────────────────────────────────────
 void serve(backup, {
-  snapshot: {
-    async run(args, ctx): Promise<FnOutcome<{ copy: string }, never, never>> {
-      const info = await ctx.fns.stat({ path: args.path }).result;
-      expect<Equal<typeof info.size, number>>(true);
-      // @ts-expect-error copy declares a required handler, so it can't be called without one
-      ctx.fns.copy({ from: args.path, to: `${args.path}.bak` });
-      const done = await ctx.fns.copy({ from: args.path, to: `${args.path}.bak` }, { handlers: { overwrite: async () => true } }).result;
-      // @ts-expect-error not a dep
-      ctx.fns.remove({ path: args.path });
-      return { status: 'done', result: { copy: `${args.path}.bak (${done.bytes} bytes)` } };
+  fns: {
+    copy: {
+      async run(args, ctx) {
+        ctx.progress.step('read', 'active');
+        // @ts-expect-error only declared steps
+        ctx.progress.step('verify', 'active');
+        // a call is awaitable for its typed result
+        const file = await ctx.fns.read({ path: args.from });
+        expect<Equal<typeof file.text, string>>(true);
+        // @ts-expect-error args are checked
+        ctx.fns.read({ file: args.from });
+        // @ts-expect-error only deps can be called
+        ctx.fns.remove({ path: args.to });
+        if (!(await ctx.handlers.overwrite({ path: args.to }))) { return ctx.cancelled(); }
+        ctx.progress.step('write', 'active');
+        await ctx.fns.write({ path: args.to, text: file.text });
+        return ctx.done({ bytes: file.text.length });
+      },
+    },
+    snapshot: {
+      async run(args, ctx) {
+        // @ts-expect-error copy has a required handler, so it must be passed
+        ctx.fns.copy({ from: args.path, to: `${args.path}.bak` });
+        const done = await ctx.fns.copy({ from: args.path, to: `${args.path}.bak` }, { handlers: { overwrite: async () => true }, key: 'copy' });
+        const answer = await ctx.fns.ask({ question: 'Keep the snapshot?' });
+        return ctx.done(`${done.bytes} bytes, ${answer.answer}`);
+      },
     },
   },
-}, { hub: 'ws://localhost:4100', stateDir: '.station' });
+}, { hub: '', state: '' });
 
-void serve(fsDemo, {
-  stat: { async run(args) { return { status: 'done', result: { path: args.path, size: 0 } }; } },
-  copy: {
-    async run(args, ctx) {
-      ctx.progress.step('read', 'active');
-      // @ts-expect-error not a declared step
-      ctx.progress.step('verify', 'active');
-      const ok = await ctx.handlers.overwrite({ path: args.to });
-      return ok ? { status: 'done', result: { bytes: 1 }, undo: { path: args.to } } : { status: 'cancelled' };
+// ── Kinds ─────────────────────────────────────────────────────────────────────
+
+const Request = g.obj({ method: g.enum('GET', 'POST'), url: g.text() });
+const web = station('web', { description: 'HTTP fns.' })
+  .with({ kinds: { api: kind({ description: 'A fn that makes one HTTP request.', applicability: 'Use for a single REST call.', payload: Request }) } })
+  // a fn of a kind declares the args and result it expects; the kind's station runs it
+  .with(({ kinds }) => ({
+    fns: { weather: kinds.api.fn({ description: 'Weather for a city.', payload: { method: 'GET', url: 'https://wttr.in/{{args.city}}?format=j1' }, args: g.obj({ city: g.text() }), returns: g.json() }) },
+  }));
+
+// the kind must be implemented; its fns must not be
+void serve(web, {
+  kinds: {
+    api: {
+      async check(payload) { return payload.url.startsWith('https://') ? [] : ['Only https URLs.']; },
+      async describe() { return { args: { name: 'obj' }, returns: { name: 'any' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
+      async run(payload, _args, ctx) { return ctx.done({ requested: payload.url }); },
     },
-    // copy declares an undo type, so undo is required (leaving it out is an error)
-    async undo(payload) { return { status: 'undone', summary: `removed ${payload.path}` }; },
   },
-}, { hub: 'ws://localhost:4100', stateDir: '.station' });
+}, { hub: '', state: '' });
 
-// @ts-expect-error every fn in the contract must be implemented
-void serve(fsDemo, { stat: { async run(args) { return { status: 'done', result: { path: args.path, size: 0 } }; } } }, { hub: '', stateDir: '' });
+// ── Renderers are typed by the contract ───────────────────────────────────────
 
-// @ts-expect-error copy declares an undo type, so its impl must have undo
-void serve(fsDemo, { stat: { async run(args) { return { status: 'done', result: { path: args.path, size: 0 } }; } }, copy: { async run() { return { status: 'cancelled' }; } } }, { hub: '', stateDir: '' });
-
-// an optional handler may be missing, so it must be checked before calling
-const asker = station('asker', {
-  description: 'Asks optionally.',
-  fns: { go: fn({ description: 'Go.', args: g.obj({}), returns: g.bool(), handlers: { confirm: handler({ description: 'Sure?', args: g.obj({}), returns: g.bool(), required: false }) } }) },
+export const fsClient = client(fs, {
+  fns: {
+    bash: (el, view) => {
+      el.textContent = view.args.command;
+      if (view.progress) { el.dataset['fraction'] = String(view.progress.fraction); }
+      return view.subscribe(next => { el.textContent = next.result?.stdout ?? ''; });
+    },
+  },
+  attachments: { diff: (el, view) => { el.textContent = `${view.data.path}: ${view.data.before.length} → ${view.data.after.length}`; } },
+  inputs: { Entry: (el, view) => { el.textContent = view.value?.path ?? ''; } },
+  // @ts-expect-error renderers only for things the contract has
+  nope: {},
 });
-void serve(asker, {
-  go: {
-    async run(_args, ctx) {
-      // @ts-expect-error confirm is optional: it may be undefined
-      await ctx.handlers.confirm({});
-      const ok = ctx.handlers.confirm ? await ctx.handlers.confirm({}) : true;
-      return { status: 'done', result: ok };
-    },
-  },
-}, { hub: '', stateDir: '' });
-// calling a fn whose only handler is optional needs no options
-const caller = station('caller', { description: 'Calls asker.', fns: { run: fn({ description: 'Run.', args: g.obj({}), returns: g.bool(), deps: { go: asker.fns.go } }) } });
-void serve(caller, { run: { async run(_args, ctx) { return { status: 'done', result: await ctx.fns.go({}).result }; } } }, { hub: '', stateDir: '' });

@@ -21,7 +21,10 @@ interface Decl {
   unionOf: string[]; signature?: string; refs: string[];
 }
 
-const files = fs.readdirSync(typesDir).filter(f => f.endsWith('.ts')).sort();
+// the SDK first: it is what station authors use; then the fs station, the hub, and the examples
+const ORDER = ['sdk.ts', 'fs.ts', 'hub.ts', 'examples.ts'];
+const rank = (f: string) => (ORDER.indexOf(f) + 1 || ORDER.length + 1);
+const files = fs.readdirSync(typesDir).filter(f => f.endsWith('.ts')).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 const cfg = ts.parseJsonConfigFileContent(ts.readConfigFile(path.join(root, 'tsconfig.json'), ts.sys.readFile).config, ts.sys, root);
 const program = ts.createProgram(cfg.fileNames, cfg.options);
 const decls: Decl[] = [];
@@ -42,12 +45,14 @@ const clean = (s: string) => s.replace(/\r/g, '');
 for (const f of files) {
   const sf = program.getSourceFile(path.join(typesDir, f));
   if (!sf) continue;
-  let group = 'General';
+  // a file's title is its first line, `// # Title`; its banners become groups under that title
+  const title = /^\/\/ # (.+)/.exec(sf.getFullText())?.[1] ?? f;
+  let group = title;
   const full = sf.getFullText();
   for (const st of sf.statements) {
     // a section banner `// ═══ Name ═══` (in the leading comments) starts a group
     const lead = full.slice(st.getFullStart(), st.getStart(sf));
-    for (const m of lead.matchAll(/\/\/\s*═+\s*(.+?)\s*═+/g)) group = m[1]!;
+    for (const m of lead.matchAll(/\/\/\s*═+\s*(.+?)\s*═+/g)) group = `${title} · ${m[1]!}`;
     if (ts.isImportDeclaration(st)) {
       const mod = (st.moduleSpecifier as ts.StringLiteral).text;
       const nb = st.importClause?.namedBindings;

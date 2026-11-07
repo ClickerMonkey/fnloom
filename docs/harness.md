@@ -6,9 +6,16 @@ WebSocket and add things to it: fns (tools), fn kinds, types, resources, context
 renderers. A station can run anywhere, can be written by Claude Code or by the harness itself, and is
 picked up again on reconnect.
 
-This document is the plain-language picture. `types/harness.ts` is the same picture as TypeScript
-interfaces; the explorer (`explorer/explorer.html`) shows both and lets you leave notes on any section,
-type or member. Nothing is implemented yet: the types are for review first, then zod schemas, then code.
+This document is the plain-language picture. The same picture as TypeScript is in `types/`:
+
+- **`sdk.ts`**: everything a station author touches. This is the part to review most closely.
+- **`fs.ts`**: the first station's contract, written with the SDK exactly as it will ship.
+- **`hub.ts`**: the hub's side: the wire format, records, permissions, queues, chat and storage.
+- **`examples.ts`**: the fs station's server written against the SDK, plus every mistake the types must
+  refuse. It is checked by the compiler, so the SDK can't drift from what this guide promises.
+
+The explorer (`explorer/explorer.html`) shows all of it and lets you leave notes on any section, type or
+member. Nothing is implemented yet: the types are for review first, then zod schemas, then code.
 
 **Status:** draft for review. Names are placeholders where noted. Decisions waiting on you are in
 [Open questions](#g/open-questions).
@@ -152,15 +159,15 @@ commands ↔ MCP prompts. So:
 
 ### Building a station
 
-A station package has three folders:
+A station package has three folders. The [station SDK](#g/the-station-sdk) section shows each one.
 
-- `shared/`: its types and **fn refs**, the typed handles other stations import to call its fns.
-- `server/`: the process that connects to the hub.
-- `client/`: browser assets. Its entry registers renderers for fns, resource formats, attachments and
-  input types. The hub serves these assets to the chat UI.
+- `shared/`: its **contract**: name, types, fns, kinds, context and the rest, with no implementation.
+  Other stations import it to call its fns with typed refs.
+- `server/`: the process. It implements the contract and connects to the hub.
+- `client/`: browser renderers, typed by the contract. The hub serves them to the chat UI.
 
 `harness-station build` builds the server and client; `harness-station dev` runs it with reload. On
-connect the hub reads everything from the manifest, so nothing is registered by hand.
+connect the hub reads everything from the contract, so nothing is registered by hand.
 
 ### Changing itself
 
@@ -178,8 +185,8 @@ stores them and rebuilds real gin types, zod schemas and LLM tool schemas from t
 
 A fn also declares:
 
-- **Deps:** the fns its implementation may call. Calls to anything else are refused. For a raw
-  TypeScript fn the author lists them; for other kinds the kind works them out from the payload.
+- **Deps:** the fns its implementation may call. Calls to anything else are refused. For a system fn
+  the author lists them; for other kinds the kind works them out from the payload.
 - **Handlers:** callbacks the *caller* can supply (for example "confirm overwrite?" or "pick a file"),
   each `required` or `optional`. A caller that can't answer a required handler can't call the fn. A
   user, an agent or code can answer them.
@@ -219,18 +226,158 @@ gets the results of children that already finished instead of calling them again
 
 ### Kinds
 
-A kind is provided by a station. It defines the payload type, how to derive the signature, deps and
-operations from a payload, and how to run it.
+A kind decides what a fn's definition looks like and how it runs.
 
-- **`hub/system`:** native fns the hub implements (configuration, pairing, budgets, search).
-- **`hub/llm`:** an agent: model or model category, instructions, tools, context, output type. The chat
-  agent is an `llm` fn.
-- **`ts`:** comes with the station SDK. A raw TypeScript fn whose signature and deps the author writes
-  directly. Fully type-checked.
-- **Later:** `api` (a gin program that builds an HTTP request, as designed in product), `query`
-  (database station), and the rest of product's kinds.
+- **`system`:** a fn its station implements in code. Every station has it, the hub included (the hub's
+  own fns, like search and configuration, are system fns of the station `hub`). Fully type-checked.
+- **`hub/llm`:** an agent: instructions, model, tools, context and an output type. The chat agent is
+  one. Any station can declare agents with `agent()`.
+- **Station kinds:** a station can add a kind with its own payload type and run every fn of that kind.
+  Later: `api` (a gin program that builds an HTTP request, as designed in product), `query` (the
+  database station), and the rest of product's kinds.
 
-For a kind other than `ts`, the payload is JSON data, so it is validated at runtime, not type-checked.
+A system fn is typed end to end. A fn of another kind is typed as far as its payload and the args and
+result its author expects. What the payload really produces is only known at runtime, so the hub checks it
+against those expectations when the fn is declared.
+
+## The station SDK
+
+This is the surface other people build on, so it must read well and refuse mistakes. Three rules:
+
+1. **One source of types.** Every shape is written once as a gin type with `g`. Args, results, handler
+   shapes, payloads, settings, attachments and renderer props are all inferred from it.
+2. **Refs, not strings.** Everything a contract declares gets a typed ref (`fs.fns.read`,
+   `fs.context.guide`, `fs.settings.shell`). References between things are refs, so a reference to
+   something that doesn't exist doesn't compile, and a call through a ref has typed args and result.
+3. **The contract declares, the server implements.** Everything declared must be implemented, and
+   nothing can be implemented that wasn't declared.
+
+### The contract (`shared/`)
+
+`station(name)` starts a contract and `.with(...)` adds to it: types, settings, attachments, kinds, fns,
+context, hooks, mentions, embedders and sectioners. `.with` can be called again with a function that
+receives the refs declared so far, so later declarations can use earlier ones. From `types/fs.ts`:
+
+```ts
+export const fs = station('fs', { description: 'Files and a shell over chosen folders.' })
+  .with({
+    types: { Entry },
+    settings: { shell: setting({ description: 'Which commands run without asking.', type: g.obj({ allowed: g.bool(), safe: g.list(g.text()) }), appliesTo: ['user', 'group'], merge: 'most-restrictive' }) },
+    attachments: { diff: attachment({ description: 'A change to a file.', data: g.obj({ path: g.text(), before: g.text(), after: g.text() }) }) },
+    fns: {
+      read: fn({ description: 'Read a text file.', args: g.obj({ path: g.text(), offset: g.optional(g.num()) }), returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }) }),
+      edit: fn({ description: 'Replace exact text in a file.', args: …, returns: …, undo: Previous }),
+      bash: fn({ description: 'Run a shell command.', args: …, returns: …, progress: linear,
+        handlers: { confirm: handler({ description: 'Run this command?', args: g.obj({ command: g.text(), reason: g.text() }), returns: g.bool(), required: false }) } }),
+      …
+    },
+    hooks: { git: hook({ description: 'Adds the current branch and changed files.' }) },
+  })
+  .with(({ fns }) => ({
+    context: {
+      guide: context({ description: 'How to work with files here.', content: 'Read before editing…', fns: [fns.read, fns.edit] }),
+      tree: context({ description: 'The folder tree, as it is now.', command: { name: 'tree', args: { root: arg('Which root', { required: false }) } } }),
+    },
+    fns: {
+      explore: agent({ description: 'Answers questions about the code.', args: g.obj({ question: g.text() }), returns: g.text(),
+        instructions: 'Answer {{args.question}} by reading the code.', tools: [fns.read, fns.grep, hub.fns.search_resources] }),
+    },
+  }));
+```
+
+What a fn declares changes what it can do, and the types follow:
+
+- **`undo` type** → the fn is undoable, and the server **must** implement `undo`.
+- **`resume` type** → the fn can pause; without one, `ctx.pause(...)` doesn't compile.
+- **`progress`** → `linear` gives `ctx.progress.set(0.4)`; `steps({ read: 'Read', write: 'Write' })`
+  gives `ctx.progress.step('read', 'active')` with only those names.
+- **`handlers`** → a required handler must be passed by every caller; an optional one may be missing,
+  so the fn has to check before calling it.
+- **`deps`** → the only fns `ctx.fns` can call.
+- **context without `content`** is dynamic: the server must implement it, with the command's args typed.
+
+### The server (`server/`)
+
+`serve(contract, impl, options)` connects to the hub (pairing the first time) and serves the
+implementation. The implementation's type is computed from the contract. From `types/examples.ts`:
+
+```ts
+await serve(fs, {
+  fns: {
+    read: {
+      async run(args, ctx) {                       // args: { path: string; offset?: number; … }
+        const text = await ctx.files.readText(args.path);
+        return ctx.done({ text, lines: …, truncated: false });   // the result is checked
+      },
+    },
+    edit: {
+      async run(args, ctx) {
+        const previous = await ctx.files.share(args.path);
+        …
+        ctx.attach(fs.attachments.diff, { path: args.path, before, after }, 'Edited');   // data is checked
+        return ctx.done({ replacements: 1 }, { undo: { path: args.path, previous } });
+      },
+      async undo(payload) { … },                    // required: edit declares an undo type
+    },
+    bash: {
+      async run(args, ctx) {
+        const shell = await ctx.setting(fs.settings.shell);       // { allowed; safe } | undefined
+        if (!safe && !(ctx.handlers.confirm && await ctx.handlers.confirm({ command: args.command, reason: '…' }))) {
+          return ctx.fail('caller', 'The command needs confirmation.', { code: 'denied' });
+        }
+        …
+      },
+    },
+    …
+  },
+  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}` },   // args: { root?: string }
+  hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
+  resources: { roots, list, stat, read },
+}, { hub: 'ws://hub:4100', state: '.station' });
+```
+
+A run's `ctx` holds:
+
+- `ctx.fns`, `ctx.handlers` and `ctx.progress`, typed by the fn.
+- `ctx.done`, `ctx.fail`, `ctx.pause` and `ctx.cancelled`, which build the outcome object with the
+  fn's result, undo and resume types.
+- `ctx.budget` and `ctx.signal`.
+- `ctx.onPause`, `ctx.allow` (narrow what can be done right now) and `ctx.undoWith`.
+- The services: `ctx.llm`, `ctx.files`, `ctx.fetch`, `ctx.resources`, `ctx.attach`, `ctx.link`,
+  `ctx.setting` and `ctx.log`.
+
+Calling another station's fn: declare it as a dep with its ref, then `await ctx.fns.copy(args, options)`.
+The call is awaitable for its typed result, and it is also a handle with `run`, `settled`, `cancel`,
+`pause` and `watch`. If the dep has a required handler, the options with that handler are required.
+
+### Renderers (`client/`)
+
+`client(contract, renderers)` registers browser renderers, typed by the contract. A fn renderer gets that
+fn's typed args, result and progress; an attachment renderer gets its typed data; an input renderer for a
+named type gets typed values. Renderers mount into a DOM element, so any UI library works.
+
+```ts
+export default client(fs, {
+  fns: { bash: (el, view) => { el.textContent = view.args.command; return view.subscribe(v => …v.result?.stdout…); } },
+  attachments: { diff: (el, view) => drawDiff(el, view.data.before, view.data.after) },
+  inputs: { Entry: (el, view) => … },
+});
+```
+
+### Mistakes that don't compile
+
+`types/examples.ts` checks each of these, and that each fails for the stated reason:
+
+- calling a fn that isn't a dep, or with wrong args
+- calling a fn with a required handler without passing it
+- calling an optional handler without checking it exists
+- reporting a progress step that wasn't declared, or step progress on a linear fn
+- returning a wrong result, or pausing a fn with no resume type
+- leaving out `undo` on a fn that declares an undo type
+- leaving out any declared fn, kind, dynamic context, hook or mention provider
+- implementing anything the contract doesn't declare
+- attaching data of the wrong shape
+- a renderer for something the contract doesn't have
 
 ## Sessions and the chat
 
@@ -277,7 +424,7 @@ if a transcription service is configured, `@` only if a mention provider is conn
 
 ### Configuring by asking
 
-Everything an admin configures can also be done by asking in chat, through `hub/system` fns: providers,
+Everything an admin configures can also be done by asking in chat, through the hub's system fns: providers,
 model categories, transcription, web search, stations, pairing, spend limits, policies, actor settings.
 These always need approval.
 
@@ -391,48 +538,6 @@ the library later. Which way to go is your call.
   index files).
 - **aeye gin: static inference** (`Infer<>` from builders), so the harness `g` wrapper isn't needed.
 
-## Writing a station
-
-`types/examples.ts` type-checks this. Each mistake called out below is a compile error.
-
-```ts
-// shared/index.ts: the contract other stations import
-export const fs = station('fs', {
-  description: 'Files and a shell.',
-  types: { FileInfo },
-  fns: {
-    stat: fn({ description: 'Stat a path.', args: g.obj({ path: g.text() }), returns: FileInfo }),
-    copy: fn({
-      description: 'Copy a file.',
-      args: g.obj({ from: g.text(), to: g.text() }),
-      returns: g.obj({ bytes: g.num() }),
-      progress: { type: 'steps', steps: [{ name: 'read', title: 'Read' }, { name: 'write', title: 'Write' }] },
-      handlers: { overwrite: handler({ description: 'Overwrite?', args: g.obj({ path: g.text() }), returns: g.bool(), required: true }) },
-      undo: g.obj({ path: g.text() }),
-    }),
-  },
-});
-
-// server/index.ts: every fn must be implemented, or it doesn't compile
-await serve(fs, {
-  stat: { async run(args) { return { status: 'done', result: await statFile(args.path) }; } },
-  copy: {
-    async run(args, ctx) {
-      ctx.progress.step('read', 'active');   // only declared steps compile
-      if (!(await ctx.handlers.overwrite({ path: args.to }))) return { status: 'cancelled' };
-      return { status: 'done', result: { bytes: await copyFile(args) }, undo: { path: args.to } };
-    },
-    // required, because copy declares an undo type
-    async undo(payload) { await rm(payload.path); return { status: 'undone', summary: 'removed the copy' }; },
-  },
-}, { hub: 'ws://hub:4100', stateDir: '.station' });
-
-// another station declares the dep and calls it with typed args;
-// the overwrite handler must be passed because it is required:
-//   deps: { copy: fs.fns.copy }
-//   ctx.fns.copy(args, { handlers: { overwrite: async () => true } })
-```
-
 ## Later
 
 - **Database station:** query tool, saved queries, custom types, row- and field-level rules as
@@ -448,7 +553,7 @@ await serve(fs, {
 1. Types (this review) → zod schemas → code.
 2. Hub core: store, actors, sessions, turns, LLM queue, tool queue, the `system` and `llm` kinds,
    the station protocol, pairing, the chat UI.
-3. Station SDK with the `ts` kind, refs, the build, and MCP serving.
+3. Station SDK: contracts, refs, `serve`, `client`, the build, and MCP serving.
 4. The fs station, including self-restart.
 5. Tests throughout: unit tests with injected seams, no live network.
 
