@@ -3,7 +3,7 @@
 // an expectation breaks. Every `@ts-expect-error` marks a mistake a system author must not be able to make.
 
 import { h, type DefineComponent } from 'vue';
-import { system, fn, handler, steps, serve, client, kind, g, hub, type Infer, type FnRef, type ContextRef, type FnViewOf, type AttachmentViewOf, type InputViewOf } from './sdk.ts';
+import { system, fn, handler, steps, serve, client, kind, mention, g, hub, type Infer, type FnRef, type ContextRef, type FnViewOf, type AttachmentViewOf, type InputViewOf } from './sdk.ts';
 import { fs, Entry } from './fs.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -104,7 +104,16 @@ void serve(fs, {
   // tree is dynamic context, so it must be implemented; its args are typed from the command
   context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}` },
   hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
-  mentions: { files: async query => [{ label: query, target: { resource: `file:///${query}` }, text: query }] },
+  mentions: {
+    files: {
+      // the chip shows the friendly name; the target is the system's own key for the thing
+      async search(query) { return [{ label: 'harness.md', hint: `docs · matches "${query}"`, icon: 'file', target: { root: 'harness', path: 'docs/harness.md' } }]; },
+      // the hover card is for the person
+      async hover(target) { return { title: target.path, subtitle: `in ${target.root}`, fields: [{ label: 'Size', value: '28 KB' }], open: { resource: `file:///${target.path}` } }; },
+      // the LLM text says exactly what and where, and how to reach it
+      async llm(target) { return `File ${target.path} in the fs root "${target.root}". Read it with fs/read { "path": "${target.path}" }.`; },
+    },
+  },
   resources: {
     async roots() { return []; },
     async list() { return { items: [] }; },
@@ -197,6 +206,31 @@ void serve(web, {
       async check(payload) { return payload.url.startsWith('https://') ? [] : ['Only https URLs.']; },
       async describe() { return { args: { name: 'obj' }, returns: { name: 'any' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
       async run(payload, _args, ctx) { return ctx.done({ requested: payload.url }); },
+    },
+  },
+}, { hub: '', state: '' });
+
+// ── Mentions: a database row ──────────────────────────────────────────────────
+
+const crm = system('crm', { description: 'Customers and orders.' }).with({
+  mentions: {
+    rows: mention({ title: 'Customers and orders', description: 'Any customer or order.', target: g.obj({ table: g.enum('customers', 'orders'), id: g.text() }) }),
+  },
+});
+
+void serve(crm, {
+  mentions: {
+    rows: {
+      // @ts-expect-error the target is the declared key: a table it knows ('invoices' isn't one) and an id
+      async search(query) { return [{ label: query, target: { table: 'invoices', id: '7' } }]; },
+      async hover(target) {
+        return { title: `Acme Corp`, subtitle: `${target.table} #${target.id}`, fields: [{ label: 'Open orders', value: '3' }] };
+      },
+      async llm(target) {
+        // @ts-expect-error only the declared fields exist
+        void target.name;
+        return `Row ${target.id} of table ${target.table} in the crm database (system crm). Customer "Acme Corp", 3 open orders.`;
+      },
     },
   },
 }, { hub: '', state: '' });

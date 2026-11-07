@@ -97,7 +97,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
     },
     hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
-    mentions: { files: mention({ title: 'Files', description: 'Files and folders under the roots.' }) },
+    mentions: {
+      files: mention({ title: 'Files', description: 'Files and folders under the roots.', target: g.obj({ root: g.text(), path: g.text() }) }),
+    },
   })
   // context and the agent use the fns declared above
   .with(({ fns }) => ({

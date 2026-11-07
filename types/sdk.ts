@@ -177,8 +177,8 @@ export interface AttachmentRef<N extends QualifiedName, T> {
 
 /** A handle to a user-message hook. */
 export interface HookRef<N extends QualifiedName> { readonly name: N; readonly kind: 'hook' }
-/** A handle to an `@` mention provider. */
-export interface MentionRef<N extends QualifiedName> { readonly name: N; readonly kind: 'mention' }
+/** A typed handle to an `@` mention provider. */
+export interface MentionRef<N extends QualifiedName, T> { readonly name: N; readonly target: GinType<T> }
 /** A handle to an embedder. */
 export interface EmbedderRef<N extends QualifiedName> { readonly name: N; readonly kind: 'embedder' }
 /** A handle to a sectioner. */
@@ -843,27 +843,68 @@ export type HookContribution =
 /** A hook's implementation. */
 export type HookImpl = (input: HookInput, ctx: SystemCtx) => Promise<HookContribution[]>;
 
-/** An `@` mention provider. */
-export interface MentionDef {
+/**
+ * An `@` mention provider: a way to point at something a system knows about, such as a file, a database row or a
+ * ticket. Three views of the same thing:
+ *
+ * - **Chip:** the chat shows a friendly name.
+ * - **Hover:** hovering the chip asks the system for details for the person.
+ * - **LLM text:** when the message is sent, the system writes text for the LLM that says exactly what the thing
+ *   is and where it lives. It is embedded in the user message and kept with it.
+ *
+ * `target` is the system's own key for a thing (a path; a table and an id). It is what gets stored.
+ */
+export interface MentionDef<T> {
   readonly title: string;
   readonly description: string;
+  readonly target: GinType<T>;
 }
 
 /** Declare a mention provider. */
-export declare function mention(def: { title: string; description: string }): MentionDef;
+export declare function mention<T>(def: { title: string; description: string; target: GinType<T> }): MentionDef<T>;
 
-/** One `@` result. */
-export interface MentionOption {
+/** One search result in the `@` picker. */
+export interface MentionOption<T> {
+  /** The friendly name: what the chip shows. */
   label: string;
-  description?: string;
-  /** What it points at. */
-  target: { resource: ResourceUri } | { context: AnyContextRef } | { fn: AnyFnRef } | { actor: ActorId } | { custom: Json };
-  /** The text the LLM sees in place of the mention. */
-  text: string;
+  /** A short line under the label in the picker ("customers · Acme Corp"). */
+  hint?: string;
+  /** An icon name or URL. */
+  icon?: string;
+  target: T;
+}
+
+/** What a person sees when hovering a mention. */
+export interface MentionHover {
+  title: string;
+  subtitle?: string;
+  fields?: Array<{ label: string; value: string }>;
+  /** A short preview, in markdown. */
+  body?: string;
+  /** Where clicking the chip goes. */
+  open?: Link;
+}
+
+/** What a mention provider's implementation gets. */
+export interface MentionCtx extends SystemCtx {
+  readonly session: SessionId;
+  /** The person mentioning; results and details are limited to what they may see. */
+  readonly actor: ActorId;
 }
 
 /** A mention provider's implementation. */
-export type MentionImpl = (query: string, ctx: SystemCtx & { session: SessionId; actor: ActorId }) => Promise<MentionOption[]>;
+export interface MentionImpl<T> {
+  /** Results for what the person typed after `@`. */
+  search(query: string, ctx: MentionCtx): Promise<MentionOption<T>[]>;
+  /** The hover card. Asked for when hovered, so it is current; `undefined` when the thing no longer exists. */
+  hover(target: T, ctx: MentionCtx): Promise<MentionHover | undefined>;
+  /**
+   * The text the LLM gets for this mention, written when the message is sent: what the thing is, where it lives
+   * and how to reach it with this system's fns (system, kind, id or path, a few key facts). The hub wraps it in a
+   * tagged block with the label, so the model can match it to the words around it.
+   */
+  llm(target: T, ctx: MentionCtx): Promise<string>;
+}
 
 /** An embed function the hub can index with. */
 export interface EmbedderDef {
@@ -1007,7 +1048,7 @@ export interface ContractShape {
   fns: Record<string, AnyFnDef>;
   context: Record<string, AnyContextDef>;
   hooks: Record<string, HookDef>;
-  mentions: Record<string, MentionDef>;
+  mentions: Record<string, MentionDef<unknown>>;
   embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
 }
@@ -1033,7 +1074,7 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly fns: { readonly [K in keyof C['fns']]: C['fns'][K] extends FnDef<infer T> ? FnRef<Q<N, K>, T['args'], T['result'], T['handlers']> : never };
   readonly context: { readonly [K in keyof C['context']]: C['context'][K] extends ContextDef<infer A, boolean> ? ContextRef<Q<N, K>, A> : never };
   readonly hooks: { readonly [K in keyof C['hooks']]: HookRef<Q<N, K>> };
-  readonly mentions: { readonly [K in keyof C['mentions']]: MentionRef<Q<N, K>> };
+  readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T> ? MentionRef<Q<N, K>, T> : never };
   readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
 }
@@ -1079,7 +1120,7 @@ export type SystemImpl<C extends ContractShape> =
   Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P> : never }> &
   Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A> : never }> &
   Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl }> &
-  Needs<'mentions', { readonly [K in keyof C['mentions']]: MentionImpl }> &
+  Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T> ? MentionImpl<T> : never }> &
   Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
   {
@@ -1196,6 +1237,14 @@ export interface InputView<T> {
   problems: string[];
 }
 
+/** The props of a custom mention hover card. */
+export interface MentionView<T> {
+  label: string;
+  target: T;
+  /** What the system's `hover` returned; `undefined` when the thing no longer exists. */
+  hover: MentionHover | undefined;
+}
+
 /** The props of a resource preview. */
 export interface ResourceView {
   stat: ResourceStat;
@@ -1220,6 +1269,8 @@ export interface ClientRenderers<C extends ContractShape> {
   attachments?: { readonly [K in keyof C['attachments']]?: Renderer<AttachmentView<Infer<C['attachments'][K]['data']>>> };
   /** Inputs for the system's named types (used in `!` forms and handler prompts). */
   inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<Infer<C['types'][K]>>> };
+  /** Custom hover cards for mentions (otherwise the hub draws the `MentionHover`). */
+  mentions?: { readonly [K in keyof C['mentions']]?: Renderer<MentionView<Infer<C['mentions'][K]['target']>>> };
   /** Previews for resource formats. */
   resources?: Record<string, Renderer<ResourceView>>;
 }
@@ -1255,7 +1306,11 @@ export interface HubContract extends EmptyContract {
     ask_user: HubFn<{ question: string; user?: ActorId }, { answer: string }>;
   };
   hooks: { local_time: HookDef; suggest_context: HookDef; suggest_fns: HookDef };
-  mentions: { fns: MentionDef; context: MentionDef; resources: MentionDef; people: MentionDef };
+  mentions: {
+    fns: MentionDef<{ fn: QualifiedName }>;
+    context: MentionDef<{ context: QualifiedName }>;
+    resources: MentionDef<{ uri: ResourceUri; section?: SectionKey }>;
+  };
   sectioners: { whole: SectionerDef; headings: SectionerDef; symbols: SectionerDef; pages: SectionerDef; paragraphs: SectionerDef };
 }
 

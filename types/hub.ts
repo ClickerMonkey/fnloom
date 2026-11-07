@@ -9,7 +9,7 @@ import type {
   Id, RunId, TurnId, SessionId, ActorId, MessageId, Duration, Timestamp, Usd, Json, QualifiedName, Priority, Audience, ActorKind, Page,
   GinTypeDef, FnError, RunStatus, RunUpdate, Operations, FnLimits, ModelChoice, KindDescription,
   ResourceUri, ResourceStat, ResourceLink, ResourceRead, ResourceRoot, ResourceChange, ReadWant, ContentRef, Section, SectionKey, SectionMatch,
-  HookInput, MentionOption, SystemEvent, UndoOutcome, Link,
+  HookInput, MentionOption, MentionHover, SystemEvent, UndoOutcome, Link,
 } from './sdk.ts';
 
 // ═══ Wire: what a system sends ═══
@@ -34,7 +34,7 @@ export interface Manifest {
   fns: FnDecl[];
   context: ContextDecl[];
   hooks: Array<{ name: string; description: string; order: number; timeout: Duration }>;
-  mentions: Array<{ name: string; title: string; description: string }>;
+  mentions: Array<{ name: string; title: string; description: string; target: GinTypeDef }>;
   embedders: Array<{ name: string; dimensions: number; maxInput: number; pricePerMillionTokens: Usd }>;
   sectioners: Array<{ name: string; description: string; match: SectionMatch }>;
   /** Events it handles; the hub only sends those. */
@@ -212,7 +212,12 @@ export interface SystemLink {
   content(input: { ref: ContentRef; offset: number; length: number }): Promise<{ chunk: string }>;
   embed(input: { embedder: string; texts: string[] }): Promise<{ vectors: number[][] }>;
   hook(input: { hook: string; message: HookInput }): Promise<Json[]>;
-  mention(input: { provider: string; query: string; session: SessionId; actor: ActorId }): Promise<MentionOption[]>;
+  /** `@` search. */
+  mentions(input: { provider: string; query: string; session: SessionId; actor: ActorId }): Promise<MentionOption<Json>[]>;
+  /** A mention's hover card, asked for when a person hovers it. */
+  mentionHover(input: { provider: string; target: Json; session: SessionId; actor: ActorId }): Promise<MentionHover | undefined>;
+  /** A mention's text for the LLM, asked for when the message is sent. */
+  mentionText(input: { provider: string; target: Json; session: SessionId; actor: ActorId }): Promise<{ text: string }>;
   event(input: SystemEvent): Promise<void>;
   restart(input: { reason: string }): Promise<void>;
 }
@@ -613,8 +618,8 @@ export interface Session {
   owner: ActorId;
   /** The agent fn that answers when only one person is in the session. Default `hub/chat`. */
   agent: QualifiedName;
-  /** People and agents. Tagging a person notifies them; agents follow the reply rule above. */
-  participants: Array<{ actor: ActorId; role: 'owner' | 'member' | 'agent'; notify: 'all' | 'tagged' | 'none'; joinedAt: Timestamp }>;
+  /** People and agents. A person is notified of every message, of replies to their own messages, or of nothing. Agents follow the reply rule above. */
+  participants: Array<{ actor: ActorId; role: 'owner' | 'member' | 'agent'; notify: 'all' | 'replies' | 'none'; joinedAt: Timestamp }>;
   /** Only these systems' fns, context, mentions and hooks apply. */
   systems: SystemName[] | 'all';
   /** The agent's loaded fns and context so far. */
@@ -641,8 +646,6 @@ export interface ChatMessage {
   parts: MessagePart[];
   runs: RunId[];
   status: 'streaming' | 'done' | 'failed';
-  /** People tagged with @; they are notified. */
-  tagged: ActorId[];
   /** The message this replies to. With more than one person in the session, replying to an agent's message is how that agent is asked to answer. */
   replyTo?: MessageId;
   /** Addressed to every agent in the session: each one answers. */
@@ -655,7 +658,12 @@ export interface ChatMessage {
 /** A piece of a message. */
 export type MessagePart =
   | { type: 'text'; text: string }
-  | { type: 'mention'; provider: QualifiedName; option: MentionOption }
+  /**
+   * Something picked with `@`. The chat shows `label` as a chip with the system's hover card. The LLM gets `text`
+   * (from the provider's `llm`, written at send time) wrapped as
+   * `<mention provider="db/rows" label="Acme Corp">…text…</mention>` in place of the chip.
+   */
+  | { type: 'mention'; provider: QualifiedName; label: string; target: Json; text: string }
   | { type: 'command'; context: QualifiedName; args: Record<string, string> }
   | { type: 'invocation'; run: RunId; fn: QualifiedName }
   | { type: 'file'; ref: ContentRef; name: string }
@@ -813,7 +821,7 @@ export type BrowserEvent =
   | { type: 'notification'; notification: Notification };
 
 /** Why someone is notified. */
-export type NotificationReason = 'approval-needed' | 'input-needed' | 'tagged' | 'turn-finished' | 'pairing-requested' | 'system-disconnected' | 'spend-limit';
+export type NotificationReason = 'approval-needed' | 'input-needed' | 'replied' | 'turn-finished' | 'pairing-requested' | 'system-disconnected' | 'spend-limit';
 
 /** An inbox item; pushed (web push) when the user isn't looking. */
 export interface Notification {
@@ -846,7 +854,8 @@ export interface HubWebApi {
   tree(input: { turn: TurnId }): Promise<TreeNode>;
   run(input: { run: RunId }): Promise<Run>;
   llmCall(input: { id: Id<'llmInteraction'> }): Promise<LlmInteraction>;
-  mention(input: { session: SessionId; provider: QualifiedName; query: string }): Promise<MentionOption[]>;
+  mentions(input: { session: SessionId; provider: QualifiedName; query: string }): Promise<MentionOption<Json>[]>;
+  mentionHover(input: { session: SessionId; provider: QualifiedName; target: Json }): Promise<MentionHover | undefined>;
   approve(input: { approval: Id<'approval'>; approve: boolean; remember: 'once' | 'session' | 'always'; reason?: string }): Promise<Approval>;
   answer(input: { call: Id<'handlerCall'>; value: Json }): Promise<void>;
   presence(input: Omit<Presence, 'user' | 'lastActiveAt'>): Promise<void>;

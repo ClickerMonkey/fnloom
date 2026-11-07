@@ -92,7 +92,8 @@ A system is a process with a unique **name**. The name namespaces everything it 
 - **Resource roots** (initially folders) and a resource service: list, stat, read, links, sections, watch.
 - **Section rules**: how its formats are cut into stable sections.
 - **Context**, including `/name` commands.
-- **Mention providers** for `@` search in the chat.
+- **Mention providers** for `@` in the chat: ways to point at things the system knows (a file, a database
+  row, a ticket).
 - **Hooks** that add information to a user message before the LLM sees it.
 - **Embedders**: an embed function the hub can use for indexing.
 - **Actor settings**: typed per-actor controls an admin (or a fn) can set, such as a database system's
@@ -392,6 +393,7 @@ export default client(fs, {
 - returning a wrong result, or pausing a fn with no resume type
 - leaving out `undo` on a fn that declares an undo type
 - leaving out any declared fn, kind, dynamic context, hook or mention provider
+- a mention target of the wrong shape, or reading a field the target doesn't have
 - implementing anything the contract doesn't declare
 - attaching data of the wrong shape
 - a renderer for something the contract doesn't have, or a component whose props don't match
@@ -402,8 +404,8 @@ export default client(fs, {
   (only their fns, context and inputs apply), a priority and a budget.
 - **Who answers.** With one person in the session, its agent answers every message. With more than one
   person, agents stay quiet unless addressed. An agent answers a message that **replies to one of its own
-  messages**, and every agent answers a **reply-all**. Tagging a person with `@` notifies them; it doesn't
-  wake an agent.
+  messages**, and every agent answers a **reply-all**. People are notified of every message, of replies to
+  their own messages, or of nothing, as they choose.
 - **Turn flow:** a user message creates a turn. Hooks add their information, the LLM request is queued
   at the session's priority, and tool calls become runs.
 - **A new user message while tools run** moves those runs to the **background**. The agent gets a "still
@@ -429,7 +431,8 @@ user typed.
 
 ### Chat inputs
 
-- **`@`** searches mention providers (any system can provide one) and links what you pick.
+- **`@`** points at a thing a system knows about: a file, a database row, a ticket. It isn't for
+  people. See [Mentions](#g/mentions).
 - **`/name args`** pulls in context with that command.
 - **`!fn`** opens an input form for the fn's args. The chat has an input for **every gin type**, and
   systems can register custom inputs for their own types.
@@ -437,6 +440,38 @@ user typed.
   runs, which render as clickable cards.
 - **Renderers:** systems supply renderers for their fns' calls, for resource formats and for
   attachments.
+
+### Mentions
+
+Typing `@` searches the mention providers of the session's systems. Each mention has three views, all
+supplied by the system that owns the thing:
+
+- **The chip** shows a friendly name ("Acme Corp", "harness.md").
+- **The hover card** is for the person: the system is asked for details when the chip is hovered, so they
+  are current (title, a few fields, a short preview, and where clicking goes). A system can draw its own
+  card with a Vue component.
+- **The LLM text** is written by the system when the message is sent and embedded in the user message in
+  place of the chip, so the model knows exactly what the thing is and where it lives:
+
+  `<mention provider="crm/rows" label="Acme Corp">Row 42 of table customers in the crm database (system crm). Customer "Acme Corp", 3 open orders.</mention>`
+
+What's stored is the system's own key for the thing (a path; a table and an id), typed by the provider:
+
+```ts
+// shared/
+mentions: { rows: mention({ title: 'Customers and orders', description: '…', target: g.obj({ table: g.enum('customers', 'orders'), id: g.text() }) }) }
+
+// server/: target is typed { table: 'customers' | 'orders'; id: string } in all three
+mentions: {
+  rows: {
+    async search(query, ctx) { return [{ label: 'Acme Corp', hint: 'customers', target: { table: 'customers', id: '42' } }]; },
+    async hover(target, ctx) { return { title: 'Acme Corp', subtitle: `customers #${target.id}`, fields: [{ label: 'Open orders', value: '3' }] }; },
+    async llm(target, ctx) { return `Row ${target.id} of table ${target.table} in the crm database (system crm). …`; },
+  },
+},
+```
+
+Search, hover and LLM text all run as the person mentioning, so they only show what that person may see.
 
 ### What the UI offers
 
@@ -451,7 +486,7 @@ These always need approval.
 
 ### Push notifications
 
-The hub sends web push notifications: approval or input needed, a mention, a turn finished while you
+The hub sends web push notifications: approval or input needed, a reply to your message, a turn finished while you
 were away, a system waiting for pairing, a spend limit reached.
 
 ## LLM calls and budgets
