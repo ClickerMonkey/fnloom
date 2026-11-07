@@ -20,9 +20,11 @@ const props = withDefaults(defineProps<{
   archived: boolean;
   /** Something waits on the person here. */
   waiting?: number;
-}>(), { waiting: 0 });
+  /** The app's own top bar is hidden (a phone): this header carries the navigation button. */
+  nav?: boolean;
+}>(), { waiting: 0, nav: false });
 
-const emit = defineEmits<{ sessions: []; rename: [title: string]; action: [action: HeaderAction] }>();
+const emit = defineEmits<{ sessions: []; nav: []; rename: [title: string]; action: [action: HeaderAction] }>();
 const titleBox = ref<TitleHandle | null>(null);
 
 const overflow = computed<MenuItem<HeaderAction>[]>(() => [
@@ -46,6 +48,7 @@ function choose(action: HeaderAction): void {
 
 <template>
   <header class="chat-header" :class="{ compact }" data-testid="chat-header">
+    <UiIconButton v-if="nav" icon="menu" label="Open navigation" data-testid="open-nav" @click="emit('nav')" />
     <UiIconButton v-if="compact" icon="sidebar" label="Chats" data-testid="open-sessions" @click="emit('sessions')" />
     <div class="title-wrap">
       <EditableTitle ref="titleBox" :value="title" @save="emit('rename', $event)" />

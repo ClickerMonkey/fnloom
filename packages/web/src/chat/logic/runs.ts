@@ -3,28 +3,22 @@
  * `run` events since), and everything a card, the status line or the drawer says about it is worked out here, in plain
  * words. Pure, so it is tested alone.
  */
-import { SETTLED_RUN_STATUSES, type FnError, type Json, type QualifiedName, type Run, type RunId, type RunStatus, type RunUpdate } from '@harness/core';
+import {
+  countedText, isSettled, phaseOf as runPhase, resolveStatus, type FnError, type Json, type PhasedRunStatus, type QualifiedName, type Run, type RunId,
+  type RunStatus, type RunText, type RunUpdate,
+} from '@harness/core';
+import { hub } from '@harness/sdk';
 import type { IconName, Tone } from '../../ui/index.ts';
 import { clamp } from './format.ts';
 import { fnLabel, lowerFirst } from './labels.ts';
 
 /** What is known of a run: always its id, fn, status and costs; the rest once the record or an event says. */
 export type RunView = Pick<Run, 'id' | 'fn' | 'status' | 'cost' | 'totalCost' | 'attempt' | 'background' | 'errors'>
-  & Partial<Pick<Run, 'args' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'llmCall' | 'createdAt'>>;
+  & Partial<Pick<Run, 'args' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'llmCall' | 'createdAt' | 'text'>>;
 
 /** A run known only by an event: its fn and status. */
 export function emptyRun(id: RunId, fn: QualifiedName, status: RunStatus = 'queued'): RunView {
   return { id, fn, status, cost: 0, totalCost: 0, attempt: 1, background: false, errors: [] };
-}
-
-/** A view of a stored run. */
-export function viewOfRun(run: Run): RunView {
-  return run;
-}
-
-/** Whether a status is one a run never leaves. */
-export function isSettled(status: RunStatus): boolean {
-  return SETTLED_RUN_STATUSES.some((settled) => settled === status);
 }
 
 /** Whether a run is doing something now (not waiting on a person, not settled). */
@@ -39,7 +33,7 @@ export function applyRunUpdate(run: RunView, update: RunUpdate, now: number): Ru
       const { endedAt, ...open } = run;
       const startedAt = run.startedAt ?? (update.status === 'running' ? now : undefined);
       const attempt = update.status === 'running' && isSettled(run.status) ? run.attempt + 1 : run.attempt;
-      const next: RunView = { ...open, status: update.status, attempt, ...(startedAt === undefined ? {} : { startedAt }) };
+      const next: RunView = { ...open, status: update.status, attempt, ...(startedAt === undefined ? {} : { startedAt }), ...(update.text === undefined ? {} : { text: update.text }) };
       return isSettled(update.status) ? { ...next, endedAt: endedAt ?? now } : next;
     }
     case 'progress': return { ...run, progress: update.progress };
@@ -51,7 +45,7 @@ export function applyRunUpdate(run: RunView, update: RunUpdate, now: number): Ru
 /** Merge a fetched record with what live events said meanwhile: the record wins, except a newer live status. */
 export function mergeRecord(live: RunView | undefined, record: Run): RunView {
   if (live === undefined || isSettled(record.status) || !isSettled(live.status)) { return record; }
-  return { ...record, status: live.status, ...(live.endedAt === undefined ? {} : { endedAt: live.endedAt }) };
+  return { ...record, status: live.status, ...(live.endedAt === undefined ? {} : { endedAt: live.endedAt }), ...(live.text === undefined ? {} : { text: live.text }) };
 }
 
 /** How a status looks: its tone, icon and word. */
@@ -114,19 +108,28 @@ export function resultBrief(value: Json | undefined): string {
   return JSON.stringify(value, null, 2);
 }
 
-/** What a run is doing, in plain words: "Read file…", "Retrying read file… (attempt 2)", "Read file failed". */
-export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt'>): string {
+/**
+ * A run's status words for its phase: what the hub sent (from the fn's status templates), or, before the hub has
+ * said, core's defaults for the same phase. Statuses without a phase are worded by `runText`.
+ */
+export function runWords(run: Pick<RunView, 'fn' | 'attempt' | 'args' | 'text'> & { readonly status: PhasedRunStatus }): RunText {
+  const phase = runPhase(run.status, run.attempt);
+  return run.text?.phase === phase ? run.text : resolveStatus([], phase, { fn: run.fn, args: run.args ?? null });
+}
+
+/**
+ * What a run is doing, in plain words: its fn's words for its phase ("Reading harness.md…", "Read harness.md",
+ * "Retrying harness.md…", "Reading harness.md failed"), or the chat's own while it waits on a person or after it was
+ * stopped or taken back.
+ */
+export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text'>): string {
   const label = fnLabel(run.fn);
   switch (run.status) {
     case 'awaiting-approval': return `Waiting for approval to ${lowerFirst(label)}`;
-    case 'queued': return `${label} · queued`;
-    case 'running': return run.attempt > 1 ? `Retrying ${lowerFirst(label)}… (attempt ${run.attempt})` : `${label}…`;
-    case 'waiting': return `${label} · waiting`;
     case 'paused': return `${label} · paused`;
-    case 'done': return label;
-    case 'failed': return `${label} failed`;
     case 'cancelled': return `${label} cancelled`;
     case 'undone': return `${label} undone`;
+    default: return runWords({ ...run, status: run.status }).one;
   }
 }
 
@@ -150,13 +153,13 @@ export function progressFraction(run: Pick<RunView, 'progress'>): number | undef
 export const PHASES = ['active', 'retry', 'waiting', 'failed', 'done'] as const;
 export type Phase = (typeof PHASES)[number];
 
-/** Which phase a run is in. */
+/** Which phase a run is in on the status line: its own, `waiting` while it waits on a person, `done` once stopped. */
 export function phaseOf(run: Pick<RunView, 'status' | 'attempt'>): Phase {
-  if (run.status === 'running' && run.attempt > 1) { return 'retry'; }
-  if (isActive(run.status)) { return 'active'; }
-  if (run.status === 'awaiting-approval' || run.status === 'paused') { return 'waiting'; }
-  if (run.status === 'failed') { return 'failed'; }
-  return 'done';
+  switch (run.status) {
+    case 'awaiting-approval': case 'paused': return 'waiting';
+    case 'cancelled': case 'undone': return 'done';
+    default: return runPhase(run.status, run.attempt);
+  }
 }
 
 /** One group on the status line: runs of one fn in one phase. */
@@ -173,7 +176,7 @@ export interface StatusGroup {
 export interface StatusLine {
   readonly groups: readonly StatusGroup[];
   readonly more: number;
-  /** "Thinking…", "Waiting for your approval", or empty when groups say it all. */
+  /** "Thinking…", "Waiting for your approval", "Paused", or empty when groups say it all. */
   readonly lead: string;
 }
 
@@ -187,41 +190,53 @@ export const STATUS_LINE: StatusLineOptions = { linger: 2_500, max: 3 };
 
 const PHASE_TONE = { active: 'accent', retry: 'warn', waiting: 'warn', failed: 'danger', done: 'ok' } as const satisfies Record<Phase, Tone>;
 
-function groupText(fn: QualifiedName, phase: Phase, count: number, attempt: number): string {
-  const label = fnLabel(fn);
-  const times = count > 1 ? ` ×${count}` : '';
-  switch (phase) {
-    case 'active': return `${label}${times}…`;
-    case 'retry': return `Retrying ${lowerFirst(label)}${times}… (attempt ${attempt})`;
-    case 'waiting': return `${label}${times} · waiting for you`;
-    case 'failed': return `${label}${times} failed`;
-    case 'done': return `${label}${times}`;
+/** The lead while nothing but the agent itself is working. */
+export const THINKING = 'Thinking…';
+
+/**
+ * Whether a run is the turn's own agent: the line's lead ("Thinking…") speaks for it, never its label. Known by its
+ * kind once its record arrives, and before that by being the session's agent fn with no parent.
+ */
+function isTurnAgent(run: Pick<RunView, 'parent' | 'kind' | 'fn'>, agent: QualifiedName | undefined): boolean {
+  return run.parent === undefined && (run.kind === hub.kinds.llm.name || (run.kind === undefined && run.fn === agent));
+}
+
+/** Whether a status line says more than that the agent is thinking: worth showing beside (or instead of) typing dots. */
+export function lineHasNews(line: StatusLine): boolean {
+  return line.groups.length > 0 || line.more > 0 || (line.lead !== '' && line.lead !== THINKING);
+}
+
+/** A group's words: its runs' status words, the `many` form with the count when there is more than one. */
+function groupText(first: RunView, count: number): string {
+  switch (first.status) {
+    case 'awaiting-approval': case 'paused': case 'cancelled': case 'undone': return runText(first);
+    default: return countedText(runWords({ ...first, status: first.status }), count);
   }
 }
 
 /**
- * Sum up a turn's runs on one line: same-fn runs grouped ("Read file ×3…"), most active first, finished groups
- * kept for `linger` ms after they end then dropped, and past `max` groups "+N more".
+ * Sum up a turn's runs on one line: same-fn runs grouped in their fn's words ("Reading 3 files…"), most active first,
+ * finished groups kept for `linger` ms after they end then dropped, and past `max` groups "+N more". Runs waiting on a
+ * person are not grouped: their cards already say so, and the lead says "Waiting for your approval". The turn's own
+ * agent is the lead too.
  */
-export function statusLine(runs: readonly RunView[], now: number, options: StatusLineOptions = STATUS_LINE): StatusLine {
-  const groups = new Map<string, { fn: QualifiedName; phase: Phase; count: number; attempt: number; endedAt: number }>();
+export function statusLine(runs: readonly RunView[], now: number, options: StatusLineOptions = STATUS_LINE, agent?: QualifiedName): StatusLine {
+  const groups = new Map<string, { first: RunView; phase: Phase; count: number }>();
   for (const run of runs) {
     const phase = phaseOf(run);
-    if ((phase === 'done' || run.status === 'cancelled' || run.status === 'undone') && now - (run.endedAt ?? now) > options.linger) { continue; }
+    if (phase === 'waiting' || isTurnAgent(run, agent)) { continue; }
+    if (phase === 'done' && now - (run.endedAt ?? now) > options.linger) { continue; }
     const key = `${run.fn}:${phase}`;
     const group = groups.get(key);
-    if (group === undefined) {
-      groups.set(key, { fn: run.fn, phase, count: 1, attempt: run.attempt, endedAt: run.endedAt ?? now });
-    } else {
-      group.count++;
-      group.attempt = Math.max(group.attempt, run.attempt);
-    }
+    if (group === undefined) { groups.set(key, { first: run, phase, count: 1 }); } else { group.count++; }
   }
   const sorted = [...groups.entries()].sort(([, a], [, b]) => PHASES.indexOf(a.phase) - PHASES.indexOf(b.phase));
   const shown = sorted.slice(0, options.max).map(([key, group]) => ({
-    key, fn: group.fn, phase: group.phase, count: group.count, text: groupText(group.fn, group.phase, group.count, group.attempt), tone: PHASE_TONE[group.phase],
+    key, fn: group.first.fn, phase: group.phase, count: group.count, text: groupText(group.first, group.count), tone: PHASE_TONE[group.phase],
   }));
-  const waiting = runs.some((run) => run.status === 'awaiting-approval');
-  const lead = waiting ? 'Waiting for your approval' : runs.some((run) => isActive(run.status)) ? '' : 'Thinking…';
+  const working = runs.some((run) => isActive(run.status) && !isTurnAgent(run, agent));
+  const lead = runs.some((run) => run.status === 'awaiting-approval') ? 'Waiting for your approval'
+    : runs.some((run) => run.status === 'paused') ? 'Paused'
+    : working ? '' : THINKING;
   return { groups: shown, more: Math.max(0, sorted.length - options.max), lead };
 }

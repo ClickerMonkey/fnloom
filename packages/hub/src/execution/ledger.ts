@@ -2,17 +2,34 @@
  * The spend ledger. Before an LLM call the hub holds an estimate against every budget that applies to the turn and
  * against the turn's own cap; after it, the real cost is settled as a ledger line. A budget refuses a call that would
  * take it over by more than the allowed overrun (estimates are rough, so a small overrun beats blocking), or asks it
- * to wait for its window when its rule says so. Every line also adds to its turn's cost.
+ * to wait for its window when its rule says so. A budget whose rule says `ask` holds the call the same way and
+ * announces `budget.reached`, so an admin is asked to raise it; the call goes ahead once it is raised (or its window
+ * frees up). Besides the budgets a turn's limits name, every system, fn and model budget that covers a call's site
+ * counts. Every line also adds to its turn's cost.
  */
 import {
-  BudgetId, mintId, type ActorId, type BudgetRule, type LedgerEntry, type ReservationId, type ResolvedLimits, type RunId, type TurnId, type Usd,
+  BudgetId, mintId, type ActorId, type BudgetRule, type LedgerEntry, type LimitScope, type ReservationId, type ResolvedLimits, type TurnId, type Usd,
 } from '@harness/core';
-import type { Ledger } from './index.ts';
+import type { CallSite, Ledger } from './index.ts';
+import { allRows } from './pages.ts';
 import type { ExecutionBase } from './ports.ts';
 import { budgetLabel, TURN_LABEL, type SpendReader } from './spend.ts';
 
 /** The id that stands for a turn's own cap (the lowest per-turn budget, or the hub default) in refusals. */
 export const TURN_CAP = BudgetId.parse('bgt_turn');
+
+/** Whether a system, fn or model budget covers a call made at a site. The levels of a turn are resolved with its limits. */
+export function coversSite(target: LimitScope, site: CallSite): boolean {
+  switch (target.scope) {
+    case 'system': return site.system !== undefined && target.system === site.system;
+    case 'fn': return target.fn === site.fn;
+    case 'model': return target.model === site.model;
+    case 'hub': case 'group': case 'user': case 'session': case 'turn': return false;
+  }
+}
+
+/** The ledger's dependencies. */
+export type LedgerDeps = Pick<ExecutionBase, 'store' | 'clock' | 'random' | 'settings' | 'bus'>;
 
 /** An estimate held until its call settles. */
 interface Hold {
@@ -26,13 +43,13 @@ interface Hold {
  * concurrent calls see each other's holds.
  */
 export class HubLedger implements Ledger {
-  readonly #deps: Pick<ExecutionBase, 'store' | 'clock' | 'random' | 'settings'>;
+  readonly #deps: LedgerDeps;
   readonly #spend: SpendReader;
   readonly #holds = new Map<ReservationId, Hold>();
   /** The last reservation being checked; the next one starts after it. */
   #checking: Promise<unknown> = Promise.resolve();
 
-  constructor(deps: Pick<ExecutionBase, 'store' | 'clock' | 'random' | 'settings'>, spend: SpendReader) {
+  constructor(deps: LedgerDeps, spend: SpendReader) {
     this.#deps = deps;
     this.#spend = spend;
   }
@@ -41,13 +58,13 @@ export class HubLedger implements Ledger {
     return this.#spend.spent(rule, input);
   }
 
-  reserve(input: { limits: ResolvedLimits; estimate: Usd; run: RunId }): ReturnType<Ledger['reserve']> {
+  reserve(input: Parameters<Ledger['reserve']>[0]): ReturnType<Ledger['reserve']> {
     const checked = this.#checking.then(() => this.#reserve(input));
     this.#checking = checked.catch(() => undefined);
     return checked;
   }
 
-  async #reserve(input: { limits: ResolvedLimits; estimate: Usd; run: RunId }): ReturnType<Ledger['reserve']> {
+  async #reserve(input: Parameters<Ledger['reserve']>[0]): ReturnType<Ledger['reserve']> {
     const { store, clock, settings } = this.#deps;
     const run = await store.table('runs').get(input.run);
     if (run === undefined) throw new Error(`no run ${input.run} to reserve budget for`);
@@ -57,14 +74,21 @@ export class HubLedger implements Ledger {
     if (turnSpent + input.estimate > input.limits.turn.cost * overrun) {
       return { ok: false, budget: TURN_CAP, reason: `this message's budget of $${input.limits.turn.cost.toFixed(2)} is used up` };
     }
-    const rules = await this.#rules(input.limits);
+    const rules = await this.#rules(input.limits, input.site);
     for (const rule of rules) {
       const spent = await this.#counted(rule, run.actor, now);
       if (spent + input.estimate <= rule.maxCost * overrun) continue;
       const reason = `the ${budgetLabel(rule.target, rule.share)} of $${rule.maxCost.toFixed(2)} is used up`;
-      return rule.onLimit === 'wait' && rule.period !== 'all-time'
-        ? { ok: false, budget: rule.id, reason, wait: settings.execution.HARNESS_BUDGET_RECHECK }
-        : { ok: false, budget: rule.id, reason };
+      const refuse = { ok: false, budget: rule.id, reason } as const;
+      const wait = { ...refuse, wait: settings.execution.HARNESS_BUDGET_RECHECK };
+      switch (rule.onLimit) {
+        case 'refuse': return refuse;
+        // an all-time budget never frees up by itself, so waiting on it would never end
+        case 'wait': return rule.period === 'all-time' ? refuse : wait;
+        case 'ask':
+          this.#deps.bus.publish('budget.reached', { budget: rule, run: run.id, reason });
+          return wait;
+      }
     }
     const id = mintId('reservation', this.#deps.random);
     const budgets = rules.map((r) => r.id);
@@ -127,10 +151,16 @@ export class HubLedger implements Ledger {
     return sum;
   }
 
-  /** The window and all-time budgets a turn's limits name, as stored now (a rule removed since no longer counts). */
-  async #rules(limits: ResolvedLimits): Promise<BudgetRule[]> {
+  /**
+   * The window and all-time budgets a turn's limits name, as stored now (a rule removed since no longer counts), and
+   * with a call site, every window and all-time budget that covers it.
+   */
+  async #rules(limits: ResolvedLimits, site?: CallSite): Promise<BudgetRule[]> {
     const table = this.#deps.store.table('budgets');
-    const rules = await Promise.all(limits.budgets.map((b) => table.get(b.rule)));
-    return rules.filter((r): r is BudgetRule => r !== undefined);
+    const named = (await Promise.all(limits.budgets.map((b) => table.get(b.rule)))).filter((r): r is BudgetRule => r !== undefined);
+    if (site === undefined) return named;
+    const ids = new Set(named.map((r) => r.id));
+    const covering = (await allRows(table)).filter((r) => r.period !== 'per-turn' && !ids.has(r.id) && coversSite(r.target, site));
+    return [...named, ...covering];
   }
 }

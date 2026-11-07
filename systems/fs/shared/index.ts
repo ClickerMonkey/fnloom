@@ -78,24 +78,48 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         description: 'Read a text file, or part of it by line.',
         args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
+        status: {
+          active: { one: 'Reading {args.path}…', many: 'Reading {n} files…' },
+          retry: { one: 'Retrying reading {args.path}…', many: 'Retrying {n} file reads…' },
+          done: { one: 'Read {args.path}', many: 'Read {n} files' },
+          failed: { one: 'Reading {args.path} failed', many: '{n} file reads failed' },
+        },
         tags: ['read'],
       }),
       write: fn({
         description: 'Write a file, creating it if needed.',
         args: g.obj({ path: path(), text: hub.types.LongText }),
         returns: g.obj({ created: g.bool() }),
+        status: {
+          active: { one: 'Writing {args.path}…', many: 'Writing {n} files…' },
+          retry: { one: 'Retrying writing {args.path}…', many: 'Retrying {n} file writes…' },
+          done: { one: 'Wrote {args.path}', many: 'Wrote {n} files' },
+          failed: { one: 'Writing {args.path} failed', many: '{n} file writes failed' },
+        },
         undo: Previous,
       }),
       edit: fn({
         description: 'Replace exact text in a file.',
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
         returns: g.obj({ replacements: g.num() }),
+        status: {
+          active: { one: 'Editing {args.path}…', many: 'Editing {n} files…' },
+          retry: { one: 'Retrying the edit to {args.path}…', many: 'Retrying {n} edits…' },
+          done: { one: 'Edited {args.path}', many: 'Edited {n} files' },
+          failed: { one: 'Editing {args.path} failed', many: '{n} edits failed' },
+        },
         undo: Previous,
       }),
       list: fn({
         description: 'List a folder.',
         args: g.obj({ path: path(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
         returns: g.obj({ entries: g.list(Entry.shape) }),
+        status: {
+          active: { one: 'Listing {args.path}…', many: 'Listing {n} folders…' },
+          retry: { one: 'Retrying listing {args.path}…', many: 'Retrying {n} folder lists…' },
+          done: { one: 'Listed {args.path}', many: 'Listed {n} folders' },
+          failed: { one: 'Listing {args.path} failed', many: '{n} folder lists failed' },
+        },
         tags: ['read'],
       }),
       glob: fn({
@@ -103,6 +127,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         instructions: 'The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth.',
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
         returns: g.obj({ paths: g.list(g.text()) }),
+        status: {
+          active: { one: 'Finding {args.pattern}…', many: 'Running {n} path searches…' },
+          retry: { one: 'Retrying the search for {args.pattern}…', many: 'Retrying {n} path searches…' },
+          done: { one: 'Found {args.pattern}', many: 'Ran {n} path searches' },
+          failed: { one: 'Finding {args.pattern} failed', many: '{n} path searches failed' },
+        },
         tags: ['read'],
       }),
       grep: fn({
@@ -111,6 +141,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()), glob: g.optional(g.text()), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })) }),
         progress: linear,
+        status: {
+          active: { one: 'Searching for {args.pattern}…', many: 'Running {n} searches…' },
+          retry: { one: 'Retrying the search for {args.pattern}…', many: 'Retrying {n} searches…' },
+          done: { one: 'Searched for {args.pattern}', many: 'Ran {n} searches' },
+          failed: { one: 'Searching for {args.pattern} failed', many: '{n} searches failed' },
+        },
         tags: ['read'],
       }),
       cd: fn({
@@ -127,6 +163,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         returns: CommandResult,
         state: Shell,
         progress: linear,
+        status: {
+          active: { one: 'Running {args.command}…', many: 'Running {n} commands…' },
+          retry: { one: 'Retrying {args.command}…', many: 'Retrying {n} commands…' },
+          done: { one: 'Ran {args.command}', many: 'Ran {n} commands' },
+          failed: { one: '{args.command} failed', many: '{n} commands failed' },
+        },
         handlers: {
           confirm: handler({
             description: 'Run a command your shell setting would ask about?',
@@ -140,6 +182,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         description: 'Delete a file.',
         args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
+        status: {
+          active: { one: 'Deleting {args.path}…', many: 'Deleting {n} files…' },
+          retry: { one: 'Retrying deleting {args.path}…', many: 'Retrying {n} deletes…' },
+          done: { one: 'Deleted {args.path}', many: 'Deleted {n} files' },
+          failed: { one: 'Deleting {args.path} failed', many: '{n} deletes failed' },
+        },
         undo: Previous,
       }),
       restart: fn({

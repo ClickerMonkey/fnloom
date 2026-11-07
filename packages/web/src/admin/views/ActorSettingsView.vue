@@ -57,6 +57,6 @@ async function save(who: ActorId, value: Json): Promise<void> {
 
 <style scoped>
 .group { display: grid; gap: var(--space-3); }
-.system { margin: 0; color: var(--text-dim); font-size: var(--text-sm); font-weight: var(--weight-strong); letter-spacing: 0.04em; text-transform: uppercase; }
+.system { margin: 0; color: var(--text-dim); font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .cards { display: grid; gap: var(--space-3); }
 </style>

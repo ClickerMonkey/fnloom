@@ -3,10 +3,11 @@
  * declaration (its ref, its run context, its outcome helpers and its renderer's props), so they can't disagree.
  */
 import type {
-  Audience, Display, FnError, FnLimits, Json, Operations, ProgressDecl, StepStatus, Usd,
+  Audience, Display, FnError, FnLimits, Json, Operations, ProgressDecl, StatusTemplates, StepStatus, Usd,
 } from '@harness/core';
 import { json, type GinType } from './gin.ts';
 import type { AnyFnRef, AnyKindRef, KindRef } from './refs.ts';
+import type { StatusInput } from './status.ts';
 import { orDefault, type Simplify } from './util.ts';
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -120,6 +121,8 @@ export interface FnDef<T extends FnTypes> {
   readonly deps: T['deps'];
   readonly handlers: T['handlers'];
   readonly progress: T['progress'];
+  /** What its runs say they are doing; its kind's words, then the hub's, when undefined. */
+  readonly status: StatusTemplates | undefined;
   readonly resume: GinType<T['resume']> | undefined;
   readonly undo: GinType<T['undo']> | undefined;
   readonly state: GinType<T['state']> | undefined;
@@ -140,7 +143,7 @@ export type AnyFnDef = FnDef<FnTypes>;
 export type TypesOf<F> = F extends FnDef<infer T> ? T : never;
 
 /** What `fn()` takes. Only `description`, `args` and `returns` are required. */
-export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F> {
+export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, T extends StatusTemplates = StatusTemplates> {
   description: string;
   /** Extra guidance the LLM sees when the fn is in its toolset. */
   instructions?: string;
@@ -151,6 +154,11 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   /** Callbacks the caller may supply. */
   handlers?: H;
   progress?: P;
+  /**
+   * What its runs say they are doing, per phase, for one run and for a group: `{ active: { one: 'Reading
+   * {args.path}…', many: 'Reading {n} files…' }, … }`. Tokens are checked against its args and result.
+   */
+  status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
   /** Declaring a resume type makes the fn pausable. */
   resume?: GinType<S>;
   /** Declaring an undo type makes the fn undoable, and requires an `undo` implementation. */
@@ -178,8 +186,11 @@ export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P exten
 }
 
 /** Declare a native fn: a fn its system implements in code. */
-export function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never>(
-  def: FnInput<A, R, D, H, P, S, U, St, F>,
+export function fn<
+  A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never,
+  const T extends StatusTemplates = StatusTemplates,
+>(
+  def: FnInput<A, R, D, H, P, S, U, St, F, T>,
 ): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>> {
   return {
     kind: 'native',
@@ -190,7 +201,8 @@ export function fn<A, R, const D extends Deps = {}, const H extends Handlers = {
     returns: def.returns,
     deps: orDefault(def.deps, {}),
     handlers: orDefault(def.handlers, {}),
-    progress: orDefault(def.progress, noProgress),
+    progress: orDefault<P, ProgressDef>(def.progress, noProgress),
+    status: def.status,
     resume: def.resume,
     undo: def.undo,
     state: def.state,
@@ -215,12 +227,14 @@ export function fn<A, R, const D extends Deps = {}, const H extends Handlers = {
  * `describe`. `args`/`returns` are optional typing hints: when given, the hub checks them against what the kind
  * derived, and the ref is typed by them (otherwise by `Json`).
  */
-export interface KindFnInput<P, A, R> {
+export interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
   description: string;
   instructions?: string;
   payload: P;
   args?: GinType<A>;
   returns?: GinType<R>;
+  /** What its runs say they are doing; the kind's words when absent. Tokens are checked against `args` and `returns`. */
+  status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
   visibility?: Audience;
   tags?: string[];
 }
@@ -236,19 +250,20 @@ export interface UntypedFn {
 }
 
 /** The fn def of a kind fn, built by `KindRef.fn`. The kind's `describe` fills in the rest when the hub imports it. */
-export function kindFn<N extends `${string}/${string}`, P, A, R>(
-  kind: KindRef<N, P>, def: KindFnInput<P, A, R>,
+export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends StatusTemplates = StatusTemplates>(
+  kind: KindRef<N, P>, def: KindFnInput<P, A, R, T>,
 ): FnDef<KindFnTypes<KindRef<N, P>, P, A, R>> {
   return {
     kind,
     payload: def.payload,
     description: def.description,
     instructions: def.instructions,
-    args: orDefault(def.args, json()),
-    returns: orDefault(def.returns, json()),
+    args: orDefault<GinType<A>, GinType>(def.args, json()),
+    returns: orDefault<GinType<R>, GinType>(def.returns, json()),
     deps: {},
     handlers: {},
     progress: noProgress,
+    status: def.status,
     resume: undefined,
     undo: undefined,
     state: undefined,

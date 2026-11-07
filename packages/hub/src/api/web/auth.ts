@@ -29,6 +29,7 @@ export function authPlugin(hub: HubServices, options: AuthPluginOptions) {
   return plugin({ name: 'web.auth', spec: authSlice })
     .middleware(telemetry.server(tel, {
       logger: hub.log, logWith: (add, inner) => hub.log.logWith(add, inner), echoRequestId: true, now: hub.clock,
+      response: { status: true, duration: true, error: true },
       overrides: { presence: { request: false, response: false } },
     }))
     .middleware(bearerAuth.server(hubAuth, {

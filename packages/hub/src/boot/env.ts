@@ -4,7 +4,7 @@
  * so a bad value fails start-up with one aggregated error.
  */
 import { env } from '@ayepi/env';
-import { PRIORITIES } from '@harness/core';
+import { HUB_PORT, PRIORITIES } from '@harness/core';
 import { z } from 'zod';
 import { chatEnv } from '../chat/env.ts';
 import { executionEnv } from '../execution/env.ts';
@@ -13,7 +13,7 @@ import { storeEnv } from '../store/env.ts';
 
 /** Where the hub listens and keeps its data. */
 export const hubEnv = env({
-  HARNESS_PORT: z.number().int().min(1).max(65535).default(4300),
+  ...HUB_PORT,
   HARNESS_HOST: z.string().default('0.0.0.0'),
   /** The data folder: database, files, installed systems, logs. */
   HARNESS_DATA: z.string().default('.harness'),
@@ -105,7 +105,6 @@ export const modelEnv = env({
   HARNESS_EMBEDDER_DOCUMENT: z.string().default('embedder/document'),
   /** The embedder that embeds search text (queries), in the same vector space as the document embedder. */
   HARNESS_EMBEDDER_QUERY: z.string().default('embedder/query'),
-  HARNESS_EMBED_DIMENSIONS: z.number().int().min(1).default(768),
   HARNESS_EMBED_BATCH: z.number().int().min(1).default(32),
   HARNESS_SUGGESTIONS: z.number().int().min(0).default(6),
 });

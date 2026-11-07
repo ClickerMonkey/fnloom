@@ -4,11 +4,11 @@
  * work to the chat and execution modules.
  */
 import { plugin } from '@ayepi/plugin';
-import { qualify, type ChatCapabilities, type SessionId, type SystemName, type UserView } from '@harness/core';
+import { compact, qualify, type ChatCapabilities, type SessionId, type SystemName, type UserView } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { CLIENTS_PATH } from '../serve.ts';
-import { bodyOf, compact, userInfo, visibleSession, type FullHandlers } from './access.ts';
+import { userInfo, visibleSession, type FullHandlers } from './access.ts';
 import { chatSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
@@ -22,13 +22,16 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     .filter((s) => s.status !== 'removed');
   const usable = new Set(systems.filter((s) => s.status === 'connected' && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
   const rendering = systems.filter((s) => s.enabled.renderers && allows(scope, s.name));
-  const [mentions, contexts, fns, models, manifests] = await Promise.all([
+  const [mentions, contexts, fns, models, manifests, types] = await Promise.all([
     hub.catalog.entries('mentions'),
     hub.catalog.entries('context'),
     hub.catalog.fns({ available: true }),
     hub.execution.llm.models(),
     Promise.all(rendering.map(async (s) => ({ system: s.name, manifest: await hub.catalog.manifest(s.name) }))),
+    hub.catalog.entries('types'),
   ]);
+  // a type's methods run on a value, from its mention's hover card, so they aren't offered as free `!` fns
+  const methods = new Set(types.flatMap((t) => t.decl.methods.map((method) => `${t.name}.${method}`)));
   return {
     voiceInput: false,
     voiceOutput: false,
@@ -37,7 +40,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     commands: contexts.filter((c) => usable.has(c.system)).flatMap((c) => (c.decl.command === undefined ? [] : [{
       name: c.decl.command.name, context: c.name, args: c.decl.command.args, description: c.decl.description,
     }])),
-    invocations: fns.filter((f) => usable.has(f.system) && f.decl.visibility !== 'llm' && f.decl.visibility !== 'none').map((f) => ({
+    invocations: fns.filter((f) => usable.has(f.system) && !methods.has(f.name) && f.decl.visibility !== 'llm' && f.decl.visibility !== 'none').map((f) => ({
       fn: f.name, description: f.decl.description, args: f.decl.args,
     })),
     clients: manifests.flatMap(({ system, manifest }) => (manifest?.client === undefined ? [] : [{
@@ -58,10 +61,12 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
   const { chat, execution } = hub;
   return plugin({ name: 'web.chat', spec: chatSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof chatSlice> => ({
-      capabilities: (io) => capabilities(hub, io.user, bodyOf(io, {}).session),
-      sessions: (io) => chat.sessions.list(io.user.id, compact(bodyOf(io, {}))),
+      capabilities: (io) => capabilities(hub, io.user, io.data.session),
+      sessions: (io) => chat.sessions.list(io.user.id, compact(io.data)),
       session: ({ data, user }) => visibleSession(hub, data.session, user),
-      createSession: async ({ data, user }) => {
+      createSession: async (io) => {
+        const { user } = io;
+        const data = io.data;
         const session = await chat.sessions.create({ ...compact(data), owner: user.id, agent: data.agent ?? qualify('hub', 'chat') });
         hub.log.info('session.created', { session: session.id, user: user.id });
         return session;

@@ -1,6 +1,6 @@
-import { NotificationLink } from '@harness/core';
+import { NotificationLink, SessionId } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import { createMemoryHistory, type Router } from 'vue-router';
 import { OFFLINE_AFTER } from '../state/connection.ts';
@@ -12,6 +12,7 @@ import { navEntries } from './nav.ts';
 import { createAppRouter } from './router.ts';
 import { links, notificationTarget, ROUTES, safeNext } from './routes.ts';
 import { useParamChoice, useQueryChoice } from './url.ts';
+import { resyncOnReconnect } from './wire.ts';
 import { DesignSection } from './routes.ts';
 
 /** Size the window as a phone or a desktop through happy-dom's own viewport; media queries follow it. */
@@ -45,19 +46,53 @@ describe('routes', () => {
     expect(safeNext(['/chat'])).toBeUndefined();
   });
 
-  it('sends each kind of notification to its place', () => {
-    const at = (link: unknown) => notificationTarget(NotificationLink.parse(link));
-    expect(at({ session: 'ses_1' })).toMatchObject({ name: ROUTES.session, params: { session: 'ses_1' } });
-    expect(at({ system: 'fs' })).toMatchObject({ name: ROUTES.system, params: { name: 'fs' } });
-    expect(at({ pairing: 'pr_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'pr_1' } });
-    expect(at({ approval: 'apr_1' })).toEqual({ name: ROUTES.inbox, query: { approval: 'apr_1' } });
-    expect(at({ run: 'run_1' })).toEqual({ name: ROUTES.runs, query: { run: 'run_1' } });
+  it('sends each kind of notification to its place, and a run in a chat to that chat', async () => {
+    const inChat = new Map([['run_chat', SessionId.parse('ses_9')]]);
+    const at = (link: unknown) => notificationTarget(NotificationLink.parse(link), (run) => Promise.resolve(inChat.get(run)));
+    expect(await at({ session: 'ses_1' })).toMatchObject({ name: ROUTES.session, params: { session: 'ses_1' } });
+    expect(await at({ system: 'fs' })).toMatchObject({ name: ROUTES.system, params: { name: 'fs' } });
+    expect(await at({ pairing: 'pr_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'pr_1' } });
+    expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.inbox, query: { approval: 'apr_1' } });
+    expect(await at({ run: 'run_1' })).toEqual({ name: ROUTES.runs, query: { run: 'run_1' } });
+    expect(await at({ run: 'run_chat' })).toEqual({ name: ROUTES.session, params: { session: 'ses_9' } });
+    expect(await notificationTarget(NotificationLink.parse({ run: 'run_x' }), () => Promise.reject(new Error('gone')))).toEqual({ name: ROUTES.runs, query: { run: 'run_x' } });
   });
 
   it('leaves defaults out of links', () => {
     expect(links.inbox()).toEqual({ name: ROUTES.inbox });
     expect(links.inbox('unread')).toEqual({ name: ROUTES.inbox, query: { filter: 'unread' } });
     expect(links.signIn()).toEqual({ name: ROUTES.signIn });
+  });
+});
+
+describe('resync on reconnect', () => {
+  it('fetches the inbox, the chat and a loaded systems list again when the hub comes back, signed in only', async () => {
+    const fakes = fakeStores({ signedIn: true });
+    const { stores } = fakes;
+    const inbox = vi.spyOn(stores.inbox, 'refresh').mockResolvedValue(undefined);
+    const chat = vi.spyOn(stores.chat, 'refresh').mockResolvedValue(undefined);
+    const systems = vi.spyOn(stores.admin.systems, 'load');
+    const stop = resyncOnReconnect(stores);
+    fakes.connection.set('offline');
+    fakes.connection.set('online');
+    expect(inbox).toHaveBeenCalledOnce();
+    expect(chat).toHaveBeenCalledOnce();
+    expect(systems).not.toHaveBeenCalled();
+
+    await stores.admin.systems.load();
+    systems.mockClear();
+    fakes.connection.set('offline');
+    fakes.connection.set('online');
+    expect(systems).toHaveBeenCalledWith(true);
+
+    stores.session.forget();
+    fakes.connection.set('offline');
+    fakes.connection.set('online');
+    expect(chat).toHaveBeenCalledTimes(2);
+    stop();
+    fakes.connection.set('offline');
+    fakes.connection.set('online');
+    expect(inbox).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -246,8 +281,16 @@ describe('pages', () => {
     expect(document.documentElement.dataset['theme']).toBe('dark');
     await app.findAll('[role="tab"]')[1]?.trigger('click');
     await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe('/settings/notifications');
+    expect(app.find('[data-testid=push-card]').text()).toContain('Notify this device');
+    await app.get('[data-testid=push-switch] [role=switch]').trigger('click');
+    await flushPromises();
+    expect(stores.push.state.value).toBe('on');
+    await app.findAll('[role="tab"]')[2]?.trigger('click');
+    await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/settings/account');
     expect(app.text()).toContain('ada@example.com');
+    expect(app.text()).toContain('Your account on this hub.');
     app.unmount();
   });
 

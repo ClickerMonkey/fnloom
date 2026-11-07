@@ -3,8 +3,7 @@
  * schema (from the catalog), and calling it never runs anything inline. The tool records the call and suspends the
  * prompt (`PromptSuspend`), and the agent loop turns each recorded call into a queued run.
  *
- * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`); the prompt's
- * `onToolIntercept` doesn't get the id yet (library ask).
+ * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`).
  */
 import { PromptSuspend, Tool } from '@aeye/core';
 import { Json, type FnRecord, type QualifiedName } from '@harness/core';
@@ -56,8 +55,7 @@ export function fnTool(fn: FnRecord, signature: FnSignature, calls: PendingCalls
   return new Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>({
     name: toolName(fn.name),
     description: fn.decl.description,
-    // aeye leaves out a tool without instructions (library ask), so a fn without its own uses a line naming it.
-    instructions: fn.decl.instructions ?? `${toolName(fn.name)}: ${fn.decl.description}`,
+    ...(fn.decl.instructions === undefined ? {} : { instructions: fn.decl.instructions }),
     schema,
     call: (input, _refs, ctx) => {
       const toolCallId = ctx.toolCallId;

@@ -55,6 +55,8 @@ export type ExtraKind = z.infer<typeof ExtraKind>;
 /** A piece of a message. */
 export const MessagePart = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
+  /** An assistant's reasoning before its answer, kept as it streamed. Shown collapsed; the LLM never reads it back. */
+  z.object({ type: z.literal('reasoning'), text: z.string() }),
   /** Something picked with `@`: the chat shows `label` as a chip; the LLM gets `text` (written at send time) in its place. */
   z.object({ type: z.literal('mention'), provider: QualifiedName, label: z.string(), target: Json, text: z.string() }),
   z.object({ type: z.literal('command'), context: QualifiedName, args: z.record(z.string(), z.string()) }),

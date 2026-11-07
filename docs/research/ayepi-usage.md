@@ -697,20 +697,22 @@ schemas take. Resources map to the system's roots, prompts to `/name` commands.
 ## 17. `@ayepi/mock`: UI before the hub
 
 ```ts
-function mockServer(spec: AnySpec, opts?: MockOptions): Server<AnySpec>
-function mockHandlers(spec, opts?): Record<string, Handler>
+function mockServer<S extends AnySpec>(spec: S, opts?: MockOptions): Server<S>
+function mockHandlers<S, const X>(spec: S, opts?: MockOptions & { except?: readonly X[] }): MockHandlerBag<S, Exclude<EndpointName<S>, X>>
+function mockEvents<S>(app: Pick<Server<S>, 'spec' | 'emit'>, opts?: MockOptions & { only?: readonly EventName<S>[] }): MockEvents<S>
 function generate(schema: z.ZodType, opts?: MockOptions, ctx?: Partial<GenContext>): unknown
 interface MockOptions { seed?; deterministic?; arraySize?; limitKeys?; overrides?: { fields?; formats? }; now? }
 ```
 
-`web/dev/mock.ts` runs `serve(mockServer(hubWebSpec, { seed: 'ui', now: () => fixedNow }), { port:
-<given>, path: '/ws' })`. Mock data is deterministic, so puppeteer screenshots stay stable. Use
-`{ ...mockHandlers(hubWebSpec), ...realHandlers }` to swap in real pieces as they land, and
-`overrides.fields` for ids, names and markdown bodies that read naturally.
+`packages/web/e2e/mockHub.ts` serves real handlers for sign-in, the inbox, chat and admin, and
+`mockHandlers(hubWebSpec, { except: realNames })` for the rest. The bag is typed per endpoint, so
+`server(hubWebSpec, [real, rest])` fails to compile unless the two cover every endpoint. Mock data is
+deterministic, so puppeteer screenshots stay stable; `overrides.fields` pins names that must match a
+pattern.
 
-Mock emits **no events**, so streaming tokens, run progress and state changes need a small
-scripted emitter in the dev server that calls `app.emit('turnDelta', …)` on a timer (gap G19: a
-`mockEvents(spec, { rate })`).
+`mockEvents(app, { only })` emits generated, schema-valid events (`emit(name)`, `tick()`, `start(every)`,
+`stop()`). The mock hub scripts its own `user`, `session` and `systemLog` events, because those carry
+state the scripted chat and admin keep.
 
 ## 18. `@ayepi/context`
 
@@ -757,7 +759,7 @@ by what blocks the first milestone.
 | G16 | updown | Typed component names in `deps` | compile-time order checks | names in one `const` object |
 | G17 | work | Use `@ayepi/codec` instead of its own `$ayepi` codec (DRY) | — | pass `createCodec()` |
 | G18 | mcp | A dynamic tool source (not spec-bound), resources, prompts, `list_changed`, Streamable HTTP, an MCP client | system MCP face, MCP bridge | none; SDK `serveMcp` waits on it |
-| G19 | mock | Event emission (`mockEvents`) | realtime UI on mocks | scripted emitter in the dev server |
+| G19 | mock | Event emission (`mockEvents`) and a per-endpoint typed `mockHandlers` | realtime UI on mocks | closed on the ayepi `harness` branch |
 | G20 | core/client | `Tagger`'s `result` argument is `unknown`. Type it by the endpoint's response. | tag precision | tags from `data` only |
 | G21 | ayepi (new) | Web push (VAPID), already on harness.md's list | push notifications | none |
 

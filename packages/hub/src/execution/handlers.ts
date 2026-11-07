@@ -1,9 +1,9 @@
 /**
  * Handlers: callbacks a fn's caller supplies ("confirm overwrite?", "pick a file"). When a run calls one, the hub
  * relays it to whoever made the call: the system whose run called it (over its link, with the call key so its
- * concurrent calls stay apart), or the person who ran it themselves (a form in the chat, answered with `answer`).
- * An agent can't answer handlers, so a fn whose handlers are required can't be an agent's tool. Every handler call
- * is recorded.
+ * concurrent calls stay apart), or a person (a form in the chat, answered with `answer`). The person answers both for
+ * runs they started and for runs an agent called on their behalf, since an agent can't fill in a form. Every handler
+ * call is recorded.
  */
 import {
   mintId, type ActorId, type HandlerAnswer, type HandlerCall, type HandlerCallId, type Json, type Run, type RunId,
@@ -12,15 +12,19 @@ import type { HandlerAnswers } from '../boot/index.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { fnError, messageOf } from './errors.ts';
 import type { ExecutionDeps } from './ports.ts';
-import { AGENT_KIND, type HubRunService } from './runs.ts';
+import type { HubRunService } from './runs.ts';
+import { AGENT_KIND } from './index.ts';
 
-/** Who answers a run's handlers: a calling system's run, a person, or nobody (an agent called it). */
+/** Who answers a run's handlers: a calling system's run, a person, or nobody (a hub fn called it). */
 export type HandlerAnswerer = { system: Run['system']; run: RunId } | { user: ActorId } | undefined;
 
-/** The answerer of a run's handlers, from the run's parent: a system run, a person (no parent), or none (an agent). */
+/**
+ * The answerer of a run's handlers, from the run's parent: the turn's person when they started it or an agent called
+ * it for them, the calling system's run, or none when a hub fn called it.
+ */
 export function answererOf(parent: Run | undefined, turnUser: ActorId): HandlerAnswerer {
-  if (parent === undefined) return { user: turnUser };
-  if (parent.kind === AGENT_KIND || parent.system === HUB_SYSTEM) return undefined;
+  if (parent === undefined || parent.kind === AGENT_KIND) return { user: turnUser };
+  if (parent.system === HUB_SYSTEM) return undefined;
   return { system: parent.system, run: parent.id };
 }
 
@@ -50,7 +54,7 @@ export class HandlerRelay implements HandlerAnswers {
     const parent = run.parent === undefined ? undefined : await runs.get(run.parent);
     const turn = await store.table('turns').get(run.turn);
     const answerer = answererOf(parent, turn?.user.id ?? run.actor);
-    if (answerer === undefined) return refused(`An agent can't answer ${input.handler}.`);
+    if (answerer === undefined) return refused(`The hub fn that called ${run.fn} can't answer ${input.handler}.`);
     const call: HandlerCall = {
       id: mintId('handlerCall', this.#deps.random),
       run: run.id,

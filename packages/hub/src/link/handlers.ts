@@ -11,8 +11,9 @@
  */
 import { reject as refuse, spec, type HandlerFor, type ImplFor, type WsConn } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
+import { telemetry } from '@ayepi/otel/server';
 import { plugin } from '@ayepi/plugin';
-import { hubLinkSpec, linkSession, type Hello, type LinkLimits, type LinkSession, type Welcome } from '@harness/core';
+import { hubLinkSpec, linkSession, linkTel, type Hello, type LinkLimits, type LinkSession, type Welcome } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
@@ -170,9 +171,18 @@ export class LinkHandshake {
   }
 }
 
-/** The link module as an `@ayepi/plugin`: its slice of the hub link, the `linkSession` guard and the handlers. */
-export function linkPlugin(handshake: LinkHandshake) {
+/**
+ * The link module as an `@ayepi/plugin`: its slice of the hub link, request telemetry (`linkTel`, bound once for every
+ * slice; progress and forwarded log lines stay quiet), the `linkSession` guard and the handlers.
+ */
+export function linkPlugin(handshake: LinkHandshake, options: Pick<LinkHandlerOptions, 'log' | 'clock'>) {
+  const { log, clock } = options;
   return plugin({ name: 'link', spec: LINK_SPEC, state: () => handshake })
+    .middleware(telemetry.server(linkTel, {
+      logger: log, logWith: (add, inner) => log.logWith(add, inner), now: clock,
+      response: { status: true, duration: true, error: true },
+      overrides: { progress: { request: false, response: false }, log: { request: false, response: false } },
+    }))
     .middleware(linkSession, () => handshake.guard)
     .handlers(() => handshake.handlers());
 }

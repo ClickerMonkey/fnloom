@@ -1,9 +1,13 @@
 /**
- * The EmbeddingGemma HTTP client: batches texts to what the service accepts, retries when it is busy (429, after its
- * `Retry-After`) or still loading (503), checks every response with the shared zod schemas, and logs truncations.
+ * The EmbeddingGemma HTTP client: batches texts to what the service accepts, retries with `@ayepi/core/retry` when it
+ * is busy (429, waiting at least its `Retry-After`) or still loading (503), checks every response with the shared zod
+ * schemas, and logs truncations.
  */
+import { setTimeout as wait } from 'node:timers/promises';
+import { retry } from '@ayepi/core/retry';
 import type { Log } from '@harness/sdk';
 import { GEMMA_DIMENSIONS, GemmaEmbedRequest, GemmaEmbedResponse, GemmaHealth, GemmaInfo, type GemmaTask } from '../shared/index.ts';
+import type { EmbedderSettings } from './env.ts';
 import type { GemmaClient, Sleep } from './index.ts';
 
 /** How the client talks to the service. */
@@ -16,9 +20,22 @@ export interface GemmaLimits {
   readonly retryDelay: number;
   /** The longest single wait. */
   readonly retryMax: number;
+  /** How much of each backoff wait may be shaved off at random, from 0 to 1, so clients don't retry in step. */
+  readonly jitter: number;
   /** How long one request may take. */
   readonly timeout: number;
 }
+
+/** The client's limits, from the embedder's settings. */
+export function limitsFrom(settings: EmbedderSettings): GemmaLimits {
+  return {
+    batch: settings.EMBEDDER_BATCH, retries: settings.EMBEDDER_RETRIES, retryDelay: settings.EMBEDDER_RETRY_DELAY,
+    retryMax: settings.EMBEDDER_RETRY_MAX, jitter: settings.EMBEDDER_RETRY_JITTER, timeout: settings.EMBEDDER_TIMEOUT,
+  };
+}
+
+/** A real wait on node's timers; rejects when the signal aborts first. */
+export const timerSleep: Sleep = async (ms, signal) => { await wait(ms, undefined, signal === undefined ? {} : { signal }); };
 
 /** The service answered with an error, or couldn't be reached (`status` 0). */
 export class GemmaError extends Error {
@@ -27,6 +44,15 @@ export class GemmaError extends Error {
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
+  }
+}
+
+/** The service is busy (429) or still loading (503): worth waiting out, for at least `retryAfter` when it said. */
+export class BusyService extends GemmaError {
+  readonly retryAfter: number | undefined;
+  constructor(status: number, message: string, retryAfter: number | undefined) {
+    super(status, message);
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -95,24 +121,34 @@ export class HttpGemmaClient implements GemmaClient {
     return parsed.embeddings;
   }
 
-  private async request(path: string, init: RequestInit, signal: AbortSignal | undefined): Promise<Response> {
+  /** One request, retried (by `@ayepi/core/retry`) while the service is busy or loading. */
+  private request(path: string, init: RequestInit, signal: AbortSignal | undefined): Promise<Response> {
     const url = `${this.url().replace(/\/+$/, '')}${path}`;
-    for (let attempt = 0; ; attempt += 1) {
-      const timeout = AbortSignal.timeout(this.limits.timeout);
-      let response: Response;
-      try {
-        response = await this.fetch(url, { ...init, signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]) });
-      } catch (error) {
-        signal?.throwIfAborted();
-        throw new GemmaError(0, `The embedder service at ${url} couldn't be reached: ${error instanceof Error ? error.message : 'unknown error'}.`);
-      }
-      if (response.ok) { return response; }
-      if (!RETRYABLE.has(response.status) || attempt >= this.limits.retries) {
-        throw new GemmaError(response.status, `The embedder service answered ${response.status} for ${path}: ${(await response.text()).slice(0, 200)}`);
-      }
-      const wait = Math.min(retryAfter(response.headers.get('retry-after')) ?? this.limits.retryDelay * 2 ** attempt, this.limits.retryMax);
-      this.log.debug('embedder.retry', { path, status: response.status, attempt: attempt + 1, wait });
-      await this.sleep(wait, signal);
+    const { retries, retryDelay, retryMax, jitter } = this.limits;
+    return retry(() => this.attempt(url, path, init, signal), {
+      attempts: retries + 1,
+      base: retryDelay,
+      max: retryMax,
+      jitter,
+      // busy or loading: wait at least what the service asked for (capped); anything else is final
+      on: (error) => (error instanceof BusyService && signal?.aborted !== true ? Math.min(error.retryAfter ?? 0, retryMax) : false),
+      onRetry: (error, state) => { this.log.debug('embedder.retry', { path, status: error instanceof GemmaError ? error.status : 0, attempt: state.attempt }); },
+      sleep: (ms) => this.sleep(ms, signal),
+    });
+  }
+
+  private async attempt(url: string, path: string, init: RequestInit, signal: AbortSignal | undefined): Promise<Response> {
+    const timeout = AbortSignal.timeout(this.limits.timeout);
+    let response: Response;
+    try {
+      response = await this.fetch(url, { ...init, signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]) });
+    } catch (error) {
+      signal?.throwIfAborted();
+      throw new GemmaError(0, `The embedder service at ${url} couldn't be reached: ${error instanceof Error ? error.message : 'unknown error'}.`);
     }
+    if (response.ok) { return response; }
+    const message = `The embedder service answered ${response.status} for ${path}: ${(await response.text()).slice(0, 200)}`;
+    if (RETRYABLE.has(response.status)) { throw new BusyService(response.status, message, retryAfter(response.headers.get('retry-after'))); }
+    throw new GemmaError(response.status, message);
   }
 }

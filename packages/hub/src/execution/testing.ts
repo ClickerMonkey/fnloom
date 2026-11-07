@@ -176,7 +176,8 @@ export class TestCatalog implements Catalog {
   importManifest(): never { throw new Error('not in execution tests'); }
   importPatch(): never { throw new Error('not in execution tests'); }
   refreshAvailability(): never { throw new Error('not in execution tests'); }
-  kind(): never { throw new Error('not in execution tests'); }
+  /** No kind records here: runs of kind fns are worded by their fn's status templates or the defaults. */
+  kind(): ReturnType<Catalog['kind']> { return Promise.resolve(undefined); }
   type(): never { throw new Error('not in execution tests'); }
   typeClosure(): never { throw new Error('not in execution tests'); }
   declare(): never { throw new Error('not in execution tests'); }

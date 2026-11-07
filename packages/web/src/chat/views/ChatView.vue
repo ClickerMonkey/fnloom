@@ -3,13 +3,16 @@
  * The chat page, wired to the URL: the list of chats (a column on wide screens, a drawer on narrow ones, the page
  * itself at `/chat` on a phone), the open chat, and the panel over it (a run, a turn's tree, an LLM call, an
  * answer's details, a resource, the chat's settings), as a side column on wide screens and a sheet otherwise. It
- * loads what each panel needs when the URL asks for it, and owns the chat's keyboard shortcuts.
+ * loads what each panel needs when the URL asks for it, and owns the chat's keyboard shortcuts. The list's search
+ * (`?q=`) and its active or archived view (`?chats=archived`) are in the URL too, and kept moving between chats. A
+ * side panel takes the list's column unless the screen is very wide, so the thread keeps a readable width.
  */
 import type { LlmInteraction, MessageId, SessionId } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useStores } from '../../state/stores.ts';
 import { UiButton, UiEmpty, UiModal, useMediaQuery } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
+import { COMPACT_QUERY } from '../../state/layout.ts';
 import LlmCallDetails from '../components/LlmCallDetails.vue';
 import PanelFrame from '../components/PanelFrame.vue';
 import PanelHost from '../components/PanelHost.vue';
@@ -22,25 +25,43 @@ import TurnDetails from '../components/TurnDetails.vue';
 import TurnTree from '../components/TurnTree.vue';
 import type { SessionListHandle } from '../components/types.ts';
 import { resourceRenderView } from '../state/renderers.ts';
+import { LlmCallTab, RunTab, TAB_KEYS } from '../logic/inspect.ts';
 import { isTyping, shortcutFor } from '../logic/keys.ts';
+import { useQueryChoice } from '../../app/url.ts';
 import { agentName, fnLabel } from '../logic/labels.ts';
 import { mergeRecord } from '../logic/runs.ts';
 import { useChatUrl } from '../url.ts';
 import ThreadPane from './ThreadPane.vue';
 
-const { chat, toasts, session: auth } = useStores();
+const { chat, toasts, session: auth, layout } = useStores();
+/** The shell's top bar is hidden on a chat when the screen is compact: the chat's header takes its place. */
+const shellCompact = useMediaQuery(COMPACT_QUERY);
 const url = useChatUrl();
+const runTab = useQueryChoice(TAB_KEYS.run, RunTab, 'overview');
+const callTab = useQueryChoice(TAB_KEYS.llm, LlmCallTab, 'saw');
 const now = useNow();
 const wide = useMediaQuery('(min-width: 1100px)');
 const roomy = useMediaQuery('(min-width: 1360px)');
+const spacious = useMediaQuery('(min-width: 1720px)');
 const phone = useMediaQuery('(max-width: 759.98px)');
-const compact = computed(() => !wide.value);
 
 const listOpen = ref(false);
 const shortcutsOpen = ref(false);
 const list = ref<SessionListHandle | null>(null);
 const pane = ref<{ focusComposer: () => void } | null>(null);
 const sessions = chat.sessions;
+
+// the list's search and view, read from the URL and written back to it
+watch(url.search, (text) => { if (text !== sessions.search.value.trim()) { sessions.setSearch(text); } }, { immediate: true });
+watch(url.archived, (archived) => { if (archived !== sessions.archived.value) { void sessions.showArchived(archived); } }, { immediate: true });
+function search(text: string): void {
+  sessions.setSearch(text);
+  url.setList({ search: text });
+}
+function showArchived(archived: boolean): void {
+  void sessions.showArchived(archived);
+  url.setList({ archived });
+}
 
 const thread = computed(() => (url.session.value === undefined ? undefined : chat.thread(url.session.value)));
 const record = computed(() => thread.value?.session.value);
@@ -68,6 +89,15 @@ async function archive(id: SessionId, archived: boolean): Promise<void> {
   toasts.ok(archived ? 'Archived' : 'Restored');
 }
 
+/** The list's state and moves, the same wherever it is drawn (its column, the drawer, the page on a phone). */
+const listBind = computed(() => ({
+  items: sessions.items.value, search: sessions.search.value, archived: sessions.archived.value, loading: sessions.loading.value, loaded: sessions.loaded.value,
+  problem: sessions.problem.value, hasMore: sessions.hasMore.value, loadingMore: sessions.loadingMore.value, creating: sessions.creating.value, now: now.value,
+}));
+const listOn = {
+  open, create, search, archived: showArchived, rename, archive, more: () => { void sessions.loadMore(); }, retry: () => { void sessions.load(); },
+};
+
 function step(by: number): void {
   const items = sessions.items.value;
   const at = items.findIndex((s) => s.id === url.session.value);
@@ -78,6 +108,9 @@ function step(by: number): void {
 // ── panels ───────────────────────────────────────────────────────────────────
 
 const panelOpen = computed({ get: () => url.top.value !== undefined, set: (open) => { if (!open) { url.close(); } } });
+/** The list has its own column: wide screens, unless a side panel needs that room. */
+const listColumn = computed(() => wide.value && (!(roomy.value && panelOpen.value) || spacious.value));
+const compact = computed(() => !listColumn.value);
 const runView = computed(() => {
   const id = url.run.value;
   if (id === undefined) { return undefined; }
@@ -175,48 +208,33 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="chat" :class="{ compact, roomy: roomy && panelOpen }" data-testid="chat">
-    <aside v-if="wide" class="list">
-      <SessionList
-        ref="list" :items="sessions.items.value" :current="url.session.value" :search="sessions.search.value" :archived="sessions.archived.value"
-        :loading="sessions.loading.value" :loaded="sessions.loaded.value" :problem="sessions.problem.value" :has-more="sessions.hasMore.value"
-        :loading-more="sessions.loadingMore.value" :creating="sessions.creating.value" :now="now"
-        @open="open" @create="create" @search="sessions.setSearch($event)" @archived="sessions.showArchived($event)" @rename="rename" @archive="archive"
-        @more="sessions.loadMore()" @retry="sessions.load()"
-      />
+    <aside v-if="listColumn" class="list">
+      <SessionList ref="list" v-bind="listBind" :current="url.session.value" v-on="listOn" />
     </aside>
     <UiModal v-else-if="url.session.value !== undefined" v-model:open="listOpen" placement="left" label="Chats" width="320px">
-      <SessionList
-        ref="list" :items="sessions.items.value" :current="url.session.value" :search="sessions.search.value" :archived="sessions.archived.value"
-        :loading="sessions.loading.value" :loaded="sessions.loaded.value" :problem="sessions.problem.value" :has-more="sessions.hasMore.value"
-        :loading-more="sessions.loadingMore.value" :creating="sessions.creating.value" :now="now"
-        @open="open" @create="create" @search="sessions.setSearch($event)" @archived="sessions.showArchived($event)" @rename="rename" @archive="archive"
-        @more="sessions.loadMore()" @retry="sessions.load()"
-      />
+      <SessionList ref="list" v-bind="listBind" :current="url.session.value" v-on="listOn" />
     </UiModal>
 
     <main class="main">
       <ThreadPane
-        v-if="url.session.value" ref="pane" :key="url.session.value" :session="url.session.value" :compact="compact" :narrow="roomy && panelOpen" :flash="url.message.value"
+        v-if="url.session.value" ref="pane" :key="url.session.value" :session="url.session.value" :compact="compact" :narrow="roomy && panelOpen" :nav="shellCompact" :flash="url.message.value"
         @run="url.open('run', $event)" @llm="url.open('llm', $event)" @details="url.open('details', $event)" @tree="url.openTree($event)"
-        @resource="url.open('resource', $event)" @panel="url.open('panel', $event)" @sessions="listOpen = true" @new-chat="create"
+        @resource="url.open('resource', $event)" @panel="url.open('panel', $event)" @sessions="listOpen = true" @nav="layout.drawerOpen.value = true" @new-chat="create"
         @message="showMessage" @shortcuts="shortcutsOpen = true"
       />
-      <SessionList
-        v-else-if="compact" ref="list" class="home-list" :items="sessions.items.value" :search="sessions.search.value" :archived="sessions.archived.value"
-        :loading="sessions.loading.value" :loaded="sessions.loaded.value" :problem="sessions.problem.value" :has-more="sessions.hasMore.value"
-        :loading-more="sessions.loadingMore.value" :creating="sessions.creating.value" :now="now"
-        @open="open" @create="create" @search="sessions.setSearch($event)" @archived="sessions.showArchived($event)" @rename="rename" @archive="archive"
-        @more="sessions.loadMore()" @retry="sessions.load()"
-      />
-      <UiEmpty v-else class="home" icon="chat" tone="accent" title="Start a conversation" body="Chat with your agent, and run the fns your connected systems offer." data-testid="chat-home">
-        <template #actions><UiButton variant="primary" icon="plus" :loading="sessions.creating.value" @click="create">New chat</UiButton></template>
-      </UiEmpty>
+      <SessionList v-else-if="phone" ref="list" class="home-list" v-bind="listBind" v-on="listOn" />
+      <div v-else class="start" :class="{ split: compact }">
+        <SessionList v-if="compact" ref="list" class="home-list side-list" v-bind="listBind" v-on="listOn" />
+        <UiEmpty class="home" icon="chat" tone="accent" title="Start a conversation" body="Chat with your agent, and run the fns your connected systems offer." data-testid="chat-home">
+          <template #actions><UiButton variant="primary" icon="plus" :loading="sessions.creating.value" @click="create">New chat</UiButton></template>
+        </UiEmpty>
+      </div>
     </main>
 
     <PanelHost v-if="url.session.value !== undefined" v-model:open="panelOpen" :inline="roomy" :phone="phone" :label="panelTitle" :data-panel="url.top.value">
       <PanelFrame :title="panelTitle" :subtitle="panelSubtitle" @close="url.close()">
         <RunDetails
-          v-if="url.top.value === 'run'" :run="runView" :record="chat.inspector.run.value.value" :loading="chat.inspector.run.loading.value"
+          v-if="url.top.value === 'run'" v-model:tab="runTab" :run="runView" :record="chat.inspector.run.value.value" :loading="chat.inspector.run.loading.value"
           :problem="chat.inspector.run.problem.value" :now="now" @background="backgroundRun" @tree="runView?.turn && url.openTree(runView.turn)" @undo="undoRunTurn"
           @llm="url.open('llm', $event)" @run="url.open('run', $event)" @retry="url.run.value && chat.inspector.openRun(url.run.value)"
         />
@@ -225,7 +243,7 @@ onBeforeUnmount(() => {
           :live="liveStatus" @run="url.open('run', $event)" @llm="url.open('llm', $event)" @retry="url.treeTurn.value && chat.inspector.openTree(url.treeTurn.value)"
         />
         <template v-else-if="url.top.value === 'llm'">
-          <LlmCallDetails v-if="llmCall" :call="llmCall" />
+          <LlmCallDetails v-if="llmCall" v-model:tab="callTab" :call="llmCall" />
           <p v-else class="dim">{{ (url.llm.value && chat.inspector.callProblems.value.get(url.llm.value)) || 'Loading…' }}</p>
         </template>
         <TurnDetails v-else-if="url.top.value === 'details'" :calls="turnCalls" :loading="turnLoading" :problem="chat.inspector.tree.problem.value" @llm="url.open('llm', $event)" />
@@ -235,7 +253,8 @@ onBeforeUnmount(() => {
         />
         <SessionSettings
           v-else-if="url.top.value === 'panel' && record && thread" :session="record" :systems="chat.capabilities.value.value?.systems ?? []" :notify="thread.notify.value"
-          :agent="agentName(record.agent)" :name-of="nameOf" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
+          :agent="agentName(record.agent)" :priority="thread.limits.value?.priority" :name-of="nameOf" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
+          @priority="thread.update({ priority: $event })"
         />
       </PanelFrame>
     </PanelHost>
@@ -253,5 +272,9 @@ onBeforeUnmount(() => {
 .main { position: relative; min-width: 0; min-height: 0; }
 .home { height: 100%; align-content: center; }
 .home-list { height: 100%; }
+/* a tablet with no chat open: the list at its usual width, and a way to start beside it */
+.start { height: 100%; }
+.split { display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+.side-list { border-right: 1px solid var(--border); background: var(--surface); }
 .dim { margin: 0; color: var(--text-faint); }
 </style>

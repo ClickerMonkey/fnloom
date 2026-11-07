@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { g } from '../gin.ts';
 import type { HubAccess, HubLink } from './link.ts';
-import { aeyeChunk, harnessAi, HarnessProvider, HubLlm, HubLlmError, wireRequest } from './llm.ts';
+import { chunkFromWire } from './llm-wire.ts';
+import { harnessAi, HarnessProvider, HubLlm, HubLlmError, wireRequest } from './llm.ts';
 
 /** A hub whose LLM forwards answer from a script, one per forward; embeds echo lengths. */
 function scriptedHub(script: Array<(forward: LlmForward) => LlmForwardChunk[]>) {
@@ -42,9 +43,10 @@ describe('wireRequest', () => {
       temperature: 0.2,
     });
     expect(wire.tools?.[0]).toMatchObject({ name: 'find', strict: true, parameters: { type: 'object', properties: { q: { type: 'string' } } } });
-    expect(wire.tools?.[1]?.strict).toBeUndefined();
+    // a numeric strict policy (prefer strict, with a priority) crosses as it is
+    expect(wire.tools?.[1]?.strict).toBe(1);
     expect(wire.toolChoice).toBe('required');
-    expect(wire.responseFormat).toMatchObject({ strict: false, schema: { type: 'object' } });
+    expect(wire.responseFormat).toMatchObject({ strict: 1, schema: { type: 'object' } });
     expect(wire.stop).toEqual(['END']);
     const user = wire.messages[1]?.content;
     expect(Array.isArray(user) ? user.map((p) => p.content.slice(0, 22)) : user).toEqual(['look', 'https://x.test/a.png', 'data:application/octet']);
@@ -56,7 +58,7 @@ describe('wireRequest', () => {
   });
 
   it('maps wire chunks to aeye chunks', () => {
-    expect(aeyeChunk({ content: 'a', reasoning: 'r', usage: { input: 1, output: 2, cached: 3, reasoning: 4 } })).toEqual({
+    expect(chunkFromWire({ content: 'a', reasoning: 'r', usage: { input: 1, output: 2, cached: 3, reasoning: 4 } })).toEqual({
       content: 'a', reasoning: { content: 'r' }, usage: { text: { input: 1, output: 2, cached: 3 }, reasoning: { output: 4 } },
     });
   });

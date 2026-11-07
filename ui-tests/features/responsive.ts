@@ -1,5 +1,5 @@
 /** Responsive at every size (chat-features 1.3): no sideways scroll, the composer on screen, a huge token wraps. */
-import { check, compose, feature, onScreen, openSession } from '../kit.ts';
+import { check, clearComposer, compose, feature, onScreen, openSession } from '../kit.ts';
 
 export default feature({
   id: 'responsive', ref: 'chat-features 1.3', title: 'Fits the screen at every size',
@@ -11,5 +11,7 @@ export default feature({
     const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     check(!wide, 'a 300-character token must not widen the page');
     await ctx.shot('long-draft');
+    // drafts are kept per chat: leave none behind for the features after this one
+    await clearComposer(page);
   },
 });

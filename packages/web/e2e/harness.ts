@@ -7,12 +7,13 @@
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { env } from '@ayepi/env';
+import { DEFAULT_PORTS } from '@harness/core';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { z } from 'zod';
 
 /** Where the app under test runs, and where shots go. */
 export const e2eEnv = env({
-  HARNESS_E2E_URL: z.string().default('http://127.0.0.1:4310'),
+  HARNESS_E2E_URL: z.string().default(`http://127.0.0.1:${DEFAULT_PORTS.web}`),
   HARNESS_E2E_HEADLESS: z.boolean().default(true),
   /** A comma list of scenario names to run; empty runs them all. */
   HARNESS_E2E_ONLY: z.string().default(''),

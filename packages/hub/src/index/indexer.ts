@@ -59,6 +59,11 @@ export function typeText(record: TypeRecord): string {
   return `${record.name} (${record.display.label}): ${record.description}`;
 }
 
+/** An index row with its vector forgotten (it is embedded again). */
+function withoutVector({ vectorHash: _vectorHash, ...row }: IndexEntry): IndexEntry {
+  return row;
+}
+
 /** The index key of a section. */
 export function sectionIndexKey(uri: ResourceUri, key: SectionKey): string {
   return `${uri}#${key}`;
@@ -182,11 +187,28 @@ export class StoreIndexer implements Indexer {
     return diff;
   }
 
-  /** Embed everything stored while no embedder was connected. */
+  /** Embed everything stored while no embedder was connected, or whose vector was dropped when the size changed. */
   async backfill(): Promise<void> {
-    const { store, document } = this.#options;
+    const { store, document, embedders } = this.#options;
+    const active = embedders.active();
+    if (active === undefined) { return; }
+    await this.#sized(active.document.dimensions);
     const waiting = (await allRows(store.table('index'), { embedder: document })).filter((r) => r.vectorHash !== r.hash);
     await this.#embed(waiting);
+  }
+
+  /**
+   * Size the vector table by the document embedder's declared dimensions (the one source of the size). When they
+   * changed, the old vectors were dropped: every item is marked unembedded, and a backfill embeds them again.
+   */
+  async #sized(dimensions: number): Promise<void> {
+    const { store, document, log } = this.#options;
+    if (!(await store.vectors.ensure(document, dimensions))) { return; }
+    log.warn('index.vectors.resized', { embedder: document, dimensions });
+    for (const row of await allRows(store.table('index'), { embedder: document })) {
+      if (row.vectorHash !== undefined) { await store.table('index').put(withoutVector(row)); }
+    }
+    this.#queue('index.backfill', () => this.backfill());
   }
 
   /** Embed rows with the document embedder, if it is connected; a failure leaves them for the next backfill. */
@@ -195,6 +217,7 @@ export class StoreIndexer implements Indexer {
     const active = embedders.active();
     if (active === undefined || rows.length === 0) { return; }
     try {
+      await this.#sized(active.document.dimensions);
       const vectors = await batcher.embed(active.document.name, rows.map((r) => r.text));
       const entries = rows.map((r, i) => {
         const vector = vectors[i];

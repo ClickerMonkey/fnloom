@@ -2,7 +2,7 @@ import { agent, fn, g, system } from '@harness/sdk';
 import { RunId, type Run, type RunSettled, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { backgroundReply, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
-import type { RunInput } from './index.ts';
+import { AGENT_KIND, type AgentKind, type RunInput } from './index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, testSettings, until, type ExecutionRig } from './testing.ts';
 
 const files = system('fs', { description: 'Files.' }).with({
@@ -32,9 +32,9 @@ async function started(options: Parameters<typeof executionRig>[0] = {}): Promis
 const readDef = fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] });
 const writeDef = fn({ description: 'Write a file.', args: g.obj({ path: g.text(), text: g.text() }), returns: g.bool() });
 
-function agentInput(turn: Turn, fnName: RunInput['fn'] = 'tools/helper', args: RunInput['args'] = {}): RunInput & { kind: 'hub/llm' } {
+function agentInput(turn: Turn, fnName: RunInput['fn'] = 'tools/helper', args: RunInput['args'] = {}): RunInput & { kind: AgentKind } {
   return {
-    kind: 'hub/llm', fn: fnName, args, turn: turn.id, key: 'answer', actor: ALICE, caller: AGENT, priority: 'interactive', background: false, handlers: [],
+    kind: AGENT_KIND, fn: fnName, args, turn: turn.id, key: 'answer', actor: ALICE, caller: AGENT, priority: 'interactive', background: false, handlers: [],
     ...(turn.session === undefined ? {} : { session: turn.session }),
   };
 }
@@ -125,6 +125,49 @@ describe('a session agent', () => {
     const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0];
     expect(child?.background).toBe(true);
     expect(r.provider.requests[1]?.messages.find((m) => m.role === 'tool')?.content).toBe(backgroundReply(child?.id ?? RunId.parse('run_x')));
+  });
+
+  it('keeps waiting on a slow tool past the timeout while the person is away', async () => {
+    const r = await started({ settings: testSettings({ HARNESS_TOOL_TIMEOUT: 20 }), active: false });
+    let release: (o: { status: 'done'; result: string }) => void = () => undefined;
+    r.connect('fs').behaviour.run = () => new Promise((resolve) => { release = resolve; });
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'read slowly' });
+    r.provider.script(calls([['fs__read', { path: 'big' }]]), says('read it all'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await until(async () => (await r.module.runs.get(run))?.status === 'waiting', 'the agent to wait for its tool');
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0];
+    expect(child?.background).toBe(false);
+    expect((await r.module.runs.get(run))?.status).toBe('waiting');
+    release({ status: 'done', result: 'all of it' });
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'read it all' });
+    expect(r.provider.requests[1]?.messages.find((m) => m.role === 'tool')?.content).toBe('all of it');
+  });
+
+  it('posts a background tool run’s result in the session when it finishes, and adds it to the transcript', async () => {
+    const r = await started();
+    const tool: { release?: (o: { status: 'done'; result: string }) => void } = {};
+    r.connect('fs').behaviour.run = () => new Promise((resolve) => { tool.release = resolve; });
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'first' });
+    r.provider.script(calls([['fs__read', { path: 'big' }]]));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await until(async () => (await r.module.runs.get(run))?.status === 'waiting', 'the agent to wait for its tool');
+    await r.module.agents.interrupt(run);
+    await runTo(r, run);
+    const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0];
+    if (child === undefined) throw new Error('no tool run');
+    expect(child.background).toBe(true);
+    const before = r.chat.finished.length;
+    await until(() => tool.release !== undefined, 'the tool run to reach its system');
+    tool.release?.({ status: 'done', result: 'the big file' });
+    await until(() => r.chat.finished.length > before, 'the result to be posted');
+    const posted = r.chat.finished.at(-1);
+    expect(posted?.parts).toEqual([{ type: 'text', text: `The background run ${child.id} (fs/read) finished. the big file` }]);
+    expect(r.chat.tracked.at(-1)).toEqual({ message: posted?.message, runs: [child.id] });
+    const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
+    expect(transcript.at(-1)).toEqual({ role: 'assistant', content: `The background run ${child.id} (fs/read) finished. the big file` });
   });
 
   it('hands over to a new message: tool calls go to the background and the run ends', async () => {

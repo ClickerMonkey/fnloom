@@ -55,6 +55,24 @@ export default defineConfig({
         },
       },
     ],
-    coverage: { provider: 'v8', include: ['packages/*/src/**', 'systems/*/{shared,server,client}/**'], exclude: ['**/*.test.ts', '**/manifest.gen.ts'] },
+    coverage: {
+      provider: 'v8',
+      include: ['packages/*/src/**/*.{ts,vue}', 'systems/*/{shared,server,client}/**/*.{ts,vue}'],
+      exclude: ['**/*.test.ts', '**/manifest.gen.ts', '**/*.d.ts'],
+      // floors a little under today's numbers, so coverage can't quietly fall; `npm run check` runs with coverage.
+      // Each glob counts every file it matches (so `packages/hub/src/**` includes execution); the execution engine and
+      // the SDK runtime have floors of their own, so a drop there can't hide behind the rest of their package.
+      thresholds: {
+        statements: 82, branches: 70, functions: 76, lines: 86,
+        'packages/core/src/**': { statements: 99, branches: 88, functions: 99, lines: 99 },
+        'packages/hub/src/**': { statements: 90, branches: 80, functions: 89, lines: 93 },
+        'packages/hub/src/execution/**': { statements: 86, branches: 74, functions: 85, lines: 91 },
+        'packages/sdk/src/**': { statements: 88, branches: 80, functions: 88, lines: 92 },
+        'packages/sdk/src/server/**': { statements: 87, branches: 78, functions: 87, lines: 92 },
+        'packages/web/src/**': { statements: 70, branches: 61, functions: 61, lines: 75 },
+        'systems/embedder/**': { statements: 85, branches: 79, functions: 79, lines: 86 },
+        'systems/fs/**': { statements: 86, branches: 81, functions: 86, lines: 87 },
+      },
+    },
   },
 });

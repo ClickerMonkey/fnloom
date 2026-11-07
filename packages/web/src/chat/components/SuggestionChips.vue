@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
  * Under a user message: what the hub's index surfaced for it by meaning, as two small chips ("4 context", "3 fns")
- * shown only when there is something. Each opens a list with the item's friendly name, its system, why it matched,
- * and how it reached the turn (added, offered, or loaded by the agent). Picking one uses it: a context as its
+ * shown only when there is something. Each opens a list, best match first, with the item's friendly name, its system,
+ * its match score, why it matched, and how it reached the turn (added, offered, or loaded by the agent). Picking one uses it: a context as its
  * `/` command, a fn as its `!` form.
  */
 import { computed, ref } from 'vue';
 import { UiBadge, UiIcon, UiPopover } from '../../ui/index.ts';
-import { SUGGESTION_STATE, type MessageSuggestions, type SuggestionItem } from '../logic/session.ts';
+import { SUGGESTION_STATE, scoreText, type MessageSuggestions, type SuggestionItem } from '../logic/session.ts';
 
 const props = defineProps<{ suggestions: MessageSuggestions }>();
 const emit = defineEmits<{ use: [item: SuggestionItem, kind: 'context' | 'fn'] }>();
@@ -32,10 +32,10 @@ function use(item: SuggestionItem): void {
 
 <template>
   <div v-if="suggestions.context.length > 0 || suggestions.fns.length > 0" class="chips" data-testid="suggestion-chips">
-    <button v-if="suggestions.context.length > 0" type="button" class="chip" data-testid="suggested-context" :aria-expanded="open === 'context' ? 'true' : 'false'" @click="toggle('context', $event)">
+    <button v-if="suggestions.context.length > 0" type="button" class="chip touch-target" data-testid="suggested-context" :aria-expanded="open === 'context' ? 'true' : 'false'" @click="toggle('context', $event)">
       <UiIcon name="sparkles" :size="12" /> {{ suggestions.context.length }} context
     </button>
-    <button v-if="suggestions.fns.length > 0" type="button" class="chip" data-testid="suggested-fns" :aria-expanded="open === 'fn' ? 'true' : 'false'" @click="toggle('fn', $event)">
+    <button v-if="suggestions.fns.length > 0" type="button" class="chip touch-target" data-testid="suggested-fns" :aria-expanded="open === 'fn' ? 'true' : 'false'" @click="toggle('fn', $event)">
       <UiIcon name="fn" :size="12" /> {{ suggestions.fns.length }} fn{{ suggestions.fns.length === 1 ? '' : 's' }}
     </button>
     <UiPopover :open="open !== undefined" :anchor="anchor" side="bottom" align="end" :label="open === 'fn' ? 'Suggested fns' : 'Suggested context'" @update:open="open = $event ? open : undefined">
@@ -46,7 +46,10 @@ function use(item: SuggestionItem): void {
               <span class="name">{{ item.label }}</span>
               <UiBadge :tone="item.state === 'loaded' ? 'ok' : item.state === 'auto' ? 'accent' : 'neutral'">{{ SUGGESTION_STATE[item.state] }}</UiBadge>
             </span>
-            <span class="system">{{ item.system }}</span>
+            <span class="meta">
+              <span class="system">{{ item.system }}</span>
+              <span v-if="item.score !== undefined" class="score" data-testid="suggestion-score" :title="`Match score ${item.score.toFixed(3)}`">{{ scoreText(item.score) }} match</span>
+            </span>
             <span v-if="item.why !== ''" class="why">{{ item.why }}</span>
           </button>
         </li>
@@ -69,6 +72,8 @@ function use(item: SuggestionItem): void {
 .item:hover, .item:focus-visible { background: var(--surface-2); outline: none; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .name { font-weight: var(--weight-medium); min-width: 0; overflow-wrap: anywhere; }
+.meta { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .system { color: var(--text-faint); font-size: var(--text-xs); }
+.score { margin-left: auto; color: var(--text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .why { color: var(--text-dim); font-size: var(--text-sm); }
 </style>

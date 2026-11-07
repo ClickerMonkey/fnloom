@@ -4,7 +4,7 @@
  * compile, and a call through a ref has typed args, result and handlers.
  */
 import type { Extension } from '@aeye/gin';
-import type { Json, QualifiedName, TypeDisplay } from '@harness/core';
+import type { Json, QualifiedName, StatusTemplates, TypeDisplay } from '@harness/core';
 import type { FnDef, FnTypes, Handlers, KindFnInput, KindFnTypes } from './fn.ts';
 import type { GinType } from './gin.ts';
 import type { Simplify } from './util.ts';
@@ -56,7 +56,7 @@ export interface KindRef<N extends QualifiedName, P> {
    * Declare a fn of this kind. Only the payload is needed; the kind derives the rest. Give `args`/`returns` to type
    * the ref (the hub checks them against what the kind derives); without them the ref takes and returns JSON.
    */
-  fn<A = Json, R = Json>(def: KindFnInput<P, A, R>): FnDef<KindFnTypes<KindRef<N, P>, P, A, R>>;
+  fn<A = Json, R = Json, const T extends StatusTemplates = StatusTemplates>(def: KindFnInput<P, A, R, T>): FnDef<KindFnTypes<KindRef<N, P>, P, A, R>>;
 }
 export type AnyKindRef = KindRef<QualifiedName, unknown>;
 

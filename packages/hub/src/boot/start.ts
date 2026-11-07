@@ -92,7 +92,8 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
   const bus = new MemoryEventBus((event, error) => { log.error('bus.listener.failed', { event }, error); });
 
   const store = await options.modules.store({
-    file: settings.hubEnv.HARNESS_DB_FILE, dimensions: { [settings.modelEnv.HARNESS_EMBEDDER_DOCUMENT]: settings.modelEnv.HARNESS_EMBED_DIMENSIONS }, now: clock, log,
+    // vector tables are sized by the embedder's declaration once the index knows it (`vectors.ensure`)
+    file: settings.hubEnv.HARNESS_DB_FILE, now: clock, log,
     tuning: settings.storeEnv,
   });
   /** Once the lifecycle starts, stopping it closes the store and the log. */

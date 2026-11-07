@@ -2,19 +2,13 @@
  * The hub's one port. HTTP: `/api/*` is the web API (its ayepi server, with the prefix taken off), `/_files` the
  * presigned files, `/docs/*` the API docs when on, `/healthz` and `/readyz` the health checks, `/clients/*` systems'
  * client builds, and everything else the built web app. WebSocket: `/ws` for browsers and `/link` for systems, each
- * on its own ayepi server.
- *
- * `@ayepi/node`'s `handleUpgrade` refuses sockets on other paths, so two of them can't share one `http.Server`
- * (library gap G3). Each is attached to its own unlistened `http.Server` instead, and this front hands every upgrade
- * to the one its path names. Browser sockets are closed shortly before their access token expires, so the browser
- * reconnects with its fresh token (library gap G7: the socket can't change its token).
+ * on its own ayepi server, routed by `@ayepi/node`'s `routeUpgrades`. A browser socket is closed shortly before its
+ * access token expires (`closeAt`), so the browser reconnects with the fresh token it holds by then.
  */
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
-import type { Duplex } from 'node:stream';
 import type { AnySpec, Server } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
-import { createRequestListener, handleUpgrade } from '@ayepi/node';
-import type { WebSocketServer } from 'ws';
+import { createRequestListener, routeUpgrades, upgradeHandler, type UpgradeHandler } from '@ayepi/node';
 import type { FileRoute } from './serve.ts';
 
 /** The prefix of the web API's HTTP paths. */
@@ -54,26 +48,21 @@ export interface HttpFrontOptions {
   readonly log: Logger;
 }
 
-/** An upgrade path, its ayepi socket server and the unlistened `http.Server` it is attached to. */
-interface SocketRoute {
-  readonly carrier: HttpServer;
-  readonly sockets: WebSocketServer;
-}
-
 /** The HTTP and WebSocket front. */
 export class HttpFront {
   readonly #o: HttpFrontOptions;
   readonly #server: HttpServer;
   readonly #web: (req: IncomingMessage, res: ServerResponse) => void;
-  readonly #routes: ReadonlyMap<string, SocketRoute>;
-  readonly #timers = new Set<NodeJS.Timeout>();
+  readonly #sockets: readonly UpgradeHandler[];
 
   constructor(options: HttpFrontOptions) {
     this.#o = options;
     this.#web = createRequestListener(options.web);
-    this.#routes = new Map([[WS_PATH, this.#socketRoute(options.web)], [LINK_PATH, this.#socketRoute(options.link)]]);
+    const browser = upgradeHandler(options.web, { heartbeat: options.heartbeat, clock: options.clock, closeAt: (req) => this.#closeAt(req) });
+    const systems = upgradeHandler(options.link, { heartbeat: options.heartbeat });
+    this.#sockets = [browser, systems];
     this.#server = createServer((req, res) => { void this.#request(req, res); });
-    this.#server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => { this.#upgrade(req, socket, head); });
+    routeUpgrades(this.#server, { [WS_PATH]: browser, [LINK_PATH]: systems });
   }
 
   /** Start listening; resolves with the real port. */
@@ -95,22 +84,15 @@ export class HttpFront {
 
   /** Close every socket and the server. */
   async close(): Promise<void> {
-    for (const timer of this.#timers) { clearTimeout(timer); }
-    this.#timers.clear();
-    for (const route of this.#routes.values()) {
-      for (const client of route.sockets.clients) { client.terminate(); }
-      await new Promise<void>((resolve) => { route.sockets.close(() => { resolve(); }); });
+    for (const { sockets } of this.#sockets) {
+      for (const client of sockets.clients) { client.terminate(); }
+      await new Promise<void>((resolve) => { sockets.close(() => { resolve(); }); });
     }
     this.#server.closeAllConnections();
     await new Promise<void>((resolve) => {
       if (!this.#server.listening) { resolve(); return; }
       this.#server.close(() => { resolve(); });
     });
-  }
-
-  #socketRoute(app: Server<AnySpec>): SocketRoute {
-    const carrier = createServer();
-    return { carrier, sockets: handleUpgrade(app, carrier, { heartbeat: this.#o.heartbeat }) };
   }
 
   async #request(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -142,30 +124,10 @@ export class HttpFront {
     }
   }
 
-  #upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-    const url = new URL(req.url ?? '/', 'http://hub');
-    const route = this.#routes.get(url.pathname);
-    if (route === undefined) {
-      socket.destroy();
-      return;
-    }
-    if (url.pathname === WS_PATH) { this.#expireWithToken(socket, url.searchParams.get('access_token')); }
-    route.carrier.emit('upgrade', req, socket, head);
-  }
-
-  /** Close a browser socket a little before its token expires, so it reconnects with the one the browser has now. */
-  #expireWithToken(socket: Duplex, token: string | null): void {
+  /** When a browser socket closes: a little before the access token it opened with expires; never without one. */
+  #closeAt(req: Request): number | undefined {
+    const token = new URL(req.url).searchParams.get('access_token');
     const expiry = token === null ? undefined : this.#o.tokenExpiry(token);
-    if (expiry === undefined) { return; }
-    const timer = setTimeout(() => {
-      this.#timers.delete(timer);
-      socket.destroy();
-    }, Math.max(0, expiry - this.#o.tokenMargin - this.#o.clock()));
-    timer.unref();
-    this.#timers.add(timer);
-    socket.once('close', () => {
-      clearTimeout(timer);
-      this.#timers.delete(timer);
-    });
+    return expiry === undefined ? undefined : expiry - this.#o.tokenMargin;
   }
 }

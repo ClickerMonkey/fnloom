@@ -1,7 +1,8 @@
 /**
  * Resource routing. Systems that serve resources offer roots (folders at absolute URIs); a URI belongs to the
  * connected system whose root holds it, the longest root winning. Reads, lists and sections go to that system over
- * its link. Large text comes back as a content ref, fetched in chunks of the link's largest chunk. Changes a system
+ * its link. Large text comes back as a content ref, fetched in chunks of the link's largest chunk.
+ * Roots are asked for on connect, when its contract arrives and after it applies a config. Changes a system
  * reports are kept only for URIs under its own roots and announced on the bus as `resources.changed`.
  */
 import { reject as refuse } from '@ayepi/core';
@@ -36,6 +37,8 @@ export class PeerResourceRouter implements ResourceRouter {
   readonly #roots = new Map<SystemName, ResourceRoot[]>();
   /** The roots each connected system was asked to watch. */
   readonly #watched = new Map<SystemName, Set<string>>();
+  /** Each system's latest refresh, so an older answer that arrives late doesn't replace a newer one. */
+  readonly #asked = new Map<SystemName, number>();
 
   constructor(options: ResourceRouterOptions) {
     this.#options = options;
@@ -46,6 +49,8 @@ export class PeerResourceRouter implements ResourceRouter {
     });
     // a system that connected before it was configured serves its roots once its config arrives
     options.bus.subscribe('system.status', ({ system, status }) => { if (status === 'connected') { void this.refresh(system); } });
+    // the roots follow the config, so they are asked for again once the system has applied a new one
+    options.bus.subscribe('system.configured', ({ system }) => { void this.refresh(system); });
   }
 
   roots(): ReadonlyArray<{ system: SystemName; root: ResourceRoot }> {
@@ -66,8 +71,11 @@ export class PeerResourceRouter implements ResourceRouter {
     const manifest = await catalog.manifest(system);
     // before its first manifest nothing is known; importing the manifest refreshes again when it serves resources
     if (connection === undefined || manifest?.resources !== true) { this.#roots.delete(system); return; }
+    const asked = (this.#asked.get(system) ?? 0) + 1;
+    this.#asked.set(system, asked);
     try {
       const roots = await connection.peer.call('roots');
+      if (this.#asked.get(system) !== asked) { return; }
       this.#roots.set(system, roots);
       const watched = this.#watched.get(system) ?? new Set<string>();
       this.#watched.set(system, watched);
@@ -77,6 +85,7 @@ export class PeerResourceRouter implements ResourceRouter {
       log.info('resources.roots', { system, roots: roots.length });
       this.#options.bus.publish('resources.roots', { system, roots });
     } catch (error) {
+      if (this.#asked.get(system) !== asked) { return; }
       this.#roots.delete(system);
       log.warn('resources.roots.failed', { system, error: messageOf(error) });
     }

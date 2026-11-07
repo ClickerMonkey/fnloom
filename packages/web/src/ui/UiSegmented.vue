@@ -30,9 +30,10 @@ function choose(at: number): void {
 </template>
 
 <style scoped>
-.ui-segmented { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--border); max-width: 100%; }
+/* as wide as its options (never stretched by a grid around it); given a width, the options share it evenly */
+.ui-segmented { display: inline-flex; flex-wrap: wrap; gap: 2px; width: fit-content; max-width: 100%; padding: 3px; border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--border); }
 .option {
-  display: inline-flex; align-items: center; gap: var(--space-2); height: calc(var(--control) - 8px); padding: 0 var(--space-3);
+  display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: var(--space-2); height: calc(var(--control) - 8px); padding: 0 var(--space-3);
   border: 0; border-radius: calc(var(--radius) - 3px); background: transparent; color: var(--text-dim); font-size: var(--text-sm); font-weight: var(--weight-medium);
   transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }

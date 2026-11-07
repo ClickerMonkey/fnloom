@@ -6,6 +6,7 @@
 import { mintId, READ_TAG, type ActorId, type ChatMessage, type Run, type TurnId, type UndoReport } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
+import { AGENT_KIND } from '../execution/index.ts';
 import type { StateService, UndoService } from './index.ts';
 import { isActiveRun, type StoreSessionService } from './sessions.ts';
 import { readAll } from './support.ts';
@@ -85,7 +86,7 @@ export class RunUndoService implements UndoService {
       if (run.undo === undefined) { report.undone.push({ run: run.id, fn: run.fn, summary: `Put back ${run.stateChanges.length === 1 ? 'one state field' : `${run.stateChanges.length} state fields`}.` }); }
       return;
     }
-    if (run.undo === undefined && run.status === 'done' && run.kind !== 'hub/llm' && !(await this.#readOnly(run))) {
+    if (run.undo === undefined && run.status === 'done' && run.kind !== AGENT_KIND && !(await this.#readOnly(run))) {
       report.notUndoable.push({ run: run.id, fn: run.fn });
     }
   }

@@ -9,6 +9,7 @@ import type { SessionKeeper, SignInForm } from './auth.ts';
 import type { ConnectionStore } from './connection.ts';
 import type { InboxStore } from './inbox.ts';
 import type { LayoutStore } from './layout.ts';
+import type { PushStore } from './push.ts';
 import type { SessionStore } from './session.ts';
 import type { ThemeStore } from './theme.ts';
 import type { Toasts } from './toasts.ts';
@@ -28,6 +29,8 @@ export interface Stores {
   readonly admin: AdminStore;
   /** A fresh sign-in form for the sign-in page. */
   readonly signInForm: () => SignInForm;
+  /** Web push on this device. */
+  readonly push: PushStore;
 }
 
 export const STORES: InjectionKey<Stores> = Symbol('stores');

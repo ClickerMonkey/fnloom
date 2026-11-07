@@ -7,14 +7,16 @@
 import type {
   AllowedOperations, ErrorClass, HookInput, Json, KindDescription, MentionHover, RunInfo, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
-import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, FnCall, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, FnCall, FnCtx, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
-  AnyTypeDef, EmbedderImpl, HookContribution, KindCheckCtx, KindDef, MentionCtx, MentionOption, SectionerImpl,
+  ActionImpl, AnyTypeDef, ContextImpl, EmbedderImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
+  MentionOption, MethodImpl, SectionerImpl,
 } from '../declare.ts';
-import type { AnyFnDef, FnTypes, Handlers, Outcome, ProgressDef } from '../fn.ts';
+import type { AnyFnDef, FnTypes, Handlers, Outcome, ProgressDef, UntypedFn } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { ResourceProvider } from '../resources.ts';
-import type { AnyContract, ContractShape, SystemImpl } from '../system.ts';
+import type { AnyContract, ContractShape, EventHandlers, Lifecycle, SystemImpl } from '../system.ts';
+import { expectType, type Equal } from '../util.ts';
 
 /** Any outcome, as the runtime handles it before encoding it for the wire. */
 export type AnyOutcome = Outcome<FnTypes>;
@@ -78,7 +80,7 @@ export interface RuntimeMethodImpl {
 export interface RuntimeKindImpl {
   check(payload: unknown, ctx: KindCheckCtx): Promise<string[]>;
   describe(payload: unknown, ctx: KindCheckCtx): Promise<KindDescription>;
-  run(payload: unknown, args: Json, ctx: RuntimeKindCtx): Promise<AnyOutcome>;
+  run(payload: unknown, args: Json, ctx: RuntimeKindCtx): Promise<Outcome<UntypedFn>>;
   undo?(payload: unknown, undo: Json, ctx: UndoCtx): Promise<UndoOutcome>;
 }
 
@@ -116,12 +118,45 @@ export interface ImplTable {
   readonly lifecycle?: RuntimeLifecycle;
 }
 
+// ─── Pins: the runtime's view follows SystemImpl ──────────────────────────────
+//
+// The runtime's shapes can't simply be SystemImpl's: each author context is computed from its own declaration, the
+// runtime's is the union of every form. So they are pinned instead. A section added to or renamed in SystemImpl, a
+// member added to or renamed in an impl or a context, or a changed parameter (other than the context) or result
+// fails to compile here, so the runtime can't quietly stop dispatching something an author must write.
+
+/** A signature with its context parameter (the last) dropped, recursively through objects and records. */
+type Erased<F> = F extends (...args: infer A) => infer R
+  ? (...args: A extends [...infer Head, unknown] ? Head : A) => R
+  : { readonly [K in keyof F]-?: Erased<Exclude<F[K], undefined>> };
+/** A section of `ImplTable`, erased. */
+type RuntimeSection<K extends keyof ImplTable> = Erased<Exclude<ImplTable[K], undefined>>;
+/** An author section keyed by local name, erased. */
+type AuthorSection<T> = Erased<{ readonly [local: string]: T }>;
+
+expectType<Equal<keyof ImplTable, keyof SystemImpl<ContractShape>>>(true);
+expectType<Equal<RuntimeSection<'fns'>, AuthorSection<FnImpl<FnTypes, object>>>>(true);
+expectType<Equal<RuntimeSection<'types'>, AuthorSection<{ readonly [method: string]: MethodImpl<unknown, FnTypes, object> }>>>(true);
+expectType<Equal<RuntimeSection<'kinds'>, AuthorSection<KindImpl<unknown, object>>>>(true);
+expectType<Equal<RuntimeSection<'context'>, AuthorSection<ContextImpl<Record<string, string>, object>>>>(true);
+expectType<Equal<RuntimeSection<'hooks'>, AuthorSection<HookImpl<object>>>>(true);
+expectType<Equal<RuntimeSection<'mentions'>, AuthorSection<MentionImpl<unknown, unknown, object>>>>(true);
+expectType<Equal<RuntimeSection<'embedders'>, AuthorSection<EmbedderImpl>>>(true);
+expectType<Equal<RuntimeSection<'sectioners'>, AuthorSection<SectionerImpl>>>(true);
+expectType<Equal<RuntimeSection<'actions'>, AuthorSection<ActionImpl<unknown, unknown, Record<string, unknown>, object>>>>(true);
+expectType<Equal<RuntimeSection<'resources'>, Erased<ResourceProvider>>>(true);
+expectType<Equal<RuntimeSection<'events'>, Erased<EventHandlers<object>>>>(true);
+expectType<Equal<RuntimeSection<'lifecycle'>, Erased<Lifecycle<object>>>>(true);
+expectType<Equal<keyof RuntimeFnCtx, keyof FnCtx<FnTypes, object>>>(true);
+expectType<Equal<keyof RuntimeKindCtx, keyof KindRunCtx<object>>>(true);
+
 /**
  * The implementation as the runtime dispatches it. `SystemImpl<C>` gives every function its exact context type
  * (`FnCtx<T, Cfg>` for the fn's own `T`); the runtime builds each context from that same fn's declaration (callers
  * for exactly its deps, its handlers, its progress form, its form and state types, the contract's config), so it
  * provides every member the exact type promises. Function parameters are contravariant, so TypeScript can't see
- * that through a string-keyed lookup; this is the one place the SDK states it.
+ * that through a string-keyed lookup; this is the one place the SDK states it, and the pins above keep the two
+ * shapes in step.
  */
 export function implTable<C extends ContractShape>(impl: SystemImpl<C>): ImplTable {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see the doc comment: each context is built from its own declaration
@@ -139,6 +174,7 @@ export class SystemTable {
   readonly contract: AnyContract;
   readonly impl: ImplTable;
   readonly #added = new Map<string, { def: AnyFnDef; impl: RuntimeFnImpl | undefined }>();
+  readonly #listeners = new Set<() => void>();
 
   constructor(contract: AnyContract, impl: ImplTable) {
     this.contract = contract;
@@ -149,11 +185,24 @@ export class SystemTable {
   add(local: string, def: AnyFnDef, impl: RuntimeFnImpl | undefined): void {
     if (local in this.contract.defs.fns || this.#added.has(local)) { throw new Error(`fn ${local} already exists in ${this.contract.name}`); }
     this.#added.set(local, { def, impl });
+    this.#changed();
   }
 
   /** Remove a fn added at runtime; false when it wasn't one. */
   remove(local: string): boolean {
-    return this.#added.delete(local);
+    const removed = this.#added.delete(local);
+    if (removed) { this.#changed(); }
+    return removed;
+  }
+
+  /** Hear about fns being added or removed at runtime. Returns an unsubscribe function. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => { this.#listeners.delete(listener); };
+  }
+
+  #changed(): void {
+    for (const listener of [...this.#listeners]) { listener(); }
   }
 
   /** The fns added at runtime, by local name. */

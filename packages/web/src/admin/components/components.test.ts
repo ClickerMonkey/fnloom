@@ -133,11 +133,12 @@ describe('lists and cards', () => {
   });
 
   it('ModelTable narrows by words and shows prices', async () => {
-    const table = mount(ModelTable, { attachTo: document.body, props: { models: [model(), model({ id: 'x/vision', name: 'Seer', capabilities: ['vision'], pricing: { input: 1, output: 2 } })], providerName: () => 'OpenRouter' } });
-    expect(table.findAll('.row')).toHaveLength(2);
+    const table = mount(ModelTable, { attachTo: document.body, props: { models: [model(), model(), model({ id: 'x/vision', name: 'Seer', capabilities: ['vision'], pricing: { input: 1, output: 2 }, contextWindow: 0 })], providerName: () => 'OpenRouter' } });
+    expect(table.findAll('[data-testid=model-row]')).toHaveLength(2);
     expect(table.text()).toContain('Free');
+    expect(table.text()).toContain('—');
     await type(find('input'), 'vision');
-    expect(table.findAll('.row')).toHaveLength(1);
+    expect(table.findAll('[data-testid=model-row]')).toHaveLength(1);
     expect(table.text()).toContain('$1.00 / $2.00');
     await type(find('input'), 'nothing here');
     expect(table.text()).toContain('No models match');

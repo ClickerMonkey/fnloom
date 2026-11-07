@@ -15,7 +15,13 @@ import type {
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
   ModelInfo,
 } from '@harness/core';
+import { hub } from '@harness/sdk';
 import type { SpendReader } from './spend.ts';
+
+/** The qualified kind of agent fns, from the hub contract (`hub.kinds.llm`): renaming it there breaks every user. */
+export const AGENT_KIND = hub.kinds.llm.name;
+/** The kind of fn the agent loop runs. */
+export type AgentKind = typeof AGENT_KIND;
 
 /** A request to run a fn: from an agent's tool call, a person's `!`, or a run's child call. */
 export interface RunInput {
@@ -75,13 +81,17 @@ export interface LimitResolver {
   resolve(input: { user: UserInfo; session?: SessionId; turn?: TurnId; requested?: Priority }): Promise<ResolvedLimits>;
 }
 
+/** Where an LLM call is made, as its ledger line will say: the system, fn and model budgets that cover it. */
+export type CallSite = Required<Pick<LedgerEntry, 'fn' | 'model'>> & Pick<LedgerEntry, 'system'>;
+
 /** Spend: reservations before LLM calls, settlement after, the record of every cost, and what budgets have spent. */
 export interface Ledger extends SpendReader {
   /**
-   * Hold an estimate against every budget that applies; refused (or delayed) when one would go over. Reservations
-   * are checked one at a time, so concurrent calls always see each other's holds.
+   * Hold an estimate against every budget that applies: the turn's cap, the budgets its limits name, and every
+   * system, fn and model budget that covers the call's site. Refused (or delayed) when one would go over.
+   * Reservations are checked one at a time, so concurrent calls always see each other's holds.
    */
-  reserve(input: { limits: ResolvedLimits; estimate: Usd; run: RunId }): Promise<
+  reserve(input: { limits: ResolvedLimits; estimate: Usd; run: RunId; site: CallSite }): Promise<
     { ok: true; reservation: ReservationId } | { ok: false; wait?: number; reason: string; budget: BudgetId }
   >;
   /** Turn a hold into a ledger line of what the call really cost. Settling a reservation twice records it once. */
@@ -105,10 +115,10 @@ export interface LlmGateway {
   models(): Promise<ModelInfo[]>;
 }
 
-/** One agent (`hub/llm` fn) run, iterated one LLM call per queued job. */
+/** One agent (`AGENT_KIND` fn) run, iterated one LLM call per queued job. */
 export interface AgentLoop {
   /** Start an agent run for a turn. */
-  start(input: RunInput & { kind: 'hub/llm' }): Promise<{ run: RunId }>;
+  start(input: RunInput & { kind: AgentKind }): Promise<{ run: RunId }>;
   /** Run the next iteration of an agent run (the LLM job handler). */
   iterate(run: RunId, iteration: number, signal: AbortSignal): Promise<'waiting-for-tools' | 'done' | { failed: FnError }>;
   /** A new user message arrived: move the agent's running tool calls to the background so it can answer now. */

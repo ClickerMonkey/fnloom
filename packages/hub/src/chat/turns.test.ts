@@ -202,6 +202,27 @@ describe('running a fn by hand', () => {
     expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('idle');
   });
 
+  it('puts what the run attaches on a message of its own by the system, with the run card, since no agent answers', async () => {
+    const w = await chatWorld();
+    w.catalog.addFn('fs', { name: 'edit' });
+    const fsActor = IDS.actor.parse('act_fs');
+    await w.store.table('systems').insert({
+      name: SystemName.parse('fs'), description: 'Files.', status: 'connected', enabled: { functions: true, renderers: true }, keyFingerprint: 'fp', publicKey: 'k',
+      version: '1', manifestHash: 'h', actor: fsActor,
+    });
+    const { turn, run } = await w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/edit', args: { path: 'a.md' }, client: CLIENT });
+    if ((await w.store.table('runs').get(run)) === undefined) {
+      await w.store.table('runs').insert(makeRun({ id: run, fn: 'fs/edit', turn, actor: w.admin.id, session: w.session.id }));
+    }
+    const diff = { type: 'attachment' as const, attachment: 'fs/diff' as const, data: { path: 'a.md' }, title: 'a.md' };
+    const carrier = await w.chat.turns.attach(run, diff);
+    expect(carrier).toMatchObject({ role: 'assistant', author: fsActor, turn, parts: [diff], runs: [run], status: 'done' });
+    // a second attachment joins the same message
+    expect((await w.chat.turns.attach(run, diff)).id).toBe(carrier.id);
+    const roles = (await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items.map((m) => m.role).sort();
+    expect(roles).toEqual(['assistant', 'user']);
+  });
+
   it('ends the turn as the run did', async () => {
     const w = await chatWorld();
     w.catalog.addFn('fs', { name: 'ls' });
@@ -247,11 +268,12 @@ describe('an agent\'s answer', () => {
     expect(answer).toMatchObject({ role: 'assistant', status: 'streaming', replyTo: sent.message.id, parts: [] });
     w.chat.turns.stream(answer.id, { text: 'Hel' });
     w.chat.turns.stream(answer.id, { text: 'lo', reasoning: 'greet' });
-    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([{ type: 'text', text: 'Hello' }]);
+    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([{ type: 'reasoning', text: 'greet' }, { type: 'text', text: 'Hello' }]);
+    // the reasoning is kept with the answer, so it is still there after a reload
     const done = await w.chat.turns.finish(answer.id, [{ type: 'text', text: 'Hello!' }], 'done');
-    expect(done).toMatchObject({ status: 'done', parts: [{ type: 'text', text: 'Hello!' }] });
+    expect(done).toMatchObject({ status: 'done', parts: [{ type: 'reasoning', text: 'greet' }, { type: 'text', text: 'Hello!' }] });
     w.chat.turns.stream(answer.id, { text: 'late' });
-    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([{ type: 'text', text: 'Hello!' }]);
+    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([{ type: 'reasoning', text: 'greet' }, { type: 'text', text: 'Hello!' }]);
     await settle();
     expect(w.bus.of('message.token').map((t) => t.text)).toEqual(['Hel', 'lo']);
     expect(w.bus.of('message.reasoning')).toEqual([{ session: w.session.id, message: answer.id, text: 'greet' }]);

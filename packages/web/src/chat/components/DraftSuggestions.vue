@@ -16,7 +16,7 @@ const emit = defineEmits<{ use: [item: Suggestion] }>();
     <span class="label"><UiIcon name="sparkles" :size="12" /> Might help</span>
     <ul class="items">
       <li v-for="item in items" :key="`${item.kind}:${item.name}`">
-        <button type="button" class="item" :title="`${item.name} · ${item.description}`" :data-kind="item.kind" @click="emit('use', item)">
+        <button type="button" class="item touch-target" :title="`${item.name} · ${item.description}`" :data-kind="item.kind" @click="emit('use', item)">
           <UiIcon :name="item.kind === 'fn' ? 'fn' : 'file'" :size="12" />
           {{ item.kind === 'fn' ? fnLabel(item.name) : humanize(localName(item.name)) }}
         </button>

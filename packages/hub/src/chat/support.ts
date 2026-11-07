@@ -1,7 +1,7 @@
-/** Small helpers the chat services share: time for a person, agent actors, session scoping, paging and system calls. */
+/** Small helpers the chat services share: a monotonic clock, agent actors, session scoping, paging and system calls. */
 import {
   IDS, QualifiedName, SystemName, splitName, type ActorId, type Json, type ManifestSection, type Page, type Participant, type Session, type SessionId,
-  type TimeInfo, type TurnId,
+  type TurnId,
 } from '@harness/core';
 import { canonicalJson } from '@harness/sdk';
 import type { Catalog, CatalogEntry } from '../catalog/index.ts';
@@ -10,28 +10,6 @@ import type { Table, TableQuery } from '../store/index.ts';
 import { ChatError } from './errors.ts';
 
 // ─── Time ─────────────────────────────────────────────────────────────────────
-
-/** Whether the platform knows an IANA time zone. */
-export function knownZone(timeZone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** The person's current time: `now`, their zone (UTC when the browser sent an unknown one) and local time with offset. */
-export function timeInfo(now: number, timeZone: string): TimeInfo {
-  const zone = knownZone(timeZone) ? timeZone : 'UTC';
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
-    timeZoneName: 'longOffset',
-  }).formatToParts(new Date(now));
-  const part = (type: Intl.DateTimeFormatPartTypes): string => parts.find((p) => p.type === type)?.value ?? '';
-  const offset = part('timeZoneName').replace('GMT', '') || '+00:00';
-  return { now, timeZone: zone, local: `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}:${part('second')}${offset}` };
-}
 
 /**
  * A clock that never repeats or goes back: each reading is at least 1 ms after the last. Messages created in the
@@ -43,11 +21,6 @@ export function monotonic(clock: () => number): () => number {
     last = Math.max(clock(), last + 1);
     return last;
   };
-}
-
-/** The weekday name of a moment in a zone ("Saturday"). */
-export function weekday(now: number, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-US', { timeZone: knownZone(timeZone) ? timeZone : 'UTC', weekday: 'long' }).format(new Date(now));
 }
 
 // ─── Actors and sessions ──────────────────────────────────────────────────────

@@ -1,15 +1,15 @@
 <script setup lang="ts">
-/** An on/off switch with its label and an optional description (`v-model` is on). */
+/** An on/off switch with its label (kept for screen readers only with `hideLabel`) and an optional description (`v-model` is on). */
 import { useId } from 'vue';
 
-withDefaults(defineProps<{ label: string; description?: string; disabled?: boolean }>(), { description: '', disabled: false });
+withDefaults(defineProps<{ label: string; description?: string; disabled?: boolean; hideLabel?: boolean }>(), { description: '', disabled: false, hideLabel: false });
 const model = defineModel<boolean>({ required: true });
 const id = useId();
 </script>
 
 <template>
   <div class="ui-switch" :class="{ disabled }">
-    <div class="text">
+    <div class="text" :class="{ 'sr-only': hideLabel }">
       <label :for="id" class="label">{{ label }}</label>
       <p v-if="description !== ''" :id="`${id}-desc`" class="description">{{ description }}</p>
     </div>

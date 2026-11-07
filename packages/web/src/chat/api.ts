@@ -33,6 +33,7 @@ export function chatApi(hub: Hub) {
     suggest: hub.caller('suggest', { lastOnly: true }),
     mentions: hub.caller('mentions'),
     mentionHover: hub.caller('mentionHover', { cache: { ttl: 30_000 }, dedupe: true }),
+    waiting: hub.caller('waiting'),
     approve: hub.caller('approve'),
     answer: hub.caller('answer'),
     presence: hub.caller('presence'),

@@ -1,5 +1,6 @@
 import { createLogger, type LogRecord } from '@ayepi/log';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { LinkHost, loggedHost } from './host.ts';
 import { errorFieldFilter } from './log.ts';
 
 describe('the error field', () => {
@@ -12,5 +13,24 @@ describe('the error field', () => {
     expect(records[0]?.error).toEqual({ name: 'Error', message: 'no such folder' });
     expect(lines[0]).toContain('error=Error: no such folder');
     expect(records[1]?.error?.message).toBe('boom');
+  });
+});
+
+describe('loggedHost', () => {
+  it('gives a process log before serve: structured lines with the system name, secrets masked', () => {
+    const lines: unknown[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => { lines.push(line); });
+    try {
+      const { host, log } = loggedHost('notes');
+      log.info('notes.ready', { token: 'hunter2', count: 1 });
+      expect(host).toBeInstanceOf(LinkHost);
+      const line = String(lines[0]);
+      expect(line).toContain('notes.ready');
+      expect(line).toContain('system=notes');
+      expect(line).toContain('count=1');
+      expect(line).not.toContain('hunter2');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

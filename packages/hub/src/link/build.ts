@@ -83,7 +83,7 @@ export function buildSystems(options: SystemsOptions) {
   const catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
   const status = new SystemStatusKeeper({ store, bus, catalog, links: connections });
   const pairing = new StorePairingService({ store, bus, log, clock, url: settings.hub.HARNESS_URL, timeout: settings.link.HARNESS_PAIRING_TIMEOUT });
-  const config = new StoreConfigService({ store, log, clock, catalog, links: connections, status });
+  const config = new StoreConfigService({ store, bus, log, clock, catalog, links: connections, status });
   const resources = new PeerResourceRouter({ links: connections, catalog, bus, log, maxChunk: settings.link.HARNESS_MAX_CHUNK });
   const admin = new StoreSystemAdmin({ store, log, catalog, links: connections, status, stopTimeout: settings.link.HARNESS_STOP_TIMEOUT });
   const relay = new SystemEventRelay({ bus, links: connections, catalog, log });
@@ -116,7 +116,7 @@ export function buildSystems(options: SystemsOptions) {
     catalog, connections, pairing, config, status, resources, admin, relay, supervisor, handshake, output,
     index: { embedders, indexer, search, suggest, sectioning, batcher },
     /** The link plugin to install on the hub link server. */
-    plugin: linkPlugin(handshake),
+    plugin: linkPlugin(handshake, { log, clock }),
     /** Start following the bus (indexing) and the embedders. */
     start(): void {
       stopIndexer ??= indexer.start();

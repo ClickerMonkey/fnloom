@@ -14,6 +14,7 @@
  */
 import { env } from '@ayepi/env';
 import { loadEnv } from '@ayepi/env/load';
+import { HUB_PORT } from '@harness/core';
 import { z } from 'zod';
 import { fsConfig, ROOT, startStack, type ComponentName } from './stack.ts';
 
@@ -24,7 +25,7 @@ for (const [key, value] of Object.entries(loadEnv({ files: ['.env'] }))) {
 const COMPONENTS = ['web', 'hub', 'fs', 'embedder'] as const satisfies readonly ComponentName[];
 
 const devEnv = env({
-  HARNESS_PORT: z.number().int().min(1).max(65535).default(4300),
+  ...HUB_PORT,
   HARNESS_DATA: z.string().default('.harness'),
   HARNESS_DEV_ONLY: z.string().default(COMPONENTS.join(',')),
   HARNESS_DEV_ROOT: z.string().default(ROOT),

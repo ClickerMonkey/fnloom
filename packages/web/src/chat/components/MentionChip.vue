@@ -32,7 +32,7 @@ function open(event: MouseEvent): void {
 
 <template>
   <button
-    type="button" class="mention-chip" :style="{ '--chip': tint }" data-testid="mention-chip" :data-provider="provider"
+    type="button" class="mention-chip touch-target" :style="{ '--chip': tint }" data-testid="mention-chip" :data-provider="provider"
     @mouseenter="enter" @mouseleave="leave" @focus="enter" @blur="leave" @click="open"
   >
     <UiIcon :name="glyph" :size="13" />

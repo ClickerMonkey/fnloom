@@ -60,7 +60,7 @@ describe('notifications from hub events', () => {
     w.bus.publish('approval', { approval: { ...approval('approved'), id: IDS.approval.parse('apr_2') }, approvers: [w.admin.id] });
     await settle();
     const mine = await w.chat.notifications.list(w.admin.id, {});
-    expect(mine.items).toEqual([expect.objectContaining({ reason: 'approval-needed', title: 'Approve fs/write?', link: { approval: 'apr_1' } })]);
+    expect(mine.items).toEqual([expect.objectContaining({ reason: 'approval-needed', title: 'Approve fs/write?', link: { run: 'run_1' } })]);
     expect((await w.chat.notifications.list(bo.id, {})).items).toHaveLength(1);
     stop();
   });
@@ -104,6 +104,25 @@ describe('notifications from hub events', () => {
     w.bus.publish('system.status', { system: SystemName.parse('fs'), status: 'disconnected' });
     await settle();
     expect(await reasons(w.admin.id)).toHaveLength(3);
+  });
+
+  it('ask admins once to raise a budget that says ask, linking the waiting run', async () => {
+    const w = await chatWorld();
+    await w.user('Bo');
+    const stop = w.chat.start();
+    const budget = {
+      id: IDS.budget.parse('bgt_1'), target: { scope: 'hub' as const }, period: 'all-time' as const, maxCost: 1, onLimit: 'ask' as const, setBy: w.admin.id,
+    };
+    const run = IDS.run.parse('run_1');
+    w.bus.publish('budget.reached', { budget, run, reason: 'the hub budget of $1.00 is used up' });
+    w.bus.publish('budget.reached', { budget, run, reason: 'the hub budget of $1.00 is used up' });
+    await settle();
+    const items = (await w.chat.notifications.list(w.admin.id, {})).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ reason: 'spend-limit', link: { run } });
+    expect(items[0]?.body).toContain('the hub budget of $1.00 is used up');
+    expect((await w.chat.notifications.list(IDS.actor.parse('act_bo'), {})).items).toEqual([]);
+    stop();
   });
 });
 

@@ -542,6 +542,8 @@ export class StoreCatalog implements Catalog {
       progress: description.progress ?? decl.progress,
       limits: description.limits ?? decl.limits,
       display: description.display ?? decl.display,
+      // the fn's own status words win over what its kind says for the payload
+      ...(decl.status === undefined && description.status !== undefined ? { status: description.status } : {}),
     });
     return [];
   }

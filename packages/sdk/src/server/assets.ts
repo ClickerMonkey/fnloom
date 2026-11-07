@@ -6,7 +6,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { ClientAssets } from '@harness/core';
-import { hashOf, type ContentTransfer } from './content.ts';
+import { contentHash, type ContentTransfer } from './content.ts';
 
 /** The entry module a client build writes. */
 export const CLIENT_ENTRY = 'index.js';
@@ -36,8 +36,8 @@ export async function readClientBundle(folder: string): Promise<ClientBundle> {
     return { path, mime: mimeOfAsset(path), bytes: new Uint8Array(await readFile(file)) };
   }));
   if (!files.some((file) => file.path === CLIENT_ENTRY)) { throw new Error(`The client build in ${folder} has no ${CLIENT_ENTRY}.`); }
-  const listed = files.map((file) => ({ path: file.path, size: file.bytes.length, hash: hashOf(file.bytes) }));
-  const hash = hashOf(new TextEncoder().encode(listed.map((file) => `${file.path}:${file.hash}`).join('\n')));
+  const listed = files.map((file) => ({ path: file.path, size: file.bytes.length, hash: contentHash(file.bytes) }));
+  const hash = contentHash(new TextEncoder().encode(listed.map((file) => `${file.path}:${file.hash}`).join('\n')));
   return { assets: ClientAssets.parse({ entry: CLIENT_ENTRY, hash, files: listed }), files };
 }
 

@@ -55,7 +55,7 @@ describe('requests', () => {
     const wire = requestToWire(request);
     expect(wire.stop).toEqual(['END']);
     expect(wire.toolChoice).toBe('required');
-    expect(wire.tools?.[0]).toMatchObject({ name: 'fs__read', strict: true, parameters: { type: 'object', properties: { path: { type: 'string' } } } });
+    expect(wire.tools?.[0]).toMatchObject({ name: 'fs__read', strict: 1, parameters: { type: 'object', properties: { path: { type: 'string' } } } });
     expect(wire.responseFormat).toMatchObject({ strict: false, schema: { type: 'object' } });
   });
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ActorId, Duration, Json, Priority, QualifiedName, RunId, SessionId, Timestamp, TurnId, Usd,
 } from './primitives.ts';
+import { RunText } from './status.ts';
 
 // ─── Who and when ─────────────────────────────────────────────────────────────
 
@@ -128,7 +129,8 @@ export type ProgressReport = z.infer<typeof ProgressReport>;
 // ─── Outcomes ─────────────────────────────────────────────────────────────────
 
 /** How the hub treats a failure: try again, give it back to the caller so the LLM can fix its call, or stop the turn. */
-export const ErrorClass = z.enum(['retry', 'caller', 'fatal']);
+export const ERROR_CLASSES = ['retry', 'caller', 'fatal'] as const;
+export const ErrorClass = z.enum(ERROR_CLASSES);
 export type ErrorClass = z.infer<typeof ErrorClass>;
 
 /** A failure. */
@@ -146,12 +148,39 @@ export const RUN_STATUSES = ['awaiting-approval', 'queued', 'running', 'waiting'
 export const RunStatus = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof RunStatus>;
 
-/** The statuses a run never leaves on its own. */
-export const SETTLED_RUN_STATUSES = ['done', 'failed', 'cancelled', 'undone'] as const satisfies readonly RunStatus[];
+/**
+ * Whether each status is settled (a run never leaves it on its own) or active (the run may still change things).
+ * Every status must be classed here, so a new one fails to compile until it is.
+ */
+const SETTLED_BY_STATUS = {
+  'awaiting-approval': false, queued: false, running: false, waiting: false, paused: false,
+  done: true, failed: true, cancelled: true, undone: true,
+} as const satisfies Record<RunStatus, boolean>;
+
+/** A status a run never leaves on its own. */
+export type SettledRunStatus = { [S in RunStatus]: (typeof SETTLED_BY_STATUS)[S] extends true ? S : never }[RunStatus];
+/** A status of a run that is not finished yet. */
+export type ActiveRunStatus = Exclude<RunStatus, SettledRunStatus>;
+
+/** Whether a status is one a run never leaves on its own. */
+export function isSettled(status: RunStatus): status is SettledRunStatus {
+  return SETTLED_BY_STATUS[status];
+}
+
+/** Whether a run with this status is not finished yet (it may still change things). */
+export function isUnsettled(status: RunStatus): status is ActiveRunStatus {
+  return !SETTLED_BY_STATUS[status];
+}
+
+/** The statuses a run never leaves on its own, in `RUN_STATUSES` order. */
+export const SETTLED_RUN_STATUSES: readonly SettledRunStatus[] = RUN_STATUSES.filter(isSettled);
+/** The statuses of runs that are not finished, in `RUN_STATUSES` order. Together with the settled ones they are every status. */
+export const ACTIVE_RUN_STATUSES: readonly ActiveRunStatus[] = RUN_STATUSES.filter(isUnsettled);
 
 /** A live change to a run. */
 export const RunUpdate = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('status'), status: RunStatus }),
+  /** `text` is the run's status words for its new phase; absent for statuses the chat words itself (see `phaseOf`). */
+  z.object({ type: z.literal('status'), status: RunStatus, text: RunText.optional() }),
   z.object({ type: z.literal('progress'), progress: ProgressWire }),
   z.object({ type: z.literal('allowed'), operations: AllowedOperations }),
   z.object({ type: z.literal('cost'), cost: Usd, total: Usd }),

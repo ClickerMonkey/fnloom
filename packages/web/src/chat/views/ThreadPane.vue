@@ -32,12 +32,13 @@ import Starters from '../components/Starters.vue';
 import TurnNotice from '../components/TurnNotice.vue';
 import type { ApprovalView, ComposerHandle, HeaderAction, MessageAction, RenderView, ScrollerHandle, Starter } from '../components/types.ts';
 import UserMessage from '../components/UserMessage.vue';
+import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import { isTouch } from '../dom.ts';
 import { FORM_INPUTS } from '../forms/inputs.ts';
 import { mentionToken, placeholderFor, type DraftMention } from '../logic/composer.ts';
 import { clamp } from '../logic/format.ts';
 import { agentName, fnLabel, humanize, localName } from '../logic/labels.ts';
-import { runError, runResult, statusLine, type RunView } from '../logic/runs.ts';
+import { runError, runResult, STATUS_LINE, statusLine, type RunView } from '../logic/runs.ts';
 import { budgetMeter, messageSuggestions, whoAnswers, type SuggestionItem } from '../logic/session.ts';
 import { messageText, threadItems, type MentionPart } from '../logic/thread.ts';
 import { sendDraft } from '../state/send.ts';
@@ -48,11 +49,13 @@ const props = withDefaults(defineProps<{
   compact: boolean;
   /** The thread's column is narrow (a phone, or a panel beside it): words give way to icons. */
   narrow?: boolean;
+  /** The header carries the app's navigation button (the app's top bar is hidden). */
+  nav?: boolean;
   flash?: MessageId | undefined;
-}>(), { narrow: false, flash: undefined });
+}>(), { narrow: false, nav: false, flash: undefined });
 const emit = defineEmits<{
   run: [id: RunId]; llm: [id: LlmInteractionId]; details: [turn: TurnId]; tree: [turn: TurnId]; resource: [uri: ResourceUri];
-  panel: [panel: ChatPanel]; sessions: []; newChat: []; message: [id: MessageId]; shortcuts: [];
+  panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: [];
 }>();
 
 const { chat, toasts, session: auth } = useStores();
@@ -90,7 +93,7 @@ function runsOfTurn(turn: TurnId): RunView[] {
 }
 
 const liveTurn = computed(() => (thread.running.value ? (thread.awaiting.value ?? thread.lastTurn.value) : undefined));
-const liveLine = computed(() => (liveTurn.value === undefined ? undefined : statusLine(runsOfTurn(liveTurn.value), now.value)));
+const liveLine = computed(() => (liveTurn.value === undefined ? undefined : statusLine(runsOfTurn(liveTurn.value), now.value, STATUS_LINE, record.value?.agent)));
 const hasAnswer = computed(() => liveTurn.value !== undefined && thread.messages.value.some((m) => m.turn === liveTurn.value && m.role === 'assistant'));
 
 /** A system's session state fields, by name (the thread keys them `system/name`). */
@@ -114,7 +117,7 @@ function viewOf(run: RunView): RenderView | undefined {
     component,
     props: {
       run: run.id, status: run.status, args: run.args, result: runResult(run), error: runError(run), progress: run.progress,
-      state: stateOf(system), submit: (value: Json) => chat.renderers.runtime.submit(run.id, json(), value), system: chat.renderers.runtime.systemClient(system),
+      state: stateOf(system), submit: (value: Json) => chat.renderers.runtime.submit(run.id, json(), value), system: chat.renderers.runtime.systemClient(system, run.id),
     },
   };
 }
@@ -251,16 +254,13 @@ function useSuggestion(item: SuggestionItem, kind: 'context' | 'fn'): void {
   composer.replace(`/${command.name} ${composer.text.value}`);
 }
 
-const starters = computed<Starter[]>(() => {
-  const fromCommands = (caps.value.value?.commands ?? []).slice(0, 4).map((c): Starter => ({ key: `c:${c.name}`, title: c.description || `/${c.name}`, text: `/${c.name} `, icon: 'chevron-right' }));
-  const general: Starter[] = [
-    { key: 'g:plan', title: 'Plan a change with me', text: 'Help me plan a change. Ask me what you need to know first.', icon: 'sparkles' },
-    { key: 'g:explain', title: 'Explain how something works', text: 'Explain how this works: ', icon: 'info' },
-    { key: 'g:find', title: 'Find something in my files', text: 'Find where ', icon: 'search' },
-    { key: 'g:fns', title: 'What can you do here?', text: 'What can you do in this chat? List the fns and context you can use.', icon: 'fn' },
-  ];
-  return [...fromCommands, ...general].slice(0, 4);
-});
+/** The fixed starters. The hub offers no questions of its own for a context yet, so its descriptions aren't used as starters. */
+const starters: readonly Starter[] = [
+  { key: 'g:plan', title: 'Plan a change with me', text: 'Help me plan a change. Ask me what you need to know first.', icon: 'sparkles' },
+  { key: 'g:explain', title: 'Explain how something works', text: 'Explain how this works: ', icon: 'info' },
+  { key: 'g:find', title: 'Find something in my files', text: 'Find where ', icon: 'search' },
+  { key: 'g:fns', title: 'What can you do here?', text: 'What can you do in this chat? List the fns and context you can use.', icon: 'fn' },
+];
 
 async function start(starter: Starter): Promise<void> {
   if (starter.text.endsWith(' ')) { composer.replace(starter.text); return; }
@@ -290,7 +290,13 @@ function flashNote(text: string): void {
   noteTimer = setTimeout(() => { note.value = ''; }, 4_000);
 }
 
-async function send(): Promise<void> {
+/** An edit waiting for the person to confirm what it undoes. */
+const confirmingEdit = ref(false);
+const editTurns = computed(() => (composer.editing.value === undefined ? 0 : thread.turnsFrom(composer.editing.value).length));
+
+async function send(confirmed = false): Promise<void> {
+  if (!confirmed && editTurns.value > 0) { confirmingEdit.value = true; return; }
+  confirmingEdit.value = false;
   scroller.value?.toBottom();
   const result = await sendDraft(thread, composer, suggest);
   if (!result.ok) {
@@ -305,7 +311,7 @@ async function send(): Promise<void> {
 function onInput(text: string, caret: number): void {
   composer.input(text, caret);
   suggest.update(text);
-  thread.reportPresence({ typing: text !== '', focused: true });
+  thread.reportPresence({ typing: text !== '' });
 }
 
 function recall(): void {
@@ -335,7 +341,7 @@ async function stopVoice(): Promise<void> {
 }
 
 function useDraftSuggestion(item: { kind: 'fn' | 'context'; name: QualifiedName }): void {
-  useSuggestion({ name: item.name, label: item.kind === 'fn' ? fnLabel(item.name) : humanize(localName(item.name)), system: splitName(item.name).system, why: '', state: 'offered' }, item.kind);
+  useSuggestion({ name: item.name, label: item.kind === 'fn' ? fnLabel(item.name) : humanize(localName(item.name)), system: splitName(item.name).system, why: '', state: 'offered', score: undefined }, item.kind);
 }
 
 // ── approvals, questions and the header ───────────────────────────────────────
@@ -356,7 +362,8 @@ const systems = computed(() => {
   const used = record.value?.systems === 'all' || record.value === undefined ? all : all.filter((s) => record.value?.systems.includes(s.name) === true);
   return { total: used.length, offline: used.filter((s) => s.status !== 'connected').length };
 });
-const meter = computed(() => budgetMeter(thread.limits.value, thread.spent.value, thread.spentSince.value));
+const turnSpent = computed(() => (liveTurn.value === undefined ? 0 : runsOfTurn(liveTurn.value).reduce((sum, run) => sum + run.cost, 0)));
+const meter = computed(() => budgetMeter(thread.limits.value, thread.spent.value, thread.spentSince.value, turnSpent.value));
 
 function header(action: HeaderAction): void {
   switch (action) {
@@ -422,7 +429,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
   <div class="pane" :class="{ dropping }" data-testid="thread-pane" @dragover.prevent="dropping = caps.can.value.upload" @dragleave.self="dropping = false" @drop.prevent="onDrop">
     <ChatHeader
       :title="record?.title ?? ''" :status="record?.status" :people="people" :compact="compact" :can-undo="thread.canUndo.value" :has-turn="thread.lastTurn.value !== undefined"
-      :archived="record?.archived ?? false" :waiting="waiting" @sessions="emit('sessions')" @rename="rename" @action="header"
+      :archived="record?.archived ?? false" :waiting="waiting" :nav="nav" @sessions="emit('sessions')" @nav="emit('nav')" @rename="rename" @action="header"
     />
 
     <div v-if="thread.status.value === 'loading' && thread.messages.value.length === 0" class="loading" data-testid="thread-loading" aria-busy="true">
@@ -443,20 +450,20 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         <UserMessage
           v-else-if="item.kind === 'user'" :message="item.message" :mine="item.mine" :author-name="nameOf(item.message.author)" :now="now" :command-name="commandName"
           :suggestions="messageSuggestions(item.message, record)" :actions="userActions(item.mine)" :quote="quoteOf(item.message)" :flash="flash === item.message.id"
-          :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(id: RunId) => chat.collapse.isCollapsed(id)"
+          :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
           @action="act($event, [item.message])" @quote="quote(item.message)" @mention-hover="showCard" @mention-leave="hideCard" @mention-open="showCard"
           @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
         />
         <AssistantAnswer
           v-else-if="item.kind === 'answer'" :messages="item.messages" :author-name="nameOf(item.author)" :now="now" :streaming="item.streaming" :failed="item.failed"
-          :runs-of="(m: ChatMessage) => thread.runsOf(m)" :reasoning-of="(id: MessageId) => thread.reasoning.value.get(id) ?? ''" :collapsed="(id: RunId) => chat.collapse.isCollapsed(id)"
+          :runs-of="(m: ChatMessage) => thread.runsOf(m)" :marks="thread.marks.value" :reasoning-of="(m: ChatMessage) => thread.reasoningOf(m)" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
           :view-of="viewOf" :attachment-view="attachmentView" :actions="answerActions(item.turn)" :flash="item.messages.some((m) => m.id === flash)"
           :status-line="item.turn === liveTurn ? liveLine : undefined" :navigate="navigate"
           @action="act($event, item.messages)" @run-open="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
           @collapse-all="(collapsed) => chat.collapse.setAll(item.messages.flatMap((m) => m.runs), collapsed)" @background="thread.toBackground($event)"
           @tree="emit('tree', item.turn)" @link="openLink"
         />
-        <NoteRow v-else :message="item.message" :flash="flash === item.message.id" />
+        <NoteRow v-else :message="item.message" :undone="item.undone" :flash="flash === item.message.id" />
       </template>
       <template #foot>
         <PendingAnswer v-if="liveTurn !== undefined && !hasAnswer && liveLine" :author-name="agent" :line="liveLine" @tree="liveTurn && emit('tree', liveTurn)" />
@@ -481,12 +488,12 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
           :stopping="thread.stopping.value" :controls="thread.controls.value" :picker="picker" :hint="composer.hint.value" :files="composer.uploads.items.value"
           :reply="replyView" :editing="composer.editing.value !== undefined" :reply-all="{ shown: replyAllShown, on: composer.replyAll.value }" :answerers="answerers"
           :can-attach="caps.can.value.upload" :voice="voiceView" :now="now" :touch="touch" :note="note"
-          @input="onInput" @caret="composer.moveCaret($event)" @send="send" @stop="stop" @resume="thread.control('resume')"
+          @input="onInput" @caret="composer.moveCaret($event)" @send="send()" @stop="stop" @resume="thread.control('resume')"
           @picker-move="composer.movePicker($event)" @picker-hover="composer.pickerActive.value = $event" @pick="composer.pick($event)" @picker-dismiss="composer.dismissPicker()"
           @attach="composer.uploads.add($event)" @remove-file="composer.uploads.remove($event)" @retry-file="composer.uploads.retry($event)"
           @clear-reply="composer.setReply(undefined)" @cancel-edit="composer.cancelEdit()" @reply-all="composer.replyAll.value = $event"
           @voice-start="startVoice" @voice-stop="stopVoice" @voice-cancel="voice?.cancel()" @voice-dismiss="voice?.dismiss()" @recall="recall"
-          @focus="(focused) => thread.reportPresence({ typing: focused && composer.text.value !== '', focused })"
+          @focus="(focused) => thread.reportPresence({ typing: focused && composer.text.value !== '' })"
         />
         <ComposerMeta
           :agent="agent" :systems="systems" :background="thread.background.value.length" :spent="thread.spent.value" :meter="meter" :compact="compact || narrow"
@@ -494,6 +501,12 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         />
       </div>
     </div>
+
+    <ConfirmDialog
+      v-model:open="confirmingEdit" title="Send your edit?" confirm="Undo and send" :danger="false" data-testid="confirm-edit"
+      :body="`This undoes ${editTurns === 1 ? 'the turn' : `${editTurns} turns`} from that message on, then sends your edit. Changes a fn made can't always be undone; the note after says what stayed.`"
+      @confirm="send(true)"
+    />
 
     <UiPopover v-model:open="hoverOpen" :anchor="hoverAnchor" side="top" align="start" label="Mention" :take-focus="false">
       <div @mouseenter="keepCard" @mouseleave="hideCard">
@@ -507,7 +520,8 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
 </template>
 
 <style scoped>
-.pane { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; min-width: 0; min-height: 0; }
+/* a size container, so the composer's height can follow the thread's (cqh) */
+.pane { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; min-width: 0; min-height: 0; container: thread / size; }
 .pane.dropping::after {
   content: 'Drop files to attach'; position: absolute; inset: var(--space-3); display: grid; place-items: center; border: 2px dashed var(--accent);
   border-radius: var(--radius-xl); background: color-mix(in oklch, var(--accent-soft) 70%, transparent); color: var(--accent); font-weight: var(--weight-strong);

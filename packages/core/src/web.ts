@@ -8,7 +8,7 @@ import { middleware, spec, use } from '@ayepi/core';
 import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
 import { BudgetView, LlmFilter, LlmSummary, ModelInfo, OutputLine, ResourceFilter, RuleRef, RunFilter, SettingView } from './admin.ts';
-import { MentionHover, MentionOption, ImportReport } from './manifest.ts';
+import { MentionHover, MentionOption, ImportReport, SuggestionScore } from './manifest.ts';
 import {
   ActorId, ActorKind, ApprovalId, DeliveryId, Duration, ProviderId, HandlerCallId, Json, LlmInteractionId, MessageId, PageRequest, PairingId, Priority, QualifiedName,
   RunId, SessionId, SystemName, Timestamp, TurnId, page,
@@ -47,7 +47,7 @@ export const Suggestion = z.object({
   kind: z.enum(['fn', 'context']),
   name: QualifiedName,
   description: z.string(),
-  score: z.number(),
+  score: SuggestionScore,
   why: z.string().optional(),
 });
 export type Suggestion = z.infer<typeof Suggestion>;
@@ -60,6 +60,10 @@ export const ProviderInput = z.discriminatedUnion('provider', [
   z.object({ provider: z.literal('replicate'), apiKey: z.string().min(1) }),
 ]);
 export type ProviderInput = z.infer<typeof ProviderInput>;
+
+/** What waits on a person in a session, so a reload shows it again. */
+export const Waiting = z.object({ approvals: z.array(Approval), handlers: z.array(HandlerCall) });
+export type Waiting = z.infer<typeof Waiting>;
 
 /** A system as the admin pages show it. */
 export const SystemView = SystemRecord.omit({ publicKey: true }).extend({
@@ -122,6 +126,8 @@ const signedIn = use(tel, hubAuth).group({
   search: { body: z.object({ query: z.string(), kinds: z.array(IndexedKind).optional(), limit: z.number().int().min(1).max(50).optional() }), response: z.array(SearchHit), ws: 'search' },
   mentions: { body: z.object({ session: SessionId, provider: QualifiedName, query: z.string() }), response: z.array(MentionOption), ws: 'mentions' },
   mentionHover: { body: z.object({ session: SessionId, provider: QualifiedName, target: Json }), response: z.object({ hover: MentionHover.optional() }), ws: 'mentionHover' },
+  /** What waits on the signed-in person in a session: pending approvals of its runs, and questions its runs asked them. */
+  waiting: { body: z.object({ session: SessionId }), response: Waiting, ws: 'waiting' },
   approve: { body: z.object({ approval: ApprovalId, approve: z.boolean(), remember: Remember, reason: z.string().optional() }), response: Approval, ws: 'approve' },
   /** Answer a handler a run asked a person for. */
   answer: { body: z.object({ call: HandlerCallId, value: Json }), ws: 'answer' },

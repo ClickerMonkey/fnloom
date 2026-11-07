@@ -5,6 +5,7 @@
  * in a frame: it moves as a `ContentRef` fetched in chunks.
  */
 import { ctx, endpoint, middleware, spec, use } from '@ayepi/core';
+import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
 import { LlmForward, LlmForwardChunk } from './llm.ts';
 import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption, SystemEvent } from './manifest.ts';
@@ -92,6 +93,12 @@ export type LinkSession = z.infer<typeof LinkSession>;
  */
 export const linkSession = middleware('linkSession', { provides: ctx<{ link: LinkSession }>() });
 
+/**
+ * Request telemetry on the system link (`@ayepi/otel`): every call a system makes on the hub gets a request id, trace
+ * context for the logs inside it, and request and response lines. The hub binds it on the link server.
+ */
+export const linkTel = telemetry({ name: 'linkTel' });
+
 // ─── Running ──────────────────────────────────────────────────────────────────
 
 /** What a resuming run gets back: its resume state and the results of calls that already finished, by key. */
@@ -151,7 +158,7 @@ export type StopReason = z.infer<typeof StopReason>;
 
 // ─── What a system calls on the hub ──────────────────────────────────────────
 
-const linked = use(linkSession).group({
+const linked = use(linkTel, linkSession).group({
   manifest: { body: Manifest, response: ImportReport, ws: 'mf' },
   patch: { body: ManifestPatch, response: ImportReport, ws: 'mp' },
   /** A call from inside a run. Queued like every run; replies when it settles (or goes to the background). */
@@ -213,8 +220,10 @@ const linked = use(linkSession).group({
 /** What a system calls on the hub. */
 export const hubLinkSpec = spec({
   endpoints: {
-    hello: endpoint({ body: Hello, response: HelloReply, ws: 'hi' }),
-    prove: endpoint({ body: ChallengeAnswer, response: Welcome, ws: 'pr' }),
+    ...use(linkTel).group({
+      hello: { body: Hello, response: HelloReply, ws: 'hi' },
+      prove: { body: ChallengeAnswer, response: Welcome, ws: 'pr' },
+    }),
     ...linked,
   },
 });

@@ -129,6 +129,7 @@ export function fakeChatApi() {
     suggest: fakeCaller<'suggest'>(() => Promise.resolve([])),
     mentions: fakeCaller<'mentions'>(({ query }) => Promise.resolve([{ label: `${query || 'harness'}.md`, hint: 'docs/', target: { path: `docs/${query}.md` } }])),
     mentionHover: fakeCaller<'mentionHover'>(() => Promise.resolve(({ hover: { title: 'harness.md', subtitle: 'docs/', fields: [{ label: 'Size', value: '12 KB' }] } }))),
+    waiting: fakeCaller<'waiting'>(() => Promise.resolve({ approvals: [], handlers: [] })),
     approve: fakeCaller<'approve'>(({ approval: id, approve }) => Promise.resolve(approval({ id, status: approve ? 'approved' : 'denied' }))),
     answer: fakeCaller<'answer'>(() => Promise.resolve(undefined)),
     presence: fakeCaller<'presence'>(() => Promise.resolve(undefined)),

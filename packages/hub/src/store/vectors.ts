@@ -35,34 +35,45 @@ function vectorBlob(vector: readonly number[]): Uint8Array {
 /** Similarity in [0, 1] from cosine distance in [0, 2]: 1 − distance, floored at 0 (opposite vectors aren't similar). */
 export const similarity = (distance: number): number => Math.min(1, Math.max(0, 1 - distance));
 
-/** Create or check every embedder's table. Run inside a transaction. Returns the embedders whose tables were rebuilt. */
-export async function createVectorTables(scope: Scope, dimensions: Readonly<Record<string, number>>, log: Logger): Promise<string[]> {
-  const { db } = scope;
-  await db.schema
+/** Make the table that records each embedder's vector table and size. */
+async function createVectorMeta(scope: Scope): Promise<void> {
+  await scope.db.schema
     .createTable(VECTOR_META)
     .ifNotExists()
     .addColumn('embedder', 'text', (c) => c.primaryKey().notNull())
     .addColumn('table', 'text', (c) => c.notNull())
     .addColumn('dimensions', 'integer', (c) => c.notNull())
     .execute();
+}
+
+/** Make one embedder's table at a size, remaking it when it was made at another. Returns whether it was remade. */
+async function ensureVectorTable(scope: Scope, embedder: string, size: number, log: Logger): Promise<boolean> {
+  const { db } = scope;
+  if (!Number.isInteger(size) || size < 1) throw new StoreError('bad-vector', `embedder ${embedder}: dimensions must be a positive whole number, not ${size}`);
+  const table = vectorTable(embedder);
+  const found = await db.selectFrom(VECTOR_META).selectAll().where('embedder', '=', embedder).executeTakeFirst();
+  const meta = found === undefined ? undefined : VectorMeta.parse(found);
+  const rebuilt = meta !== undefined && meta.dimensions !== size;
+  if (rebuilt) {
+    await sql`drop table if exists ${sql.table(meta.table)}`.execute(db);
+    log.warn('store.vectors.rebuilt', { embedder, from: meta.dimensions, to: size });
+  }
+  await sql`create virtual table if not exists ${sql.table(table)} using vec0(
+    id text primary key, embedding float[${sql.raw(String(size))}] distance_metric=cosine, kind text, +key text)`.execute(db);
+  await db
+    .insertInto(VECTOR_META)
+    .values({ embedder, table, dimensions: size })
+    .onConflict((oc) => oc.column('embedder').doUpdateSet({ table, dimensions: size }))
+    .execute();
+  return rebuilt;
+}
+
+/** Create or check the tables of the embedders known at open. Run inside a transaction. Returns those rebuilt. */
+export async function createVectorTables(scope: Scope, dimensions: ReadonlyMap<string, number>, log: Logger): Promise<string[]> {
+  await createVectorMeta(scope);
   const rebuilt: string[] = [];
-  for (const [embedder, size] of Object.entries(dimensions)) {
-    if (!Number.isInteger(size) || size < 1) throw new StoreError('bad-vector', `embedder ${embedder}: dimensions must be a positive whole number, not ${size}`);
-    const table = vectorTable(embedder);
-    const found = await db.selectFrom(VECTOR_META).selectAll().where('embedder', '=', embedder).executeTakeFirst();
-    const meta = found === undefined ? undefined : VectorMeta.parse(found);
-    if (meta !== undefined && meta.dimensions !== size) {
-      await sql`drop table if exists ${sql.table(meta.table)}`.execute(db);
-      log.warn('store.vectors.rebuilt', { embedder, from: meta.dimensions, to: size });
-      rebuilt.push(embedder);
-    }
-    await sql`create virtual table if not exists ${sql.table(table)} using vec0(
-      id text primary key, embedding float[${sql.raw(String(size))}] distance_metric=cosine, kind text, +key text)`.execute(db);
-    await db
-      .insertInto(VECTOR_META)
-      .values({ embedder, table, dimensions: size })
-      .onConflict((oc) => oc.column('embedder').doUpdateSet({ table, dimensions: size }))
-      .execute();
+  for (const [embedder, size] of dimensions) {
+    if (await ensureVectorTable(scope, embedder, size, log)) rebuilt.push(embedder);
   }
   return rebuilt;
 }
@@ -70,11 +81,23 @@ export async function createVectorTables(scope: Scope, dimensions: Readonly<Reco
 /** The vector index, in a scope. */
 export class SqliteVectorIndex implements VectorIndex {
   readonly #scope: Scope;
-  readonly #dimensions: Readonly<Record<string, number>>;
+  readonly #dimensions: Map<string, number>;
+  readonly #log: Logger;
 
-  constructor(scope: Scope, dimensions: Readonly<Record<string, number>>) {
+  constructor(scope: Scope, dimensions: Map<string, number>, log: Logger) {
     this.#scope = scope;
     this.#dimensions = dimensions;
+    this.#log = log;
+  }
+
+  async ensure(embedder: QualifiedName, dimensions: number): Promise<boolean> {
+    if (this.#dimensions.get(embedder) === dimensions) return false;
+    const rebuilt = await this.#scope.atomic(async (scope) => {
+      await createVectorMeta(scope);
+      return ensureVectorTable(scope, embedder, dimensions, this.#log);
+    });
+    this.#dimensions.set(embedder, dimensions);
+    return rebuilt;
   }
 
   async upsert(embedder: QualifiedName, entries: ReadonlyArray<{ kind: IndexedKind; key: string; vector: readonly number[] }>): Promise<void> {
@@ -120,12 +143,12 @@ export class SqliteVectorIndex implements VectorIndex {
   }
 
   #table(embedder: QualifiedName): string {
-    if (this.#dimensions[embedder] === undefined) throw new StoreError('unknown-embedder', `the store has no vectors for embedder ${embedder}`);
+    if (!this.#dimensions.has(embedder)) throw new StoreError('unknown-embedder', `the store has no vectors for embedder ${embedder}`);
     return vectorTable(embedder);
   }
 
   #check(embedder: QualifiedName, vector: readonly number[]): void {
-    const size = this.#dimensions[embedder];
+    const size = this.#dimensions.get(embedder);
     if (vector.length !== size) throw new StoreError('bad-vector', `embedder ${embedder} has ${size ?? 0} dimensions; the vector has ${vector.length}`);
     if (!vector.every(Number.isFinite)) throw new StoreError('bad-vector', `embedder ${embedder}: the vector holds a value that isn't finite`);
   }

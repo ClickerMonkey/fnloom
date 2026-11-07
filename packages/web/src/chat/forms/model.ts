@@ -13,7 +13,7 @@ import type {
   EnumOptions as GinEnumOptions, ListOptions as GinListOptions, NewExprDef, NumOptions as GinNumOptions, PropDef, TextOptions as GinTextOptions, TypeDef,
 } from '@aeye/gin';
 import { isGinTypeDef, Json } from '@harness/core';
-import { g } from '@harness/sdk';
+import { g, referencesOf } from '@harness/sdk';
 import { z } from 'zod';
 import { humanize } from '../logic/labels.ts';
 
@@ -417,8 +417,8 @@ export function problemAt(problems: readonly FormProblem[], path: string): strin
 
 /**
  * gin's own check of a value against the type definition, where the type can be rebuilt here (a type naming a
- * system's own types needs that system's contract). Returns a problem, `''` when it fits, or undefined when it
- * couldn't check.
+ * system's own types, such as `fs/Entry`, needs that system's contract, which the browser doesn't hold). Returns a
+ * problem, `''` when it fits, or undefined when it couldn't check.
  */
 export function ginCheck(def: unknown, value: Json): string | undefined {
   if (!isGinTypeDef(def)) { return undefined; }
@@ -428,6 +428,7 @@ export function ginCheck(def: unknown, value: Json): string | undefined {
   } catch {
     return undefined;
   }
+  if (referencesOf(type).some((name) => g.lookup(name) === undefined)) { return undefined; }
   try {
     type.parse(value);
     return '';

@@ -6,7 +6,7 @@
 import type { ModelCategory, ProviderInput } from '@harness/core';
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import AppPage from '../../app/AppPage.vue';
-import { useParamChoice } from '../../app/url.ts';
+import { useParamChoice, useQueryDraft } from '../../app/url.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiButton, UiEmpty, UiTabs, type TabItem } from '../../ui/index.ts';
 import CategoryDialog from '../components/CategoryDialog.vue';
@@ -24,6 +24,8 @@ import type { ProviderRow } from '../state/models.ts';
 const { admin, toasts } = useStores();
 const models = admin.models;
 const tab = useParamChoice('tab', ModelsTab, 'providers');
+/** The models search, kept in the URL (`?q=`) once typing pauses. */
+const { draft: modelQuery } = useQueryDraft('q');
 const providerOpen = ref(false);
 const categoryOpen = ref(false);
 const editing = shallowRef<ModelCategory | undefined>(undefined);
@@ -90,7 +92,7 @@ async function confirmRemove(): Promise<void> {
         <template #actions><UiButton variant="primary" icon="plus" @click="providerOpen = true">Add provider</UiButton></template>
       </UiEmpty>
 
-      <ModelTable v-if="tab === 'models'" :models="models.models.value.value ?? []" :provider-name="providerName" />
+      <ModelTable v-if="tab === 'models'" v-model:query="modelQuery" :models="models.models.value.value ?? []" :provider-name="providerName" />
 
       <template v-if="tab === 'categories'">
         <RuleList title="Categories" description="An ordered list of models: the first is tried first." add="New category" testid="categories" @add="editCategory()">

@@ -19,17 +19,17 @@ describe('what the hub adds to a message', () => {
     expect(parts).toEqual([{ type: 'extra', extra: 'local-time', blocks: [{ type: 'text', tag: 'now', text: 'Saturday 2026-11-07T09:30:00-05:00 (America/New_York)' }] }]);
   });
 
-  it('adds suggested context and fns from the index, each in its own extra', async () => {
+  it('adds suggested context and fns from the index, each in its own extra, best match first with its score', async () => {
     const w = await world();
     w.index.suggestions = [
-      { kind: 'fn', name: 'fs/read', description: 'Read a file.', score: 0.9 },
-      { kind: 'context', name: 'fs/guide', description: 'How files work.', score: 0.8 },
       { kind: 'fn', name: 'fs/write', description: 'Write a file.', score: 0.7 },
+      { kind: 'context', name: 'fs/guide', description: 'How files work.', score: 0.8 },
+      { kind: 'fn', name: 'fs/read', description: 'Read a file.', score: 0.9 },
     ];
     const parts = await w.chat.enrich.enrich({ session: w.session, turn, text: 'read the readme', user: w.user });
     expect(parts.slice(1)).toEqual([
-      { type: 'extra', extra: 'suggested-context', blocks: [{ type: 'suggest-context', items: [{ context: 'fs/guide', why: 'How files work.' }] }] },
-      { type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: [{ fn: 'fs/read', why: 'Read a file.' }, { fn: 'fs/write', why: 'Write a file.' }] }] },
+      { type: 'extra', extra: 'suggested-context', blocks: [{ type: 'suggest-context', items: [{ context: 'fs/guide', why: 'How files work.', score: 0.8 }] }] },
+      { type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: [{ fn: 'fs/read', why: 'Read a file.', score: 0.9 }, { fn: 'fs/write', why: 'Write a file.', score: 0.7 }] }] },
     ]);
   });
 

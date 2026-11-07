@@ -12,7 +12,7 @@ import { models as knownModels, strictSupport } from '@aeye/models';
 import type { LlmInteractionId, ModelInfo as ModelView, ReservationId, Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
-import type { Ledger } from './index.ts';
+import type { CallSite, Ledger } from './index.ts';
 import type { InteractionRecorder } from './interactions.ts';
 import type { ExecutionBase, LlmEngine, RunCosts } from './ports.ts';
 import type { HubCallContext, HubCallMetadata, LlmCallScope } from './scope.ts';
@@ -30,6 +30,8 @@ interface OpenCall {
   readonly reservation: ReservationId;
   readonly interaction: LlmInteractionId;
   readonly model: CallModel;
+  /** Where the call is made: what it reserved against, and what its ledger line says. */
+  readonly site: CallSite;
 }
 
 /** True for a chat request (the hooks also see embedding and other requests, which carry no messages). */
@@ -80,11 +82,12 @@ export class HubAiHooks {
     if (scope === undefined) return;
     const rate = await this.#deps.modelLimit.check(model.id, { now: this.#deps.clock() });
     if (!rate.allowed) throw new LlmRateLimited(model.id, rate.retryAfter);
-    const held = await this.#deps.ledger.reserve({ limits: scope.limits, estimate: estimate * this.#deps.settings.queue.HARNESS_BUDGET_MARGIN, run: scope.run });
+    const site: CallSite = { fn: scope.fn, model: model.id, ...(scope.system === undefined ? {} : { system: scope.system }) };
+    const held = await this.#deps.ledger.reserve({ limits: scope.limits, estimate: estimate * this.#deps.settings.queue.HARNESS_BUDGET_MARGIN, run: scope.run, site });
     if (!held.ok) throw new BudgetRefused(held.reason, held.budget, held.wait);
     const wire = isChatRequest(request) ? requestToWire(request) : { messages: [] };
     const interaction = await this.#deps.recorder.open(scope, wire, model);
-    this.#open.set(ctx, { scope, reservation: held.reservation, interaction, model });
+    this.#open.set(ctx, { scope, reservation: held.reservation, interaction, model, site });
   }
 
   /**
@@ -117,11 +120,9 @@ export class HubAiHooks {
       cost: end.cost,
       tokens: tokensOf(usage),
       actor: scope.actor,
-      fn: scope.fn,
       run: scope.run,
-      model: call.model.id,
       llmCall: call.interaction,
-      ...(scope.system === undefined ? {} : { system: scope.system }),
+      ...call.site,
       ...(scope.session === undefined ? {} : { session: scope.session }),
     });
     await this.#deps.recorder.close(call.interaction, { status: end.status, response: end.response, usage, cost: end.cost, error: end.error }, scope.firstTokenAt);

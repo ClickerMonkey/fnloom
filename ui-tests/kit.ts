@@ -180,3 +180,42 @@ export async function point(ctx: FeatureContext, selector: string): Promise<void
   if (isPhone(ctx)) { await ctx.page.tap(selector); } else { await ctx.page.hover(selector); }
   await settle(ctx.page, 250);
 }
+
+/** Scroll the first match of `selector` to the middle of its scroller, so a shot shows it. */
+export async function show(page: Page, selector: string): Promise<void> {
+  const found = await page.waitForSelector(selector, { timeout: 15_000 });
+  check(found !== null, `no ${selector} on the page`);
+  await found.evaluate((el) => { el.scrollIntoView({ block: 'center', behavior: 'instant' }); });
+  await settle(page, 250);
+}
+
+/**
+ * Record every `data-status` the run cards in the page take from now on, keyed by run id (a `MutationObserver`, so
+ * states that last a moment are still seen). Read them back with `statusesSeen`.
+ */
+export async function watchStatuses(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const seen = new Map<string, string[]>();
+    const note = (el: Element) => {
+      const run = el.getAttribute('data-run');
+      const status = el.getAttribute('data-status');
+      if (run === null || status === null) { return; }
+      const list = seen.get(run) ?? [];
+      if (list.at(-1) !== status) { list.push(status); }
+      seen.set(run, list);
+    };
+    const scan = () => { for (const el of document.querySelectorAll('[data-testid="run-card"]')) { note(el); } };
+    new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-status'] });
+    scan();
+    Object.assign(window, { harnessStatuses: seen });
+  });
+}
+
+/** The statuses `watchStatuses` saw, by run id. */
+export function statusesSeen(page: Page): Promise<Record<string, string[]>> {
+  return page.evaluate(() => {
+    const seen: unknown = Reflect.get(window, 'harnessStatuses');
+    if (!(seen instanceof Map)) { return {}; }
+    return Object.fromEntries([...seen.entries()].map(([run, list]: [unknown, unknown]) => [String(run), Array.isArray(list) ? list.map(String) : []]));
+  });
+}

@@ -1,14 +1,14 @@
 /**
  * The runs slice: a turn's fn tree, the run and LLM call inspectors, moving a run to the background, undoing a turn,
- * approvals, answers to handlers a run asked a person, renderer actions and form submissions, and the session state
+ * what waits on the person in a session (so a reload shows it again), approvals, answers to handlers a run asked a person, renderer actions and form submissions, and the session state
  * a renderer draws from. Every record is checked against what the person may see first (404 otherwise), and an
  * approval or handler call that is already settled answers 409 before its module is asked.
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { RunSummary, type LlmInteraction, type Run, type RunId, type TreeNode, type Turn } from '@harness/core';
+import { compact, RunSummary, type LlmInteraction, type Run, type RunId, type TreeNode, type Turn } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { compact, visibleRun, visibleSession, visibleTurn, type FullHandlers } from './access.ts';
+import { visibleRun, visibleSession, visibleTurn, type FullHandlers } from './access.ts';
 import { collect } from '../paging.ts';
 import { runsSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
@@ -64,6 +64,19 @@ export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         if (call === undefined) { throw reject(404, 'LLM_CALL_NOT_FOUND', 'no such LLM call'); }
         await visibleRun(hub, call.run, user);
         return call;
+      },
+      waiting: async ({ data, user }) => {
+        await visibleSession(hub, data.session, user);
+        const [approvals, calls] = await Promise.all([
+          collect((cursor) => store.table('approvals').find({ where: { status: 'pending' }, order: [['createdAt', 'asc']], limit: PAGE, cursor })),
+          collect((cursor) => store.table('handlerCalls').find({ where: { status: 'pending' }, limit: PAGE, cursor })),
+        ]);
+        const runs = await Promise.all([...new Set([...approvals.map((a) => a.run), ...calls.map((c) => c.run)])].map((id) => store.table('runs').get(id)));
+        const here = new Set(runs.flatMap((run) => (run?.session === data.session ? [run.id] : [])));
+        return {
+          approvals: approvals.filter((a) => here.has(a.run)),
+          handlers: calls.filter((c) => here.has(c.run) && 'user' in c.answerer && c.answerer.user === user.id),
+        };
       },
       approve: async ({ data: { approval, ...answer }, user }) => {
         const pending = await store.table('approvals').get(approval);

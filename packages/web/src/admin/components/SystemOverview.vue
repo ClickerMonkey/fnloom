@@ -49,70 +49,75 @@ const blocked = computed(() => props.acting !== undefined);
 
 <template>
   <div class="overview">
-    <UiCard title="Switches" subtitle="Turning functions off keeps renderers drawing old messages.">
-      <div class="switches">
-        <UiSwitch
-          :model-value="system.enabled.functions" label="Functions" description="Its fns, mentions and hooks can be used."
-          data-testid="enable-functions" @update:model-value="emit('enable', 'functions', $event)"
-        />
-        <UiSwitch
-          :model-value="system.enabled.renderers" label="Renderers" description="Its own views draw in the chat; off uses plain views."
-          data-testid="enable-renderers" @update:model-value="emit('enable', 'renderers', $event)"
-        />
-      </div>
-    </UiCard>
+    <div class="col">
+      <UiCard title="Switches" subtitle="Turning functions off keeps renderers drawing old messages.">
+        <div class="switches">
+          <UiSwitch
+            :model-value="system.enabled.functions" label="Functions" description="Its fns, mentions and hooks can be used."
+            data-testid="enable-functions" @update:model-value="emit('enable', 'functions', $event)"
+          />
+          <UiSwitch
+            :model-value="system.enabled.renderers" label="Renderers" description="Its own views draw in the chat; off uses plain views."
+            data-testid="enable-renderers" @update:model-value="emit('enable', 'renderers', $event)"
+          />
+        </div>
+      </UiCard>
 
-    <UiCard v-if="installed" title="Process" :subtitle="source">
-      <template #actions><StatusBadge :look="INSTALLED_STATUS_LOOK[installed.status]" /></template>
-      <div class="process">
+      <UiCard v-if="installed" title="Process" :subtitle="source">
+        <template #actions><StatusBadge :look="INSTALLED_STATUS_LOOK[installed.status]" /></template>
+        <div class="process">
+          <dl class="facts">
+            <div><dt>Running</dt><dd>{{ installed.version }}<span v-if="installed.goodVersion && installed.goodVersion !== installed.version" class="dim"> (last good {{ installed.goodVersion }})</span></dd></div>
+            <div v-if="installed.pid !== undefined"><dt>Process</dt><dd>{{ installed.pid }}</dd></div>
+            <div><dt>Starts with hub</dt><dd>{{ installed.autoStart ? 'Yes' : 'No' }}</dd></div>
+            <div><dt>Restarts</dt><dd>{{ installed.restart.policy === 'never' ? 'Never' : `${installed.restart.policy === 'always' ? 'Always' : 'On failure'}, at most ${installed.restart.maxPerHour} an hour` }}</dd></div>
+          </dl>
+          <div class="buttons">
+            <UiButton v-if="actions.has('start')" variant="primary" icon="play" :loading="busy('start')" :disabled="blocked" data-testid="act-start" @click="emit('act', 'start')">Start</UiButton>
+            <UiButton v-if="actions.has('stop')" icon="stop" :loading="busy('stop')" :disabled="blocked" data-testid="act-stop" @click="emit('act', 'stop')">Stop</UiButton>
+            <UiButton v-if="actions.has('restart')" icon="refresh" :loading="busy('restart')" :disabled="blocked" data-testid="act-restart" @click="emit('act', 'restart')">Restart</UiButton>
+          </div>
+          <form v-if="actions.has('upgrade')" class="upgrade" @submit.prevent="emit('act', 'upgrade', version.trim())">
+            <UiInput v-model="version" label="Upgrade to" placeholder="Latest version" />
+            <UiButton type="submit" icon="arrow-up" :loading="busy('upgrade')" :disabled="blocked" data-testid="act-upgrade">Upgrade</UiButton>
+          </form>
+          <div v-if="installed.lastExit" class="exit">
+            <p class="exit-title">
+              Last exit <UiBadge :tone="installed.lastExit.code === 0 ? 'neutral' : 'danger'">code {{ installed.lastExit.code }}</UiBadge>
+              <time class="dim" :title="fullTime(installed.lastExit.at)">{{ relativeTime(installed.lastExit.at, now) }}</time>
+            </p>
+            <UiCodeBlock v-if="installed.lastExit.output !== ''" :code="installed.lastExit.output" language="text" :max-height="220" />
+          </div>
+        </div>
+      </UiCard>
+
+      <UiCard title="Maintenance">
+        <div class="maintenance">
+          <div v-if="actions.has('reimport')" class="row">
+            <div><p class="row-title">Reimport</p><p class="dim">Read its contract again and report what changed.</p></div>
+            <UiButton icon="refresh" :loading="busy('reimport')" :disabled="blocked" data-testid="act-reimport" @click="emit('act', 'reimport')">Reimport</UiButton>
+          </div>
+          <div v-if="actions.has('remove')" class="row">
+            <div><p class="row-title">Remove</p><p class="dim">Its fns stop working until it pairs again.</p></div>
+            <UiButton variant="danger" icon="trash" :disabled="blocked" data-testid="act-remove" @click="emit('act', 'remove')">Remove</UiButton>
+          </div>
+        </div>
+      </UiCard>
+    </div>
+    <div class="col">
+      <UiCard title="Details">
         <dl class="facts">
-          <div><dt>Running</dt><dd>{{ installed.version }}<span v-if="installed.goodVersion && installed.goodVersion !== installed.version" class="dim"> (last good {{ installed.goodVersion }})</span></dd></div>
-          <div v-if="installed.pid !== undefined"><dt>Process</dt><dd>{{ installed.pid }}</dd></div>
-          <div><dt>Starts with hub</dt><dd>{{ installed.autoStart ? 'Yes' : 'No' }}</dd></div>
-          <div><dt>Restarts</dt><dd>{{ installed.restart.policy === 'never' ? 'Never' : `${installed.restart.policy === 'always' ? 'Always' : 'On failure'}, at most ${installed.restart.maxPerHour} an hour` }}</dd></div>
+          <div v-for="fact in facts" :key="fact.label"><dt>{{ fact.label }}</dt><dd :title="fact.title">{{ fact.value }}</dd></div>
         </dl>
-        <div class="buttons">
-          <UiButton v-if="actions.has('start')" variant="primary" icon="play" :loading="busy('start')" :disabled="blocked" data-testid="act-start" @click="emit('act', 'start')">Start</UiButton>
-          <UiButton v-if="actions.has('stop')" icon="stop" :loading="busy('stop')" :disabled="blocked" data-testid="act-stop" @click="emit('act', 'stop')">Stop</UiButton>
-          <UiButton v-if="actions.has('restart')" icon="refresh" :loading="busy('restart')" :disabled="blocked" data-testid="act-restart" @click="emit('act', 'restart')">Restart</UiButton>
-        </div>
-        <form v-if="actions.has('upgrade')" class="upgrade" @submit.prevent="emit('act', 'upgrade', version.trim())">
-          <UiInput v-model="version" label="Upgrade to" placeholder="Latest version" />
-          <UiButton type="submit" icon="arrow-up" :loading="busy('upgrade')" :disabled="blocked" data-testid="act-upgrade">Upgrade</UiButton>
-        </form>
-        <div v-if="installed.lastExit" class="exit">
-          <p class="exit-title">
-            Last exit <UiBadge :tone="installed.lastExit.code === 0 ? 'neutral' : 'danger'">code {{ installed.lastExit.code }}</UiBadge>
-            <time class="dim" :title="fullTime(installed.lastExit.at)">{{ relativeTime(installed.lastExit.at, now) }}</time>
-          </p>
-          <UiCodeBlock v-if="installed.lastExit.output !== ''" :code="installed.lastExit.output" language="text" :max-height="220" />
-        </div>
-      </div>
-    </UiCard>
-
-    <UiCard title="Details">
-      <dl class="facts">
-        <div v-for="fact in facts" :key="fact.label"><dt>{{ fact.label }}</dt><dd :title="fact.title">{{ fact.value }}</dd></div>
-      </dl>
-    </UiCard>
-
-    <UiCard title="Maintenance">
-      <div class="maintenance">
-        <div v-if="actions.has('reimport')" class="row">
-          <div><p class="row-title">Reimport</p><p class="dim">Read its contract again and report what changed.</p></div>
-          <UiButton icon="refresh" :loading="busy('reimport')" :disabled="blocked" data-testid="act-reimport" @click="emit('act', 'reimport')">Reimport</UiButton>
-        </div>
-        <div v-if="actions.has('remove')" class="row">
-          <div><p class="row-title">Remove</p><p class="dim">Its fns stop working until it pairs again.</p></div>
-          <UiButton variant="danger" icon="trash" :disabled="blocked" data-testid="act-remove" @click="emit('act', 'remove')">Remove</UiButton>
-        </div>
-      </div>
-    </UiCard>
+      </UiCard>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* two columns that stack their cards, so a tall card on one side leaves no hole on the other */
 .overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; gap: var(--space-4); }
+.col { display: grid; align-content: start; gap: var(--space-4); min-width: 0; }
 .switches, .process, .maintenance { display: grid; gap: var(--space-4); }
 .facts { display: grid; gap: var(--space-3); margin: 0; }
 .facts > div { display: grid; grid-template-columns: minmax(96px, 30%) minmax(0, 1fr); gap: var(--space-3); }

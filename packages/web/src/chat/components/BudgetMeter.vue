@@ -44,7 +44,7 @@ const width = computed(() => `${Math.round(Math.min(1, props.meter?.fraction ?? 
     <div class="details" data-testid="budget-details">
       <p class="total">This chat has spent <strong>{{ formatCost(spent) }}</strong>.</p>
       <ul v-if="meter" class="rows">
-        <li v-for="row in meter.rows" :key="row.rule" :class="{ tight: row.tightest }">
+        <li v-for="row in meter.rows" :key="row.key" :class="{ tight: row.tightest }">
           <span>{{ row.label }}</span>
           <span class="left">{{ formatCost(row.left) }} left</span>
           <span v-if="row.tightest" class="tag">tightest</span>

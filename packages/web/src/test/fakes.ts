@@ -8,6 +8,7 @@ import type { HubWebSpec } from '@harness/core';
 import type { CallerOf, Connection, Endpoint } from '../api/client.ts';
 import { SessionKeeper, SignInForm } from '../state/auth.ts';
 import { ConnectionStore } from '../state/connection.ts';
+import { PushStore, type PushKeys, type PushPlatform } from '../state/push.ts';
 import { InboxStore } from '../state/inbox.ts';
 import { LayoutStore } from '../state/layout.ts';
 import type { KeyValueStore } from '../state/persisted.ts';
@@ -112,6 +113,8 @@ export function fakeApi() {
     notifications: {
       list: fakeCaller<'notifications'>(() => Promise.resolve({ items: [] })),
       markRead: fakeCaller<'readNotifications'>(() => Promise.resolve()),
+      pushKey: fakeCaller<'pushKey'>(() => Promise.resolve({ publicKey: 'BPub_key-1' })),
+      subscribePush: fakeCaller<'subscribePush'>(() => Promise.resolve({ id: 'psh_1' })),
     },
   };
 }
@@ -124,6 +127,24 @@ export function fakeUserEvents(): { subscribe: (listener: (event: UserEvent) => 
     push: (event) => { for (const listener of listeners) { listener(event); } },
     get listeners() { return listeners.size; },
   };
+}
+
+/** A browser's push side, as a test sets it up: what it supports, what the person answers, its subscription. */
+export function fakePush(options: { supported?: boolean; answer?: NotificationPermission } = {}): PushPlatform & { permissionNow: NotificationPermission; subscription: PushKeys | undefined } {
+  const state: { permissionNow: NotificationPermission; subscription: PushKeys | undefined } = { permissionNow: 'default', subscription: undefined };
+  const platform = {
+    ...state,
+    supported: () => options.supported ?? true,
+    permission: () => platform.permissionNow,
+    current: () => Promise.resolve(platform.subscription),
+    subscribe: (publicKey: string) => {
+      platform.permissionNow = options.answer ?? 'granted';
+      platform.subscription = platform.permissionNow === 'granted' ? { endpoint: `https://push.example/${publicKey}`, keys: { p256dh: 'p', auth: 'a' } } : undefined;
+      return Promise.resolve(platform.subscription);
+    },
+    unsubscribe: () => { platform.subscription = undefined; return Promise.resolve(); },
+  };
+  return platform;
 }
 
 /** Every store, built on fakes. `signedIn` starts the session signed in. */
@@ -147,6 +168,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     chat: chat.chat,
     admin: admin.admin,
     signInForm: () => new SignInForm(api.auth, session),
+    push: new PushStore(api.notifications, fakePush(), () => 'Test browser'),
   };
   return { stores, api, events, connection, store, chat, admin };
 }

@@ -1,21 +1,23 @@
 <script setup lang="ts">
 /**
  * The inbox: every notification (or only the unread ones; the filter is in the URL), newest first, paged. Opening one
- * marks it read and goes where it leads.
+ * marks it read and goes where it leads. A push's click lands here with `?open=<id>`, which opens that notification
+ * the same way once the list has it.
  */
 import type { Notification } from '@harness/core';
 import { computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { notificationTarget } from '../app/routes.ts';
-import { useQueryChoice } from '../app/url.ts';
+import { useQueryChoice, useQueryText } from '../app/url.ts';
+import { OPEN_KEY } from '../state/push-payload.ts';
 import NotificationList from '../components/inbox/NotificationList.vue';
 import { InboxFilter } from '../state/inbox.ts';
 import { useStores } from '../state/stores.ts';
 import { UiButton, UiCard, UiTabs, type TabItem } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { inbox, toasts } = useStores();
+const { inbox, toasts, chat } = useStores();
 const router = useRouter();
 const now = useNow();
 const filter = useQueryChoice('filter', InboxFilter, 'all');
@@ -27,9 +29,15 @@ const tabs = computed<readonly TabItem<InboxFilter>[]>(() => [
 
 watch(filter, (value) => { void inbox.load(value); }, { immediate: true });
 
+const opening = useQueryText(OPEN_KEY);
+watch([opening, inbox.items], ([id, items]) => {
+  const found = id === '' ? undefined : items.find((n) => n.id === id);
+  if (found !== undefined) { void open(found); }
+}, { immediate: true });
+
 async function open(notification: Notification): Promise<void> {
   if (!notification.read) { void inbox.markRead([notification.id]); }
-  await router.push(notificationTarget(notification.link));
+  await router.push(await notificationTarget(notification.link, (run) => chat.sessionOfRun(run)));
 }
 
 async function readAll(): Promise<void> {
@@ -38,7 +46,7 @@ async function readAll(): Promise<void> {
 </script>
 
 <template>
-  <AppPage title="Inbox" description="What needs you, and what happened while you were away." width="readable">
+  <AppPage title="Inbox" description="What needs you, and what happened while you were away.">
     <template #actions>
       <UiButton v-if="inbox.unread.value > 0" icon="check" data-testid="read-all" @click="readAll">Mark all read</UiButton>
     </template>

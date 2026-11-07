@@ -36,7 +36,7 @@ export interface ServeOptions {
   fetch?: typeof fetch;
 }
 
-/** Where the MCP face listens: stdin/stdout, or HTTP (JSON-RPC over POST) on a port. */
+/** Where the MCP face listens: stdin/stdout, or MCP Streamable HTTP on a port (any path; body limit `HARNESS_MCP_MAX_BODY`). */
 export type McpServe = { stdio: true } | { http: { port: number; host?: string } };
 
 /** Where a running system is. */
@@ -82,18 +82,23 @@ export function serve<N extends string, C extends ContractShape>(contract: Syste
   return host.start(contract, impl, options);
 }
 
-export { LinkHost, SystemStopped, type LinkHostDeps } from './host.ts';
+export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
 export { errorFieldFilter } from './log.ts';
 export { sdkEnv, SYSTEM_ENV, systemFields, type SdkEnv } from './env.ts';
-export { FileKeyStore, MemoryKeyStore, verifyNonce } from './keys.ts';
+export { contentHash, contentHasher, type ContentHasher } from './content.ts';
+export { FileKeyStore, isPublicKey, KEY_FILE, makeKeyPair, MemoryKeyStore, signNonce, StoredKeyPair, verifyNonce } from './keys.ts';
 export { FileJournal, MemoryJournal, type OutcomeJournal } from './journal.ts';
 export { WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
 export {
   HarnessProvider, HubLlm, HubLlmError, harnessAi, harnessAiOf, wireRequest, HUB_MODEL, type HarnessAi, type HarnessMetadata, type HarnessProviderConfig,
 } from './llm.ts';
+export {
+  LlmWire, UNSENDABLE_CONTENT, messageFromWire, requestFromWire, isObjectSchema, descriptorsOf, applyDescriptors, usageToWire, usageFromWire, chunkToWire,
+  chunkFromWire, responseToWire, type LlmWireOptions, type LlmDescriptors,
+} from './llm-wire.ts';
 export { NodeFiles, fileUri, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
 export { NodeProcess, type ProcessControl } from './process.ts';
 export { StateConflict } from './state.ts';
-export { McpFace } from './mcp.ts';
+export { McpFace, type McpLimits } from './mcp.ts';
 export { LinkGap, InvalidValue } from './wire.ts';
 export { readClientBundle, CLIENT_ENTRY, type ClientBundle } from './assets.ts';

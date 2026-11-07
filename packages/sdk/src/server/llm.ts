@@ -8,16 +8,14 @@
  * aeye `AI` built on that provider. System authors who want aeye prompts and tools use `harnessAi()` directly.
  */
 import { AI, type EmbeddingRequest, type EmbeddingResponse, type ModelInfo, type Provider } from '@aeye/ai';
-import { getResponseFromChunks, type Chunk, type Message, type MessageContent, type Request, type Response, type ToolChoice, type Usage } from '@aeye/core';
-import {
-  Json, LlmRequest, ModelChoice,
-  type LlmChunk, type LlmContentPart, type LlmForwardChunk, type LlmMessage, type LlmResponseFormat, type LlmToolSpec, type LlmUsage, type RunId,
-} from '@harness/core';
+import { getResponseFromChunks, type Chunk, type Message, type Request, type Response } from '@aeye/core';
+import { ModelChoice, type LlmForwardChunk, type LlmRequest, type RunId } from '@harness/core';
 import { z } from 'zod';
 import type { Llm } from '../ctx.ts';
 import type { GinType } from '../gin.ts';
 import type { HubAccess } from './link.ts';
-import { decodeOrThrow, LinkGap } from './wire.ts';
+import { applyDescriptors, chunkFromWire, LlmWire, usageFromWire } from './llm-wire.ts';
+import { decodeOrThrow } from './wire.ts';
 
 /** The provider key and the one model the system-side registry knows. */
 export const HUB_PROVIDER = 'hub';
@@ -71,101 +69,15 @@ function modelChoiceOf(metadata: unknown): ModelChoice | undefined {
   return parsed.success ? parsed.data.harness?.model : undefined;
 }
 
-/** A message part's content as wire text: text, a URL, or a data URL. */
-function partContent(part: MessageContent): string {
-  const content = part.content;
-  if (typeof content === 'string') { return content; }
-  if (content instanceof URL) { return content.href; }
-  if (content instanceof Uint8Array) { return `data:application/octet-stream;base64,${Buffer.from(content).toString('base64')}`; }
-  throw new LinkGap('Only text, URL and byte message parts can be forwarded to the hub.');
-}
+/**
+ * Requests a system forwards: anything the wire can't carry is refused, because the hub would otherwise send the
+ * model something other than what the system asked.
+ */
+const forwardWire = new LlmWire({ unrepresentable: 'refuse' });
 
-function wireMessage(message: Message): LlmMessage {
-  const content = typeof message.content === 'string'
-    ? message.content
-    : message.content.map((part): LlmContentPart => ({
-      type: part.type,
-      content: partContent(part),
-      ...(part.format === undefined ? {} : { format: part.format }),
-      ...(part.name === undefined ? {} : { name: part.name }),
-    }));
-  return {
-    role: message.role,
-    content,
-    ...(message.name === undefined ? {} : { name: message.name }),
-    ...(message.toolCallId === undefined ? {} : { toolCallId: message.toolCallId }),
-    ...(message.toolCalls === undefined ? {} : { toolCalls: message.toolCalls.map((c) => ({ id: c.id, name: c.name, arguments: c.arguments })) }),
-    ...(message.refusal === undefined ? {} : { refusal: message.refusal }),
-    ...(message.tokens === undefined ? {} : { tokens: message.tokens }),
-  };
-}
-
-/** A zod schema as plain JSON schema for the hub, which rebuilds it and strictifies it for the model it picks. */
-function jsonSchemaOf(schema: z.ZodType): Json {
-  return Json.parse(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'throw' }));
-}
-
-function wireToolChoice(choice: ToolChoice): LlmRequest['toolChoice'] {
-  if (typeof choice === 'string' || 'tool' in choice) { return choice; }
-  // the wire has no "only these" choice yet: let the model pick among all, or require one
-  return choice.required === true ? 'required' : 'auto';
-}
-
-function wireResponseFormat(format: NonNullable<Request['responseFormat']>): LlmResponseFormat {
-  if (format === 'text' || format === 'json') { return format; }
-  return { schema: jsonSchemaOf(format.type), strict: format.strict === true };
-}
-
-/** An aeye request as it crosses the wire: zod schemas become JSON schema. */
+/** An aeye request as it is forwarded to the hub. */
 export function wireRequest(request: Request): LlmRequest {
-  const tools = request.tools?.map((tool): LlmToolSpec => ({
-    name: tool.name,
-    parameters: jsonSchemaOf(tool.parameters),
-    ...(tool.description === undefined ? {} : { description: tool.description }),
-    ...(typeof tool.strict === 'boolean' ? { strict: tool.strict } : {}),
-  }));
-  return LlmRequest.parse({
-    messages: request.messages.map(wireMessage),
-    ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-    ...(request.maxTokens === undefined ? {} : { maxTokens: request.maxTokens }),
-    ...(request.stop === undefined ? {} : { stop: typeof request.stop === 'string' ? [request.stop] : request.stop }),
-    ...(tools === undefined ? {} : { tools }),
-    ...(request.toolChoice === undefined ? {} : { toolChoice: wireToolChoice(request.toolChoice) }),
-    ...(request.responseFormat === undefined ? {} : { responseFormat: wireResponseFormat(request.responseFormat) }),
-  });
-}
-
-function aeyeUsage(usage: LlmUsage, cost?: number): Usage {
-  return {
-    text: { input: usage.input, output: usage.output, ...(usage.cached === undefined ? {} : { cached: usage.cached }) },
-    ...(usage.reasoning === undefined ? {} : { reasoning: { output: usage.reasoning } }),
-    ...(cost === undefined ? {} : { cost }),
-  };
-}
-
-/** A wire chunk as an aeye chunk. */
-export function aeyeChunk(chunk: LlmChunk): Chunk {
-  return {
-    ...(chunk.content === undefined ? {} : { content: chunk.content }),
-    ...(chunk.reasoning === undefined ? {} : { reasoning: { content: chunk.reasoning } }),
-    ...(chunk.toolCallNamed === undefined ? {} : { toolCallNamed: chunk.toolCallNamed }),
-    ...(chunk.toolCallArguments === undefined ? {} : { toolCallArguments: chunk.toolCallArguments }),
-    ...(chunk.toolCall === undefined ? {} : { toolCall: chunk.toolCall }),
-    ...(chunk.finishReason === undefined ? {} : { finishReason: chunk.finishReason }),
-    ...(chunk.refusal === undefined ? {} : { refusal: chunk.refusal }),
-    ...(chunk.usage === undefined ? {} : { usage: aeyeUsage(chunk.usage) }),
-  };
-}
-
-/** Write the descriptors the hub chose into the request the system's prompt holds, so it decodes the strict wire shape. */
-function applyDescriptors(request: Request, descriptors: Extract<LlmForwardChunk, { type: 'descriptors' }>): void {
-  for (const tool of request.tools ?? []) {
-    const id = descriptors.tools[tool.name];
-    if (id !== undefined) { tool.descriptor = id; }
-  }
-  if (descriptors.output !== undefined && typeof request.responseFormat === 'object') {
-    request.responseFormat.descriptor = descriptors.output;
-  }
+  return forwardWire.request(request);
 }
 
 /** The aeye provider that forwards to the hub. */
@@ -200,14 +112,14 @@ export class HarnessProvider implements Provider<HarnessProviderConfig> {
       switch (item.type) {
         case 'descriptors': applyDescriptors(request, item); break;
         case 'chunk': {
-          const chunk = aeyeChunk(item.chunk);
+          const chunk = chunkFromWire(item.chunk);
           chunks.push(chunk);
           yield chunk;
           break;
         }
         case 'done': {
           served = item.model;
-          const last: Chunk = { usage: aeyeUsage(item.usage, item.cost), model: item.model };
+          const last: Chunk = { usage: usageFromWire(item.usage, item.cost), model: item.model };
           chunks.push(last);
           yield last;
           break;

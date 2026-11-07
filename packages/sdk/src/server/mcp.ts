@@ -1,15 +1,19 @@
 /**
- * A system as an MCP server, with no extra code. Its native fns become MCP tools (`<system>_<fn>`), through
- * `@ayepi/mcp`'s `McpServer` and its stdio transport. A tool's input schema is the fn's args as a value schema from gin,
- * as JSON schema. A fn added or removed at runtime rebuilds the tool list. (ayepi's `mcpServer` serves a static ayepi
- * spec; fns are gin-typed and change at runtime, so the face answers the three JSON-RPC methods itself.)
+ * A system as an MCP server, with no extra code. Its native fns the LLM may see become MCP tools
+ * (`<system>_<fn>`), served by `@ayepi/mcp` over stdio or Streamable HTTP. `McpFace` is the `McpToolSource`: a
+ * tool's input schema is the fn's args as gin's value schema with every field's docs, as JSON schema; fns added or
+ * removed at runtime change the list, and clients hear `notifications/tools/list_changed`.
  *
  * MCP calls run here, as local runs on behalf of the MCP client: args and results are checked as usual, but nothing
  * goes through the hub's queue, so a fn whose run calls other fns, the hub's LLM or session state needs the hub link.
  */
 import { createServer, type Server as HttpServer } from 'node:http';
 import { createInterface } from 'node:readline';
-import { serveStdio, type McpServer, type McpTool } from '@ayepi/mcp';
+import { createRequestListener } from '@ayepi/node';
+import {
+  errorResult, mcpHttp, mcpToolServer, serveStdio, textResult,
+  type McpHttpHandler, type McpServer, type McpTool, type McpToolResult, type McpToolSource,
+} from '@ayepi/mcp';
 import { ActorId, Json, mintId, qualify, type RunRequest } from '@harness/core';
 import { z } from 'zod';
 import type { AnyFnDef } from '../fn.ts';
@@ -21,102 +25,109 @@ import { messageOf } from './wire.ts';
 /** The actor MCP calls run as. */
 const MCP_ACTOR = ActorId.parse('act_mcp');
 
-/** The MCP protocol version this face speaks. */
-const MCP_PROTOCOL = '2024-11-05';
-
-const JsonRpcRequest = z.object({ jsonrpc: z.literal('2.0'), id: z.union([z.string(), z.number(), z.null()]).optional(), method: z.string(), params: z.unknown().optional() });
-const ToolCall = z.object({ name: z.string(), arguments: z.record(z.string(), z.unknown()).optional() });
-
 /** A fn's MCP tool name (MCP tool names allow letters, digits, `_` and `-`). */
 function toolName(local: string): string {
   return local.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
-/** The system's MCP server. */
-export class McpFace {
+/** How long an MCP call may run, and the largest HTTP request body in bytes (from the SDK's env slice). */
+export interface McpLimits {
+  readonly timeout: number;
+  readonly maxBody: number;
+}
+
+/** A fn offered as a tool. */
+interface Offered {
+  readonly tool: McpTool;
+  readonly local: string;
+}
+
+/** The system's native fns as MCP tools, and the server and transport that offer them. */
+export class McpFace implements McpToolSource {
   readonly #table: SystemTable;
   readonly #env: RunEnvironment;
-  readonly #version: string;
-  /** How long an MCP call may run. */
-  readonly #timeout: number;
-  #server: McpServer | undefined;
-  #http: HttpServer | undefined;
-  /** The fns the current server was built over, to rebuild when one is added, removed or replaced. */
-  #built: ReadonlyArray<readonly [string, AnyFnDef]> = [];
+  /** How long an MCP call may run, and the largest HTTP request body. */
+  readonly #limits: McpLimits;
+  readonly #server: McpServer;
+  #http: { readonly server: HttpServer; readonly handler: McpHttpHandler } | undefined;
+  /** The tools for the fns as they were last built, rebuilt when a fn is added, removed or replaced. */
+  #offered: { readonly fns: ReadonlyArray<readonly [string, AnyFnDef]>; readonly byTool: ReadonlyMap<string, Offered> } | undefined;
 
-  constructor(table: SystemTable, env: RunEnvironment, version: string, timeout: number) {
-    this.#timeout = timeout;
+  constructor(table: SystemTable, env: RunEnvironment, version: string, limits: McpLimits) {
     this.#table = table;
     this.#env = env;
-    this.#version = version;
+    this.#limits = limits;
+    this.#server = mcpToolServer(this, { serverInfo: { name: table.contract.name, version }, instructions: table.contract.description });
+  }
+
+  /** The MCP server (JSON-RPC: `initialize`, `ping`, `tools/list`, `tools/call`). */
+  get server(): McpServer {
+    return this.#server;
   }
 
   /** The tools offered now. */
   tools(): McpTool[] {
-    return this.#current().tools();
+    return [...this.#current().values()].map((offered) => offered.tool);
   }
 
-  /** Handle one JSON-RPC request (`initialize`, `tools/list`, `tools/call`); `null` for notifications. */
-  handle(request: unknown): Promise<unknown> {
-    return this.#current().handle(request);
+  /** Run the fn behind a tool; `undefined` when there is no such tool. */
+  async call(name: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal): Promise<McpToolResult | undefined> {
+    const offered = this.#current().get(name);
+    if (offered === undefined) { return undefined; }
+    try {
+      return textResult(JSON.stringify(await this.#run(offered.local, args, signal)));
+    } catch (error) {
+      return errorResult(messageOf(error));
+    }
   }
 
-  /** Serve over stdin/stdout or HTTP. Resolves once listening (stdio serves until stdin ends). */
+  /** Fns added or removed at runtime change the tool list. */
+  onChange(listener: () => void): () => void {
+    return this.#table.onChange(listener);
+  }
+
+  /** Serve over stdin/stdout or Streamable HTTP. Resolves once listening (stdio serves until stdin ends). */
   async serve(how: McpServe): Promise<void> {
     if ('stdio' in how) {
       const input = createInterface({ input: process.stdin });
-      void serveStdio({ tools: () => this.tools(), handle: (request) => this.handle(request) }, {
-        input,
-        output: { write: (line) => { process.stdout.write(`${line}\n`); } },
-      }).catch((error: unknown) => { this.#env.log.error('mcp.stdio-failed', { error: messageOf(error) }); });
+      void serveStdio(this.#server, { input, output: { write: (line) => { process.stdout.write(`${line}\n`); } } })
+        .catch((error: unknown) => { this.#env.log.error('mcp.stdio-failed', { error: messageOf(error) }); });
       return;
     }
-    const http = createServer((req, res) => {
-      if (req.method !== 'POST') {
-        res.writeHead(405).end();
-        return;
-      }
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
-      req.on('end', () => {
-        void (async () => {
-          let reply: unknown;
-          try {
-            reply = await this.handle(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-          } catch {
-            reply = { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } };
-          }
-          if (reply === null) {
-            res.writeHead(202).end();
-          } else {
-            res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
-          }
-        })();
-      });
-    });
-    this.#http = http;
-    await new Promise<void>((resolve) => { http.listen(how.http.port, how.http.host ?? '0.0.0.0', resolve); });
+    const handler = mcpHttp(this.#server, { maxBody: this.#limits.maxBody });
+    const server = createServer(createRequestListener(handler));
+    this.#http = { server, handler };
+    await new Promise<void>((resolve) => { server.listen(how.http.port, how.http.host ?? '0.0.0.0', resolve); });
     this.#env.log.info('mcp.listening', { port: how.http.port });
   }
 
   async close(): Promise<void> {
     const http = this.#http;
     this.#http = undefined;
-    if (http !== undefined) { await new Promise<void>((resolve) => { http.close(() => { resolve(); }); }); }
+    this.#server.close();
+    if (http === undefined) { return; }
+    http.handler.close();
+    http.server.closeAllConnections();
+    await new Promise<void>((resolve) => { http.server.close(() => { resolve(); }); });
   }
 
-  /** The MCP server for the fns as they are now, rebuilt when they change. */
-  #current(): McpServer {
-    const natives = this.#natives();
-    const same = natives.length === this.#built.length && natives.every(([local, def], i) => {
-      const built = this.#built[i];
-      return built !== undefined && built[0] === local && built[1] === def;
+  /** The tools by name for the fns as they are now. */
+  #current(): ReadonlyMap<string, Offered> {
+    const fns = this.#natives();
+    const built = this.#offered;
+    const same = built !== undefined && fns.length === built.fns.length && fns.every(([local, def], i) => {
+      const was = built.fns[i];
+      return was !== undefined && was[0] === local && was[1] === def;
     });
-    if (this.#server === undefined || !same) {
-      this.#server = this.#build(natives);
-      this.#built = natives;
-    }
-    return this.#server;
+    if (same) { return built.byTool; }
+    const prefix = `${this.#table.contract.name}_`;
+    const byTool = new Map(fns.map(([local, def]): [string, Offered] => {
+      const name = prefix + toolName(local);
+      const inputSchema = z.toJSONSchema(def.args.toValueSchema({ includeDocs: 'all' }), { io: 'input', unrepresentable: 'any' });
+      return [name, { local, tool: { name, description: def.description, inputSchema } }];
+    }));
+    this.#offered = { fns, byTool };
+    return byTool;
   }
 
   /** The native fns offered to MCP clients: every one the LLM may see. */
@@ -128,49 +139,13 @@ export class McpFace {
     });
   }
 
-  /** An MCP server (JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`) over these fns. */
-  #build(natives: Array<readonly [string, AnyFnDef]>): McpServer {
-    const prefix = `${this.#table.contract.name}_`;
-    const byTool = new Map(natives.map(([local, def]) => [prefix + toolName(local), { local, def }]));
-    const tools: McpTool[] = [...byTool].map(([name, { def }]) => ({
-      name,
-      description: def.description,
-      inputSchema: z.toJSONSchema(def.args.toValueSchema(), { io: 'input', unrepresentable: 'any' }),
-    }));
-    const info = { name: this.#table.contract.name, version: this.#version };
-    return {
-      tools: () => tools,
-      handle: async (raw) => {
-        const request = JsonRpcRequest.safeParse(raw);
-        if (!request.success) { return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid JSON-RPC request' } }; }
-        const { id, method, params } = request.data;
-        if (id === undefined) { return null; }
-        switch (method) {
-          case 'initialize': return { jsonrpc: '2.0', id, result: { protocolVersion: MCP_PROTOCOL, capabilities: { tools: {} }, serverInfo: info } };
-          case 'tools/list': return { jsonrpc: '2.0', id, result: { tools } };
-          case 'tools/call': {
-            const call = ToolCall.safeParse(params);
-            const tool = call.success ? byTool.get(call.data.name) : undefined;
-            if (!call.success || tool === undefined) { return { jsonrpc: '2.0', id, error: { code: -32602, message: `unknown tool ${call.success ? call.data.name : ''}` } }; }
-            try {
-              const result = await this.#call(tool.local, call.data.arguments ?? {});
-              return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result) }] } };
-            } catch (error) {
-              return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: messageOf(error) }], isError: true } };
-            }
-          }
-          default: return { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } };
-        }
-      },
-    };
-  }
-
-  /** Run a fn locally for an MCP client. */
-  async #call(local: string, args: unknown): Promise<Json> {
+  /** Run a fn locally for an MCP client; a client that goes away cancels it. */
+  async #run(local: string, args: unknown, signal: AbortSignal): Promise<Json> {
     const target = this.#table.target(local, 'native');
     if (typeof target === 'string') { throw new Error(target); }
     const now = this.#env.now();
-    const config = this.#configVersion();
+    const config = this.#env.currentConfig();
+    if (config === undefined) { throw new Error('This system has no valid config yet.'); }
     const request: RunRequest = {
       run: {
         id: mintId('run'),
@@ -186,23 +161,24 @@ export class McpFace {
       fn: local,
       kind: 'native',
       args: Json.parse(args),
-      budget: { cost: 0, time: this.#timeout, limitedBy: 'mcp' },
+      budget: { cost: 0, time: this.#limits.timeout, limitedBy: 'mcp' },
       handlers: [],
-      deadline: now + this.#timeout,
+      deadline: now + this.#limits.timeout,
       configVersion: config,
     };
-    const outcome = await new ActiveRun(request, target, this.#env).outcome();
-    switch (outcome.status) {
-      case 'done': return outcome.result;
-      case 'failed': throw new Error(outcome.error.message);
-      case 'paused': throw new Error('The fn paused; MCP calls cannot be resumed.');
-      case 'cancelled': throw new Error('The fn was cancelled.');
+    const run = new ActiveRun(request, target, this.#env);
+    const cancel = (): void => { void run.control('cancel'); };
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+      const outcome = await run.outcome();
+      switch (outcome.status) {
+        case 'done': return outcome.result;
+        case 'failed': throw new Error(outcome.error.message);
+        case 'paused': throw new Error('The fn paused; MCP calls cannot be resumed.');
+        case 'cancelled': throw new Error('The fn was cancelled.');
+      }
+    } finally {
+      signal.removeEventListener('abort', cancel);
     }
-  }
-
-  #configVersion(): number {
-    const version = this.#env.currentConfig();
-    if (version === undefined) { throw new Error('This system has no valid config yet.'); }
-    return version;
   }
 }

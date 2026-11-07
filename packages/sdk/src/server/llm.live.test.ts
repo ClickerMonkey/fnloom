@@ -4,7 +4,7 @@
  * rebuild the forwarded JSON schemas as zod, stream from the provider, send back the descriptors it used, then the
  * chunks and the cost. One prompt; a rate-limited model is skipped for the next. Run with `npm run test:live`.
  */
-import { AI, type Provider } from '@aeye/ai';
+import { AI } from '@aeye/ai';
 import type { Chunk, Message, Request } from '@aeye/core';
 import { models, strictSupport } from '@aeye/models';
 import { OpenRouterProvider } from '@aeye/openrouter';
@@ -54,8 +54,7 @@ function wireChunk(chunk: Chunk): LlmChunk {
 
 /** The hub's side: run a forwarded request on OpenRouter and stream it back as the link expects. */
 function openRouterHub(key: string, model: string) {
-  // aeye's provider classes declare optional fields as `T | undefined`, which `Provider` refuses under exactOptionalPropertyTypes (library ask)
-  const openrouter = new OpenRouterProvider({ apiKey: key }) as unknown as Provider; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- see above
+  const openrouter = new OpenRouterProvider({ apiKey: key });
   const ai = AI.with().providers({ openrouter }).create({ models, modelOverrides: [...strictSupport] });
   return async function* relay(forward: LlmForward): AsyncGenerator<LlmForwardChunk> {
     const format = forward.request.responseFormat;

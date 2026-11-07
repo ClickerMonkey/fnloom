@@ -1,8 +1,8 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import type { ResourceChange } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AeyeDocuments, toResourceLink } from './documents.ts';
+import { AeyeDocuments, importCandidates, linkPath, plainText, toResourceLink } from './documents.ts';
 import { FileService } from './files.ts';
 import { RootGuard, fileUri } from './paths.ts';
 import { FsResources, versionOf } from './resources.ts';
@@ -77,9 +77,15 @@ describe('FsResources', () => {
     expect(read.links?.some((l) => l.kind === 'external' && l.raw.startsWith('https://example.com'))).toBe(true);
   });
 
-  it('reads code with its imports', async () => {
-    const read = await resources.read(fileUri(`${tmp.path}/src/a.ts`), ['links']);
-    expect(read.links).toContainEqual({ raw: './b.ts', kind: 'import', uri: fileUri(`${tmp.path}/src/b.ts`) });
+  it('reads code with its imports resolved the way TypeScript resolves them, to files that exist', async () => {
+    await mkdir(`${tmp.path}/app/lib`, { recursive: true });
+    await writeFile(`${tmp.path}/app/main.ts`, "import { b } from './b.ts';\nimport { c } from './c.js';\nimport { d } from './lib';\nimport { e } from './gone';\nimport { z } from 'zod';\n");
+    for (const file of ['b.ts', 'c.ts', 'lib/index.ts']) { await writeFile(`${tmp.path}/app/${file}`, 'export const x = 1;\n'); }
+    const read = await resources.read(fileUri(`${tmp.path}/app/main.ts`), ['links']);
+    expect(read.links).toContainEqual({ raw: './b.ts', kind: 'import', uri: fileUri(`${tmp.path}/app/b.ts`) });
+    expect(read.links).toContainEqual({ raw: './c.js', kind: 'import', uri: fileUri(`${tmp.path}/app/c.ts`) });
+    expect(read.links).toContainEqual({ raw: './lib', kind: 'import', uri: fileUri(`${tmp.path}/app/lib/index.ts`) });
+    expect(read.links).toContainEqual({ raw: './gone', kind: 'import' });
     expect(read.links).toContainEqual({ raw: 'zod', kind: 'import' });
   });
 
@@ -114,12 +120,61 @@ describe('FsResources', () => {
   });
 });
 
-describe('toResourceLink', () => {
-  it('keeps URLs, resolves relative paths and leaves packages raw', () => {
-    const from = '/srv/work/src/a.ts';
-    expect(toResourceLink({ value: 'https://x.io/a', kind: 'external' }, from, 'markdown')).toEqual({ raw: 'https://x.io/a', kind: 'external', uri: 'https://x.io/a' });
-    expect(toResourceLink({ value: 'mailto me', kind: 'external' }, from, undefined)).toEqual({ raw: 'mailto me', kind: 'external' });
-    expect(toResourceLink({ value: '#top', kind: 'resource', title: 'Top' }, from, 'markdown')).toEqual({ raw: '#top', kind: 'link', title: 'Top' });
-    expect(toResourceLink({ value: 'react', kind: 'resource' }, from, 'typescript')).toEqual({ raw: 'react', kind: 'import' });
+describe('links', () => {
+  const from = '/srv/work/src/a.ts';
+
+  it('keeps URLs, uses the resolved path and leaves packages raw', () => {
+    expect(toResourceLink({ value: 'https://x.io/a', kind: 'external' }, 'markdown', undefined)).toEqual({ raw: 'https://x.io/a', kind: 'external', uri: 'https://x.io/a' });
+    expect(toResourceLink({ value: 'mailto me', kind: 'external' }, undefined, undefined)).toEqual({ raw: 'mailto me', kind: 'external' });
+    expect(toResourceLink({ value: '#top', kind: 'resource', title: 'Top' }, 'markdown', undefined)).toEqual({ raw: '#top', kind: 'link', title: 'Top' });
+    expect(toResourceLink({ value: 'react', kind: 'resource' }, 'typescript', undefined)).toEqual({ raw: 'react', kind: 'import' });
+    expect(toResourceLink({ value: './b', kind: 'resource' }, 'typescript', '/srv/work/src/b.ts')).toEqual({ raw: './b', kind: 'import', uri: fileUri('/srv/work/src/b.ts') });
+  });
+
+  it('finds the path a relative link names, without its fragment', () => {
+    expect(linkPath({ value: '../docs/a.md#intro', kind: 'resource' }, from)).toMatch(/\/srv\/work\/docs\/a\.md$/);
+    expect(linkPath({ value: 'react', kind: 'resource' }, from)).toBeUndefined();
+    expect(linkPath({ value: '#top', kind: 'resource' }, from)).toBeUndefined();
+    expect(linkPath({ value: 'https://x.io', kind: 'external' }, from)).toBeUndefined();
+  });
+
+  it('tries an import as written, its TypeScript source, each extension, then a folder index', () => {
+    const candidates = importCandidates('/w/src/c.js');
+    expect(candidates.slice(0, 3)).toEqual(['/w/src/c.js', '/w/src/c.ts', '/w/src/c.tsx']);
+    expect(candidates).toContain('/w/src/c.js.ts');
+    expect(candidates.at(-1)).toBe('/w/src/c.js/index.json');
+    expect(importCandidates('/w/lib')).toContain('/w/lib/index.ts');
+  });
+});
+
+describe('AeyeDocuments', () => {
+  let tmp: Awaited<ReturnType<typeof tempFolder>>;
+  beforeEach(async () => { tmp = await tempFolder(); });
+  afterEach(() => tmp.cleanup());
+
+  it('asks its file check for each import candidate in turn, stopping at the first file', async () => {
+    await writeFile(`${tmp.path}/a.ts`, "import { x } from './x';\n");
+    const asked: string[] = [];
+    const documents = new AeyeDocuments(createDefaultResourceRegistry(), (path) => { asked.push(path); return Promise.resolve(path.endsWith('/x.tsx')); });
+    const read = await documents.read(`${tmp.path}/a.ts`);
+    expect(read.links).toEqual([{ raw: './x', kind: 'import', uri: fileUri(`${tmp.path}/x.tsx`) }]);
+    expect(asked.map((p) => p.slice(tmp.path.length))).toEqual(['/x', '/x.ts', '/x.tsx']);
+  });
+
+  it('reads an unparsable text file as text, but not a binary one', async () => {
+    const documents = new AeyeDocuments(createDefaultResourceRegistry());
+    await writeFile(`${tmp.path}/notes.unknown`, 'plain words');
+    expect(await documents.read(`${tmp.path}/notes.unknown`)).toMatchObject({ text: 'plain words', links: [] });
+    await writeFile(`${tmp.path}/blob.unknown`, new Uint8Array([0x89, 0x00, 0x01, 0xff]));
+    await expect(documents.read(`${tmp.path}/blob.unknown`)).rejects.toThrow();
+    await writeFile(`${tmp.path}/broken.pdf`, 'not really a pdf');
+    await expect(documents.read(`${tmp.path}/broken.pdf`)).rejects.toThrow();
+    expect(await readFile(`${tmp.path}/broken.pdf`, 'utf8')).toBe('not really a pdf');
+  });
+
+  it('tells text bytes from binary ones', () => {
+    expect(plainText(new TextEncoder().encode('héllo'))).toBe('héllo');
+    expect(plainText(new Uint8Array([104, 0, 105]))).toBeUndefined();
+    expect(plainText(new Uint8Array([0xc3, 0x28]))).toBeUndefined();
   });
 });

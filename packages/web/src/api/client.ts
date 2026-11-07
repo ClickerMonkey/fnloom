@@ -4,7 +4,7 @@
  * state in `state/*.ts`, which receive the callers they use, so tests hand them fakes.
  */
 import { client, wsTransport, type ApiClient, type WsTransport } from '@ayepi/core/client';
-import type { Caller } from '@ayepi/core';
+import type { CallArgs, CallReturn, Caller } from '@ayepi/core';
 import type { HubWebSpec } from '@harness/core';
 import { manifest } from './manifest.gen.ts';
 
@@ -14,6 +14,10 @@ export type Hub = ApiClient<HubWebSpec>;
 export type Endpoint = keyof HubWebSpec['endpoints'];
 /** A caller of one endpoint: `call` typed from the spec, plus `cancel`, `invalidate` and `pending`. */
 export type CallerOf<K extends Endpoint> = Caller<HubWebSpec['endpoints'][K]>;
+/** What endpoint `K` answers, from its schema in `hubWebSpec`: a state shape never restates it by hand. */
+export type ResponseOf<K extends Endpoint> = Awaited<CallReturn<HubWebSpec['endpoints'][K]>>;
+/** What endpoint `K` takes, from its schema in `hubWebSpec`. */
+export type BodyOf<K extends Endpoint> = NonNullable<CallArgs<HubWebSpec['endpoints'][K]>[0]>;
 /** The client's live online/offline state. */
 export type Connection = Hub['connection'];
 

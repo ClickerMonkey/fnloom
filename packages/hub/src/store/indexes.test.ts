@@ -154,6 +154,20 @@ describe('vector index', () => {
     }
   });
 
+  it('makes an embedder’s table at its declared size when asked, and remakes it empty when the size changes', async () => {
+    const later = 'embedder/later';
+    await expect(store.vectors.nearest(later, [1, 0], 1)).rejects.toMatchObject({ code: 'unknown-embedder' });
+    expect(await store.vectors.ensure(later, 2)).toBe(false);
+    expect(await store.vectors.ensure(later, 2)).toBe(false);
+    await store.vectors.upsert(later, [{ kind: 'fn', key: 'a', vector: [1, 0] }]);
+    expect((await store.vectors.nearest(later, [1, 0], 1)).map((h) => h.key)).toEqual(['a']);
+    // a transaction's store sees the same sizes
+    await store.tx(async (tx) => { expect(await tx.vectors.nearest(later, [1, 0], 1)).toHaveLength(1); });
+    expect(await store.vectors.ensure(later, 3)).toBe(true);
+    expect(await store.vectors.nearest(later, [1, 0, 0], 1)).toEqual([]);
+    await expect(store.vectors.upsert(later, [{ kind: 'fn', key: 'a', vector: [1, 0] }])).rejects.toMatchObject({ code: 'bad-vector' });
+  });
+
   it('names tables readably and uniquely', () => {
     expect(vectorTable('embedder/gemma')).toMatch(/^_vec_embedder_gemma_[0-9a-f]{8}$/);
     expect(vectorTable('a-b/c')).not.toBe(vectorTable('a_b/c'));
@@ -201,7 +215,7 @@ describe('hybrid search', () => {
   it('asks each index for limit × depth candidates', async () => {
     const asked: number[] = [];
     const vectors: VectorIndex = {
-      upsert: () => Promise.resolve(), remove: () => Promise.resolve(),
+      ensure: () => Promise.resolve(false), upsert: () => Promise.resolve(), remove: () => Promise.resolve(),
       nearest: (_e, _v, limit) => { asked.push(limit); return Promise.resolve([{ kind: 'fn', key: 'v', score: 1 }]); },
     };
     const text: TextIndex = {

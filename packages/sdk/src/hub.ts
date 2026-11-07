@@ -3,7 +3,7 @@
  * `llm` kind (every agent is a fn of it), refer to its sectioners, and use its named types as fields
  * (`g.nullable(hub.types.ContentRef)`). The hub implements this contract in its own process.
  */
-import { RUN_STATUSES } from '@harness/core';
+import { CONTENT_HASH_PATTERN, ERROR_CLASSES, RUN_STATUSES } from '@harness/core';
 import { fn } from './fn.ts';
 import { kind, mention, sectioner, type } from './declare.ts';
 import { g, json } from './gin.ts';
@@ -39,7 +39,7 @@ export const LlmPayloadType = g.obj({
 
 /** A failure, as a gin type (the same shape as core's `FnError`). */
 export const FnErrorType = g.obj({
-  class: g.enum(['retry', 'caller', 'fatal']),
+  class: g.enum(ERROR_CLASSES),
   message: g.text(),
   code: g.optional(g.text()),
   data: g.optional(json()),
@@ -53,7 +53,7 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
     types: {
       ContentRef: type({
         description: 'Stored content by reference: an upload, or an earlier version of a file.',
-        shape: g.obj({ hash: g.text({ pattern: '^[0-9a-f]{64}$' }), size: g.num({ min: 0, whole: true }), mime: g.text() }),
+        shape: g.obj({ hash: g.text({ pattern: CONTENT_HASH_PATTERN }), size: g.num({ min: 0, whole: true }), mime: g.text() }),
         display: { label: 'Content', plural: 'Contents', icon: 'file', title: 'hash', subtitle: 'mime' },
       }),
       LongText: type({
@@ -67,6 +67,12 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
         description: 'An agent: an LLM with instructions, tools and context, callable like any fn.',
         applicability: 'Use for work that needs judgement, reading or writing in natural language, or several tool calls.',
         payload: LlmPayloadType,
+        status: {
+          active: { one: 'Asking {fn}…', many: 'Asking {n} agents…' },
+          retry: { one: 'Asking {fn} again…', many: 'Asking {n} agents again…' },
+          done: { one: '{fn} answered', many: '{n} agents answered' },
+          failed: { one: '{fn} could not answer', many: '{n} agents could not answer' },
+        },
       }),
     },
     fns: {

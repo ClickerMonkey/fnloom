@@ -9,7 +9,8 @@ import { useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
 import { useLive } from '../../app/live.ts';
 import { links } from '../../app/routes.ts';
-import { useQueryDraft, useQueryText } from '../../app/url.ts';
+import { useQueryChoice, useQueryDraft, useQueryText } from '../../app/url.ts';
+import { LlmCallTab, TAB_KEYS } from '../../chat/logic/inspect.ts';
 import LlmCallDetails from '../../chat/components/LlmCallDetails.vue';
 import { formatCost, formatDuration, formatTokens } from '../../chat/logic/format.ts';
 import { useStores } from '../../state/stores.ts';
@@ -30,6 +31,7 @@ const model = useQueryDraft('model');
 const system = useQueryDraft('system');
 const session = useQueryText('session');
 const opened = useQueryText('call', { push: true });
+const callTab = useQueryChoice(TAB_KEYS.llm, LlmCallTab, 'saw');
 
 const statuses: readonly SelectOption<LlmStatus | ''>[] = [{ value: '', label: 'Any status' }, ...LlmStatus.options.map((s) => ({ value: s, label: LLM_STATUS_LOOK[s].word }))];
 const statusChoice = computed<LlmStatus | ''>({
@@ -82,7 +84,7 @@ useLive(() => { void llm.list.refresh(); }, BROWSER_REFRESH);
               <UiButton size="sm" variant="ghost" icon="fn" @click="router.push(links.runs({ run: call.run }))">The run that asked</UiButton>
               <UiButton v-if="call.session" size="sm" variant="ghost" icon="chat" @click="call.session && router.push(links.session(call.session))">Its chat</UiButton>
             </div>
-            <LlmCallDetails :call="call" />
+            <LlmCallDetails v-model:tab="callTab" :call="call" />
           </template>
         </div>
       </template>

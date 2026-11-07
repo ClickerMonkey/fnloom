@@ -100,6 +100,14 @@ export const Approver = z.discriminatedUnion('by', [
 ]);
 export type Approver = z.infer<typeof Approver>;
 
+/** What a judge fn (`{ by: 'judge' }`) is given: the call waiting for approval. */
+export const JudgeRequest = z.object({ fn: QualifiedName, args: Json, actor: ActorId });
+export type JudgeRequest = z.infer<typeof JudgeRequest>;
+
+/** What a judge fn, or the hub deciding by itself, answers about a call waiting for approval. */
+export const Verdict = z.object({ approve: z.boolean(), reason: z.string() });
+export type Verdict = z.infer<typeof Verdict>;
+
 /** What a policy decides. */
 export const PolicyDecision = z.discriminatedUnion('effect', [
   z.object({ effect: z.literal('allow') }),

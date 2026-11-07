@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "../../../.types/web-sw",
+    "tsBuildInfoFile": "../../../.types/web-sw.tsbuildinfo",
+    "lib": ["ES2023", "WebWorker"],
+    "types": []
+  },
+  "include": ["sw.ts", "../src/state/push-payload.ts"],
+  "references": [{ "path": "../../core" }]
+}

@@ -29,10 +29,10 @@ const emit = defineEmits<{ pick: [starter: Starter] }>();
 </template>
 
 <style scoped>
-.starters { display: grid; gap: var(--space-5); justify-items: center; padding: var(--space-7) var(--space-2) var(--space-4); animation: ui-rise-in var(--slow) var(--ease); }
+.starters { display: grid; min-width: 0; gap: var(--space-5); justify-items: center; padding: var(--space-7) var(--space-2) var(--space-4); animation: ui-rise-in var(--slow) var(--ease); }
 .welcome { display: grid; justify-items: center; gap: var(--space-2); text-align: center; }
 .mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent); }
-.title { margin: var(--space-2) 0 0; font-size: var(--text-xl); font-weight: var(--weight-strong); }
+.title { margin: var(--space-2) 0 0; overflow-wrap: anywhere; font-size: var(--text-xl); font-weight: var(--weight-strong); }
 .body { margin: 0; max-width: 46ch; color: var(--text-dim); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--space-2); width: 100%; max-width: 640px; margin: 0; padding: 0; list-style: none; }
 .starter {

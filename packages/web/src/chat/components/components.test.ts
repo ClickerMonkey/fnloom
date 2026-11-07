@@ -309,7 +309,7 @@ describe('inspectors', () => {
 
   it('shows the cost so far and every budget in its tooltip', async () => {
     const meter = mount(BudgetMeter, {
-      props: { spent: 0.5, meter: { label: 'This session', fraction: 0.9, tone: 'warn', text: '$0.05 left · This session', rows: [{ rule: BudgetId.parse('bgt_1'), label: 'This session', left: 0.05, tightest: true }] } },
+      props: { spent: 0.5, meter: { label: 'This session', fraction: 0.9, tone: 'warn', text: '$0.05 left · This session', rows: [{ key: BudgetId.parse('bgt_1'), label: 'This session', left: 0.05, tightest: true }] } },
       attachTo: document.body,
     });
     expect(meter.get('[data-testid=session-cost]').text()).toBe('$0.50');

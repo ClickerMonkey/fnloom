@@ -4,13 +4,14 @@
 
 import { h, type Component, type DefineComponent } from 'vue';
 import {
-  client, expectType, fn, g, handler, hub, json, kind, mention, steps, system, type,
+  action, client, context, expectType, fn, g, handler, hook, hub, json, kind, mention, steps, system, type,
+  type FnErrorType, type ModelChoiceType,
   type AttachmentViewOf, type ContextRef, type Equal, type FnRef, type FnViewOf, type Infer, type InputViewOf, type ValueOf,
 } from '@harness/sdk';
 import { harnessAiOf, serve, type HarnessAi } from '@harness/sdk/server';
 import { type ClientRuntime } from '@harness/sdk/client';
 import { fs, type Entry } from '@harness/system-fs';
-import { mintId, type ContentRef } from '@harness/core';
+import { mintId, type ContentRef, type FnError, type ModelChoice } from '@harness/core';
 
 // Stand-ins for real file and shell code.
 declare function readText(path: string): Promise<string>;
@@ -34,6 +35,9 @@ expectType<Equal<typeof fs.context.tree, ContextRef<'fs/tree', { root?: string }
 expectType<Equal<typeof fs.fns.read, FnRef<'fs/read', { path: string; offset?: number | undefined; limit?: number | undefined }, { text: string; lines: number; truncated: boolean }, {}>>>(true);
 // a named type from another system is a field like any other: the hub's ContentRef is core's ContentRef
 expectType<Equal<Infer<typeof hub.types.ContentRef>, ContentRef>>(true);
+// every other gin type the hub mirrors from a core schema is pinned to it the same way
+expectType<Equal<Infer<typeof FnErrorType>, FnError>>(true);
+expectType<Equal<Infer<typeof ModelChoiceType>, ModelChoice>>(true);
 
 // ── The fs system's server: everything declared must be implemented ─────────
 
@@ -116,6 +120,8 @@ void serve(fs, {
         await ctx.state.set({ cwd: args.path });
         // @ts-expect-error state values are typed
         await ctx.state.set({ cwd: 42 });
+        // @ts-expect-error cd declared only cwd, so it can't write another field either
+        await ctx.state.set({ lastQuery: 'x' });
         // @ts-expect-error cd has no form, so there's nothing to wait for
         await ctx.form();
         return ctx.done({ cwd: args.path });
@@ -187,6 +193,55 @@ void serve(fs, {
 
 // @ts-expect-error every native fn must be implemented (most are missing here)
 void serve(fs, { fns: { read: { async run(_a, ctx) { return ctx.done({ text: '', lines: 0, truncated: false }); } } } }, { hub: '', state: '' });
+
+// Every section a contract declares must be implemented. `every` declares one of each; `complete` implements them all,
+// and each line below leaves exactly one out.
+const every = system('every', { description: 'One of everything.' }).with({
+  types: {
+    Item: type({
+      description: 'An item.', shape: g.obj({ id: g.text() }), display: { label: 'Item', title: 'id' },
+      methods: { touch: fn({ description: 'Touch it.', args: g.obj({}), returns: g.bool() }) },
+    }),
+  },
+  kinds: { macro: kind({ description: 'A macro.', applicability: 'Macros.', payload: g.obj({ steps: g.list(g.text()) }) }) },
+  fns: { save: fn({ description: 'Save.', args: g.obj({ id: g.text() }), returns: g.bool(), undo: g.obj({ id: g.text() }) }) },
+  context: { items: context({ description: 'The items.', command: { name: 'items', args: {} } }) },
+  hooks: { recent: hook({ description: 'Recent items.' }) },
+  mentions: { items: mention({ title: 'Items', description: 'Any item.', target: g.obj({ id: g.text() }) }) },
+  actions: { refresh: action({ description: 'Refresh.', input: g.obj({}), returns: g.bool() }) },
+});
+type EveryImpl = Parameters<typeof serve<'every', (typeof every)['defs']>>[1];
+declare function omit<T, K extends keyof T>(value: T, key: K): Omit<T, K>;
+const complete = {
+  types: { Item: { touch: { async run(_self, _args, ctx) { return ctx.done(true); } } } },
+  kinds: {
+    macro: {
+      async check() { return []; },
+      async describe() { return { args: { name: 'obj' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
+      async run(_payload, _args, ctx) { return ctx.done(null); },
+    },
+  },
+  fns: { save: { async run(args, ctx) { return ctx.done(true, { undo: { id: args.id } }); }, async undo() { return { status: 'undone', summary: 'unsaved' }; } } },
+  context: { items: async () => 'no items' },
+  hooks: { recent: async () => [] },
+  mentions: { items: { async search() { return []; }, async hover() { return undefined; }, async llm(target) { return `item ${target.id}`; } } },
+  actions: { refresh: async () => true },
+} satisfies EveryImpl;
+void serve(every, complete, { hub: '', state: '' });
+// @ts-expect-error save declares an undo type, so it must be undoable
+void serve(every, { ...complete, fns: { save: { async run(_a, ctx) { return ctx.done(true, { undo: { id: 'x' } }); } } } }, { hub: '', state: '' });
+// @ts-expect-error every method of a type must be implemented
+void serve(every, omit(complete, 'types'), { hub: '', state: '' });
+// @ts-expect-error every kind must be implemented
+void serve(every, omit(complete, 'kinds'), { hub: '', state: '' });
+// @ts-expect-error every dynamic context must be implemented
+void serve(every, omit(complete, 'context'), { hub: '', state: '' });
+// @ts-expect-error every hook must be implemented
+void serve(every, omit(complete, 'hooks'), { hub: '', state: '' });
+// @ts-expect-error every mention provider must be implemented
+void serve(every, omit(complete, 'mentions'), { hub: '', state: '' });
+// @ts-expect-error every action must be implemented
+void serve(every, omit(complete, 'actions'), { hub: '', state: '' });
 
 const tiny = system('tiny', { description: 'One fn.' }).with({
   fns: { ping: fn({ description: 'Ping.', args: g.obj({}), returns: g.literal('pong') }) },

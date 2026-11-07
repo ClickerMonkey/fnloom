@@ -4,7 +4,7 @@
  * so switching back is instant and drafts stay). `app/wire.ts` builds it from the real callers; tests build it from
  * fakes. Pages reach it through `useStores().chat`.
  */
-import type { ActorId, ClientInfo, ContentRef, SessionId } from '@harness/core';
+import type { ActorId, ClientInfo, ContentRef, RunId, SessionId } from '@harness/core';
 import { ref } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import type { KeyValueStore } from '../../state/persisted.ts';
@@ -109,6 +109,11 @@ export class ChatStore {
       this.#threads.delete(old);
     }
     return thread;
+  }
+
+  /** The chat a run belongs to, if any (a notification about a run leads there). */
+  async sessionOfRun(run: RunId): Promise<SessionId | undefined> {
+    return (await this.#deps.api.run.call({ run })).session;
   }
 
   /** A session's composer (its draft is saved per session). */

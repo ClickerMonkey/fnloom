@@ -6,7 +6,7 @@
  * Owner: the api lane implements `EventBus` (`bus/memory.ts`); every module publishes and subscribes through it.
  */
 import type {
-  ActorId, Approval, ChatMessage, DeliveryView, FnRecord, HandlerCall, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
+  ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, HandlerCall, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
   Json, OutputLine, ResourceRoot, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, SystemName, SystemStatus, Notification,
 } from '@harness/core';
 
@@ -25,6 +25,8 @@ export interface HubEvents {
   'presence': { presence: Presence };
   'notification': { notification: Notification };
   'system.status': { system: SystemName; status: SystemStatus };
+  /** A connected system has applied a config version the hub pushed (its `configure` call answered). */
+  'system.configured': { system: SystemName; version: number };
   'system.output': { system: SystemName; line: OutputLine };
   'pairing': { pairing: PairingRequest };
   'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };
@@ -32,6 +34,8 @@ export interface HubEvents {
   /** A system's roots, as it offered them on connect or after it said they changed. */
   'resources.roots': { system: SystemName; roots: readonly ResourceRoot[] };
   'capabilities.changed': Record<string, never>;
+  /** A budget whose rule says `ask` is used up: a call is waiting for someone to raise it. */
+  'budget.reached': { budget: BudgetRule; run: RunId; reason: string };
 }
 
 export type HubEventName = keyof HubEvents;

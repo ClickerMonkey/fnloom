@@ -4,13 +4,13 @@
  * The link module installs these on the link server; `ChildRelay` tells a calling system about its child runs.
  */
 import type { HandlerFor } from '@ayepi/core';
-import type { HubLinkSpec, Run, RunId, RunSettled, RunUpdate, SystemName } from '@harness/core';
+import { isSettled, type HubLinkSpec, type Run, type RunId, type RunSettled, type RunUpdate, type SystemName } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
 import type { LlmGateway } from './index.ts';
 import type { HandlerRelay } from './handlers.ts';
 import type { ExecutionDeps } from './ports.ts';
-import { isSettled, type HubRunService } from './runs.ts';
+import type { HubRunService } from './runs.ts';
 
 /** The handler of one hub link endpoint. */
 export type LinkHandler<K extends keyof HubLinkSpec['endpoints']> = HandlerFor<HubLinkSpec, HubLinkSpec['endpoints'][K]>;

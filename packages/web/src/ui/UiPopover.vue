@@ -25,6 +25,8 @@ const open = defineModel<boolean>('open', { required: true });
 const panel = ref<HTMLElement | null>(null);
 const placed = ref({ left: 0, top: 0, maxWidth: 0, maxHeight: 0, side: props.side });
 const MARGIN = 8;
+/** Placed at least once since opening: until then it is laid out but not shown, so it never jumps into place. */
+const ready = ref(false);
 
 const style = computed(() => ({
   left: `${placed.value.left}px`,
@@ -32,6 +34,7 @@ const style = computed(() => ({
   maxWidth: `${placed.value.maxWidth}px`,
   maxHeight: `${placed.value.maxHeight}px`,
   minWidth: props.matchWidth && props.anchor ? `${Math.min(props.anchor.offsetWidth, placed.value.maxWidth)}px` : undefined,
+  visibility: ready.value ? undefined : 'hidden' as const,
 }));
 
 function reposition(): void {
@@ -64,8 +67,10 @@ function unfollow(): void {
 
 watch(open, async (now) => {
   if (now) {
+    ready.value = false;
     await nextTick();
     reposition();
+    ready.value = true;
     follow();
   } else {
     unfollow();

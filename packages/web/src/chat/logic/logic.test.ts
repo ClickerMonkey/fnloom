@@ -9,8 +9,10 @@ import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage 
 import { isTyping, shortcutFor } from './keys.ts';
 import { agentName, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
 import { applyRunUpdate, argSummary, emptyRun, mergeRecord, phaseOf, progressFraction, resultBrief, runElapsed, runError, runResult, runText, statusLine } from './runs.ts';
-import { budgetMeter, messageSuggestions, scopeLabel, whoAnswers } from './session.ts';
-import { appendToken, dayLabel, messageText, prependPage, resendParts, splitParts, threadItems, upsertMessage } from './thread.ts';
+import { budgetMeter, messageSuggestions, scopeLabel, scoreText, whoAnswers } from './session.ts';
+import {
+  answerPieces, appendToken, dayLabel, messageText, messageTextLength, prependPage, resendParts, splitParts, storedReasoning, threadItems, undoneTurns, upsertMessage,
+} from './thread.ts';
 
 const caps: ChatCapabilities = capabilities();
 const mention: DraftMention = { type: 'mention', provider: 'fs/files', label: 'harness.md', target: { path: 'docs/harness.md' } };
@@ -61,10 +63,21 @@ describe('runs', () => {
   it('says what a run is doing in plain words', () => {
     const base = { fn: 'fs/read_file' as const, attempt: 1 };
     expect(runText({ ...base, status: 'running' })).toBe('Read file…');
-    expect(runText({ ...base, status: 'running', attempt: 2 })).toBe('Retrying read file… (attempt 2)');
-    expect(runText({ ...base, status: 'done' })).toBe('Read file');
+    expect(runText({ ...base, status: 'running', attempt: 2 })).toBe('Retrying read file…');
+    expect(runText({ ...base, status: 'done' })).toBe('Read file done');
     expect(runText({ ...base, status: 'failed' })).toBe('Read file failed');
     expect(runText({ ...base, status: 'awaiting-approval' })).toBe('Waiting for approval to read file');
+  });
+
+  it('says the words the hub sent for the run phase, and falls back to the defaults for another phase', () => {
+    const text = { phase: 'active', one: 'Reading harness.md…', many: 'Reading {n} files…' } as const;
+    const reading = run({ fn: 'fs/read', status: 'running', text });
+    expect(runText(reading)).toBe('Reading harness.md…');
+    const done = applyRunUpdate(reading, { type: 'status', status: 'done', text: { phase: 'done', one: 'Read harness.md', many: 'Read {n} files' } }, T0);
+    expect(runText(done)).toBe('Read harness.md');
+    // a status update without words (an older hub) keeps the record's, which are for another phase
+    expect(runText(applyRunUpdate(reading, { type: 'status', status: 'failed' }, T0))).toBe('Read failed');
+    expect(mergeRecord(done, run({ fn: 'fs/read', status: 'running', text })).text?.one).toBe('Read harness.md');
   });
 
   it('sums up its args by their most telling value', () => {
@@ -92,7 +105,7 @@ describe('runs', () => {
     const reads = [1, 2, 3].map((n) => run({ id: `run_r${n}`, fn: 'fs/read_file', status: 'running' }));
     const write = run({ id: 'run_w', fn: 'fs/write_file', status: 'done', endedAt: T0 });
     const line = statusLine([...reads, write], T0 + 1_000);
-    expect(line.groups.map((g) => g.text)).toEqual(['Read file ×3…', 'Write file']);
+    expect(line.groups.map((g) => g.text)).toEqual(['Read file ×3…', 'Write file done']);
     expect(line.lead).toBe('');
     expect(statusLine([write], T0 + 10_000).groups).toEqual([]);
     expect(statusLine([], T0).lead).toBe('Thinking…');
@@ -100,6 +113,19 @@ describe('runs', () => {
     const many = ['a', 'b', 'c', 'd', 'e'].map((name) => run({ id: `run_${name}`, fn: `fs/${name}`, status: 'running' }));
     expect(statusLine(many, T0).more).toBe(2);
     expect(phaseOf({ status: 'running', attempt: 2 })).toBe('retry');
+  });
+
+  it('groups in the fn words, never repeats a waiting card, and lets the lead speak for the turn agent', () => {
+    const text = { phase: 'active', one: 'Reading a.md…', many: 'Reading {n} files…' } as const;
+    const reads = [1, 2].map((n) => run({ id: `run_r${n}`, fn: 'fs/read', status: 'running', text }));
+    const agent = run({ id: 'run_agent', fn: 'hub/chat', kind: 'hub/llm', status: 'waiting' });
+    const bash = run({ id: 'run_b', fn: 'fs/bash', status: 'awaiting-approval', parent: RunId.parse('run_agent') });
+    const line = statusLine([agent, ...reads, bash], T0);
+    expect(line.groups.map((g) => g.text)).toEqual(['Reading 2 files…']);
+    expect(line.lead).toBe('Waiting for your approval');
+    expect(statusLine([agent], T0)).toEqual({ groups: [], more: 0, lead: 'Thinking…' });
+    expect(statusLine([agent, reads[0] ?? agent], T0).groups.map((g) => g.text)).toEqual(['Reading a.md…']);
+    expect(statusLine([run({ status: 'paused' })], T0).lead).toBe('Paused');
   });
 });
 
@@ -115,6 +141,30 @@ describe('thread', () => {
     expect(answer?.kind === 'answer' && answer.messages.length).toBe(2);
     expect(answer?.kind === 'answer' && answer.streaming).toBe(true);
     expect(items[1]?.kind === 'user' && items[1].mine).toBe(true);
+  });
+
+  it('takes an undone turn out of the thread and keeps it on its note, so a retry reads as one question', () => {
+    const asked = message({ turn: 'trn_u', createdAt: T0 + 1 });
+    const answered = message({ turn: 'trn_u', role: 'assistant', author: 'act_agent', createdAt: T0 + 2 });
+    const note = message({ turn: 'trn_u', role: 'note', author: 'act_hub', createdAt: T0 + 3 });
+    const again = message({ turn: 'trn_r', parts: asked.parts, createdAt: T0 + 4 });
+    expect([...undoneTurns([asked, answered, note, again])]).toEqual(['trn_u']);
+    const items = threadItems([asked, answered, note, again], asked.author, T0);
+    expect(items.map((i) => i.kind)).toEqual(['day', 'note', 'user']);
+    expect(items[1]?.kind === 'note' && items[1].undone.map((m) => m.id)).toEqual([asked.id, answered.id]);
+  });
+
+  it('orders an answer as it happened: runs, then attachments, then the reply; live runs where the text had got to', () => {
+    const attachment = { type: 'attachment', attachment: 'fs/diff', data: {}, title: 'Diff' } as const;
+    const done = message({ role: 'assistant', runs: ['run_1', 'run_2'], parts: [{ type: 'reasoning', text: 'hmm' }, { type: 'text', text: 'All done.' }, attachment] });
+    expect(answerPieces(done, new Map([[RunId.parse('run_2'), 4]])).map((p) => p.kind)).toEqual(['runs', 'attachment', 'text']);
+    expect(storedReasoning(done)).toBe('hmm');
+    expect(messageTextLength(done)).toBe(9);
+    const live = { ...done, status: 'streaming' as const, parts: [{ type: 'text' as const, text: 'Let me look. Found it.' }] };
+    const pieces = answerPieces(live, new Map([[RunId.parse('run_1'), 0], [RunId.parse('run_2'), 13]]));
+    expect(pieces.map((p) => (p.kind === 'text' ? p.text : p.kind === 'runs' ? p.runs.join(',') : p.kind))).toEqual(['run_1', 'Let me look. ', 'run_2', 'Found it.']);
+    expect(answerPieces({ ...live, runs: [] }, new Map()).map((p) => p.kind)).toEqual(['text']);
+    expect(answerPieces({ ...live, runs: ['run_9'] }, new Map([[RunId.parse('run_9'), 99]])).map((p) => p.kind)).toEqual(['text', 'runs']);
   });
 
   it('names days', () => {
@@ -204,9 +254,14 @@ describe('session facts', () => {
     const meter = budgetMeter(limits, 0.9, 0);
     expect(meter?.label).toBe('This session');
     expect(meter?.tone).toBe('warn');
-    expect(meter?.rows.find((r) => r.tightest)?.rule).toBe('bgt_s');
+    expect(meter?.rows.find((r) => r.tightest)?.key).toBe('bgt_s');
     expect(budgetMeter(limits, 1, 0.2)?.tone).toBe('danger');
     expect(budgetMeter(undefined, 0, 0)).toBeUndefined();
+    const capOnly = budgetMeter(ResolvedLimits.parse({ ...limits, budgets: [], limitedBy: undefined, turn: { cost: 0.5, time: 600_000 } }), 2, 0, 0.45);
+    expect(capOnly?.label).toBe('Each turn');
+    expect(capOnly?.text).toBe('$0.05 left · Each turn');
+    expect(capOnly?.tone).toBe('warn');
+    expect(budgetMeter(ResolvedLimits.parse({ ...limits, budgets: [], limitedBy: undefined, turn: { cost: 0, time: 1 } }), 0, 0)).toBeUndefined();
     expect(scopeLabel({ scope: 'user', user: ActorId.parse('act_ada') })).toBe('Your budget');
   });
 
@@ -220,6 +275,17 @@ describe('session facts', () => {
     const found = messageSuggestions(m, session({ tools: ['fs/read_file'] }));
     expect(found.context.map((c) => [c.label, c.why])).toEqual([['Readme', 'mentions the docs']]);
     expect(found.fns.map((f) => [f.name, f.state])).toEqual([['fs/read_file', 'loaded'], ['fs/write_file', 'offered'], ['fs/tree', 'auto']]);
+  });
+
+  it('sorts suggestions by score, best first, unscored ones last', () => {
+    const blocks = [
+      HookBlock.parse({ type: 'suggest-fns', items: [{ fn: 'fs/glob', score: 0.41 }, { fn: 'fs/read_file', score: 0.873 }] }),
+      HookBlock.parse({ type: 'load', fns: ['fs/tree'] }),
+    ];
+    const found = messageSuggestions(message({ parts: [{ type: 'extra', extra: 'suggested-fns', blocks }] }), undefined);
+    expect(found.fns.map((f) => [f.name, f.score])).toEqual([['fs/read_file', 0.873], ['fs/glob', 0.41], ['fs/tree', undefined]]);
+    expect(scoreText(0.873)).toBe('87%');
+    expect(scoreText(1.2)).toBe('100%');
   });
 });
 

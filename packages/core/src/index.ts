@@ -3,8 +3,11 @@
  * from them, so changing a schema breaks, at compile time, everything that relies on it.
  *
  * - `primitives`: JSON, ids, units, names, priorities.
+ * - `ports`: the port schema, default ports and the shared `HARNESS_PORT` env field.
  * - `gin`: gin types on the wire.
  * - `run`: who a run is for, progress, outcomes.
+ * - `labels`: friendly names for qualified names.
+ * - `status`: what a run says it is doing (status templates and their resolution).
  * - `resources`: resources, sections, content refs, links.
  * - `llm`: LLM requests and chunks on the wire.
  * - `manifest`: a system's contract as JSON, hooks, mentions, events.
@@ -13,8 +16,12 @@
  * - `web`: the web API spec (`hubWebSpec`) and its events.
  */
 export * from './primitives.ts';
+export * from './objects.ts';
+export * from './ports.ts';
 export * from './gin.ts';
 export * from './run.ts';
+export * from './labels.ts';
+export * from './status.ts';
 export * from './resources.ts';
 export * from './llm.ts';
 export * from './manifest.ts';

@@ -20,6 +20,7 @@ import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
   type ImportReport, type LogLine, type QualifiedName, type StopReason, type Welcome,
 } from '@harness/core';
+import type { Log } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
@@ -63,6 +64,26 @@ export interface LinkHostDeps {
   readonly env?: SdkEnv;
   /** The process logger. Default: console, plus the hub while connected. */
   readonly logger?: (sink: (line: LogLine) => void) => Logger;
+}
+
+/** A link host and the process log it serves with. */
+export interface LoggedHost {
+  readonly host: LinkHost;
+  /** The system's process log, with `system` on every line. */
+  readonly log: Log;
+}
+
+/**
+ * A `LinkHost` and the process log it will use, made before `serve` so the parts a system builds ahead of it (HTTP
+ * clients, watchers) log through the same `@ayepi/log` logger: structured, sanitized lines on the console at once,
+ * and to the hub while connected. Pass `host` to `serve`.
+ */
+export function loggedHost(name: string, deps: Omit<LinkHostDeps, 'logger'> = {}, output: 'stdout' | 'stderr' = 'stdout'): LoggedHost {
+  const env = deps.env ?? sdkEnv.parse();
+  let toHub: (line: LogLine) => void = () => undefined;
+  const logger = systemLogger({ level: env.HARNESS_LOG_LEVEL, json: env.HARNESS_LOG_JSON, sink: (line) => { toHub(line); }, console: output });
+  const host = new LinkHost({ ...deps, env, logger: (sink) => { toHub = sink; return logger; } });
+  return { host, log: new ScopedLog(logger, { system: name }) };
 }
 
 /** Runs systems over the WebSocket link. */
@@ -229,7 +250,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     await this.#lifecycleRunner.up();
     this.#watchReachable(socket.state);
     if (this.#options.mcp !== undefined) {
-      this.#mcp = new McpFace(this.#table, runEnv, this.#version, this.#env.HARNESS_MCP_TIMEOUT);
+      this.#mcp = new McpFace(this.#table, runEnv, this.#version, { timeout: this.#env.HARNESS_MCP_TIMEOUT, maxBody: this.#env.HARNESS_MCP_MAX_BODY });
       await this.#mcp.serve(this.#options.mcp);
     }
   }

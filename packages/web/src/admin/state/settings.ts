@@ -5,6 +5,7 @@
 import type { ActorId, ActorSetting, Json, QualifiedName, SystemName } from '@harness/core';
 import { computed } from 'vue';
 import { Loaded, Task } from '../../state/loaded.ts';
+import type { ResponseOf } from '../../api/client.ts';
 import type { AdminApi } from '../api.ts';
 import type { SettingView } from '@harness/core';
 
@@ -25,7 +26,7 @@ export interface SettingGroup {
 /** The actor settings page's state. */
 export class ActorSettingsStore {
   readonly #api: SettingsApi;
-  readonly data = new Loaded<{ readonly declared: readonly SettingView[]; readonly values: readonly ActorSetting[] }>();
+  readonly data = new Loaded<ResponseOf<'actorSettings'>>();
   readonly save = new Task();
   /** The settings by system, systems and settings by name. */
   readonly groups = computed<readonly SettingGroup[]>(() => {

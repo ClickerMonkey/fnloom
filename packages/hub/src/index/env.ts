@@ -1,6 +1,6 @@
 /**
- * The index's tunables, as an `@ayepi/env` slice (the embedder names, dimensions, batch size and suggestion count are
- * in boot's `modelEnv`). Durations are milliseconds.
+ * The index's tunables, as an `@ayepi/env` slice (the embedder names, batch size and suggestion count are
+ * in boot's `modelEnv`; vector dimensions come from the embedder's declaration). Durations are milliseconds.
  */
 import { env } from '@ayepi/env';
 import { z } from 'zod';

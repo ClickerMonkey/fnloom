@@ -9,6 +9,7 @@
     "./server": "./server/index.ts"
   },
   "dependencies": {
+    "@ayepi/core": "file:../../../ayepi/packages/core",
     "@ayepi/env": "file:../../../ayepi/packages/env",
     "@harness/core": "*",
     "@harness/sdk": "*",

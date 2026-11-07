@@ -6,7 +6,7 @@ describe('hub settings', () => {
     const settings = parseHubSettings();
     expect(Object.keys(settings).sort()).toEqual(Object.keys(HUB_ENV).sort());
     expect(settings.queueEnv.HARNESS_TOOL_TIMEOUT).toBeGreaterThan(0);
-    expect(settings.modelEnv.HARNESS_EMBED_DIMENSIONS).toBe(768);
+    expect(settings.modelEnv.HARNESS_EMBED_BATCH).toBeGreaterThan(0);
   });
 
   it('derives the public URL from the port unless it is given', () => {

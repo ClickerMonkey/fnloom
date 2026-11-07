@@ -30,7 +30,7 @@ const emit = defineEmits<{ hover: [part: Mention, anchor: HTMLElement]; leave: [
       <span v-else-if="part.type === 'command'" class="command" data-testid="command-chip" :title="part.context">
         /{{ commandName(part.context) }}<span v-for="(value, name) in part.args" :key="name" class="arg">{{ value }}</span>
       </span>
-      <button v-else-if="part.type === 'invocation'" type="button" class="invocation" data-testid="invocation-chip" @click="emit('run', part.run)">
+      <button v-else-if="part.type === 'invocation'" type="button" class="invocation touch-target" data-testid="invocation-chip" @click="emit('run', part.run)">
         <UiIcon name="fn" :size="13" /> {{ fnLabel(part.fn) }}
       </button>
       <span v-else-if="part.type === 'file'" class="file" data-testid="file-chip" :title="`${part.name} · ${part.ref.mime}`">

@@ -1,19 +1,18 @@
 // Live: the local EmbeddingGemma service (product/services/embedder) at HARNESS_EMBEDDER_URL. Skipped, with the
 // reason, when it isn't running. Run with `npm run test:live`.
-import { setTimeout as wait } from 'node:timers/promises';
 import type { Log } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
 import { GEMMA_DIMENSIONS } from '../shared/index.ts';
 import { embedderEnv } from './env.ts';
-import { HttpGemmaClient } from './http.ts';
+import { HttpGemmaClient, limitsFrom, timerSleep } from './http.ts';
 
 const settings = embedderEnv.parse();
 const quiet: Log = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined };
 const client = new HttpGemmaClient({
   url: () => settings.HARNESS_EMBEDDER_URL,
   fetch: (input, init) => fetch(input, init),
-  sleep: async (ms, signal) => { await wait(ms, undefined, signal === undefined ? {} : { signal }); },
-  limits: { batch: settings.EMBEDDER_BATCH, retries: settings.EMBEDDER_RETRIES, retryDelay: settings.EMBEDDER_RETRY_DELAY, retryMax: settings.EMBEDDER_RETRY_MAX, timeout: settings.EMBEDDER_TIMEOUT },
+  sleep: timerSleep,
+  limits: limitsFrom(settings),
   log: quiet,
 });
 const up = await client.health().then((h) => h.status === 'ok', () => false);

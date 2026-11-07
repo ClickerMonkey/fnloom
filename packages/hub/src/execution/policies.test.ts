@@ -1,7 +1,9 @@
 import { fn, g } from '@harness/sdk';
-import { ActorId, PolicyId, RunId, SystemName, TurnId, type FnRecord, type Policy } from '@harness/core';
+import { ActorId, PolicyId, QualifiedName, RunId, SystemName, TurnId, type FnRecord, type Policy, type RunSettled } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryBus, MemoryStore, memoryLog } from '../catalog/testing.ts';
+import { MemoryBus, MemoryStore, memoryLog, settle } from '../catalog/testing.ts';
+import { RunDeciders } from './deciders.ts';
+import type { RunInput } from './index.ts';
 import { choosePolicy, globMatches, HubPolicyEngine, subjectRank, targetRank, type ActorFacts } from './policies.ts';
 import { ALICE, ALICE_INFO, SESSION, TestCatalog } from './testing.ts';
 
@@ -123,6 +125,87 @@ describe('the policy engine', () => {
     expect((await policies.answer(asked.approval.id, { by: BOB, approve: true, remember: 'always' })).status).toBe('approved');
     const remembered = (await store.table('policies').find({ limit: 10 })).items.filter((p) => p.decision.effect === 'allow');
     expect(remembered).toMatchObject([{ subject: { actor: ALICE }, target: { fn: 'fs/write' } }]);
+  });
+});
+
+describe('approvals no person answers', () => {
+  const HUB = ActorId.parse('act_hubself');
+  const JUDGE = QualifiedName.parse('rules/judge');
+
+  /** An engine whose deciders run judges through a fake run service and read a fake ledger. */
+  async function decided(options: { verdict?: RunSettled; left?: number } = {}) {
+    const store = new MemoryStore();
+    const bus = new MemoryBus();
+    const { log } = memoryLog();
+    let i = 0;
+    await store.table('actors').insert({ id: HUB, kind: 'system', system: SystemName.parse('hub'), name: 'Hub', about: '', createdAt: 0, disabled: false });
+    await store.table('turns').insert({
+      id: TRN, session: SESSION, actor: ALICE, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running',
+      limits: { priority: 'interactive', priorityFrom: { default: 'hub' }, turn: { cost: 1, time: 1 }, budgets: [] }, cost: 0, errors: 'feed-back', createdAt: 0,
+    });
+    await store.table('runs').insert({ ...runRow(write), args: { path: 'notes.md' } });
+    const policies = new HubPolicyEngine({ store, bus, log, catalog, clock: () => 0, random: () => `${++i}`, approvers: { approvers: () => Promise.resolve([]) } });
+    const judged: RunInput[] = [];
+    policies.decideWith(new RunDeciders({
+      store,
+      runs: { start: (input) => { judged.push(input); return Promise.resolve({ run: RunId.parse('run_judge'), settled: Promise.resolve(options.verdict ?? { status: 'cancelled' }) }); } },
+      ledger: { remaining: () => Promise.resolve({ cost: options.left ?? 0, limitedBy: 'this message' }) },
+    }));
+    return { store, bus, policies, judged };
+  }
+  const judgePolicy = () => policy({ subject: { everyone: true }, target: { fn: 'fs/write' }, decision: { effect: 'ask', approver: { by: 'judge', fn: JUDGE } } });
+  const hubPolicy = () => policy({ subject: { everyone: true }, target: { fn: 'fs/write' }, decision: { effect: 'ask', approver: { by: 'hub' } } });
+  const ask = { actor: ALICE, turnUser: ALICE, args: {}, session: SESSION, run: RUN, caller: BOB, fn: write.name };
+
+  it('runs the judge fn on the waiting call, and its allow settles the approval as the hub', async () => {
+    const { store, bus, policies, judged } = await decided({ verdict: { status: 'done', result: { approve: true, reason: 'only notes' } } });
+    await store.table('policies').insert(judgePolicy());
+    const asked = await policies.decide(ask);
+    if (asked.effect !== 'ask') throw new Error('expected ask');
+    expect(asked.approval.status).toBe('pending');
+    await settle();
+    expect(judged).toMatchObject([{ fn: JUDGE, args: { fn: 'fs/write', args: { path: 'notes.md' }, actor: ALICE }, turn: TRN, session: SESSION, caller: HUB }]);
+    const approval = await store.table('approvals').get(asked.approval.id);
+    expect(approval).toMatchObject({ status: 'approved', decisions: [{ by: HUB, approve: true, reason: 'only notes', remember: 'once' }] });
+    expect(bus.of('approval').map((e) => e.approval.status)).toEqual(['pending', 'approved']);
+  });
+
+  it('denies when the judge denies, gives no verdict, or answers something else', async () => {
+    for (const [verdict, reason] of [
+      [{ status: 'done', result: { approve: false, reason: 'outside the notes' } }, 'outside the notes'],
+      [{ status: 'cancelled' }, 'the judge rules/judge gave no verdict (it ended cancelled)'],
+      [{ status: 'done', result: 'yes' }, 'the judge rules/judge answered something other than a verdict'],
+    ] as const) {
+      const { store, policies } = await decided({ verdict });
+      await store.table('policies').insert(judgePolicy());
+      const asked = await policies.decide(ask);
+      if (asked.effect !== 'ask') throw new Error('expected ask');
+      await settle();
+      expect(await store.table('approvals').get(asked.approval.id)).toMatchObject({ status: 'denied', decisions: [{ approve: false, reason }] });
+    }
+  });
+
+  it('lets the hub decide by its quota: allowed while the turn has budget left, refused once it is used up', async () => {
+    for (const [left, status] of [[0.5, 'approved'], [0, 'denied']] as const) {
+      const { store, policies, judged } = await decided({ left });
+      await store.table('policies').insert(hubPolicy());
+      const asked = await policies.decide(ask);
+      if (asked.effect !== 'ask') throw new Error('expected ask');
+      await settle();
+      expect(await store.table('approvals').get(asked.approval.id)).toMatchObject({ status, decisions: [{ by: HUB }] });
+      expect(judged).toEqual([]);
+    }
+  });
+
+  it('leaves the approval waiting, and logs why, when there is no hub actor to decide as', async () => {
+    const { store, policies } = await decided({ left: 1 });
+    await store.table('actors').remove(HUB);
+    await store.table('policies').insert(hubPolicy());
+    const asked = await policies.decide(ask);
+    if (asked.effect !== 'ask') throw new Error('expected ask');
+    await settle();
+    // the decision could not be recorded as anyone, so the approval is left pending and the failure logged
+    expect((await store.table('approvals').get(asked.approval.id))?.status).toBe('pending');
   });
 });
 

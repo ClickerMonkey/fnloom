@@ -6,16 +6,18 @@
  * `finish`; `settle` closes the turn and tells people who are away.
  */
 import {
-  mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart,
+  ACTIVE_RUN_STATUSES, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart,
   type QualifiedName, type ResolvedLimits, type RunId, type RunSettled, type Session, type SessionId, type Turn, type TurnId, type UserInfo,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
+import { AGENT_KIND } from '../execution/index.ts';
 import { isAttached, type AttachedPart, type MentionService, type MessageEnricher, type NotificationService, type PresenceTracker, type ReplyRule, type TurnEnd, type TurnService } from './index.ts';
 import type { People } from './people.ts';
-import { ACTIVE_RUN_STATUSES, UNTITLED, type StoreSessionService } from './sessions.ts';
+import { UNTITLED, type StoreSessionService } from './sessions.ts';
 import type { StreamBuffer } from './streams.ts';
-import { allowsSystem, clip, participantOf, peopleOf, readAll, timeInfo, unmark } from './support.ts';
+import { allowsSystem, clip, participantOf, peopleOf, readAll, unmark } from './support.ts';
+import { timeInfo } from '../execution/time.ts';
 
 /** The most runs a session is checked for when an agent is interrupted. */
 const MAX_SESSION_RUNS = 500;
@@ -34,7 +36,7 @@ export function plainText(parts: readonly MessagePart[]): string {
       case 'file': return part.name;
       case 'link': return part.link.title ?? '';
       case 'attachment': return part.title;
-      case 'extra': case 'hook': return '';
+      case 'reasoning': case 'extra': case 'hook': return '';
     }
   }).join('').trim();
 }
@@ -172,26 +174,49 @@ export class StoreTurnService implements TurnService {
     const added = runs.filter((run) => !row.runs.includes(run));
     if (added.length === 0) { return; }
     const updated = await this.#deps.store.table('messages').update(message, { runs: [...row.runs, ...added] });
-    this.#deps.bus.publish('message', { message: updated });
+    // Mid-stream, the browser's copy has the streamed reasoning and text, so the update carries them too.
+    this.#deps.bus.publish('message', { message: this.#parts.streams.overlay(updated) });
   }
 
   async attach(run: RunId, part: AttachedPart): Promise<ChatMessage> {
     const { store, bus } = this.#deps;
     const row = await store.table('runs').get(run);
     if (row?.session === undefined) { throw new ChatError('not-found', `Run ${run} belongs to no session.`); }
-    const target = (await store.table('messages').find({ where: { turn: row.turn, role: 'assistant' }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
+    const latest = (await store.table('messages').find({ where: { turn: row.turn, role: 'assistant' }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
+    const target = latest ?? await this.#invocationCarrier(row.turn, run, row.system, row.session);
     if (target === undefined) { throw new ChatError('conflict', `Turn ${row.turn} has no assistant message to attach to yet.`); }
     const updated = await store.table('messages').update(target.id, { parts: [...target.parts, part], runs: target.runs.includes(run) ? target.runs : [...target.runs, run] });
-    bus.publish('message', { message: updated });
+    bus.publish('message', { message: this.#parts.streams.overlay(updated) });
     return updated;
+  }
+
+  /**
+   * A turn a person started with `!` has no agent answering it, so what its run attaches lands on a message of its
+   * own: an assistant message by the system that ran the fn, carrying the run's card. Undefined for any other turn
+   * (its agent's answer is where attachments go, once it has begun).
+   */
+  async #invocationCarrier(turnId: TurnId, run: RunId, system: string, session: SessionId): Promise<ChatMessage | undefined> {
+    const { store, bus } = this.#deps;
+    const turn = await store.table('turns').get(turnId);
+    const asked = turn?.message === undefined ? undefined : await store.table('messages').get(turn.message);
+    if (asked?.parts.some((part) => part.type === 'invocation') !== true) { return undefined; }
+    const author = (await store.table('systems').get(system))?.actor ?? asked.author;
+    const carrier: ChatMessage = {
+      id: mintId('message', this.#deps.random), session, turn: turnId, author, role: 'assistant', parts: [], runs: [run], status: 'done', replyTo: asked.id,
+      replyAll: false, answerers: [], createdAt: this.#deps.clock(),
+    };
+    await store.table('messages').insert(carrier);
+    bus.publish('message', { message: carrier });
+    return carrier;
   }
 
   async finish(message: MessageId, parts: MessagePart[], status: 'done' | 'failed'): Promise<ChatMessage> {
     const row = await this.#deps.store.table('messages').get(message);
     if (row === undefined) { throw new ChatError('not-found', `No message ${message}.`); }
     if (row.role !== 'assistant') { throw new ChatError('conflict', 'Only an assistant message is finished.'); }
-    this.#parts.streams.close(message);
-    const finished = await this.#deps.store.table('messages').update(message, { parts: [...parts, ...row.parts.filter(isAttached)], status });
+    const streamed = this.#parts.streams.close(message);
+    const reasoning: MessagePart[] = streamed === undefined || streamed.reasoning === '' ? [] : [{ type: 'reasoning', text: streamed.reasoning }];
+    const finished = await this.#deps.store.table('messages').update(message, { parts: [...reasoning, ...parts, ...row.parts.filter(isAttached)], status });
     this.#deps.bus.publish('message', { message: finished });
     const session = await this.#deps.store.table('sessions').get(row.session);
     const repliedTo = row.replyTo === undefined ? undefined : await this.#deps.store.table('messages').get(row.replyTo);
@@ -295,7 +320,7 @@ export class StoreTurnService implements TurnService {
   /** Wake each answering agent; any agent run still busy in the session goes to the background first. */
   async #wake(session: Session, turn: Turn, answerers: readonly ActorId[]): Promise<void> {
     if (answerers.length === 0) { return; }
-    const busy = (await readAll(this.#deps.store.table('runs'), { where: { session: session.id, kind: 'hub/llm', status: { in: ACTIVE_RUN_STATUSES } } }, MAX_SESSION_RUNS))
+    const busy = (await readAll(this.#deps.store.table('runs'), { where: { session: session.id, kind: AGENT_KIND, status: { in: ACTIVE_RUN_STATUSES } } }, MAX_SESSION_RUNS))
       .filter((run) => run.parent === undefined && run.turn !== turn.id);
     await Promise.all(busy.map(async (run) => this.#deps.agents.interrupt(run.id)));
     const started: RunId[] = [];
@@ -304,7 +329,7 @@ export class StoreTurnService implements TurnService {
       if (agent === undefined) { continue; }
       try {
         const { run } = await this.#deps.agents.start({
-          kind: 'hub/llm', fn: agent.fn, args: {}, turn: turn.id, session: session.id, key: `answer:${agent.fn}`, actor: turn.actor, caller: agent.id,
+          kind: AGENT_KIND, fn: agent.fn, args: {}, turn: turn.id, session: session.id, key: `answer:${agent.fn}`, actor: turn.actor, caller: agent.id,
           priority: turn.limits.priority, background: false, handlers: [], budget: { cost: turn.limits.turn.cost, time: turn.limits.turn.time },
         });
         started.push(run);

@@ -10,8 +10,8 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  mintId, SETTLED_RUN_STATUSES, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
-  type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunUpdate,
+  isSettled, mintId, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd,
 } from '@harness/core';
 import { z } from 'zod';
@@ -19,20 +19,18 @@ import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { fnError, HubStopping, messageOf, RunRefused, RunStopped } from './errors.ts';
 import { rows } from './pages.ts';
 import { SystemGone } from './executors.ts';
-import type { Ledger, PolicyEngine, RunInput, RunService } from './index.ts';
+import { AGENT_KIND, type Ledger, type PolicyEngine, type RunInput, type RunService } from './index.ts';
 import type { ControlAnswer, ExecutionDeps, RunCosts, RunEvents, RunExecutor, RunSettler } from './ports.ts';
 import type { ExecutionQueues } from './queues.ts';
 import { timeInfo } from './time.ts';
+import { RunWording } from './wording.ts';
 
 /** Which executor runs a run. */
 export type ExecutorKind = 'system' | 'hub' | 'agent';
 
-/** The kind of fn the agent loop runs. */
-export const AGENT_KIND = 'hub/llm';
-
-/** Whether a status is one a run never leaves on its own. */
-export function isSettled(status: RunStatus): boolean {
-  return SETTLED_RUN_STATUSES.some((s) => s === status);
+/** A `status` update, with the run's words for its new phase when it has one. */
+function statusUpdate(status: RunStatus, text: RunText | undefined): RunUpdate {
+  return { type: 'status', status, ...(text === undefined ? {} : { text }) };
 }
 
 /** How a caller hears about a settled run. */
@@ -64,9 +62,12 @@ export function mergeProgress(current: ProgressWire | undefined, report: Progres
   return { steps: { ...steps, [report.step]: report.detail === undefined ? { status: report.status } : { status: report.status, detail: report.detail } } };
 }
 
-/** The handlers a caller can answer for a fn: all of them for a person (a run with no parent), else those it named. */
+/**
+ * The handlers a caller can answer for a fn: all of them when a person answers (a run they started, or one an agent
+ * called on their behalf), else those the calling run named.
+ */
 export function suppliedHandlers(fn: FnRecord, parent: Run | undefined, named: readonly string[]): string[] {
-  return parent === undefined ? Object.keys(fn.decl.handlers) : named.filter((name) => name in fn.decl.handlers);
+  return parent === undefined || parent.kind === AGENT_KIND ? Object.keys(fn.decl.handlers) : named.filter((name) => name in fn.decl.handlers);
 }
 
 /** A promise with its resolver. */
@@ -102,9 +103,11 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   /** Runs a queue job is handling now, so a second job for the same run (a resend, a redelivery) stands aside. */
   readonly #executing = new Set<RunId>();
   readonly #listeners = new Set<(run: Run, settled: RunSettled) => void>();
+  readonly #wording: RunWording;
 
   constructor(deps: RunServiceDeps) {
     this.#deps = deps;
+    this.#wording = new RunWording(deps.catalog);
     deps.bus.subscribe('approval', ({ approval }) => {
       if (approval.status === 'pending') return;
       void this.#approved(approval.run, approval.status === 'approved', approval.decisions.at(-1)?.reason).catch((error: unknown) => {
@@ -169,10 +172,11 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       stateChanges: [],
       createdAt: clock(),
     };
-    await store.table('runs').insert(run);
+    const text = await this.#wording.text(run, { status: 'queued' }, fn);
+    await store.table('runs').insert(text === undefined ? run : { ...run, text });
     this.#handlers.set(id, handlers);
     const settled = this.#waitFor(run);
-    this.#publish(run, { type: 'status', status: 'queued' });
+    this.#publish(run, statusUpdate('queued', text));
     this.#deps.log.info('run.created', { run: id, fn: fn.name, turn: input.turn, parent: input.parent ?? null, key: input.key });
 
     const decision = await this.#deps.policies.decide({
@@ -181,7 +185,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (decision.effect === 'deny') {
       await this.settle(id, { status: 'failed', error: fnError('caller', `Not allowed: ${decision.reason}`, 'denied') });
     } else if (decision.effect === 'ask') {
-      this.#publish(await store.table('runs').update(id, { status: 'awaiting-approval' }), { type: 'status', status: 'awaiting-approval' });
+      await this.#moveTo(run, { status: 'awaiting-approval' }, fn);
     } else {
       this.#enqueue(run);
     }
@@ -239,10 +243,9 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   async #run(queued: Run, fn: FnRecord, signal: AbortSignal): Promise<void> {
-    const { store, clock } = this.#deps;
+    const { clock } = this.#deps;
     const executor = this.#executor(fn);
-    const run = await store.table('runs').update(queued.id, { status: 'running', startedAt: queued.startedAt ?? clock() });
-    this.#publish(run, { type: 'status', status: 'running' });
+    const run = await this.#moveTo(queued, { status: 'running', startedAt: queued.startedAt ?? clock() }, fn);
     const controller = new AbortController();
     const stop = (): void => { controller.abort(signal.reason); };
     signal.addEventListener('abort', stop, { once: true });
@@ -269,7 +272,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     } else if (error instanceof SystemGone || (signal.aborted && signal.reason instanceof HubStopping)) {
       // The system may have started it, so it is sent again as a restart, with the child calls that finished.
       this.#resumes.set(run.id, 'restart');
-      this.#publish(await this.#deps.store.table('runs').update(run.id, { status: 'queued' }), { type: 'status', status: 'queued' });
+      await this.#moveTo(run, { status: 'queued' });
       this.#deps.log.warn('run.system-gone', { run: run.id, system: run.system });
     } else {
       await this.settle(run.id, { status: 'failed', error: fnError('retry', messageOf(error), 'executor') });
@@ -296,16 +299,15 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (outcome.status === 'failed' && outcome.error.class === 'retry') {
       const fn = await catalog.fn(run.fn);
       if (run.attempt <= (fn?.decl.limits.retries ?? 0)) {
-        const retried = await store.table('runs').update(id, { status: 'queued', attempt: run.attempt + 1, errors, cost: run.cost + cost, totalCost: run.totalCost + cost });
+        const retried = await this.#moveTo(run, { status: 'queued', attempt: run.attempt + 1, errors, cost: run.cost + cost, totalCost: run.totalCost + cost }, fn);
         if (cost > 0) await this.#addToAncestors(run, cost);
-        this.#publish(retried, { type: 'status', status: 'queued' });
         this.#enqueue(retried, this.#deps.settings.execution.HARNESS_RUN_RETRY_BASE * 2 ** (run.attempt - 1));
         log.info('run.retry', { run: id, fn: run.fn, attempt: retried.attempt });
         return;
       }
     }
     const paused = outcome.status === 'paused';
-    const updated = await store.table('runs').update(id, {
+    const updated = await this.#moveTo(run, {
       status: outcome.status,
       outcome,
       errors,
@@ -315,7 +317,6 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...('undo' in outcome && outcome.undo !== undefined ? { undo: outcome.undo } : {}),
     });
     if (cost > 0) await this.#addToAncestors(run, cost);
-    this.#publish(updated, { type: 'status', status: updated.status });
     log.info('run.settled', { run: id, fn: run.fn, status: updated.status, cost: updated.totalCost });
     if (paused) return;
     const settled = settledOf(outcome, id);
@@ -372,8 +373,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const run = await this.get(id);
     if (run?.status !== 'paused') return;
     this.#resumes.set(id, 'resumed');
-    const queued = await this.#deps.store.table('runs').update(id, { status: 'queued' });
-    this.#publish(queued, { type: 'status', status: 'queued' });
+    const queued = await this.#moveTo(run, { status: 'queued' });
     this.#deps.log.info('run.resume', { run: id, by });
     this.#enqueue(queued);
   }
@@ -412,7 +412,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   async undo(id: RunId, by: ActorId): Promise<UndoOutcome> {
-    const { store, catalog, log } = this.#deps;
+    const { catalog, log } = this.#deps;
     const run = await this.get(id);
     if (run === undefined) return { status: 'failed', error: fnError('caller', `There is no run ${id}.`, 'not-found') };
     if (run.status === 'undone' || run.undo === undefined) return { status: 'gone' };
@@ -421,7 +421,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (fn?.decl.operations.undo !== true) return { status: 'failed', error: fnError('caller', `${run.fn} can't be undone.`, 'not-undoable') };
     const info = await this.#info(run);
     const outcome = await this.#executor(fn).undo({ run, fn, info, payload: run.undo });
-    if (outcome.status === 'undone') this.#publish(await store.table('runs').update(id, { status: 'undone' }), { type: 'status', status: 'undone' });
+    if (outcome.status === 'undone') await this.#moveTo(run, { status: 'undone' }, fn);
     log.info('run.undo', { run: id, fn: run.fn, by, status: outcome.status });
     return outcome;
   }
@@ -556,9 +556,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const run = await this.get(id);
     if (run?.status !== 'awaiting-approval') return;
     if (approved) {
-      const queued = await this.#deps.store.table('runs').update(id, { status: 'queued' });
-      this.#publish(queued, { type: 'status', status: 'queued' });
-      this.#enqueue(queued);
+      this.#enqueue(await this.#moveTo(run, { status: 'queued' }));
     } else {
       await this.settle(id, { status: 'failed', error: fnError('caller', reason === undefined ? 'The person refused this.' : `The person refused this: ${reason}`, 'denied') });
     }
@@ -580,6 +578,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (run.parent !== undefined || run.session === undefined || run.kind !== AGENT_KIND) return;
     const status = run.status === 'done' || run.status === 'undone' ? 'done' : run.status === 'cancelled' ? 'cancelled' : 'failed';
     await this.#deps.turns.settle(run.turn, status);
+  }
+
+  /** Move a run to a new status (with what changes alongside), worded for its phase, stored and published. */
+  async #moveTo(run: Run, patch: Partial<Run> & Pick<Run, 'status'>, fn?: FnRecord): Promise<Run> {
+    const text = await this.#wording.text(run, patch, fn);
+    const updated = await this.#deps.store.table('runs').update(run.id, text === undefined ? patch : { ...patch, text });
+    this.#publish(updated, statusUpdate(updated.status, text));
+    return updated;
   }
 
   #publish(run: Run, update: RunUpdate): void {

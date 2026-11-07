@@ -36,7 +36,7 @@ const props = withDefaults(defineProps<{
   /** A run's renderer and its props, when its system has one. */
   viewOf?: (run: RunView) => RenderView | undefined;
   /** Whether a run's card is collapsed. */
-  collapsed?: (run: RunId) => boolean;
+  collapsed?: (run: RunView) => boolean;
 }>(), { quote: undefined, flash: false, clampLines: 8, runs: () => [], viewOf: () => undefined, collapsed: () => false });
 
 const emit = defineEmits<{
@@ -107,7 +107,7 @@ onMounted(() => {
       </div>
       <div v-if="runs.length > 0" class="runs">
         <RunCard
-          v-for="run in runs" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run.id)" :view="viewOf(run)" :byline="mine ? 'You ran this' : `${authorName} ran this`"
+          v-for="run in runs" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)" :byline="mine ? 'You ran this' : `${authorName} ran this`"
           @open="emit('run', run.id)" @toggle="emit('runToggle', run.id, $event)"
         />
       </div>
@@ -128,7 +128,8 @@ onMounted(() => {
 .avatar { flex: none; margin-top: 18px; }
 .column { display: grid; justify-items: start; gap: var(--space-1); min-width: 0; max-width: min(85%, var(--readable)); }
 /* a run card needs room to show its renderer, however short the message that started it */
-.column.has-runs { width: min(85%, var(--readable)); }
+/* with runs it takes the answer column's width (all but the agent's avatar), so cards line up across the thread */
+.column.has-runs { width: calc(100% - 28px - var(--space-3)); max-width: none; }
 .runs { display: grid; gap: var(--space-2); justify-self: stretch; min-width: 0; }
 .mine .column { justify-items: end; }
 .author { font-size: var(--text-xs); color: var(--text-faint); padding: 0 var(--space-2); }

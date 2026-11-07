@@ -21,5 +21,6 @@ defineSlots<{ default: () => unknown }>();
 <style scoped>
 .column { min-width: 0; min-height: 0; border-left: 1px solid var(--border); background: var(--surface); animation: ui-rise-in var(--medium) var(--ease); }
 .sheet { height: 100%; min-height: 0; }
-.sheet.phone { height: min(92dvh, 100%); }
+/* on a phone the sheet always takes the whole height the modal allows, never a short partial sheet */
+.sheet.phone { height: 88vh; height: 88dvh; }
 </style>

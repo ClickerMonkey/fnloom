@@ -7,21 +7,22 @@
  * On a reconnect `refresh` fetches what may have changed while events were lost, so nothing is left spinning.
  */
 import {
-  type ActorId, type Approval, type ApprovalId, type ChatMessage, type ClientInfo, type DeliveryId, type DeliveryView, type HandlerCall,
+  isSettled, type ActorId, type Approval, type ApprovalId, type ChatMessage, type ClientInfo, type DeliveryId, type DeliveryView, type HandlerCall,
   type HandlerCallId, type Json, type MessageId, type NotifyChoice, type OutgoingPart, type Presence, type QualifiedName, type Remember,
   type ResolvedLimits, type RunId, type Session, type SessionControls, type SessionEvent, type SessionId, type SessionSummary, type SystemName,
   type TurnId, type UndoReport,
 } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import { problemText } from '../../state/problems.ts';
+import type { BodyOf } from '../../api/client.ts';
 import type { ChatApi, SessionEvents } from '../api.ts';
-import { applyRunUpdate, emptyRun, isActive, isSettled, mergeRecord, type RunView } from '../logic/runs.ts';
-import { appendToken, prependPage, resendParts, upsertMessage } from '../logic/thread.ts';
+import { applyRunUpdate, emptyRun, isActive, mergeRecord, type RunView } from '../logic/runs.ts';
+import { appendToken, messageTextLength, prependPage, resendParts, storedReasoning, undoneTurns, upsertMessage } from '../logic/thread.ts';
 import { summaryOf } from './sessions.ts';
 
 /** The callers a thread uses. */
 export type ThreadApi = Pick<ChatApi,
-  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'background' | 'undoTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit'>;
+  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'background' | 'undoTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit' | 'waiting'>;
 
 /** What a thread needs besides its callers. */
 export interface ThreadDeps {
@@ -35,7 +36,29 @@ export interface ThreadDeps {
   readonly me: () => ActorId | undefined;
   /** Told whenever the session's summary changes, so the list follows. */
   readonly changed: (summary: SessionSummary) => void;
+  /** Whether the person can see the page (default the browser's page visibility). */
+  readonly looking?: PageLooking;
 }
+
+/**
+ * Whether the person can see the page, and hearing when that changes. Presence follows this while the thread is
+ * open (the session is on screen), not the composer's focus: clicking a button is still watching.
+ */
+export interface PageLooking {
+  now(): boolean;
+  /** Returns the stop. */
+  watch(listener: () => void): () => void;
+}
+
+/** The browser's page visibility (always looking where there is no document). */
+export const pageVisibility: PageLooking = {
+  now: () => typeof document === 'undefined' || document.visibilityState === 'visible',
+  watch: (listener) => {
+    if (typeof document === 'undefined') { return () => undefined; }
+    document.addEventListener('visibilitychange', listener);
+    return () => { document.removeEventListener('visibilitychange', listener); };
+  },
+};
 
 /** How a thread behaves: page size, how many runs to fetch on open, how long typing shows, presence throttle (ms). */
 export interface ThreadSettings {
@@ -94,11 +117,15 @@ export class ThreadStore {
   readonly #followers = new Map<DeliveryId, Follower[]>();
   #lastPresence = 0;
   #typing = false;
+  #focused = false;
+  #stopLooking: (() => void) | undefined;
 
   readonly session = shallowRef<Session | undefined>(undefined);
   /** Oldest first. */
   readonly messages = shallowRef<readonly ChatMessage[]>([]);
   readonly reasoning = shallowRef<ReadonlyMap<MessageId, string>>(new Map());
+  /** Where each run appeared in its streaming answer: the length of the answer's text then (see `answerPieces`). */
+  readonly marks = shallowRef<ReadonlyMap<RunId, number>>(new Map());
   readonly runs = shallowRef<ReadonlyMap<RunId, RunView>>(new Map());
   /** Waiting on the person, oldest first. */
   readonly approvals = shallowRef<readonly Approval[]>([]);
@@ -137,7 +164,7 @@ export class ThreadStore {
   readonly failures = computed(() => {
     let count = 0;
     for (const message of [...this.messages.value].reverse()) {
-      if (message.role === 'note') { continue; }
+      if (message.role === 'note' || this.undone.value.has(message.turn)) { continue; }
       if (message.role === 'assistant' && message.status === 'failed') { count++; continue; }
       break;
     }
@@ -147,8 +174,10 @@ export class ThreadStore {
   readonly typing = computed(() => this.presence.value.filter((p) => p.typing && p.user !== this.#deps.me()));
   /** The person's own notification choice for this session. */
   readonly notify = computed<NotifyChoice>(() => this.session.value?.participants.find((p) => p.actor === this.#deps.me())?.notify ?? 'all');
-  /** The latest turn, for Undo. */
-  readonly lastTurn = computed(() => [...this.messages.value].reverse().find((m) => m.role !== 'note')?.turn);
+  /** The turns undone so far. */
+  readonly undone = computed(() => undoneTurns(this.messages.value));
+  /** The latest turn that still stands, for Undo. */
+  readonly lastTurn = computed(() => [...this.messages.value].reverse().find((m) => m.role !== 'note' && !this.undone.value.has(m.turn))?.turn);
   /** Whether the last turn may be undone. */
   readonly canUndo = computed(() => this.controls.value?.undoLastTurn ?? (this.lastTurn.value !== undefined && !this.running.value));
 
@@ -161,6 +190,9 @@ export class ThreadStore {
   /** Listen to the session and load it: the record, the latest page, the limits, then the runs those messages made. */
   async open(): Promise<void> {
     this.#stopEvents ??= this.#deps.events(this.id, (event) => { this.#onEvent(event); });
+    const looking = this.#deps.looking ?? pageVisibility;
+    this.#stopLooking ??= looking.watch(() => { this.reportPresence({ typing: this.#typing && looking.now() }); });
+    this.reportPresence({ typing: this.#typing });
     this.status.value = this.messages.value.length > 0 ? 'ready' : 'loading';
     this.problem.value = '';
     try {
@@ -177,6 +209,7 @@ export class ThreadStore {
       this.#hasOlder.value = page.cursor !== undefined;
       this.status.value = 'ready';
       void this.loadLimits();
+      void this.loadWaiting();
       void this.#fetchRuns(merged.flatMap((m) => m.runs).slice(-this.#settings.runsOnOpen));
     } catch (error) {
       this.status.value = 'error';
@@ -190,7 +223,9 @@ export class ThreadStore {
     this.#stopEvents = undefined;
     for (const timer of this.#typingTimers.values()) { clearTimeout(timer); }
     this.#typingTimers.clear();
-    if (this.#typing) { this.reportPresence({ typing: false, focused: false }); }
+    this.#stopLooking?.();
+    this.#stopLooking = undefined;
+    if (this.#typing || this.#focused) { this.#sendPresence(false, false); }
   }
 
   /** Fetch what may have changed while offline: the session, the latest page, controls and unsettled runs. */
@@ -218,6 +253,22 @@ export class ThreadStore {
     }
   }
 
+  /**
+   * Read what waits on the person in this session (approvals, and questions runs asked them), so a reload or a
+   * reconnect shows them again; live events keep the lists current from then on.
+   */
+  async loadWaiting(): Promise<void> {
+    try {
+      const waiting = await this.#deps.api.waiting.call({ session: this.id });
+      this.approvals.value = [...waiting.approvals].sort((a, b) => a.createdAt - b.createdAt);
+      const me = this.#deps.me();
+      this.handlers.value = waiting.handlers.filter((h) => 'user' in h.answerer && h.answerer.user === me);
+      void this.#fetchRuns([...waiting.approvals.map((a) => a.run), ...waiting.handlers.map((h) => h.run)]);
+    } catch {
+      // the lists keep what events said
+    }
+  }
+
   /** Read the budgets the next turn would get. */
   async loadLimits(): Promise<void> {
     try {
@@ -240,7 +291,7 @@ export class ThreadStore {
       });
       this.messages.value = upsertMessage(this.messages.value, sent.message);
       this.awaiting.value = sent.turn;
-      this.reportPresence({ typing: false, focused: true });
+      this.reportPresence({ typing: false });
       return true;
     } catch (error) {
       this.problem.value = problemText(error, "Couldn't send that. Your message is back in the box.");
@@ -269,7 +320,10 @@ export class ThreadStore {
     this.stopping.value = action !== 'resume';
     try {
       this.controls.value = await this.#deps.api.control.call({ session: this.id, action });
-      if (action === 'cancel') { this.awaiting.value = undefined; }
+      if (action === 'cancel') {
+        this.awaiting.value = undefined;
+        void this.loadWaiting();
+      }
       return true;
     } catch (error) {
       this.stopping.value = false;
@@ -332,7 +386,7 @@ export class ThreadStore {
     const at = this.messages.value.findIndex((m) => m.id === message);
     if (at === -1) { return []; }
     const turns: TurnId[] = [];
-    for (const m of this.messages.value.slice(at)) { if (m.role !== 'note' && !turns.includes(m.turn)) { turns.push(m.turn); } }
+    for (const m of this.messages.value.slice(at)) { if (m.role !== 'note' && !this.undone.value.has(m.turn) && !turns.includes(m.turn)) { turns.push(m.turn); } }
     return turns.reverse();
   }
 
@@ -411,12 +465,13 @@ export class ThreadStore {
     });
   }
 
-  /** Change the session (title, systems, agent, priority, notify, archived). */
-  async update(body: { title?: string; notify?: NotifyChoice; archived?: boolean; agent?: QualifiedName; systems?: Session['systems'] }): Promise<boolean> {
+  /** Change the session (title, systems, agent, priority, notify, archived): any field `updateSession` takes. */
+  async update(body: Omit<BodyOf<'updateSession'>, 'session'>): Promise<boolean> {
     try {
       const session = await this.#deps.api.updateSession.call({ session: this.id, ...body });
       this.session.value = session;
       this.#deps.changed(summaryOf(session));
+      if (body.priority !== undefined) { void this.loadLimits(); }
       return true;
     } catch (error) {
       this.problem.value = problemText(error, "Couldn't change this chat.");
@@ -424,14 +479,27 @@ export class ThreadStore {
     }
   }
 
-  /** Report typing and focus to the hub, at most every `presenceEvery` ms while typing (a stop is sent at once). */
-  reportPresence(state: { typing: boolean; focused: boolean }): void {
-    const now = this.#deps.clock();
-    const changed = state.typing !== this.#typing;
-    if (!changed && state.typing && now - this.#lastPresence < this.#settings.presenceEvery) { return; }
-    this.#typing = state.typing;
-    this.#lastPresence = now;
-    void this.#deps.api.presence.call({ session: this.id, ...state }).catch(() => undefined);
+  /**
+   * Report typing to the hub, with whether the person is looking (the page is visible while this thread is open). At
+   * most every `presenceEvery` ms while typing; a change of either is sent at once.
+   */
+  reportPresence(state: { typing: boolean }): void {
+    const focused = (this.#deps.looking ?? pageVisibility).now();
+    const changed = state.typing !== this.#typing || focused !== this.#focused;
+    if (!changed && (!state.typing || this.#deps.clock() - this.#lastPresence < this.#settings.presenceEvery)) { return; }
+    this.#sendPresence(state.typing, focused);
+  }
+
+  #sendPresence(typing: boolean, focused: boolean): void {
+    this.#typing = typing;
+    this.#focused = focused;
+    this.#lastPresence = this.#deps.clock();
+    void this.#deps.api.presence.call({ session: this.id, typing, focused }).catch(() => undefined);
+  }
+
+  /** An answer's reasoning: as it streams live, else what the message kept. */
+  reasoningOf(message: ChatMessage): string {
+    return this.reasoning.value.get(message.id) ?? storedReasoning(message);
   }
 
   /** The runs a message made, in call order, as far as known. */
@@ -495,6 +563,7 @@ export class ThreadStore {
         const buffered = this.#pendingTokens.get(event.message.id);
         this.#pendingTokens.delete(event.message.id);
         const message = buffered !== undefined && event.message.status === 'streaming' ? appendToken(event.message, buffered) : event.message;
+        this.#markRuns(message);
         this.messages.value = upsertMessage(this.messages.value, message);
         if (message.role === 'assistant' && message.turn === this.awaiting.value) { this.awaiting.value = undefined; }
         void this.#fetchRuns(message.runs);
@@ -525,6 +594,7 @@ export class ThreadStore {
         // a run seen for the first time, or just settled, is read whole: its args, then its outcome
         const settled = event.update.type === 'status' && isSettled(event.update.status);
         if (known.createdAt === undefined || settled) { void this.#fetchRuns([event.run], settled); }
+        if (settled) { this.#dropWaiting(event.run); }
         if (event.update.type === 'status' && isActive(event.update.status)) { this.awaiting.value = undefined; }
         return;
       }
@@ -571,6 +641,24 @@ export class ThreadStore {
         return;
       }
     }
+  }
+
+  /** A settled run waits on no one: its approval and questions go, even if their own events were missed. */
+  #dropWaiting(run: RunId): void {
+    if (this.approvals.value.some((a) => a.run === run)) { this.approvals.value = this.approvals.value.filter((a) => a.run !== run); }
+    if (this.handlers.value.some((h) => h.run === run)) { this.handlers.value = this.handlers.value.filter((h) => h.run !== run); }
+  }
+
+  /** Note where in a streaming answer's text each of its new runs appeared. */
+  #markRuns(message: ChatMessage): void {
+    if (message.role !== 'assistant' || message.status !== 'streaming') { return; }
+    const held = this.messages.value.find((m) => m.id === message.id);
+    const fresh = message.runs.filter((run) => !this.marks.value.has(run) && held?.runs.includes(run) !== true);
+    if (fresh.length === 0) { return; }
+    const at = held === undefined ? 0 : messageTextLength(held);
+    const marks = new Map(this.marks.value);
+    for (const run of fresh) { marks.set(run, at); }
+    this.marks.value = marks;
   }
 
   #onPresence(presence: Presence): void {

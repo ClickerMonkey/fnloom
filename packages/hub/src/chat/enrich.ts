@@ -9,7 +9,8 @@ import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
 import type { CatalogEntry } from '../catalog/index.ts';
 import type { MessageEnricher } from './index.ts';
-import { allowsSystem, callSystem, escapeAttribute, escapeBody, timeInfo, weekday } from './support.ts';
+import { allowsSystem, callSystem, escapeAttribute, escapeBody } from './support.ts';
+import { timeInfo, weekday } from '../execution/time.ts';
 
 /** The tags the hub's own extras carry for the LLM. */
 export const EXTRA_TAGS = { 'local-time': 'local_time', 'suggested-context': 'suggested_context', 'suggested-fns': 'suggested_fns' } as const;
@@ -33,6 +34,7 @@ export class HubMessageEnricher implements MessageEnricher {
     for (const part of message.parts) {
       switch (part.type) {
         case 'text': inline.push(part.text); break;
+        case 'reasoning': break;
         case 'mention':
           inline.push(`<mention provider="${escapeAttribute(part.provider)}" label="${escapeAttribute(part.label)}">${escapeBody(part.text)}</mention>`);
           break;
@@ -82,14 +84,15 @@ export class HubMessageEnricher implements MessageEnricher {
       this.#deps.log.warn('chat.suggest.failed', { session: session.id, error: messageOf(error) });
       return [];
     }
-    const fns = suggestions.filter((s) => s.kind === 'fn');
-    const context = suggestions.filter((s) => s.kind === 'context');
+    const ranked = [...suggestions].sort((a, b) => b.score - a.score);
+    const fns = ranked.filter((s) => s.kind === 'fn');
+    const context = ranked.filter((s) => s.kind === 'context');
     const parts: MessagePart[] = [];
     if (context.length > 0) {
-      parts.push({ type: 'extra', extra: 'suggested-context', blocks: [{ type: 'suggest-context', items: context.map((s) => ({ context: s.name, why: s.description })) }] });
+      parts.push({ type: 'extra', extra: 'suggested-context', blocks: [{ type: 'suggest-context', items: context.map((s) => ({ context: s.name, why: s.description, score: s.score })) }] });
     }
     if (fns.length > 0) {
-      parts.push({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: fns.map((s) => ({ fn: s.name, why: s.description })) }] });
+      parts.push({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: fns.map((s) => ({ fn: s.name, why: s.description, score: s.score })) }] });
     }
     return parts;
   }

@@ -21,12 +21,9 @@ export function json(): GinType<Json> {
   return g.any();
 }
 
-/**
- * A gin type's JSON definition, as it travels to the hub. gin's `toJSON` leaves keys whose value is `undefined`; a
- * JSON round trip drops them so the definition is plain JSON (library ask: gin should omit them itself).
- */
+/** A gin type's JSON definition, as it travels to the hub. */
 export function wireType(type: GinType): GinTypeDef {
-  return GinTypeDef.parse(JSON.parse(JSON.stringify(type.toJSON())));
+  return GinTypeDef.parse(type.toJSON());
 }
 
 /**
@@ -37,30 +34,9 @@ export function parseValue<T>(type: GinType<T>, value: unknown): T {
   return type.parse(value).toLogical();
 }
 
-/**
- * A checked value as JSON for the wire (dates as ISO strings). gin encodes an absent optional field as `null`, which
- * its own value schema refuses, so fields absent from the plain value are dropped (library ask: gin should omit them).
- */
+/** A checked value as JSON for the wire (dates as ISO strings, absent optional fields left out). */
 export function encodeValue<T>(type: GinType<T>, value: T): Json {
-  const checked = type.parse(value);
-  return pruneAbsent(Json.parse(checked.encodeLogical()), checked.toLogical());
-}
-
-/** Drop the object keys of `encoded` whose value in `plain` is absent, recursively. */
-function pruneAbsent(encoded: Json, plain: unknown): Json {
-  if (Array.isArray(encoded)) {
-    return Array.isArray(plain) ? encoded.map((item, i) => pruneAbsent(item, plain[i])) : encoded;
-  }
-  if (encoded === null || typeof encoded !== 'object' || typeof plain !== 'object' || plain === null || Array.isArray(plain) || plain instanceof Date || plain instanceof Map) {
-    return encoded;
-  }
-  const source = new Map(Object.entries(plain));
-  const out: Record<string, Json> = {};
-  for (const [key, item] of Object.entries(encoded)) {
-    if (source.has(key) && source.get(key) === undefined) { continue; }
-    out[key] = pruneAbsent(item, source.get(key));
-  }
-  return out;
+  return Json.parse(type.parse(value).encodeLogical());
 }
 
 /** The named types a gin type refers to directly (gin `typeReferences`), so a receiver can load them first. */

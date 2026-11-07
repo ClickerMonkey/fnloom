@@ -1,12 +1,14 @@
 /**
  * The web app's build. In dev it proxies the hub's HTTP API (`/api`), its WebSocket (`/ws`) and files (`/_files`) to
- * the hub, so the browser talks to one origin. Ports come from the environment `scripts/dev.ts` sets.
+ * the hub, so the browser talks to one origin. Ports come from `webEnv` (`HARNESS_PORT`, `HARNESS_WEB_PORT`). The
+ * build has two entries: the app (`index.html`) and its service worker (`sw/sw.ts`, written to `/sw.js`).
  */
 import vue from '@vitejs/plugin-vue';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { webEnv } from './env.ts';
 
-const hubPort = Number(process.env['HARNESS_PORT'] ?? 4300);
-const webPort = Number(process.env['HARNESS_WEB_PORT'] ?? 4310);
+const { HARNESS_PORT: hubPort, HARNESS_WEB_PORT: webPort } = webEnv.parse();
 const hub = `http://127.0.0.1:${hubPort}`;
 
 export default defineConfig({
@@ -22,5 +24,12 @@ export default defineConfig({
       '/ws': { target: hub.replace('http', 'ws'), ws: true },
     },
   },
-  build: { outDir: 'dist', emptyOutDir: true, sourcemap: true },
+  build: {
+    outDir: 'dist', emptyOutDir: true, sourcemap: true,
+    // the service worker is its own entry, at the root so its scope is the whole app
+    rolldownOptions: {
+      input: { index: fileURLToPath(new URL('index.html', import.meta.url)), sw: fileURLToPath(new URL('sw/sw.ts', import.meta.url)) },
+      output: { entryFileNames: (chunk) => (chunk.name === 'sw' ? 'sw.js' : 'assets/[name]-[hash].js') },
+    },
+  },
 });

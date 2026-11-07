@@ -13,7 +13,7 @@ import {
 } from '@harness/core';
 import type { EventBus, HubEventName, HubEvents } from '../bus.ts';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
-import type { AgentLoop, LimitResolver, RunInput, RunService } from '../execution/index.ts';
+import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
 import type { Search, Suggester } from '../index/index.ts';
 import type { LinkService, SystemConnection } from '../link/index.ts';
 import type { AyepiPorts, HubStore, Table, TableQuery, TextIndex, VectorIndex, Where } from '../store/index.ts';
@@ -447,12 +447,12 @@ export class FakeAgents implements Pick<AgentLoop, 'start' | 'interrupt'> {
     this.#ids = ids;
   }
 
-  async start(input: RunInput & { kind: 'hub/llm' }): Promise<{ run: RunId }> {
+  async start(input: RunInput & { kind: AgentKind }): Promise<{ run: RunId }> {
     if (this.failWith !== undefined) { return Promise.reject(this.failWith); }
     this.started.push(input);
     const id = this.#ids();
     await this.#store.table('runs').insert(makeRun({
-      id, fn: input.fn, kind: 'hub/llm', turn: input.turn, actor: input.actor, caller: input.caller, status: 'running', ...(input.session === undefined ? {} : { session: input.session }),
+      id, fn: input.fn, kind: AGENT_KIND, turn: input.turn, actor: input.actor, caller: input.caller, status: 'running', ...(input.session === undefined ? {} : { session: input.session }),
     }));
     return { run: id };
   }
@@ -523,7 +523,7 @@ export function chatRig() {
   const push = new FakePush();
   const logs: LogRecord[] = [];
   const log = createLogger({ level: 'debug', transports: [{ name: 'memory', write: (record) => { logs.push(record); } }] });
-  catalog.addFn('hub', { name: 'chat', kind: 'hub/llm', description: 'The chat agent.' });
+  catalog.addFn('hub', { name: 'chat', kind: AGENT_KIND, description: 'The chat agent.' });
   const deps: ChatDeps = {
     settings: { chat: chatEnv.parse(), queue: { HARNESS_ACTIVE_WINDOW: 120_000 }, model: { HARNESS_SUGGESTIONS: 6 } },
     log, clock: () => now, random, bus, store, catalog, link, runs, agents, limits, search: index, suggest: index, push, hubActor: actorId('act_hub'),

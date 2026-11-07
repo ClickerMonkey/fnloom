@@ -1,17 +1,20 @@
-/** The person's current time, as every system gets it: now, their zone, and the local time with its offset. */
+/**
+ * The person's current time, as the chat module and every system get it: now, their zone (UTC when the platform
+ * doesn't know the one given) and the local time with its offset.
+ */
 import type { TimeInfo } from '@harness/core';
 
-/** The zone to use: the person's if the platform knows it, else UTC. */
-function knownZone(timeZone: string): string {
+/** Whether the platform knows an IANA time zone. */
+export function knownZone(timeZone: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone });
-    return timeZone;
+    return true;
   } catch {
-    return 'UTC';
+    return false;
   }
 }
 
-/** `now` in a zone as `2026-11-07T09:30:00-05:00`. */
+/** `now` in a known zone as `2026-11-07T09:30:00-05:00`. */
 export function localTime(now: number, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', timeZoneName: 'longOffset',
@@ -23,6 +26,11 @@ export function localTime(now: number, timeZone: string): string {
 
 /** The time facts for a person in a zone. */
 export function timeInfo(now: number, timeZone: string): TimeInfo {
-  const zone = knownZone(timeZone);
+  const zone = knownZone(timeZone) ? timeZone : 'UTC';
   return { now, timeZone: zone, local: localTime(now, zone) };
+}
+
+/** The weekday name of a moment in a zone ("Saturday"). */
+export function weekday(now: number, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: knownZone(timeZone) ? timeZone : 'UTC', weekday: 'long' }).format(new Date(now));
 }

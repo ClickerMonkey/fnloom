@@ -28,7 +28,8 @@ interface Shared {
   readonly root: Db;
   readonly raw: RawPorts;
   readonly named: Map<string, SqliteQueue>;
-  readonly dimensions: Readonly<Record<string, number>>;
+  /** Each embedder's table size, as made in the database (grows as `vectors.ensure` makes tables). */
+  readonly dimensions: Map<string, number>;
   readonly tuning: StoreTuning;
   readonly log: Logger;
 }
@@ -51,7 +52,7 @@ export class SqliteStore implements HubStore {
   private constructor(shared: Shared, scope: Scope) {
     this.#shared = shared;
     this.#scope = scope;
-    this.vectors = new SqliteVectorIndex(scope, shared.dimensions);
+    this.vectors = new SqliteVectorIndex(scope, shared.dimensions, shared.log);
     this.text = new SqliteTextIndex(scope);
     this.ports = new ScopedPorts(shared.raw, scope, shared.named);
     this.search = new HybridSearch(this, shared.tuning);
@@ -81,7 +82,7 @@ export class SqliteStore implements HubStore {
       rate: sqliteRateStore(database, { prefix: PORT_PREFIX, sweepEvery: tuning.HARNESS_KV_SWEEP_EVERY }),
     };
     const root = openKysely(database);
-    const shared: Shared = { root, raw, named: new Map(), dimensions: { ...options.dimensions }, tuning, log: options.log ?? defaultLogger };
+    const shared: Shared = { root, raw, named: new Map(), dimensions: new Map(Object.entries(options.dimensions ?? {})), tuning, log: options.log ?? defaultLogger };
     return new SqliteStore(shared, new RootScope(root));
   }
 
@@ -115,7 +116,7 @@ export class SqliteStore implements HubStore {
         indexesCreated: change.indexesCreated, indexesDropped: change.indexesDropped,
       });
     }
-    log.info('store.migrated', { tables: TABLE_NAMES.length, changed: changes.length, embedders: Object.keys(dimensions), rebuiltVectors });
+    log.info('store.migrated', { tables: TABLE_NAMES.length, changed: changes.length, embedders: [...dimensions.keys()], rebuiltVectors });
   }
 
   async close(): Promise<void> {

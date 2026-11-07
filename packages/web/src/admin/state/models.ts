@@ -2,21 +2,18 @@
  * Providers and models: the configured providers (keys go in, never come back), the models they offer, and the
  * model categories (named, ordered lists of models the agents pick from).
  */
-import type { ModelCategory, ModelCategoryId, ProviderId, ProviderInput, ProviderKind } from '@harness/core';
+import type { ModelCategory, ModelCategoryId, ProviderId, ProviderInput } from '@harness/core';
 import { computed } from 'vue';
 import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import type { ResponseOf } from '../../api/client.ts';
 import type { AdminApi } from '../api.ts';
 import type { ModelInfo } from '@harness/core';
 import type { CategoryBody } from '../logic/forms.ts';
 
 type ModelsApi = Pick<AdminApi, 'providers' | 'configureProvider' | 'models' | 'modelCategories' | 'setModelCategory' | 'removeRule'>;
 
-/** A configured provider. */
-export interface ProviderRow {
-  readonly id: ProviderId;
-  readonly provider: ProviderKind;
-  readonly models: number;
-}
+/** A configured provider, as the hub lists it. */
+export type ProviderRow = ResponseOf<'providers'>[number];
 
 /** The providers and models page's state. */
 export class ModelsStore {

@@ -5,16 +5,16 @@
  * (text, reasoning, tool calls); and the raw JSON. Read-only and copyable.
  */
 import type { LlmInteraction } from '@harness/core';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { UiBadge, UiCodeBlock, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration, formatTokens } from '../logic/format.ts';
-import { messageContent, taggedBlocks } from '../logic/inspect.ts';
-
-type Tab = 'saw' | 'tools' | 'answer' | 'json';
+import { humanize } from '../logic/labels.ts';
+import { messageContent, taggedBlocks, type LlmCallTab as Tab } from '../logic/inspect.ts';
 
 const props = defineProps<{ call: LlmInteraction }>();
 
-const tab = ref<Tab>('saw');
+/** The tab shown; a parent binds it to the URL so a refresh keeps it. */
+const tab = defineModel<Tab>('tab', { default: 'saw' });
 const tabs = computed<TabItem<Tab>[]>(() => [
   { value: 'saw', label: 'What it saw', count: props.call.request.messages.length },
   { value: 'tools', label: 'Tools', count: props.call.request.tools?.length ?? 0 },
@@ -34,7 +34,7 @@ const json = computed(() => JSON.stringify(props.call, null, 2));
   <div class="call" data-testid="llm-call">
     <dl class="facts">
       <dt>Model</dt><dd><code>{{ call.model }}</code> · {{ call.provider }}</dd>
-      <dt>Status</dt><dd><UiBadge :tone="call.status === 'done' ? 'ok' : call.status === 'failed' ? 'danger' : 'accent'">{{ call.status }}</UiBadge></dd>
+      <dt>Status</dt><dd><UiBadge :tone="call.status === 'done' ? 'ok' : call.status === 'failed' ? 'danger' : 'accent'">{{ humanize(call.status) }}</UiBadge></dd>
       <template v-if="call.usage"><dt>Tokens</dt><dd>{{ formatTokens(call.usage.input) }} in · {{ formatTokens(call.usage.output) }} out<span v-if="call.usage.cached"> · {{ formatTokens(call.usage.cached) }} cached</span><span v-if="call.usage.reasoning"> · {{ formatTokens(call.usage.reasoning) }} reasoning</span></dd></template>
       <dt>Cost</dt><dd data-testid="llm-cost">{{ formatCost(call.cost) }}</dd>
       <template v-if="firstToken !== undefined"><dt>First token</dt><dd>{{ formatDuration(firstToken) }}</dd></template>

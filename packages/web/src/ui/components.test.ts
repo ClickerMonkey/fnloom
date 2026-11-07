@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { h, nextTick, ref } from 'vue';
 import UiAvatar from './UiAvatar.vue';
 import UiBadge from './UiBadge.vue';
@@ -279,11 +279,17 @@ describe('UiMarkdown', () => {
 
   it('hands links inside the app to navigate', async () => {
     const navigate = vi.fn();
-    const md = mount(UiMarkdown, { props: { source: '[session](/chat/ses_1) and [site](https://x.dev)', navigate } });
+    const md = mount(UiMarkdown, { props: { source: '[session](/chat/ses_1) and [site](https://x.dev)', navigate }, attachTo: document.body });
+    // note whether the component kept each click, then keep it here so happy-dom never fetches the page
+    const kept: boolean[] = [];
+    const keep = (event: Event) => { kept.push(event.defaultPrevented); event.preventDefault(); };
+    document.addEventListener('click', keep);
+    onTestFinished(() => { document.removeEventListener('click', keep); md.unmount(); });
     await md.findAll('a')[0]?.trigger('click');
     expect(navigate).toHaveBeenCalledWith('/chat/ses_1');
     await md.findAll('a')[1]?.trigger('click');
     expect(navigate).toHaveBeenCalledOnce();
+    expect(kept).toEqual([true, false]);
   });
 
   it('draws tasks and tables', () => {

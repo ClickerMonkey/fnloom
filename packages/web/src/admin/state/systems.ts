@@ -7,16 +7,14 @@ import type { InstallSource, Json, PairingId, PairingRequest, SystemName, System
 import { computed, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import type { ResponseOf } from '../../api/client.ts';
 import type { AdminApi } from '../api.ts';
 import { sortSystems } from '../logic/systems.ts';
 
 type SystemsApi = Pick<AdminApi, 'systems' | 'pairings' | 'approvePairing' | 'createPairingToken' | 'installSystem'>;
 
-/** A token made for pairing. */
-export interface PairingToken {
-  readonly token: string;
-  readonly expiresAt: number;
-}
+/** A token made for pairing, as the hub answers it. */
+export type PairingToken = ResponseOf<'createPairingToken'>;
 
 /** The systems page's state. */
 export class SystemsStore {

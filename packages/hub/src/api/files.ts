@@ -4,10 +4,11 @@
  * upload and moves it into `content/`. Presigned downloads use the key `content/<hash>/<name>`, which the
  * `NamedContentFiles` wrapper maps back to the bytes, so the browser saves the file under its own name.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { reject } from '@ayepi/core';
 import type { FileBody, FileInfo, FileObject, FileStore, ListOptions, ListResult, Presigner, PutOptions } from '@ayepi/files';
-import { ContentRef } from '@harness/core';
+import { CONTENT_HASH, ContentRef } from '@harness/core';
+import { contentHash, contentHasher } from '@harness/sdk/server';
 import { z } from 'zod';
 import type { ContentStore } from './index.ts';
 
@@ -44,15 +45,15 @@ export async function sliceStream(stream: ReadableStream<Uint8Array>, offset: nu
   return out.subarray(0, filled);
 }
 
-/** Hash a stream with sha-256; returns the hex digest and the byte count. */
+/** A stream's `ContentRef.hash` and byte count. */
 export async function hashStream(stream: ReadableStream<Uint8Array>): Promise<{ hash: string; size: number }> {
-  const hash = createHash('sha256');
+  const hash = contentHasher();
   let size = 0;
   for await (const chunk of stream) {
     hash.update(chunk);
     size += chunk.length;
   }
-  return { hash: hash.digest('hex'), size };
+  return { hash: hash.digest(), size };
 }
 
 /**
@@ -113,7 +114,7 @@ export class FileContentStore implements ContentStore {
   }
 
   async put(bytes: Uint8Array, mime: string): Promise<ContentRef> {
-    const hash = createHash('sha256').update(bytes).digest('hex');
+    const hash = contentHash(bytes);
     if ((await this.#o.files.head(contentKey(hash))) === undefined) {
       await this.#o.files.put(contentKey(hash), bytes, { contentType: mime });
     }
@@ -131,7 +132,7 @@ export class FileContentStore implements ContentStore {
   }
 
   async open(hash: string): Promise<{ stream: ReadableStream<Uint8Array>; size: number; mime: string } | undefined> {
-    if (!/^[0-9a-f]{64}$/.test(hash)) { return undefined; }
+    if (!CONTENT_HASH.test(hash)) { return undefined; }
     const file = await this.#o.files.get(contentKey(hash));
     return file === undefined ? undefined : { stream: file.stream(), size: file.info.size, mime: file.info.contentType ?? 'application/octet-stream' };
   }

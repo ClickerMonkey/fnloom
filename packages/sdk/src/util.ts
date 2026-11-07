@@ -13,9 +13,10 @@ export const expectType = <T extends true>(_proof: T): void => undefined;
  * The value of an optional builder input whose type parameter defaults to the type of `fallback`. A builder like
  * `fn()` declares `D extends Deps = {}`: when the author leaves `deps` out, TypeScript infers `D` as `{}` and the
  * fallback `{}` is exactly that type. TypeScript can't see this inside the generic body, so this one helper states
- * it; every builder default goes through here and nowhere else casts.
+ * it; every builder default goes through here and nowhere else casts. The fallback must be of a type `T` narrows
+ * (`T extends F`), so a fallback of an unrelated type (`orDefault(deps, 42)`) does not compile.
  */
-export function orDefault<T>(value: T | undefined, fallback: unknown): T {
+export function orDefault<T extends F, F>(value: T | undefined, fallback: F): T {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see the doc comment: T is the fallback's type whenever value is absent
   return value === undefined ? (fallback as T) : value;
 }

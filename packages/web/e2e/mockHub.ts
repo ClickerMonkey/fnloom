@@ -19,7 +19,7 @@ import { mockHandlers } from '@ayepi/mock';
 import { createRequestListener, handleUpgrade } from '@ayepi/node';
 import { telemetry } from '@ayepi/otel/server';
 import {
-  AccessClaims, IDS, Notification, UserView, adminOnly, hubAuth, mintId, tel, type ActorId, type NotificationReason, type Tokens,
+  AccessClaims, DEFAULT_PORTS, IDS, Port, Notification, UserView, adminOnly, hubAuth, mintId, tel, type ActorId, type NotificationReason, type Tokens,
 } from '@harness/core';
 import { z } from 'zod';
 import { hubWebSpec } from '@harness/core';
@@ -28,7 +28,7 @@ import { MockChat } from './mockChat.ts';
 
 /** The mock hub's settings. */
 export const mockHubEnv = env({
-  HARNESS_MOCK_PORT: z.number().int().default(4320),
+  HARNESS_MOCK_PORT: Port.default(DEFAULT_PORTS.mockHub),
   /** Start as a new hub that still needs its admin account. */
   HARNESS_MOCK_NEEDS_ADMIN: z.boolean().default(false),
   /** Push a new notification this often (ms); 0 never does. */
@@ -159,6 +159,7 @@ export function mockHub(options: { needsAdmin: boolean }) {
       ]),
       mentions: ({ data }) => chat.mentions(data.query),
       mentionHover: ({ data }) => chat.hover(data.target),
+      waiting: ({ data }) => chat.waiting(data.session),
       approve: ({ data }) => chat.approve(data.approval, data.approve),
       presence: () => undefined,
       systems: () => admin.list(),
@@ -189,7 +190,6 @@ export function mockHub(options: { needsAdmin: boolean }) {
       policies: () => admin.policies,
       setPolicy: ({ data }) => admin.savePolicy(data, owner()),
       removeRule: ({ data }) => admin.removeRule(data),
-      // ayepi hands a handler no data when an all-optional body arrives empty (library ask), so this takes it as optional
       actors: ({ data }) => admin.actorsOf(data),
       actorSettings: () => admin.settings,
       setActorSetting: ({ data }) => admin.setSetting(data.setting, data.actor, data.value, owner()),
@@ -199,21 +199,20 @@ export function mockHub(options: { needsAdmin: boolean }) {
       resource: ({ data }) => admin.read(data.uri),
     });
 
-  const realNames = new Set([
+  // the endpoints `real` answers; server() fails to compile unless these and the generated rest cover every endpoint once
+  const realNames = [
     'setup', 'createAdmin', 'signIn', 'refresh', 'signOut', 'me', 'notifications', 'readNotifications',
     'capabilities', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
-    'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'approve', 'presence',
+    'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'presence',
     'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',
     'runs', 'llmCalls', 'resources', 'resource',
-  ]);
+  ] as const;
   // system names must match their pattern, which the generator can't read from a regex
   const systemName = (g: { rng: () => number }): string => SYSTEM_NAMES[Math.floor(g.rng() * SYSTEM_NAMES.length)] ?? 'fs';
   const overrides = { fields: { name: systemName, system: systemName } };
-  const generated = Object.fromEntries(Object.entries(mockHandlers(hubWebSpec, { seed: 'harness-ui', now: () => NOW, overrides })).filter(([name]) => !realNames.has(name)));
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- @ayepi/mock's generated bag covers the remaining endpoints but is untyped per endpoint (library ask: a typed mockHandlers)
-  const rest = implement(hubWebSpec).handlers(generated as never);
+  const rest = implement(hubWebSpec).handlers(mockHandlers(hubWebSpec, { seed: 'harness-ui', now: () => NOW, overrides, except: realNames }));
   const app = server(hubWebSpec, [real, rest]);
   chat.attach((session, event) => { app.emit('session', { session }, event); });
   admin.attach({ user: (event) => { app.emit('user', event); }, log: (system, line) => { app.emit('systemLog', { system }, line); } });

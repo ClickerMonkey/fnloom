@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ActorId, BudgetId, compositeKey, hubWebSpec, mintId, NotificationId, QualifiedName, RunId, SessionId, SystemName, TurnId, type Run, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
+import { fn, g, wireType } from '@harness/sdk';
+import { TestCatalog } from '../../execution/testing.ts';
 import { ScryptHasher } from '../hash.ts';
 import { entriesFrom, rig, settle, webRig, type Fakes } from '../testing/rig.ts';
 
@@ -116,6 +118,13 @@ describe('chat', () => {
     expect(created).toEqual([{ title: 'Plans', owner: me, agent: 'hub/chat' }]);
   });
 
+  it('creates a session from an empty body (New chat sends no fields)', async () => {
+    const created: unknown[] = [];
+    const { web, as, me } = await signedIn({ chat: { sessions: { create: (input) => { created.push(input); return Promise.resolve(session(input.owner)); } } } });
+    await web.client.call('createSession', {}, as);
+    expect(created).toEqual([{ owner: me, agent: 'hub/chat' }]);
+  });
+
   it('answers 404 for a session the person may not see, and passes sends through as the author', async () => {
     const sends: unknown[] = [];
     const { web, as, me } = await signedIn({
@@ -179,6 +188,30 @@ describe('chat', () => {
     expect(caps.models).toEqual([{ id: 'openrouter/auto', name: 'Auto' }]);
     expect(caps).toMatchObject({ voiceInput: false, uploads: true, commands: [], invocations: [], clients: [] });
   });
+
+  it('offers fns as `!` invocations, but not a type’s methods (those run on a value from its hover card)', async () => {
+    const fs = SystemName.parse('fs');
+    const fns = new TestCatalog();
+    const read = fns.add('fs', 'read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text() }));
+    const reveal = fns.add('fs', 'Entry.reveal', fn({ description: 'Show it in the file manager.', args: g.obj({ path: g.text() }), returns: g.bool() }));
+    const { r, web, as } = await signedIn({
+      chat: { sessions: { get: (_id, viewer) => Promise.resolve(session(viewer)) } },
+      catalog: {
+        entries: entriesFrom({
+          types: [{
+            name: QualifiedName.parse('fs/Entry'), system: fs,
+            decl: { name: 'Entry', description: 'A file or folder.', def: wireType(g.obj({ path: g.text() })), display: { label: 'Entry' }, methods: ['reveal'], references: [] },
+          }],
+        }),
+        fns: () => Promise.resolve([read, reveal]),
+        manifest: () => Promise.resolve(undefined),
+      },
+      execution: { llm: { models: () => Promise.resolve([]) } },
+    });
+    await r.store.table('systems').insert(systemRow('fs'));
+    const caps = await web.client.call('capabilities', { session: sessionId }, as);
+    expect(caps.invocations.map((i) => i.fn)).toEqual(['fs/read']);
+  });
 });
 
 describe('runs', () => {
@@ -225,6 +258,26 @@ describe('runs', () => {
     // A member who isn't in the session doesn't see its runs (admins see everything).
     r.hub.chat.sessions.get = () => Promise.resolve(undefined);
     await expect(web.client.call('state', { run: RunId.parse('run_1') }, web.as(mem))).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('lists what waits on the person in a session: its pending approvals and the questions asked of them', async () => {
+    const { r, web, as, me } = await signedIn({ chat: { sessions: { get: (id, viewer) => Promise.resolve(id === sessionId ? session(viewer) : undefined) } } });
+    await r.store.table('runs').insert(runRow('run_here', { status: 'awaiting-approval' }));
+    await r.store.table('runs').insert(runRow('run_away', { status: 'awaiting-approval', session: SessionId.parse('ses_other') }));
+    const approval = (id: string, run: string, status: 'pending' | 'approved') => ({
+      id: mintId('approval'), run: RunId.parse(run), fn: QualifiedName.parse('fs/bash'), approver: { by: 'turn-user' as const }, status, decisions: [], createdAt: id.length,
+    });
+    const here = approval('a', 'run_here', 'pending');
+    await r.store.table('approvals').insert(here);
+    await r.store.table('approvals').insert(approval('bb', 'run_here', 'approved'));
+    await r.store.table('approvals').insert(approval('ccc', 'run_away', 'pending'));
+    const asked = { id: mintId('handlerCall'), run: RunId.parse('run_here'), handler: 'confirm', args: {}, decl: { description: 'Confirm', args: { name: 'object' }, returns: { name: 'boolean' } }, status: 'pending' as const, createdAt: 2 };
+    await r.store.table('handlerCalls').insert({ ...asked, answerer: { user: me } });
+    await r.store.table('handlerCalls').insert({ ...asked, id: mintId('handlerCall'), answerer: { user: ActorId.parse('act_someone') } });
+    const waiting = await web.client.call('waiting', { session: sessionId }, as);
+    expect(waiting.approvals.map((a) => a.id)).toEqual([here.id]);
+    expect(waiting.handlers.map((h) => h.id)).toEqual([asked.id]);
+    await expect(web.client.call('waiting', { session: SessionId.parse('ses_nope') }, as)).rejects.toMatchObject({ status: 404 });
   });
 
   it('answers a handler as the person', async () => {

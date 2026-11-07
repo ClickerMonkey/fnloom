@@ -6,14 +6,14 @@
  * aeye decodes strict-mode output with its own schemas), the chunks, and the real cost.
  */
 import type { Request } from '@aeye/core';
-import type { LlmForward, LlmForwardChunk, ModelInfo, Run, RunId, TurnId, Usd } from '@harness/core';
+import { retry } from '@ayepi/core/retry';
+import { isSettled, type LlmForward, type LlmForwardChunk, type ModelInfo, type Run, type RunId, type TurnId, type Usd } from '@harness/core';
 import { Channel } from './channel.ts';
 import { BudgetRefused, causeOf, LlmRateLimited, messageOf } from './errors.ts';
 import type { LlmGateway } from './index.ts';
 import type { ModelResolver } from './models.ts';
 import type { ExecutionDeps, LlmEngine } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
-import { isSettled } from './runs.ts';
 import { LlmCallScope } from './scope.ts';
 import { chunkToWire, descriptorsOf, requestFromWire } from './wire.ts';
 
@@ -26,6 +26,23 @@ export interface GatewayDeps extends Pick<ExecutionDeps, 'store' | 'clock' | 'lo
   readonly queues: Pick<ExecutionQueues, 'llm'>;
   readonly llm: LlmEngine;
   readonly models: Pick<ModelResolver, 'resolve'>;
+  /** Wait between attempts; rejects when the signal aborts (default `abortableSleep`). */
+  readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+}
+
+/** Why a signal aborted, as an error. */
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('stopped', { cause: signal.reason });
+}
+
+/** Resolves after `ms`, or rejects with the abort reason as soon as `signal` aborts. */
+export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(abortError(signal)); return; }
+    const timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, ms);
+    function stop(): void { clearTimeout(timer); reject(abortError(signal)); }
+    signal.addEventListener('abort', stop, { once: true });
+  });
 }
 
 /** The kind of a forwarded failure, as the system's aeye classifies it. */
@@ -35,10 +52,10 @@ function errorKind(error: unknown): 'limit' | 'provider' {
 
 /** The hub's LLM gateway. */
 export class HubLlmGateway implements LlmGateway {
-  readonly #deps: GatewayDeps;
+  readonly #deps: GatewayDeps & Required<Pick<GatewayDeps, 'sleep'>>;
 
   constructor(deps: GatewayDeps) {
-    this.#deps = deps;
+    this.#deps = { ...deps, sleep: deps.sleep ?? abortableSleep };
   }
 
   async *forward(input: LlmForward & { system: string; turn?: TurnId }, signal: AbortSignal): AsyncIterable<LlmForwardChunk> {
@@ -56,30 +73,28 @@ export class HubLlmGateway implements LlmGateway {
     }
     const metadata = await this.#deps.models.resolve(input.model);
     const channel = new Channel<LlmForwardChunk>();
-    const task = this.#deps.queues.llm(scope.priority, async () => {
-      for (let attempt = 1; ; attempt++) {
-        let sent = false;
-        try {
-          for await (const chunk of this.#deps.llm.streamer(request, { call: scope }, metadata, signal)) {
-            if (!sent) channel.push({ type: 'descriptors', ...descriptorsOf(request) });
-            sent = true;
-            scope.markFirstToken(this.#deps.clock());
-            channel.push({ type: 'chunk', chunk: chunkToWire(chunk) });
-          }
-          const last = scope.last;
-          if (last === undefined) throw new Error('the call finished without being recorded');
-          channel.push({ type: 'done', usage: last.usage, cost: scope.cost, interaction: last.interaction, model: last.model });
-          return;
-        } catch (error) {
-          const delay = transientDelay(error);
-          if (sent || delay === undefined || attempt >= TRANSIENT_TRIES || signal.aborted) {
-            this.#deps.log.warn('llm.forward-failed', { run: scope.run, system: input.system, error: messageOf(error) });
-            channel.push({ type: 'error', kind: errorKind(error), message: messageOf(error) });
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
+    let sent = false;
+    /** One attempt, holding an LLM slot only while it calls. */
+    const attempt = () => this.#deps.queues.llm(scope.priority, async () => {
+      for await (const chunk of this.#deps.llm.streamer(request, { call: scope }, metadata, signal)) {
+        if (!sent) channel.push({ type: 'descriptors', ...descriptorsOf(request) });
+        sent = true;
+        scope.markFirstToken(this.#deps.clock());
+        channel.push({ type: 'chunk', chunk: chunkToWire(chunk) });
       }
+      const last = scope.last;
+      if (last === undefined) throw new Error('the call finished without being recorded');
+      channel.push({ type: 'done', usage: last.usage, cost: scope.cost, interaction: last.interaction, model: last.model });
+    });
+    // a transient limit (rate, budget wait) is retried after the wait it names, between attempts, so the wait holds no
+    // slot; nothing is retried once a chunk went out or the caller stopped
+    const task = retry(attempt, {
+      attempts: TRANSIENT_TRIES, base: 0, jitter: 0,
+      on: (error) => (sent || signal.aborted ? false : transientDelay(error) ?? false),
+      sleep: (ms) => this.#deps.sleep(ms, signal),
+    }).catch((error: unknown) => {
+      this.#deps.log.warn('llm.forward-failed', { run: scope.run, system: input.system, error: messageOf(error) });
+      channel.push({ type: 'error', kind: errorKind(error), message: messageOf(error) });
     }).finally(() => { channel.close(); });
     yield* channel;
     await task;

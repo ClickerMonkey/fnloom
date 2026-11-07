@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { buildClient } from '@harness/sdk/build';
-import { serve, type RunningSystem } from '@harness/sdk/server';
+import { loggedHost, serve, type RunningSystem } from '@harness/sdk/server';
 import { fs } from '../shared/index.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
@@ -20,6 +20,7 @@ import { NodeExec, NodeShell, chooseShell } from './shell.ts';
 import { DiskSnapshots } from './snapshots.ts';
 
 const settings = fsEnv.parse();
+const { host, log } = loggedHost(fs.name);
 const processLimits = { outputMax: settings.FS_OUTPUT_MAX, progressEvery: settings.FS_PROGRESS_EVERY };
 const exec = new NodeExec(processLimits);
 const shell = chooseShell(settings.FS_SHELL, process.platform, existsSync);
@@ -28,14 +29,14 @@ const shell = chooseShell(settings.FS_SHELL, process.platform, existsSync);
 const restarter: Restarter = {
   schedule(reason) {
     setTimeout(() => {
-      running.restart(reason).catch((error: unknown) => { console.error('fs.restart.failed', { reason }, error); });
+      running.restart(reason).catch((error: unknown) => { log.error('fs.restart.failed', { reason }, error); });
     }, settings.FS_RESTART_DELAY);
   },
 };
 
 const watchFolder: WatchFolder = (folder, listener) => {
   const watcher = watch(folder, { recursive: true }, (event, file) => { if (file !== null) { listener(event, file); } });
-  watcher.on('error', (error) => { console.warn('fs.watch.failed', { folder }, error); });
+  watcher.on('error', (error) => { log.warn('fs.watch.failed', { folder, error: error.message }); });
   return () => { watcher.close(); };
 };
 
@@ -55,16 +56,16 @@ const server = createFsImpl({
 const clientFolder = join(settings.HARNESS_SYSTEM_STATE, 'client');
 const built = performance.now();
 await buildClient({ entry: fileURLToPath(new URL('../client/index.ts', import.meta.url)), outDir: clientFolder });
-console.info('fs.client.built', { folder: clientFolder, took: Math.round(performance.now() - built) });
+log.info('fs.client.built', { folder: clientFolder, took: Math.round(performance.now() - built) });
 
-console.info('fs.serving', { hub: settings.HARNESS_HUB, shell: shell.type === 'posix' ? shell.path : 'system' });
+log.info('fs.serving', { hub: settings.HARNESS_HUB, shell: shell.type === 'posix' ? shell.path : 'system' });
 const running: RunningSystem<'fs'> = await serve(fs, server.impl, {
   hub: settings.HARNESS_HUB,
   state: settings.HARNESS_SYSTEM_STATE,
   client: clientFolder,
   ...(settings.HARNESS_PAIRING_TOKEN === undefined ? {} : { pairingToken: settings.HARNESS_PAIRING_TOKEN }),
-});
-running.onStatus((status) => { console.info('fs.status', { status }); });
+}, host);
+running.onStatus((status) => { log.info('fs.status', { status }); });
 
 const stop = () => {
   running.stop().finally(() => { process.exit(0); }).catch(() => undefined);

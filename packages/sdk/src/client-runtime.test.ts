@@ -33,7 +33,7 @@ const module = client(shop, { fns: { buy: BuyView }, kinds: { query: QueryView }
 
 /** A bridge whose deliveries settle when the test says so. */
 function fakeBridge() {
-  const acts: Array<{ system: string; action: string; input: Json }> = [];
+  const acts: Array<Parameters<ClientBridge['act']>[0]> = [];
   const forms: Array<{ value: Json }> = [];
   const followers = new Map<DeliveryId, { status: (s: DeliveryStatus) => void; settle: (result: Json) => void; fail: (e: Error) => void }>();
   let online = true;
@@ -79,6 +79,21 @@ describe('ClientRuntime', () => {
     const result = await delivery.result;
     expect(result).toEqual({ at: new Date('2026-11-07T00:00:00.000Z') });
     expect(seen).toEqual(['queued', 'delivered']);
+  });
+
+  it("sends a fn renderer's actions from its run, and keeps one client per run", async () => {
+    const fake = fakeBridge();
+    const runtime = new ClientRuntime(fake.bridge);
+    runtime.register(module);
+    const run = mintId('run');
+    const fromRun = runtime.systemClient('shop', run);
+    expect(runtime.systemClient('shop', run)).toBe(fromRun);
+    expect(runtime.systemClient('shop')).not.toBe(fromRun);
+    fromRun.send['refund']?.({ sku: 'a1' });
+    await vue.nextTick();
+    expect(fake.acts).toEqual([{ system: 'shop', action: 'refund', input: { sku: 'a1' }, run }]);
+    runtime.register(module);
+    expect(runtime.systemClient('shop', run)).not.toBe(fromRun);
   });
 
   it('refuses action input that does not fit before sending', () => {

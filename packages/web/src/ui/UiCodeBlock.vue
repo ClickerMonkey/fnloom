@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
  * A block of code: its language or file name, a copy button that confirms with a check, a wrap toggle, optional line
- * numbers. Long lines scroll inside the block (or wrap), never widening the page; tall code scrolls past `maxHeight`.
+ * numbers, and syntax colours for the languages `highlight` knows (drawn as text spans, never HTML). Long lines scroll inside the block (or wrap), never widening the page; tall code scrolls past `maxHeight`.
  */
 import { computed, onBeforeUnmount, ref } from 'vue';
 import UiIconButton from './UiIconButton.vue';
 import { copyText } from './clipboard.ts';
+import { highlight, type Token } from './markdown/highlight.ts';
 
 const props = withDefaults(defineProps<{
   code: string;
@@ -21,6 +22,9 @@ const emit = defineEmits<{ copied: [ok: boolean] }>();
 const wrapped = ref(props.wrap);
 const copied = ref(false);
 const lines = computed(() => props.code.replace(/\n$/, '').split('\n'));
+const tokens = computed(() => highlight(props.code, props.language));
+const lineTokens = computed(() => lines.value.map((line) => highlight(line, props.language)));
+const tokenClass = (token: Token): string | undefined => (token.kind === 'plain' ? undefined : `tok-${token.kind}`);
 const caption = computed(() => props.filename || props.language || 'text');
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -44,8 +48,8 @@ onBeforeUnmount(() => { clearTimeout(timer); });
         <UiIconButton :icon="copied ? 'check' : 'copy'" :label="copied ? 'Copied' : 'Copy code'" size="sm" class="copy" :class="{ copied }" @click="copy" />
       </span>
     </figcaption>
-    <pre class="pre" :style="maxHeight > 0 ? { maxHeight: `${maxHeight}px` } : undefined" tabindex="0"><code :class="language === '' ? undefined : `language-${language}`"><template v-if="lineNumbers"><span v-for="(line, index) in lines" :key="index" class="line"><span class="number" aria-hidden="true">{{ index + 1 }}</span>{{ line }}
-</span></template><template v-else>{{ code }}</template></code></pre>
+    <pre class="pre" :style="maxHeight > 0 ? { maxHeight: `${maxHeight}px` } : undefined" tabindex="0"><code :class="language === '' ? undefined : `language-${language}`"><template v-if="lineNumbers"><span v-for="(line, index) in lineTokens" :key="index" class="line"><span class="number" aria-hidden="true">{{ index + 1 }}</span><span v-for="(token, t) in line" :key="t" :class="tokenClass(token)">{{ token.text }}</span>
+</span></template><template v-else><span v-for="(token, t) in tokens" :key="t" :class="tokenClass(token)">{{ token.text }}</span></template></code></pre>
   </figure>
 </template>
 
@@ -59,5 +63,9 @@ onBeforeUnmount(() => { clearTimeout(timer); });
 .pre:focus-visible { outline: none; box-shadow: inset var(--ring); }
 .wrapped .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .line { display: block; }
+.tok-comment { color: var(--text-faint); font-style: italic; }
+.tok-string { color: light-dark(oklch(0.5 0.13 150), oklch(0.78 0.12 150)); }
+.tok-number, .tok-literal { color: light-dark(oklch(0.55 0.15 50), oklch(0.8 0.12 60)); }
+.tok-keyword { color: var(--accent); }
 .number { display: inline-block; width: 3ch; margin-right: var(--space-3); color: var(--text-faint); text-align: right; user-select: none; }
 </style>

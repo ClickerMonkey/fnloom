@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
- * One agent's answer to one turn: every iteration (text, then runs, then more text) as one bubble with one avatar
- * and one time. Reasoning sits collapsed above the text it led to, shimmering while it streams. Text renders as
- * markdown as it arrives, with a soft caret while streaming. Runs show as cards in call order, attachments through
- * their system's renderer, links as cards. While the turn is in flight the status line sits at the foot of the
+ * One agent's answer to one turn as one bubble with one avatar and one time, its pieces in the order they happened
+ * (`answerPieces`): the fns it ran as cards in call order, what they attached, and the reply. Reasoning sits collapsed
+ * above, shimmering while it streams, and stays on the stored answer. Text renders as markdown as it arrives, with a
+ * soft caret while streaming. Attachments draw through their system's renderer, links as cards. While the turn is in flight the status line sits at the foot of the
  * bubble; before anything arrives, a typing indicator stands in its place.
  */
 import type { ChatMessage, Link, MessageId, MessagePart, RunId } from '@harness/core';
 import { computed, ref } from 'vue';
 import { UiAvatar, UiIcon, UiMarkdown, fullTime, relativeTime } from '../../ui/index.ts';
-import type { RunView, StatusLine as Line } from '../logic/runs.ts';
+import { lineHasNews, type RunView, type StatusLine as Line } from '../logic/runs.ts';
+import { answerPieces, type AnswerPiece } from '../logic/thread.ts';
 import AttachmentCard from './AttachmentCard.vue';
 import LinkCard from './LinkCard.vue';
 import MessageActions from './MessageActions.vue';
@@ -27,8 +28,10 @@ const props = withDefaults(defineProps<{
   streaming: boolean;
   failed: boolean;
   runsOf: (message: ChatMessage) => readonly RunView[];
-  reasoningOf: (message: MessageId) => string;
-  collapsed: (run: RunId) => boolean;
+  /** Where each run appeared in its streaming message's text. */
+  marks?: ReadonlyMap<RunId, number>;
+  reasoningOf: (message: ChatMessage) => string;
+  collapsed: (run: RunView) => boolean;
   viewOf: (run: RunView) => RenderView | undefined;
   attachmentView: (part: Attachment) => RenderView | undefined;
   actions: readonly MessageAction[];
@@ -38,7 +41,7 @@ const props = withDefaults(defineProps<{
   waiting?: boolean;
   flash?: boolean;
   navigate?: ((href: string) => void) | undefined;
-}>(), { statusLine: undefined, waiting: false, flash: false, navigate: undefined });
+}>(), { marks: () => new Map(), statusLine: undefined, waiting: false, flash: false, navigate: undefined });
 
 const emit = defineEmits<{
   action: [action: MessageAction];
@@ -50,29 +53,20 @@ const emit = defineEmits<{
   link: [link: Link];
 }>();
 
-/** A message's pieces in order: text runs merged into one markdown block, then attachments and links as they came. */
-type Piece = { kind: 'text'; key: string; text: string } | { kind: 'attachment'; key: string; part: Attachment } | { kind: 'link'; key: string; link: Link };
-
-function pieces(message: ChatMessage): Piece[] {
-  const out: Piece[] = [];
-  message.parts.forEach((part, i) => {
-    const last = out.at(-1);
-    if (part.type === 'text') {
-      if (last?.kind === 'text') { last.text += part.text; } else { out.push({ kind: 'text', key: `t${i}`, text: part.text }); }
-    } else if (part.type === 'attachment') {
-      out.push({ kind: 'attachment', key: `a${i}`, part });
-    } else if (part.type === 'link') {
-      out.push({ kind: 'link', key: `l${i}`, link: part.link });
-    }
-  });
-  return out;
-}
-
-const pieced = computed(() => new Map(props.messages.map((m) => [m.id, pieces(m)])));
-const piecesOf = (message: ChatMessage): Piece[] => pieced.value.get(message.id) ?? [];
+const pieced = computed(() => new Map(props.messages.map((m) => [m.id, answerPieces(m, props.marks)])));
+const piecesOf = (message: ChatMessage): AnswerPiece[] => pieced.value.get(message.id) ?? [];
+const hasText = (message: ChatMessage): boolean => piecesOf(message).some((piece) => piece.kind === 'text');
+/** A message's runs by id, for its run pieces. */
+const runsById = computed(() => new Map(props.messages.flatMap((m) => props.runsOf(m)).map((run) => [run.id, run])));
+const runsIn = (ids: readonly RunId[]): RunView[] => ids.flatMap((id) => { const run = runsById.value.get(id); return run === undefined ? [] : [run]; });
+/** The last text piece of the last message, where the streaming caret sits. */
+const caretKey = computed(() => {
+  const last = props.messages.at(-1);
+  return last?.status === 'streaming' ? `${last.id}-${piecesOf(last).findLast((p) => p.kind === 'text')?.key ?? ''}` : '';
+});
 const first = computed(() => props.messages[0]);
 const allRuns = computed(() => props.messages.flatMap((m) => props.runsOf(m)));
-const anyExpanded = computed(() => allRuns.value.some((run) => !props.collapsed(run.id)));
+const anyExpanded = computed(() => allRuns.value.some((run) => !props.collapsed(run)));
 const openReasoning = ref<ReadonlySet<MessageId>>(new Set());
 
 function toggleReasoning(id: MessageId): void {
@@ -81,7 +75,6 @@ function toggleReasoning(id: MessageId): void {
   openReasoning.value = next;
 }
 
-const lastMessage = computed(() => props.messages.at(-1));
 </script>
 
 <template>
@@ -97,29 +90,29 @@ const lastMessage = computed(() => props.messages.at(-1));
       </header>
       <div class="body">
         <template v-for="message in messages" :key="message.id">
-          <div v-if="reasoningOf(message.id) !== ''" class="reasoning" data-testid="reasoning">
-            <button type="button" class="reasoning-toggle" :class="{ shimmer: message.status === 'streaming' && piecesOf(message).length === 0 }" :aria-expanded="openReasoning.has(message.id) ? 'true' : 'false'" @click="toggleReasoning(message.id)">
+          <div v-if="reasoningOf(message) !== ''" class="reasoning" data-testid="reasoning">
+            <button type="button" class="reasoning-toggle touch-target" :class="{ shimmer: message.status === 'streaming' && !hasText(message) }" :aria-expanded="openReasoning.has(message.id) ? 'true' : 'false'" @click="toggleReasoning(message.id)">
               <UiIcon :name="openReasoning.has(message.id) ? 'chevron-down' : 'chevron-right'" :size="14" />
-              {{ message.status === 'streaming' && piecesOf(message).length === 0 ? 'Reasoning…' : 'Reasoning' }}
+              {{ message.status === 'streaming' && !hasText(message) ? 'Reasoning…' : 'Reasoning' }}
             </button>
-            <p v-if="openReasoning.has(message.id)" class="reasoning-text">{{ reasoningOf(message.id) }}</p>
+            <p v-if="openReasoning.has(message.id)" class="reasoning-text">{{ reasoningOf(message) }}</p>
           </div>
           <template v-for="piece in piecesOf(message)" :key="`${message.id}-${piece.key}`">
-            <div v-if="piece.kind === 'text'" class="text" :class="{ caret: message.status === 'streaming' && message === lastMessage }" data-testid="answer-text">
+            <div v-if="piece.kind === 'text'" class="text" :class="{ caret: caretKey === `${message.id}-${piece.key}` }" data-testid="answer-text">
               <UiMarkdown :source="piece.text" :navigate="navigate" />
+            </div>
+            <div v-else-if="piece.kind === 'runs'" class="runs">
+              <RunCard
+                v-for="run in runsIn(piece.runs)" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)"
+                @open="emit('runOpen', run.id)" @toggle="emit('runToggle', run.id, $event)" @background="emit('background', run.id)"
+              />
             </div>
             <AttachmentCard v-else-if="piece.kind === 'attachment'" :title="piece.part.title" :attachment="piece.part.attachment" :data="piece.part.data" :view="attachmentView(piece.part)" />
             <LinkCard v-else :link="piece.link" @open="emit('link', $event)" />
           </template>
-          <div v-if="runsOf(message).length > 0" class="runs">
-            <RunCard
-              v-for="run in runsOf(message)" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run.id)" :view="viewOf(run)"
-              @open="emit('runOpen', run.id)" @toggle="emit('runToggle', run.id, $event)" @background="emit('background', run.id)"
-            />
-          </div>
         </template>
-        <TypingDots v-if="waiting" label="The agent is writing" />
-        <StatusLine v-if="statusLine && (streaming || waiting || statusLine.groups.length > 0)" :line="statusLine" @tree="emit('tree')" />
+        <StatusLine v-if="statusLine && lineHasNews(statusLine)" :line="statusLine" @tree="emit('tree')" />
+        <TypingDots v-else-if="waiting" label="The agent is writing" />
       </div>
       <div class="meta">
         <MessageActions class="actions" :actions="actions" @action="emit('action', $event)" />
@@ -132,7 +125,7 @@ const lastMessage = computed(() => props.messages.at(-1));
 .answer { display: flex; gap: var(--space-3); min-width: 0; padding: var(--space-1) 0; border-radius: var(--radius-lg); animation: ui-rise-in var(--medium) var(--ease); }
 .answer:focus { outline: none; }
 .avatar { flex: none; margin-top: 2px; }
-.column { display: grid; gap: var(--space-1); flex: 1; min-width: 0; max-width: var(--readable); }
+.column { display: grid; gap: var(--space-1); flex: 1; min-width: 0; }
 .head { display: flex; align-items: baseline; gap: var(--space-2); min-height: 28px; }
 .author { font-weight: var(--weight-medium); font-size: var(--text-sm); }
 .time { color: var(--text-faint); font-size: var(--text-xs); }

@@ -146,6 +146,11 @@ export class MockChat {
     return { turn, run: run.id };
   }
 
+  /** What waits on the person in a session: its runs' pending approvals (the mock asks no handler questions). */
+  waiting(session: SessionId): { approvals: Approval[]; handlers: [] } {
+    return { approvals: [...this.approvals.values()].map((w) => w.approval).filter((a) => this.runs.get(a.run)?.session === session), handlers: [] };
+  }
+
   approve(id: ApprovalId, approve: boolean): Approval {
     const waiting = this.approvals.get(id);
     if (waiting === undefined) { throw new Error(`no approval ${id}`); }

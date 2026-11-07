@@ -7,6 +7,7 @@ import {
   ActorId, DeliveryId, HandlerCallId, Json, LlmInteractionId, MessageId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
+import { RunText } from '../status.ts';
 import { ResolvedLimits } from './spend.ts';
 
 /** A session state change a run made, with the value before, so undoing the turn can put it back. */
@@ -33,6 +34,8 @@ export const Run = z.object({
   toolCallId: z.string().optional(),
   args: Json,
   status: RunStatus,
+  /** What it says it is doing, resolved from its fn's status templates when it last changed phase. */
+  text: RunText.optional(),
   outcome: OutcomeWire.optional(),
   progress: ProgressWire.optional(),
   allowed: AllowedOperations,

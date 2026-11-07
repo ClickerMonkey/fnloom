@@ -127,15 +127,21 @@ describe('the chat agent', () => {
     expect(call.model).toBe(done.model);
   });
 
-  it('records spend against the budgets that apply', async () => {
-    const { id: budget } = await me.hub.call('setBudget', { target: { scope: 'session', session: id() }, period: 'all-time', maxCost: 5, onLimit: 'refuse' });
+  it('meters every LLM call and adds it to the budgets that apply', async () => {
+    const MAX = 5;
+    const { id: budget } = await me.hub.call('setBudget', { target: { scope: 'session', session: id() }, period: 'all-time', maxCost: MAX, onLimit: 'refuse' });
+    const calls = (await me.hub.call('llmCalls', { session: id(), limit: 200 })).items.filter((call) => call.status === 'done');
+    expect(calls.length).toBeGreaterThan(0);
+    // tokens are metered even when the free model costs nothing
+    for (const call of calls) {
+      expect(call.usage?.input ?? 0).toBeGreaterThan(0);
+      expect(call.usage?.output ?? 0).toBeGreaterThan(0);
+    }
+    const cost = calls.reduce((sum, call) => sum + call.cost, 0);
+    const mine = (await me.hub.call('budgets', {})).find((b) => b.id === budget);
+    expect(mine?.spent).toBeCloseTo(cost, 6);
     const limits = await me.hub.call('limits', { session: id() });
-    expect(limits.budgets.map((b) => b.rule)).toContain(budget);
-    const budgets = await me.hub.call('budgets', {});
-    const mine = budgets.find((b) => b.id === budget);
-    expect(mine?.spent).toBeGreaterThanOrEqual(0);
-    const runs = await me.hub.call('runs', { session: id() });
-    expect(runs.items.every((run) => run.cost >= 0)).toBe(true);
+    expect(limits.budgets.find((b) => b.rule === budget)?.remaining).toBeCloseTo(MAX - cost, 6);
   });
 
   it('asks before a fn that is not read-only, then runs the command and shows its card', async () => {

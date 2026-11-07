@@ -20,6 +20,8 @@ export const sdkEnv = env({
   HARNESS_CONNECT_TIMEOUT: z.number().int().min(100).default(10_000),
   /** How long a call through the MCP face may run. */
   HARNESS_MCP_TIMEOUT: z.number().int().min(1_000).default(600_000),
+  /** The largest request body the MCP face accepts over HTTP, in bytes. */
+  HARNESS_MCP_MAX_BODY: z.number().int().min(1_024).default(1_048_576),
   /** Outcomes kept in the journal, so a run the hub sends again after a reconnect isn't run twice. */
   HARNESS_JOURNAL_SIZE: z.number().int().min(10).default(2_000),
   /** Tries for a session state update when other writes keep getting in first. */

@@ -529,6 +529,26 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "waiting": {
+      "method": "POST",
+      "path": "/waiting",
+      "ws": "waiting",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "approve": {
       "method": "POST",
       "path": "/approve",

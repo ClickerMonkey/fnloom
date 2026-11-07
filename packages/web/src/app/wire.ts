@@ -12,8 +12,26 @@ import { SessionKeeper, SignInForm } from '../state/auth.ts';
 import { ConnectionStore } from '../state/connection.ts';
 import { InboxStore } from '../state/inbox.ts';
 import { LayoutStore } from '../state/layout.ts';
+import { BrowserPush, PushStore, SERVICE_WORKERS } from '../state/push.ts';
 import { SessionStore } from '../state/session.ts';
 import type { Stores } from '../state/stores.ts';
+
+/** The stores that fetch again after a reconnect. */
+export type ResyncStores = Pick<Stores, 'session' | 'connection' | 'inbox' | 'chat' | 'admin'>;
+
+/**
+ * Fetch again whatever may have changed while the hub was unreachable (events sent meanwhile are lost): the inbox,
+ * the chat (its list and the open thread: messages, runs and what waits on the person), and the systems list once
+ * an admin page has loaded it. Returns the function that stops.
+ */
+export function resyncOnReconnect(stores: ResyncStores): () => void {
+  return stores.connection.onReconnect(() => {
+    if (!stores.session.signedIn.value) { return; }
+    void stores.inbox.refresh();
+    void stores.chat.refresh();
+    if (stores.admin.systems.list.value.value !== undefined) { void stores.admin.systems.load(true); }
+  });
+}
 import { ThemeStore } from '../state/theme.ts';
 import { Toasts } from '../state/toasts.ts';
 
@@ -31,12 +49,7 @@ export function createStores(win: Window): Stores {
     renderers: { share: async () => { (await import('../chat/shared.ts')).shareChatModules(); } },
   });
   const admin = new AdminStore({ api: api.admin, chat: api.chat, userEvents: api.userEvents, systemLogs: api.systemLogs });
-  connection.onReconnect(() => {
-    if (!session.signedIn.value) { return; }
-    void inbox.refresh();
-    void chat.refresh();
-    if (admin.systems.list.value.value !== undefined) { void admin.systems.load(true); }
-  });
+  resyncOnReconnect({ session, connection, inbox, chat, admin });
   return {
     session,
     keeper: new SessionKeeper(api.auth, session),
@@ -48,5 +61,6 @@ export function createStores(win: Window): Stores {
     chat,
     admin,
     signInForm: () => new SignInForm(api.auth, session),
+    push: new PushStore(api.notifications, new BrowserPush(win, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built), () => win.navigator.userAgent),
   };
 }

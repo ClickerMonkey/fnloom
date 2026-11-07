@@ -1,9 +1,9 @@
-import { fn, g, handler, hub, system } from '@harness/sdk';
+import { agent, fn, g, handler, hub, system } from '@harness/sdk';
 import { ActorId, HandlerCallId, LinkSession, hubLinkSpec, type RunId, type LlmForwardChunk, type LlmRequest, type QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EXECUTION_LINK_SPEC } from './create.ts';
 import type { RunInput } from './index.ts';
-import { ALICE, executionRig, says, until, type ExecutionRig } from './testing.ts';
+import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from './testing.ts';
 
 const confirm = handler({ description: 'Sure?', args: g.obj({ path: g.text() }), returns: g.bool(), required: false });
 const files = system('fs', { description: 'Files.' }).with({
@@ -12,6 +12,7 @@ const files = system('fs', { description: 'Files.' }).with({
     remove: fn({ description: 'Remove.', args: g.obj({ path: g.text() }), returns: g.bool(), tags: ['read'], handlers: { confirm } }),
   },
 });
+const remover = agent({ description: 'Removes files.', args: g.obj({}), returns: g.text(), instructions: 'Remove what you are asked to.', tools: [files.fns.remove] });
 const copy = fn({ description: 'Copy.', args: g.obj({ from: g.text() }), returns: g.text(), tags: ['read'], deps: { read: files.fns.read, remove: files.fns.remove } });
 
 let rig: ExecutionRig;
@@ -22,6 +23,7 @@ async function started(): Promise<ExecutionRig> {
   rig.catalog.add('fs', 'read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
   rig.catalog.add('fs', 'remove', fn({ description: 'Remove.', args: g.obj({ path: g.text() }), returns: g.bool(), tags: ['read'], handlers: { confirm } }));
   rig.catalog.add('fs', 'copy', copy);
+  rig.catalog.add('tools', 'remover', remover);
   rig.catalog.add('hub', 'run_status', fn({ description: 'Status.', args: hub.fns.run_status.args, returns: hub.fns.run_status.returns, tags: ['read'] }));
   rig.catalog.add('hub', 'run_wait', fn({ description: 'Wait.', args: hub.fns.run_wait.args, returns: hub.fns.run_wait.returns, tags: ['read'] }));
   await rig.module.start();
@@ -149,6 +151,29 @@ describe('handlers', () => {
     expect(answer).toEqual({ ok: true, value: true });
     await expect(r.module.handlers.answer(call.id, true, ALICE)).rejects.toThrow(/already/);
     await expect(r.module.handlers.answer(HandlerCallId.parse('hcl_none'), true, ALICE)).rejects.toThrow(/no handler call/);
+  });
+
+  it("ask the turn's person for a run an agent called, since the agent can't answer a form", async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    let answer: unknown;
+    fs.behaviour.run = async (request) => {
+      answer = await r.module.linkHandlers.handle(payload({ run: request.run.id, handler: 'confirm', args: { path: 'x' } }));
+      return { status: 'done', result: true };
+    };
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'Remove x.' });
+    r.provider.script(calls([['fs__remove', { path: 'x' }]]), says('Removed.'));
+    const { run } = await r.module.agents.start({
+      kind: 'hub/llm', fn: 'tools/remover', args: {}, turn: turn.id, session: SESSION, key: 'answer', actor: ALICE, caller: AGENT, priority: 'interactive', background: false, handlers: [],
+    });
+    await until(() => r.bus.of('handler').length > 0, 'the handler call');
+    const call = r.bus.of('handler')[0]?.call;
+    if (call === undefined) throw new Error('no call');
+    expect(call).toMatchObject({ status: 'pending', answerer: { user: ALICE }, args: { path: 'x' } });
+    await r.module.handlers.answer(call.id, true, ALICE);
+    expect(await r.module.runs.wait(run)).toEqual({ status: 'done', result: 'Removed.' });
+    expect(answer).toEqual({ ok: true, value: true });
   });
 
   it('refuse a handler the caller does not answer', async () => {

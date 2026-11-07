@@ -8,16 +8,17 @@
  * one who would be.
  *
  * Asking creates an `Approval` and publishes it with its approvers. Answering records the decision; "always" turns it
- * into a policy for that actor and fn.
+ * into a policy for that actor and fn. An approval that names no person is decided without one: a judge fn's verdict
+ * or the hub's own rule (`ApprovalDeciders`) settles it, and a decider that fails denies it.
  */
 import {
   mintId, READ_TAG, type ActorId, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type QualifiedName,
-  type Remember, type RunId, type SessionId,
+  type Remember, type Run, type RunId, type SessionId, type Verdict,
 } from '@harness/core';
-import type { PolicyEngine, RunDecision } from './index.ts';
+import { messageOf } from './errors.ts';
+import { AGENT_KIND, type PolicyEngine, type RunDecision } from './index.ts';
 import type { ExecutionDeps } from './ports.ts';
 import { allRows, rows } from './pages.ts';
-import { AGENT_KIND } from './runs.ts';
 
 /**
  * With no matching policy: `read` fns and agents are allowed (an agent acts only through its tools, and each tool
@@ -102,12 +103,28 @@ function compareKeys(a: readonly number[], b: readonly number[]): number {
   return 0;
 }
 
+/** Who decides an approval that names no person. Built after the run service, since a judge is run like any fn. */
+export interface ApprovalDeciders {
+  /** Who the decisions are recorded as. */
+  actor(): Promise<ActorId>;
+  /** Run a judge fn on the call waiting for approval, and read its verdict. */
+  judge(judge: QualifiedName, approval: Approval, run: Run): Promise<Verdict>;
+  /** The hub's own rule about the call waiting for approval. */
+  hub(approval: Approval, run: Run): Promise<Verdict>;
+}
+
 /** The policy engine on the hub store. */
 export class HubPolicyEngine implements PolicyEngine {
   readonly #deps: Pick<ExecutionDeps, 'store' | 'bus' | 'clock' | 'random' | 'catalog' | 'approvers' | 'log'>;
+  #deciders: ApprovalDeciders | undefined;
 
   constructor(deps: Pick<ExecutionDeps, 'store' | 'bus' | 'clock' | 'random' | 'catalog' | 'approvers' | 'log'>) {
     this.#deps = deps;
+  }
+
+  /** Decide approvals that name a judge or the hub with these. Until then such an approval waits. */
+  decideWith(deciders: ApprovalDeciders): void {
+    this.#deciders = deciders;
   }
 
   async decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId }): Promise<RunDecision> {
@@ -134,11 +151,12 @@ export class HubPolicyEngine implements PolicyEngine {
     };
     await store.table('approvals').insert(approval);
     await this.#publish(approval, input.turnUser, input.session);
+    if (approval.approver.by === 'judge' || approval.approver.by === 'hub') this.#decideWithout(approval);
     return { effect: 'ask', approval };
   }
 
   async answer(id: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval> {
-    const { store, clock } = this.#deps;
+    const { store } = this.#deps;
     const approval = await store.table('approvals').get(id);
     if (approval === undefined) throw new Error(`no approval ${id}`);
     if (approval.status !== 'pending') return approval;
@@ -148,7 +166,50 @@ export class HubPolicyEngine implements PolicyEngine {
     const turnUser = turn?.user.id ?? run.actor;
     const approvers = await this.#deps.approvers.approvers(approval.approver, turnUser);
     if (!approvers.includes(input.by)) throw new Error(`${input.by} can't answer approval ${id}`);
+    return this.#record(approval, run, turnUser, input);
+  }
 
+  /**
+   * Settle an approval no person answers, once the run has been told to wait: the judge fn's verdict or the hub's
+   * rule. A decider that fails, or none being set, denies with the reason.
+   */
+  #decideWithout(approval: Approval): void {
+    const decide = async (): Promise<void> => {
+      const { store } = this.#deps;
+      const run = await store.table('runs').get(approval.run);
+      if (run === undefined) throw new Error(`approval ${approval.id} names no run`);
+      const turnUser = (await store.table('turns').get(run.turn))?.user.id ?? run.actor;
+      const deciders = this.#deciders;
+      if (deciders === undefined) throw new Error('nothing decides approvals without a person yet');
+      const by = await deciders.actor();
+      const verdict = await this.#verdict(deciders, approval, run);
+      const current = await store.table('approvals').get(approval.id);
+      if (current?.status !== 'pending') return;
+      await this.#record(current, run, turnUser, { by, approve: verdict.approve, remember: 'once', reason: verdict.reason });
+    };
+    // queued after the caller has seen the ask, so a quick verdict can't settle the run before it is waiting
+    queueMicrotask(() => {
+      void decide().catch((error: unknown) => { this.#deps.log.error('approval.decide-failed', { approval: approval.id, error: messageOf(error) }); });
+    });
+  }
+
+  /** The verdict of whoever the approval names; a failing judge denies, saying why. */
+  async #verdict(deciders: ApprovalDeciders, approval: Approval, run: Run): Promise<Verdict> {
+    try {
+      switch (approval.approver.by) {
+        case 'judge': return await deciders.judge(approval.approver.fn, approval, run);
+        case 'hub': return await deciders.hub(approval, run);
+        case 'turn-user': case 'actor': case 'group': throw new Error(`approval ${approval.id} names people`);
+      }
+    } catch (error) {
+      return { approve: false, reason: `the decision failed: ${messageOf(error)}` };
+    }
+  }
+
+  /** Add a decision to an approval, settle it when it is decided, and publish it. */
+  async #record(approval: Approval, run: Run, turnUser: ActorId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval> {
+    const { store, clock } = this.#deps;
+    const id = approval.id;
     const decisions = [...approval.decisions, {
       by: input.by, approve: input.approve, remember: input.remember, at: clock(), ...(input.reason === undefined ? {} : { reason: input.reason }),
     }];

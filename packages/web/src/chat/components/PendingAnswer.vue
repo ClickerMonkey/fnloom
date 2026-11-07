@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * The agent's answer before its first word: its avatar with a typing indicator and the status line, in the row the
- * answer will take, so the first token or run replaces it in place (never a second avatar under a real one).
+ * The agent's answer before its first word: its avatar with one live status (the status line once a run reports,
+ * else a typing indicator), in the row the answer will take, so the first token or run replaces it in place (never a second avatar under a real one).
  */
 import { UiAvatar } from '../../ui/index.ts';
-import type { StatusLine as Line } from '../logic/runs.ts';
+import { lineHasNews, type StatusLine as Line } from '../logic/runs.ts';
 import StatusLine from './StatusLine.vue';
 import TypingDots from './TypingDots.vue';
 
@@ -17,8 +17,8 @@ const emit = defineEmits<{ tree: [] }>();
     <UiAvatar :name="authorName" kind="agent" :size="28" />
     <div class="column">
       <span class="author">{{ authorName }}</span>
-      <TypingDots label="The agent is working" />
-      <StatusLine v-if="line.groups.length > 0 || line.lead !== 'Thinking…'" :line="line" @tree="emit('tree')" />
+      <StatusLine v-if="lineHasNews(line)" :line="line" @tree="emit('tree')" />
+      <TypingDots v-else label="The agent is working" />
     </div>
   </div>
 </template>

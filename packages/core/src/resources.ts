@@ -10,10 +10,15 @@ export type ResourceUri = z.infer<typeof ResourceUri>;
 export const SectionKey = z.string().min(1).brand<'SectionKey'>();
 export type SectionKey = z.infer<typeof SectionKey>;
 
+/** A content hash: sha-256 of the bytes, as lowercase hex. The one statement of the pattern; gin types and checks use it too. */
+export const CONTENT_HASH_PATTERN = '^[0-9a-f]{64}$';
+/** `CONTENT_HASH_PATTERN` as a regular expression. */
+export const CONTENT_HASH = new RegExp(CONTENT_HASH_PATTERN);
+
 /** Content moved by reference, fetched in chunks when needed. Keeps every message small. */
 export const ContentRef = z.object({
   /** sha-256 of the bytes, hex. */
-  hash: z.string().regex(/^[0-9a-f]{64}$/),
+  hash: z.string().regex(CONTENT_HASH),
   size: z.number().int().min(0),
   mime: z.string(),
 });

@@ -1,19 +1,29 @@
 <script setup lang="ts">
 /**
- * The models the providers offer, narrowed as the person types: name and id, which provider, how much it can read
- * at once, what it can do, and its price per million tokens in and out.
+ * The models the providers offer, narrowed as the person types: name and id, what it can do, which provider, how much
+ * it can read at once, and its price per million tokens in and out. The columns are one grid, so they line up from
+ * row to row; a number the provider doesn't give shows a dash. A model one provider lists twice shows once.
  */
-import { computed, ref } from 'vue';
+import type { ModelInfo } from '@harness/core';
+import { computed } from 'vue';
 import { formatCost, formatTokens } from '../../chat/logic/format.ts';
 import { UiBadge, UiEmpty, UiInput } from '../../ui/index.ts';
-import type { ModelInfo } from '@harness/core';
 
 const props = defineProps<{ models: readonly ModelInfo[]; providerName: (model: ModelInfo) => string }>();
-const query = ref('');
+/** The search; a parent binds it to the URL so a refresh keeps it. */
+const query = defineModel<string>('query', { default: '' });
+
+const keyOf = (model: ModelInfo): string => `${model.provider}/${model.id}`;
+const unique = computed(() => [...new Map(props.models.map((m) => [keyOf(m), m])).values()]);
 const shown = computed(() => {
   const words = query.value.trim().toLowerCase().split(/\s+/).filter((w) => w !== '');
-  return props.models.filter((m) => words.every((w) => `${m.id} ${m.name} ${m.capabilities.join(' ')}`.toLowerCase().includes(w)));
+  return unique.value.filter((m) => words.every((w) => `${m.id} ${m.name} ${m.provider} ${m.capabilities.join(' ')}`.toLowerCase().includes(w)));
 });
+const context = (model: ModelInfo): string => (model.contextWindow === undefined || model.contextWindow === 0 ? '—' : formatTokens(model.contextWindow));
+const price = (model: ModelInfo): string => {
+  if (model.pricing === undefined) { return '—'; }
+  return model.pricing.input === 0 && model.pricing.output === 0 ? 'Free' : `${formatCost(model.pricing.input)} / ${formatCost(model.pricing.output)}`;
+};
 </script>
 
 <template>
@@ -21,7 +31,8 @@ const shown = computed(() => {
     <UiInput v-model="query" type="search" icon="search" label="Find a model" hide-label placeholder="Find by name, id or what it can do" clearable />
     <UiEmpty v-if="shown.length === 0" icon="search" title="No models match" :body="query === '' ? 'Add a provider to see its models.' : 'Try fewer words.'" />
     <ul v-else class="rows" data-testid="models">
-      <li v-for="model in shown" :key="model.id" class="row">
+      <li class="row head" aria-hidden="true"><span>Model</span><span>Can</span><span>Provider</span><span class="num">Context</span><span class="num">Per 1M in / out</span></li>
+      <li v-for="model in shown" :key="keyOf(model)" class="row" data-testid="model-row">
         <div class="main">
           <p class="name">{{ model.name }}</p>
           <code class="id">{{ model.id }}</code>
@@ -30,9 +41,9 @@ const shown = computed(() => {
           <UiBadge v-for="capability in model.capabilities" :key="capability">{{ capability }}</UiBadge>
         </div>
         <dl class="numbers">
-          <div><dt>Provider</dt><dd>{{ providerName(model) }}</dd></div>
-          <div v-if="model.contextWindow !== undefined"><dt>Context</dt><dd>{{ formatTokens(model.contextWindow) }}</dd></div>
-          <div v-if="model.pricing"><dt>Per 1M in / out</dt><dd>{{ model.pricing.input === 0 && model.pricing.output === 0 ? 'Free' : `${formatCost(model.pricing.input)} / ${formatCost(model.pricing.output)}` }}</dd></div>
+          <div class="cell"><dt>Provider</dt><dd>{{ providerName(model) }}</dd></div>
+          <div class="cell num"><dt>Context</dt><dd>{{ context(model) }}</dd></div>
+          <div class="cell num"><dt>Per 1M in / out</dt><dd>{{ price(model) }}</dd></div>
         </dl>
       </li>
     </ul>
@@ -42,18 +53,27 @@ const shown = computed(() => {
 <style scoped>
 .model-table { display: grid; gap: var(--space-3); }
 .rows { display: grid; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); list-style: none; overflow: hidden; }
-.row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: center; gap: var(--space-2) var(--space-4); padding: var(--space-3) var(--space-4); }
+.row {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 110px 80px 150px; align-items: center; gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
 .row + .row { border-top: 1px solid var(--border); }
+.head { padding-block: var(--space-2); background: var(--surface-2); color: var(--text-faint); font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .main { min-width: 0; }
 .name { margin: 0; font-weight: var(--weight-medium); }
 .id { color: var(--text-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.numbers { display: flex; gap: var(--space-4); margin: 0; font-size: var(--text-sm); }
-.numbers > div { display: grid; gap: 2px; }
-dt { color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
-dd { margin: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.numbers { display: contents; }
+.cell { min-width: 0; font-size: var(--text-sm); }
+.num { text-align: right; }
+dt { display: none; color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
+dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 @media (max-width: 759.98px) {
   .row { grid-template-columns: minmax(0, 1fr); }
-  .numbers { flex-wrap: wrap; }
+  .head { display: none; }
+  .numbers { display: flex; flex-wrap: wrap; gap: var(--space-4); margin: 0; }
+  .cell { display: grid; gap: 2px; }
+  .num { text-align: left; }
+  dt { display: block; }
 }
 </style>

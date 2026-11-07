@@ -8,9 +8,9 @@ import { Json, LlmInteractionId, RunId, Usd } from './primitives.ts';
 
 /** Which model to use: a model id, a named category, or automatic selection by weights. */
 export const ModelChoice = z.union([
-  z.object({ model: z.string() }),
-  z.object({ category: z.string() }),
-  z.object({ auto: z.object({ cost: z.number().optional(), speed: z.number().optional(), accuracy: z.number().optional() }) }),
+  z.object({ model: z.string().min(1) }),
+  z.object({ category: z.string().min(1) }),
+  z.object({ auto: z.object({ cost: z.number().min(0).optional(), speed: z.number().min(0).optional(), accuracy: z.number().min(0).optional() }) }),
 ]);
 export type ModelChoice = z.infer<typeof ModelChoice>;
 
@@ -68,12 +68,19 @@ export const LlmChunk = z.object({
 });
 export type LlmChunk = z.infer<typeof LlmChunk>;
 
+/**
+ * A strict-mode policy, as aeye's: `true` requires strict schemas, `false` forces lenient ones, and a positive number
+ * prefers strict with that priority when a model has fewer strict slots than are asked for.
+ */
+export const LlmStrict = z.union([z.boolean(), z.number().positive()]);
+export type LlmStrict = z.infer<typeof LlmStrict>;
+
 /** A tool offered to the model, with its input as JSON schema. */
-export const LlmToolSpec = z.object({ name: z.string(), description: z.string().optional(), parameters: Json, strict: z.boolean().optional() });
+export const LlmToolSpec = z.object({ name: z.string(), description: z.string().optional(), parameters: Json, strict: LlmStrict.optional() });
 export type LlmToolSpec = z.infer<typeof LlmToolSpec>;
 
 /** What the model should produce: text, any JSON, or JSON matching a schema. */
-export const LlmResponseFormat = z.union([z.literal('text'), z.literal('json'), z.object({ schema: Json, strict: z.boolean() })]);
+export const LlmResponseFormat = z.union([z.literal('text'), z.literal('json'), z.object({ schema: Json, strict: LlmStrict })]);
 export type LlmResponseFormat = z.infer<typeof LlmResponseFormat>;
 
 /** An LLM request as it crosses the wire. */

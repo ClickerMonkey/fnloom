@@ -64,12 +64,14 @@ describe('runProcess', () => {
 
   it('stops when its signal aborts, even if aborted already', async () => {
     const controller = new AbortController();
-    const running = runProcess(node, ['-e', 'setTimeout(() => {}, 20000)'], { timeout: 10_000, signal: controller.signal }, limits);
-    setTimeout(() => { controller.abort(); }, 100);
+    // abort once the child has said it is running, not after a guessed delay
+    const running = runProcess(node, ['-e', 'console.log("up"); setTimeout(() => {}, 60000)'], {
+      timeout: 60_000, signal: controller.signal, onOutput: (_, line) => { if (line === 'up') { controller.abort(); } },
+    }, limits);
     expect(await running).toMatchObject({ ended: 'cancelled', exitCode: 130 });
-    const early = await runProcess(node, ['-e', 'setTimeout(() => {}, 20000)'], { timeout: 10_000, signal: AbortSignal.abort() }, limits);
-    expect(early.ended).toBe('cancelled');
-  });
+    const early = await runProcess(node, ['-e', 'setTimeout(() => {}, 60000)'], { timeout: 60_000, signal: AbortSignal.abort() }, limits);
+    expect(early).toMatchObject({ ended: 'cancelled', exitCode: 130 });
+  }, 30_000);
 
   it('reports a program that cannot start', async () => {
     const run = await new NodeExec(limits).exec('definitely-not-a-program-harness', [], { timeout: 5_000 });

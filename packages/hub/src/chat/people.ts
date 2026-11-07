@@ -2,7 +2,9 @@
 import type { ActorId, AgentActor, Asker, ClientInfo, QualifiedName, SessionId, UserActor, UserInfo } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError } from './errors.ts';
-import { agentActorId, agentName, readAll, timeInfo } from './support.ts';
+import { AGENT_KIND } from '../execution/index.ts';
+import { agentActorId, agentName, readAll } from './support.ts';
+import { timeInfo } from '../execution/time.ts';
 
 /** Where a person is, when their browser didn't say (a mention search, a scheduled turn). */
 const FALLBACK_PLACE = { timeZone: 'UTC', locale: 'en-US' } as const;
@@ -47,7 +49,7 @@ export class People {
    */
   async agent(fn: QualifiedName): Promise<AgentActor> {
     const record = await this.#deps.catalog.fn(fn);
-    if (record?.decl.kind !== 'hub/llm') { throw new ChatError('invalid', `${fn} is not an agent.`); }
+    if (record?.decl.kind !== AGENT_KIND) { throw new ChatError('invalid', `${fn} is not an agent.`); }
     const id = agentActorId(fn);
     const existing = await this.#deps.store.table('actors').get(id);
     if (existing?.kind === 'agent') { return existing; }

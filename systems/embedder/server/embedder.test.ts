@@ -8,7 +8,7 @@ import { GemmaError, HttpGemmaClient, retryAfter, type GemmaLimits } from './htt
 import { VectorCache, createEmbedderImpl, embedCached } from './impl.ts';
 import type { EmbedderConfig, GemmaClient } from './index.ts';
 
-const limits: GemmaLimits = { batch: 2, retries: 2, retryDelay: 100, retryMax: 1_000, timeout: 5_000 };
+const limits: GemmaLimits = { batch: 2, retries: 2, retryDelay: 100, retryMax: 1_000, jitter: 0, timeout: 5_000 };
 const vector = (seed: number) => Array.from({ length: GEMMA_DIMENSIONS }, (_, i) => (i === 0 ? seed : 0));
 
 /** A log that keeps its lines. */

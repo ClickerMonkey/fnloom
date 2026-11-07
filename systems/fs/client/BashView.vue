@@ -3,7 +3,7 @@
  * The bash card: the command and where it ran, a live status chip and progress while it runs (with the last line
  * it printed), its output folded until expanded, copy, and "Run again" through the system's `rerun` action.
  */
-import { SETTLED_RUN_STATUSES, type FnViewOf } from '@harness/sdk';
+import { isSettled, type FnViewOf } from '@harness/sdk';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import type { fs } from '../shared/index.ts';
 import { deliveryChip, failedOutput, percent, statusChip } from './bash.ts';
@@ -18,7 +18,7 @@ const COPIED_FOR = 1_600;
 const chip = computed(() => statusChip(view.status, view.result?.exitCode, view.error));
 const running = computed(() => view.status === 'running');
 /** Copy and Run again only make sense once the command has run. */
-const settled = computed(() => SETTLED_RUN_STATUSES.some((status) => status === view.status));
+const settled = computed(() => isSettled(view.status));
 const output = computed(() => view.result ?? failedOutput(view.error));
 const where = computed(() => view.args.cwd ?? view.state.cwd);
 const fraction = computed(() => percent(view.progress?.fraction));

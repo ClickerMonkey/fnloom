@@ -11,7 +11,7 @@ import {
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
-import { bodyOf, userInfo, type FullHandlers } from './access.ts';
+import { userInfo, type FullHandlers } from './access.ts';
 import { adminSlice } from './slices.ts';
 import type { systemsPlugin } from './systems.ts';
 
@@ -40,7 +40,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
       systemFns: ({ data }) => catalog.fns({ system: data.system }),
       systemLogs: ({ data }) => hub.link.output.tail(data.system, data.limit ?? LOG_LINES),
       models: async (io) => {
-        const data = bodyOf(io, {});
+        const data = io.data;
         const models = await hub.execution.llm.models();
         if (data.provider === undefined) { return models; }
         const record = await store.table('providers').get(data.provider);
@@ -60,7 +60,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
       },
       policies: () => all(hub, 'policies'),
       actors: async (io) => {
-        const { kind } = bodyOf(io, {});
+        const { kind } = io.data;
         return (await all(hub, 'actors')).filter((actor) => kind === undefined || actor.kind === kind);
       },
       actorSettings: async () => {
@@ -70,7 +70,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
         return { declared, values: await all(hub, 'actorSettings') };
       },
       runs: async (io) => {
-        const data = bodyOf(io, {});
+        const data = io.data;
         const fn = data.fn === undefined ? undefined : QualifiedName.safeParse(data.fn);
         if (fn?.success === false) { return { items: [] }; }
         return store.table('runs').find({
@@ -82,7 +82,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
         });
       },
       llmCalls: async (io) => {
-        const data = bodyOf(io, {});
+        const data = io.data;
         const page = await store.table('llmInteractions').find({
           where: {
             ...(data.status === undefined ? {} : { status: data.status }), ...(data.model === undefined ? {} : { model: data.model }),
@@ -93,7 +93,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
         return { ...page, items: page.items.map(({ request: _request, response: _response, ...summary }): LlmSummary => summary) };
       },
       resources: async (io) => {
-        const data = bodyOf(io, {});
+        const data = io.data;
         const limit = data.limit ?? PAGE_SIZE;
         const search = data.search?.trim().toLowerCase() ?? '';
         const matches = (r: ResourceRecord): boolean => search === '' || r.uri.toLowerCase().includes(search);

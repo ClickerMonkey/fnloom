@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
  * Markdown, rendered safely (no HTML from the source reaches the page) and styled for reading: comfortable spacing,
- * code and tables that scroll inside themselves, long words that wrap. Handles text that is still streaming in.
+ * code and tables that scroll inside themselves, long words that wrap. Images open large in a viewer. Handles text
+ * that is still streaming in.
  */
-import { computed, type FunctionalComponent } from 'vue';
+import { computed, ref, type FunctionalComponent } from 'vue';
+import UiImageViewer from '../UiImageViewer.vue';
 import { parseMarkdown } from './parse.ts';
 import { renderBlocks } from './render.ts';
 
@@ -15,12 +17,17 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ copied: [ok: boolean] }>();
 const blocks = computed(() => parseMarkdown(props.source));
-const Blocks: FunctionalComponent = () => renderBlocks(blocks.value, { navigate: props.navigate, copied: (ok) => { emit('copied', ok); } });
+const viewing = ref<{ src: string; alt: string } | undefined>(undefined);
+const viewerOpen = computed({ get: () => viewing.value !== undefined, set: (open) => { if (!open) { viewing.value = undefined; } } });
+const Blocks: FunctionalComponent = () => renderBlocks(blocks.value, {
+  navigate: props.navigate, copied: (ok) => { emit('copied', ok); }, view: (src, alt) => { viewing.value = { src, alt }; },
+});
 </script>
 
 <template>
   <div class="ui-markdown">
     <Blocks />
+    <UiImageViewer v-if="viewing" v-model:open="viewerOpen" :src="viewing.src" :alt="viewing.alt" />
   </div>
 </template>
 
@@ -47,6 +54,10 @@ const Blocks: FunctionalComponent = () => renderBlocks(blocks.value, { navigate:
 .ui-markdown :deep(a) { text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent); text-underline-offset: 2px; }
 .ui-markdown :deep(a:hover) { text-decoration-color: var(--accent); }
 .ui-markdown :deep(.md-image) { display: block; max-width: 100%; height: auto; border-radius: var(--radius); }
+.ui-markdown :deep(.md-image-open) { display: block; max-width: 100%; padding: 0; border: 0; border-radius: var(--radius); background: transparent; cursor: zoom-in; }
+.ui-markdown :deep(.md-image-open:focus-visible) { outline: none; box-shadow: var(--ring); }
+.ui-markdown :deep(.md-resource) { text-decoration: none; }
+.ui-markdown :deep(.md-resource .md-code) { color: var(--accent); }
 .ui-markdown :deep(.md-table) { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 .ui-markdown :deep(table) { width: 100%; border-collapse: collapse; font-size: var(--text-sm); overflow-wrap: normal; }
 .ui-markdown :deep(th), .ui-markdown :deep(td) { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }

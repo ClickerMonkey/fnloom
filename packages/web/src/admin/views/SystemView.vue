@@ -37,7 +37,8 @@ const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'config', label: 'Config' },
   { value: 'fns', label: 'Fns', count: view.value?.fns ?? 0 },
-  ...(view.value?.installed === undefined ? [] : [{ value: 'logs' as const, label: 'Output' }]),
+  // every system's output reaches the hub (an installed one's process, a paired one's log lines), so the tab is always there
+  { value: 'logs', label: 'Output' },
 ]);
 
 watch(name, (system) => {

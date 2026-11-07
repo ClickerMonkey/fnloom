@@ -43,6 +43,7 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     deps: Object.values(def.deps).map((dep) => dep.name),
     handlers: handlersDecl(def.handlers),
     progress: progressDecl(def.progress),
+    ...(def.status === undefined ? {} : { status: def.status }),
     operations: { ...def.operations },
     ...(def.undo === undefined ? {} : { undo: wireType(def.undo) }),
     ...(def.resume === undefined ? {} : { resume: wireType(def.resume) }),
@@ -137,6 +138,7 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     attachments: entriesOf(defs.attachments).map(([name, def]) => ({ name, description: def.description, data: wireType(def.data) })),
     kinds: entriesOf(defs.kinds).map(([name, def]) => ({
       name, description: def.description, applicability: def.applicability, payload: wireType(def.payload), approveChanges: def.approveChanges,
+      ...(def.status === undefined ? {} : { status: def.status }),
     })),
     fns,
     context: entriesOf(defs.context).map(([name, def]) => contextDecl(name, def)),

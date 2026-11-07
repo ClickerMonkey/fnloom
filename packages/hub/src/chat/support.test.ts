@@ -1,7 +1,8 @@
 import { IDS } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { ChatError } from './errors.ts';
-import { agentActorId, agentName, allowsSystem, asQualified, clip, collect, unmark, escapeAttribute, escapeBody, knownZone, readAll, sameJson, timeInfo, turnScope, weekday } from './support.ts';
+import { agentActorId, agentName, allowsSystem, asQualified, clip, collect, unmark, escapeAttribute, escapeBody, readAll, sameJson, turnScope } from './support.ts';
+import { knownZone, timeInfo, weekday } from '../execution/time.ts';
 import { MemoryStore, actorId } from './testing.ts';
 
 const at = Date.UTC(2026, 10, 7, 14, 30, 5);

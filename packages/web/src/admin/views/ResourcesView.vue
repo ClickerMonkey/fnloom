@@ -52,7 +52,7 @@ function navigate(href: string): void {
     <BrowserFrame
       v-model:panel="panel" label="Resources" :loading="resources.list.loading.value" :loaded="resources.list.loaded.value" :problem="resources.list.problem.value"
       :empty="items.length === 0" :has-more="resources.list.hasMore.value" :loading-more="resources.list.loadingMore.value"
-      empty-icon="file" empty-title="No resources match" :empty-body="filter.search || filter.system ? 'Try other words.' : 'Resources show here as systems serve them.'"
+      empty-icon="file" :empty-title="filter.search || filter.system ? 'No resources match' : 'No resources yet'" :empty-body="filter.search || filter.system ? 'Try other words.' : 'Resources show here as systems serve them.'"
       :panel-title="read?.stat.name ?? 'Resource'" :panel-subtitle="read?.stat.uri ?? ''" @more="resources.list.more()" @retry="resources.list.load()"
     >
       <template #filters>

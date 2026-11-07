@@ -46,7 +46,7 @@ const emit = defineEmits<{ open: [] }>();
 </template>
 
 <style scoped>
-.hover-card { display: grid; gap: var(--space-3); width: min(340px, calc(100vw - 32px)); padding: var(--space-3) var(--space-4); }
+.hover-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); width: min(340px, calc(100vw - 32px)); padding: var(--space-3) var(--space-4); }
 .loading { padding: var(--space-1) 0; }
 .head { display: grid; gap: 2px; }
 .title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); overflow-wrap: anywhere; }
@@ -54,7 +54,8 @@ const emit = defineEmits<{ open: [] }>();
 .fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px var(--space-3); margin: 0; font-size: var(--text-sm); }
 dt { color: var(--text-faint); }
 dd { margin: 0; overflow-wrap: anywhere; }
-.body { max-height: 160px; overflow: auto; font-size: var(--text-sm); }
+.body { min-width: 0; max-height: 160px; overflow: auto; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.body :deep(pre), .body :deep(code) { white-space: pre-wrap; overflow-wrap: anywhere; }
 .foot { display: flex; justify-content: flex-end; }
 .gone { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 </style>

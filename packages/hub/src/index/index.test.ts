@@ -30,23 +30,24 @@ function wordVector(text: string): number[] {
 }
 
 class WordEmbedder implements Embedder {
-  readonly dimensions = 3;
   readonly maxInput = 1_000;
   calls = 0;
   failing = false;
   readonly name: QualifiedName;
-  constructor(name: QualifiedName) { this.name = name; }
+  readonly dimensions: number;
+  constructor(name: QualifiedName, dimensions = 3) { this.name = name; this.dimensions = dimensions; }
   embed(texts: readonly string[]): Promise<number[][]> {
     this.calls += 1;
-    return this.failing ? Promise.reject(new Error('embedder down')) : Promise.resolve(texts.map(wordVector));
+    const sized = (text: string): number[] => [...wordVector(text), ...Array<number>(this.dimensions - 3).fill(0)];
+    return this.failing ? Promise.reject(new Error('embedder down')) : Promise.resolve(texts.map(sized));
   }
 }
 
 class FakeEmbedders implements Embedders {
   readonly #map = new Map<string, Embedder>();
   readonly #listeners = new Set<() => void>();
-  readonly document = new WordEmbedder(DOCUMENT);
-  readonly query = new WordEmbedder(QUERY);
+  document = new WordEmbedder(DOCUMENT);
+  query = new WordEmbedder(QUERY);
   get(name: QualifiedName): Embedder | undefined { return this.#map.get(name); }
   active(): { document: Embedder; query: Embedder } | undefined {
     const document = this.#map.get(DOCUMENT);
@@ -129,6 +130,25 @@ describe('indexing', () => {
     await indexer.idle();
     expect((await store.table('index').get(compositeKey(DOCUMENT, 'fn', 'shop/get')))?.vectorHash).toBe(row?.hash);
     expect([...(store.vectors.entries.get(DOCUMENT)?.values() ?? [])]).toEqual([{ kind: 'fn', key: 'shop/get', vector: [2, 0, 0.1] }]);
+  });
+
+  it('sizes vectors by the embedder’s declared dimensions, and embeds everything again when they change', async () => {
+    const { indexer, store, embedders } = ctx;
+    indexer.start();
+    embedders.connect();
+    await indexer.upsert([{ kind: 'fn', key: 'shop/get', text: 'Get a product' }, { kind: 'fn', key: 'shop/list', text: 'List products' }]);
+    await indexer.idle();
+    expect(store.vectors.sizes.get(DOCUMENT)).toBe(3);
+    expect([...(store.vectors.entries.get(DOCUMENT)?.values() ?? [])].map((e) => e.vector.length)).toEqual([3, 3]);
+    // the embedder system now declares 4 dimensions
+    embedders.document = new WordEmbedder(DOCUMENT, 4);
+    embedders.query = new WordEmbedder(QUERY, 4);
+    embedders.connect();
+    await indexer.idle();
+    await indexer.idle();
+    expect(store.vectors.sizes.get(DOCUMENT)).toBe(4);
+    expect([...(store.vectors.entries.get(DOCUMENT)?.values() ?? [])].map((e) => e.vector.length)).toEqual([4, 4]);
+    expect(ctx.records.some((r) => r.msg === 'index.vectors.resized')).toBe(true);
   });
 
   it('leaves unchanged text alone, and removes items everywhere', async () => {

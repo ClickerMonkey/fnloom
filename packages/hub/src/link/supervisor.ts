@@ -8,6 +8,7 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reject as refuse } from '@ayepi/core';
+import { backoff } from '@ayepi/core/retry';
 import type { Logger } from '@ayepi/log';
 import { SYSTEM_ENV } from '@harness/sdk/server';
 import type { ActorId, InstallSource, InstalledSystem, Json, StopReason, SystemName, SystemRecord } from '@harness/core';
@@ -241,7 +242,7 @@ export class ProcessSupervisor implements Supervisor {
       return;
     }
     await this.#update(system, { status: 'crashed', lastExit });
-    const wait = Math.min(MAX_BACKOFF, installed.restart.backoff * 2 ** (crashes.length - 1));
+    const wait = backoff(crashes.length, { base: installed.restart.backoff, max: MAX_BACKOFF, jitter: 0 });
     this.#timers.set(system, setTimeout(() => {
       this.#timers.delete(system);
       this.start(system).catch((error: unknown) => { log.error('supervisor.restart.failed', { system, error: messageOf(error) }); });

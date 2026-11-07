@@ -66,11 +66,18 @@ export interface ProcessLimits {
   readonly progressEvery: number;
 }
 
+/** How long taskkill gets on Windows before the process itself is killed. */
+const TREE_KILL_WAIT = 1_000;
+
 /** Stop a process and everything it started. */
 function killTree(pid: number | undefined, kill: () => void): void {
   if (pid === undefined) { kill(); return; }
   if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', kill);
+    // taskkill walks the tree from the live parent, so the parent is killed directly only once taskkill is done
+    // (or has had long enough on a loaded machine); killing a dead process is a no-op.
+    const fallback = setTimeout(kill, TREE_KILL_WAIT);
+    const after = () => { clearTimeout(fallback); kill(); };
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', after).on('exit', after);
     return;
   }
   try { process.kill(-pid, 'SIGKILL'); } catch { kill(); }

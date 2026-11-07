@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * The composer, pinned under the thread. A textarea that grows with its text up to half the screen, then scrolls;
+ * The composer, pinned under the thread. A textarea that grows with its text up to a third of the thread's height (half
+ * the screen at most), then scrolls;
  * 16px text so phones don't zoom. Enter sends on a hardware keyboard (Shift+Enter breaks the line); on touch Enter
  * breaks the line and the button sends; Ctrl/Cmd+Enter always sends. Mention chips show highlighted in the text.
  *
@@ -321,9 +322,9 @@ defineExpose({ focus: () => { area.value?.focus(); } });
   grid-area: 1 / 1; margin: 0; padding: var(--space-2) var(--space-2); border: 0; font: inherit; font-size: 16px; line-height: 1.5; letter-spacing: normal;
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; tab-size: 4;
 }
-.mirror { color: transparent; pointer-events: none; overflow: hidden; max-height: 50dvh; }
+.mirror { color: transparent; pointer-events: none; overflow: hidden; max-height: 50dvh; max-height: min(50dvh, 30cqh); }
 .chip { color: transparent; background: var(--accent-soft-strong); border-radius: 4px; box-shadow: 0 0 0 1px var(--accent-soft-strong); }
-.input { position: relative; min-height: 40px; max-height: 50vh; max-height: 50dvh; resize: none; overflow-y: auto; background: transparent; color: var(--text); caret-color: var(--accent); }
+.input { position: relative; min-height: 40px; max-height: 50vh; max-height: 50dvh; max-height: min(50dvh, 30cqh); resize: none; overflow-y: auto; background: transparent; color: var(--text); caret-color: var(--accent); }
 .input:focus { outline: none; }
 .input::placeholder { color: var(--text-faint); }
 .tools { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }

@@ -15,6 +15,8 @@ export const embedderEnv = env({
   EMBEDDER_RETRY_DELAY: z.number().int().min(0).default(1_000),
   /** The longest wait before one retry, whatever the service says. */
   EMBEDDER_RETRY_MAX: z.number().int().min(0).default(15_000),
+  /** How much of each backoff wait may be shaved off at random (0 to 1), so clients don't retry in step. */
+  EMBEDDER_RETRY_JITTER: z.number().min(0).max(1).default(0.2),
   /** How long one request may take. */
   EMBEDDER_TIMEOUT: z.number().int().min(1).default(60_000),
   /** Query vectors kept for repeated searches (0 turns the cache off). */

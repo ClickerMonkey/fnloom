@@ -6,20 +6,21 @@
  * the turn). Live while the run is going.
  */
 import type { Json, LlmInteractionId, Run, RunId } from '@harness/core';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { UiBanner, UiButton, UiCodeBlock, UiSkeleton, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel, humanize } from '../logic/labels.ts';
-import { isSettled, runElapsed, runError, runResult, runText, STATUS_LOOK, type RunView } from '../logic/runs.ts';
+import { isSettled } from '@harness/core';
+import { argSummary, resultBrief, runElapsed, runError, runResult, runText, STATUS_LOOK, type RunView } from '../logic/runs.ts';
+import type { RunTab as Tab } from '../logic/inspect.ts';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
-
-type Tab = 'overview' | 'args' | 'result' | 'errors' | 'json';
 
 const props = withDefaults(defineProps<{ run: RunView | undefined; record?: Run | undefined; loading: boolean; problem?: string; now: number }>(), { record: undefined, problem: '' });
 const emit = defineEmits<{ background: []; tree: []; undo: []; llm: [id: LlmInteractionId]; run: [id: RunId]; retry: [] }>();
 
-const tab = ref<Tab>('overview');
+/** The tab shown; a parent binds it to the URL so a refresh keeps it. */
+const tab = defineModel<Tab>('tab', { default: 'overview' });
 const tabs = computed<TabItem<Tab>[]>(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'args', label: 'Args' },
@@ -31,6 +32,9 @@ const tabs = computed<TabItem<Tab>[]>(() => [
 const error = computed(() => (props.run === undefined ? undefined : runError(props.run)));
 const result = computed(() => (props.run === undefined ? undefined : runResult(props.run)));
 const elapsed = computed(() => (props.run === undefined ? undefined : runElapsed(props.run, props.now)));
+/** The args and result in brief, for the overview. */
+const about = computed(() => argSummary(props.run?.args, 200));
+const brief = computed(() => resultBrief(result.value));
 
 /** A value's fields as label and text, for the readable views. */
 function readable(value: Json | undefined): { key: string; label: string; text: string }[] {
@@ -64,7 +68,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
         <template v-if="run.attempt > 1"><dt>Attempt</dt><dd>{{ run.attempt }}</dd></template>
         <template v-if="run.background"><dt>Background</dt><dd>Yes</dd></template>
       </dl>
-      <RunProgress v-if="run.progress" :progress="run.progress" />
+      <RunProgress v-if="run.progress && !isSettled(run.status)" :progress="run.progress" />
       <div class="ops">
         <UiButton v-if="run.allowed?.background && !run.background && !isSettled(run.status)" size="sm" icon="arrow-right" @click="emit('background')">Move to background</UiButton>
         <UiButton v-if="run.turn" size="sm" variant="ghost" icon="tree" @click="emit('tree')">Turn tree</UiButton>
@@ -76,8 +80,14 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
         <template #default="{ value }">
           <div v-if="value === 'overview'" class="pane">
             <p v-if="error" class="error" data-testid="run-error">{{ error.message }}<span v-if="error.code" class="dim"> ({{ error.code }})</span></p>
-            <p v-else-if="result !== undefined" class="dim">Finished with a result. See Result.</p>
-            <p v-else class="dim">{{ isSettled(run.status) ? 'Nothing was returned.' : 'Still going.' }}</p>
+            <dl class="fields">
+              <template v-if="about !== ''"><dt>Asked</dt><dd><code class="value">{{ about }}</code></dd></template>
+              <dt>{{ isSettled(run.status) ? 'Returned' : 'So far' }}</dt>
+              <dd>
+                <pre v-if="brief !== ''" class="value brief" data-testid="run-brief">{{ brief }}</pre>
+                <span v-else class="dim">{{ isSettled(run.status) ? 'Nothing.' : 'Still going.' }}</span>
+              </dd>
+            </dl>
           </div>
           <dl v-else-if="value === 'args' || value === 'result'" class="fields pane">
             <template v-for="field in readable(value === 'args' ? run.args : result)" :key="field.key">
@@ -108,7 +118,9 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
 dt { color: var(--text-faint); }
 dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .dim { color: var(--text-faint); }
-.ops { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ops { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: var(--space-2); }
+.ops :deep(.ui-button) { justify-content: flex-start; }
+.brief { max-height: 240px; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--code-bg); }
 .pane { padding-top: var(--space-3); }
 .value { margin: 0; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .error { margin: var(--space-1) 0 0; color: var(--danger); overflow-wrap: anywhere; }

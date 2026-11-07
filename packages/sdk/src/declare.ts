@@ -5,7 +5,7 @@
  */
 import type {
   ActorKind, Audience, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat, Section, SectionKey,
-  SectionMatch, SettingEditor, SettingMerge, StepStatus, TypeDisplay, UndoOutcome, Usd,
+  SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
 } from '@harness/core';
 import { SectionKey as SectionKeySchema } from '@harness/core';
 import type { ActionCtx, AskerCtx, FnCall, FnCtx, SystemCtx, UndoCtx } from './ctx.ts';
@@ -89,11 +89,13 @@ export interface KindDef<P> {
   readonly payload: GinType<P>;
   /** Whether declaring or changing a fn of this kind at runtime needs approval. */
   readonly approveChanges: boolean;
+  /** The status words of its fns that declare none. They may use `{fn}`, `{n}` and `{args}` / `{output}` paths. */
+  readonly status: StatusTemplates | undefined;
 }
 
 /** Declare a kind. */
-export function kind<P>(def: { description: string; applicability: string; payload: GinType<P>; approveChanges?: boolean }): KindDef<P> {
-  return { description: def.description, applicability: def.applicability, payload: def.payload, approveChanges: def.approveChanges ?? true };
+export function kind<P>(def: { description: string; applicability: string; payload: GinType<P>; approveChanges?: boolean; status?: StatusTemplates }): KindDef<P> {
+  return { description: def.description, applicability: def.applicability, payload: def.payload, approveChanges: def.approveChanges ?? true, status: def.status };
 }
 
 /** What a kind can look up while checking a payload. */
@@ -339,7 +341,7 @@ export interface ActionDef<I, R, St extends object> {
 
 /** Declare an action. Without `returns` it returns nothing. */
 export function action<I, R = undefined, St extends object = {}>(def: { description: string; input: GinType<I>; returns?: GinType<R>; state?: GinType<St>; expires?: Duration }): ActionDef<I, R, St> {
-  return { description: def.description, input: def.input, returns: orDefault(def.returns, g.void()), state: def.state, expires: def.expires };
+  return { description: def.description, input: def.input, returns: orDefault<GinType<R>, GinType>(def.returns, g.void()), state: def.state, expires: def.expires };
 }
 
 /** An action's implementation. */

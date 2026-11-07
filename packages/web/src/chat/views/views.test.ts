@@ -77,9 +77,12 @@ describe('ChatView', () => {
   it('opens chat settings and saves a notify choice', async () => {
     const { app, api } = await start('/chat/ses_1?panel=settings');
     expect(app.find('[data-testid=session-settings]').exists()).toBe(true);
-    await app.findAll('[data-testid=session-settings] [role=radio]')[1]?.trigger('click');
+    await app.findAll('[data-testid=session-notify] [role=radio]')[1]?.trigger('click');
     await flushPromises();
     expect(api.updateSession.calls.at(-1)?.[0]).toEqual({ session: 'ses_1', notify: 'replies' });
+    await app.findAll('[data-testid=session-priority] [role=radio]')[0]?.trigger('click');
+    await flushPromises();
+    expect(api.updateSession.calls.at(-1)?.[0]).toEqual({ session: 'ses_1', priority: 'urgent' });
   });
 
   it('on a phone shows only the thread, with the list in a drawer', async () => {

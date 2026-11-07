@@ -2,11 +2,12 @@
  * Notifications: the inbox and web push. Every notification is stored and published (the browser's bell updates
  * live); it is also pushed to the user's subscribed browsers unless they are looking at the place it links to. Beside
  * the replies and finished turns chat itself reports, it turns hub events into notifications: approvals and input a
- * person must give, pairings waiting for an admin, and systems that went away or need config.
+ * person must give, pairings waiting for an admin, systems that went away or need config, and budgets that say `ask`
+ * when they are used up (admins are asked to raise them).
  */
 import {
-  mintId, type ActorId, type Approval, type Approver, type HandlerCall, type Notification, type NotificationLink, type NotificationReason, type Page,
-  type PairingRequest, type SystemName, type SystemStatus,
+  mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationLink, type NotificationReason, type Page,
+  type PairingRequest, type RunId, type SystemName, type SystemStatus,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
@@ -56,6 +57,7 @@ export class StoreApprovers implements ApproverDirectory {
       case 'turn-user': return [turnUser];
       case 'actor': return [approver.actor];
       case 'group': return (await readAll(this.#deps.store.table('memberships'), { where: { group: approver.group } }, MAX_AUDIENCE)).map((m) => m.user);
+      // a judge or the hub decides by itself (the policy engine's deciders), so no person answers
       case 'judge': case 'hub': return [];
     }
   }
@@ -114,6 +116,7 @@ export class StoreNotifications implements NotificationService {
       bus.subscribe('handler', (e) => { this.#guard('handler', this.#handler(e.call)); }),
       bus.subscribe('pairing', (e) => { this.#guard('pairing', this.#pairing(e.pairing)); }),
       bus.subscribe('system.status', (e) => { this.#guard('system', this.#system(e.system, e.status)); }),
+      bus.subscribe('budget.reached', (e) => { this.#guard('budget', this.#budget(e.budget, e.run, e.reason)); }),
     ];
     return () => { for (const stop of stops) { stop(); } };
   }
@@ -125,7 +128,7 @@ export class StoreNotifications implements NotificationService {
   async #approval(approval: Approval, approvers: readonly ActorId[]): Promise<void> {
     if (approval.status !== 'pending' || !this.#seen.add(`approval:${approval.id}`)) { return; }
     for (const user of approvers) {
-      await this.notify({ user, reason: 'approval-needed', title: `Approve ${approval.fn}?`, body: `A run is waiting for your approval to call ${approval.fn}.`, link: { approval: approval.id } });
+      await this.notify({ user, reason: 'approval-needed', title: `Approve ${approval.fn}?`, body: `A run is waiting for your approval to call ${approval.fn}.`, link: { run: approval.run } });
     }
   }
 
@@ -146,6 +149,14 @@ export class StoreNotifications implements NotificationService {
     const reason = status === 'disconnected' ? 'system-disconnected' : 'config-needed';
     const body = status === 'disconnected' ? 'Its fns are unavailable until it connects again.' : 'It connected without a valid config, so it can\'t be used yet.';
     await this.#admins((user) => this.notify({ user, reason, title: status === 'disconnected' ? `${system} disconnected` : `${system} needs config`, body, link: { system } }));
+  }
+
+  /** Ask the admins once per budget and run to raise a used-up budget that says `ask`; the run waits meanwhile. */
+  async #budget(budget: BudgetRule, run: RunId, reason: string): Promise<void> {
+    if (!this.#seen.add(`budget:${budget.id}:${run}`)) { return; }
+    await this.#admins((user) => this.notify({
+      user, reason: 'spend-limit', title: 'A budget needs raising', body: `A run is waiting because ${reason}. Raise the budget to let it go on.`, link: { run },
+    }));
   }
 
   async #admins(send: (user: ActorId) => Promise<Notification>): Promise<void> {

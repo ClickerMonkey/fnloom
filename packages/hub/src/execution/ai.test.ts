@@ -3,7 +3,7 @@ import { limiter } from '@ayepi/rate';
 import { WorkDelayError } from '@ayepi/work';
 import { BudgetId, ModelCategoryId, RunId, SystemName, TurnId, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryStore, memoryLog } from '../catalog/testing.ts';
+import { MemoryBus, MemoryStore, memoryLog } from '../catalog/testing.ts';
 import { HubAiHooks } from './ai.ts';
 import { BudgetRefused, causeOf, LlmRateLimited } from './errors.ts';
 import { InteractionRecorder } from './interactions.ts';
@@ -25,7 +25,7 @@ async function seeded(turnCost = 1) {
   const store = new MemoryStore();
   const { log } = memoryLog();
   let n = 0;
-  const base = { store, clock: () => 1_000, random: () => `${++n}`, settings: testSettings(), log };
+  const base = { store, bus: new MemoryBus(), clock: () => 1_000, random: () => `${++n}`, settings: testSettings(), log };
   const limits = { ...OPEN_LIMITS, turn: { cost: turnCost, time: 60_000 } };
   const turn = await store.table('turns').insert({
     id: TurnId.parse('trn_1'), actor: ALICE, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running', limits, cost: 0, errors: 'feed-back', createdAt: 0,
@@ -123,7 +123,7 @@ describe('model choices', () => {
 });
 
 describe('providers', () => {
-  it('make OpenRouter the provider only with a key, delegating to aeye', () => {
+  it('make OpenRouter the provider only with a key', () => {
     expect(openRouterProviders(undefined)).toEqual({});
     const provider = openRouterProviders('sk-test')['openrouter'];
     expect(provider?.name).toBe('openrouter');

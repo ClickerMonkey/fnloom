@@ -8,6 +8,7 @@ import { GinTypeDef } from './gin.ts';
 import { ActorKind, Audience, Duration, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, ActorId, Usd } from './primitives.ts';
 import { ResourceChange, SectionMatch, Link } from './resources.ts';
 import { Display, FnLimits, Operations, ProgressDecl, RunUpdate, TimeInfo, UserInfo } from './run.ts';
+import { StatusTemplates } from './status.ts';
 
 /** A local name inside a system: letters, digits, `_`, `-` and `.` (methods are `Type.method`). */
 export const LocalName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/);
@@ -69,6 +70,8 @@ export const KindDecl = z.object({
   payload: GinTypeDef,
   /** Whether declaring or changing a fn of this kind at runtime needs approval. */
   approveChanges: z.boolean(),
+  /** The status words of its fns that declare none. */
+  status: StatusTemplates.optional(),
 });
 export type KindDecl = z.infer<typeof KindDecl>;
 
@@ -94,6 +97,8 @@ export const FnDecl = z.object({
   deps: z.array(QualifiedName),
   handlers: z.record(z.string(), HandlerDecl),
   progress: ProgressDecl,
+  /** What its runs say they are doing; its kind's, then the hub's defaults, when absent. */
+  status: StatusTemplates.optional(),
   operations: Operations,
   undo: GinTypeDef.optional(),
   resume: GinTypeDef.optional(),
@@ -267,6 +272,8 @@ export const KindDescription = z.object({
   operations: Operations,
   handlers: z.record(z.string(), HandlerDecl).optional(),
   progress: ProgressDecl.optional(),
+  /** Status words for this payload's fn, when the kind can say better than its defaults. */
+  status: StatusTemplates.optional(),
   limits: FnLimits.optional(),
   display: Display.optional(),
 });
@@ -278,11 +285,18 @@ export type KindDescription = z.infer<typeof KindDescription>;
 export const HookInput = z.object({ session: SessionId, turn: TurnId, text: z.string(), user: UserInfo, time: TimeInfo });
 export type HookInput = z.infer<typeof HookInput>;
 
-/** What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. */
+/** How well a suggestion matches the message, higher is better (the hub's index gives cosine similarity, 0 to 1). */
+export const SuggestionScore = z.number();
+export type SuggestionScore = z.infer<typeof SuggestionScore>;
+
+/**
+ * What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. A suggestion's system is
+ * its qualified name's; its kind is its block's. The hub lists its own suggestions best match first, with scores.
+ */
 export const HookBlock = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), tag: z.string(), text: z.string() }),
-  z.object({ type: z.literal('suggest-context'), items: z.array(z.object({ context: QualifiedName, why: z.string().optional() })) }),
-  z.object({ type: z.literal('suggest-fns'), items: z.array(z.object({ fn: QualifiedName, why: z.string().optional() })) }),
+  z.object({ type: z.literal('suggest-context'), items: z.array(z.object({ context: QualifiedName, why: z.string().optional(), score: SuggestionScore.optional() })) }),
+  z.object({ type: z.literal('suggest-fns'), items: z.array(z.object({ fn: QualifiedName, why: z.string().optional(), score: SuggestionScore.optional() })) }),
   z.object({ type: z.literal('load'), context: z.array(QualifiedName).optional(), fns: z.array(QualifiedName).optional() }),
 ]);
 export type HookBlock = z.infer<typeof HookBlock>;

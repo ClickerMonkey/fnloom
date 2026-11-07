@@ -1,30 +1,21 @@
 /** The embedder system's process: the HTTP client over the EmbeddingGemma service, served to the hub. */
-import { setTimeout as wait } from 'node:timers/promises';
-import type { Json } from '@harness/core';
-import type { Log } from '@harness/sdk';
-import { serve } from '@harness/sdk/server';
+import { loggedHost, serve } from '@harness/sdk/server';
 import { embedderSystem } from '../shared/index.ts';
 import { embedderEnv } from './env.ts';
-import { HttpGemmaClient } from './http.ts';
+import { HttpGemmaClient, limitsFrom, timerSleep } from './http.ts';
 import { createEmbedderImpl } from './impl.ts';
 
 const settings = embedderEnv.parse();
 
-/** The process log: structured console lines, which the runtime's log interception picks up. */
-const log: Log = {
-  debug: (key, fields?: Record<string, Json>) => { console.debug(key, fields ?? {}); },
-  info: (key, fields?: Record<string, Json>) => { console.info(key, fields ?? {}); },
-  warn: (key, fields?: Record<string, Json>) => { console.warn(key, fields ?? {}); },
-  error: (key, fields?: Record<string, Json>, error?: unknown) => { console.error(key, fields ?? {}, error); },
-};
+const { host, log } = loggedHost(embedderSystem.name);
 
 // the client reads the URL the implementation follows from config; set just below
 const server = createEmbedderImpl({
   client: new HttpGemmaClient({
     url: () => server.url(),
     fetch: (input, init) => fetch(input, init),
-    sleep: async (ms, signal) => { await wait(ms, undefined, signal === undefined ? {} : { signal }); },
-    limits: { batch: settings.EMBEDDER_BATCH, retries: settings.EMBEDDER_RETRIES, retryDelay: settings.EMBEDDER_RETRY_DELAY, retryMax: settings.EMBEDDER_RETRY_MAX, timeout: settings.EMBEDDER_TIMEOUT },
+    sleep: timerSleep,
+    limits: limitsFrom(settings),
     log,
   }),
   defaultUrl: settings.HARNESS_EMBEDDER_URL,
@@ -36,7 +27,7 @@ const running = await serve(embedderSystem, server.impl, {
   hub: settings.HARNESS_HUB,
   state: settings.HARNESS_SYSTEM_STATE,
   ...(settings.HARNESS_PAIRING_TOKEN === undefined ? {} : { pairingToken: settings.HARNESS_PAIRING_TOKEN }),
-});
+}, host);
 running.onStatus((status) => { log.info('embedder.status', { status }); });
 
 const stop = () => {

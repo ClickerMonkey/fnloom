@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * One row of a browser: a leading mark, a title with a line under it, figures on the right, and the time. The whole
- * row opens the item; the opened one stays marked.
+ * row opens the item; the opened one stays marked. Figures and time sit in fixed columns, right-aligned, so they line up
+ * from row to row in every browser; on a phone the figures move under the title and wrap.
  */
 import { fullTime, relativeTime } from '../../ui/index.ts';
 
@@ -28,23 +29,25 @@ const slots = defineSlots<{ mark?: () => unknown; badges?: () => unknown; figure
 <style scoped>
 .browser-row + .browser-row { border-top: 1px solid var(--border); }
 .open {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); width: 100%;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 220px) 64px; align-items: center; gap: var(--space-3); width: 100%;
   padding: var(--space-3) var(--space-4); border: 0; background: transparent; color: var(--text); text-align: left;
   transition: background-color var(--fast) var(--ease);
 }
 .open:hover { background: var(--surface-2); }
 .open:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 .selected .open { background: var(--accent-soft); }
-.mark { display: grid; place-items: center; width: 20px; }
-.main { display: grid; gap: 2px; min-width: 0; }
+.mark { grid-column: 1; display: grid; place-items: center; width: 20px; }
+.main { grid-column: 2; display: grid; gap: 2px; min-width: 0; }
 .title { overflow: hidden; font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 .detail { overflow: hidden; color: var(--text-dim); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .badges { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.figures { display: flex; gap: var(--space-3); color: var(--text-dim); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.at { min-width: 56px; color: var(--text-faint); font-size: var(--text-xs); text-align: right; white-space: nowrap; }
+.figures { grid-column: 3; display: flex; justify-content: flex-end; gap: var(--space-3); min-width: 0; color: var(--text-dim); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.figures :slotted(*) { min-width: 64px; text-align: right; }
+.at { grid-column: 4; min-width: 56px; color: var(--text-faint); font-size: var(--text-xs); text-align: right; white-space: nowrap; }
 @media (max-width: 559.98px) {
   .open { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .figures { grid-column: 2; grid-row: 2; }
+  .figures :slotted(*) { min-width: 0; text-align: left; }
+  .figures { grid-column: 2 / 4; grid-row: 2; flex-wrap: wrap; justify-content: flex-start; gap: var(--space-1) var(--space-3); white-space: normal; }
   .at { grid-column: 3; grid-row: 1; }
 }
 </style>

@@ -281,9 +281,9 @@ export class MockAdmin {
     return pageOf(this.resources.filter((r) => (q === '' || `${r.uri} ${r.stat.name}`.toLowerCase().includes(q)) && (filter.system === undefined || r.system === filter.system)), cursor, limit);
   }
 
-  /** The actors, or those of one kind. `filter` may be missing: ayepi drops an empty all-optional body. */
-  actorsOf(filter: { kind?: ActorKind | undefined } | undefined) {
-    return this.actors.filter((a) => filter?.kind === undefined || a.kind === filter.kind);
+  /** The actors, or those of one kind. */
+  actorsOf(filter: { kind?: ActorKind | undefined }) {
+    return this.actors.filter((a) => filter.kind === undefined || a.kind === filter.kind);
   }
 
   /** A resource's text and links, for the viewer. */

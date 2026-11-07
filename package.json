@@ -26,7 +26,7 @@
     "build": "npm run web:manifest && vue-tsc -b && npm run build -w @harness/web",
     "dev": "tsx scripts/dev.ts",
     "e2e": "vitest run --project e2e",
-    "check": "tsx scripts/web-manifest.ts --check && vue-tsc -b && eslint . && npm test && npm run explorer",
+    "check": "tsx scripts/web-manifest.ts --check && vue-tsc -b && eslint . && npm run coverage && npm run explorer",
     "explorer": "node --experimental-strip-types --no-warnings explorer/build.ts",
     "explorer:serve": "node --experimental-strip-types --no-warnings explorer/serve.ts",
     "context:sync": "ayepi-context docs/ayepi --prune",

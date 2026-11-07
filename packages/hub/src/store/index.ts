@@ -63,8 +63,14 @@ export interface Table<Row> {
   remove(key: string): Promise<boolean>;
 }
 
-/** A vector index per embedder (sqlite-vec now, pgvector later). Dimensions are fixed per embedder. */
+/**
+ * A vector index per embedder (sqlite-vec now, pgvector later). An embedder's dimensions come from its declaration
+ * (`EmbedderDecl.dimensions`): `ensure` makes its table at that size, and remakes it (dropping vectors of another
+ * size, which can't be compared) when the size changed.
+ */
 export interface VectorIndex {
+  /** Make the embedder's table at this size if needed; true when vectors of another size were dropped. */
+  ensure(embedder: QualifiedName, dimensions: number): Promise<boolean>;
   upsert(embedder: QualifiedName, entries: ReadonlyArray<{ kind: IndexedKind; key: string; vector: readonly number[] }>): Promise<void>;
   remove(embedder: QualifiedName, kind: IndexedKind, keys: readonly string[]): Promise<void>;
   /** Nearest by cosine distance; `score` is similarity in [0, 1]. */
@@ -145,11 +151,14 @@ export interface HubStore {
   close(): Promise<void>;
 }
 
-/** How to open a store: a SQLite file (`:memory:` for tests), with the vector dimensions per embedder. */
+/** How to open a store: a SQLite file (`:memory:` for tests). */
 export interface StoreOptions {
   file: string;
-  /** The dimensions of each embedder's vectors (`embedder/gemma` → 768). */
-  dimensions: Readonly<Record<string, number>>;
+  /**
+   * Embedders whose vector tables `migrate` makes at once (tests); any other embedder's table is made when the
+   * index learns its declared size (`vectors.ensure`).
+   */
+  dimensions?: Readonly<Record<string, number>>;
   /** The clock of the key/value store's expiries and the queue's leases (default `Date.now`). */
   now?: () => number;
   /** Where the store logs migrations (default `@ayepi/log`'s logger). */

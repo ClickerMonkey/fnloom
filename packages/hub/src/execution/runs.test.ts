@@ -20,6 +20,15 @@ const copy = fn({ description: 'Copy.', args: g.obj({ from: g.text() }), returns
 const flaky = fn({ description: 'Flaky.', args: g.obj({}), returns: g.text(), tags: ['read'], limits: { retries: 1 } });
 const shaky = system('fs', { description: 'Files.' }).with({ fns: { flaky } });
 const retrying = fn({ description: 'Calls flaky.', args: g.obj({}), returns: g.text(), tags: ['read'], deps: { flaky: shaky.fns.flaky } });
+const worded = fn({
+  description: 'Reads, worded.', args: g.obj({ path: g.text() }), returns: g.obj({ lines: g.num() }), tags: ['read'], limits: { retries: 1 },
+  status: {
+    active: { one: 'Reading {args.path}…', many: 'Reading {n} files…' },
+    retry: { one: 'Retrying {args.path}…', many: 'Retrying {n} reads…' },
+    done: { one: 'Read {args.path} ({output.lines} lines)', many: 'Read {n} files' },
+    failed: { one: 'Reading {args.path} failed', many: '{n} reads failed' },
+  },
+});
 const sweep = fn({ description: 'Sweep.', args: g.obj({}), returns: g.text(), tags: ['read'], deps: { remove: files.fns.remove } });
 
 let rig: ExecutionRig;
@@ -54,6 +63,32 @@ describe('runs on a system', () => {
     expect(fs.requests[0]?.run.time.local).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
     const statuses = r.bus.of('run.update').filter((u) => u.run === run).map((u) => (u.update.type === 'status' ? u.update.status : u.update.type));
     expect(statuses).toEqual(['queued', 'running', 'done']);
+  });
+
+  it('words every status change from the fn’s status templates, keeping the words on the run', async () => {
+    const r = await started();
+    r.catalog.add('fs', 'flaky', worded);
+    const fs = r.connect('fs');
+    let tries = 0;
+    fs.behaviour.run = () => Promise.resolve(++tries === 1 ? { status: 'failed', error: { class: 'retry', message: 'busy' } } : { status: 'done', result: { lines: 3 } });
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start(input(turn, 'fs/flaky', { path: 'a.md' }));
+    await settled;
+    const words = r.bus.of('run.update').filter((u) => u.run === run).flatMap((u) => (u.update.type === 'status' ? [`${u.update.status}: ${u.update.text?.one ?? '-'}`] : []));
+    expect(words).toEqual(['queued: Reading a.md…', 'running: Reading a.md…', 'queued: Retrying a.md…', 'running: Retrying a.md…', 'done: Read a.md (3 lines)']);
+    expect((await r.module.runs.get(run))?.text).toEqual({ phase: 'done', one: 'Read a.md (3 lines)', many: 'Read {n} files' });
+  });
+
+  it('words a fn without templates with the hub’s defaults, and leaves approval to the chat', async () => {
+    const r = await started();
+    r.connect('fs');
+    const turn = await r.turn();
+    const { run } = await r.module.runs.start({ ...input(turn, 'fs/write', { path: 'a.md', text: 'x' }), caller: AGENT });
+    const updates = r.bus.of('run.update').filter((u) => u.run === run).flatMap((u) => (u.update.type === 'status' ? [u.update] : []));
+    expect(updates).toEqual([
+      { type: 'status', status: 'queued', text: { phase: 'active', one: 'Write…', many: 'Write ×{n}…' } },
+      { type: 'status', status: 'awaiting-approval' },
+    ]);
   });
 
   it('refuses unknown fns, bad args and calls outside the deps', async () => {

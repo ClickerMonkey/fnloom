@@ -5,6 +5,8 @@ import { g, json } from './gin.ts';
 import { hub } from './hub.ts';
 import { agent } from './agent.ts';
 import { system } from './system.ts';
+import { orDefault } from './util.ts';
+import type { Deps } from './fn.ts';
 
 describe('fn', () => {
   it('fills the defaults a native fn has when the author leaves them out', () => {
@@ -133,5 +135,17 @@ describe('agent', () => {
     expect(a.kind).toBe(hub.kinds.llm);
     expect(a.payload).toEqual({ instructions: 'Answer {{args.q}}.', tools: ['tools/look'], canLoad: 'none', maxTools: 32, context: [], hooks: [], toolExecution: 'parallel', maxIterations: 16 });
     expect(hub.kinds.llm.payload.parse(a.payload).toLogical()).toEqual(a.payload);
+  });
+});
+
+describe('orDefault', () => {
+  it('gives the value when there is one and the fallback otherwise, and refuses a fallback of an unrelated type', () => {
+    /** Deps as a builder sees them: maybe given (typed, not narrowed by the compiler). */
+    const depsOf = (deps?: Deps): Deps | undefined => deps;
+    const given = {};
+    expect(orDefault(depsOf(given), {})).toBe(given);
+    expect(orDefault(depsOf(), {})).toEqual({});
+    // @ts-expect-error a number is not a value of the deps' type
+    expect(orDefault(depsOf(), 42)).toBe(42);
   });
 });

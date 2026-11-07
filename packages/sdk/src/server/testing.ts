@@ -13,13 +13,13 @@
 import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
-  ContentRef, Json, hubLinkSpec, linkSession, mintId, qualify, systemLinkSpec,
+  ContentRef, Json, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
   type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
-import { hashOf } from './content.ts';
+import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
 import { MemoryJournal } from './journal.ts';
 import { MemoryKeyStore, verifyNonce } from './keys.ts';
@@ -343,7 +343,7 @@ export class FakeHub {
 
   /** Store content (as an upload would) and return its ref. */
   put(bytes: Uint8Array, mime: string): ContentRef {
-    const hash = hashOf(bytes);
+    const hash = contentHash(bytes);
     this.content.set(hash, bytes);
     return ContentRef.parse({ hash, size: bytes.length, mime });
   }
@@ -362,6 +362,8 @@ export class FakeHub {
 
   #implementation() {
     return implement(hubLinkSpec)
+      // the real hub records request telemetry here; the fake passes every call through
+      .middleware(linkTel, (io) => io.next({}))
       .middleware(linkSession, async (io) => io.next({ link: this.#session(io.ws?.conn) }))
       .handlers({
         hello: ({ data, conn }) => {

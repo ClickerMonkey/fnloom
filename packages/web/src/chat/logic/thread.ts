@@ -4,7 +4,7 @@
  * text of a message (for copying and reply quotes) and the parts to send again when retrying or editing. Pure, so it
  * is tested alone.
  */
-import type { ActorId, ChatMessage, MessageId, MessagePart, OutgoingPart, TurnId } from '@harness/core';
+import type { ActorId, ChatMessage, Link, MessageId, MessagePart, OutgoingPart, RunId, TurnId } from '@harness/core';
 
 /** A mention in a message. */
 export type MentionPart = Extract<MessagePart, { type: 'mention' }>;
@@ -14,7 +14,8 @@ export type ThreadItem =
   | { readonly kind: 'day'; readonly key: string; readonly label: string }
   | { readonly kind: 'user'; readonly key: string; readonly message: ChatMessage; readonly mine: boolean }
   | { readonly kind: 'answer'; readonly key: string; readonly turn: TurnId; readonly author: ActorId; readonly messages: readonly ChatMessage[]; readonly streaming: boolean; readonly failed: boolean }
-  | { readonly kind: 'note'; readonly key: string; readonly message: ChatMessage };
+  /** A note; an undo note carries the messages of the turn it undid, which the thread no longer shows in place. */
+  | { readonly kind: 'note'; readonly key: string; readonly message: ChatMessage; readonly undone: readonly ChatMessage[] };
 
 const DAY = 86_400_000;
 
@@ -34,9 +35,19 @@ export function dayLabel(at: number, now: number, locale?: string): string {
   return new Date(at).toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
 }
 
-/** Group messages (oldest first) into the thread's rows. */
+/** The turns that were undone: the hub posts a note in the turn it undid, and only then. */
+export function undoneTurns(messages: readonly ChatMessage[]): ReadonlySet<TurnId> {
+  return new Set(messages.filter((m) => m.role === 'note').map((m) => m.turn));
+}
+
+/**
+ * Group messages (oldest first) into the thread's rows. The question and answer of an undone turn leave the thread;
+ * its note keeps them, so a retry or an edit reads as the question asked once.
+ */
 export function threadItems(messages: readonly ChatMessage[], me: ActorId | undefined, now: number, locale?: string): ThreadItem[] {
   const items: ThreadItem[] = [];
+  const undone = undoneTurns(messages);
+  const hidden = new Map<TurnId, ChatMessage[]>();
   let day: number | undefined;
   let answer: { turn: TurnId; author: ActorId; messages: ChatMessage[]; at: number } | undefined;
   const closeAnswer = (): void => {
@@ -51,6 +62,10 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
     answer = undefined;
   };
   for (const message of messages) {
+    if (message.role !== 'note' && undone.has(message.turn)) {
+      hidden.set(message.turn, [...(hidden.get(message.turn) ?? []), message]);
+      continue;
+    }
     const start = dayStart(message.createdAt);
     if (start !== day) {
       closeAnswer();
@@ -69,7 +84,7 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
     closeAnswer();
     items.push(message.role === 'user'
       ? { kind: 'user', key: `u-${message.id}`, message, mine: message.author === me }
-      : { kind: 'note', key: `n-${message.id}`, message });
+      : { kind: 'note', key: `n-${message.id}`, message, undone: hidden.get(message.turn) ?? [] });
   }
   closeAnswer();
   return items;
@@ -85,7 +100,7 @@ export function messageText(parts: readonly MessagePart[]): string {
       case 'file': return `[${part.name}]`;
       case 'link': return 'title' in part.link && part.link.title !== undefined ? part.link.title : '';
       case 'attachment': return part.title;
-      case 'invocation': case 'extra': case 'hook': return '';
+      case 'reasoning': case 'invocation': case 'extra': case 'hook': return '';
     }
   }).filter((text) => text !== '').join(' ').replace(/ {2,}/g, ' ').trim();
 }
@@ -136,4 +151,50 @@ export function splitParts(parts: readonly MessagePart[]): { readonly shown: Mes
     if (part.type === 'extra' || part.type === 'hook') { added.push(part); } else { shown.push(part); }
   }
   return { shown, added };
+}
+
+/** One piece of an answer, in the order it happened. */
+export type AnswerPiece =
+  | { readonly kind: 'text'; readonly key: string; readonly text: string }
+  | { readonly kind: 'runs'; readonly key: string; readonly runs: readonly RunId[] }
+  | { readonly kind: 'attachment'; readonly key: string; readonly part: Extract<MessagePart, { type: 'attachment' }> }
+  | { readonly kind: 'link'; readonly key: string; readonly link: Link };
+
+/**
+ * An answer message's pieces in the order they happened. A finished message holds the agent's final reply, which
+ * came after every fn it ran, so its runs come first, then what they attached, then the reply. While it streams, each
+ * run sits where the text had got to when the run appeared (`marks`, text offsets the thread saw live); a run the
+ * thread didn't see appear sits before the text.
+ */
+export function answerPieces(message: Pick<ChatMessage, 'parts' | 'runs' | 'status'>, marks: ReadonlyMap<RunId, number>): AnswerPiece[] {
+  const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
+  const extras = message.parts.flatMap((part, i): AnswerPiece[] => {
+    if (part.type === 'attachment') { return [{ kind: 'attachment', key: `a${i}`, part }]; }
+    if (part.type === 'link') { return [{ kind: 'link', key: `l${i}`, link: part.link }]; }
+    return [];
+  });
+  const live = message.status === 'streaming';
+  const at = (run: RunId): number => (live ? Math.min(marks.get(run) ?? 0, text.length) : 0);
+  const groups = new Map<number, RunId[]>();
+  for (const run of message.runs) { groups.set(at(run), [...(groups.get(at(run)) ?? []), run]); }
+  const out: AnswerPiece[] = [];
+  let from = 0;
+  for (const offset of [...groups.keys()].sort((a, b) => a - b)) {
+    if (offset > from) { out.push({ kind: 'text', key: `t${from}`, text: text.slice(from, offset) }); }
+    out.push({ kind: 'runs', key: `r${offset}`, runs: groups.get(offset) ?? [] });
+    from = offset;
+  }
+  out.push(...extras);
+  if (text.length > from) { out.push({ kind: 'text', key: `t${from}`, text: text.slice(from) }); }
+  return out;
+}
+
+/** How long a message's text is: where a run appearing now would sit in it. */
+export function messageTextLength(message: Pick<ChatMessage, 'parts'>): number {
+  return message.parts.reduce((length, part) => length + (part.type === 'text' ? part.text.length : 0), 0);
+}
+
+/** The reasoning an answer message kept (its `reasoning` parts), '' when it has none. */
+export function storedReasoning(message: Pick<ChatMessage, 'parts'>): string {
+  return message.parts.map((part) => (part.type === 'reasoning' ? part.text : '')).join('');
 }

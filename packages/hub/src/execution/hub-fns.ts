@@ -3,18 +3,13 @@
  * run is, with its progress or result) and `hub/run_wait` (wait for a run, such as one moved to the background).
  */
 import { hub, type FnErrorType, type Infer } from '@harness/sdk';
-import { Json, RunId, type FnError, type Run } from '@harness/core';
+import { compact, Json, RunId, type FnError, type Run } from '@harness/core';
 import type { HubFns } from './executors.ts';
 import type { HubRunService } from './runs.ts';
 
 /** A failure as the hub contract's gin type holds it (absent fields left out, not `undefined`). */
 function errorOf(error: FnError): Infer<typeof FnErrorType> {
-  return {
-    class: error.class,
-    message: error.message,
-    ...(error.code === undefined ? {} : { code: error.code }),
-    ...(error.data === undefined ? {} : { data: error.data }),
-  };
+  return compact({ class: error.class, message: error.message, code: error.code, data: error.data });
 }
 
 /** A run as `run_status` and `run_wait` report it. */

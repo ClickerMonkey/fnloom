@@ -5,11 +5,11 @@
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  mintId, splitName, SystemName, type ActorId, type GroupActor, type ProviderConfig, type ProviderInput, type ProviderRecord, type SecretId, type UserActor,
+  compact, mintId, splitName, SystemName, type ActorId, type GroupActor, type ProviderConfig, type ProviderInput, type ProviderRecord, type SecretId, type UserActor,
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { findUserByEmail, normalEmail } from '../auth.ts';
-import { compact, type FullHandlers } from './access.ts';
+import type { FullHandlers } from './access.ts';
 import { collect, first, PAGE } from '../paging.ts';
 import { settingsSlice } from './slices.ts';
 import type { systemsPlugin } from './systems.ts';

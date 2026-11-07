@@ -3,7 +3,7 @@
  * each settings section, the admin pages and the system being looked at. Route names and the values a URL part may
  * take are defined here once; links are made with `links` so they can't point at a page that doesn't exist.
  */
-import type { MessageId, NotificationLink, SessionId, SystemName, TurnId } from '@harness/core';
+import type { MessageId, NotificationLink, RunId, SessionId, SystemName, TurnId } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
 import { LimitsTab, ModelsTab, SystemTab } from '../admin/sections.ts';
@@ -21,6 +21,8 @@ declare module 'vue-router' {
     admin?: boolean;
     /** Routes of one group share their page: moving between them keeps it mounted (the chat's list, session and tree). */
     group?: string;
+    /** The page draws its own header with the navigation button, so a compact shell shows no top bar over it (an open chat). */
+    ownHeader?: boolean;
   }
 }
 
@@ -48,7 +50,7 @@ export const ROUTES = {
 export type RouteName = (typeof ROUTES)[keyof typeof ROUTES];
 
 /** The settings sections, each its own URL. */
-export const SettingsSection = z.enum(['appearance', 'account']);
+export const SettingsSection = z.enum(['appearance', 'notifications', 'account']);
 export type SettingsSection = z.infer<typeof SettingsSection>;
 
 /** The design gallery's sections. */
@@ -87,13 +89,20 @@ export function safeNext(next: unknown): string | undefined {
   return typeof next === 'string' && /^\/(?![/\\])/.test(next) ? next : undefined;
 }
 
-/** Where a notification leads. */
-export function notificationTarget(link: NotificationLink): RouteLocationRaw {
+/** Finds the chat a run belongs to, if any. */
+export type SessionOfRun = (run: RunId) => Promise<SessionId | undefined>;
+
+/**
+ * Where a notification leads. A run in a chat leads to that chat, where its question or approval waits in the dock
+ * and is answered; a run outside any chat opens in the runs browser.
+ */
+export async function notificationTarget(link: NotificationLink, sessionOf: SessionOfRun): Promise<RouteLocationRaw> {
   if ('session' in link) { return links.session(link.session); }
   if ('system' in link) { return links.system(link.system); }
   if ('pairing' in link) { return { name: ROUTES.systems, query: { pairing: link.pairing } }; }
   if ('approval' in link) { return { name: ROUTES.inbox, query: { approval: link.approval } }; }
-  return links.runs({ run: link.run });
+  const session = await sessionOf(link.run).catch(() => undefined);
+  return session === undefined ? links.runs({ run: link.run }) : links.session(session);
 }
 
 /** A path pattern matching one of an enum's values. */
@@ -104,8 +113,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/sign-in', name: ROUTES.signIn, component: () => import('../pages/SignInPage.vue'), meta: { public: true, bare: true, title: 'Sign in' } },
   { path: '/', redirect: { name: ROUTES.chat } },
   { path: '/chat', name: ROUTES.chat, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Chat', group: 'chat' } },
-  { path: '/chat/:session', name: ROUTES.session, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Chat', group: 'chat' } },
-  { path: '/chat/:session/turn/:turn/tree', name: ROUTES.turnTree, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Run tree', group: 'chat' } },
+  { path: '/chat/:session', name: ROUTES.session, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Chat', group: 'chat', ownHeader: true } },
+  { path: '/chat/:session/turn/:turn/tree', name: ROUTES.turnTree, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Run tree', group: 'chat', ownHeader: true } },
   { path: '/inbox', name: ROUTES.inbox, component: () => import('../pages/InboxPage.vue'), meta: { title: 'Inbox' } },
   {
     path: '/admin', component: () => import('../admin/views/AdminLayout.vue'), meta: { admin: true },

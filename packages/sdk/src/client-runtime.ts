@@ -87,7 +87,7 @@ export class ClientRuntime {
   /** Register a system's module. A newer one for the same system replaces it. */
   register<C extends ContractShape>(module: ClientModule<C>): void {
     this.#modules.set(module.system, erase(module));
-    this.#clients.delete(module.system);
+    for (const key of this.#clients.keys()) { if (key === module.system || key.startsWith(`${module.system} `)) { this.#clients.delete(key); } }
     const viewers: Readonly<Record<string, AnyRenderer>> = module.renderers.resources ?? {};
     for (const [format, viewer] of Object.entries(viewers)) { this.#viewers.set(format, viewer); }
   }
@@ -131,18 +131,23 @@ export class ClientRuntime {
     return this.#viewers.get(format);
   }
 
-  /** What a system's renderers get as `system`. */
-  systemClient(system: string): SystemClient<ContractShape> {
-    const known = this.#clients.get(system);
+  /**
+   * What a system's renderers get as `system`. A fn renderer passes its `run`, so its actions are sent from that run
+   * (an action's state, such as the shell's working folder, is the run's session state).
+   */
+  systemClient(system: string, run?: RunId): SystemClient<ContractShape> {
+    const key = run === undefined ? system : `${system} ${run}`;
+    const known = this.#clients.get(key);
     if (known !== undefined) { return known; }
     const module = this.#modules.get(system);
     const bridge = this.#bridge;
+    const from = run === undefined ? {} : { run };
     const send = Object.fromEntries(Object.entries(module?.actions ?? {}).map(([action, def]) => [
       action,
-      (input: unknown) => this.#deliver((json) => parseValue(def.returns, json), () => bridge.act({ system, action, input: encodeValue(def.input, input) })),
+      (input: unknown) => this.#deliver((json) => parseValue(def.returns, json), () => bridge.act({ system, action, input: encodeValue(def.input, input), ...from })),
     ]));
     const client: SystemClient<ContractShape> = { get online() { return bridge.online(system); }, send };
-    this.#clients.set(system, client);
+    this.#clients.set(key, client);
     return client;
   }
 

@@ -60,6 +60,8 @@ export interface FakeBehaviour {
   content: (offset: number, length: number) => string;
   sections: Section[];
   embed: (texts: string[]) => number[][];
+  /** Applying a pushed config (what a real system does in `configured`). */
+  configure: (config: ConfigValue) => void;
 }
 
 /** A system connecting to the rig's hub over an in-process socket. */
@@ -77,6 +79,7 @@ export class FakeSystem {
     content: () => '',
     sections: [],
     embed: (texts) => texts.map(() => [0, 1, 0]),
+    configure: () => undefined,
   };
   readonly paired: string[] = [];
   readonly configured: Array<ConfigValue & { previous?: unknown }> = [];
@@ -108,7 +111,7 @@ export class FakeSystem {
       watch: ({ data }) => { this.watched.push(data.uris); },
       embed: ({ data }) => ({ vectors: b.embed(data.texts) }),
       event: ({ data }) => { this.events.push(data); },
-      configure: ({ data }) => { this.configured.push(data); },
+      configure: ({ data }) => { this.configured.push(data); b.configure(data); },
       stop: ({ data }) => { this.stops.push(data.reason); },
       run: notHere, control: notHere, undo: notHere, handler: notHere, child: notHere, context: notHere, hook: notHere, mentions: notHere,
       mentionHover: notHere, mentionText: notHere, action: notHere, form: notHere, restart: notHere,

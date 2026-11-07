@@ -4,8 +4,8 @@
  * only its owner changes it (anyone in it picks their own notify choice).
  */
 import {
-  IDS, SessionSummary, mintId, type ActorId, type ChatMessage, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
-  type Run, type RunStatus, type Session, type SessionControls, type SessionId, type SystemName,
+  ACTIVE_RUN_STATUSES, IDS, SessionSummary, isUnsettled, mintId, type ActorId, type ChatMessage, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
+  type Run, type Session, type SessionControls, type SessionId, type SystemName,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ChatDeps } from './deps.ts';
@@ -21,14 +21,9 @@ export const UNTITLED = 'New chat';
 /** The agent that answers when a session names none. */
 export const DEFAULT_AGENT: QualifiedName = hub.fns.chat.name;
 
-/** Run statuses that mean the run is not finished. */
-export const ACTIVE_RUN_STATUSES = ['awaiting-approval', 'queued', 'running', 'waiting', 'paused'] as const satisfies readonly RunStatus[];
-
-const ACTIVE = new Set<RunStatus>(ACTIVE_RUN_STATUSES);
-
 /** Whether a run is not finished yet (it may still change things). */
 export function isActiveRun(run: Pick<Run, 'status'>): boolean {
-  return ACTIVE.has(run.status);
+  return isUnsettled(run.status);
 }
 
 /** The most active runs a session's controls look at. */

@@ -1,8 +1,21 @@
 /**
  * Reading a turn's record: the LLM calls in its fn tree, their usage and cost added up for an answer's details, and
- * the parts of a request "what the model saw" shows. Pure, so it is tested alone.
+ * the parts of a request "what the model saw" shows, and the tabs the inspectors open on (kept in the URL). Pure, so
+ * it is tested alone.
  */
 import type { LlmInteraction, LlmInteractionId, LlmMessage, RunId, TreeNode } from '@harness/core';
+import { z } from 'zod';
+
+/** The tabs of an LLM call's details. */
+export const LlmCallTab = z.enum(['saw', 'tools', 'answer', 'json']);
+export type LlmCallTab = z.infer<typeof LlmCallTab>;
+
+/** The tabs of a run's details. */
+export const RunTab = z.enum(['overview', 'args', 'result', 'errors', 'json']);
+export type RunTab = z.infer<typeof RunTab>;
+
+/** The query keys the inspectors' tabs live under, wherever they open. */
+export const TAB_KEYS = { run: 'runTab', llm: 'callTab' } as const;
 
 /** Every LLM call in a tree, in the order the tree lists them. */
 export function treeCalls(node: TreeNode): LlmInteractionId[] {

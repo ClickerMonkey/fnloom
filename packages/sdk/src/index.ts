@@ -2,8 +2,11 @@
  * `@harness/sdk`: everything a system author touches. The contract builders here are pure and safe to import
  * anywhere (the browser included); the server runtime is in `@harness/sdk/server`.
  */
-/** The statuses a run ends in, for renderers that show something only once it has finished. */
-export { SETTLED_RUN_STATUSES } from '@harness/core';
+/** The statuses a run ends in (and the rest), for renderers that show something only once it has finished. */
+export { ACTIVE_RUN_STATUSES, SETTLED_RUN_STATUSES, isSettled, isUnsettled, type ActiveRunStatus, type SettledRunStatus } from '@harness/core';
+/** Status words: core's templates, typed against a fn's args and result. */
+export { DEFAULT_STATUS, type StatusTemplates, type StatusForms, type RunPhase } from '@harness/core';
+export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens, PathsOf, TokensOf } from './status.ts';
 export { g, json, wireType, parseValue, encodeValue, referencesOf, type GinType, type Infer } from './gin.ts';
 export {
   fn, handler, linear, steps, noProgress, progressDecl, kindFn,

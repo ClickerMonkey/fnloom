@@ -6,6 +6,7 @@
  */
 import type { Logger } from '@ayepi/log';
 import type { ActorId, ConfigValue, Json, SystemName, SystemRecord } from '@harness/core';
+import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
@@ -18,6 +19,7 @@ export interface ConfigOptions {
   readonly log: Logger;
   readonly clock: () => number;
   readonly catalog: Catalog;
+  readonly bus: EventBus;
   readonly links: LinkService;
   readonly status: SystemStatusKeeper;
 }
@@ -86,11 +88,16 @@ export class StoreConfigService implements ConfigService {
     return 'version' in set ? { value: {}, version: set.version } : undefined;
   }
 
-  /** Tell a connected system its config changed; a system that is away gets it in its next welcome. */
+  /**
+   * Tell a connected system its config changed; a system that is away gets it in its next welcome. Once the system
+   * has applied it, `system.configured` says so (what it serves, such as its roots, may follow from the config).
+   */
   #push(system: SystemName, change: ConfigValue & { previous?: Json }): void {
     const connection = this.#options.links.connection(system);
     if (connection === undefined) { return; }
-    connection.peer.call('configure', change).catch((error: unknown) => {
+    connection.peer.call('configure', change).then(() => {
+      this.#options.bus.publish('system.configured', { system, version: change.version });
+    }, (error: unknown) => {
       this.#options.log.warn('config.push.failed', { system, version: change.version, error: messageOf(error) });
     });
   }

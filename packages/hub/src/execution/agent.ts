@@ -13,7 +13,7 @@
 import { Prompt } from '@aeye/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 import {
-  Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, type ActorId, type FnError, type FnRecord, type OutcomeWire, type Run, type RunSettled, type Session,
+  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, type ActorId, type FnError, type FnRecord, type OutcomeWire, type Run, type RunSettled, type Session,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -21,11 +21,11 @@ import type { FnSignature } from '../catalog/index.ts';
 import type { MessageEnricher } from '../chat/index.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
 import { rows } from './pages.ts';
-import type { AgentLoop, RunInput } from './index.ts';
+import { AGENT_KIND, type AgentKind, type AgentLoop, type RunInput } from './index.ts';
 import type { ModelResolver } from './models.ts';
 import type { ControlAnswer, Conversation, ExecutionDeps, ExecutionJob, LlmEngine, RunExecutor } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
-import { AGENT_KIND, isSettled, settledOf, type HubRunService } from './runs.ts';
+import { settledOf, type HubRunService } from './runs.ts';
 import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
 import { PendingCalls, toolset } from './tools.ts';
 import { isObjectSchema, messageFromWire, messageToWire, replyText } from './wire.ts';
@@ -176,7 +176,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     this.#deps = deps;
   }
 
-  async start(input: RunInput & { kind: 'hub/llm' }): Promise<{ run: RunId }> {
+  async start(input: RunInput & { kind: AgentKind }): Promise<{ run: RunId }> {
     const { kind: _kind, ...run } = input;
     const started = await this.#deps.runs.start(run);
     return { run: started.run };
@@ -413,6 +413,24 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
   /** Agents have no undo of their own: their tool runs are undone one by one. */
   undo(): Promise<{ status: 'gone' }> {
     return Promise.resolve({ status: 'gone' });
+  }
+
+  /**
+   * A tool run the agent stopped waiting for (it went to the background) has settled: post its result in the session
+   * as the agent, with the run's card under it, and add it to the session's transcript, so the agent knows on its
+   * next turn. Runs of other callers, and runs outside a session, are left alone.
+   */
+  async reportBack(run: Run, settled: RunSettled): Promise<void> {
+    if (!run.background || run.parent === undefined || run.session === undefined || settled.status === 'background') return;
+    const parent = await this.#deps.runs.get(run.parent);
+    if (parent?.kind !== AGENT_KIND) return;
+    const text = `The background run ${run.id} (${run.fn}) finished. ${settledReply(settled)}`;
+    const message = await this.#deps.turns.begin({ turn: run.turn, author: await this.#agentActor(parent) });
+    await this.#deps.turns.track(message.id, [run.id]);
+    await this.#deps.turns.finish(message.id, [{ type: 'text', text }], 'done');
+    const session = await this.#deps.store.table('sessions').get(run.session);
+    if (session?.agent === parent.fn) await new SessionConversation(this.#deps, session.id).append([{ role: 'assistant', content: text }]);
+    this.#deps.log.info('agent.reported-back', { run: run.id, fn: run.fn, parent: parent.id, status: settled.status });
   }
 
   /** Re-arm the wait of every agent run that was waiting for its tools (after a restart). */

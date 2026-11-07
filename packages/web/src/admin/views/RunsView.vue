@@ -9,12 +9,13 @@ import { useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
 import { useLive } from '../../app/live.ts';
 import { links } from '../../app/routes.ts';
-import { useQueryDraft, useQueryText } from '../../app/url.ts';
+import { useQueryChoice, useQueryDraft, useQueryText } from '../../app/url.ts';
+import { RunTab, TAB_KEYS } from '../../chat/logic/inspect.ts';
 import RunDetails from '../../chat/components/RunDetails.vue';
 import RunDot from '../../chat/components/RunDot.vue';
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
-import { STATUS_LOOK, argSummary, runElapsed, viewOfRun } from '../../chat/logic/runs.ts';
+import { STATUS_LOOK, argSummary, runElapsed } from '../../chat/logic/runs.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiInput, UiSelect, type SelectOption } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
@@ -32,6 +33,7 @@ const fn = useQueryDraft('fn');
 const system = useQueryDraft('system');
 const session = useQueryText('session');
 const opened = useQueryText('run', { push: true });
+const runTab = useQueryChoice(TAB_KEYS.run, RunTab, 'overview');
 
 const statuses: readonly SelectOption<RunStatus | ''>[] = [{ value: '', label: 'Any status' }, ...RUN_STATUSES.map((s) => ({ value: s, label: STATUS_LOOK[s].word }))];
 const statusChoice = computed<RunStatus | ''>({
@@ -41,7 +43,6 @@ const statusChoice = computed<RunStatus | ''>({
 const filter = computed(() => filterOf(RunFilter, { status: status.value, fn: fn.value.value, system: system.value.value, session: session.value }));
 const items = computed(() => runs.list.items.value);
 const record = computed(() => runs.opened.value.value);
-const view = computed(() => (record.value === undefined ? undefined : viewOfRun(record.value)));
 const panel = computed({ get: () => opened.value !== '', set: (open) => { if (!open) { opened.value = ''; } } });
 
 watch(filter, (value) => { void runs.list.load(value); }, { immediate: true });
@@ -79,11 +80,11 @@ function openTree(): void {
       v-model:panel="panel" label="Runs" :loading="runs.list.loading.value" :loaded="runs.list.loaded.value" :problem="runs.list.problem.value"
       :empty="items.length === 0" :has-more="runs.list.hasMore.value" :loading-more="runs.list.loadingMore.value"
       empty-icon="fn" empty-title="No runs match" :empty-body="filter.status || filter.fn || filter.system ? 'Try a wider filter.' : 'Runs show here as fns are called.'"
-      :panel-title="view ? fnLabel(view.fn) : 'Run'" :panel-subtitle="view?.fn ?? ''" @more="runs.list.more()" @retry="runs.list.load()"
+      :panel-title="record ? fnLabel(record.fn) : 'Run'" :panel-subtitle="record?.fn ?? ''" @more="runs.list.more()" @retry="runs.list.load()"
     >
       <template #filters>
         <UiSelect v-model="statusChoice" :options="statuses" label="Status" />
-        <UiInput v-model="fn.draft.value" type="search" label="Fn" placeholder="fs/read_file or fs/*" clearable />
+        <UiInput v-model="fn.draft.value" type="search" label="Fn" placeholder="fs/read or fs/*" clearable />
         <UiInput v-model="system.draft.value" type="search" label="System" placeholder="Any" clearable />
       </template>
       <BrowserRow
@@ -103,7 +104,7 @@ function openTree(): void {
       </BrowserRow>
       <template #panel>
         <RunDetails
-          :run="view" :record="record" :loading="runs.opened.loading.value" :problem="runs.opened.problem.value" :now="now"
+          v-model:tab="runTab" :run="record" :record="record" :loading="runs.opened.loading.value" :problem="runs.opened.problem.value" :now="now"
           @llm="router.push(links.llmCalls({ call: $event }))" @run="opened = $event" @tree="openTree" @background="background" @undo="undo" @retry="runs.openedId.value && runs.open(runs.openedId.value)"
         />
       </template>

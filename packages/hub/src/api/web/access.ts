@@ -19,14 +19,6 @@ export function deviceOf(req: Request): string {
   return (req.headers.get('user-agent') ?? 'unknown').slice(0, 200);
 }
 
-/**
- * A request's data where every field is optional. ayepi leaves `data` out of the handler's input when the request's
- * fields are all absent (`{}`), though its types say it is there; `empty` stands in for it then (a library ask).
- */
-export function bodyOf<T>(io: { readonly data: T }, empty: T): T {
-  return 'data' in io ? io.data : empty;
-}
-
 /** The person as runs and systems see them: their groups, and their time zone and locale (the browser's when given). */
 export async function userInfo(hub: Pick<HubServices, 'store'>, user: UserView, client?: ClientInfo): Promise<UserInfo> {
   const memberships = await collect((cursor) => hub.store.table('memberships').find({ where: { user: user.id }, limit: PAGE, cursor }));
@@ -67,17 +59,4 @@ export async function visibleTurn(hub: Pick<HubServices, 'chat' | 'store'>, turn
   const found = await hub.store.table('turns').get(turn);
   if (found === undefined || !(await mayView(hub, user, found))) { throw reject(404, 'TURN_NOT_FOUND', 'no such turn'); }
   return found;
-}
-
-/** An object without its `undefined` fields, typed so: `?: T | undefined` (as zod infers) becomes `?: T`. */
-export type Compact<T> = { [K in keyof T as undefined extends T[K] ? never : K]: T[K] } & { [K in keyof T as undefined extends T[K] ? K : never]?: Exclude<T[K], undefined> };
-
-/**
- * Drop the `undefined` fields of a parsed request, so it can be handed to a service whose optional fields don't take
- * `undefined` (with `exactOptionalPropertyTypes`).
- */
-export function compact<T extends object>(value: T): Compact<T> {
-  const kept = Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined));
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- exactly the fields of `value` that aren't undefined
-  return kept as Compact<T>;
 }

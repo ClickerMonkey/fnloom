@@ -1,5 +1,5 @@
-/** Assistant messages being streamed: their text so far, so a page of messages read mid-stream shows it. */
-import type { ChatMessage, MessageId, SessionId } from '@harness/core';
+/** Assistant messages being streamed: their reasoning and text so far, so a page of messages read mid-stream shows them. */
+import type { ChatMessage, MessageId, MessagePart, SessionId } from '@harness/core';
 
 /** What has streamed into one message. */
 export interface StreamedText {
@@ -31,10 +31,15 @@ export class StreamBuffer {
     return streamed;
   }
 
-  /** A stored message with the text streamed so far, while it is streaming. */
+  /** A stored message with the reasoning and text streamed so far, while it is streaming. */
   overlay(message: ChatMessage): ChatMessage {
     const streamed = message.status === 'streaming' ? this.#open.get(message.id) : undefined;
-    if (streamed === undefined || streamed.text === '') { return message; }
-    return { ...message, parts: [...message.parts, { type: 'text', text: streamed.text }] };
+    if (streamed === undefined || (streamed.text === '' && streamed.reasoning === '')) { return message; }
+    const parts: MessagePart[] = [
+      ...(streamed.reasoning === '' ? [] : [{ type: 'reasoning' as const, text: streamed.reasoning }]),
+      ...message.parts,
+      ...(streamed.text === '' ? [] : [{ type: 'text' as const, text: streamed.text }]),
+    ];
+    return { ...message, parts };
   }
 }

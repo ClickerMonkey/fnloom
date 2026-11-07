@@ -1,10 +1,11 @@
 import { ApiError } from '@ayepi/core/client';
 import { ActorId, DeliveryId, MessageId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ChatCapabilities } from '@harness/core';
+import { action, client, g, system } from '@harness/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { failingCaller, fakeCaller, memoryStore } from '../../test/fakes.ts';
 import {
-  approval, capabilities, fakeChat, fakeChatApi, fakePreviews, fakeRecorder, fakeSender, fakeSessionEvents, handlerCall, message, session, summary, T0, tree,
+  approval, capabilities, fakeChat, fakeChatApi, fakePreviews, fakeRecorder, fakeSender, fakeSessionEvents, handlerCall, message, run, session, summary, T0, tree,
 } from '../test/fakes.ts';
 import { CapabilitiesStore } from './capabilities.ts';
 import { COLLAPSE_KEEP, CollapseStore } from './collapse.ts';
@@ -120,6 +121,68 @@ describe('ThreadStore', () => {
     expect(t.channel.listeners(S1)).toBe(0);
   });
 
+  it('shows again on open what waits on the person, and drops it once its run settles or the turn is cancelled', async () => {
+    const t = thread();
+    const waitingApproval = approval({ run: 'run_ap' });
+    const mine = handlerCall({ run: 'run_q' });
+    const someoneElses = handlerCall({ run: 'run_q', answerer: { user: 'act_other' } });
+    t.api.waiting = fakeCaller<'waiting'>(() => Promise.resolve({ approvals: [waitingApproval], handlers: [mine, someoneElses] }));
+    await t.store.open();
+    await flush();
+    expect(t.api.waiting.calls[0]?.[0]).toEqual({ session: S1 });
+    expect(t.store.approvals.value.map((a) => a.id)).toEqual([waitingApproval.id]);
+    expect(t.store.handlers.value.map((h) => h.id)).toEqual([mine.id]);
+    expect(t.store.runs.value.has(RunId.parse('run_ap'))).toBe(true);
+
+    t.push({ type: 'run', run: RunId.parse('run_q'), fn: 'fs/bash', update: { type: 'status', status: 'cancelled' } });
+    expect(t.store.handlers.value).toEqual([]);
+    expect(t.store.approvals.value).toHaveLength(1);
+
+    t.api.waiting = fakeCaller<'waiting'>(() => Promise.resolve({ approvals: [], handlers: [] }));
+    await t.store.control('cancel');
+    await flush();
+    expect(t.store.approvals.value).toEqual([]);
+  });
+
+  it('keeps what it knows waits when the hub cannot say', async () => {
+    const t = thread();
+    t.api.waiting = failingCaller<'waiting'>(new Error('down'));
+    await t.store.open();
+    t.push({ type: 'approval', approval: approval({ id: 'apr_live' }) });
+    await t.store.loadWaiting();
+    expect(t.store.approvals.value.map((a) => a.id)).toEqual(['apr_live']);
+  });
+
+  it('marks where each run appeared in a streaming answer, and keeps reasoning the message stored', async () => {
+    const t = thread();
+    await t.store.open();
+    const id = MessageId.parse('msg_live');
+    const live = (runs: string[], text: string, status: 'streaming' | 'done' = 'streaming') => message({ id, role: 'assistant', author: 'act_agent', status, runs, parts: text === '' ? [] : [{ type: 'text', text }] });
+    t.push({ type: 'message', message: live(['run_1'], '') });
+    t.push({ type: 'token', message: id, text: 'Let me look. ' });
+    t.push({ type: 'message', message: live(['run_1', 'run_2'], 'Let me look. ') });
+    t.push({ type: 'message', message: live(['run_1', 'run_2'], 'Let me look. ') });
+    expect([...t.store.marks.value]).toEqual([['run_1', 0], ['run_2', 13]]);
+    const done = message({ id, role: 'assistant', author: 'act_agent', status: 'done', parts: [{ type: 'reasoning', text: 'Read it first.' }, { type: 'text', text: 'Here.' }] });
+    expect(t.store.reasoningOf(done)).toBe('Read it first.');
+    t.push({ type: 'reasoning', message: id, text: 'live' });
+    expect(t.store.reasoningOf(done)).toBe('live');
+  });
+
+  it('treats an undone turn as gone: not the last turn, not undone again by an edit, not a failure', async () => {
+    const t = thread();
+    const asked = message({ turn: 'trn_old', parts: [{ type: 'text', text: 'first' }] });
+    const failed = message({ turn: 'trn_old', role: 'assistant', author: 'act_agent', status: 'failed' });
+    const note = message({ turn: 'trn_old', role: 'note', author: 'act_hub', parts: [{ type: 'text', text: 'Undid the turn.' }] });
+    const again = message({ turn: 'trn_new', parts: [{ type: 'text', text: 'first' }] });
+    t.api.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: [again, note, failed, asked] }));
+    await t.store.open();
+    expect([...t.store.undone.value]).toEqual(['trn_old']);
+    expect(t.store.lastTurn.value).toBe('trn_new');
+    expect(t.store.turnsFrom(asked.id)).toEqual(['trn_new']);
+    expect(t.store.failures.value).toBe(0);
+  });
+
   it('streams tokens, including ones that arrive before their message', async () => {
     const t = thread();
     await t.store.open();
@@ -232,10 +295,32 @@ describe('ThreadStore', () => {
     await t.store.loadOlder();
     expect(t.store.messages.value.map((m) => m.id)).toEqual([a.id, b.id]);
     expect(t.store.beginning.value).toBe(true);
-    t.store.reportPresence({ typing: true, focused: true });
-    t.store.reportPresence({ typing: true, focused: true });
-    t.store.reportPresence({ typing: false, focused: true });
-    expect(t.api.presence.calls.map((c) => c[0].typing)).toEqual([true, false]);
+    // opening reports the person as looking; typing is throttled, a change goes at once
+    t.store.reportPresence({ typing: true });
+    t.store.reportPresence({ typing: true });
+    t.store.reportPresence({ typing: false });
+    expect(t.api.presence.calls.map((c) => [c[0].typing, c[0].focused])).toEqual([[false, true], [true, true], [false, true]]);
+  });
+
+  it('follows the page being visible for presence, not the composer focus', async () => {
+    let visible = true;
+    const listeners = new Set<() => void>();
+    const looking = { now: () => visible, watch: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
+    const channel = fakeSessionEvents();
+    const api = fakeChatApi();
+    const store = new ThreadStore(S1, {
+      api, events: channel.subscribe, clock: () => T0, client: () => ({ timeZone: 'UTC', locale: 'en', now: T0 }), me: () => session().owner, changed: vi.fn(), looking,
+    }, { page: 2, runsOnOpen: 10, typingFor: 1_000, presenceEvery: 3_000 });
+    await store.open();
+    // clicking a button away from the composer changes nothing: the person is still looking
+    store.reportPresence({ typing: false });
+    visible = false;
+    for (const listener of listeners) { listener(); }
+    visible = true;
+    for (const listener of listeners) { listener(); }
+    store.close();
+    expect(api.presence.calls.map((c) => c[0].focused)).toEqual([true, false, true, false]);
+    expect(listeners.size).toBe(0);
   });
 });
 
@@ -431,15 +516,22 @@ describe('Inspector', () => {
 });
 
 describe('small stores', () => {
-  it('remembers collapsed cards, newest kept', () => {
+  it('folds finished cards by default, remembers what the person chose, newest kept', () => {
     const store = memoryStore();
     const collapse = new CollapseStore(store);
-    const a = RunId.parse('run_a');
-    collapse.setAll([a, RunId.parse('run_b')], true);
-    collapse.set(RunId.parse('run_b'), false);
+    const a = { id: RunId.parse('run_a'), status: 'running' } as const;
+    const b = { id: RunId.parse('run_b'), status: 'done' } as const;
+    expect(collapse.isCollapsed(a)).toBe(false);
+    expect(collapse.isCollapsed(b)).toBe(true);
+    expect(collapse.isCollapsed({ ...b, status: 'failed' })).toBe(false);
+    expect(collapse.isCollapsed({ ...b, status: 'awaiting-approval' })).toBe(false);
+    collapse.setAll([a.id, b.id], true);
+    collapse.set(b.id, false);
     expect(new CollapseStore(store).isCollapsed(a)).toBe(true);
-    expect(new CollapseStore(store).isCollapsed(RunId.parse('run_b'))).toBe(false);
+    expect(new CollapseStore(store).isCollapsed(b)).toBe(false);
+    expect(collapse.choice(RunId.parse('run_none'))).toBeUndefined();
     collapse.setAll(Array.from({ length: COLLAPSE_KEEP + 5 }, (_, i) => RunId.parse(`run_${i}`)), true);
+    expect(collapse.choice(a.id)).toBeUndefined();
     expect(collapse.isCollapsed(a)).toBe(false);
   });
 
@@ -472,6 +564,58 @@ describe('small stores', () => {
   });
 });
 
+describe('RendererHub bridge', () => {
+  const notes = system('notes', { description: 'Notes.' }).with({
+    actions: { echo: action({ description: 'Echo the text.', input: g.obj({ text: g.text() }), returns: g.text() }) },
+  });
+  const hubFor = (t: ReturnType<typeof thread>) => new RendererHub({
+    thread: () => t.store, online: (name) => name === 'notes',
+    load: (runtime) => { runtime.register(client(notes, {})); return Promise.resolve(); },
+  });
+
+  it("sends a renderer's action through the open thread and follows its delivery to the result", async () => {
+    const t = thread();
+    await t.store.open();
+    const hub = hubFor(t);
+    await hub.sync(capabilities({ clients: [{ system: 'notes', url: '/clients/notes.js', hash: 'h1' }] }).clients);
+    const notesClient = hub.runtime.systemClient('notes');
+    expect(notesClient.online).toBe(true);
+    const sent = notesClient.send['echo']?.({ text: 'hi' });
+    expect(sent).toBeDefined();
+    if (sent === undefined) { return; }
+    await flush();
+    expect(t.api.act.calls[0]?.[0]).toMatchObject({ session: S1, system: 'notes', action: 'echo', input: { text: 'hi' } });
+    expect(sent.id).toBe('dlv_act');
+    t.push({ type: 'delivery', delivery: { id: DeliveryId.parse('dlv_act'), status: 'delivered' } });
+    expect(sent.status).toBe('delivered');
+    t.push({ type: 'delivery', delivery: { id: DeliveryId.parse('dlv_act'), status: 'done', result: 'hi back' } });
+    await expect(sent.result).resolves.toBe('hi back');
+  });
+
+  it("submits a run's form, and fails the delivery when the hub refuses it", async () => {
+    const t = thread();
+    await t.store.open();
+    const hub = hubFor(t);
+    const run = RunId.parse('run_form');
+    const form = hub.runtime.submit(run, g.obj({ answer: g.text() }), { answer: 'yes' });
+    await flush();
+    expect(t.api.submit.calls[0]?.[0]).toEqual({ run, value: { answer: 'yes' } });
+    t.push({ type: 'delivery', delivery: { id: DeliveryId.parse('dlv_form'), status: 'done', result: null } });
+    await expect(form.result).resolves.toBeUndefined();
+
+    t.api.submit = failingCaller<'submit'>(new Error('closed'));
+    const refused = hub.runtime.submit(run, g.obj({ answer: g.text() }), { answer: 'no' });
+    await expect(refused.result).rejects.toThrow("Couldn't submit that.");
+  });
+
+  it('refuses actions when no chat is open', async () => {
+    const hub = new RendererHub({ thread: () => undefined, online: () => false, load: (runtime) => { runtime.register(client(notes, {})); return Promise.resolve(); } });
+    await hub.sync(capabilities({ clients: [{ system: 'notes', url: '/clients/notes.js', hash: 'h1' }] }).clients);
+    const sent = hub.runtime.systemClient('notes').send['echo']?.({ text: 'hi' });
+    await expect(sent?.result).rejects.toThrow('No chat is open.');
+  });
+});
+
 describe('ChatStore', () => {
   it('keeps a few threads, and stops listening to the one it leaves', async () => {
     const { chat, sessionEvents } = fakeChat();
@@ -487,6 +631,26 @@ describe('ChatStore', () => {
     chat.leave();
     expect(chat.current.value).toBeUndefined();
     await chat.refresh();
+  });
+
+  it('refreshes the open thread after a reconnect: messages, runs and what waits on the person, missed while offline', async () => {
+    const { chat, api } = fakeChat();
+    await chat.open(S1);
+    await flush();
+    const thread = chat.thread(S1);
+    expect(thread.messages.value).toEqual([]);
+    // while offline: an answer arrived, its run finished, and a question was asked; no events reached the browser
+    const missed = message({ role: 'assistant', author: 'act_agent', runs: ['run_missed'], parts: [{ type: 'text', text: 'Done while you were away.' }] });
+    const asked = handlerCall({ run: 'run_missed' });
+    api.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: [missed] }));
+    api.run = fakeCaller<'run'>(({ run: id }) => Promise.resolve(run({ id, status: 'waiting', session: S1 })));
+    api.waiting = fakeCaller<'waiting'>(() => Promise.resolve({ approvals: [], handlers: [asked] }));
+    await chat.refresh();
+    await flush();
+    expect(thread.messages.value.map((m) => m.id)).toEqual([missed.id]);
+    expect(thread.runs.value.get(RunId.parse('run_missed'))?.status).toBe('waiting');
+    expect(thread.handlers.value.map((h) => h.id)).toEqual([asked.id]);
+    expect(await chat.sessionOfRun(RunId.parse('run_missed'))).toBe(S1);
   });
 });
 

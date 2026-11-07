@@ -5,10 +5,10 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { adminOnly, SystemView, type SystemName, type SystemRecord } from '@harness/core';
+import { adminOnly, compact, SystemView, type SystemName, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
-import { bodyOf, compact, type FullHandlers } from './access.ts';
+import { type FullHandlers } from './access.ts';
 import { systemsSlice } from './slices.ts';
 import type { authPlugin } from './auth.ts';
 
@@ -41,7 +41,7 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
       },
       system: async ({ data }) => systemView(hub, await system(data.system)),
       pairings: async (io) => {
-        const { status } = bodyOf(io, {});
+        const { status } = io.data;
         return (await store.table('pairings').find({ ...(status === undefined ? {} : { where: { status } }), order: [['createdAt', 'desc']], limit: MAX_SYSTEMS })).items;
       },
       approvePairing: async ({ data, user }) => {

@@ -6,15 +6,20 @@
 import type { MdInline } from './ast.ts';
 
 const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
+/** A resource URI (`fs://docs/a.md`): a scheme, then `://`; never one a browser would run or load as a page. */
+export const RESOURCE_LINK = /^(?!(?:javascript|data|vbscript|file|https?|blob):)[a-z][a-z0-9+.-]*:\/\/\S+$/i;
 const SAFE_LINK = /^(https?:|mailto:|\/(?!\/)|#|\.{1,2}\/)/i;
 const SAFE_IMAGE = /^(https?:|\/(?!\/)|\.{1,2}\/)/i;
 const BARE_URL = /^https?:\/\/[^\s<>"]+/;
 const TRAILING = /[.,;:!?)\]'"]+$/;
 
-/** The URL if links may go there, else `undefined`. Refuses `javascript:`, `data:` and protocol-relative URLs. */
+/**
+ * The URL if links may go there, else `undefined`: the web, mail, places in the app, and resource URIs (the resource
+ * viewer opens them). Refuses `javascript:`, `data:` and protocol-relative URLs.
+ */
 export function safeLink(href: string): string | undefined {
   const trimmed = href.trim();
-  return SAFE_LINK.test(trimmed) ? trimmed : undefined;
+  return SAFE_LINK.test(trimmed) || RESOURCE_LINK.test(trimmed) ? trimmed : undefined;
 }
 
 /** The URL if an image may load from it, else `undefined`. */

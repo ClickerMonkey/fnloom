@@ -314,6 +314,21 @@ describe('resources', () => {
     expect(rig.resources.roots().map((r) => r.root.name)).toEqual(['later']);
   });
 
+  it('asks for roots again once a system has applied a config, as fs does (connect, then configure, then started)', async () => {
+    const system = new FakeSystem(rig.app, 'shop', { ...shopManifest, resources: true });
+    const root = { uri: ResourceUri.parse('file:///shop'), name: 'shop', description: 's', index: 'all' as const, ignore: [], watch: false };
+    // like fs, the system serves no roots until its config has been applied
+    system.behaviour.configure = () => { system.behaviour.roots = [root]; };
+    await pairDirectly(rig, system);
+    await system.start();
+    await settle(5);
+    expect(rig.resources.roots()).toEqual([]);
+    await rig.config.set(SHOP, { currency: 'EUR' }, ADMIN);
+    await settle(5);
+    expect(rig.bus.of('system.configured')).toEqual([{ system: SHOP, version: 1 }]);
+    expect(rig.resources.roots().map((r) => r.root.name)).toEqual(['shop']);
+  });
+
   it('reads text inline and by ref in chunks, and answers systems asking for resources', async () => {
     const system = await served();
     const text = 'héllo wörld '.repeat(200);
@@ -370,6 +385,21 @@ describe('events, embeddings and logs', () => {
     expect(await system.sdk.call('embed', { texts: ['a', 'b'] })).toEqual({ vectors: [[1, 0, 0], [1, 0, 0]], cost: 0 });
     await system.sdk.call('log', { level: 'warn', key: 'vectors.slow', fields: { took: 9 } });
     expect(rig.records.find((r) => r.msg === 'vectors.slow')).toMatchObject({ level: 'warn', system: 'vectors', took: 9 });
+  });
+
+  it('logs a request and a response line, with a request id, for each call a system makes (progress and logs stay quiet)', async () => {
+    const system = new FakeSystem(rig.app, 'vectors', await manifestFor(vectors));
+    await pairDirectly(rig, system);
+    await system.start();
+    rig.records.length = 0;
+    await system.sdk.call('embed', { texts: ['a'] });
+    await system.sdk.call('log', { level: 'info', key: 'vectors.note', fields: {} });
+    const lines = rig.records.map((r) => [r.msg, r['path']]);
+    expect(lines).toEqual([['request', '/embed'], ['response', '/embed'], ['vectors.note', '/log']]);
+    const [request, response, note] = rig.records;
+    expect(response).toMatchObject({ status: 200, requestId: request?.['requestId'] });
+    // logs inside a call carry its trace context
+    expect(note?.['requestId']).toEqual(expect.any(String));
   });
 });
 

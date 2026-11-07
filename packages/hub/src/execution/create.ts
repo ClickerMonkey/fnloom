@@ -20,6 +20,7 @@ import { HubLedger } from './ledger.ts';
 import { HubLimitResolver } from './limits.ts';
 import { ChildRelay, executionLinkHandlers, type ExecutionLinkEndpoints, type LinkHandler } from './link-handlers.ts';
 import { ModelResolver } from './models.ts';
+import { RunDeciders } from './deciders.ts';
 import { HubPolicyEngine } from './policies.ts';
 import { openRouterProviders } from './providers.ts';
 import type { ExecutionDeps, LlmEngine } from './ports.ts';
@@ -55,7 +56,7 @@ export interface ExecutionModule extends ExecutionServices {
   readonly linkHandlers: { [K in ExecutionLinkEndpoints]: LinkHandler<K> };
   /**
    * Start the queues, pick up agents that were waiting for tools and hub fn runs a stop cut short, relay child runs
-   * to their callers, and send a system its unsettled runs again each time it is connected.
+   * to their callers, post background tool runs' results to their sessions as they finish, and send a system its unsettled runs again each time it is connected.
    */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -73,6 +74,7 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
     llm: (job, signal): Promise<void> => agents.handle(job, signal),
   });
   const runs: HubRunService = new HubRunService({ ...input, policies, ledger, queues });
+  policies.decideWith(new RunDeciders({ store: input.store, runs, ledger }));
   const hooks = new HubAiHooks({ ...input, ledger, recorder, costs: runs, modelLimit: modelLimiter(input.settings, input.ports.rate) });
   const source = input.llm;
   const engine = 'engine' in source
@@ -95,6 +97,9 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
     linkHandlers: executionLinkHandlers({ ...input, runs, gateway: llm, handlers }),
     async start() {
       queues.start();
+      stops.push(runs.onSettled((run, settled) => {
+        void agents.reportBack(run, settled).catch((error: unknown) => { input.log.error('agent.report-back-failed', { run: run.id, error: messageOf(error) }); });
+      }));
       stops.push(relay.start(), input.bus.subscribe('system.status', ({ system, status }) => {
         if (status !== 'connected') return;
         void runs.resend(system).catch((error: unknown) => { input.log.error('run.resend-failed', { system, error: messageOf(error) }); });

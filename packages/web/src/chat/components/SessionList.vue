@@ -75,7 +75,7 @@ defineExpose({ focusSearch: () => { searchBox.value?.focus(); } });
 <style scoped>
 .sessions { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; height: 100%; }
 .top { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-1); }
-.top :deep(.ui-segmented) { justify-self: stretch; display: flex; }
+.top :deep(.ui-segmented) { justify-self: stretch; display: flex; width: 100%; }
 .top :deep(.ui-segmented .option) { flex: 1; justify-content: center; }
 .problem { margin: 0 var(--space-3); }
 .rows { display: grid; align-content: start; gap: 2px; flex: 1; min-height: 0; margin: 0; padding: 0 var(--space-2) var(--space-3); overflow-y: auto; }

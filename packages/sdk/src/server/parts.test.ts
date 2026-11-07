@@ -11,6 +11,7 @@ import { readClientBundle, uploadClientBundle } from './assets.ts';
 import { HubContent, LocalContent, rawChunkSize } from './content.ts';
 import { fileUri, mimeOf, NodeFiles } from './files.ts';
 import { FileJournal, MemoryJournal } from './journal.ts';
+import { contentHash, contentHasher } from './content.ts';
 import { FileKeyStore, MemoryKeyStore, verifyNonce } from './keys.ts';
 import type { HubAccess, HubLink } from './link.ts';
 import { httpBase } from './link.ts';
@@ -47,6 +48,15 @@ describe('keys', () => {
     const signature = await keys.sign('nonce-1');
     expect(verifyNonce(await keys.publicKey(), 'nonce-1', signature)).toBe(true);
     expect(verifyNonce(await keys.publicKey(), 'nonce-2', signature)).toBe(false);
+    // a malformed key or signature is a failed proof, not an error, on either end of the link
+    expect(verifyNonce('not a key', 'nonce-1', signature)).toBe(false);
+    expect(verifyNonce(await keys.publicKey(), 'nonce-1', 'not a signature')).toBe(false);
+  });
+
+  it('hashes content the same whole or a piece at a time', () => {
+    const bytes = new TextEncoder().encode('hello content');
+    expect(contentHash(bytes)).toMatch(/^[0-9a-f]{64}$/);
+    expect(contentHasher().update(bytes.subarray(0, 5)).update(bytes.subarray(5)).digest()).toBe(contentHash(bytes));
   });
 
   it('keeps the pair in the state folder, so a restart proves the same key', async () => {

@@ -24,7 +24,7 @@ export const chatSlice = spec({
   endpoints: pick(['capabilities', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'presence']),
 });
 /** Runs: their tree, inspectors, approvals, handler answers, actions, forms and state. */
-export const runsSlice = spec({ endpoints: pick(['background', 'undoTurn', 'tree', 'run', 'llmCall', 'approve', 'answer', 'act', 'submit', 'state']) });
+export const runsSlice = spec({ endpoints: pick(['background', 'undoTurn', 'tree', 'run', 'llmCall', 'waiting', 'approve', 'answer', 'act', 'submit', 'state']) });
 /** Finding things: suggestions, search, mentions and resources. */
 export const findSlice = spec({ endpoints: pick(['suggest', 'search', 'mentions', 'mentionHover', 'resource']) });
 /** The inbox and web push. */

@@ -3,7 +3,7 @@
  * worked out the same way before sending), the budget meter, and what the embedding index suggested for a message.
  * Pure, so they are tested alone.
  */
-import type { ActorId, BudgetId, ChatMessage, LimitScope, QualifiedName, ResolvedLimits, Session } from '@harness/core';
+import type { ActorId, ChatMessage, LimitScope, QualifiedName, ResolvedLimits, Session } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
 import { formatCost } from './format.ts';
 import { agentName, fnLabel, humanize, localName, systemOf } from './labels.ts';
@@ -42,9 +42,9 @@ export function scopeLabel(scope: LimitScope): string {
   }
 }
 
-/** One budget in the meter's tooltip. */
+/** One limit in the meter's tooltip: a budget rule (keyed by its id), or the cap every turn gets (keyed `turn`). */
 export interface BudgetRow {
-  readonly rule: BudgetId;
+  readonly key: string;
   readonly label: string;
   readonly left: number;
   readonly tightest: boolean;
@@ -64,18 +64,21 @@ export interface BudgetMeter {
 export const BUDGET_WARN_AT = 0.8;
 
 /**
- * The meter for `limits` (what was left when they were read) after `spentSince` more was spent. Undefined when no
- * budget applies. The hub reports what is left, not each budget's size, so "used" is the session's spend against it
- * plus what is left.
+ * The meter for `limits` (what was left when they were read) after `spentSince` more was spent, with the cap each
+ * turn gets as a limit too (`turnSpent` is what the turn going now has spent). Undefined when nothing limits. The hub
+ * reports what is left, not each budget's size, so "used" is the spend against it plus what is left.
  */
-export function budgetMeter(limits: ResolvedLimits | undefined, spent: number, spentSince: number): BudgetMeter | undefined {
-  if (limits === undefined || limits.budgets.length === 0) { return undefined; }
-  const rows = limits.budgets.map((b) => ({ rule: b.rule, label: scopeLabel(b.scope), left: Math.max(0, b.remaining - spentSince), tightest: false }));
-  const tightestRule = limits.limitedBy ?? [...rows].sort((a, b) => a.left - b.left)[0]?.rule;
-  const marked = rows.map((row) => ({ ...row, tightest: row.rule === tightestRule }));
-  const tight = marked.find((row) => row.tightest) ?? marked[0];
+export function budgetMeter(limits: ResolvedLimits | undefined, spent: number, spentSince: number, turnSpent = 0): BudgetMeter | undefined {
+  if (limits === undefined) { return undefined; }
+  const rows = [
+    ...limits.budgets.map((b) => ({ key: b.rule, label: scopeLabel(b.scope), left: Math.max(0, b.remaining - spentSince), used: spent })),
+    ...(limits.turn.cost > 0 ? [{ key: 'turn', label: 'Each turn', left: Math.max(0, limits.turn.cost - turnSpent), used: turnSpent }] : []),
+  ];
+  const tightestKey: string | undefined = limits.limitedBy ?? [...rows].sort((a, b) => a.left - b.left)[0]?.key;
+  const marked = rows.map(({ used: _, ...row }) => ({ ...row, tightest: row.key === tightestKey }));
+  const tight = rows.find((row) => row.key === tightestKey) ?? rows[0];
   if (tight === undefined) { return undefined; }
-  const fraction = tight.left <= 0 ? 1 : spent <= 0 ? 0 : spent / (spent + tight.left);
+  const fraction = tight.left <= 0 ? 1 : tight.used <= 0 ? 0 : tight.used / (tight.used + tight.left);
   const tone: Tone = tight.left <= 0 ? 'danger' : fraction >= BUDGET_WARN_AT ? 'warn' : 'ok';
   return { label: tight.label, fraction, tone, text: tight.left <= 0 ? `${tight.label}: budget reached` : `${formatCost(tight.left)} left · ${tight.label}`, rows: marked };
 }
@@ -90,6 +93,8 @@ export interface SuggestionItem {
   readonly system: string;
   readonly why: string;
   readonly state: SuggestionState;
+  /** How well it matched the message (higher is better); absent for what was added without a match. */
+  readonly score: number | undefined;
 }
 
 /** What the index suggested for a message, from its `extra` and `hook` parts. */
@@ -98,8 +103,18 @@ export interface MessageSuggestions {
   readonly fns: readonly SuggestionItem[];
 }
 
-const item = (name: QualifiedName, why: string | undefined, state: SuggestionState, label: string): SuggestionItem =>
-  ({ name, label, system: systemOf(name), why: why ?? '', state });
+const item = (name: QualifiedName, why: string | undefined, state: SuggestionState, label: string, score?: number): SuggestionItem =>
+  ({ name, label, system: systemOf(name), why: why ?? '', state, score });
+
+/** Best match first; items without a score after the scored ones, in the order they came. */
+function byScore(items: Iterable<SuggestionItem>): SuggestionItem[] {
+  return [...items].sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
+}
+
+/** A match score as people read it: `0.873` → "87%". */
+export function scoreText(score: number): string {
+  return `${Math.round(Math.min(1, Math.max(0, score)) * 100)}%`;
+}
 
 /** The suggestions of a message; marked loaded when the session's agent has them now. */
 export function messageSuggestions(message: Pick<ChatMessage, 'parts'>, session: Pick<Session, 'tools' | 'context'> | undefined): MessageSuggestions {
@@ -111,16 +126,16 @@ export function messageSuggestions(message: Pick<ChatMessage, 'parts'>, session:
     if (part.type !== 'extra' && part.type !== 'hook') { continue; }
     for (const block of part.blocks) {
       if (block.type === 'suggest-context') {
-        for (const s of block.items) { context.set(s.context, item(s.context, s.why, loadedContext.has(s.context) ? 'loaded' : 'offered', humanize(localName(s.context)))); }
+        for (const s of block.items) { context.set(s.context, item(s.context, s.why, loadedContext.has(s.context) ? 'loaded' : 'offered', humanize(localName(s.context)), s.score)); }
       } else if (block.type === 'suggest-fns') {
-        for (const s of block.items) { fns.set(s.fn, item(s.fn, s.why, loadedFns.has(s.fn) ? 'loaded' : 'offered', fnLabel(s.fn))); }
+        for (const s of block.items) { fns.set(s.fn, item(s.fn, s.why, loadedFns.has(s.fn) ? 'loaded' : 'offered', fnLabel(s.fn), s.score)); }
       } else if (block.type === 'load') {
         for (const name of block.context ?? []) { context.set(name, item(name, undefined, 'auto', humanize(localName(name)))); }
         for (const name of block.fns ?? []) { fns.set(name, item(name, undefined, 'auto', fnLabel(name))); }
       }
     }
   }
-  return { context: [...context.values()], fns: [...fns.values()] };
+  return { context: byScore(context.values()), fns: byScore(fns.values()) };
 }
 
 /** The words for a suggestion's state. */

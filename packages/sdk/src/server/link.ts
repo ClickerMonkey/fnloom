@@ -3,7 +3,7 @@
  * through a typed ayepi client and serves `systemLinkSpec` back over the same socket (ayepi peers). The socket is a
  * `LinkSocket` from a `LinkTransport`, so tests run the whole link in memory.
  */
-import { client, wsTransport, type ApiClient, type ClientWs, type Serves, type WebSocketCtor, type WsState } from '@ayepi/core';
+import { client, wsTransport, type ApiClient, type ClientWs, type Serves, type WsState } from '@ayepi/core';
 import WebSocket from 'ws';
 import { hubLinkSpec, type HubLinkSpec, type LinkLimits } from '@harness/core';
 
@@ -43,15 +43,7 @@ export interface WsLinkTuning {
   backoffMax: number;
 }
 
-/**
- * The `ws` package's WebSocket, as ayepi's transport takes it. Node's built-in WebSocket fires `error` but no `close`
- * when a connection attempt fails, so `wsTransport` would never retry (library ask); `ws` fires both. Its class
- * matches the browser WebSocket ayepi types against at runtime, but not its TypeScript declaration.
- */
-// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see above: the same runtime surface, declared differently
-const NodeWebSocket = WebSocket as unknown as WebSocketCtor;
-
-/** A real WebSocket with reconnect (exponential backoff with jitter) and a heartbeat. */
+/** A real WebSocket (the `ws` package's) with reconnect (exponential backoff with jitter) and a heartbeat. */
 export class WsLinkTransport implements LinkTransport {
   readonly #tuning: WsLinkTuning;
 
@@ -61,7 +53,7 @@ export class WsLinkTransport implements LinkTransport {
 
   open(url: string): LinkSocket {
     return wsTransport(url, {
-      WebSocket: NodeWebSocket,
+      WebSocket,
       whileDisconnected: 'fail',
       backoff: { initial: this.#tuning.backoff, max: this.#tuning.backoffMax, factor: 2, jitter: true },
       heartbeat: { interval: this.#tuning.heartbeat, timeout: this.#tuning.heartbeatTimeout },

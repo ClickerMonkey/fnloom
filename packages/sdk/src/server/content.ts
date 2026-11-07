@@ -7,9 +7,29 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ContentRef } from '@harness/core';
 import type { HubAccess } from './link.ts';
 
-/** The sha-256 of bytes, hex. */
-export function hashOf(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
+/** Hashes content into its `ContentRef.hash` a piece at a time, for content that arrives as a stream. */
+export interface ContentHasher {
+  update(bytes: Uint8Array): ContentHasher;
+  /** The hash of everything given so far. */
+  digest(): string;
+}
+
+/**
+ * A hasher for `ContentRef.hash`: sha-256, hex. The one definition of a content ref's hash, used by the SDK, the
+ * systems and the hub's content store.
+ */
+export function contentHasher(): ContentHasher {
+  const hash = createHash('sha256');
+  const hasher: ContentHasher = {
+    update: (bytes) => { hash.update(bytes); return hasher; },
+    digest: () => hash.digest('hex'),
+  };
+  return hasher;
+}
+
+/** The `ContentRef.hash` of some bytes. */
+export function contentHash(bytes: Uint8Array): string {
+  return contentHasher().update(bytes).digest();
 }
 
 /** The raw bytes that fit in one base64 chunk of at most `maxChunk` characters. */
@@ -57,7 +77,7 @@ export class HubContent implements ContentTransfer {
       const { chunk } = await hub.call('content', { ref, offset, length }, signal === undefined ? {} : { signal });
       out.set(Buffer.from(chunk, 'base64'), offset);
     }
-    if (hashOf(out) !== ref.hash) { throw new Error(`Content ${ref.hash} came back with a different hash.`); }
+    if (contentHash(out) !== ref.hash) { throw new Error(`Content ${ref.hash} came back with a different hash.`); }
     return out;
   }
 }
@@ -77,7 +97,7 @@ export class LocalContent {
 
   /** Keep bytes; returns their ref. */
   put(bytes: Uint8Array, mime: string): ContentRef {
-    const hash = hashOf(bytes);
+    const hash = contentHash(bytes);
     if (!this.#entries.has(hash)) {
       this.#entries.set(hash, bytes);
       this.#bytes += bytes.length;

@@ -16,9 +16,10 @@ import AppSidebar from './AppSidebar.vue';
 import AppTopBar from './AppTopBar.vue';
 import { navEntries } from './nav.ts';
 import { useSignOut } from './signOut.ts';
+import { showFavicon } from './favicon.ts';
 import { links, notificationTarget } from './routes.ts';
 
-const { session, keeper, layout, toasts, inbox, connection, admin } = useStores();
+const { session, keeper, layout, toasts, inbox, connection, admin, chat } = useStores();
 const signOut = useSignOut();
 const route = useRoute();
 const router = useRouter();
@@ -29,6 +30,8 @@ const signedIn = session.signedIn;
 const bare = computed(() => route.meta.bare === true || !signedIn.value);
 const entries = computed(() => navEntries(route, session.user.value, { inbox: inbox.unread.value, admin: admin.systems.pending.value }));
 const title = computed(() => route.meta.title ?? 'Harness');
+/** A page with its own header (an open chat) takes the whole height on a compact screen: one header, not two. */
+const topBar = computed(() => compact.value && route.meta.ownHeader !== true);
 const inboxOpen = shallowRef(false);
 const inboxAnchor = shallowRef<HTMLElement | null>(null);
 
@@ -44,9 +47,10 @@ watch(signedIn, (isIn, was) => {
   if (was === true && route.meta.public !== true) { void router.replace(links.signIn(route.fullPath)); }
 }, { immediate: true });
 
-// the tab says how many things need you
+// the tab says how many things need you, in its title and with a dot on its icon
 watch([title, inbox.unread], ([page, unread]) => {
   document.title = `${unread > 0 ? `(${unread > 99 ? '99+' : unread}) ` : ''}${page} · Harness`;
+  showFavicon(document, unread > 0);
 }, { immediate: true });
 
 // the drawer and the popover close when the page changes
@@ -66,7 +70,7 @@ function openInbox(anchor: HTMLElement): void {
 async function openNotification(notification: Notification): Promise<void> {
   inboxOpen.value = false;
   if (!notification.read) { void inbox.markRead([notification.id]); }
-  await router.push(notificationTarget(notification.link));
+  await router.push(await notificationTarget(notification.link, (run) => chat.sessionOfRun(run)));
 }
 
 async function readAll(): Promise<void> {
@@ -75,13 +79,13 @@ async function readAll(): Promise<void> {
 </script>
 
 <template>
-  <div class="shell" :class="{ bare, compact, collapsed: !compact && layout.collapsed }">
+  <div class="shell" :class="{ bare, compact, 'no-bar': compact && !topBar, collapsed: !compact && layout.collapsed }">
     <template v-if="!bare">
       <AppSidebar
         v-if="!compact" class="side" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsed="layout.collapsed"
         @toggle="layout.toggleSidebar()" @inbox="openInbox" @settings="router.push(links.settings())" @sign-out="signOut"
       />
-      <AppTopBar v-else :title="title" :unread="inbox.unread.value" @menu="layout.drawerOpen.value = true" @inbox="openInbox" />
+      <AppTopBar v-else-if="topBar" :title="title" :unread="inbox.unread.value" @menu="layout.drawerOpen.value = true" @inbox="openInbox" />
       <UiModal v-if="compact" v-model:open="layout.drawerOpen.value" placement="left" label="Navigation" width="300px">
         <AppSidebar
           :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsible="false"
@@ -121,6 +125,7 @@ async function readAll(): Promise<void> {
 }
 .shell.collapsed { grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr); }
 .shell.compact { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.shell.compact.no-bar { grid-template-rows: minmax(0, 1fr); }
 .shell.bare { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .side { border-right: 1px solid var(--border); }
 .page { position: relative; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }

@@ -15,6 +15,11 @@ export class RunRegistry {
   readonly #journal: OutcomeJournal;
   readonly #env: RunEnvironment;
   readonly #active = new Map<RunId, ActiveRun>();
+  /**
+   * Every request being answered, from the moment it arrives: one sent again before the first has even looked in the
+   * journal joins it, so the check and the start can't interleave.
+   */
+  readonly #answering = new Map<RunId, Promise<OutcomeWire>>();
   readonly #idle = new Set<() => void>();
 
   constructor(table: SystemTable, journal: OutcomeJournal, env: RunEnvironment) {
@@ -27,10 +32,17 @@ export class RunRegistry {
   get size(): number { return this.#active.size; }
 
   /** Run a request, or answer it from the journal or the run already going. */
-  async run(request: RunRequest): Promise<OutcomeWire> {
+  run(request: RunRequest): Promise<OutcomeWire> {
     const id = request.run.id;
-    const going = this.#active.get(id);
-    if (going !== undefined) { return going.outcome(); }
+    const answering = this.#answering.get(id);
+    if (answering !== undefined) { return answering; }
+    const answer = this.#answer(request).finally(() => { this.#answering.delete(id); });
+    this.#answering.set(id, answer);
+    return answer;
+  }
+
+  async #answer(request: RunRequest): Promise<OutcomeWire> {
+    const id = request.run.id;
     const settled = await this.#journal.get(id);
     if (settled !== undefined) { return settled; }
     const target = this.#table.target(request.fn, request.kind);
