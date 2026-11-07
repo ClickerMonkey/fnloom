@@ -1257,6 +1257,8 @@ export interface ResourceProvider {
 
 /** Everything a contract can hold, by section. */
 export interface ContractShape {
+  /** The system's settings, set by an admin in the hub and given to the server when it starts. */
+  config: GinType<object>;
   types: Record<string, TypeDef<unknown, Methods>>;
   settings: Record<string, SettingDef<unknown>>;
   attachments: Record<string, AttachmentDef<unknown>>;
@@ -1272,12 +1274,16 @@ export interface ContractShape {
 
 /** A contract with nothing in it yet. */
 export interface EmptyContract {
+  config: GinType<{}>;
   types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {};
 }
 
 /** A contract with more sections merged in. */
 type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
-  [K in keyof ContractShape]: Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
+  // config is replaced, not merged; every other section adds to what was declared before
+  [K in keyof ContractShape]: K extends 'config'
+    ? (P extends { config: infer X extends GinType<object> } ? X : C['config'])
+    : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
 };
 type Q<N extends string, K> = QualifiedName<N, K & string>;
 
@@ -1350,6 +1356,8 @@ export type SystemImpl<C extends ContractShape> =
     readonly resources?: ResourceProvider;
     /** Hub events to receive. Subscriptions follow the handlers given. */
     readonly events?: { readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx) => Promise<void> };
+    /** Moments in the system's life. Each gets the system's context and its config. */
+    readonly lifecycle?: Lifecycle<ConfigOf<C>>;
   };
 
 /** What hooks, mentions, dynamic context and event handlers get. */
@@ -1381,9 +1389,40 @@ export interface ServeOptions {
  */
 export declare function serve<N extends string, C extends ContractShape>(
   contract: SystemContract<N, C>,
-  impl: SystemImpl<C>,
+  impl: SystemImpl<C> | ((setup: Setup<ConfigOf<C>>) => SystemImpl<C> | Promise<SystemImpl<C>>),
   options: ServeOptions,
 ): Promise<RunningSystem<N>>;
+
+/** A system's config type. */
+export type ConfigOf<C extends ContractShape> = Infer<C['config']>;
+
+/**
+ * What an implementation built by a function gets: the typed config (from the hub) and this system's identity.
+ * When an admin changes the config, the hub stops the system's work, calls the function again with the new config,
+ * and carries on, so the implementation never holds a stale config.
+ */
+export interface Setup<Cfg> {
+  readonly config: Cfg;
+  readonly system: SystemInfo;
+  readonly log: Log;
+}
+
+/**
+ * Moments in a system's life. All are optional; each gets the system's context and its current config.
+ * `stopping` has a deadline: the hub waits for it (and for runs that can't be cancelled) up to its `timeout`.
+ */
+export interface Lifecycle<Cfg> {
+  /** The first time it connects after being paired or installed. */
+  installed?(ctx: SystemCtx & { config: Cfg }): Promise<void>;
+  /** Every time it connects and its contract is imported. */
+  started?(ctx: SystemCtx & { config: Cfg }): Promise<void>;
+  /** Before it stops: a restart, a config change, an upgrade, the hub shutting down. */
+  stopping?(ctx: SystemCtx & { config: Cfg; reason: 'restart' | 'config' | 'upgrade' | 'shutdown' | 'removed'; timeout: Duration }): Promise<void>;
+  /** The first start of a new version; `from` is the version it replaced. */
+  upgraded?(ctx: SystemCtx & { config: Cfg; from: string }): Promise<void>;
+  /** An admin removed it; clean up anything it keeps outside the hub. */
+  uninstalled?(ctx: SystemCtx & { config: Cfg }): Promise<void>;
+}
 
 /** A running system. */
 export interface RunningSystem<N extends string> {
@@ -1515,9 +1554,19 @@ export interface ClientRenderers<C extends ContractShape> {
   inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<ValueOf<C['types'][K]>> & WithSystem<C>> };
   /** Custom hover cards for mentions (otherwise the hub draws the `MentionHover`). */
   mentions?: { readonly [K in keyof C['mentions']]?: Renderer<MentionView<Infer<C['mentions'][K]['target']>> & WithSystem<C>> };
-  /** Previews for resource formats. */
+  /**
+   * Viewers for resource formats (`markdown`, `csv`, a system's own format). Viewers are shared: a resource in a
+   * format is shown with that format's viewer, whichever system serves it. The hub ships viewers for the common
+   * formats (text, markdown, code, images, PDF, JSON, CSV, folders), so most systems need none.
+   */
   resources?: Record<string, Renderer<ResourceView & WithSystem<C>>>;
 }
+
+/**
+ * Shows any resource with the viewer for its format, from the hub or any system. Use it inside a renderer:
+ * `h(ResourceViewer, { uri, section })` or `<ResourceViewer :uri="uri" />`.
+ */
+export declare const ResourceViewer: Component<{ uri: ResourceUri; section?: SectionKey; /** Show a compact preview instead of the full view. */ compact?: boolean }>;
 
 /** A built client module. The chat UI loads it from the hub. */
 export interface ClientModule {

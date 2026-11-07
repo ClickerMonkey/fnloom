@@ -30,6 +30,13 @@ const Previous = g.obj({ path: g.text(), previous: g.nullable(g.content()) });
 /** The fs system's contract. */
 export const fs = system('fs', { description: 'Files and a shell over chosen folders, served as resources. Can restart itself.' })
   .with({
+    // set by an admin in the hub; the server gets it typed when it starts
+    config: g.obj({
+      // the folders it serves and works in; nothing outside them is reachable
+      roots: g.list(g.obj({ path: g.text(), name: g.text(), writable: g.bool(), index: g.enum('all', 'on-read', 'none') })),
+      // its own source folder, so it can change itself and restart
+      self: g.optional(g.text()),
+    }),
     types: { Entry },
     settings: {
       shell: setting({
@@ -157,11 +164,3 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
     },
   }));
-
-/** The fs system's server settings. */
-export interface FsConfig {
-  /** The folders it serves and works in. Nothing outside them is reachable. */
-  roots: Array<{ path: string; name: string; writable: boolean; index: 'all' | 'on-read' | 'none' }>;
-  /** Its own source folder, so it can change itself and restart. */
-  self?: string;
-}

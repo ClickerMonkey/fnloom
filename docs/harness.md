@@ -170,6 +170,20 @@ A system package has three folders. The [system SDK](#g/the-system-sdk) section 
 `harness-system build` builds the server and client; `harness-system dev` runs it with reload. On
 connect the hub reads everything from the contract, so nothing is registered by hand.
 
+### Config, installed systems and lifecycle
+
+- **Config.** A system can declare a typed `config` in its contract (the fs system's roots). An admin sets it in
+  the hub, which checks it against the type and sends it when the system connects. Pass `serve` a function and
+  it gets the typed config and returns the implementation; when the config changes, the hub stops the system's
+  work, calls the function again, and carries on, so nothing holds a stale config.
+- **Installed systems.** Some systems are installed with the hub: kept on disk under the hub's data folder and in
+  its database, paired at install (the hub makes the key), started when the hub starts, and restarted if they
+  crash (with backoff, and a limit per hour so a broken system doesn't loop). Admins install, configure, start,
+  stop and upgrade them from the UI or by asking in chat. Systems that run elsewhere connect and pair as before.
+- **Lifecycle.** A system can handle `installed` (first connect), `started` (every connect), `stopping` (with a
+  reason and a deadline: restart, config change, upgrade, shutdown, removed), `upgraded` (first start of a new
+  version) and `uninstalled`.
+
 ### Changing itself
 
 Harness must be able to modify itself, or let Claude Code do it. The **fs system** (the first one
@@ -442,6 +456,14 @@ approve: fn({ description: 'Ask the user to approve a deploy plan.', args: g.obj
 // renderer: view.submit({ approved: true, note: 'ship it' })
 ```
 
+### Resource viewers
+
+Viewers are shared by format: a resource is shown with the viewer for its format, whichever system serves it.
+The hub ships viewers for the common formats (text, markdown, code, images, PDF, JSON, CSV, folders), so most
+systems need none. A system adds viewers for its own formats with `resources` in `client()`, and every other
+system's resources in that format use them too. Inside any renderer, `ResourceViewer` shows a resource with the
+right viewer: `<ResourceViewer :uri="uri" compact />`.
+
 ### Mistakes that don't compile
 
 `types/examples.ts` checks each of these, and that each fails for the stated reason:
@@ -705,8 +727,8 @@ types derived from it**. See [Library map](#g/library-map) for the exact mapping
 
 ## Library asks
 
-What @aeye and @ayepi don't do yet that harness needs. Each can be built in harness first and moved into
-the library later. Which way to go is your call.
+What @aeye and @ayepi don't do yet that harness needs. Each gets fixed in the library itself, in the local
+checkout harness links to, so no publish is needed. (zod 4.6 already covers JSON schema → zod.)
 
 - **ayepi core: two-way calls on one socket.** A supported "peer" mode instead of the harness envelope.
 - **ayepi core: binary frames** (MessagePack or CBOR) for the ws protocol.
@@ -739,30 +761,76 @@ the library later. Which way to go is your call.
 4. The fs system, including self-restart.
 5. Tests throughout: unit tests with injected seams, no live network.
 
+## Risks and proofs of concept
+
+What could make the design not work as written, smallest first to prove. Each POC is a few hours and ends in
+a yes, a no, or a change to the types.
+
+1. **One socket, both ways, through ayepi.** The design runs an ayepi client and an ayepi server on each side
+   of one WebSocket with a small envelope. Risks: call ids colliding between the two directions, reconnect
+   (ayepi fails in-flight calls on a drop, but a run on the system may still be going), and resubscribing.
+   *POC:* two processes; the system calls the hub and the hub calls the system over one socket; kill and
+   restart each side mid-call and check runs settle exactly once.
+2. **The agent loop on aeye, one iteration per queued job.** Each tool call becomes a queued run, so the
+   prompt has to stop (`PromptSuspend`) and resume later from saved messages. Risks: aeye re-renders the system
+   message and resets its retry counters on every run, `forget()` may trim saved history, and parallel tool
+   calls where some go to the background. *POC:* a real model, three tools, suspend on every call, resume in a
+   new process, and compare the transcript with an uninterrupted run.
+3. **Three copies of zod.** aeye uses zod 4.1.12, ayepi 4.4.3 and harness 4.6.7. A schema made by gin (one
+   copy) is turned into JSON schema or checked by another, and zod 4's internals aren't shared between
+   versions. *Fix first:* align all three on one zod version in the linked repos, then a small test that a
+   gin-made schema passes through ayepi and aeye's `toJSONSchema`.
+4. **The hub as an aeye provider.** Tool and output schemas have to cross the wire as JSON schema and come back
+   as zod (zod 4.6's `fromJSONSchema` does this), and strict-mode descriptors chosen on the hub have to reach the
+   system's aeye so it can decode strict output. *POC:* a system-side prompt with a tool and structured output,
+   run through a forwarding provider against OpenAI's strict mode.
+5. **The `g` builder against gin.** The SDK promises that every `g` type is a real gin type with the TS type
+   inferred, that it becomes a tool schema, that inputs can be generated for it, and that re-declared types are
+   checked with gin's `compatible`. *POC:* build `g`, round-trip every builder through gin JSON, zod and JSON
+   schema, and run the compatibility check on a few edits.
+6. **Pause and resume by call key.** Resuming a fn re-runs its code and hands back finished calls by key, so code
+   must make its calls with the same keys each time. Code that branches on time or randomness can resume wrong.
+   *POC:* a fn with three calls, paused after the second; resume and check the third runs once and the first two
+   don't run again. Decide whether keys should be required for pausable fns.
+7. **System renderers in the chat.** Vue components built by a system, loaded at runtime, sharing the chat's
+   Vue. Risks: build setup (Vue external, import maps), and trust: a component runs in the chat page with the
+   user's session. *POC:* a system client build loaded into a bare Vue app through the hub; then decide on
+   isolation (a sandboxed iframe for untrusted systems?).
+8. **SQLite at scale.** `better-sqlite3` with `sqlite-vec` loads and runs on Windows (checked: 20,000 vectors in
+   73 ms). But sqlite-vec searches by brute force, so millions of large vectors will be slow, and the hub's queue
+   and leases (ayepi work ports) have to be built on SQLite. *POC:* 1M × 1536-dimension vectors, measure search;
+   and the work ports under concurrent load. Postgres with pgvector stays the large-database path behind the
+   same store port.
+9. **The self-modifying fs system.** An agent that edits and restarts its own system can break it so it won't
+   start again. *Plan:* installed systems keep the last version that started cleanly and roll back to it after
+   repeated crashes; a POC isn't needed before the fs system exists.
+10. **Budgets before the call.** aeye estimates a request's cost from its characters, so reservations are rough,
+    and parallel calls can race past a budget. *Plan:* reserve with a margin, settle exactly, and let a small
+    overrun happen rather than block; measure the error on real traffic.
+11. **Scope.** The types cover far more than the first build. The build order keeps the first milestone to the
+    hub core, the SDK and the fs system; everything marked later stays types only.
+
+Already checked: type-checking all of the types and examples takes about two seconds, so the SDK's heavy typing
+isn't slowing the compiler.
+
 ## Decided
 
 - **Name:** plugins are **systems**; the main server is the **hub**, itself a system named `hub`.
 - **Kinds:** code-backed fns are kind `native` (the hub's own fns too), agents are `hub/llm`, and systems
-  can add more.
+  can add more. A fn declared at runtime belongs to, and runs on, the system that defines its kind, because that
+  system has the kind's handler.
 - **Agents in multi-person chats** answer only a reply to their own message, or a reply-all.
 - **Libraries:** harness links the local aeye and ayepi repos (`file:../aits/packages/*`,
-  `file:../ayepi/packages/*`) so library changes are picked up right away. Switch to npm versions for a release.
-- **UI:** Vue, and system renderers are Vue components.
+  `file:../ayepi/packages/*`). Shortcomings get fixed in those repos and are picked up through the link, with
+  no publish needed.
+- **UI:** Vue, and system renderers are Vue components. Resource viewers are shared by format; the hub ships
+  the common ones.
 - **Groups and limits:** a user in several groups gets the highest group priority and the highest group
   ceiling. Group budgets are either pooled (one pot shared by the members, and it always applies) or per
   member (each member's own allowance; a user in several gets the most generous one).
-
-## Open questions
-
-1. **Library gaps** (see Library asks): build them in harness first, or in aeye/ayepi first?
-2. **Where a runtime fn lives.** A fn declared at runtime belongs to the system that declared it but runs
-   on the system that owns its kind, so both must be connected. Right, or should it belong to its kind's
-   system?
-3. **Default permission.** With no matching policy, the default is to ask the turn's user. Should fns
-   tagged `read` be allowed by default?
-4. **Database.** SQLite through which driver (better-sqlite3 or node:sqlite), and a query builder (Kysely)
-   or hand-written SQL behind the `HubStore` port?
-5. **Pairing.** Is code-or-token enough, or should the hub also start some systems itself (for example
-   spawn the fs system already paired)?
-6. **The native kind's name.** Now that the plugins are systems, the code-backed kind can't also be
-   called `system`, so it is `native`. Keep it, or another word (`code`, `local`)?
+- **Permissions:** with no matching policy, fns tagged `read` are allowed; anything else asks the turn's user.
+- **Database:** SQLite through `better-sqlite3` (the fastest Node driver) with `sqlite-vec` for vectors, behind
+  the `HubStore` port, with Kysely for typed queries so Postgres with pgvector can take over for large
+  databases.
+- **Installed systems:** the hub can install systems, keep them on disk and in its database, start them with the
+  hub, and restart them; systems have config and lifecycle events.

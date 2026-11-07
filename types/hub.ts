@@ -44,6 +44,8 @@ export interface Manifest {
   /** Whether it serves resources. Roots are fetched separately (they can change). */
   resources: boolean;
   client?: { entry: string; hash: string; files: Array<{ path: string; size: number; hash: string }> };
+  /** The type of its config. */
+  config: GinTypeDef;
   /** Systems whose fns, kinds or context it refers to. */
   requires: SystemName[];
 }
@@ -152,6 +154,10 @@ export interface ChallengeAnswer { signature: string }
 
 /** The hub accepts the system. */
 export interface Welcome {
+  /** The system's config, as an admin set it (checked against the contract's config type). */
+  config: Json;
+  /** Why it is starting, so the SDK can call the right lifecycle events. */
+  start: { first: boolean; upgradedFrom?: string };
   /** A short-lived token for HTTP (asset upload, presigned content). */
   token: string;
   /** The hub's copy is stale: send the manifest. */
@@ -238,6 +244,8 @@ export interface SystemLink {
   /** Deliver a form submission to the run waiting in `ctx.form()`. */
   form(input: { delivery: Id<'delivery'>; run: RunId; value: Json }): Promise<void>;
   restart(input: { reason: string }): Promise<void>;
+  /** Stop for a reason (config change, upgrade, shutdown, removed); the system runs `lifecycle.stopping` first. */
+  stop(input: { reason: 'restart' | 'config' | 'upgrade' | 'shutdown' | 'removed'; timeout: Duration }): Promise<void>;
 }
 
 /** The hub's request to run a fn. */
@@ -295,6 +303,10 @@ export type SystemStatus = 'pairing' | 'connected' | 'disconnected' | 'removed';
 
 /** The hub's row for a system. */
 export interface SystemRecord {
+  /** Its config, as an admin set it (encrypted where the type marks a field secret). */
+  config: Json;
+  /** Set when the hub installed it and runs it. */
+  installed?: InstalledSystem;
   name: SystemName;
   description: string;
   status: SystemStatus;
@@ -307,6 +319,29 @@ export interface SystemRecord {
   lastSeenAt?: Timestamp;
   address?: string;
   actor: ActorId;
+}
+
+/**
+ * A system the hub installs, keeps on disk and starts itself. It is paired at install time (the hub makes its key),
+ * starts when the hub starts, and is restarted by the hub if it crashes. Systems running elsewhere don't have one.
+ */
+export interface InstalledSystem {
+  name: SystemName;
+  /** Where it came from. */
+  source: { path: string } | { package: string; version: string } | { git: string; ref: string };
+  /** Its folder under the hub's data folder. */
+  dir: string;
+  /** How to start it. */
+  command: { run: string; args: string[]; env: Record<string, string>; cwd?: string };
+  version: string;
+  autoStart: boolean;
+  restart: { policy: 'always' | 'on-failure' | 'never'; backoff: Duration; /** Stop retrying after this many crashes in an hour. */ maxPerHour: number };
+  status: 'installing' | 'stopped' | 'starting' | 'running' | 'crashed' | 'disabled';
+  pid?: number;
+  /** The end of its output from its last exit, for the admin page. */
+  lastExit?: { code: number; at: Timestamp; output: string };
+  installedBy: ActorId;
+  installedAt: Timestamp;
 }
 
 /** A pairing waiting for an admin. */
@@ -349,6 +384,11 @@ export interface FnRecord {
   decl: FnDecl;
   /** Hash of the decl; runs record the version they used. */
   version: string;
+  /**
+   * `contract`: declared by its system. `runtime`: declared while running (by `hub/declare_fn` or a system's
+   * `add`). A fn of a kind always belongs to, and runs on, the system that defines its kind, because that system
+   * has the kind's handler.
+   */
   origin: 'contract' | 'runtime';
   addedBy?: ActorId;
   available: true | { unavailable: FnUnavailable; detail: string };
@@ -463,7 +503,8 @@ export type Approver =
 
 /**
  * May these actors run these fns? Deny beats ask beats allow; a more specific match beats a broader one. With no
- * match, the turn's user is asked. Only admins and approved hub fns change policies.
+ * match, fns tagged `read` are allowed and anything else asks the turn's user. Only admins and approved hub fns
+ * change policies.
  */
 export interface Policy {
   id: Id<'policy'>;
@@ -1034,6 +1075,11 @@ export interface HubAdmin {
   setSectionRule: { args: Omit<SectionRule, 'id' | 'setBy'>; result: { id: Id<'sectionRule'> } };
   addUser: { args: { email: string; name: string; role: 'admin' | 'member'; groups?: ActorId[] }; result: { id: ActorId } };
   addGroup: { args: { name: string; about: string; members?: ActorId[] }; result: { id: ActorId } };
+  installSystem: { args: { source: InstalledSystem['source']; config?: Json; autoStart?: boolean }; result: { name: SystemName } };
+  configureSystem: { args: { system: SystemName; config: Json }; result: { restarted: boolean } };
+  startSystem: { args: { system: SystemName }; result: { ok: boolean } };
+  stopSystem: { args: { system: SystemName }; result: { ok: boolean } };
+  upgradeSystem: { args: { system: SystemName; version?: string }; result: { from: string; to: string } };
 }
 
 // ═══ Storage ═══
