@@ -125,16 +125,15 @@ and every fn it depends on is available.
 
 ### Talking to the hub
 
-One WebSocket per system carries everything in both directions. ayepi's WebSocket protocol is one-way:
-the client calls and the server answers and pushes events. So each side runs both halves:
+Almost everything between the hub and a system is a plain **request and response**, defined as ayepi
+endpoints in two specs: `HubLink` (the system calls the hub: its contract, calls to other fns, progress, LLM
+requests, logs) and `SystemLink` (the hub calls the system: run a fn, control a run, read resources, embed,
+run a hook, deliver an action). **ayepi makes these work** over the system's one WebSocket in both directions,
+and over HTTP where that fits; ids, replies, typed errors, streams, cancellation and reconnect are its job.
+**Events** are used only where no answer is needed: a resource changed, a run's progress for the browser.
 
-- The system is an ayepi **client** of the hub's link spec (`HubLink`): manifest, calls to other fns,
-  progress, LLM requests, logs.
-- The system is also an ayepi **server** of its own link spec (`SystemLink`), with no HTTP listener:
-  the hub calls it to run fns, control runs, read resources, embed, run hooks and deliver events.
-- Every frame is wrapped with its direction (`LinkFrame`) and handed to the local ayepi server or
-  client. ayepi already does ids, replies, typed errors, item streams, cancellation and reconnect, so
-  the harness adds only that thin envelope.
+Two-way calls over one socket aren't in ayepi yet (today only the client calls). That gets added to ayepi
+itself, in the linked checkout, rather than built in harness.
 
 Messages stay small: ids, typed args and results, progress. Large content never rides inside a message.
 It moves as a **content ref** (`ContentRef`: hash + size) that the other side fetches in chunks when it
@@ -769,64 +768,55 @@ checkout harness links to, so no publish is needed. (zod 4.6 already covers JSON
 
 ## Build order
 
-1. Types (this review) → zod schemas → code.
-2. Hub core: store, actors, sessions, turns, LLM queue, tool queue, the `native` and `llm` kinds,
-   the system protocol, pairing, the chat UI.
-3. System SDK: contracts, refs, `serve`, `client`, the build, and MCP serving.
-4. The fs system, including self-restart.
-5. Tests throughout: unit tests with injected seams, no live network.
+1. **Library prep.** zod on its latest version everywhere (aeye, ayepi, harness), and two-way calls over one
+   socket in ayepi.
+2. **The first milestone, all of it together:**
+   - the hub core: store, actors, sessions, turns, the LLM queue and the run queue, the `native` and `llm`
+     kinds, budgets and priorities, permissions, pairing, installed systems
+   - the system SDK: contracts, refs, `serve`, `client`, the build, MCP serving
+   - the fs system, including self-restart
+   - **the chat**: Vue, realtime everywhere (streaming tokens, live runs, progress, state and deliveries),
+     every run and LLM call tracked and inspectable in its tree, and a UI that feels alive and looks good on
+     every screen size, from a phone up. Its feature list starts from what the chats in aeye's Cletus and in
+     product already do, rebuilt in Vue.
+3. Tests throughout: unit tests with injected seams, no live network.
 
 ## Risks and proofs of concept
 
-What could make the design not work as written, smallest first to prove. Each POC is a few hours and ends in
-a yes, a no, or a change to the types.
+What could make the design not work as written, with what was decided about each.
 
-1. **One socket, both ways, through ayepi.** The design runs an ayepi client and an ayepi server on each side
-   of one WebSocket with a small envelope. Risks: call ids colliding between the two directions, reconnect
-   (ayepi fails in-flight calls on a drop, but a run on the system may still be going), and resubscribing.
-   *POC:* two processes; the system calls the hub and the hub calls the system over one socket; kill and
-   restart each side mid-call and check runs settle exactly once.
-2. **The agent loop on aeye, one iteration per queued job.** Each tool call becomes a queued run, so the
-   prompt has to stop (`PromptSuspend`) and resume later from saved messages. Risks: aeye re-renders the system
-   message and resets its retry counters on every run, `forget()` may trim saved history, and parallel tool
-   calls where some go to the background. *POC:* a real model, three tools, suspend on every call, resume in a
-   new process, and compare the transcript with an uninterrupted run.
-3. **Three copies of zod.** aeye uses zod 4.1.12, ayepi 4.4.3 and harness 4.6.7. A schema made by gin (one
-   copy) is turned into JSON schema or checked by another, and zod 4's internals aren't shared between
-   versions. *Fix first:* align all three on one zod version in the linked repos, then a small test that a
-   gin-made schema passes through ayepi and aeye's `toJSONSchema`.
-4. **The hub as an aeye provider.** Tool and output schemas have to cross the wire as JSON schema and come back
-   as zod (zod 4.6's `fromJSONSchema` does this), and strict-mode descriptors chosen on the hub have to reach the
-   system's aeye so it can decode strict output. *POC:* a system-side prompt with a tool and structured output,
-   run through a forwarding provider against OpenAI's strict mode.
-5. **The `g` builder against gin.** The SDK promises that every `g` type is a real gin type with the TS type
-   inferred, that it becomes a tool schema, that inputs can be generated for it, and that re-declared types are
-   checked with gin's `compatible`. *POC:* build `g`, round-trip every builder through gin JSON, zod and JSON
-   schema, and run the compatibility check on a few edits.
-6. **Pause and resume by call key.** Resuming a fn re-runs its code and hands back finished calls by key, so code
-   must make its calls with the same keys each time. Code that branches on time or randomness can resume wrong.
-   *POC:* a fn with three calls, paused after the second; resume and check the third runs once and the first two
-   don't run again. Decide whether keys should be required for pausable fns.
-7. **System renderers in the chat.** Vue components built by a system, loaded at runtime, sharing the chat's
-   Vue. Risks: build setup (Vue external, import maps), and trust: a component runs in the chat page with the
-   user's session. *POC:* a system client build loaded into a bare Vue app through the hub; then decide on
-   isolation (a sandboxed iframe for untrusted systems?).
-8. **SQLite at scale.** `better-sqlite3` with `sqlite-vec` loads and runs on Windows (checked: 20,000 vectors in
-   73 ms). But sqlite-vec searches by brute force, so millions of large vectors will be slow, and the hub's queue
-   and leases (ayepi work ports) have to be built on SQLite. *POC:* 1M × 1536-dimension vectors, measure search;
-   and the work ports under concurrent load. Postgres with pgvector stays the large-database path behind the
-   same store port.
-9. **The self-modifying fs system.** An agent that edits and restarts its own system can break it so it won't
-   start again. *Plan:* installed systems keep the last version that started cleanly and roll back to it after
-   repeated crashes; a POC isn't needed before the fs system exists.
-10. **Budgets before the call.** aeye estimates a request's cost from its characters, so reservations are rough,
-    and parallel calls can race past a budget. *Plan:* reserve with a margin, settle exactly, and let a small
-    overrun happen rather than block; measure the error on real traffic.
-11. **Scope.** The types cover far more than the first build. The build order keeps the first milestone to the
-    hub core, the SDK and the fs system; everything marked later stays types only.
+1. **One socket, both ways.** Decided: everything is plain request and response through ayepi, events only
+   where no answer is needed, and two-way calls over one socket get added to ayepi. *POC:* two processes
+   calling each other over one socket; kill and restart each side mid-call and check every run settles exactly
+   once.
+2. **The agent loop on aeye, one iteration per queued job.** Each tool call becomes a queued run, so the prompt
+   stops (`PromptSuspend`) and resumes later from saved messages. aeye re-renders the system message and resets
+   its retry counters on every run, and `forget()` may trim saved history. *POC:* a real model, three tools,
+   suspend on every call, resume in a new process, compare with an uninterrupted run.
+3. **Three copies of zod** (aeye 4.1.12, ayepi 4.4.3, harness 4.6.7). Decided: everything moves to the latest
+   zod first.
+4. **The hub as an aeye provider.** Tool and output schemas cross the wire as JSON schema and come back as zod
+   (zod's `fromJSONSchema`), and strict-mode descriptors chosen on the hub reach the system's aeye. *POC:* a
+   system-side prompt with a tool and structured output, through the forwarding provider, against strict mode.
+5. **The `g` builder.** `g` returns real, in-memory gin types carrying their TS type; gin gives the JSON
+   definition, JSON schema and value parsing from them. *POC:* every builder round-trips through gin JSON and
+   tool schemas, and gin's compatibility check accepts and refuses re-declared types as expected.
+6. **Pause and resume by call key.** A resumed fn re-runs its code and gets finished calls back by key, so code
+   must call in the same order with the same keys. *POC:* a fn paused after its second call resumes without
+   repeating the first two. Decide then whether keys are required for pausable fns.
+7. **System renderers.** Decided: renderers are trusted. An admin can turn off a whole system, only its
+   renderers, or only its functions (keeping its renderers so old messages still look right). *POC:* a system's
+   client build loaded into the chat through the hub, sharing the chat's Vue.
+8. **Vectors.** Decided: SQLite with `sqlite-vec` is fine for now (embeddings will be 768-dimensional, from
+   EmbeddingGemma 300M later), with Postgres and pgvector swapped in later behind the same store port. Checked:
+   it loads and runs on Windows (20,000 vectors inserted in 73 ms). The SQLite work queue still gets a load test.
+9. **The self-modifying fs system.** Installed systems keep the last version that started cleanly and roll back
+   to it after repeated crashes.
+10. **Budget estimates.** Reserve with a margin, settle exactly, allow a small overrun rather than block.
+11. **Scope.** The first milestone is the whole of step 2 of the build order. Everything marked later stays
+    types only.
 
-Already checked: type-checking all of the types and examples takes about two seconds, so the SDK's heavy typing
-isn't slowing the compiler.
+Already checked: type-checking all of the types and examples takes about two seconds.
 
 ## Decided
 
@@ -847,6 +837,10 @@ isn't slowing the compiler.
 - **Database:** SQLite through `better-sqlite3` (the fastest Node driver) with `sqlite-vec` for vectors, behind
   the `HubStore` port, with Kysely for typed queries so Postgres with pgvector can take over for large
   databases.
+- **Talking to systems:** plain request and response through ayepi; events only when no answer is needed.
+- **zod:** the latest version everywhere.
+- **Renderers are trusted;** an admin can turn off a system's functions, its renderers, or both.
+- **Vectors:** `sqlite-vec` now (768 dimensions), Postgres with pgvector later.
 - **System config:** a system declares a config type and can't be used until a valid value is set. The value is
   in every context as `ctx.config`, and the `configured` event announces changes.
 - **Installed systems:** the hub can install systems, keep them on disk and in its database, start them with the

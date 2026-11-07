@@ -174,15 +174,13 @@ export interface LinkLimits {
 }
 
 /**
- * One WebSocket carries both directions. ayepi's ws protocol is one-way (client calls, server answers), so each
- * side runs both an ayepi client and an ayepi server and every frame says which conversation it belongs to.
+ * How the hub and a system talk. Almost everything is a plain request and response, defined as ayepi endpoints:
+ * `HubLink` (the system calls the hub) and `SystemLink` (the hub calls the system). ayepi makes them work over the
+ * system's one WebSocket in both directions, and over HTTP where that fits. Events are used only where no answer is
+ * needed (a resource changed, a run's progress). Two-way calls over one socket are an ayepi feature to add in the
+ * linked ayepi checkout, not something harness builds itself.
  */
-export interface LinkFrame {
-  /** `h`: a call the system made to the hub, or its reply. `s`: a call the hub made to the system, or its reply. */
-  d: 'h' | 's';
-  /** The ayepi frame. */
-  f: Json;
-}
+export type LinkStyle = 'request' | 'event';
 
 /** What a system calls on the hub (an ayepi spec). */
 export interface HubLink {
@@ -308,6 +306,12 @@ export type SystemStatus = 'pairing' | 'needs-config' | 'connected' | 'disconnec
 
 /** The hub's row for a system. */
 export interface SystemRecord {
+  /**
+   * What an admin has switched on. A system's renderers are trusted (they run in the chat page). Turning
+   * `functions` off stops its fns, actions, mentions, hooks and resources while its renderers keep drawing old
+   * messages; turning `renderers` off too shows those messages with the hub's plain views.
+   */
+  enabled: { functions: boolean; renderers: boolean };
   /**
    * Its config, as someone set it, checked against the contract's config type (fields holding secrets are stored
    * encrypted). Absent until a valid value is set; until then the system needs config and can't be used.
@@ -1076,6 +1080,8 @@ export interface HubAdmin {
   createPairingToken: { args: { name?: SystemName; expiresIn: Duration }; result: { token: string; expiresAt: Timestamp } };
   approvePairing: { args: { pairing: Id<'pairing'>; approve: boolean }; result: { system?: SystemName } };
   removeSystem: { args: { system: SystemName }; result: { fnsUnavailable: number } };
+  /** Turn a system's functions and renderers on or off separately. */
+  enableSystem: { args: { system: SystemName; functions?: boolean; renderers?: boolean }; result: { enabled: { functions: boolean; renderers: boolean } } };
   setBudget: { args: Omit<BudgetRule, 'id' | 'setBy'>; result: { id: Id<'budget'> } };
   setPriority: { args: Omit<PriorityRule, 'id' | 'setBy'>; result: { id: Id<'priorityRule'> } };
   setPolicy: { args: Omit<Policy, 'id' | 'createdBy' | 'createdAt'>; result: { id: Id<'policy'> } };
