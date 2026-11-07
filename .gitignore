@@ -1,3 +1,10 @@
 node_modules/
 *.log
 .DS_Store
+.types/
+dist/
+coverage/
+.harness/
+.env
+.env.local
+packages/web/e2e/shots/

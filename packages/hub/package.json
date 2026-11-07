@@ -1,0 +1,45 @@
+{
+  "name": "@harness/hub",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The hub: store, catalog, system links, execution, chat, index and the web API.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "harness-hub": "./src/main.ts"
+  },
+  "dependencies": {
+    "@aeye/ai": "file:../../../aits/packages/ai",
+    "@aeye/core": "file:../../../aits/packages/core",
+    "@aeye/gin": "file:../../../aits/packages/gin",
+    "@aeye/models": "file:../../../aits/packages/models",
+    "@aeye/openai": "file:../../../aits/packages/openai",
+    "@aeye/openrouter": "file:../../../aits/packages/openrouter",
+    "@aeye/resources": "file:../../../aits/packages/resources",
+    "@ayepi/auth": "file:../../../ayepi/packages/auth",
+    "@ayepi/cache": "file:../../../ayepi/packages/cache",
+    "@ayepi/codec": "file:../../../ayepi/packages/codec",
+    "@ayepi/core": "file:../../../ayepi/packages/core",
+    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/files": "file:../../../ayepi/packages/files",
+    "@ayepi/log": "file:../../../ayepi/packages/log",
+    "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
+    "@ayepi/node": "file:../../../ayepi/packages/node",
+    "@ayepi/otel": "file:../../../ayepi/packages/otel",
+    "@ayepi/plugin": "file:../../../ayepi/packages/plugin",
+    "@ayepi/rate": "file:../../../ayepi/packages/rate",
+    "@ayepi/sqlite": "file:../../../ayepi/packages/sqlite",
+    "@ayepi/updown": "file:../../../ayepi/packages/updown",
+    "@ayepi/work": "file:../../../ayepi/packages/work",
+    "@harness/core": "*",
+    "@harness/sdk": "*",
+    "better-sqlite3": "^12.4.1",
+    "kysely": "^0.28.8",
+    "sqlite-vec": "^0.1.7-alpha.2",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0",
+    "zod": "^4.6.7"
+  }
+}

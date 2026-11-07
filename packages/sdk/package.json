@@ -1,0 +1,30 @@
+{
+  "name": "@harness/sdk",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The system author SDK: contracts (system, fn, type, ...), the serve runtime and client renderers.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server/index.ts"
+  },
+  "dependencies": {
+    "@aeye/ai": "file:../../../aits/packages/ai",
+    "@aeye/core": "file:../../../aits/packages/core",
+    "@aeye/gin": "file:../../../aits/packages/gin",
+    "@ayepi/core": "file:../../../ayepi/packages/core",
+    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/log": "file:../../../ayepi/packages/log",
+    "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
+    "@ayepi/updown": "file:../../../ayepi/packages/updown",
+    "@harness/core": "*",
+    "ws": "^8.18.0",
+    "zod": "^4.6.7"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@harness/system-fs": "*"
+  }
+}

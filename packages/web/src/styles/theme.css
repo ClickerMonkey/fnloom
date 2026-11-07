@@ -1,0 +1,52 @@
+/*
+ * The look: calm and modern, light and dark following the device, one accent colour, subtle motion.
+ * Every colour, space, radius and duration is a token here; components use the tokens, never raw values.
+ */
+:root {
+  color-scheme: light dark;
+  --accent: #4f6bed;
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+  --bg: #f7f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f1f4;
+  --text: #17181c;
+  --text-dim: #5d6170;
+  --border: #e3e5ea;
+  --danger: #d1435b;
+  --ok: #2f9e6b;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 6%);
+  --fast: 120ms;
+  --slow: 240ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
+  --sidebar: 264px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1014;
+    --surface: #17181d;
+    --surface-2: #1f2027;
+    --text: #ececf1;
+    --text-dim: #9a9eab;
+    --border: #2a2c34;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 24px rgb(0 0 0 / 35%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --slow: 0ms; }
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }

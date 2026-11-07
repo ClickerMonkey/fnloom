@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "../../.types/hub", "tsBuildInfoFile": "../../.types/hub.tsbuildinfo" },
+  "include": ["src"],
+  "references": [{ "path": "../core" }, { "path": "../sdk" }]
+}

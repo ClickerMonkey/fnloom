@@ -25,7 +25,7 @@ interface Decl {
 const ORDER = ['sdk.ts', 'fs.ts', 'hub.ts', 'examples.ts'];
 const rank = (f: string) => (ORDER.indexOf(f) + 1 || ORDER.length + 1);
 const files = fs.readdirSync(typesDir).filter(f => f.endsWith('.ts')).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-const cfg = ts.parseJsonConfigFileContent(ts.readConfigFile(path.join(root, 'tsconfig.json'), ts.sys.readFile).config, ts.sys, root);
+const cfg = ts.parseJsonConfigFileContent(ts.readConfigFile(path.join(typesDir, 'tsconfig.json'), ts.sys.readFile).config, ts.sys, typesDir);
 const program = ts.createProgram(cfg.fileNames, cfg.options);
 const decls: Decl[] = [];
 const external: Record<string, string> = {}; // imported name → module

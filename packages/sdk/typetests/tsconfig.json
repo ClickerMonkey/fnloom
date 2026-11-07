@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "../../../.types/sdk-typetests", "tsBuildInfoFile": "../../../.types/sdk-typetests.tsbuildinfo" },
+  "include": ["*.ts"],
+  "references": [{ "path": "../../core" }, { "path": "../" }, { "path": "../../../systems/fs" }]
+}

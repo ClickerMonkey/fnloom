@@ -1,0 +1,119 @@
+/**
+ * Refs: the typed handles a contract exports for everything it declares (`fs.fns.read`, `fs.types.Entry`). A
+ * reference between things is always a ref, never a string, so a reference to something that doesn't exist doesn't
+ * compile, and a call through a ref has typed args, result and handlers.
+ */
+import type { Extension } from '@aeye/gin';
+import type { Json, QualifiedName, TypeDisplay } from '@harness/core';
+import type { FnDef, FnTypes, Handlers, KindFnInput, KindFnTypes } from './fn.ts';
+import type { GinType } from './gin.ts';
+import type { Simplify } from './util.ts';
+
+/** A typed handle to a fn: declare it as a dep, then call it with checked args, result and handlers. */
+export interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
+  readonly ref: 'fn';
+  readonly name: N;
+  readonly args: GinType<A>;
+  readonly returns: GinType<R>;
+  readonly handlers: H;
+}
+export type AnyFnRef = FnRef<QualifiedName, unknown, unknown, Handlers>;
+
+/** A type's methods by name. Each is declared with `fn()` and implemented with the value it is called on. */
+export type Methods = Record<string, FnDef<FnTypes>>;
+
+/** A method's qualified name: `fs/Entry.reveal`. */
+export type MethodName<N extends QualifiedName, K> = N extends `${infer S}/${infer L}` ? QualifiedName<S, `${L}.${K & string}`> : never;
+
+/** The args of a method call: the value it is called on, as `self`, plus the method's own args. */
+export type MethodArgs<T, A> = Simplify<{ self: T } & A>;
+
+/** The fn refs of a type's methods. */
+export type MethodRefs<N extends QualifiedName, T, M extends Methods> = {
+  readonly [K in keyof M]: M[K] extends FnDef<infer F> ? FnRef<MethodName<N, K>, MethodArgs<T, F['args']>, F['result'], F['handlers']> : never;
+};
+
+/**
+ * A typed handle to a named type (`fs.types.Entry`). It is a real gin type itself (a named gin extension, registered
+ * in `g`), so other types can use it as a field: `g.obj({ entry: fs.types.Entry })`. Its methods are typed fn refs
+ * that code calls with the value as `self`.
+ */
+export type TypeRef<N extends QualifiedName, T, M extends Methods = {}> = Extension<T> & {
+  readonly ref: 'type';
+  readonly name: N;
+  readonly display: TypeDisplay;
+  readonly description: string;
+  readonly methods: MethodRefs<N, T, M>;
+};
+export type AnyTypeRef = TypeRef<QualifiedName, unknown, Methods>;
+
+/** A typed handle to a fn kind. `kinds.api.fn({...})` declares a fn of that kind. */
+export interface KindRef<N extends QualifiedName, P> {
+  readonly ref: 'kind';
+  readonly name: N;
+  readonly payload: GinType<P>;
+  /**
+   * Declare a fn of this kind. Only the payload is needed; the kind derives the rest. Give `args`/`returns` to type
+   * the ref (the hub checks them against what the kind derives); without them the ref takes and returns JSON.
+   */
+  fn<A = Json, R = Json>(def: KindFnInput<P, A, R>): FnDef<KindFnTypes<KindRef<N, P>, P, A, R>>;
+}
+export type AnyKindRef = KindRef<QualifiedName, unknown>;
+
+/** A typed handle to context. A `/command`'s args are typed. */
+export interface ContextRef<N extends QualifiedName, A> {
+  readonly ref: 'context';
+  readonly name: N;
+  /** Phantom: the command's args. Never set at runtime. */
+  readonly args?: A;
+}
+export type AnyContextRef = ContextRef<QualifiedName, unknown>;
+
+/** A typed handle to an actor setting. `ctx.setting(fs.settings.shell)` returns its typed value. */
+export interface SettingRef<N extends QualifiedName, T> {
+  readonly ref: 'setting';
+  readonly name: N;
+  readonly type: GinType<T>;
+}
+
+/** A typed handle to an attachment kind. `ctx.attach(fs.attachments.diff, data, title)` checks the data. */
+export interface AttachmentRef<N extends QualifiedName, T> {
+  readonly ref: 'attachment';
+  readonly name: N;
+  readonly data: GinType<T>;
+}
+
+/** A handle to a user-message hook. */
+export interface HookRef<N extends QualifiedName> {
+  readonly ref: 'hook';
+  readonly name: N;
+}
+export type AnyHookRef = HookRef<QualifiedName>;
+
+/** A typed handle to an `@` mention provider. */
+export interface MentionRef<N extends QualifiedName, T> {
+  readonly ref: 'mention';
+  readonly name: N;
+  readonly target: GinType<T>;
+}
+
+/** A handle to an embedder. */
+export interface EmbedderRef<N extends QualifiedName> {
+  readonly ref: 'embedder';
+  readonly name: N;
+  readonly dimensions: number;
+}
+
+/** A handle to a sectioner. */
+export interface SectionerRef<N extends QualifiedName> {
+  readonly ref: 'sectioner';
+  readonly name: N;
+}
+
+/** A typed handle to an action a system's renderers may send. */
+export interface ActionRef<N extends QualifiedName, I, R> {
+  readonly ref: 'action';
+  readonly name: N;
+  readonly input: GinType<I>;
+  readonly returns: GinType<R>;
+}
