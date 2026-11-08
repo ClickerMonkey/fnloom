@@ -3,14 +3,14 @@
  * searchable list of chat models with price, context and abilities; "free" narrows it to free models, a filter chip
  * narrows by ability, embedding models are not offered, and picking one saves it and closes the picker.
  */
-import { check, count, feature, find, isPhone, openSession, settle, tid } from '../kit.ts';
+import { check, count, feature, find, hasListColumn, openSession, settle, tid } from '../kit.ts';
 
 export default feature({
   id: 'model-picker', ref: 'chat-features 9.4', title: 'Search and pick a model',
   async run(ctx) {
     const { page, fixtures, api } = ctx;
     await openSession(ctx);
-    if (isPhone(ctx)) {
+    if (!hasListColumn(ctx)) {
       await page.goto(ctx.url(`/chat/${fixtures.session}?panel=settings`), { waitUntil: 'networkidle0' });
       await page.click(tid('change-model'));
     } else {

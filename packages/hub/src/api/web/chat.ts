@@ -7,6 +7,7 @@ import { plugin } from '@ayepi/plugin';
 import { chatSlice, compact, qualify, type ChatCapabilities, type SessionId, type SystemName, type UserView } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { HUB_SYSTEM } from '../../catalog/availability.ts';
+import { DEFAULT_AGENT } from '../../chat/sessions.ts';
 import { AGENT_KIND } from '../../execution/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { CLIENTS_PATH } from '../serve.ts';
@@ -78,7 +79,7 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
       createSession: async (io) => {
         const { user } = io;
         const data = io.data;
-        const session = await chat.sessions.create({ ...compact(data), owner: user.id, agent: data.agent ?? qualify('hub', 'chat') });
+        const session = await chat.sessions.create({ ...compact(data), owner: user.id, agent: data.agent ?? DEFAULT_AGENT });
         hub.log.info('session.created', { session: session.id, user: user.id });
         return session;
       },

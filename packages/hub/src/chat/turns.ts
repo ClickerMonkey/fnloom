@@ -7,7 +7,7 @@
  */
 import {
   ACTIVE_RUN_STATUSES, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart,
-  type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type Turn, type TurnId, type UserInfo,
+  type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type UserInfo,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
@@ -195,7 +195,7 @@ export class StoreTurnService implements TurnService {
    * own: an assistant message by the system that ran the fn, carrying the run's card. Undefined for any other turn
    * (its agent's answer is where attachments go, once it has begun).
    */
-  async #invocationCarrier(turnId: TurnId, run: RunId, system: string, session: SessionId): Promise<ChatMessage | undefined> {
+  async #invocationCarrier(turnId: TurnId, run: RunId, system: SystemName, session: SessionId): Promise<ChatMessage | undefined> {
     const { store, bus } = this.#deps;
     const turn = await store.table('turns').get(turnId);
     const asked = turn?.message === undefined ? undefined : await store.table('messages').get(turn.message);

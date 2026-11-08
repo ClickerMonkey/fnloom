@@ -77,7 +77,7 @@ export class MockAdmin {
     });
     for (const s of [fs, notes, embedder]) { this.systems.set(s.name, s); }
     this.logs.set(fs.name, [logLine('started fs 0.4.0', { stream: 'hub', at: at - 3 * MINUTE }), ...OUTPUT.slice(0, 4).map((text, i) => logLine(text, { at: at - (4 - i) * 30_000 }))]);
-    this.pairings = [pairing({ id: 'pr_notes', name: 'calendar', version: '1.0.2', createdAt: at - MINUTE, expiresAt: at + 9 * MINUTE })];
+    this.pairings = [pairing({ id: 'par_notes', name: 'calendar', version: '1.0.2', createdAt: at - MINUTE, expiresAt: at + 9 * MINUTE })];
     this.providers = [{ id: mintId('provider'), provider: model().provider, models: 3 }];
     this.models = [
       model(),

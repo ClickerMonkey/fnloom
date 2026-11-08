@@ -7,7 +7,8 @@
 import { ResourceUri } from '@harness/core';
 import { computed, onMounted, watch } from 'vue';
 import AppPage from '../../app/AppPage.vue';
-import { useQueryDraft, useQueryText } from '../../app/url.ts';
+import { useRouteQuery } from '../../app/url.ts';
+import { ROUTES } from '../../app/routes.ts';
 import ResourceView from '../../chat/components/ResourceView.vue';
 import { formatBytes } from '../../chat/logic/format.ts';
 import { resourceRenderView } from '../../chat/state/renderers.ts';
@@ -22,9 +23,10 @@ import { filterOf } from '../logic/browsers.ts';
 const { admin, chat } = useStores();
 const resources = admin.resources;
 const now = useNow();
-const search = useQueryDraft('q');
-const system = useQueryDraft('system');
-const opened = useQueryText('uri', { push: true });
+const query = useRouteQuery(ROUTES.resources);
+const search = query.draft('q');
+const system = query.draft('system');
+const opened = query.text('uri', { push: true });
 
 const TYPE_ICON = { folder: 'archive', file: 'file', page: 'link', record: 'tree', other: 'dot' } as const satisfies Record<string, IconName>;
 const filter = computed(() => filterOf(ResourceFilter, { search: search.value.value, system: system.value.value }));

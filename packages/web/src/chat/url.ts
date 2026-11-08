@@ -6,29 +6,26 @@
  * it before it leaves the session; closing one goes back when that is where it came from. The list of chats keeps its
  * search (`?q=`) and view (`?chats=archived`) in the URL as well; moving between chats keeps them.
  */
-import { LlmInteractionId, MessageId, ResourceUri, RunId, SessionId, TurnId } from '@harness/core';
+import { MessageId, SessionId, TurnId } from '@harness/core';
 import { computed } from 'vue';
 import { useRoute, useRouter, type LocationQuery } from 'vue-router';
-import { z } from 'zod';
-import { links, ROUTES } from '../app/routes.ts';
+import type { z } from 'zod';
+import { ChatPanel, ChatsView, links, QUERIES, ROUTES, type QueryKey } from '../app/routes.ts';
 import { TAB_KEYS } from './logic/inspect.ts';
 
-/** The panels a session can have open besides inspectors. */
-export const ChatPanel = z.enum(['settings', 'people', 'model']);
-export type ChatPanel = z.infer<typeof ChatPanel>;
+export { ChatPanel, ChatsView };
 
-/** Each query key, and the schema of its value. */
-export const PANEL_KEYS = { run: RunId, llm: LlmInteractionId, details: TurnId, resource: ResourceUri, panel: ChatPanel } as const;
+/** The chat's query keys and their schemas, as the route table declares them. */
+const CHAT = QUERIES[ROUTES.session].shape;
+
+/** Each panel's query key, and the schema of its value. */
+export const PANEL_KEYS = { run: CHAT.run.unwrap(), llm: CHAT.llm.unwrap(), details: CHAT.details.unwrap(), resource: CHAT.resource.unwrap(), panel: CHAT.panel.unwrap() } as const;
 export type PanelKey = keyof typeof PANEL_KEYS;
 /** A panel's value, by key. */
-export type PanelValue<K extends PanelKey> = z.infer<(typeof PANEL_KEYS)[K]>;
-
-/** Which chats the list shows. */
-export const ChatsView = z.enum(['active', 'archived']);
-export type ChatsView = z.infer<typeof ChatsView>;
+export type PanelValue<K extends PanelKey> = z.output<(typeof PANEL_KEYS)[K]>;
 
 /** The query keys that belong to the list of chats, kept when moving between chats. */
-export const LIST_KEYS = { search: 'q', view: 'chats' } as const;
+export const LIST_KEYS = { search: 'q', view: 'chats' } as const satisfies Record<string, QueryKey<typeof ROUTES.session>>;
 
 /** The panel on top, when several are open: an LLM call over a run, a run over a turn's details, and so on. */
 export const PANEL_ORDER = ['llm', 'run', 'details', 'resource', 'panel'] as const satisfies readonly PanelKey[];
@@ -101,9 +98,12 @@ export function useChatUrl() {
     if (back === target) { router.back(); } else { void router.replace(target); }
   }
 
-  /** Open a turn's tree over its session. */
+  /**
+   * Open a turn's tree over its session. The tree takes the place of whatever panel was open (the run it was opened
+   * from, say), so it shows at once on every screen; Back returns to that panel. The list's search and view stay.
+   */
   function openTree(turn: TurnId): void {
-    if (session.value !== undefined) { void router.push({ path: router.resolve(links.turnTree(session.value, turn)).path, query: route.query }); }
+    if (session.value !== undefined) { void router.push({ path: router.resolve(links.turnTree(session.value, turn)).path, query: listQuery(), hash: route.hash }); }
   }
 
   /** Go to a session (Alt+↑/↓, the list), or the list with none, keeping the list's search and view. */

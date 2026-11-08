@@ -4,7 +4,7 @@
  */
 import { QualifiedName } from '@harness/core';
 import { clientInfo } from '../../scripts/session.ts';
-import { check, clearComposer, compose, feature, find, isPhone, newChat, openSession, point, settle, tid } from '../kit.ts';
+import { check, clearComposer, compose, feature, find, isTouch, newChat, openSession, point, settle, tid } from '../kit.ts';
 
 export default feature({
   id: 'mentions', ref: 'chat-features 5.3, 5.4', title: '@ mentions with search and hover cards',
@@ -32,7 +32,7 @@ export default feature({
     await api.hub.call('control', { session, action: 'pause' });
     await api.hub.call('send', { session, parts: [{ type: 'text', text: 'Look at ' }, { type: 'mention', provider, label: readme.label, target: readme.target }], client: clientInfo() });
     await find(page, 'mention-chip');
-    if (isPhone(ctx)) { await page.tap(tid('mention-chip')); } else { await point(ctx, tid('mention-chip')); }
+    if (isTouch(ctx)) { await page.tap(tid('mention-chip')); } else { await point(ctx, tid('mention-chip')); }
     await find(page, 'hover-card');
     await page.waitForSelector(`${tid('hover-methods')} button`, { timeout: 10_000 });
     const methods = await page.$$eval(`${tid('hover-methods')} button`, (els) => els.map((el) => el.textContent.trim()));

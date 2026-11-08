@@ -1,12 +1,13 @@
 import { ApiError } from '@ayepi/core/client';
-import { ActorId, BudgetRule, DeliveryId, MessageId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ChatCapabilities } from '@harness/core';
-import { action, client, g, system } from '@harness/sdk';
+import { ActorId, BudgetRule, QualifiedName, DeliveryId, MessageId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ChatCapabilities, type Suggestion, type TreeNode } from '@harness/core';
+import { action, attachment, client, fn, g, kind, system, type AttachmentViewOf, type FnView, type FnViewOf, type UntypedFn } from '@harness/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
-import { failingCaller, fakeCaller, memoryStore } from '../../test/fakes.ts';
+import { h, nextTick } from 'vue';
+import { failingCaller, fakeCaller, memoryStore, supersedingAnswers } from '../../test/fakes.ts';
 import {
   approval, capabilities, fakeChat, fakeChatApi, fakePreviews, fakeRecorder, fakeSender, fakeSessionEvents, handlerCall, message, run, session, summary, T0, tree,
 } from '../test/fakes.ts';
+import { emptyRun, type RunView } from '../logic/runs.ts';
 import { CapabilitiesStore } from './capabilities.ts';
 import { COLLAPSE_KEEP, CollapseStore } from './collapse.ts';
 import { ComposerStore, draftKey } from './composer.ts';
@@ -43,12 +44,15 @@ function thread(api = fakeChatApi()) {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('SessionListStore', () => {
-  it('loads, searches once typing pauses, and keeps rows live from the user channel', async () => {
-    vi.useFakeTimers();
+  it('loads, searches with the search caller (only its newest answer shows), and keeps rows live from the user channel', async () => {
     const api = fakeChatApi();
-    api.sessions = fakeCaller<'sessions'>((body) => Promise.resolve({ items: body?.search === 'zzz' ? [] : [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })], cursor: 'next' }));
+    const page = (body: { search?: string | undefined } | undefined) => Promise.resolve({ items: body?.search === 'zzz' ? [] : [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })], cursor: 'next' });
+    api.sessions = fakeCaller<'sessions'>(page);
+    const answers = supersedingAnswers<Awaited<ReturnType<typeof page>>>();
+    const search = { ...fakeCaller<'sessions'>(async (body) => answers.next(await page(body))), cancel: answers.cancel };
+    api.searchSessions = search;
     const channel = events();
-    const list = new SessionListStore(api, channel.subscribe, 100);
+    const list = new SessionListStore(api, channel.subscribe);
     list.start();
     await list.load();
     expect(list.items.value.map((s) => s.id)).toEqual(['ses_a', 'ses_b']);
@@ -59,10 +63,56 @@ describe('SessionListStore', () => {
 
     list.setSearch('zz');
     list.setSearch('zzz');
-    await vi.advanceTimersByTimeAsync(100);
-    expect(api.sessions.calls.at(-1)?.[0]).toMatchObject({ search: 'zzz', archived: false });
+    await flush();
+    expect(list.loading.value).toBe(true);
+    await answers.settle();
+    await flush();
+    expect(search.calls.at(-1)?.[0]).toMatchObject({ search: 'zzz', archived: false });
     expect(list.items.value).toEqual([]);
+    expect(list.loading.value).toBe(false);
+    expect(list.problem.value).toBe('');
     list.stop();
+  });
+
+  it('pages on, switches to the archived chats, and finds a listed chat', async () => {
+    const api = fakeChatApi();
+    api.sessions = fakeCaller<'sessions'>((body) => Promise.resolve(body?.cursor === 'next'
+      ? { items: [summary({ id: 'ses_b', updatedAt: T0 - 1 }), summary({ id: 'ses_c', updatedAt: T0 - 2 })] }
+      : { items: body?.archived === true ? [summary({ id: 'ses_old', archived: true })] : [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })], cursor: 'next' }));
+    const list = new SessionListStore(api, events().subscribe);
+    await list.load();
+    await list.loadMore();
+    expect(list.items.value.map((s) => s.id)).toEqual(['ses_a', 'ses_b', 'ses_c']);
+    expect(list.hasMore.value).toBe(false);
+    await list.loadMore();
+    expect(api.sessions.calls).toHaveLength(2);
+    expect(list.find(SessionId.parse('ses_c'))?.id).toBe('ses_c');
+    expect(list.find(SessionId.parse('ses_x'))).toBeUndefined();
+    await list.showArchived(true);
+    expect(list.archived.value).toBe(true);
+    expect(list.items.value.map((s) => s.id)).toEqual(['ses_old']);
+    api.sessions = failingCaller<'sessions'>(new ApiError(500, 'boom', undefined));
+    await list.showArchived(false);
+    expect(list.problem.value).toBe('The hub had a problem. Try again in a moment.');
+    expect(list.loading.value).toBe(false);
+  });
+
+  it('deletes a chat at once, and brings it back if the hub refuses', async () => {
+    const api = fakeChatApi();
+    api.sessions = fakeCaller<'sessions'>(() => Promise.resolve({ items: [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })] }));
+    const list = new SessionListStore(api, events().subscribe);
+    await list.load();
+    let refuse: (error: unknown) => void = () => undefined;
+    api.deleteSession = fakeCaller<'deleteSession'>(() => new Promise((_, reject) => { refuse = reject; }));
+    const removing = list.remove(SessionId.parse('ses_a'));
+    expect(list.items.value.map((s) => s.id)).toEqual(['ses_b']);
+    refuse(new ApiError(409, 'busy', undefined));
+    expect(await removing).toBe(false);
+    expect(list.items.value.map((s) => s.id)).toEqual(['ses_a', 'ses_b']);
+    expect(list.problem.value).toBe('That changed while you were working. Reload and try again.');
+    api.deleteSession = fakeCaller<'deleteSession'>(() => Promise.resolve({ deleted: true }));
+    expect(await list.remove(SessionId.parse('ses_a'))).toBe(true);
+    expect(list.items.value.map((s) => s.id)).toEqual(['ses_b']);
   });
 
   it('renames at once and puts it back if the hub refuses; archiving leaves the list', async () => {
@@ -78,8 +128,21 @@ describe('SessionListStore', () => {
     expect(await list.archive(S1, true)).toBe(true);
     expect(list.items.value).toEqual([]);
     const made = await list.create();
-    expect(made?.id).toBe('ses_new');
+    expect(made).toBe('ses_new');
     expect(list.items.value[0]?.id).toBe('ses_new');
+  });
+
+  it("opens the blank chat there is rather than saving another, and lists blanks only while they're open", async () => {
+    const api = fakeChatApi();
+    api.sessions = fakeCaller<'sessions'>(() => Promise.resolve({ items: [summary({ id: 'ses_used', createdAt: T0 - 10, updatedAt: T0 }), summary({ id: 'ses_blank', createdAt: T0 - 5, updatedAt: T0 - 5 })] }));
+    const list = new SessionListStore(api, events().subscribe);
+    await list.load();
+    expect(list.listed().map((s) => s.id)).toEqual(['ses_used']);
+    expect(list.listed(SessionId.parse('ses_blank')).map((s) => s.id)).toEqual(['ses_used', 'ses_blank']);
+    expect(await list.create()).toBe('ses_blank');
+    expect(api.createSession.calls).toHaveLength(0);
+    expect(await list.create({ title: 'Plans' })).toBe('ses_new');
+    expect(api.createSession.calls).toHaveLength(1);
   });
 });
 
@@ -489,6 +552,95 @@ describe('sendDraft', () => {
   });
 });
 
+describe('sendDraft editing', () => {
+  it('undoes from the edited message on and sends the edit, or puts the edit back when the undo is refused', async () => {
+    const chat = fakeChat();
+    const asked = message({ id: 'msg_e', turn: 'trn_e', parts: [{ type: 'text', text: 'first try' }] });
+    chat.api.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: [asked] }));
+    const t = chat.chat.thread(S1);
+    await t.open();
+    const composer = chat.chat.composer(S1);
+    chat.api.undoTurn = failingCaller<'undoTurn'>(new ApiError(409, 'busy', undefined));
+    composer.startEdit(asked.id, 'second try', []);
+    const refused = await sendDraft(t, composer);
+    expect(refused.ok).toBe(false);
+    expect([composer.text.value, composer.editing.value]).toEqual(['second try', asked.id]);
+    expect(chat.api.send.calls).toHaveLength(0);
+
+    chat.api.undoTurn = fakeChatApi().undoTurn;
+    const sent = await sendDraft(t, composer);
+    expect(sent).toMatchObject({ ok: true, moved: 0, undone: { undone: 0 } });
+    expect(chat.api.undoTurn.calls.map((c) => c[0])).toEqual([{ turn: 'trn_e' }]);
+    expect(chat.api.send.calls.at(-1)?.[0].parts).toEqual([{ type: 'text', text: 'second try' }]);
+    expect([composer.text.value, composer.editing.value]).toEqual(['', undefined]);
+  });
+
+  it('refuses a second send while one is on its way, and shows the first as pending until the hub has it', async () => {
+    const chat = fakeChat();
+    const t = chat.chat.thread(S1);
+    await t.open();
+    const composer = chat.chat.composer(S1);
+    let settle: () => void = () => undefined;
+    const real = chat.api.send;
+    chat.api.send = fakeCaller<'send'>((body) => new Promise((resolve) => { settle = () => { void real.call(body).then(resolve); }; }));
+    composer.input('one', 3);
+    const first = sendDraft(t, composer);
+    expect(t.pending.value?.parts).toEqual([{ type: 'text', text: 'one' }]);
+    composer.input('two', 3);
+    expect(await sendDraft(t, composer)).toEqual({ ok: false, problem: '' });
+    settle();
+    expect((await first).ok).toBe(true);
+    expect(t.pending.value).toBeUndefined();
+    expect(t.messages.value.map((m) => m.parts)).toEqual([[{ type: 'text', text: 'one' }]]);
+  });
+});
+
+describe('RendererHub views', () => {
+  const log = system('log', { description: 'A log.' }).with({
+    kinds: { tail: kind({ description: 'A tail.', applicability: 'Reads.', payload: g.obj({}) }) },
+    fns: { stamp: fn({ description: 'Stamp.', args: g.obj({ at: g.timestamp() }), returns: g.obj({ at: g.timestamp() }), state: g.obj({ since: g.timestamp() }) }) },
+    attachments: { card: attachment({ description: 'A card.', data: g.obj({ at: g.timestamp() }) }) },
+  });
+  const Stamp = (view: FnViewOf<typeof log, 'stamp'>) => h('time', view.args.at.toISOString());
+  const Tail = (view: FnView<UntypedFn>) => h('pre', JSON.stringify(view.args));
+  const Card = (view: AttachmentViewOf<typeof log, 'card'>) => h('time', view.data.at.toISOString());
+  const at = '2026-11-07T10:00:00.000Z';
+
+  async function hubWithLog(): Promise<RendererHub> {
+    const hub = new RendererHub({ thread: () => undefined, online: () => true, load: (runtime) => { runtime.register(client(log, { fns: { stamp: Stamp }, kinds: { tail: Tail }, attachments: { card: Card } })); return Promise.resolve(); } });
+    await hub.sync(capabilities({ clients: [{ system: 'log', url: '/clients/log.js', hash: 'h1' }] }).clients);
+    return hub;
+  }
+
+  it("builds a run's view decoded with its fn's types: shown status, outcome, progress and state", async () => {
+    const hub = await hubWithLog();
+    const id = RunId.parse('run_s');
+    expect(hub.fnView(emptyRun(id, QualifiedName.parse('log/stamp')), {})).toBeUndefined();
+    const done: RunView = { ...emptyRun(id, QualifiedName.parse('log/stamp'), 'done'), kind: 'native', args: { at }, outcome: { status: 'done', result: { at } }, progress: { fraction: 1 } };
+    const view = hub.fnView(done, { since: at });
+    expect(view?.component).toBe(Stamp);
+    expect(view?.props).toMatchObject({ run: id, status: 'done', args: { at: new Date(at) }, result: { at: new Date(at) }, state: { since: new Date(at) }, progress: { fraction: 1 } });
+    const failed: RunView = { ...emptyRun(id, QualifiedName.parse('log/stamp'), 'failed'), kind: 'native', args: { at }, errors: [{ attempt: 1, error: { class: 'fatal', message: 'It broke.' }, cost: 0, at: T0 }] };
+    expect(hub.fnView(failed, {})?.props.error).toMatchObject({ message: 'It broke.' });
+  });
+
+  it("falls back to its kind's renderer for a fn with none, and to nothing for a native fn of an unknown system", async () => {
+    const hub = await hubWithLog();
+    const other: RunView = { ...emptyRun(RunId.parse('run_o'), QualifiedName.parse('other/report'), 'running'), kind: QualifiedName.parse('log/tail'), args: { at } };
+    expect(hub.fnView(other, {})?.component).toBe(Tail);
+    expect(hub.fnView(other, {})?.props.args).toEqual({ at });
+    expect(hub.fnView({ ...other, kind: 'native' }, {})).toBeUndefined();
+  });
+
+  it("builds an attachment's view decoded with its data type, and none for an unknown one", async () => {
+    const hub = await hubWithLog();
+    expect(hub.attachmentView({ type: 'attachment', attachment: QualifiedName.parse('log/card'), title: 'Card', data: { at } })?.props.data).toEqual({ at: new Date(at) });
+    expect(hub.attachmentView({ type: 'attachment', attachment: QualifiedName.parse('log/none'), title: 'None', data: {} })).toBeUndefined();
+    expect(hub.inputView('not a name')).toBeUndefined();
+    expect(hub.inputView('log/Missing')).toBeUndefined();
+  });
+});
+
 describe('UploadQueue', () => {
   it('uploads with progress, blocks sending while busy, and retries a failure', async () => {
     const api = fakeChatApi();
@@ -541,22 +693,33 @@ describe('VoiceStore', () => {
 });
 
 describe('DraftSuggestions', () => {
-  it('asks after a pause, best first, and not for short drafts or commands', async () => {
-    vi.useFakeTimers();
+  it('asks through its caller (whose debounce and lastOnly make only the newest draft count), best first, and not for short drafts or commands', async () => {
     const api = fakeChatApi();
-    api.suggest = fakeCaller<'suggest'>(() => Promise.resolve([
+    const answers = supersedingAnswers<Suggestion[]>();
+    const caller = { ...fakeCaller<'suggest'>(() => answers.next([
       { kind: 'fn', name: 'fs/read_file', description: 'Read', score: 0.4 }, { kind: 'context', name: 'fs/readme', description: 'Docs', score: 0.9 },
-    ]));
-    const suggest = new DraftSuggestions(api, S1, { pause: 100, minLength: 5, limit: 6 });
+    ])), cancel: answers.cancel };
+    api.suggest = caller;
+    const suggest = new DraftSuggestions(api, S1, { minLength: 5, limit: 6 });
     suggest.update('hi');
     suggest.update('/tree src please');
-    await vi.advanceTimersByTimeAsync(200);
-    expect(api.suggest.calls).toHaveLength(0);
+    expect(caller.calls).toHaveLength(0);
+    suggest.update('read the');
     suggest.update('read the docs');
-    await vi.advanceTimersByTimeAsync(100);
+    suggest.update('read the docs ');
+    expect(caller.calls.map((c) => c[0].text)).toEqual(['read the', 'read the docs']);
+    expect(suggest.loading.value).toBe(true);
+    await answers.settle();
+    await flush();
     expect(suggest.items.value.map((s) => s.name)).toEqual(['fs/readme', 'fs/read_file']);
-    suggest.clear();
+    expect(suggest.loading.value).toBe(false);
+    suggest.update('read');
     expect(suggest.items.value).toEqual([]);
+    api.suggest = failingCaller<'suggest'>(new ApiError(500, 'boom', undefined));
+    suggest.update('read the docs again');
+    await flush();
+    expect(suggest.items.value).toEqual([]);
+    expect(suggest.loading.value).toBe(false);
   });
 });
 
@@ -564,7 +727,10 @@ describe('Inspector', () => {
   it('loads a run, a resource, and a turn’s tree and LLM calls; the open tree refreshes after changes pause', async () => {
     vi.useFakeTimers();
     const api = fakeChatApi();
-    const inspector = new Inspector(api, 100);
+    const answers = supersedingAnswers<TreeNode>();
+    const refreshes = { ...fakeCaller<'tree'>(() => answers.next(tree())), cancel: answers.cancel };
+    api.treeRefresh = refreshes;
+    const inspector = new Inspector(api);
     await inspector.openRun(RunId.parse('run_x'));
     expect(inspector.run.value.value?.id).toBe('run_x');
     await inspector.openResource(ResourceUri.parse('file:///docs/harness.md'));
@@ -573,8 +739,11 @@ describe('Inspector', () => {
     expect(calls.map((c) => c.id)).toEqual(['llm_1']);
     inspector.refreshTree();
     inspector.refreshTree();
-    await vi.advanceTimersByTimeAsync(100);
-    expect(api.tree.calls).toHaveLength(2);
+    await answers.settle();
+    await flush();
+    expect(refreshes.calls).toHaveLength(2);
+    expect(inspector.tree.problem.value).toBe('');
+    expect(inspector.tree.value.value).toEqual(tree());
     api.tree = failingCaller<'tree'>(new ApiError(404, 'gone', undefined));
     await inspector.openTree(TurnId.parse('trn_2'));
     expect(inspector.tree.problem.value).toBe("That isn't there any more.");
@@ -627,7 +796,7 @@ describe('small stores', () => {
     expect(load).toHaveBeenCalledTimes(2);
     expect(share).toHaveBeenCalledOnce();
     expect([hub.status.value.get('fs'), hub.status.value.get('notes')]).toEqual(['ready', 'failed']);
-    expect(hub.fn('fs/bash')).toBeUndefined();
+    expect(hub.runtime.fnRenderer('fs/bash')).toBeUndefined();
     expect(hub.runtime.systemClient('fs').online).toBe(true);
     error.mockRestore();
   });
@@ -720,6 +889,23 @@ describe('ChatStore', () => {
     expect(thread.runs.value.get(RunId.parse('run_missed'))?.status).toBe('waiting');
     expect(thread.handlers.value.map((h) => h.id)).toEqual([asked.id]);
     expect(await chat.sessionOfRun(RunId.parse('run_missed'))).toBe(S1);
+  });
+
+  it('keeps an open chat on screen when catching up fails, and shows the error only for a chat that never opened', async () => {
+    const { chat, api } = fakeChat();
+    const kept = message({ parts: [{ type: 'text', text: 'Still here.' }] });
+    api.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: [kept] }));
+    await chat.open(S1);
+    await flush();
+    const thread = chat.thread(S1);
+    api.messages = failingCaller<'messages'>(new ApiError(0, 'DISCONNECTED', undefined));
+    await chat.refresh();
+    expect(thread.status.value).toBe('ready');
+    expect(thread.messages.value.map((m) => m.id)).toEqual([kept.id]);
+    expect(thread.problem.value).toBe("Can't reach the hub. Check the connection and try again.");
+    const never = SessionId.parse('ses_never');
+    await chat.open(never);
+    expect(chat.thread(never).status.value).toBe('error');
   });
 });
 

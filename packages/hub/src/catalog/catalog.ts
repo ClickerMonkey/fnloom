@@ -15,7 +15,7 @@ import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
 import type { EventBus } from '../bus.ts';
 import type { HubStore } from '../store/index.ts';
-import { AvailabilityRules, sameAvailability, systemAvailability, unavailable } from './availability.ts';
+import { AvailabilityRules, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
 import type { Catalog, CatalogEntry, FnSignature, KindDescriber } from './index.ts';
 import { allRows } from './rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
@@ -151,7 +151,8 @@ export class StoreCatalog implements Catalog {
   async availability(name: QualifiedName): Promise<Availability> {
     const fn = await this.fn(name);
     if (fn !== undefined) { return fn.available; }
-    const system = splitName(name).system;
+    const system = systemOf(name);
+    if (system === undefined) { return unavailable('system-disconnected', `${name} names no valid system`); }
     return systemAvailability(system, await this.options.store.table('systems').get(system));
   }
 

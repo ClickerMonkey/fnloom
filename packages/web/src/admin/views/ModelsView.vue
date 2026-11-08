@@ -6,7 +6,8 @@
 import type { ModelCategory, ProviderInput } from '@harness/core';
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import AppPage from '../../app/AppPage.vue';
-import { useParamChoice, useQueryDraft } from '../../app/url.ts';
+import { useParamChoice, useRouteQuery } from '../../app/url.ts';
+import { ROUTES } from '../../app/routes.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiButton, UiEmpty, UiTabs, type TabItem } from '../../ui/index.ts';
 import CategoryDialog from '../components/CategoryDialog.vue';
@@ -25,7 +26,8 @@ const { admin, toasts } = useStores();
 const models = admin.models;
 const tab = useParamChoice('tab', ModelsTab, 'providers');
 /** The models search, kept in the URL (`?q=`) once typing pauses. */
-const { draft: modelQuery } = useQueryDraft('q');
+const query = useRouteQuery(ROUTES.models);
+const { draft: modelQuery } = query.draft('q');
 const providerOpen = ref(false);
 const categoryOpen = ref(false);
 const editing = shallowRef<ModelCategory | undefined>(undefined);

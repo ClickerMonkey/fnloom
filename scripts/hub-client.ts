@@ -8,13 +8,18 @@ import { hubWebSpec, type HubWebSpec, type Tokens } from '@harness/core';
 /** The web API, typed from the spec. */
 export type HubClient = ApiClient<HubWebSpec>;
 
-/** A signed-in client, its tokens, and its socket (closed by `close`). */
+/** A signed-in client, its current tokens, and its socket. `close` closes the socket and stops renewing the tokens. */
 export interface SignedIn {
   readonly hub: HubClient;
   readonly tokens: Tokens;
   readonly socket: WsTransport;
   close(): void;
 }
+
+/** How long before the access token expires it is renewed, in ms. */
+const RENEW_BEFORE = 60_000;
+/** How long to wait before trying again when a renewal fails, in ms. */
+const RENEW_RETRY = 5_000;
 
 /** The admin account's sign-in. */
 export interface Credentials {
@@ -27,14 +32,34 @@ export function anonymous(origin: string): HubClient {
   return client<HubWebSpec>({ baseUrl: `${origin}/api`, manifest: hubWebSpec });
 }
 
-/** Sign in and return a client whose calls and socket carry the access token. */
+/**
+ * Sign in and return a client whose calls and socket carry the access token. The tokens are renewed shortly before
+ * the access token expires, so a long script (a full `npm run ui-tests`) stays signed in; the socket reconnects with
+ * the current token when the hub closes it for an expiring one.
+ */
 export async function signIn(origin: string, credentials: Credentials): Promise<SignedIn> {
-  const tokens = await anonymous(origin).call('signIn', credentials, { transport: 'http' });
-  const socket = wsTransport(`${origin.replace(/^http/, 'ws')}/ws?access_token=${encodeURIComponent(tokens.access)}`, { whileDisconnected: 'queue' });
+  const anon = anonymous(origin);
+  let tokens = await anon.call('signIn', credentials, { transport: 'http' });
+  const socket = wsTransport(() => `${origin.replace(/^http/, 'ws')}/ws?access_token=${encodeURIComponent(tokens.access)}`, { whileDisconnected: 'queue' });
   const hub = client<HubWebSpec>({
-    baseUrl: `${origin}/api`, manifest: hubWebSpec, headers: { authorization: `Bearer ${tokens.access}` }, ws: socket,
+    baseUrl: `${origin}/api`, manifest: hubWebSpec, headers: () => ({ authorization: `Bearer ${tokens.access}` }), ws: socket,
   });
-  return { hub, tokens, socket, close: () => { socket.close(); } };
+  let timer: NodeJS.Timeout | undefined;
+  const renewIn = (delay: number): void => {
+    timer = setTimeout(() => {
+      anon.call('refresh', { refresh: tokens.refresh }, { transport: 'http' }).then(
+        (next) => { tokens = next; renewIn(Math.max(next.expiresIn - RENEW_BEFORE, RENEW_RETRY)); },
+        (error: unknown) => { console.warn('hub-client.renew.failed', { error: error instanceof Error ? error.message : String(error) }); renewIn(RENEW_RETRY); },
+      );
+    }, delay);
+    timer.unref();
+  };
+  renewIn(Math.max(tokens.expiresIn - RENEW_BEFORE, RENEW_RETRY));
+  return {
+    hub, socket,
+    get tokens() { return tokens; },
+    close: () => { clearTimeout(timer); socket.close(); },
+  };
 }
 
 /** Poll `check` every `every` ms until it returns a value, or fail after `timeout` ms with `what` in the message. */

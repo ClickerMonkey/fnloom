@@ -3,11 +3,11 @@
  * chat provides a lookup under `FORM_INPUTS`, and a form asks it for every ref node. Without one, the ref's value is
  * entered as JSON.
  */
+import type { InputMount } from '@harness/sdk';
 import type { InjectionKey } from 'vue';
-import type { RenderView } from '../components/types.ts';
 
-/** A custom input and the extra props it gets (its system's client). */
-export type CustomInput = RenderView<'input'>;
+/** A custom input, the extra props it gets (its system's client), and how its values cross to and from the form's JSON. */
+export type CustomInput = InputMount;
 
 /** Find the custom input for a named type (`fs/Entry`). */
 export type InputLookup = (type: string) => CustomInput | undefined;

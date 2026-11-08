@@ -1,7 +1,7 @@
 /** Undo (chat-features 6.2): undo the last turn from the header; a note reports what was undone or had no undo. */
 import { QualifiedName } from '@harness/core';
 import { clientInfo } from '../../scripts/session.ts';
-import { check, feature, find, isPhone, newChat, settle, tid } from '../kit.ts';
+import { check, feature, find, hasListColumn, newChat, settle, tid } from '../kit.ts';
 
 export default feature({
   id: 'undo', ref: 'chat-features 6.2', title: 'Undo the last turn',
@@ -12,7 +12,7 @@ export default feature({
     await page.waitForSelector('[data-testid="run-card"][data-status="done"]', { timeout: 60_000 });
     await settle(page);
     await ctx.shot('before');
-    if (isPhone(ctx)) {
+    if (!hasListColumn(ctx)) {
       // on a phone the header keeps undo in its overflow menu
       await page.click(tid('chat-menu'));
       await page.waitForSelector('[role="menuitem"]', { visible: true });

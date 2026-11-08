@@ -36,7 +36,7 @@ export function session(overrides: Loose<Session> = {}): Session {
 /** A session's summary. */
 export function summary(overrides: Loose<SessionSummary> = {}): SessionSummary {
   const n = next();
-  return SessionSummary.parse({ id: `ses_${n}`, title: `Chat ${n}`, owner: ME, agent: 'hub/chat', status: 'idle', createdAt: T0 - n * 60_000, updatedAt: T0 - n * 60_000, archived: false, ...overrides });
+  return SessionSummary.parse({ id: `ses_${n}`, title: `Chat ${n}`, owner: ME, agent: 'hub/chat', status: 'idle', createdAt: T0 - n * 60_000 - 1_000, updatedAt: T0 - n * 60_000, archived: false, ...overrides });
 }
 
 /** A message. */
@@ -119,6 +119,7 @@ export function fakeChatApi() {
     capabilities: fakeCaller<'capabilities'>(() => Promise.resolve(capabilities())),
     types: fakeCaller<'types'>(({ names }) => Promise.resolve({ types: [], missing: names })),
     sessions: fakeCaller<'sessions'>(() => Promise.resolve(({ items: [summary({ id: 'ses_1', title: current.title })] }))),
+    searchSessions: fakeCaller<'sessions'>(() => Promise.resolve(({ items: [summary({ id: 'ses_1', title: current.title })] }))),
     session: fakeCaller<'session'>(({ session: id }) => Promise.resolve(session({ id }))),
     createSession: fakeCaller<'createSession'>(() => Promise.resolve(session({ id: 'ses_new', title: 'New chat' }))),
     updateSession: fakeCaller<'updateSession'>(({ session: id, ...change }) => Promise.resolve(session({ id, ...change }))),
@@ -133,6 +134,7 @@ export function fakeChatApi() {
     background: fakeCaller<'background'>(() => Promise.resolve(({ accepted: true }))),
     undoTurn: fakeCaller<'undoTurn'>(({ turn }) => Promise.resolve(UndoReport.parse({ turn, undone: [], failed: [], notUndoable: [] }))),
     tree: fakeCaller<'tree'>(() => Promise.resolve(tree())),
+    treeRefresh: fakeCaller<'tree'>(() => Promise.resolve(tree())),
     run: fakeCaller<'run'>(({ run: id }) => Promise.resolve(run({ id }))),
     llmCall: fakeCaller<'llmCall'>(({ id }) => Promise.resolve(llmCall({ id }))),
     suggest: fakeCaller<'suggest'>(() => Promise.resolve([])),

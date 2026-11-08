@@ -65,6 +65,6 @@ const slots = defineSlots<{ default?: () => unknown }>();
 .secondary:hover:not(:disabled) { background: var(--surface-2); }
 .ghost { background: transparent; color: var(--text-dim); }
 .ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
-.danger { background: var(--danger); color: #fff; }
+.danger { background: var(--danger); color: var(--on-danger); }
 .danger:hover:not(:disabled) { background: color-mix(in oklab, var(--danger) 88%, black); }
 </style>

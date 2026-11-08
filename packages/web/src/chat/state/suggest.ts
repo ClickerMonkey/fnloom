@@ -1,28 +1,28 @@
 /**
  * Suggestions while writing: once typing pauses on a draft long enough to mean something, the hub's index is asked
- * which fns and context match it by meaning, and the composer shows them as a faint row. A new keystroke cancels the
- * pending ask; sending clears the row.
+ * which fns and context match it by meaning, and the composer shows them as a faint row. The pause and "only the
+ * latest ask counts" are the `suggest` caller's own policy (`debounce` and `lastOnly`, see `chat/api.ts`): this store
+ * only asks and shows what comes back. A draft too short to ask about cancels the pending ask; sending clears the row.
  */
 import type { SessionId, Suggestion } from '@harness/core';
 import { ref, shallowRef } from 'vue';
+import { isSuperseded } from '../../state/problems.ts';
 import type { ChatApi } from '../api.ts';
 
-/** When to ask: after this pause (ms), for drafts at least this long, for this many suggestions. */
+/** Which drafts to ask about (at least this long), and how many suggestions to ask for. */
 export interface SuggestSettings {
-  readonly pause: number;
   readonly minLength: number;
   readonly limit: number;
 }
 
-export const SUGGEST: SuggestSettings = { pause: 700, minLength: 12, limit: 6 };
+export const SUGGEST: SuggestSettings = { minLength: 12, limit: 6 };
 
 /** Suggestions for the draft of one session. */
 export class DraftSuggestions {
   readonly #api: Pick<ChatApi, 'suggest'>;
   readonly #session: SessionId;
   readonly #settings: SuggestSettings;
-  #timer: ReturnType<typeof setTimeout> | undefined;
-  #generation = 0;
+  /** The draft the shown suggestions (or the ask on its way) are for. */
   #asked = '';
 
   readonly items = shallowRef<readonly Suggestion[]>([]);
@@ -36,38 +36,34 @@ export class DraftSuggestions {
 
   /** The draft changed. */
   update(text: string): void {
-    clearTimeout(this.#timer);
-    const generation = ++this.#generation;
     const draft = text.trim();
     if (draft.length < this.#settings.minLength || draft.startsWith('/') || draft.startsWith('!')) {
-      this.items.value = [];
-      this.loading.value = false;
-      this.#asked = '';
+      this.clear();
       return;
     }
     if (draft === this.#asked) { return; }
-    this.#timer = setTimeout(() => { void this.#ask(draft, generation); }, this.#settings.pause);
+    void this.#ask(draft);
   }
 
   clear(): void {
-    clearTimeout(this.#timer);
-    this.#generation++;
+    this.#api.suggest.cancel();
     this.items.value = [];
     this.loading.value = false;
     this.#asked = '';
   }
 
-  async #ask(text: string, generation: number): Promise<void> {
+  async #ask(text: string): Promise<void> {
+    this.#asked = text;
     this.loading.value = true;
     try {
       const items = await this.#api.suggest.call({ session: this.#session, text, limit: this.#settings.limit });
-      if (generation !== this.#generation) { return; }
       this.items.value = [...items].sort((a, b) => b.score - a.score);
-      this.#asked = text;
-    } catch {
-      if (generation === this.#generation) { this.items.value = []; }
-    } finally {
-      if (generation === this.#generation) { this.loading.value = false; }
+      this.loading.value = false;
+    } catch (error) {
+      if (isSuperseded(error)) { return; }
+      this.#asked = '';
+      this.items.value = [];
+      this.loading.value = false;
     }
   }
 }

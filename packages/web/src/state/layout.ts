@@ -11,7 +11,13 @@ const SavedLayout = z.object({ collapsed: z.boolean() });
 
 /** The width below which the sidebar becomes a drawer, in px. The shell's styles key off the class it sets. */
 export const COMPACT_BELOW = 760;
-export const COMPACT_QUERY = `(max-width: ${COMPACT_BELOW - 0.02}px)`;
+/**
+ * The height below which the shell is compact too, in px: a phone on its side is wide enough for the sidebar but too
+ * short to give it a third of the width and still show the thread over the composer (and the keyboard).
+ */
+export const SHORT_BELOW = 500;
+/** The compact shell (drawer navigation, sheets for panels): a narrow screen, or a short one. */
+export const COMPACT_QUERY = `not all and (min-width: ${COMPACT_BELOW}px) and (min-height: ${SHORT_BELOW}px)`;
 
 /** The shell's layout state. */
 export class LayoutStore {

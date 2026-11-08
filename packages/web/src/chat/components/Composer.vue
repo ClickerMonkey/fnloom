@@ -344,4 +344,9 @@ defineExpose({ focus: () => { area.value?.focus(); } });
 .answerers { display: flex; justify-content: space-between; gap: var(--space-3); margin: 0; padding: 0 var(--space-3); color: var(--text-faint); font-size: var(--text-xs); }
 .keys { flex: none; }
 @media (max-width: 520px) { .keys { display: none; } }
+/* a short screen (a phone on its side): the box is one row, its tools beside the text, and the who-answers line goes, so the thread keeps its height */
+@media (max-height: 499.98px) {
+  .box { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+  .answerers { display: none; }
+}
 </style>

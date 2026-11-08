@@ -49,7 +49,7 @@ describe('importing a manifest', () => {
     expect(await catalog.kind(q('shop/report'))).toMatchObject({ system: 'shop' });
     expect((await catalog.fn(q('shop/get')))?.origin).toBe('contract');
     expect(await catalog.manifest(SHOP)).toEqual(shopManifest);
-    expect((await store.table('manifests').get('shop'))?.importedAt).toBe(1_000);
+    expect((await store.table('manifests').get(SystemName.parse('shop')))?.importedAt).toBe(1_000);
     expect(bus.of('catalog.changed').at(-1)?.added).toContain('shop/get');
     expect((await catalog.entries('mentions')).map((e) => e.name)).toEqual(['shop/products']);
     expect((await catalog.entries('sectioners', { system: SHOP })).map((e) => e.decl.match)).toEqual([{ format: 'csv' }]);
@@ -249,22 +249,22 @@ describe('availability', () => {
     expect(await catalog.availability(q('orders/sales'))).toBe(true);
     expect(bus.of('capabilities.changed').length).toBeGreaterThan(0);
 
-    await systems.update('shop', { status: 'needs-config' });
+    await systems.update(SystemName.parse('shop'), { status: 'needs-config' });
     await catalog.refreshAvailability(SHOP);
     expect(await catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'system-needs-config' });
     expect(await catalog.availability(q('orders/place'))).toMatchObject({ unavailable: 'dep-unavailable' });
     expect(await catalog.availability(q('orders/sales'))).toMatchObject({ unavailable: 'kind-system-disconnected' });
 
-    await systems.update('shop', { status: 'connected', enabled: { functions: false, renderers: true } });
+    await systems.update(SystemName.parse('shop'), { status: 'connected', enabled: { functions: false, renderers: true } });
     await catalog.refreshAvailability(SHOP);
     expect(await catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'disabled' });
 
-    await systems.update('shop', { enabled: { functions: true, renderers: true } });
+    await systems.update(SystemName.parse('shop'), { enabled: { functions: true, renderers: true } });
     await store.table('fns').update('shop/get', { paused: true });
     await catalog.refreshAvailability(SHOP);
     expect(await catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'paused' });
 
-    await systems.update('shop', { status: 'removed' });
+    await systems.update(SystemName.parse('shop'), { status: 'removed' });
     await catalog.refreshAvailability(SHOP);
     expect(await catalog.availability(q('shop/list'))).toMatchObject({ unavailable: 'system-removed' });
     expect(await catalog.fns({ system: ORDERS, available: true })).toEqual([]);

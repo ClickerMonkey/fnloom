@@ -14,6 +14,11 @@ const BY_STATUS: Readonly<Record<number, string>> = {
   429: 'Too many tries. Wait a moment and try again.',
 };
 
+/** Whether a call failed only because a newer one superseded it, or it was cancelled (a caller's `lastOnly` or `cancel`). */
+export function isSuperseded(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 /** One sentence for a failed call. A declared error's `reason` wins over the status's default. */
 export function problemText(error: unknown, fallback = 'Something went wrong. Try again.'): string {
   if (error instanceof ApiError) {
@@ -21,7 +26,7 @@ export function problemText(error: unknown, fallback = 'Something went wrong. Tr
     if (reason.success) { return reason.data.reason; }
     return BY_STATUS[error.status] ?? (error.status >= 500 ? 'The hub had a problem. Try again in a moment.' : fallback);
   }
-  if (error instanceof DOMException && error.name === 'AbortError') { return 'Cancelled.'; }
+  if (isSuperseded(error)) { return 'Cancelled.'; }
   return fallback;
 }
 

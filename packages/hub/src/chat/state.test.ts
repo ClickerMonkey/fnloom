@@ -1,4 +1,4 @@
-import { IDS, SystemName, compositeKey, type GinTypeDef, type RunId } from '@harness/core';
+import { IDS, SystemName, type GinTypeDef, type RunId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { COUNTER_FIELD, TableStateService, fieldType } from './state.ts';
 import { turnScope } from './support.ts';
@@ -119,7 +119,7 @@ describe('session state', () => {
     ]);
     await settle();
     expect(w.bus.of('state.changed').at(-1)).toEqual({ session: w.session.id, system: 'fs', fields: [{ name: 'last', type: numType }] });
-    expect((await w.store.table('stateFields').get(compositeKey(w.session.id, 'fs', 'cwd', cwdType)))?.updatedBy).toEqual({ run: bash });
+    expect((await w.store.table('stateFields').get({ session: w.session.id, system: SystemName.parse('fs'), name: 'cwd', type: cwdType }))?.updatedBy).toEqual({ run: bash });
   });
 
   it('puts back what a run changed, unless something changed it since', async () => {

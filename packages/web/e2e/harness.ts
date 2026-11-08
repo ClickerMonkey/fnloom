@@ -71,7 +71,8 @@ export interface ScenarioResult {
  * not hidden, on screen vertically) and is the top thing at its centre, so controls under an open dialog or popover
  * are not compared with the ones above them. A control inside a box that scrolls or clips sideways (a tab strip) may
  * reach past the screen's edge, since that box keeps it in. Overlays (marked `data-layer`) float over the page on
- * purpose, so only controls in the same layer are compared for overlap.
+ * purpose, so only controls in the same layer are compared for overlap. A pinned bar (`position: sticky` or `fixed`, like
+ * the admin tabs and filters) is drawn over the rows scrolling under it on purpose, so a row it covers is not an overlap.
  */
 export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
   return page.evaluate(() => {
@@ -106,6 +107,20 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       }
       return false;
     };
+    /** The nearest box that stays put while the page scrolls under it (`position: sticky` or `fixed`), if any. */
+    const pinnedBox = (el: Element): Element | null => {
+      for (let at: Element | null = el; at !== null && at !== document.body; at = at.parentElement) {
+        const position = getComputedStyle(at).position;
+        if (position === 'sticky' || position === 'fixed') { return at; }
+      }
+      return null;
+    };
+    /** Whether a pinned bar holding one of two controls is drawn over the other where they meet: content scrolling under it. */
+    const pinnedOver = (a: Element, b: Element, x: number, y: number): boolean => {
+      const hit = document.elementFromPoint(x, y);
+      const box = hit === null ? null : pinnedBox(hit);
+      return box !== null && box.contains(a) !== box.contains(b);
+    };
     const controls = Array.from(document.querySelectorAll('button, a, input, textarea, select, [role="button"]')).filter((el) => {
       const r = el.getBoundingClientRect();
       const visible = shown(el);
@@ -128,7 +143,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         const rb = shown(b);
         const overlapX = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
         const overlapY = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
-        if (overlapX > 2 && overlapY > 2) { problems.push({ rule: 'overlap', detail: `${describe(a)} at ${Math.round(ra.left)},${Math.round(ra.top)} overlaps ${describe(b)} at ${Math.round(rb.left)},${Math.round(rb.top)}` }); }
+        if (overlapX > 2 && overlapY > 2 && !pinnedOver(a, b, Math.max(ra.left, rb.left) + overlapX / 2, Math.max(ra.top, rb.top) + overlapY / 2)) { problems.push({ rule: 'overlap', detail: `${describe(a)} at ${Math.round(ra.left)},${Math.round(ra.top)} overlaps ${describe(b)} at ${Math.round(rb.left)},${Math.round(rb.top)}` }); }
       }
     }
     return problems;

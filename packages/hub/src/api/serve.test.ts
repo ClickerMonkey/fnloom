@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SystemName, type Manifest } from '@harness/core';
 import { clientUrl } from './web/chat.ts';
 import { ClientBuildRoute, WebAppRoute, type FileRoute } from './serve.ts';
+import { testManifest } from './testing/rig.ts';
 
 /** Serve some routes on a free local port; 404 when none answers. */
 async function serveRoutes(routes: readonly FileRoute[]): Promise<{ url: string; close: () => Promise<void> }> {
@@ -112,8 +113,5 @@ describe('ClientBuildRoute', () => {
 
 /** Only the client part of a manifest matters to the route; the rest is filled with empty sections. */
 function parseManifest(part: { client: NonNullable<Manifest['client']> }): Manifest {
-  return {
-    name: SystemName.parse('fs'), version: '1', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [],
-    mentions: [], embedders: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [], ...part,
-  };
+  return testManifest(SystemName.parse('fs'), part);
 }

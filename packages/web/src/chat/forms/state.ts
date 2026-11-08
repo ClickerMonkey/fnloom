@@ -31,7 +31,7 @@ export class FormState {
   /** `types` finds the named types the definition refers to; load them first (`TypeSource.need`). */
   constructor(def: unknown, initial?: Json, types: TypeSource = LOCAL_TYPES) {
     this.def = def;
-    this.node = formOf(def, '', (name) => types.definition(name));
+    this.node = formOf(def, '', types);
     this.#gin = types.checker(def);
     this.draft.value = draftOf(this.node, initial);
   }

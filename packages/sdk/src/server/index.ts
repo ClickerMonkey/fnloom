@@ -83,7 +83,6 @@ export function serve<N extends string, C extends ContractShape>(contract: Syste
 }
 
 export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
-export { errorFieldFilter } from './log.ts';
 export { RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, type SdkEnv } from './env.ts';
 export { contentHash, contentHasher, type ContentHasher } from './content.ts';
 export { FileKeyStore, isPublicKey, KEY_FILE, makeKeyPair, MemoryKeyStore, signNonce, StoredKeyPair, verifyNonce } from './keys.ts';

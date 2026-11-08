@@ -5,10 +5,10 @@
  * also records what was published. Tests only.
  */
 import { createLogger, type Logger, type LogRecord } from '@ayepi/log';
-import type { Page, RowOf, TableName } from '@harness/core';
+import type { LinkSession, Page, TableName } from '@harness/core';
 import type { HubEventName, HubEvents } from './bus.ts';
 import { MemoryEventBus } from './bus/memory.ts';
-import type { AyepiPorts, HubStore, StoreOptions, Table, TableQuery, TextIndex, VectorIndex, Where } from './store/index.ts';
+import type { AyepiPorts, HubStore, HubTable, StoreOptions, Table, TableQuery, TextIndex, VectorIndex, Where } from './store/index.ts';
 import { SqliteStore } from './store/sqlite.ts';
 
 /** A logger at debug level that keeps every record it writes. */
@@ -32,24 +32,24 @@ export async function testStore(options: Partial<StoreOptions> = {}): Promise<Sq
 }
 
 /** A table whose `update` fails once when its store says so. Everything else goes to the real table. */
-class FaultyTable<Row> implements Table<Row> {
-  readonly #table: Table<Row>;
+class FaultyTable<Row, Key> implements Table<Row, Key> {
+  readonly #table: Table<Row, Key>;
   readonly #fail: () => boolean;
 
-  constructor(table: Table<Row>, fail: () => boolean) {
+  constructor(table: Table<Row, Key>, fail: () => boolean) {
     this.#table = table;
     this.#fail = fail;
   }
 
-  get(key: string): Promise<Row | undefined> { return this.#table.get(key); }
+  get(key: Key): Promise<Row | undefined> { return this.#table.get(key); }
   find(query: TableQuery<Row>): Promise<Page<Row>> { return this.#table.find(query); }
   count(where?: Where<Row>): Promise<number> { return this.#table.count(where); }
   insert(row: Row): Promise<Row> { return this.#table.insert(row); }
   put(row: Row): Promise<Row> { return this.#table.put(row); }
-  remove(key: string): Promise<boolean> { return this.#table.remove(key); }
+  remove(key: Key): Promise<boolean> { return this.#table.remove(key); }
 
-  update(key: string, patch: Partial<Row>): Promise<Row> {
-    return this.#fail() ? Promise.reject(new Error(`The update of ${key} failed (on purpose).`)) : this.#table.update(key, patch);
+  update(key: Key, patch: Partial<Row>): Promise<Row> {
+    return this.#fail() ? Promise.reject(new Error('The update failed (on purpose).')) : this.#table.update(key, patch);
   }
 }
 
@@ -75,7 +75,7 @@ export class FaultyStore implements HubStore {
   get text(): TextIndex { return this.#store.text; }
   get ports(): AyepiPorts { return this.#store.ports; }
 
-  table<K extends TableName>(name: K): Table<RowOf<K>> {
+  table<K extends TableName>(name: K): HubTable<K> {
     return new FaultyTable(this.#store.table(name), () => this.#failing.delete(name));
   }
 
@@ -117,4 +117,9 @@ export class RecordingBus extends MemoryEventBus {
   of<E extends HubEventName>(event: E): ReadonlyArray<HubEvents[E]> {
     return this.#published[event] ?? [];
   }
+}
+
+/** A link handler's payload as the link server builds it, with the parts handlers read: the body and the asking system's session. */
+export function linkPayload<D>(data: D, link: LinkSession) {
+  return { data, link, signal: new AbortController().signal, req: new Request('http://hub/link'), emit: () => undefined, status: () => undefined, header: () => undefined, cookie: () => undefined };
 }

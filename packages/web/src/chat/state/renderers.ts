@@ -1,16 +1,17 @@
 /**
  * Systems' renderers in the chat. The hub lists each system's client build in the capabilities (`clients`); this
  * loads each once per build hash into the SDK's `ClientRuntime`, which looks renderers up by fn, kind, attachment,
- * input type, mention provider and resource format. Renderers talk back through a `ClientBridge` made of the open
+ * input type, mention provider and resource format, and builds their props from the thread's wire JSON decoded with
+ * each contract's gin types. Renderers talk back through a `ClientBridge` made of the open
  * thread (actions, form submissions and live delivery state) and the capabilities (whether a system is online).
  *
  * A build that fails to load is marked failed, and its fns fall back to the default card.
  */
 import {
-  QualifiedName, splitName, SystemName, type ChatCapabilities, type DeliveryId, type Json, type MentionHover, type MessagePart, type ResourceRead,
+  QualifiedName, SystemName, type ChatCapabilities, type DeliveryId, type Json, type MentionHover, type MessagePart, type ResourceRead,
 } from '@harness/core';
-import type { AnyViews } from '@harness/sdk';
-import { ClientRuntime, type AnyRenderer, type ClientBridge } from '@harness/sdk/client';
+import type { AnyViews, InputMount } from '@harness/sdk';
+import { ClientRuntime, type ClientBridge } from '@harness/sdk/client';
 import { shallowRef } from 'vue';
 import type { RenderView } from '../components/types.ts';
 import { runError, runResult, shownStatus, type RunView } from '../logic/runs.ts';
@@ -96,95 +97,58 @@ export class RendererHub {
   }
 
   /**
-   * A run's renderer and its view: its status as the chat shows it (`waiting` while it waits on the person's answer), args, outcome, progress, the session state fields its fn declared, the form
-   * submit (only for a fn that declares a form) and its system's client. Undefined while the run's record (its args)
-   * hasn't arrived, or when no renderer is loaded for it.
+   * A run's renderer and its view: its status as the chat shows it (`waiting` while it waits on the person's answer),
+   * args, outcome, progress and the session state fields its fn declared, decoded by the runtime with the fn's gin
+   * types. Undefined while the run's record (its args) hasn't arrived, when no renderer is loaded for it, or when its
+   * values don't fit the fn's types (the default card draws it then).
    */
   fnView(run: RunView, state: Readonly<Record<string, Json>>): RenderView<'fn'> | undefined {
+    this.#track();
     if (run.args === undefined) { return undefined; }
-    const component = this.fn(run.fn, run.kind === undefined || run.kind === 'native' ? undefined : run.kind);
-    if (component === undefined) { return undefined; }
     const result = runResult(run);
     const error = runError(run);
-    const props = {
-      run: run.id, status: shownStatus(run), args: run.args, state,
+    return this.runtime.fnView({
+      fn: run.fn, kind: run.kind === undefined || run.kind === 'native' ? undefined : run.kind, run: run.id, status: shownStatus(run), args: run.args, state,
       ...(result === undefined ? {} : { result }), ...(error === undefined ? {} : { error }), ...(run.progress === undefined ? {} : { progress: run.progress }),
-      submit: this.runtime.formSubmit(run.fn, run.id), system: this.runtime.systemClient(splitName(run.fn).system, run.id),
-    } satisfies AnyViews['fn'];
-    return { component, props };
+    });
   }
 
-  /** An attachment's renderer and view, if its system's build has one. */
+  /** An attachment's renderer and view, if its system's build has one and the data fits its type. */
   attachmentView(part: AttachmentPart): RenderView<'attachment'> | undefined {
-    const component = this.attachment(part.attachment);
-    if (component === undefined) { return undefined; }
-    const props = { data: part.data, title: part.title, system: this.#client(part.attachment) } satisfies AnyViews['attachment'];
-    return { component, props };
+    this.#track();
+    return this.runtime.attachmentView({ attachment: part.attachment, data: part.data, title: part.title });
   }
 
-  /** A custom input for a named type (`fs/Entry`), with its system's client; the form adds the value and problems. */
-  inputView(type: string): RenderView<'input'> | undefined {
+  /** A custom input for a named type (`fs/Entry`), with its system's client and its value codec; the form adds the value and problems. */
+  inputView(type: string): InputMount | undefined {
+    this.#track();
     const name = QualifiedName.safeParse(type);
-    const component = name.success ? this.input(name.data) : undefined;
-    if (!name.success || component === undefined) { return undefined; }
-    return { component, props: { system: this.#client(name.data) } satisfies AnyViews['input'] };
+    return name.success ? this.runtime.inputView(name.data) : undefined;
   }
 
   /** A mention provider's custom hover card, with what its `hover` returned (undefined while loading or gone). */
   mentionView(part: MentionPart, hover: MentionHover | undefined): RenderView<'mention'> | undefined {
-    const component = this.mention(part.provider);
-    if (component === undefined) { return undefined; }
-    const props = { label: part.label, target: part.target, hover, system: this.#client(part.provider) } satisfies AnyViews['mention'];
-    return { component, props };
+    this.#track();
+    return this.runtime.mentionView({ provider: part.provider, label: part.label, target: part.target, hover });
   }
 
   /** A system's viewer for a read resource's format, with its stat and inline text. */
   resourceView(read: ResourceRead): RenderView<'resource'> | undefined {
+    this.#track();
     const format = read.stat.format;
-    const component = format === undefined ? undefined : this.resource(format);
+    const component = format === undefined ? undefined : this.runtime.resourceViewer(format);
     const system = format === undefined ? undefined : this.runtime.viewerSystem(format);
     if (component === undefined || system === undefined) { return undefined; }
     const text = read.text !== undefined && 'inline' in read.text ? read.text.inline : '';
-    const props = {
+    const props: AnyViews['resource'] = {
       stat: read.stat, text: () => Promise.resolve(text), bytes: () => Promise.resolve(new Uint8Array()), system: this.runtime.systemClient(system),
-    } satisfies AnyViews['resource'];
+    };
     return { component, props };
-  }
-
-  /** The renderer for a fn's runs (or its kind's), if its system's build is loaded. */
-  fn(fn: QualifiedName, kind?: QualifiedName): AnyRenderer | undefined {
-    this.#track();
-    return this.runtime.fnRenderer(fn, kind);
-  }
-
-  attachment(name: QualifiedName): AnyRenderer | undefined {
-    this.#track();
-    return this.runtime.attachmentRenderer(name);
-  }
-
-  input(type: QualifiedName): AnyRenderer | undefined {
-    this.#track();
-    return this.runtime.inputRenderer(type);
-  }
-
-  mention(provider: QualifiedName): AnyRenderer | undefined {
-    this.#track();
-    return this.runtime.mentionRenderer(provider);
-  }
-
-  resource(format: string): AnyRenderer | undefined {
-    this.#track();
-    return this.runtime.resourceViewer(format);
   }
 
   /** Read the version, so a lookup inside a computed or render runs again when a build loads. */
   #track(): number {
     return this.version.value;
-  }
-
-  /** The client of the system a qualified name belongs to. */
-  #client(name: QualifiedName): AnyViews['input']['system'] {
-    return this.runtime.systemClient(splitName(name).system);
   }
 
   #thread(): ThreadStore {

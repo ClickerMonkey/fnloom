@@ -131,7 +131,7 @@ contract change writes it in its report (the schema, and why); it is made betwee
 | `npm run dev` | `scripts/dev.ts` over `scripts/stack.ts`: builds the web app, starts the hub (serving it) on `HARNESS_PORT` (4300) bound to `0.0.0.0`, signs in as the admin from `.env`, pairs fs and the embedder with one-time tokens the first time, configures fs with this repository as its root. Data in `HARNESS_DATA` (`.harness`). `HARNESS_DEV_ONLY=hub,fs` runs a subset |
 | `npm run dev:web` | Vite with hot reload on `HARNESS_WEB_PORT` (4310), proxying the hub |
 | `npm run e2e` | `e2e/*.e2e.test.ts` (vitest project `e2e`): boots the stack on `HARNESS_E2E_PORT` (4330) and drives it with a free OpenRouter model |
-| `npm run ui-tests` | `ui-tests/run.ts`: every UI feature script in `ui-tests/features/` against `HARNESS_UI_URL`, at 1440x900 and 390x844; shots in `ui-tests/shots/<feature>/` |
+| `npm run ui-tests` | `ui-tests/run.ts`: every UI feature script in `ui-tests/features/` against `HARNESS_UI_URL`, at each layout (desktop 1440, laptop 1180, tablet 768, phone 390; wide 1920 and phone-landscape 844x390 for the features that ask); shots in `ui-tests/shots/<feature>/` |
 | `npm run e2e:mock` | the web lane's puppeteer scenarios against its mock hub at phone, tablet and desktop in light and dark; shots in `packages/web/e2e/shots/` |
 | `npm run build` | manifest, typecheck, then the web build (`packages/web/dist`, served by the hub) |
 | `npm run check` | manifest check, typecheck, lint, tests, explorer build |
@@ -141,23 +141,24 @@ Tests sit beside the code as `*.test.ts`. Type-level tests use `expectType<Equal
 and `@ts-expect-error` for mistakes that must not compile. Ports for anything started while testing: the given port,
 or a free one above 4300, bound to `0.0.0.0`, stopped before finishing.
 
-## Library asks found while laying the foundation
+## Library asks
 
-- **gin:** `Type.toJSON()` leaves keys whose value is `undefined` (e.g. `props.x.docs`); `Value.encodeLogical()` writes
-  an absent optional field as `null`, which the type's own `toValueSchema()` refuses. The SDK works around both in
-  `wireType` / `encodeValue`; gin should omit both.
-- **gin:** named types are registered under qualified names with a `/` (`fs/Entry`); check that `toCode` renders
-  them readably for the LLM.
+Still open:
 
-## Library asks found while integrating
+- **@aeye/resources:** a folder resolver (a folder as a resource listing its entries).
+- **@ayepi/core:** binary ws frames; **@ayepi:** web push (the hub uses the `web-push` package directly).
 
-- **@ayepi/core:** a handler's `data` is left out when every field of the request is absent (`{}`; `server.ts`,
-  `payload.data` is only set when the merged data has keys), though the handler types say it is there. The hub reads
-  such bodies through `bodyOf` (`api/web/access.ts`); the server should always pass the parsed (possibly empty) data.
-- **@ayepi/log:** `consoleTransport()` without a `console` writes through the global console at write time, so once
-  `interceptConsole()` runs every line goes back into the logger and is dropped. The hub binds the original methods
-  (`boot/log.ts`); the transport should capture them when it is made. A string `error` field renders as
-  `error=undefined: undefined` because `error` is reserved for a serialized `Error`; `errorFieldFilter`
-  (`@harness/sdk/server`) turns such strings into that shape. The logger should accept a string there.
-- **@ayepi/work:** `stop()` waits for its poll loop, which sleeps on an unref'd timer, so awaiting `stop()` in a process
-  with nothing else alive lets Node exit before it settles. Waking the loop on `stop()` would fix it.
+Settled in the libraries, on their `harness` branches (harness carries no workaround):
+
+- **gin:** `Type.toJSON()` has no `undefined` keys and `encodeLogical()` leaves absent optional fields out, so the
+  SDK's `wireType` / `encodeValue` are plain calls; type names may be qualified (`fs/Entry`); a type reports the
+  named types it refers to (`references()`, `typeReferences`, `typeClosure`), which the SDK's `referencesOf`
+  and the hub's `TypeRecord.references` and `Catalog.typeClosure` use, so a system can load every type it needs
+  from the hub.
+- **@ayepi/core:** a handler's `data` is always there when its endpoint declares input, even an empty `{}`.
+- **@ayepi/log:** `consoleTransport` binds the console's methods when it is made, and a string `error` field
+  becomes `{ name: 'Error', message }`.
+- **@ayepi/work:** `stop()` wakes its poll loop.
+- **@aeye/resources:** structural section keys (`sectionKeys`, `splitMarkdownSections`, `splitCodeBlocks`, which
+  the hub's sectioners and the SDK's `sectionKeys` use) and node/TypeScript import resolution (`resolveImportPath`,
+  used by the fs system's documents and by its own file resolver).

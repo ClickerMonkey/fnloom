@@ -38,6 +38,25 @@ export function fakeCaller<K extends Endpoint>(impl: (...args: CallArgs<Endpoint
   };
 }
 
+/**
+ * Answers held back the way a `lastOnly` caller holds them: `next(result)` is an answer still on its way, which
+ * resolves when the test settles it (`settle`, oldest first). A newer `next`, or `cancel`, makes the answers still
+ * waiting reject with an `AbortError`, as a superseded or cancelled call does. Give a fake caller `next` as its answer
+ * and `cancel` as its cancel.
+ */
+export function supersedingAnswers<R>(): { readonly next: (result: R) => Promise<R>; readonly cancel: () => void; readonly settle: () => Promise<void> } {
+  const waiting: Array<{ go: () => void; stop: (error: unknown) => void }> = [];
+  const cancel = (): void => { for (const w of waiting.splice(0)) { w.stop(new DOMException('superseded', 'AbortError')); } };
+  return {
+    next: (result) => {
+      cancel();
+      return new Promise<R>((resolve, reject) => { waiting.push({ go: () => { resolve(result); }, stop: reject }); });
+    },
+    cancel,
+    settle: async () => { waiting.shift()?.go(); await Promise.resolve(); },
+  };
+}
+
 /** A caller of endpoint `K` that fails every call with `error`. */
 export function failingCaller<K extends Endpoint>(error: unknown): FakeCaller<K> {
   return fakeCaller<K>(() => { throw error; });

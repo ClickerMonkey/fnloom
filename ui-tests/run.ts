@@ -1,10 +1,11 @@
 /**
- * `npm run ui-tests`: run every UI feature against the harness at `HARNESS_UI_URL` (boots nothing), at desktop and
- * phone, signed in as `HARNESS_UI_EMAIL`. Shots go to `ui-tests/shots/<feature>/<viewport>-<step>.png`, a summary to
+ * `npm run ui-tests`: run every UI feature against the harness at `HARNESS_UI_URL` (boots nothing), at each viewport
+ * it runs at (`viewportsOf`), signed in as `HARNESS_UI_EMAIL`. Shots go to `ui-tests/shots/<feature>/<viewport>-<step>.png`, a summary to
  * `ui-tests/shots/report.json`. Exits 1 when a feature fails or a shot breaks a layout rule.
  *
  *   HARNESS_UI_URL=http://127.0.0.1:4300 HARNESS_UI_EMAIL=… HARNESS_UI_PASSWORD=… npm run ui-tests
  *   HARNESS_UI_ONLY=chat-shell,composer npm run ui-tests     # just these features
+ *   HARNESS_UI_VIEWPORTS=tablet,landscape npm run ui-tests   # just these viewports
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,7 +15,7 @@ import { layoutProblems, type LayoutProblem } from '../packages/web/e2e/harness.
 import { signIn, type SignedIn } from '../scripts/hub-client.ts';
 import { FEATURES } from './features/index.ts';
 import { fixtures } from './fixtures.ts';
-import { settle, tid, uiEnv, VIEWPORTS, type Feature, type FeatureResult, type Fixtures, type UiSettings, type ViewportName } from './kit.ts';
+import { settle, tid, uiEnv, viewportsOf, VIEWPORTS, type Feature, type FeatureResult, type Fixtures, type UiSettings, type ViewportName } from './kit.ts';
 
 const SHOTS = fileURLToPath(new URL('./shots/', import.meta.url));
 
@@ -23,7 +24,8 @@ async function pageFor(context: BrowserContext, viewport: ViewportName): Promise
   const page = await context.newPage();
   // tsx keeps function names with a `__name` helper, which code passed to page.evaluate would call in the browser
   await page.evaluateOnNewDocument('globalThis.__name = (fn) => fn;');
-  await page.setViewport(VIEWPORTS[viewport]);
+  const { width, height, deviceScaleFactor, isMobile, hasTouch } = VIEWPORTS[viewport];
+  await page.setViewport({ width, height, deviceScaleFactor, isMobile, hasTouch });
   return page;
 }
 
@@ -75,6 +77,7 @@ async function runOne(feature: Feature, viewport: ViewportName, context: Browser
 const settings = uiEnv.parse();
 const only = new Set(settings.HARNESS_UI_ONLY.split(',').map((s) => s.trim()).filter((s) => s !== ''));
 const chosen = FEATURES.filter((f) => only.size === 0 || only.has(f.id));
+const screens = new Set(settings.HARNESS_UI_VIEWPORTS.split(',').map((s) => s.trim()).filter((s) => s !== ''));
 const base = settings.HARNESS_UI_URL;
 
 const api = await signIn(base, { email: settings.HARNESS_UI_EMAIL, password: settings.HARNESS_UI_PASSWORD });
@@ -85,9 +88,11 @@ for (const f of chosen) { rmSync(join(SHOTS, f.id), { recursive: true, force: tr
 const browser = await puppeteer.launch({ headless: settings.HARNESS_UI_HEADLESS });
 const results: FeatureResult[] = [];
 try {
-  for (const viewport of Object.keys(VIEWPORTS).filter((v): v is ViewportName => v in VIEWPORTS)) {
+  for (const viewport of Object.keys(VIEWPORTS).filter((v): v is ViewportName => v in VIEWPORTS && (screens.size === 0 || screens.has(v)))) {
+    const here = chosen.filter((f) => viewportsOf(f).includes(viewport));
+    if (here.length === 0) { continue; }
     const context = await signedInContext(browser, settings, viewport);
-    for (const f of chosen) {
+    for (const f of here) {
       const own = f.signedOut === true ? await browser.createBrowserContext() : undefined;
       const result = await runOne(f, viewport, own ?? context, base, api, made);
       await own?.close();

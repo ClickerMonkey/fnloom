@@ -25,7 +25,10 @@ const open = defineModel<boolean>('open', { required: true });
 const panel = ref<HTMLElement | null>(null);
 const placed = ref({ left: 0, top: 0, maxWidth: 0, maxHeight: 0, side: props.side });
 const MARGIN = 8;
-/** Placed at least once since opening: until then it is laid out but not shown, so it never jumps into place. */
+/**
+ * Placed at least once since opening: until then it is laid out but see-through and not pressable, so it never jumps
+ * into place. It stays focusable meanwhile (unlike `visibility: hidden`), so focus can move into it as it opens.
+ */
 const ready = ref(false);
 
 const style = computed(() => ({
@@ -34,7 +37,8 @@ const style = computed(() => ({
   maxWidth: `${placed.value.maxWidth}px`,
   maxHeight: `${placed.value.maxHeight}px`,
   minWidth: props.matchWidth && props.anchor ? `${Math.min(props.anchor.offsetWidth, placed.value.maxWidth)}px` : undefined,
-  visibility: ready.value ? undefined : 'hidden' as const,
+  opacity: ready.value ? undefined : 0,
+  pointerEvents: ready.value ? undefined : 'none' as const,
 }));
 
 function reposition(): void {

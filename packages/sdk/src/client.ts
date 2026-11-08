@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import type { DeliveryId, DeliveryStatus, FnError, Json, MentionHover, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
+import type { DeliveryId, DeliveryStatus, FnError, Json, MentionHover, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -98,18 +98,48 @@ export type AttachmentViewOf<S extends AnyContract, K extends keyof S['defs']['a
 /** The props of the input for one of a contract's types. */
 export type InputViewOf<S extends AnyContract, K extends keyof S['defs']['types']> = InputView<ValueOf<S['defs']['types'][K]>> & WithSystem<S['defs']>;
 
+/** A fn's types with its values erased: what the runtime holds once it has decoded a run with the fn's own gin types. */
+type DecodedFn = Omit<UntypedFn, 'args' | 'result' | 'state' | 'form'> & { args: unknown; result: unknown; state: Record<string, unknown>; form: unknown };
+
 /**
- * The views a host (the chat) builds for any system's renderers, with the contract's types erased to JSON. Each is
- * the typed view above at its widest, so a change to a view changes what every host must pass.
+ * The props the runtime mounts a renderer with, for any system, with the contract's types erased. Values are
+ * `unknown`, not JSON: `ClientRuntime` decodes the wire JSON (`WireViews`) with the contract's gin types first (a
+ * timestamp becomes a `Date`), and only its view builders make these. Each is the typed view above at its widest, so
+ * a change to a view changes what the runtime must build.
  */
 export interface AnyViews {
   /** A fn's renderer. `submit` is undefined for a fn that declares no form, as its typed view says. */
-  fn: Omit<FnView<UntypedFn>, 'submit'> & { submit: FnView<UntypedFn>['submit'] | undefined } & WithSystem<ContractShape>;
-  attachment: AttachmentView<Json> & WithSystem<ContractShape>;
+  fn: Omit<FnView<DecodedFn>, 'submit'> & { submit: FnView<DecodedFn>['submit'] | undefined } & WithSystem<ContractShape>;
+  attachment: AttachmentView<unknown> & WithSystem<ContractShape>;
   /** A custom input's extra props; the form adds the `InputView` ones (`modelValue`, `problems`) as it draws. */
   input: WithSystem<ContractShape>;
-  mention: MentionView<Json> & WithSystem<ContractShape>;
+  mention: MentionView<unknown> & WithSystem<ContractShape>;
   resource: ResourceView & WithSystem<ContractShape>;
+}
+
+/**
+ * What a host (the chat) hands the runtime to build a view: the stored, wire form of every value (JSON), and what
+ * finds the renderer. The runtime decodes the values with the system's gin types into `AnyViews`.
+ */
+export interface WireViews {
+  fn: Omit<FnView<UntypedFn>, 'submit' | 'state'> & { fn: QualifiedName; kind: QualifiedName | undefined; state: Readonly<Record<string, Json>> };
+  attachment: AttachmentView<Json> & { attachment: QualifiedName };
+  mention: Omit<MentionView<Json>, 'type'> & { provider: QualifiedName };
+}
+
+/** A renderer and the props the runtime built for it. */
+export interface Mount<K extends keyof AnyViews> {
+  readonly component: Component;
+  readonly props: AnyViews[K];
+}
+
+/**
+ * A custom input as a form mounts it: its component and system, how a stored (JSON) value reads into what the input
+ * edits, and how an edited value writes back to JSON (undefined when it doesn't fit the type).
+ */
+export interface InputMount extends Mount<'input'> {
+  decode(value: Json | undefined): unknown;
+  encode(value: unknown): Json | undefined;
 }
 
 /** A system's renderers, typed by its contract. Every renderer also gets `system` to send its system actions. */

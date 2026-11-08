@@ -752,19 +752,23 @@ types derived from it**. See [Library map](#g/library-map) for the exact mapping
 ## Library asks
 
 What @aeye and @ayepi don't do yet that harness needs. Each gets fixed in the library itself, in the local
-checkout harness links to, so no publish is needed. (zod 4.6 already covers JSON schema → zod.)
+checkout harness links to, so no publish is needed.
 
-- **ayepi core: two-way calls on one socket.** A supported "peer" mode instead of the harness envelope.
+Done, on the libraries' `harness` branches:
+
+- **ayepi core: two-way calls on one socket** (peers, and a client that serves calls).
+- **ayepi rate: weighted hits**, so a limit counts dollars or tokens, not just calls.
+- **ayepi work: cancel** for queued and running work, and **sqlite ports** (`Queue`, `Store`, `PubSub`, a rate store).
+- **ayepi mcp: resources, prompts, Streamable HTTP**, a tool list that follows hot installs, and an **MCP client**.
+- **aeye gin: static inference** from the builders, so `g` is gin's own builder.
+- **aeye resources: stable section ids** and TS import resolution (extensions and index files).
+- **JSON schema → zod:** zod 4.6's `fromJSONSchema` covers it; the SDK's LLM wire uses it.
+
+Still open:
+
 - **ayepi core: binary frames** (MessagePack or CBOR) for the ws protocol.
-- **ayepi rate: weighted hits**, so a limit can count dollars or tokens, not just calls.
-- **ayepi work: cancel** for queued and running work, and **sqlite ports** (`Queue`, `Store`, `PubSub`).
-- **ayepi mcp: resources, prompts, Streamable HTTP**, a tool list that follows hot installs, and an **MCP
-  client** (for the bridge system).
-- **ayepi: web push** (VAPID).
-- **aeye core: JSON schema → zod**, so forwarded tool schemas can be rebuilt on the hub.
-- **aeye resources: stable section ids**, a folder resolver, and TS import resolution (extensions and
-  index files).
-- **aeye gin: static inference** (`Infer<>` from builders), so the harness `g` wrapper isn't needed.
+- **ayepi: web push** (VAPID). The hub uses the `web-push` package directly for now.
+- **aeye resources: a folder resolver.**
 
 ## Later
 
@@ -790,6 +794,18 @@ checkout harness links to, so no publish is needed. (zod 4.6 already covers JSON
      every screen size, from a phone up. Its feature list starts from what the chats in aeye's Cletus and in
      product already do, rebuilt in Vue.
 3. Tests throughout: unit tests with injected seams, no live network.
+
+Status (2026-11-07): steps 1 to 3 are built and run together (`npm run dev`).
+
+- **Library prep:** done. zod 4.6.7 in aeye, ayepi and harness; two-way calls, weighted rate hits, work cancel
+  and sqlite ports, MCP resources/prompts/HTTP/client in ayepi; gin's typed builders and resources' section ids and
+  import resolution in aeye. What is still open is under [Library asks](#library-asks).
+- **First milestone:** the hub core, the SDK, the fs and embedder systems and the Vue chat and admin app are built.
+  The chat agent streams answers, reads and searches files, runs commands with approval, suggests fns and context
+  from the embedded message, and shows every run and LLM call live in its tree.
+- **Tests:** unit and web tests (`npm test`, with coverage), minimal live tests on a free OpenRouter model and the
+  local embedder (`npm run test:live`), the end-to-end suite over the real stack (`npm run e2e`), and a puppeteer
+  script per UI feature at every screen size (`npm run ui-tests`).
 
 ## Risks and proofs of concept
 

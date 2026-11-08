@@ -98,7 +98,7 @@ describe('pairing with a token', () => {
     expect(rig.bus.of('pairing').map((e) => e.pairing.status)).toEqual(['pending', 'approved', 'expired']);
     await settle(5);
     expect(system.paired).toEqual([reply.pairing]);
-    expect((await rig.store.table('systems').get('shop'))?.pairedBy).toBe(ADMIN);
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.pairedBy).toBe(ADMIN);
 
     const other = new FakeSystem(rig.app, 'other', shopManifest);
     other.open();
@@ -121,11 +121,11 @@ describe('re-keying with a token', () => {
     impostor.open();
     const general = await rig.pairing.createToken({ expiresIn: 30_000, by: ADMIN });
     expect(await statusOf(impostor.hello(general.token))).toEqual({ status: 403, code: 'TOKEN_NOT_FOR_SYSTEM' });
-    expect((await rig.store.table('systems').get('shop'))?.publicKey).toBe(system.keys.publicKey);
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.publicKey).toBe(system.keys.publicKey);
 
     const named = await rig.pairing.createToken({ name: SHOP, expiresIn: 30_000, by: ADMIN });
     expect(await impostor.hello(named.token)).toMatchObject({ kind: 'pairing' });
-    expect((await rig.store.table('systems').get('shop'))?.publicKey).toBe(impostor.keys.publicKey);
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.publicKey).toBe(impostor.keys.publicKey);
   });
 });
 
@@ -154,7 +154,7 @@ describe('the handshake', () => {
     const system = new FakeSystem(rig.app, 'shop', shopManifest);
     await pairDirectly(rig, system);
     await system.start();
-    const record = await rig.store.table('systems').get('shop');
+    const record = await rig.store.table('systems').get(SystemName.parse('shop'));
     expect(record).toMatchObject({ status: 'needs-config', manifestHash: shopManifest.hash, description: 'A small shop.', address: '10.0.0.7' });
     expect(await rig.catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'system-needs-config' });
     expect(rig.links.connection(SHOP)?.instance).toBe('i-1');
@@ -163,7 +163,7 @@ describe('the handshake', () => {
     expect(await rig.config.set(SHOP, { currency: 'EUR' }, ADMIN)).toEqual({ version: 1 });
     await settle(5);
     expect(system.configured).toEqual([{ value: { currency: 'EUR' }, version: 1 }]);
-    expect((await rig.store.table('systems').get('shop'))?.status).toBe('connected');
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.status).toBe('connected');
     expect(await rig.catalog.availability(q('shop/get'))).toBe(true);
     expect(rig.bus.of('system.status').map((s) => s.status)).toEqual(['needs-config', 'connected']);
 
@@ -193,7 +193,7 @@ describe('the handshake', () => {
     const system = new FakeSystem(rig.app, 'vectors', await manifestFor(vectors));
     await pairDirectly(rig, system);
     await system.start();
-    expect((await rig.store.table('systems').get('vectors'))?.status).toBe('connected');
+    expect((await rig.store.table('systems').get(SystemName.parse('vectors')))?.status).toBe('connected');
     expect(system.configured).toEqual([{ value: {}, version: 1 }]);
   });
 
@@ -204,7 +204,7 @@ describe('the handshake', () => {
     await rig.config.set(SHOP, { currency: 'EUR' }, ADMIN);
     system.drop();
     await settle(5);
-    expect((await rig.store.table('systems').get('shop'))?.status).toBe('disconnected');
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.status).toBe('disconnected');
     expect(await rig.catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'system-disconnected' });
 
     const waiting = rig.links.whenConnected(SHOP);
@@ -213,14 +213,14 @@ describe('the handshake', () => {
     const welcome = await system.connect();
     expect(welcome).toMatchObject({ sendManifest: false, start: { first: false, upgradedFrom: '1.0.0' }, config: { value: { currency: 'EUR' }, version: 1 } });
     expect((await waiting).instance).toBe('i-2');
-    expect((await rig.store.table('systems').get('shop'))?.status).toBe('connected');
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.status).toBe('connected');
   });
 
   it('asks for the manifest again when some of it was refused', async () => {
     const system = new FakeSystem(rig.app, 'shop', { ...shopManifest, fns: [...shopManifest.fns, { ...declOf(shopManifest, 'get'), name: 'bad', args: wireType(g.text()), returns: { name: 'nothing-here' } }] });
     await pairDirectly(rig, system);
     await system.start();
-    expect((await rig.store.table('systems').get('shop'))?.manifestHash).toBe('');
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.manifestHash).toBe('');
   });
 
   it('refuses a manifest for another system', async () => {
@@ -236,7 +236,7 @@ describe('the handshake', () => {
     await system.start();
     const report = await system.sdk.call('patch', { hash: 'h2', upsert: {}, remove: { fns: ['list'] } });
     expect(report.removed).toEqual(['shop/list']);
-    expect((await rig.store.table('systems').get('shop'))?.manifestHash).toBe('h2');
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.manifestHash).toBe('h2');
   });
 });
 
@@ -270,7 +270,7 @@ describe('switches and removal', () => {
 
     expect(await rig.admin.remove(vectorsName, ADMIN)).toEqual({ fnsUnavailable: 1 });
     expect(system.stops).toEqual(['removed']);
-    expect((await rig.store.table('systems').get('vectors'))?.status).toBe('removed');
+    expect((await rig.store.table('systems').get(SystemName.parse('vectors')))?.status).toBe('removed');
     expect(await rig.catalog.availability(q('vectors/ping'))).toMatchObject({ unavailable: 'system-removed' });
     // a removed name pairs again
     expect(await system.hello()).toMatchObject({ kind: 'pairing' });
@@ -423,7 +423,7 @@ describe('connections', () => {
     first.drop();
     await settle(5);
     expect(rig.links.connected().map((c) => c.instance)).toEqual(['i-2']);
-    expect((await rig.store.table('systems').get('vectors'))?.status).toBe('connected');
+    expect((await rig.store.table('systems').get(SystemName.parse('vectors')))?.status).toBe('connected');
   });
 
   it('stops waiting for a system when asked', async () => {

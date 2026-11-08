@@ -6,7 +6,7 @@
  * same address, and the same values in the page's fields and tabs.
  */
 import type { Page } from 'puppeteer';
-import { check, feature, isPhone, open, settle, type FeatureContext } from '../kit.ts';
+import { check, feature, hasListColumn, open, settle, type FeatureContext } from '../kit.ts';
 
 /** What a page shows of its state: the values in its fields, and which tabs and segments are chosen. */
 function stateOf(page: Page): Promise<string> {
@@ -94,8 +94,8 @@ export default feature({
     await survivesReload(ctx, 'the inbox unread filter', 'main');
     await ctx.shot('inbox-unread');
 
-    // the chat list: its search and its Archived view (the list is the page on a phone, a column on a desktop)
-    await open(ctx, isPhone(ctx) ? '/chat' : `/chat/${fixtures.session}`, 'main');
+    // the chat list: its search and its Archived view (a column beside the chat from 1100px; narrower, the page itself)
+    await open(ctx, hasListColumn(ctx) ? `/chat/${fixtures.session}` : '/chat', 'main');
     await typeInto(page, 'Search chats', 'UI');
     await urlHas(page, 'q', 'UI', 'the chat search');
     await page.click('[aria-label="Which chats"] ::-p-aria([name="Archived"][role="radio"])');

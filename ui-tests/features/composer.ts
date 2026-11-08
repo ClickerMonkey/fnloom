@@ -1,5 +1,5 @@
 /** The composer (chat-features 5.1, 5.11, 5.12): it grows with its text, keeps a draft across reloads, and shows its meta row. */
-import { check, clearComposer, compose, feature, find, isPhone, openSession, tid } from '../kit.ts';
+import { check, clearComposer, compose, feature, find, isTouch, openSession, tid } from '../kit.ts';
 
 export default feature({
   id: 'composer', ref: 'chat-features 5.1, 5.11, 5.12', title: 'Growing input, drafts and the meta row',
@@ -11,7 +11,7 @@ export default feature({
     await page.type(tid('composer-input'), 'line one');
     for (let i = 2; i <= 5; i++) {
       // on touch Enter breaks the line; on a keyboard it sends, so Shift+Enter breaks it
-      if (isPhone(ctx)) { await page.keyboard.press('Enter'); } else { await page.keyboard.down('Shift'); await page.keyboard.press('Enter'); await page.keyboard.up('Shift'); }
+      if (isTouch(ctx)) { await page.keyboard.press('Enter'); } else { await page.keyboard.down('Shift'); await page.keyboard.press('Enter'); await page.keyboard.up('Shift'); }
       await page.keyboard.type(`line ${i}`);
     }
     const after = await page.$eval(tid('composer-input'), (el) => el.getBoundingClientRect().height);

@@ -4,7 +4,7 @@
  * only its owner changes it (anyone in it picks their own notify choice).
  */
 import {
-  ACTIVE_RUN_STATUSES, IDS, SessionSummary, compositeKey, isUnsettled, mintId, type ActorId, type ChatMessage, type ModelChoice, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
+  ACTIVE_RUN_STATUSES, IDS, SessionSummary, isUnsettled, mintId, type ActorId, type ChatMessage, type ModelChoice, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
   type Run, type Session, type SessionControls, type SessionId, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
@@ -143,7 +143,7 @@ export class StoreSessionService implements SessionService {
       for (const message of await readAll(tx.table('messages'), { where: { session: id } }, MAX_DELETED)) { if (await tx.table('messages').remove(message.id)) { count++; } }
       for (const delivery of await readAll(tx.table('deliveries'), { where: { session: id } }, MAX_DELETED)) { await tx.table('deliveries').remove(delivery.id); }
       for (const field of await readAll(tx.table('stateFields'), { where: { session: id } }, MAX_DELETED)) {
-        await tx.table('stateFields').remove(compositeKey(field.session, field.system, field.name, field.type));
+        await tx.table('stateFields').remove(field);
       }
       await tx.table('priorityRules').remove(sessionPriorityRule(id));
       await tx.table('sessions').remove(id);

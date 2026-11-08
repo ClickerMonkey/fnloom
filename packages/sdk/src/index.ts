@@ -7,7 +7,7 @@ export { ACTIVE_RUN_STATUSES, SETTLED_RUN_STATUSES, isSettled, isUnsettled, type
 /** Status words: core's templates, typed against a fn's args and result. */
 export { DEFAULT_STATUS, type StatusTemplates, type StatusForms, type RunPhase } from '@harness/core';
 export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens, PathsOf, TokensOf } from './status.ts';
-export { g, json, wireType, parseValue, encodeValue, referencesOf, type GinType, type Infer } from './gin.ts';
+export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, type GinType, type Infer, type LoadedTypes } from './gin.ts';
 export { ginOf, toolArgsOf } from './zod-gin.ts';
 export {
   fn, handler, linear, steps, noProgress, progressDecl, kindFn,
@@ -27,8 +27,8 @@ export type {
   SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, EmbedderRef, SectionerRef, ActionRef,
 } from './refs.ts';
 export {
-  Suspended, CallFailed,
-  type Llm, type Files, type Resources, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
+  Suspended, CallFailed, HandlerFailed,
+  type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type AskerCtx, type ActionCtx, type RunStatusView,
 } from './ctx.ts';
 export type { FnImpl } from './impl.ts';
@@ -44,6 +44,6 @@ export { manifestOf, manifestBody, fnDecl, canonicalJson, sha256, type ManifestO
 export {
   client, RESOURCE_VIEWER,
   type Renderer, type Delivery, type FnView, type SystemClient, type WithSystem, type AttachmentView, type InputView, type MentionView, type ResourceView,
-  type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type ClientRenderers, type ClientModule, type ResourceViewerProps,
+  type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type WireViews, type Mount, type InputMount, type ClientRenderers, type ClientModule, type ResourceViewerProps,
 } from './client.ts';
 export { expectType, type Equal, type Simplify } from './util.ts';

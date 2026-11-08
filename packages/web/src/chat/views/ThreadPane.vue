@@ -28,6 +28,7 @@ import HoverCard from '../components/HoverCard.vue';
 import InvocationForm from '../components/InvocationForm.vue';
 import NoteRow from '../components/NoteRow.vue';
 import PendingAnswer from '../components/PendingAnswer.vue';
+import PendingMessage from '../components/PendingMessage.vue';
 import Starters from '../components/Starters.vue';
 import TurnNotice from '../components/TurnNotice.vue';
 import type { ApprovalView, ComposerHandle, HeaderAction, MessageAction, RenderView, ScrollerHandle, Starter } from '../components/types.ts';
@@ -59,7 +60,7 @@ const emit = defineEmits<{
   panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: []; remove: [];
 }>();
 
-const { chat, toasts, session: auth } = useStores();
+const { chat, toasts, session: auth, connection } = useStores();
 const router = useRouter();
 const thread = chat.thread(props.session);
 const composer = chat.composer(props.session);
@@ -479,6 +480,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         <NoteRow v-else :message="item.message" :undone="item.undone" :flash="flash === item.message.id" />
       </template>
       <template #foot>
+        <PendingMessage v-if="thread.pending.value" :parts="thread.pending.value.parts" :command-name="commandName" :queued="connection.state.value === 'offline'" />
         <PendingAnswer v-if="liveTurn !== undefined && !hasAnswer && liveLine" :author-name="agent" :line="liveLine" @tree="liveTurn && emit('tree', liveTurn)" />
         <TurnNotice v-if="thread.failures.value > 0 && !thread.running.value" :reason="failedReason" :failures="thread.failures.value" @retry="retryLast" @fresh="emit('newChat')" />
         <p v-if="thread.typing.value.length > 0" class="typing-others" data-testid="others-typing">{{ thread.typing.value.length === 1 ? `${nameOf(thread.typing.value[0]?.user ?? '')} is typing…` : 'Several people are typing…' }}</p>

@@ -9,6 +9,7 @@ import {
   Approval, ChatCapabilities, ChatMessage, LlmInteraction, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, type Json, type MessagePart, type OutgoingPart,
   type QualifiedName, type RunUpdate, type SessionEvent, type SessionId, type SessionSummary, type TreeNode, type TurnId,
 } from '@harness/core';
+import type { z } from 'zod';
 import { summaryOf as summary } from '../src/chat/state/sessions.ts';
 
 /** Send one event on a session's channel. */
@@ -55,8 +56,9 @@ export class MockChat {
   }
 
   capabilities(): ChatCapabilities {
-    return ChatCapabilities.parse({
-      voiceInput: false, voiceOutput: false, uploads: true,
+    // `satisfies` the schema's input, so a field the schema gains breaks this at compile time, not at the first call
+    const capabilities = {
+      voiceInput: false, voiceOutput: false, uploads: true, display: {},
       mentions: [{ provider: 'fs/files', title: 'Files', of: 'fs/Entry' }],
       methods: [{ type: 'fs/Entry', method: 'reveal', fn: 'fs/Entry.reveal', description: 'Show it in the file manager', args: { name: 'obj', props: { self: { type: { name: 'fs/Entry' } } } } }],
       commands: [
@@ -73,8 +75,9 @@ export class MockChat {
       ],
       clients: [],
       systems: [{ name: 'fs', status: 'connected', enabled: true }, { name: 'embedder', status: 'connected', enabled: true }, { name: 'notes', status: 'disconnected', enabled: true }],
-      models: [{ id: 'meta-llama/llama-3.3-8b-instruct:free', name: 'Llama 3.3 8B (free)' }],
-    });
+      models: [{ id: 'meta-llama/llama-3.3-8b-instruct:free', provider: 'openrouter', name: 'Llama 3.3 8B (free)', contextWindow: 131_072, pricing: { input: 0, output: 0 }, capabilities: ['chat', 'tools'] }],
+    } satisfies z.input<typeof ChatCapabilities>;
+    return ChatCapabilities.parse(capabilities);
   }
 
   list(search: string | undefined, archived: boolean): SessionSummary[] {

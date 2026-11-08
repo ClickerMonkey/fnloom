@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { client, wsTransport } from '@ayepi/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hubWebSpec, type HubWebSpec, type UserEvent } from '@harness/core';
+import { hubWebSpec, SystemName, type HubWebSpec, type OutputLine, type UserEvent } from '@harness/core';
 import { fakeModules, recordingPush, testSettings } from '../api/testing/rig.ts';
 import { memoryLog } from '../testing.ts';
 import type { HubSettings } from './env.ts';
@@ -92,6 +92,18 @@ describe('a running hub', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
       hub.services.bus.publish('capabilities.changed', {});
       await expect(heard).resolves.toEqual({ type: 'capabilities' });
+      // a system's new output reaches the admin log tab live, only on that system's channel
+      const fs = SystemName.parse('fs');
+      const lines: Array<{ system: SystemName; line: OutputLine }> = [];
+      const logged = new Promise<void>((resolve) => {
+        for (const system of [fs, SystemName.parse('shop')]) { sdk.on('systemLog', { system }, (line) => { lines.push({ system, line }); resolve(); }); }
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const line: OutputLine = { at: 1, stream: 'stdout', text: 'info fs.ready' };
+      hub.services.bus.publish('system.output', { system: fs, line });
+      await logged;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(lines).toEqual([{ system: fs, line }]);
     } finally {
       socket.close();
     }

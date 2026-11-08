@@ -10,14 +10,9 @@ import { Loaded } from '../../state/loaded.ts';
 import type { ChatApi } from '../api.ts';
 import { treeCalls } from '../logic/inspect.ts';
 
-/** How long the tree waits after a change before asking again (ms). */
-export const TREE_REFRESH = 400;
-
 /** The run drawer, the turn tree and the LLM call inspector. */
 export class Inspector {
-  readonly #api: Pick<ChatApi, 'run' | 'tree' | 'llmCall' | 'resource'>;
-  readonly #treeDelay: number;
-  #treeTimer: ReturnType<typeof setTimeout> | undefined;
+  readonly #api: Pick<ChatApi, 'run' | 'tree' | 'treeRefresh' | 'llmCall' | 'resource'>;
 
   readonly run = new Loaded<Run>();
   readonly tree = new Loaded<TreeNode>();
@@ -26,9 +21,8 @@ export class Inspector {
   readonly calls = shallowRef<ReadonlyMap<LlmInteractionId, LlmInteraction>>(new Map());
   readonly callProblems = shallowRef<ReadonlyMap<LlmInteractionId, string>>(new Map());
 
-  constructor(api: Pick<ChatApi, 'run' | 'tree' | 'llmCall' | 'resource'>, treeDelay = TREE_REFRESH) {
+  constructor(api: Pick<ChatApi, 'run' | 'tree' | 'treeRefresh' | 'llmCall' | 'resource'>) {
     this.#api = api;
-    this.#treeDelay = treeDelay;
   }
 
   /** Load one run's record for the drawer. */
@@ -50,16 +44,15 @@ export class Inspector {
     await this.tree.load(() => this.#api.tree.call({ turn }), "Couldn't load this turn's tree.");
   }
 
-  /** Ask for the open tree again once changes pause. */
+  /** Ask for the open tree again once changes pause (the `treeRefresh` caller's debounce; the newest ask wins). */
   refreshTree(): void {
     const turn = this.treeTurn.value;
     if (turn === undefined) { return; }
-    clearTimeout(this.#treeTimer);
-    this.#treeTimer = setTimeout(() => { void this.tree.load(() => this.#api.tree.call({ turn }), "Couldn't refresh this turn's tree.", true); }, this.#treeDelay);
+    void this.tree.load(() => this.#api.treeRefresh.call({ turn }), "Couldn't refresh this turn's tree.", true);
   }
 
   closeTree(): void {
-    clearTimeout(this.#treeTimer);
+    this.#api.treeRefresh.cancel();
     this.treeTurn.value = undefined;
     this.tree.reset();
   }
@@ -95,7 +88,7 @@ export class Inspector {
   }
 
   dispose(): void {
-    clearTimeout(this.#treeTimer);
+    this.#api.treeRefresh.cancel();
   }
 }
 

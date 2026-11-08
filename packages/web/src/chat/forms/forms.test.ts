@@ -1,5 +1,6 @@
 import { TypeRecord, type QualifiedName } from '@harness/core';
-import { g, hub, wireType, type GinType } from '@harness/sdk';
+import { client, g, hub, system, type, wireType, type GinType, type InputViewOf } from '@harness/sdk';
+import { ClientRuntime } from '@harness/sdk/client';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -151,7 +152,7 @@ describe('TypeLibrary', () => {
   });
 
   it('enters a named type as its definition, and the hub’s LongText as many lines', async () => {
-    const node = formOf(wireType(g.obj({ text: hub.types.LongText })), '', (name) => LOCAL_TYPES.definition(name));
+    const node = formOf(wireType(g.obj({ text: hub.types.LongText })), '', LOCAL_TYPES);
     const text = node.kind === 'obj' ? node.fields[0]?.node : undefined;
     expect(text).toMatchObject({ kind: 'ref', name: 'hub/LongText', inner: { kind: 'text', multiline: true } });
     const form = new FormState(wireType(g.obj({ text: hub.types.LongText })));
@@ -213,11 +214,31 @@ describe('GinForm', () => {
     expect(form.emitted('submit')?.[0]).toEqual([{ tags: ['urgent'], limit: 5 }]);
   });
 
+  it("hands a system's input gin values, and writes its edits back as JSON", async () => {
+    const Stamp = type({ description: 'A stamp.', shape: g.obj({ at: g.timestamp() }), display: { label: 'Stamp' } });
+    const log = system('log', { description: 'A log.' }).with({ types: { Stamp } });
+    const seen: unknown[] = [];
+    const StampInput = defineComponent((props: InputViewOf<typeof log, 'Stamp'>, { emit }) => () => {
+      seen.push(props.modelValue);
+      return h('button', { class: 'stamp', onClick: () => { emit('update:modelValue', { at: new Date('2026-11-08T00:00:00.000Z') }); } }, 'stamp');
+    }, { props: ['modelValue', 'problems', 'system'], emits: ['update:modelValue'] });
+    const runtime = new ClientRuntime({ online: () => true, act: () => Promise.reject(new Error('no')), invoke: () => Promise.reject(new Error('no')), submit: () => Promise.reject(new Error('no')), follow: () => Promise.reject(new Error('no')) });
+    runtime.register(client(log, { inputs: { Stamp: StampInput } }));
+    const form = mount(GinForm, {
+      props: { type: { name: 'obj', props: { stamp: { type: { name: 'log/Stamp' } } } }, initial: { stamp: { at: '2026-11-07T00:00:00.000Z' } } },
+      global: { provide: { [FORM_INPUTS]: (name: string) => (name === 'log/Stamp' ? runtime.inputView('log/Stamp') : undefined) } },
+    });
+    expect(seen.at(-1)).toEqual({ at: new Date('2026-11-07T00:00:00.000Z') });
+    await form.get('.stamp').trigger('click');
+    await form.get('form').trigger('submit');
+    expect(form.emitted('submit')?.[0]).toEqual([{ stamp: { at: '2026-11-08T00:00:00.000Z' } }]);
+  });
+
   it('uses a system’s own input for its named types', () => {
     const EntryInput = defineComponent({ props: { modelValue: { type: null, default: undefined }, problems: { type: Array, default: () => [] } }, setup: () => () => h('div', { class: 'entry-input' }, 'pick an entry') });
     const form = mount(GinForm, {
       props: { type: { name: 'obj', props: { entry: { type: { name: 'fs/Entry' } } } } },
-      global: { provide: { [FORM_INPUTS]: (type: string) => (type === 'fs/Entry' ? { component: EntryInput, props: {} } : undefined) } },
+      global: { provide: { [FORM_INPUTS]: (type: string) => (type === 'fs/Entry' ? { component: EntryInput, props: { system: { online: true, send: {}, run: {} } }, decode: (value: unknown) => value, encode: () => undefined } : undefined) } },
     });
     expect(form.find('.entry-input').exists()).toBe(true);
   });

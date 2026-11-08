@@ -9,6 +9,7 @@ import {
   type SystemLinkSpec,
 } from '@harness/core';
 import { hub, parseValue } from '@harness/sdk';
+import { isHubName } from '../catalog/availability.ts';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import type { MentionAsk, MentionProvider, MentionRequest, MentionService } from './index.ts';
@@ -27,7 +28,7 @@ export class HubMentions implements MentionProvider {
   }
 
   serves(provider: QualifiedName): boolean {
-    return splitName(provider).system === 'hub';
+    return isHubName(provider);
   }
 
   async search(ask: MentionAsk, query: string): Promise<MentionOption[]> {
@@ -115,7 +116,7 @@ export class LinkedMentions implements MentionProvider {
   }
 
   serves(provider: QualifiedName): boolean {
-    return splitName(provider).system !== 'hub';
+    return !isHubName(provider);
   }
 
   async search(ask: MentionAsk, query: string): Promise<MentionOption[]> {

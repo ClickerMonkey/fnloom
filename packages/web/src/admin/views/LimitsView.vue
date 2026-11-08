@@ -6,7 +6,8 @@
 import { ActorId, SessionId, type BudgetRule, type LimitLevel, type PriorityRule } from '@harness/core';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import AppPage from '../../app/AppPage.vue';
-import { useParamChoice, useQueryText } from '../../app/url.ts';
+import { useParamChoice, useRouteQuery } from '../../app/url.ts';
+import { ROUTES } from '../../app/routes.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiEmpty, UiTabs, type TabItem } from '../../ui/index.ts';
 import BudgetDialog from '../components/BudgetDialog.vue';
@@ -27,8 +28,9 @@ const { admin, toasts } = useStores();
 const limits = admin.limits;
 const actors = admin.actors;
 const tab = useParamChoice('tab', LimitsTab, 'budgets');
-const userParam = useQueryText('user');
-const sessionParam = useQueryText('session');
+const query = useRouteQuery(ROUTES.limits);
+const userParam = query.text('user');
+const sessionParam = query.text('session');
 
 const budgetOpen = ref(false);
 const priorityOpen = ref(false);

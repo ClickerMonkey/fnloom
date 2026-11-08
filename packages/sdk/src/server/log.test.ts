@@ -1,18 +1,16 @@
-import { createLogger, type LogRecord } from '@ayepi/log';
+import type { LogLine } from '@harness/core';
 import { describe, expect, it, vi } from 'vitest';
 import { LinkHost, loggedHost } from './host.ts';
-import { errorFieldFilter } from './log.ts';
+import { systemLogger } from './log.ts';
 
 describe('the error field', () => {
-  it('turns a string error field into the serialized shape, and leaves real errors alone', () => {
-    const lines: string[] = [];
-    const records: LogRecord[] = [];
-    const log = createLogger({ level: 'debug', filter: errorFieldFilter, transports: [{ name: 'memory', write: (record, text) => { records.push(record); lines.push(text); } }] });
+  it('sends a string error field and a real error to the hub as their message', () => {
+    const lines: LogLine[] = [];
+    const log = systemLogger({ level: 'debug', json: false, console: 'none', sink: (line) => { lines.push(line); } });
     log.warn('fs.watch.failed', { folder: '/x', error: 'no such folder' });
     log.error('fs.crashed', {}, new Error('boom'));
-    expect(records[0]?.error).toEqual({ name: 'Error', message: 'no such folder' });
-    expect(lines[0]).toContain('error=Error: no such folder');
-    expect(records[1]?.error?.message).toBe('boom');
+    expect(lines[0]).toEqual({ level: 'warn', key: 'fs.watch.failed', fields: { folder: '/x', error: 'no such folder' } });
+    expect(lines[1]?.fields['error']).toBe('boom');
   });
 });
 

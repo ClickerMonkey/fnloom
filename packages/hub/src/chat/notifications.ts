@@ -10,7 +10,7 @@
  * past-tense note of what became of it, so the bell counts only what still needs someone.
  */
 import {
-  argSummary, isSettled, mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationLink, type NotificationReason,
+  argSummary, isSettled, mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationId, type NotificationLink, type NotificationReason,
   type Page, type PairingRequest, type RunId, type RunStatus, type SystemName, type SystemStatus, type Compact, type NotificationListQuery,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
@@ -113,7 +113,7 @@ export class StoreNotifications implements NotificationService {
     });
   }
 
-  async read(user: ActorId, ids: readonly string[]): Promise<number> {
+  async read(user: ActorId, ids: readonly NotificationId[]): Promise<number> {
     const table = this.#deps.store.table('notifications');
     const changed = await Promise.all(ids.map(async (id) => {
       const row = await table.get(id);

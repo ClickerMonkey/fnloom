@@ -8,11 +8,11 @@ import { afterCursor, all, makeCursor, orderBy, orderColumns, whereCondition } f
 import { KEY_COLUMN } from './schema.ts';
 
 /** A table in a scope (the store, or a transaction). */
-export class SqliteTable<Row> implements Table<Row> {
+export class SqliteTable<Row, Key> implements Table<Row, Key> {
   readonly #scope: Scope;
-  readonly #codec: RowCodec<Row>;
+  readonly #codec: RowCodec<Row, Key>;
 
-  constructor(scope: Scope, codec: RowCodec<Row>) {
+  constructor(scope: Scope, codec: RowCodec<Row, Key>) {
     this.#scope = scope;
     this.#codec = codec;
   }
@@ -21,8 +21,8 @@ export class SqliteTable<Row> implements Table<Row> {
     return this.#codec.table;
   }
 
-  async get(key: string): Promise<Row | undefined> {
-    const cells = await this.#read(this.#scope, key);
+  async get(key: Key): Promise<Row | undefined> {
+    const cells = await this.#read(this.#scope, this.#codec.storedKey(key));
     return cells === undefined ? undefined : this.#codec.decode(cells);
   }
 
@@ -69,7 +69,8 @@ export class SqliteTable<Row> implements Table<Row> {
     return encoded.row;
   }
 
-  async update(key: string, patch: Partial<Row>): Promise<Row> {
+  async update(input: Key, patch: Partial<Row>): Promise<Row> {
+    const key = this.#codec.storedKey(input);
     return this.#scope.atomic(async (scope) => {
       const cells = await this.#read(scope, key);
       if (cells === undefined) throw new StoreError('missing', `table ${this.name} has no ${key}`);
@@ -81,8 +82,8 @@ export class SqliteTable<Row> implements Table<Row> {
     });
   }
 
-  async remove(key: string): Promise<boolean> {
-    const result = await this.#scope.db.deleteFrom(this.name).where(KEY_COLUMN, '=', key).executeTakeFirst();
+  async remove(key: Key): Promise<boolean> {
+    const result = await this.#scope.db.deleteFrom(this.name).where(KEY_COLUMN, '=', this.#codec.storedKey(key)).executeTakeFirst();
     return result.numDeletedRows > 0n;
   }
 

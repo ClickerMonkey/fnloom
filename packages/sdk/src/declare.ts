@@ -7,6 +7,7 @@ import type {
   ActorKind, Audience, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat, Section, SectionKey,
   SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
 } from '@harness/core';
+import { sectionKeys as structuralKeys } from '@aeye/resources/section-keys';
 import { SectionKey as SectionKeySchema } from '@harness/core';
 import type { ActionCtx, AskerCtx, FnCall, FnCtx, SystemCtx, UndoCtx } from './ctx.ts';
 import type { FnTypes, Outcome, UntypedFn } from './fn.ts';
@@ -311,17 +312,12 @@ export function sectioner(def: { description: string; match: SectionMatch }): Se
 export type SectionerImpl = (text: string, stat: ResourceStat) => Promise<Section[]>;
 
 /**
- * Make section keys from outline paths, in document order. Each key is the path joined with ` > `; a path seen
- * before gets `~2`, `~3` so keys stay unique while still coming from structure.
+ * Make section keys from outline paths, in document order, by `@aeye/resources`' rules (the same keys its markdown
+ * and code slicers give): each key is the path joined with ` > `, `(root)` for an empty path, and a path seen before
+ * gets ` ~2`, ` ~3` so keys stay unique while still coming from structure.
  */
 export function sectionKeys(paths: readonly (readonly string[])[]): SectionKey[] {
-  const seen = new Map<string, number>();
-  return paths.map((path) => {
-    const base = path.join(' > ') || '(root)';
-    const count = (seen.get(base) ?? 0) + 1;
-    seen.set(base, count);
-    return SectionKeySchema.parse(count === 1 ? base : `${base} ~${count}`);
-  });
+  return structuralKeys(paths).map((key) => SectionKeySchema.parse(key));
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────

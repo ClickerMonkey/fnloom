@@ -112,7 +112,7 @@ function byScore(items: Iterable<SuggestionItem>): SuggestionItem[] {
   return [...items].sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
 }
 
-/** A match score as people read it: `0.873` → "87%". */
+/** A match score (the index's relevance, 0 to 1: 1 is the top of every list it searched) as people read it: `0.873` → "87%". */
 export function scoreText(score: number): string {
   return `${Math.round(Math.min(1, Math.max(0, score)) * 100)}%`;
 }

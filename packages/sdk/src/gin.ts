@@ -5,7 +5,7 @@
  * references (`references`). Named types a contract declares are registered in `g`, so they serialize by name.
  */
 import { createRegistry, type Infer, type Registry, type Type } from '@aeye/gin';
-import { GinTypeDef, Json, QualifiedName } from '@harness/core';
+import { GinTypeDef, Json, QualifiedName, type TypeDefinitions } from '@harness/core';
 
 /** The gin type builder: gin's registry, shared by every contract in this process. */
 export const g: Registry = createRegistry();
@@ -46,4 +46,28 @@ export function encodeValue<T>(type: GinType<T>, value: T): Json {
  */
 export function referencesOf(type: GinType): QualifiedName[] {
   return QualifiedName.array().parse(type.references().refs);
+}
+
+/** Named types loaded from the hub's definitions (`ctx.types.definitions`), as live gin types. */
+export interface LoadedTypes {
+  /** The gin type of a named type that loaded, ready to parse and encode values; `undefined` when it didn't. */
+  get(name: QualifiedName): GinType | undefined;
+  /** The names asked for (or referred to) that the hub doesn't know. */
+  readonly missing: readonly QualifiedName[];
+}
+
+/**
+ * Parse the hub's type definitions as gin types. The hub sends them dependencies first, so each is bound in a gin scope
+ * overlay on `g` before anything that refers to it; nothing is registered process-wide. Throws a gin error when a
+ * definition is invalid.
+ */
+export function loadTypes(definitions: TypeDefinitions): LoadedTypes {
+  const scope = g.scope();
+  const loaded = new Map<QualifiedName, GinType>();
+  for (const record of definitions.types) {
+    const type = scope.parse(record.def);
+    scope.bind(record.name, type);
+    loaded.set(record.name, type);
+  }
+  return { get: (name) => loaded.get(name), missing: definitions.missing };
 }

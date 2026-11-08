@@ -110,11 +110,11 @@ describe('installing', () => {
         [SYSTEM_ENV.supervised]: 'true', [SYSTEM_ENV.restartCode]: String(RESTART_CODE),
       },
     });
-    expect((await rig.store.table('systems').get('shop'))?.pairedBy).toBe(ADMIN);
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.pairedBy).toBe(ADMIN);
 
     // the process connects with the key the hub made; its config was waiting for its contract
     const system = await connectInstalled(await manifestFor(shop));
-    expect((await rig.store.table('systems').get('shop'))).toMatchObject({ status: 'connected', config: { value: { currency: 'EUR' } } });
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))).toMatchObject({ status: 'connected', config: { value: { currency: 'EUR' } } });
     expect(system.configured).toEqual([{ value: { currency: 'EUR' }, version: 1 }]);
     expect((await sup.list())[0]).toMatchObject({ status: 'running', goodVersion: '1.0.0' });
   });
@@ -230,7 +230,7 @@ describe('running', () => {
     launcher.last.exit(0);
     await stop;
     expect(await sup.list()).toEqual([]);
-    expect((await rig.store.table('systems').get('shop'))?.status).toBe('removed');
+    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.status).toBe('removed');
     await expect(sup.start(SHOP)).rejects.toMatchObject({ status: 404, code: 'NOT_INSTALLED' });
   });
 });

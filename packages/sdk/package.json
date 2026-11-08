@@ -15,6 +15,7 @@
     "@aeye/ai": "file:../../../aits/packages/ai",
     "@aeye/core": "file:../../../aits/packages/core",
     "@aeye/gin": "file:../../../aits/packages/gin",
+    "@aeye/resources": "file:../../../aits/packages/resources",
     "@ayepi/core": "file:../../../ayepi/packages/core",
     "@ayepi/env": "file:../../../ayepi/packages/env",
     "@ayepi/log": "file:../../../ayepi/packages/log",

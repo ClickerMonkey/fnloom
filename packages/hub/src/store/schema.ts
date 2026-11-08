@@ -7,7 +7,7 @@
  * The same derivation runs at the type level (`ScalarKey`), so a filter, an order or an index on a field that isn't
  * a scalar column of the row doesn't compile, and renaming a field in core breaks every index declared on it.
  */
-import { HUB_TABLES, type RowOf, type TableName } from '@harness/core';
+import { HUB_TABLES, type KeyOf, type RowOf, type TableName } from '@harness/core';
 import { z } from 'zod';
 import type { RowDef } from './codec.ts';
 import { StoreError } from './errors.ts';
@@ -16,7 +16,7 @@ import { StoreError } from './errors.ts';
 export const ColumnKind = z.enum(['text', 'integer', 'real', 'bool', 'json']);
 export type ColumnKind = z.infer<typeof ColumnKind>;
 
-/** The column that holds a row's key (`TableDef.key`). Never a row field. */
+/** The column that holds a row's stored key (`TableDef.rowKey`). Never a row field. */
 export const KEY_COLUMN = '_key';
 
 /**
@@ -33,10 +33,10 @@ export type ScalarKey<Row> = {
   string;
 
 /**
- * Every table's definition, by name, typed by its row: `TABLE_DEFS[name]` is a `RowDef<RowOf<K>>` even when `name`
+ * Every table's definition, by name, typed by its row and key: `TABLE_DEFS[name]` is a `RowDef<RowOf<K>, KeyOf<K>>` even when `name`
  * is a generic `K`, which indexing `HUB_TABLES` itself can't give.
  */
-export type TableDefs = { readonly [K in TableName]: RowDef<RowOf<K>> };
+export type TableDefs = { readonly [K in TableName]: RowDef<RowOf<K>, KeyOf<K>> };
 export const TABLE_DEFS: TableDefs = HUB_TABLES;
 
 /** Whether a string names a table. */

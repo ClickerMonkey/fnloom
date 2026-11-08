@@ -12,8 +12,9 @@ import { navEntries } from './nav.ts';
 import { createAppRouter } from './router.ts';
 import { links, notificationTarget, ROUTES, safeNext } from './routes.ts';
 import { useChatUrl } from '../chat/url.ts';
-import { useParamChoice, useQueryChoice, useQueryDraft, useQueryText } from './url.ts';
+import { useParamChoice, useRouteQuery } from './url.ts';
 import { resyncOnReconnect } from './wire.ts';
+import { isRefusedFrame } from '../api/client.ts';
 import { DesignSection } from './routes.ts';
 
 /** Size the window as a phone or a desktop through happy-dom's own viewport; media queries follow it. */
@@ -53,16 +54,35 @@ describe('routes', () => {
     expect(await at({ session: 'ses_1' })).toMatchObject({ name: ROUTES.session, params: { session: 'ses_1' } });
     expect(await at({ system: 'fs' })).toMatchObject({ name: ROUTES.system, params: { name: 'fs' } });
     expect(await at({ pairing: 'par_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'par_1' } });
-    expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.inbox, query: { approval: 'apr_1' } });
+    expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.runs, query: { status: 'awaiting-approval' } });
     expect(await at({ run: 'run_1' })).toEqual({ name: ROUTES.runs, query: { run: 'run_1' } });
     expect(await at({ run: 'run_chat' })).toEqual({ name: ROUTES.session, params: { session: 'ses_9' } });
     expect(await notificationTarget(NotificationLink.parse({ run: 'run_x' }), () => Promise.reject(new Error('gone')))).toEqual({ name: ROUTES.runs, query: { run: 'run_x' } });
+  });
+
+  it('writes only the keys a page declares, checked with their schemas', () => {
+    expect(links.runs({ status: 'failed', fn: 'fs/*' })).toEqual({ name: ROUTES.runs, query: { status: 'failed', fn: 'fs/*' } });
+    expect(links.llmCalls({ call: LlmInteractionId.parse('llm_1') })).toEqual({ name: ROUTES.llmCalls, query: { call: 'llm_1' } });
+    expect(links.systems()).toEqual({ name: ROUTES.systems });
+    // @ts-expect-error a key the runs page doesn't read
+    expect(() => links.runs({ approval: 'apr_1' })).not.toThrow();
+    // @ts-expect-error a status runs don't have
+    expect(() => links.runs({ status: 'bogus' })).toThrow();
   });
 
   it('leaves defaults out of links', () => {
     expect(links.inbox()).toEqual({ name: ROUTES.inbox });
     expect(links.inbox('unread')).toEqual({ name: ROUTES.inbox, query: { filter: 'unread' } });
     expect(links.signIn()).toEqual({ name: ROUTES.signIn });
+  });
+});
+
+describe('a refused token', () => {
+  it('is seen in a ws call the hub answered 401, and nowhere else', () => {
+    expect(isRefusedFrame(JSON.stringify({ id: 'c1', $status: 401, $error: 'sign in again' }))).toBe(true);
+    expect(isRefusedFrame(JSON.stringify({ id: 'c1', $status: 200, data: { text: '"$status":401' } }))).toBe(false);
+    expect(isRefusedFrame(JSON.stringify({ id: 'c2', $status: 403 }))).toBe(false);
+    expect(isRefusedFrame('{"$status":401')).toBe(false);
   });
 });
 
@@ -147,7 +167,7 @@ describe('url state', () => {
   }
 
   it('reads and writes a query choice and a param choice through their schemas', async () => {
-    const { router, got } = await probe('/design/overlays?filter=bogus', () => ({ filter: useQueryChoice('filter', InboxFilter, 'all'), section: useParamChoice('section', DesignSection, 'actions') }));
+    const { router, got } = await probe('/design/overlays?filter=bogus', () => ({ filter: useRouteQuery(ROUTES.inbox).choice('filter', InboxFilter, 'all'), section: useParamChoice('section', DesignSection, 'actions') }));
     expect(got.filter.value).toBe('all');
     expect(got.section.value).toBe('overlays');
     got.filter.value = 'unread';
@@ -162,12 +182,12 @@ describe('url state', () => {
   });
 
   it('writes free text to the query, replacing the entry (or pushing one), and leaves empty text out', async () => {
-    const { router, got } = await probe('/admin/runs?status=failed#top', () => ({ q: useQueryText('q'), open: useQueryText('run', { push: true }) }));
-    got.q.value = 'bash';
+    const { router, got } = await probe('/admin/runs?status=failed#top', () => ({ fn: useRouteQuery(ROUTES.runs).text('fn'), open: useRouteQuery(ROUTES.runs).text('run', { push: true }) }));
+    got.fn.value = 'bash';
     await flushPromises();
-    expect(router.currentRoute.value.query).toEqual({ status: 'failed', q: 'bash' });
+    expect(router.currentRoute.value.query).toEqual({ status: 'failed', fn: 'bash' });
     expect(router.currentRoute.value.hash).toBe('#top');
-    got.q.value = '';
+    got.fn.value = '';
     await flushPromises();
     expect(router.currentRoute.value.query).toEqual({ status: 'failed' });
     got.open.value = 'run_1';
@@ -181,7 +201,7 @@ describe('url state', () => {
   it('follows a typed draft into the URL once typing pauses, and the URL back into the draft', async () => {
     vi.useFakeTimers();
     try {
-      const { router, got } = await probe('/admin/resources?q=old', () => useQueryDraft('q', 300));
+      const { router, got } = await probe('/admin/resources?q=old', () => useRouteQuery(ROUTES.resources).draft('q', 300));
       expect(got.draft.value).toBe('old');
       got.draft.value = 'ne';
       await flushPromises();

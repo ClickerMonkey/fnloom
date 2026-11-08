@@ -5,7 +5,7 @@
  * size), it is words alone. Results can be limited to some systems.
  */
 import type { Logger } from '@ayepi/log';
-import { compositeKey, type IndexedKind, type QualifiedName, type SearchHit, type SystemName } from '@harness/core';
+import { type IndexedKind, type QualifiedName, type SearchHit, type SystemName } from '@harness/core';
 import { messageOf } from '../catalog/scope.ts';
 import type { FusedHit, HybridQuery, HybridSearch } from '../store/hybrid.ts';
 import type { HubStore } from '../store/index.ts';
@@ -42,7 +42,7 @@ export class IndexSearch implements Search {
     const allowed = filtered ? new Set<string>(query.systems) : undefined;
     const out: SearchHit[] = [];
     for (const hit of hits) {
-      const row = await store.table('index').get(compositeKey(document, hit.kind, hit.key));
+      const row = await store.table('index').get({ embedder: document, kind: hit.kind, key: hit.key });
       if (row === undefined || (allowed !== undefined && (row.system === undefined || !allowed.has(row.system)))) { continue; }
       out.push({ kind: hit.kind, key: hit.key, score: hit.score, text: row.text });
       if (out.length >= query.limit) { break; }

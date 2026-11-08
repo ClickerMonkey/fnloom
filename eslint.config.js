@@ -45,6 +45,11 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-unused-expressions': 'off', '@typescript-eslint/require-await': 'off' },
   },
   {
+    // tests define small stand-in components inline; their props are typed by the setup function's signature
+    files: ['**/*.test.ts'],
+    rules: { 'vue/one-component-per-file': 'off', 'vue/require-prop-types': 'off' },
+  },
+  {
     // the compile-time examples deliberately write mistakes under @ts-expect-error, and values used only as types
     files: ['**/typetests/**'],
     rules: {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTIVE_RUN_STATUSES, DEFAULT_STATUS, HookBlock, MessagePart, RUN_STATUSES, RunText, RunUpdate, SETTLED_RUN_STATUSES, StatusTemplates,
-  countedText, fnLabel, humanize, isSettled, isUnsettled, lowerFirst, phaseOf, resolveStatus, upperFirst,
+  argSummary, clamp, countedText, fnLabel, humanize, isSettled, isUnsettled, lowerFirst, phaseOf, resolveStatus, upperFirst,
   type ActiveRunStatus, type Json, type RunStatus, type SettledRunStatus,
 } from './index.ts';
 
@@ -39,6 +39,29 @@ describe('labels', () => {
     expect(lowerFirst('Read file')).toBe('read file');
     expect(lowerFirst('URL fetch')).toBe('URL fetch');
     expect(upperFirst('read')).toBe('Read');
+  });
+
+  it('sums up the args of a fn by their most telling value', () => {
+    expect(argSummary(undefined)).toBe('');
+    expect(argSummary(null)).toBe('');
+    expect(argSummary('  ls   -la ')).toBe('ls -la');
+    expect(argSummary(42)).toBe('42');
+    expect(argSummary(false)).toBe('false');
+    expect(argSummary([])).toBe('');
+    expect(argSummary(['a'])).toBe('1 item');
+    expect(argSummary(['a', 'b'])).toBe('2 items');
+    expect(argSummary({ depth: 2, path: 'docs/harness.md' })).toBe('docs/harness.md');
+    expect(argSummary({ depth: 2, path: '' })).toBe('depth: 2');
+    expect(argSummary({ nested: { a: 1 }, limit: 5 })).toBe('limit: 5');
+    expect(argSummary({ nested: { a: 1 } })).toBe('');
+    expect(argSummary({ query: 'a'.repeat(80) }, 10)).toBe(`${'a'.repeat(9)}…`);
+  });
+
+  it('clamps on a word boundary when one is near', () => {
+    expect(clamp('short', 10)).toBe('short');
+    expect(clamp('one two three four', 16)).toBe('one two three…');
+    expect(clamp('one abcdefghijklmnop', 12)).toBe('one abcdefg…');
+    expect(clamp('abcdefghijklmnop', 8)).toBe('abcdefg…');
   });
 });
 
@@ -85,6 +108,38 @@ describe('status words', () => {
     expect(say('x'.repeat(100))).toBe(`Loading ${'x'.repeat(59)}…`);
     expect(say({ id: 'run_1' })).toBe('Loading run_1…');
     expect(say({})).toBe('Load…');
+  });
+
+  it('walks paths through objects and lists, and finds nothing past a plain value', () => {
+    const t = StatusTemplates.parse({ ...DEFAULT_STATUS, active: { one: 'Opening {args.files.1.path}…', many: '{n}' } });
+    const say = (args: Json): string => resolveStatus([t], 'active', { fn: 'fs/open', args }).one;
+    expect(say({ files: [{ path: 'a.md' }, { path: 'b.md' }] })).toBe('Opening b.md…');
+    expect(say({ files: [{ path: 'a.md' }] })).toBe('Open…');
+    expect(say({ files: 'a.md' })).toBe('Open…');
+    expect(say({ files: null })).toBe('Open…');
+    expect(say('a.md')).toBe('Open…');
+  });
+
+  it('says nothing for a list whose items say nothing, or for unknown tokens', () => {
+    const t = (one: string): StatusTemplates => StatusTemplates.parse({ ...DEFAULT_STATUS, active: { one, many: '{n}' } });
+    const values = { fn: 'hub/load' as const, args: { items: [null, '', {}], flag: true } };
+    expect(resolveStatus([t('Loading {args.items}…')], 'active', values).one).toBe('Load…');
+    expect(resolveStatus([t('Loading {args.items|things}…')], 'active', values).one).toBe('Loading things…');
+    expect(resolveStatus([t('Loading {state.items}…')], 'active', values).one).toBe('Load…');
+    expect(resolveStatus([t('Flag {args.flag}')], 'active', values).one).toBe('Flag true');
+  });
+
+  it('leaves {n} only in many forms: a one form that counts is skipped', () => {
+    const t = StatusTemplates.parse({ ...DEFAULT_STATUS, active: { one: 'Reading {n} files…', many: 'Reading {n} files…' } });
+    expect(resolveStatus([t], 'active', { fn: 'fs/read', args: {} })).toEqual({ phase: 'active', one: 'Read…', many: 'Read ×{n}…' });
+  });
+
+  it('names a value list of two and of one plainly', () => {
+    const t = StatusTemplates.parse({ ...DEFAULT_STATUS, active: { one: 'Loading {args.items}…', many: '{n}' } });
+    const say = (items: Json): string => resolveStatus([t], 'active', { fn: 'hub/load', args: { items } }).one;
+    expect(say(['a'])).toBe('Loading a…');
+    expect(say(['a', 'b', 'c'])).toBe('Loading a, b and c…');
+    expect(say(['first\nsecond'])).toBe('Loading first…');
   });
 
   it('counts a group with the many form', () => {

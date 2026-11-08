@@ -1,14 +1,15 @@
 /** Message details (chat-features 3.7, 3.8): usage, cost, model and timing, and what the model saw. */
-import { check, count, feature, find, isPhone, openSession, point, settle, tid } from '../kit.ts';
+import { check, count, feature, find, isTouch, openSession, point, settle, tid } from '../kit.ts';
 
 const DETAILS = '[data-testid="assistant-answer"] [data-testid="msg-actions"] [data-action="details"]';
 
 export default feature({
   id: 'message-details', ref: 'chat-features 3.7, 3.8', title: 'Turn details and what the model saw',
+  also: ['wide'],
   async run(ctx) {
     const { page } = ctx;
     await openSession(ctx);
-    if (!isPhone(ctx)) { await point(ctx, tid('assistant-answer')); }
+    if (!isTouch(ctx)) { await point(ctx, tid('assistant-answer')); }
     await page.waitForSelector(DETAILS, { visible: true });
     await page.click(DETAILS);
     await find(page, 'turn-details');

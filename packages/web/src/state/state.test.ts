@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { z } from 'zod';
 import { failingCaller, fakeApi, fakeCaller, fakeConnection, fakeMedia, fakeUserEvents, memoryStore, notification, tokens } from '../test/fakes.ts';
-import { REFRESH_AHEAD, SessionKeeper, SignInForm } from './auth.ts';
+import { BrowserLock, LocalLock, REFRESH_AHEAD, REFRESH_LOCK, SessionKeeper, SignInForm } from './auth.ts';
 import { BACK_ONLINE_FOR, ConnectionStore, OFFLINE_AFTER } from './connection.ts';
 import { INBOX_PAGE, InboxStore } from './inbox.ts';
 import { LAYOUT_KEY, LayoutStore } from './layout.ts';
-import { persisted, readStored } from './persisted.ts';
+import { persisted, readStored, type KeyValueStore, type StorageChanges } from './persisted.ts';
 import { checkForm, problemText } from './problems.ts';
 import { SESSION_KEY, SessionStore } from './session.ts';
 import { THEME_KEY, ThemeStore } from './theme.ts';
@@ -124,14 +124,98 @@ describe('SessionKeeper', () => {
     const session = new SessionStore(memoryStore());
     session.keep(tokens());
     const keeper = new SessionKeeper(api.auth, session);
-    expect(await keeper.refresh()).toBe(false);
+    expect(await keeper.refresh('refused')).toBe(false);
     expect(session.signedIn.value).toBe(false);
-    expect(await keeper.refresh()).toBe(false);
+    expect(await keeper.refresh('refused')).toBe(false);
 
     session.keep(tokens());
     api.auth.signOut = failingCaller<'signOut'>(new ApiError(500, 'ERROR'));
     await keeper.signOut();
     expect(session.signedIn.value).toBe(false);
+  });
+});
+
+describe('the session across tabs', () => {
+  /** Storage shared by tabs, with each write announced to the other tabs (as the browser's storage event is). */
+  function sharedStorage() {
+    const store = memoryStore();
+    const listeners = new Set<(key: string | null) => void>();
+    const tab = (): { store: KeyValueStore; changes: StorageChanges } => {
+      let mine: ((key: string | null) => void) | undefined;
+      const own: KeyValueStore = {
+        getItem: (key) => store.getItem(key),
+        setItem: (key, value) => { store.setItem(key, value); for (const l of listeners) { if (l !== mine) { l(key); } } },
+        removeItem: (key) => { store.removeItem(key); for (const l of listeners) { if (l !== mine) { l(key); } } },
+      };
+      return { store: own, changes: (listener) => { mine = listener; listeners.add(listener); return () => { listeners.delete(listener); }; } };
+    };
+    return { tab };
+  }
+
+  it("follows another tab's rotated tokens and its sign-out", () => {
+    const shared = sharedStorage();
+    const a = shared.tab();
+    const b = shared.tab();
+    const one = new SessionStore(a.store, Date.now, a.changes);
+    const two = new SessionStore(b.store, Date.now, b.changes);
+    one.keep(tokens());
+    expect(two.accessToken.value).toBe('access.token');
+    one.keep(tokens({ access: 'access.2', refresh: 'refresh.2' }));
+    expect(two.refreshToken.value).toBe('refresh.2');
+    one.forget();
+    expect(two.signedIn.value).toBe(false);
+  });
+
+  it('refreshes once when every tab finds the token due, and the others take the tokens it got', async () => {
+    const shared = sharedStorage();
+    const lock = new LocalLock();
+    const api = fakeApi();
+    api.auth.refresh = fakeCaller<'refresh'>(() => Promise.resolve(tokens({ access: 'access.2', refresh: 'refresh.2' })));
+    const now = { at: 0 };
+    const tabs = [shared.tab(), shared.tab(), shared.tab()].map((tab) => {
+      const session = new SessionStore(tab.store, () => now.at, tab.changes);
+      return { session, keeper: new SessionKeeper(api.auth, session, () => now.at, lock) };
+    });
+    tabs[0]?.session.keep(tokens({ expiresIn: 5 * 60_000 }));
+    now.at = 5 * 60_000 - REFRESH_AHEAD;
+    const results = await Promise.all(tabs.map((t) => t.keeper.refresh()));
+    expect(results).toEqual([true, true, true]);
+    expect(api.auth.refresh.calls).toHaveLength(1);
+    expect(tabs.map((t) => t.session.refreshToken.value)).toEqual(['refresh.2', 'refresh.2', 'refresh.2']);
+  });
+
+  it('takes the tokens another tab rotated while this one waited, rather than spending the old refresh token', async () => {
+    const store = memoryStore();
+    const api = fakeApi();
+    const session = new SessionStore(store);
+    session.keep(tokens());
+    const keeper = new SessionKeeper(api.auth, session, Date.now, new LocalLock());
+    // another tab wrote new tokens straight to storage, with no storage event seen here yet
+    store.setItem(SESSION_KEY, JSON.stringify({ access: 'access.other', refresh: 'refresh.other', user: tokens().user, expiresAt: Date.now() + 900_000 }));
+    expect(await keeper.refresh('refused')).toBe(true);
+    expect(api.auth.refresh.calls).toHaveLength(0);
+    expect(session.accessToken.value).toBe('access.other');
+  });
+
+  it('recovers from a refused token once, however many calls were refused together', async () => {
+    const api = fakeApi();
+    const session = new SessionStore(memoryStore());
+    session.keep(tokens());
+    const keeper = new SessionKeeper(api.auth, session);
+    expect(await Promise.all([keeper.recover(), keeper.recover(), keeper.recover()])).toEqual([true, true, true]);
+    expect(api.auth.refresh.calls).toHaveLength(1);
+    api.auth.refresh = failingCaller<'refresh'>(new ApiError(401, 'UNAUTHORIZED'));
+    expect(await keeper.recover()).toBe(false);
+    expect(session.signedIn.value).toBe(false);
+  });
+
+  it('runs under the tab lock where the browser has no Web Locks', async () => {
+    const order: string[] = [];
+    const lock = new BrowserLock(undefined);
+    const first = lock.run(REFRESH_LOCK, async () => { order.push('first'); await Promise.resolve(); order.push('first done'); return 1; });
+    const second = lock.run(REFRESH_LOCK, () => { order.push('second'); return Promise.resolve(2); });
+    expect(await Promise.all([first, second])).toEqual([1, 2]);
+    expect(order).toEqual(['first', 'first done', 'second']);
   });
 });
 

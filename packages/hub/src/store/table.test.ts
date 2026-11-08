@@ -1,9 +1,9 @@
-import { type Actor, ActorId, type LedgerEntry, type RowOf, SessionId, SystemName, compositeKey } from '@harness/core';
+import { type Actor, ActorId, HUB_TABLES, type KeyOf, type LedgerEntry, type LedgerId, type Membership, type RowOf, SessionId, SystemName, type RunId } from '@harness/core';
 import { expectType, type Equal } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StoreError } from './errors.ts';
 import { actorId, ledger, notification, openTestStore, user } from './fixtures.ts';
-import type { Order, Table, Where } from './index.ts';
+import type { HubTable, Order, Table, Where } from './index.ts';
 import type { SqliteStore } from './sqlite.ts';
 
 let store: SqliteStore;
@@ -21,7 +21,7 @@ const refusal = async (promise: Promise<unknown>): Promise<StoreError> => {
 };
 
 /** Every row of a table, paging with cursors. */
-async function pageAll<Row>(table: Table<Row>, query: Omit<Parameters<Table<Row>['find']>[0], 'cursor'>): Promise<{ rows: Row[]; pages: number }> {
+async function pageAll<Row, Key>(table: Table<Row, Key>, query: Omit<Parameters<Table<Row, Key>['find']>[0], 'cursor'>): Promise<{ rows: Row[]; pages: number }> {
   const rows: Row[] = [];
   let cursor: string | undefined;
   let pages = 0;
@@ -36,8 +36,27 @@ async function pageAll<Row>(table: Table<Row>, query: Omit<Parameters<Table<Row>
 
 describe('types', () => {
   it('types each table by its row schema', () => {
-    expectType<Equal<ReturnType<typeof store.table<'ledger'>>, Table<LedgerEntry>>>(true);
-    expectType<Equal<ReturnType<typeof store.table<'actors'>>, Table<Actor>>>(true);
+    expectType<Equal<ReturnType<typeof store.table<'ledger'>>, HubTable<'ledger'>>>(true);
+    expectType<Equal<ReturnType<typeof store.table<'actors'>>, HubTable<'actors'>>>(true);
+    expectType<Equal<HubTable<'ledger'>, Table<LedgerEntry, LedgerId>>>(true);
+    expectType<Equal<RowOf<'actors'>, Actor>>(true);
+  });
+
+  it('keys each table by its key definition: a branded id, or the parts of a composite key by name', () => {
+    expectType<Equal<KeyOf<'runs'>, RunId>>(true);
+    expectType<Equal<KeyOf<'systems'>, SystemName>>(true);
+    expectType<Equal<KeyOf<'memberships'>, Readonly<Pick<Membership, 'group' | 'user'>>>>(true);
+    // compile-time only: each line passes a key the table doesn't take
+    const typed = (): unknown[] => [
+      // @ts-expect-error a plain string is not a system name
+      store.table('systems').get('shop'),
+      // @ts-expect-error a hand-joined string is not a composite key
+      store.table('memberships').get(['act_g', 'act_1'].join('\u0000')),
+      // @ts-expect-error a composite key needs every part
+      store.table('stateFields').get({ session: SessionId.parse('ses_1'), system: SystemName.parse('fs'), name: 'cwd' }),
+    ];
+    expect(typed).toBeTypeOf('function');
+    expect(HUB_TABLES.stateFields.fields).toEqual(['session', 'system', 'name', 'type']);
   });
 
   it('only lets scalar fields be filtered and ordered', () => {
@@ -90,7 +109,7 @@ describe('rows', () => {
     const memberships = store.table('memberships');
     const row = { group: actorId('g'), user: actorId(1), addedBy: actorId(1), addedAt: 1 };
     await memberships.insert(row);
-    expect(await memberships.get(compositeKey('act_g', 'act_1'))).toEqual(row);
+    expect(await memberships.get({ user: actorId(1), group: actorId('g') })).toEqual(row);
   });
 
   it('refuses an insert of an existing key', async () => {

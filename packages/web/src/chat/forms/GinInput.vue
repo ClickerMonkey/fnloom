@@ -12,7 +12,7 @@ import { computed, inject, useId } from 'vue';
 import { UiButton, UiField, UiIconButton, UiInput, UiSegmented, UiSwitch, UiTextarea } from '../../ui/index.ts';
 import { eventValue } from '../dom.ts';
 import { FORM_INPUTS } from './inputs.ts';
-import { constraintHint, draftOf, problemAt, type Draft, type FormNode, type FormProblem } from './model.ts';
+import { constraintHint, draftOf, encode, problemAt, type Draft, type FormNode, type FormProblem } from './model.ts';
 
 const props = withDefaults(defineProps<{
   node: FormNode;
@@ -45,9 +45,19 @@ const join = (key: string | number): string => (props.path === '' ? String(key) 
 const custom = computed(() => (props.node.kind === 'ref' ? lookup(props.node.name) : undefined));
 const refText = computed(() => (props.draft.kind === 'value' && props.draft.value !== undefined ? JSON.stringify(props.draft.value, null, 2) : ''));
 
+/**
+ * What the system's input edits: the draft's JSON read with the type's gin shape (a timestamp as a `Date`). Until the
+ * input sets a value, the draft is the one started from the definition's own form, read into JSON first.
+ */
+const customValue = computed(() => {
+  if (custom.value === undefined) { return undefined; }
+  if (props.draft.kind === 'value') { return custom.value.decode(props.draft.value); }
+  const started = props.node.kind === 'ref' && props.node.inner !== undefined ? encode(props.node.inner, props.draft) : undefined;
+  return started?.ok === true ? custom.value.decode(started.value) : undefined;
+});
+/** The input's edit written back to JSON with the type's gin shape; undefined (so "Required.") when it doesn't fit. */
 function setCustom(value: unknown): void {
-  const parsed = Json.safeParse(value);
-  emit('update', { kind: 'value', value: parsed.success ? parsed.data : undefined });
+  emit('update', { kind: 'value', value: custom.value?.encode(value) });
 }
 
 function setRefText(value: string): void {
@@ -168,7 +178,7 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
     <template v-else-if="node.kind === 'ref'">
       <UiField v-if="custom" :label="label" :hint="hint" :error="error" :required="required">
         <component
-          :is="custom.component" v-bind="custom.props" :model-value="draft.kind === 'value' ? draft.value : undefined" :problems="error === '' ? [] : [error]"
+          :is="custom.component" v-bind="custom.props" :model-value="customValue" :problems="error === '' ? [] : [error]"
           @update:model-value="setCustom"
         />
       </UiField>

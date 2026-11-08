@@ -1,8 +1,10 @@
 /**
  * Hybrid search: the vector index and the text index asked for candidates, merged by reciprocal rank fusion. RRF
  * needs no score calibration between the two (cosine similarity and BM25 aren't on one scale): an item scores
- * `Σ 1 / (k + rank)` over the lists it appears in, so items both indexes rank well come first. Works on any
- * `VectorIndex` and `TextIndex`, so a Postgres store gets it too.
+ * `Σ 1 / (k + rank)` over the lists it appears in, so items both indexes rank well come first. The score is then
+ * divided by the best one possible (first in every list searched), so it reads as a relevance from 0 to 1: 1 is the
+ * top of every list, about 0.5 the top of one of two. Works on any `VectorIndex` and `TextIndex`, so a Postgres store
+ * gets it too.
  */
 import type { IndexedKind, QualifiedName } from '@harness/core';
 import { compositeKey } from '@harness/core';
@@ -15,7 +17,7 @@ export interface Ranked {
   readonly key: string;
 }
 
-/** A merged hit: its fused score, and its rank in each list it came from (1 = best). */
+/** A merged hit: its fused score (0 to 1, see the file's notes), and its rank in each list it came from (1 = best). */
 export interface FusedHit extends Ranked {
   readonly score: number;
   readonly ranks: { readonly vector?: number; readonly text?: number };
@@ -30,7 +32,10 @@ export interface HybridQuery {
   readonly vector?: { readonly embedder: QualifiedName; readonly values: readonly number[] };
 }
 
-/** Merge ranked lists by reciprocal rank: `Σ weight / (k + rank)`, best first; ties keep first-seen order. */
+/**
+ * Merge ranked lists by reciprocal rank, `Σ 1 / (k + rank)` divided by the best possible (`lists / (k + 1)`), best
+ * first; ties keep first-seen order.
+ */
 export function fuseRanks<L extends string>(
   lists: Readonly<Record<L, readonly Ranked[]>>,
   k: number,
@@ -49,7 +54,8 @@ export function fuseRanks<L extends string>(
       merged.set(id, hit);
     });
   }
-  return [...merged.values()].sort((a, b) => b.score - a.score);
+  const best = entries(lists).length / (k + 1);
+  return [...merged.values()].map((hit) => ({ ...hit, score: hit.score / best })).sort((a, b) => b.score - a.score);
 }
 
 function entries<L extends string, V>(record: Readonly<Record<L, V>>): Array<[L, V]> {
@@ -78,6 +84,9 @@ export class HybridSearch {
       query.vector === undefined ? Promise.resolve([]) : this.#vectors.nearest(query.vector.embedder, query.vector.values, depth, query.kinds),
       this.#text.search({ text: query.text, kinds: query.kinds, limit: depth }),
     ]);
-    return fuseRanks({ vector, text }, this.#tuning.HARNESS_SEARCH_RRF_K).slice(0, Math.floor(query.limit));
+    // only the lists actually searched count toward the best possible score: words alone can still reach 1
+    const k = this.#tuning.HARNESS_SEARCH_RRF_K;
+    const fused: FusedHit[] = query.vector === undefined ? fuseRanks({ text }, k) : fuseRanks({ vector, text }, k);
+    return fused.slice(0, Math.floor(query.limit));
   }
 }

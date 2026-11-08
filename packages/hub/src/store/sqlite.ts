@@ -5,7 +5,7 @@
  */
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { type RowOf, type TableName } from '@harness/core';
+import { type KeyOf, type RowOf, type TableName } from '@harness/core';
 import { type Logger, logger as defaultLogger } from '@ayepi/log';
 import { type SqliteOptions, type SqliteQueue, sqlitePubSub, sqliteQueue, sqliteRateStore, sqliteStore } from '@ayepi/sqlite';
 import Database from 'better-sqlite3';
@@ -15,7 +15,7 @@ import { type Db, RootScope, type Scope, openKysely } from './db.ts';
 import { type StoreTuning, storeEnv } from './env.ts';
 import { StoreError } from './errors.ts';
 import { HybridSearch } from './hybrid.ts';
-import type { HubStore, StoreFactory, StoreOptions, Table, TextIndex, VectorIndex } from './index.ts';
+import type { HubStore, StoreFactory, StoreOptions, HubTable, TextIndex, VectorIndex } from './index.ts';
 import { type TableChange, ensureMeta, isChange, migrateTable } from './migrate.ts';
 import { PORT_PREFIX, type RawPorts, ScopedPorts } from './ports.ts';
 import { TABLE_DEFS, TABLE_NAMES, tableIndexes, tableLayout } from './schema.ts';
@@ -35,7 +35,7 @@ interface Shared {
 }
 
 /** The codec of a table, typed by its row schema. */
-function codecOf<K extends TableName>(name: K): RowCodec<RowOf<K>> {
+function codecOf<K extends TableName>(name: K): RowCodec<RowOf<K>, KeyOf<K>> {
   return new RowCodec(name, TABLE_DEFS[name], tableLayout(name));
 }
 
@@ -91,7 +91,7 @@ export class SqliteStore implements HubStore {
     return this.#scope.inTransaction;
   }
 
-  table<K extends TableName>(name: K): Table<RowOf<K>> {
+  table<K extends TableName>(name: K): HubTable<K> {
     return new SqliteTable(this.#scope, codecOf(name));
   }
 

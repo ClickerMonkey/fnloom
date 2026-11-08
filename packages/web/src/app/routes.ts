@@ -1,13 +1,19 @@
 /**
  * Every page is a URL, so a refresh returns to the same place: the chat and its session, the inbox and its filter,
  * each settings section, the admin pages and the system being looked at. Route names and the values a URL part may
- * take are defined here once; links are made with `links` so they can't point at a page that doesn't exist.
+ * take are defined here once; links are made with `links` so they can't point at a page that doesn't exist. Each
+ * page's query is declared once too (`QUERIES`): links take its input, and pages read its keys (`useRouteQuery`), so a
+ * renamed or misspelled key breaks both at compile time.
  */
-import type { MessageId, NotificationLink, RunId, SessionId, SystemName, TurnId } from '@harness/core';
+import {
+  LlmInteractionId, LlmStatus, NotificationId, PairingId, ResourceUri, RunId, RunStatus, SessionId, TurnId, type MessageId, type NotificationLink, type SystemName,
+} from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
 import { LimitsTab, ModelsTab, SystemTab } from '../admin/sections.ts';
-import type { InboxFilter } from '../state/inbox.ts';
+import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
+import { InboxFilter } from '../state/inbox.ts';
+import { OPEN_KEY } from '../state/push-payload.ts';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -53,21 +59,68 @@ export type RouteName = (typeof ROUTES)[keyof typeof ROUTES];
 export const SettingsSection = z.enum(['appearance', 'notifications', 'account']);
 export type SettingsSection = z.infer<typeof SettingsSection>;
 
+/** The panels a chat can have open besides inspectors. */
+export const ChatPanel = z.enum(['settings', 'people', 'model']);
+export type ChatPanel = z.infer<typeof ChatPanel>;
+
+/** Which chats the list shows. */
+export const ChatsView = z.enum(['active', 'archived']);
+export type ChatsView = z.infer<typeof ChatsView>;
+
+/**
+ * The chat's query, shared by the list, a session and a turn's tree: the list's search (`q`) and view (`chats`), the
+ * panels open over a session (a run, an LLM call, an answer's turn details, a resource, settings), and their tabs.
+ */
+const CHAT_QUERY = z.object({
+  q: z.string(), chats: ChatsView,
+  run: RunId, llm: LlmInteractionId, details: TurnId, resource: ResourceUri, panel: ChatPanel,
+  [TAB_KEYS.run]: RunTab, [TAB_KEYS.llm]: LlmCallTab,
+}).partial();
+
+/** Each page's query keys and the values they take; a page without an entry takes no query. */
+export const QUERIES = {
+  [ROUTES.signIn]: z.object({ next: z.string() }).partial(),
+  [ROUTES.chat]: CHAT_QUERY,
+  [ROUTES.session]: CHAT_QUERY,
+  [ROUTES.turnTree]: CHAT_QUERY,
+  [ROUTES.inbox]: z.object({ filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
+  [ROUTES.systems]: z.object({ pairing: PairingId }).partial(),
+  [ROUTES.models]: z.object({ q: z.string() }).partial(),
+  [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
+  [ROUTES.runs]: z.object({ status: RunStatus, fn: z.string(), system: z.string(), session: SessionId, run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
+  [ROUTES.llmCalls]: z.object({ status: LlmStatus, model: z.string(), system: z.string(), session: SessionId, call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
+  [ROUTES.resources]: z.object({ q: z.string(), system: z.string(), uri: ResourceUri }).partial(),
+} as const satisfies Partial<Record<RouteName, z.ZodObject>>;
+
+/** The pages that take a query. */
+export type QueryRoute = keyof typeof QUERIES;
+/** A page's query, as a link writes it. */
+export type RouteQuery<R extends QueryRoute> = z.input<(typeof QUERIES)[R]>;
+/** One of a page's query keys. */
+export type QueryKey<R extends QueryRoute> = keyof RouteQuery<R> & string;
+
+/** A page's query for a link: checked with its schema, keys with no value left out, and no query at all when empty. */
+function queryOf<R extends QueryRoute>(route: R, query: RouteQuery<R>): { readonly query?: Readonly<Record<string, string>> } {
+  const entries = Object.entries(QUERIES[route].parse(query)).flatMap(([key, value]) => (typeof value === 'string' ? [[key, value] as const] : []));
+  return entries.length === 0 ? {} : { query: Object.fromEntries(entries) };
+}
+
 /** The design gallery's sections. */
 export const DesignSection = z.enum(['actions', 'inputs', 'overlays', 'feedback', 'content']);
 export type DesignSection = z.infer<typeof DesignSection>;
 
 /** Links to every page. */
 export const links = {
-  signIn: (next?: string): RouteLocationRaw => ({ name: ROUTES.signIn, ...(next === undefined ? {} : { query: { next } }) }),
+  signIn: (next?: string): RouteLocationRaw => ({ name: ROUTES.signIn, ...queryOf(ROUTES.signIn, { next }) }),
   chat: (): RouteLocationRaw => ({ name: ROUTES.chat }),
   session: (session: SessionId): RouteLocationRaw => ({ name: ROUTES.session, params: { session } }),
   /** A message in a session: the thread scrolls to it and lights it briefly. */
   message: (session: SessionId, message: MessageId): RouteLocationRaw => ({ name: ROUTES.session, params: { session }, hash: `#m-${message}` }),
   /** A turn's fn tree, over its session. */
   turnTree: (session: SessionId, turn: TurnId): RouteLocationRaw => ({ name: ROUTES.turnTree, params: { session, turn } }),
-  inbox: (filter: InboxFilter = 'all'): RouteLocationRaw => ({ name: ROUTES.inbox, ...(filter === 'all' ? {} : { query: { filter } }) }),
-  systems: (): RouteLocationRaw => ({ name: ROUTES.systems }),
+  inbox: (filter: InboxFilter = 'all'): RouteLocationRaw => ({ name: ROUTES.inbox, ...queryOf(ROUTES.inbox, filter === 'all' ? {} : { filter }) }),
+  /** The systems page; `pairing` picks out a pairing request. */
+  systems: (query: RouteQuery<typeof ROUTES.systems> = {}): RouteLocationRaw => ({ name: ROUTES.systems, ...queryOf(ROUTES.systems, query) }),
   /** A system's page, on one of its tabs (the overview's URL has no tab). */
   system: (name: SystemName, tab: SystemTab = 'overview'): RouteLocationRaw => ({ name: ROUTES.system, params: tab === 'overview' ? { name } : { name, tab } }),
   models: (tab: ModelsTab = 'providers'): RouteLocationRaw => ({ name: ROUTES.models, params: tab === 'providers' ? {} : { tab } }),
@@ -75,11 +128,11 @@ export const links = {
   policies: (): RouteLocationRaw => ({ name: ROUTES.policies }),
   actorSettings: (): RouteLocationRaw => ({ name: ROUTES.actorSettings }),
   /** The runs browser; `query` narrows it (`status`, `fn`, `system`, `session`) or opens one (`run`). */
-  runs: (query: Readonly<Record<string, string>> = {}): RouteLocationRaw => ({ name: ROUTES.runs, query }),
+  runs: (query: RouteQuery<typeof ROUTES.runs> = {}): RouteLocationRaw => ({ name: ROUTES.runs, ...queryOf(ROUTES.runs, query) }),
   /** The LLM calls browser; `query` narrows it (`status`, `model`, `system`, `session`) or opens one (`call`). */
-  llmCalls: (query: Readonly<Record<string, string>> = {}): RouteLocationRaw => ({ name: ROUTES.llmCalls, query }),
+  llmCalls: (query: RouteQuery<typeof ROUTES.llmCalls> = {}): RouteLocationRaw => ({ name: ROUTES.llmCalls, ...queryOf(ROUTES.llmCalls, query) }),
   /** The resources browser; `query` narrows it (`q`, `system`) or opens one (`uri`). */
-  resources: (query: Readonly<Record<string, string>> = {}): RouteLocationRaw => ({ name: ROUTES.resources, query }),
+  resources: (query: RouteQuery<typeof ROUTES.resources> = {}): RouteLocationRaw => ({ name: ROUTES.resources, ...queryOf(ROUTES.resources, query) }),
   settings: (section: SettingsSection = 'appearance'): RouteLocationRaw => ({ name: ROUTES.settings, params: { section } }),
   design: (section: DesignSection = 'actions'): RouteLocationRaw => ({ name: ROUTES.design, params: { section } }),
 } as const;
@@ -94,13 +147,13 @@ export type SessionOfRun = (run: RunId) => Promise<SessionId | undefined>;
 
 /**
  * Where a notification leads. A run in a chat leads to that chat, where its question or approval waits in the dock
- * and is answered; a run outside any chat opens in the runs browser.
+ * and is answered; a run outside any chat opens in the runs browser. An approval leads to the runs waiting on one.
  */
 export async function notificationTarget(link: NotificationLink, sessionOf: SessionOfRun): Promise<RouteLocationRaw> {
   if ('session' in link) { return links.session(link.session); }
   if ('system' in link) { return links.system(link.system); }
-  if ('pairing' in link) { return { name: ROUTES.systems, query: { pairing: link.pairing } }; }
-  if ('approval' in link) { return { name: ROUTES.inbox, query: { approval: link.approval } }; }
+  if ('pairing' in link) { return links.systems({ pairing: link.pairing }); }
+  if ('approval' in link) { return links.runs({ status: 'awaiting-approval' }); }
   const session = await sessionOf(link.run).catch(() => undefined);
   return session === undefined ? links.runs({ run: link.run }) : links.session(session);
 }

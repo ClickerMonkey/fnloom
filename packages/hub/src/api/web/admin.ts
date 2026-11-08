@@ -7,7 +7,7 @@
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  adminSlice, QualifiedName, UserView, splitName, SystemName, type BudgetView, type LlmSummary, type ResourceRecord, type SettingView, type TableName,
+  adminSlice, QualifiedName, UserView, type BudgetView, type LlmSummary, type ResourceRecord, type SettingView, type TableName,
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
@@ -65,7 +65,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
       },
       actorSettings: async () => {
         const declared = (await catalog.entries('settings')).map((entry): SettingView => ({
-          setting: entry.name, system: SystemName.parse(splitName(entry.name).system), decl: entry.decl,
+          setting: entry.name, system: entry.system, decl: entry.decl,
         }));
         return { declared, values: await all(hub, 'actorSettings') };
       },

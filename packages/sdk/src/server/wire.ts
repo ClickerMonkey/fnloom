@@ -5,7 +5,7 @@
  */
 import { ApiError, DISCONNECTED_STATUS } from '@ayepi/core';
 import { FnError, messageOf, type Json, type ErrorClass, type RunSettled } from '@harness/core';
-import { CallFailed, Suspended, type Settled } from '../ctx.ts';
+import { CallFailed, HandlerFailed, Suspended, type Settled } from '../ctx.ts';
 import { encodeValue, parseValue, type GinType } from '../gin.ts';
 
 /** A value that did or did not fit its type. */
@@ -71,7 +71,7 @@ export function isDisconnected(error: unknown): boolean {
   return error instanceof ApiError && error.status === DISCONNECTED_STATUS;
 }
 
-/** What a run that threw becomes. A dep's failure keeps its class; anything else is fatal. */
+/** What a run that threw becomes. A dep's or handler's failure keeps its error; anything else is fatal. */
 export function thrownError(error: unknown): FnError {
   if (error instanceof InvalidValue) { return error.error; }
   if (error instanceof CallFailed) {
@@ -79,6 +79,8 @@ export function thrownError(error: unknown): FnError {
       ? fnError('fatal', error.message, { code: 'dep-cancelled' })
       : error.error;
   }
+  // the hub's own error (refused, failed, timed out) or why the answer didn't fit, so the caller sees what happened
+  if (error instanceof HandlerFailed) { return error.error; }
   if (error instanceof Suspended) { return fnError('retry', error.message, { code: 'suspended' }); }
   return fnError('fatal', messageOf(error), { code: 'threw' });
 }

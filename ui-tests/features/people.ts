@@ -3,7 +3,7 @@
  * button (on a phone, the chat menu) opens the people panel, which lists the owner and the agent on its own (not the
  * whole settings sheet) and in view without scrolling.
  */
-import { check, feature, find, isPhone, onScreen, openSession, settle, textOf, tid, visible } from '../kit.ts';
+import { check, feature, find, hasListColumn, onScreen, openSession, settle, textOf, tid, visible } from '../kit.ts';
 
 export default feature({
   id: 'people', ref: 'chat-features 8.3', title: 'Participants and who will answer',
@@ -11,7 +11,7 @@ export default feature({
     const { page } = ctx;
     await openSession(ctx);
     check((await textOf(page, 'answerers')).toLowerCase().includes('agent'), 'the composer says the chat agent will answer');
-    if (isPhone(ctx)) {
+    if (!hasListColumn(ctx)) {
       await page.click(tid('chat-menu'));
       const item = await page.waitForSelector('[role="menuitem"] ::-p-text(People)', { timeout: 10_000 });
       check(item !== null, 'the chat menu offers People');

@@ -10,7 +10,7 @@
  */
 import type {
   ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
-  MessageId, MessagePart, ModelChoice, Notification, NotificationLink, NotificationReason, NotifyChoice, OutgoingPart, Page, Presence, Priority, QualifiedName, RunId,
+  MessageId, MessagePart, ModelChoice, Notification, NotificationId, NotificationLink, NotificationReason, NotifyChoice, OutgoingPart, Page, Presence, Priority, QualifiedName, RunId,
   Session, SessionControls, SessionId, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
   Compact, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
 } from '@harness/core';
@@ -164,7 +164,7 @@ export interface NotificationService {
   notify(input: { user: ActorId; reason: NotificationReason; title: string; body: string; link: NotificationLink }): Promise<Notification>;
   list(user: ActorId, query: Compact<NotificationListQuery>): Promise<Page<Notification>>;
   /** Mark some of a user's notifications read; returns how many changed. Others' ids are ignored. */
-  read(user: ActorId, ids: readonly string[]): Promise<number>;
+  read(user: ActorId, ids: readonly NotificationId[]): Promise<number>;
 }
 
 /** Who answers an approval, as people: the execution module publishes `approval` events with these. */

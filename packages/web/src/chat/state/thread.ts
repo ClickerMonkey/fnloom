@@ -89,6 +89,16 @@ export interface Outgoing {
   readonly replyAll?: boolean;
 }
 
+/**
+ * A message on its way: shown in the thread at once (so a slow hub never makes it look lost), until the hub's stored
+ * copy replaces it, or the send fails and it goes back into the composer.
+ */
+export interface PendingSend {
+  readonly parts: readonly OutgoingPart[];
+  /** When it was sent (ms since the epoch). */
+  readonly at: number;
+}
+
 /** What undoing one or more turns did, together. */
 export interface UndoSummary {
   readonly reports: readonly UndoReport[];
@@ -168,6 +178,8 @@ export class ThreadStore {
   readonly problem = ref('');
   readonly loadingOlder = ref(false);
   readonly sending = ref(false);
+  /** The message being sent, shown until the hub has it. */
+  readonly pending = shallowRef<PendingSend | undefined>(undefined);
   /** A stop asked for and not yet confirmed. */
   readonly stopping = ref(false);
   /** The turn just sent, until its first answer or run shows. */
@@ -240,8 +252,10 @@ export class ThreadStore {
       void this.loadWaiting();
       void this.#fetchRuns(merged.flatMap((m) => m.runs).slice(-this.#settings.runsOnOpen));
     } catch (error) {
-      this.status.value = 'error';
-      this.problem.value = problemText(error, "Couldn't open this chat.");
+      // a chat already on screen stays there when catching up fails; only a chat that never loaded shows the error
+      const loaded = this.session.value !== undefined;
+      this.status.value = loaded ? 'ready' : 'error';
+      this.problem.value = problemText(error, loaded ? "Couldn't catch up with this chat." : "Couldn't open this chat.");
     }
   }
 
@@ -343,6 +357,7 @@ export class ThreadStore {
   async send(outgoing: Outgoing): Promise<boolean> {
     if (this.sending.value || outgoing.parts.length === 0) { return false; }
     this.sending.value = true;
+    this.pending.value = { parts: outgoing.parts, at: this.#deps.clock() };
     this.problem.value = '';
     try {
       const sent = await this.#deps.api.send.call({
@@ -359,6 +374,7 @@ export class ThreadStore {
       return false;
     } finally {
       this.sending.value = false;
+      this.pending.value = undefined;
     }
   }
 

@@ -5,13 +5,14 @@
 import { ApiError, manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, BudgetId, compositeKey, hubWebSpec, mintId, NotificationId, QualifiedName, RunId, SessionId, SystemName, TurnId, type ModelInfo, type Run, type Session, type SystemRecord, type Tokens,
+  ActorId, hubWebSpec, mintId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelInfo, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
 import { fn, g, wireType } from '@harness/sdk';
 import { TestCatalog } from '../../execution/testing.ts';
 import { ScryptHasher } from '../hash.ts';
 import { settle } from '../../testing.ts';
-import { entriesFrom, rig, webRig, type Fakes } from '../testing/rig.ts';
+import { entriesFrom, rig, testManifest, webRig, type Fakes } from '../testing/rig.ts';
+import { clientUrl } from './chat.ts';
 
 const sessionId = SessionId.parse('ses_1');
 const client = { timeZone: 'Europe/Paris', locale: 'fr', now: 1 };
@@ -194,6 +195,41 @@ describe('chat', () => {
     expect(caps).toMatchObject({ voiceInput: false, uploads: true, commands: [], invocations: [], clients: [] });
   });
 
+  it('ships a system’s client renderers by its renderers switch alone, apart from its fns switch', async () => {
+    const fs = SystemName.parse('fs');
+    const off = SystemName.parse('off');
+    const dark = SystemName.parse('dark');
+    const built = (system: SystemName) => ({ entry: 'index.js', hash: `b_${system}`, files: [{ path: 'index.js', size: 1, hash: 'f' }] });
+    const asked: SystemName[] = [];
+    const { r, web, as } = await signedIn({
+      chat: { sessions: { get: (_id, viewer) => Promise.resolve(session(viewer, { systems: [fs, off, dark] })) } },
+      catalog: {
+        entries: entriesFrom({}),
+        fns: () => Promise.resolve([]),
+        manifest: (system) => { asked.push(system); return Promise.resolve(testManifest(system, { client: built(system) })); },
+      },
+      execution: { llm: { canTranscribe: () => false, models: () => Promise.resolve([]) } },
+    });
+    await r.store.table('systems').insert(systemRow('fs'));
+    // fns off, renderers on: old cards keep rendering with its client
+    await r.store.table('systems').insert(systemRow('off', { enabled: { functions: false, renderers: true } }));
+    // fns on, renderers off: its client is withdrawn
+    await r.store.table('systems').insert(systemRow('dark', { enabled: { functions: true, renderers: false } }));
+    // renderers on, but not a system this session lets in
+    await r.store.table('systems').insert(systemRow('elsewhere'));
+    const caps = await web.client.call('capabilities', { session: sessionId }, as);
+    const shipped = (system: SystemName) => ({ system, url: clientUrl(system, built(system).hash, 'index.js'), hash: built(system).hash });
+    expect(caps.clients).toEqual([shipped(fs), shipped(off)]);
+    expect(asked.sort()).toEqual([fs, off]);
+    expect(caps.systems).toEqual([
+      { name: dark, status: 'connected', enabled: true }, { name: fs, status: 'connected', enabled: true }, { name: off, status: 'connected', enabled: false },
+    ]);
+    // switching the renderers back on ships the client again; switching them off withdraws it
+    await r.store.table('systems').update(dark, { enabled: { functions: true, renderers: true } });
+    await r.store.table('systems').update(off, { enabled: { functions: false, renderers: false } });
+    expect((await web.client.call('capabilities', { session: sessionId }, as)).clients).toEqual([shipped(dark), shipped(fs)]);
+  });
+
   it('offers fns as `!` invocations, but not a type’s methods (those run on a value from its hover card)', async () => {
     const fs = SystemName.parse('fs');
     const fns = new TestCatalog();
@@ -322,6 +358,8 @@ describe('inbox and content', () => {
     await expect(web.client.call('notifications', { unread: true }, as)).resolves.toMatchObject({ items: [{ read: false }] });
     await web.client.call('readNotifications', { ids: ['ntf_1'] }, as);
     expect(read).toEqual([{ user: me, ids: ['ntf_1'] }]);
+    await expect(web.client.call('readNotifications', { ids: ['run_1'] }, as)).rejects.toThrow();
+    expect(read).toHaveLength(1);
   });
 
   it('presigns uploads, and refuses to transcribe without a transcription model', async () => {
@@ -420,7 +458,7 @@ describe('admin', () => {
     const { r, web, as } = await signedIn();
     const group = await web.client.call('addGroup', { name: 'Team', about: 'the team' }, as);
     const user = await web.client.call('addUser', { email: 'Ada@Example.com', name: 'Ada', role: 'member', groups: [group.id] }, as);
-    await expect(r.store.table('memberships').get(compositeKey(group.id, user.id))).resolves.toBeDefined();
+    await expect(r.store.table('memberships').get({ group: group.id, user: user.id })).resolves.toBeDefined();
     await expect(web.client.call('addUser', { email: 'ada@example.com', name: 'Ada 2', role: 'member' }, as)).rejects.toMatchObject({ status: 409 });
     await expect(web.client.call('addGroup', { name: 'Bad', about: '', members: [group.id] }, as)).rejects.toMatchObject({ status: 422 });
   });
@@ -436,7 +474,7 @@ describe('admin', () => {
     });
     await expect(web.client.call('setActorSetting', { setting, actor: me, value: 3 }, as)).rejects.toMatchObject({ status: 422, code: 'SETTING_INVALID' });
     await expect(web.client.call('setActorSetting', { setting, actor: me, value: '/home' }, as)).resolves.toEqual({ ok: true });
-    await expect(r.store.table('actorSettings').get(compositeKey(setting, me))).resolves.toMatchObject({ value: '/home', setBy: me });
+    await expect(r.store.table('actorSettings').get({ setting, actor: me })).resolves.toMatchObject({ value: '/home', setBy: me });
     await expect(web.client.call('setActorSetting', { setting: QualifiedName.parse('fs/none'), actor: me, value: 'x' }, as)).rejects.toMatchObject({ status: 404 });
   });
 
@@ -469,10 +507,10 @@ describe('admin reads', () => {
     const { r, web, as, me } = await signedIn({ execution: { ledger: { spent: () => Promise.resolve(1.5) } } });
     const { id } = await web.client.call('setBudget', { target: { scope: 'hub' }, period: 'all-time', maxCost: 10, onLimit: 'refuse' }, as);
     await expect(web.client.call('budgets', {}, as)).resolves.toEqual([expect.objectContaining({ id, maxCost: 10, spent: 1.5, setBy: me })]);
-    await web.client.call('setBudget', { id: BudgetId.parse(id), target: { scope: 'hub' }, period: 'all-time', maxCost: 20, onLimit: 'wait' }, as);
+    await web.client.call('setBudget', { id: id, target: { scope: 'hub' }, period: 'all-time', maxCost: 20, onLimit: 'wait' }, as);
     await expect(r.store.table('budgets').count()).resolves.toBe(1);
-    await expect(web.client.call('removeRule', { kind: 'budget', id: BudgetId.parse(id) }, as)).resolves.toEqual({ ok: true });
-    await expect(web.client.call('removeRule', { kind: 'budget', id: BudgetId.parse(id) }, as)).resolves.toEqual({ ok: false });
+    await expect(web.client.call('removeRule', { kind: 'budget', id: id }, as)).resolves.toEqual({ ok: true });
+    await expect(web.client.call('removeRule', { kind: 'budget', id: id }, as)).resolves.toEqual({ ok: false });
   });
 
   it('pages runs and LLM calls newest first without their bodies, and filters by what is asked', async () => {
@@ -493,6 +531,84 @@ describe('admin reads', () => {
     });
     await expect(web.client.call('systemLogs', { system: SystemName.parse('fs') }, as)).resolves.toEqual(lines);
     await expect(web.client.call('systemFns', { system: SystemName.parse('fs') }, as)).resolves.toEqual([]);
+  });
+
+  it('lists model categories, priority rules and policies as they were set', async () => {
+    const { web, as, me } = await signedIn();
+    const category = await web.client.call('setModelCategory', { name: 'fast', description: 'quick', models: ['a', 'b'] }, as);
+    const priority = await web.client.call('setPriority', { target: { scope: 'hub' }, default: 'normal', max: 'interactive' }, as);
+    const policy = await web.client.call('setPolicy', { description: 'read is fine', subject: { everyone: true }, target: { tags: ['read'] }, decision: { effect: 'allow' }, priority: 1 }, as);
+    await expect(web.client.call('modelCategories', {}, as)).resolves.toEqual([{ id: category.id, name: 'fast', description: 'quick', models: ['a', 'b'] }]);
+    await expect(web.client.call('priorityRules', {}, as)).resolves.toEqual([{ id: priority.id, target: { scope: 'hub' }, default: 'normal', max: 'interactive', setBy: me }]);
+    await expect(web.client.call('policies', {}, as)).resolves.toEqual([expect.objectContaining({ id: policy.id, description: 'read is fine', priority: 1, createdBy: me })]);
+  });
+
+  it('resolves the limits a user would get, and refuses a group or an unknown actor', async () => {
+    const resolved: ResolvedLimits = { priority: 'normal', priorityFrom: { default: 'hub' }, turn: { cost: 1, time: 1_000 }, budgets: [] };
+    const asked: Array<{ user: ActorId; groups: ActorId[]; session?: SessionId }> = [];
+    const { r, web, as, me } = await signedIn({
+      execution: { limits: { resolve: (input) => {
+        asked.push({ user: input.user.id, groups: input.user.groups.map((g) => g.id), ...(input.session === undefined ? {} : { session: input.session }) });
+        return Promise.resolve(resolved);
+      } } },
+    });
+    const group = mintId('actor');
+    await r.store.table('actors').insert({ id: group, kind: 'group', name: 'Team', about: '', createdAt: 1, disabled: false });
+    await r.store.table('memberships').insert({ group, user: me, addedBy: me, addedAt: 1 });
+    await expect(web.client.call('resolveLimits', { user: me }, as)).resolves.toEqual(resolved);
+    await expect(web.client.call('resolveLimits', { user: me, session: sessionId }, as)).resolves.toEqual(resolved);
+    expect(asked).toEqual([{ user: me, groups: [group] }, { user: me, groups: [group], session: sessionId }]);
+    await expect(web.client.call('resolveLimits', { user: group }, as)).rejects.toMatchObject({ status: 404, code: 'USER_NOT_FOUND' });
+    await expect(web.client.call('resolveLimits', { user: mintId('actor') }, as)).rejects.toMatchObject({ status: 404, code: 'USER_NOT_FOUND' });
+    expect(asked).toHaveLength(2);
+  });
+
+  it('lists actors, narrowed to a kind, and the declared settings with their values', async () => {
+    const setting = QualifiedName.parse('fs/home');
+    const decl: SettingDecl = { name: 'home', description: 'Home folder.', type: { name: 'text' }, appliesTo: ['user'], merge: 'user-wins', editableBy: [] };
+    const { r, web, as, me } = await signedIn({ catalog: { entries: entriesFrom({ settings: [{ name: setting, system: SystemName.parse('fs'), decl }] }) } });
+    const group = mintId('actor');
+    await r.store.table('actors').insert({ id: group, kind: 'group', name: 'Team', about: '', createdAt: 1, disabled: false });
+    const ids = async (kind?: ActorKind): Promise<string[]> => (await web.client.call('actors', kind === undefined ? {} : { kind }, as)).map((a) => a.id).sort();
+    expect(await ids()).toEqual([me, group].sort());
+    expect(await ids('group')).toEqual([group]);
+    expect(await ids('user')).toEqual([me]);
+    expect(await ids('system')).toEqual([]);
+    await r.store.table('actorSettings').put({ setting, actor: me, value: '/home', setBy: me, updatedAt: 1 });
+    await expect(web.client.call('actorSettings', {}, as)).resolves.toEqual({
+      declared: [{ setting, system: 'fs', decl }],
+      values: [{ setting, actor: me, value: '/home', setBy: me, updatedAt: 1 }],
+    });
+  });
+
+  it('pages resources newest first, and searches their uris across store pages without skipping any', async () => {
+    const { r, web, as } = await signedIn();
+    const fs = SystemName.parse('fs');
+    const notes = SystemName.parse('notes');
+    // 250 resources over three store pages; every tenth uri holds "match", and the newest is the highest number
+    for (let n = 0; n < 250; n++) {
+      const uri = ResourceUri.parse(`fs://files/${n % 10 === 0 ? 'match' : 'other'}-${n}.md`);
+      await r.store.table('resources').insert({ uri, system: n === 249 ? notes : fs, stat: { uri, name: `${n}.md`, type: 'file', version: 'v1' }, links: [], seenAt: n });
+    }
+    const first = await web.client.call('resources', { limit: 3 }, as);
+    expect(first.items.map((item) => item.seenAt)).toEqual([249, 248, 247]);
+    const next = await web.client.call('resources', { limit: 3, ...(first.cursor === undefined ? {} : { cursor: first.cursor }) }, as);
+    expect(next.items.map((item) => item.seenAt)).toEqual([246, 245, 244]);
+    expect((await web.client.call('resources', { limit: 2, system: notes }, as)).items.map((item) => item.seenAt)).toEqual([249]);
+    // a search reads store pages until it has enough matches, then hands back a cursor that skips none
+    const seen: number[] = [];
+    let cursor: string | undefined;
+    let calls = 0;
+    do {
+      const page = await web.client.call('resources', { search: '  MATCH ', limit: 7, ...(cursor === undefined ? {} : { cursor }) }, as);
+      expect(page.items.every((item) => item.uri.includes('match'))).toBe(true);
+      seen.push(...page.items.map((item) => item.seenAt));
+      cursor = page.cursor;
+      calls++;
+    } while (cursor !== undefined && calls < 20);
+    expect(seen).toEqual(Array.from({ length: 25 }, (_, i) => 240 - i * 10));
+    expect(calls).toBeLessThan(20);
+    await expect(web.client.call('resources', { search: 'nothing-has-this' }, as)).resolves.toEqual({ items: [] });
   });
 
   it('refuses members', async () => {

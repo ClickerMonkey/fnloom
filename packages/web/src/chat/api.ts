@@ -12,12 +12,22 @@ export const SESSIONS_TAG = 'sessions';
 /** The cache tag of the chat's capabilities, cleared when the hub says they changed. */
 export const CAPABILITIES_TAG = 'capabilities';
 
+/** How long typing pauses before a draft's suggestions are asked for (ms). */
+export const SUGGEST_PAUSE = 700;
+/** How long typing in the chat list's search pauses before the list is asked for again (ms). */
+export const SEARCH_PAUSE = 250;
+/** How long a live turn's tree waits after its runs change before it is asked for again (ms). */
+export const TREE_REFRESH = 400;
+
 /** Make the chat's callers. */
 export function chatApi(hub: Hub) {
   return {
     capabilities: hub.caller('capabilities', { cache: { ttl: 60_000, tags: [CAPABILITIES_TAG] }, dedupe: true }),
     types: hub.caller('types', { cache: { ttl: 300_000, tags: [CAPABILITIES_TAG] }, dedupe: true }),
-    sessions: hub.caller('sessions', { cache: { ttl: 5_000, tags: [SESSIONS_TAG] }, dedupe: true }),
+    /** The list's pages; a newer first page (a reload, the other view) supersedes one still on its way. */
+    sessions: hub.caller('sessions', { cache: { ttl: 5_000, tags: [SESSIONS_TAG] }, dedupe: true, lastOnly: true }),
+    /** The list's search as it is typed: asked once typing pauses, only the latest answer counts. */
+    searchSessions: hub.caller('sessions', { debounce: SEARCH_PAUSE, lastOnly: true }),
     session: hub.caller('session', { dedupe: true }),
     createSession: hub.caller('createSession', { invalidates: [SESSIONS_TAG] }),
     updateSession: hub.caller('updateSession', { invalidates: [SESSIONS_TAG] }),
@@ -30,9 +40,12 @@ export function chatApi(hub: Hub) {
     background: hub.caller('background'),
     undoTurn: hub.caller('undoTurn'),
     tree: hub.caller('tree', { dedupe: true }),
+    /** A live turn's tree asked again as its runs change: once changes pause, only the latest answer counts. */
+    treeRefresh: hub.caller('tree', { debounce: TREE_REFRESH, lastOnly: true }),
     run: hub.caller('run', { dedupe: true }),
     llmCall: hub.caller('llmCall', { cache: { ttl: 300_000 }, dedupe: true }),
-    suggest: hub.caller('suggest', { lastOnly: true }),
+    /** A draft's suggestions: asked once typing pauses, only the latest answer counts. */
+    suggest: hub.caller('suggest', { debounce: SUGGEST_PAUSE, lastOnly: true }),
     mentions: hub.caller('mentions'),
     mentionHover: hub.caller('mentionHover', { cache: { ttl: 30_000 }, dedupe: true }),
     waiting: hub.caller('waiting'),

@@ -160,10 +160,30 @@ function storedProviders(hub: HubServices, owner: ActorId): StoredProviders {
   });
 }
 
+/** The chat services execution uses. */
+export type ChatPorts = Pick<ExecutionInput, 'presence' | 'turns' | 'enrich' | 'approvers'>;
+
 /**
- * The execution module as a boot module factory. Other modules are reached lazily: the chat services it uses are
- * delegates that look chat up on each call, so building execution never builds chat (chat, in turn, uses execution).
+ * The chat services execution uses, as delegates that look chat up on each call, so building execution never builds
+ * chat (chat, in turn, uses execution).
  */
+export function chatPorts(hub: Pick<HubServices, 'chat'>): ChatPorts {
+  return {
+    presence: { active: (session) => hub.chat.sessions.active(session) },
+    turns: {
+      begin: (input) => hub.chat.turns.begin(input),
+      stream: (message, delta) => { hub.chat.turns.stream(message, delta); },
+      finish: (message, parts, status) => hub.chat.turns.finish(message, parts, status),
+      settle: (turn, status) => hub.chat.turns.settle(turn, status),
+      track: (message, runs) => hub.chat.turns.track(message, runs),
+      followUp: (input) => hub.chat.turns.followUp(input),
+    },
+    enrich: { render: (message) => hub.chat.enrich.render(message) },
+    approvers: { approvers: (approver, turnUser) => hub.chat.approvers.approvers(approver, turnUser) },
+  };
+}
+
+/** The execution module as a boot module factory. Other modules are reached lazily (`chatPorts`). */
 export function executionModule(options: {
   /** Where models come from; defaults to OpenRouter with the key in the model env slice. */
   readonly llm?: (hub: HubServices) => LlmSource;
@@ -181,17 +201,7 @@ export function executionModule(options: {
       catalog: hub.catalog,
       link: hub.link.connections,
       config: hub.link.config,
-      presence: { active: (session) => hub.chat.sessions.active(session) },
-      turns: {
-        begin: (input) => hub.chat.turns.begin(input),
-        stream: (message, delta) => { hub.chat.turns.stream(message, delta); },
-        finish: (message, parts, status) => hub.chat.turns.finish(message, parts, status),
-        settle: (turn, status) => hub.chat.turns.settle(turn, status),
-        track: (message, runs) => hub.chat.turns.track(message, runs),
-        followUp: (input) => hub.chat.turns.followUp(input),
-      },
-      enrich: { render: (message) => hub.chat.enrich.render(message) },
-      approvers: { approvers: (approver, turnUser) => hub.chat.approvers.approvers(approver, turnUser) },
+      ...chatPorts(hub),
       ports: hub.store.ports,
       llm: options.llm?.(hub) ?? { stored: storedProviders(hub, hubActor) },
     });

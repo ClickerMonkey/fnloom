@@ -1,12 +1,13 @@
 /** Session settings (chat-features 9.5, 9.6): the agent, the systems the chat uses, and its priority. */
-import { feature, find, isPhone, openSession, settle, tid } from '../kit.ts';
+import { feature, find, hasListColumn, openSession, settle, tid } from '../kit.ts';
 
 export default feature({
   id: 'session-settings', ref: 'chat-features 9.5, 9.6', title: 'Session settings',
+  also: ['wide'],
   async run(ctx) {
     const { page } = ctx;
     await openSession(ctx);
-    if (isPhone(ctx)) {
+    if (!hasListColumn(ctx)) {
       await page.click(tid('chat-menu'));
       await settle(page);
       const items = await page.$$('[role="menuitem"]');

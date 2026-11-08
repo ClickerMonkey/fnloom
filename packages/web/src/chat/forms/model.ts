@@ -1,61 +1,26 @@
 /**
  * Forms from gin types. A fn's args, a handler's answer and a renderer's form arrive as gin type definitions (JSON);
- * `formOf` reads one into a `FormNode` tree with a node for every gin type (text with its constraints, numbers,
- * booleans, enums, dates and timestamps, durations, colours, lists, maps, tuples, objects with optional fields,
- * nullables, unions, literals, refs to named types, and any JSON). A ref to a named type the browser holds (see
- * `types.ts`) carries the form of its definition, so it is entered as that shape when no system input is registered.
+ * the browser's type library parses one into a live gin `Type` (with the named types it holds bound), and `formOf`
+ * reads that type into a `FormNode` tree by gin's own classes: text with its constraints, numbers, booleans, enums,
+ * dates and timestamps, durations, colours, lists, maps, tuples, objects with optional fields and defaults,
+ * nullables, unions, literals, named types and any JSON. gin is the only description of its type system here: every
+ * option and generic is read through the typed class that owns it, so a change in gin breaks this file at compile
+ * time. A named type the browser holds carries the form of its definition, so it is entered as that shape when no
+ * system input is registered.
+ *
  * A `Draft` holds what the person has typed so far for a node; `encode` reads a draft into the JSON value it stands
  * for, with a problem only where the typing can't be read (a number that isn't one). Whether the value fits its type
  * (lengths, ranges, patterns, wire forms) is gin's call: `issueProblems` turns gin's value-schema issues into a
  * problem per field.
  */
-import type {
-  EnumOptions as GinEnumOptions, ListOptions as GinListOptions, NewExprDef, NumOptions as GinNumOptions, PropDef, TextOptions as GinTextOptions, TypeDef,
+import {
+  AliasType, AnyType, BoolType, ColorType, DateType, DurationType, EnumType, Extension, ListType, LiteralType, MapType, NewExpr, NullableType, NullType,
+  NumType, ObjType, OptionalType, OrType, TextType, TimestampType, TupleType, VoidType, type Type,
 } from '@aeye/gin';
 import { Json } from '@harness/core';
 import { z } from 'zod';
 import { humanize } from '../logic/labels.ts';
-import type { Issue } from './types.ts';
-
-/** Every key of `T` also accepts `undefined`, as zod's output for an optional field does. */
-type Loose<T> = { [K in keyof T]: T[K] | undefined };
-
-/**
- * A field default as gin writes it: a `new` expression carrying the value. Other expressions (computed defaults) need
- * gin's engine, so the form starts those fields empty.
- */
-const NewDefault = z.object({ kind: z.literal('new'), value: Json }) satisfies z.ZodType<Pick<NewExprDef, 'kind' | 'value'>>;
-
-/**
- * The part of a gin type definition a form reads. Its keys are picked from gin's `TypeDef` and `PropDef`, so a rename
- * in gin breaks here. gin's own `parse` is the full check.
- */
-interface DefShape extends Loose<Pick<TypeDef<Record<string, unknown>>, 'docs' | 'options' | 'extends'>> {
-  name: TypeDef['name'];
-  generic?: Record<string, DefShape> | undefined;
-  props?: Record<string, PropShape> | undefined;
-}
-/** A prop of an object type; `default` is gin's default expression (see `NewDefault`). */
-interface PropShape extends Loose<Pick<PropDef, 'docs'>> {
-  type: DefShape;
-  /** gin's default expression, read through `NewDefault`. */
-  default?: unknown;
-}
-
-const Def: z.ZodType<DefShape> = z.lazy(() => z.object({
-  name: z.string(),
-  docs: z.string().optional(),
-  extends: z.string().optional(),
-  options: z.record(z.string(), z.unknown()).optional(),
-  generic: z.record(z.string(), Def).optional(),
-  props: z.record(z.string(), z.object({ type: Def, docs: z.string().optional(), default: z.unknown().optional() })).optional(),
-}));
-
-/** The options of gin's text, num, list and enum types that a form uses, each pinned to gin's own options type. */
-const TextOptions = z.object({ minLength: z.number().optional(), maxLength: z.number().optional(), pattern: z.string().optional(), flags: z.string().optional() }) satisfies z.ZodType<Loose<GinTextOptions>>;
-const NumOptions = z.object({ min: z.number().optional(), max: z.number().optional(), whole: z.boolean().optional() }) satisfies z.ZodType<Loose<Pick<GinNumOptions, 'min' | 'max' | 'whole'>>>;
-const ListOptions = z.object({ minLength: z.number().optional(), maxLength: z.number().optional() }) satisfies z.ZodType<Loose<GinListOptions>>;
-const EnumOptions = z.object({ values: z.record(z.string(), z.union([z.string(), z.number()])) }) satisfies z.ZodType<GinEnumOptions<string | number>>;
+import { LOCAL_TYPES, type Issue, type TypeSource } from './types.ts';
 
 /** A choice of an enum: its label and the value it sends. */
 export interface EnumChoice {
@@ -75,11 +40,14 @@ export interface FormField {
   readonly fallback?: Json;
 }
 
+/** The node kinds read straight off a gin class, with no options or generics. */
+type ScalarKind = 'bool' | 'date' | 'timestamp' | 'duration' | 'color' | 'json';
+
 /** A form for one gin type. */
 export type FormNode =
   | { readonly kind: 'text'; readonly docs: string; readonly minLength?: number; readonly maxLength?: number; readonly pattern?: string; readonly flags?: string; readonly multiline: boolean }
   | { readonly kind: 'num'; readonly docs: string; readonly min?: number; readonly max?: number; readonly whole: boolean }
-  | { readonly kind: 'bool' | 'date' | 'timestamp' | 'duration' | 'color' | 'json'; readonly docs: string }
+  | { readonly kind: ScalarKind; readonly docs: string }
   | { readonly kind: 'enum'; readonly docs: string; readonly choices: readonly EnumChoice[] }
   | { readonly kind: 'literal'; readonly docs: string; readonly value: Json }
   | { readonly kind: 'list'; readonly docs: string; readonly item: FormNode; readonly minLength?: number; readonly maxLength?: number }
@@ -94,114 +62,118 @@ export type FormNode =
 /** Every kind of form node. */
 export type FormKind = FormNode['kind'];
 
-/** The gin class names a form knows, and the kind each reads as. Any other name is a ref to a named type. */
-const SCALARS = { bool: 'bool', date: 'date', timestamp: 'timestamp', duration: 'duration', color: 'color', any: 'json', void: 'json', null: 'json' } as const;
+/** gin's scalar classes and the kind each reads as. */
+const SCALARS: ReadonlyArray<readonly [abstract new (...args: never[]) => Type, ScalarKind]> = [
+  [BoolType, 'bool'], [DateType, 'date'], [TimestampType, 'timestamp'], [DurationType, 'duration'], [ColorType, 'color'],
+  [AnyType, 'json'], [VoidType, 'json'], [NullType, 'json'],
+];
 
 const TEXTY_NAMES = /^(content|body|text|description|message|prompt|code|notes?)$/i;
-
-/** Finds the definition of a named type (`hub/LongText`), or undefined when the browser doesn't hold it. */
-export type Resolve = (name: string) => unknown;
-
-/**
- * Read a gin type definition into a form. Anything unreadable becomes a JSON field rather than failing. `resolve`
- * finds named types, so a ref can be entered as its definition's shape.
- */
-export function formOf(def: unknown, field = '', resolve: Resolve = () => undefined): FormNode {
-  const parsed = Def.safeParse(def);
-  if (!parsed.success) { return { kind: 'json', docs: '' }; }
-  return nodeOf(parsed.data, field, resolve, new Set());
-}
-
-function nodeOf(def: DefShape, field: string, resolve: Resolve, within: ReadonlySet<string>): FormNode {
-  const docs = def.docs ?? '';
-  const sub = (inner: DefShape, name: string): FormNode => nodeOf(inner, name, resolve, within);
-  const generic = (key: string): FormNode => {
-    const inner = def.generic?.[key];
-    return inner === undefined ? { kind: 'json', docs: '' } : sub(inner, field);
-  };
-  switch (def.name) {
-    case 'text': {
-      const o = TextOptions.safeParse(def.options ?? {});
-      const opts = o.success ? o.data : {};
-      return {
-        kind: 'text', docs, multiline: TEXTY_NAMES.test(field) || (opts.maxLength ?? 0) > 200,
-        ...(opts.minLength === undefined ? {} : { minLength: opts.minLength }), ...(opts.maxLength === undefined ? {} : { maxLength: opts.maxLength }),
-        ...(opts.pattern === undefined ? {} : { pattern: opts.pattern }), ...(opts.flags === undefined ? {} : { flags: opts.flags }),
-      };
-    }
-    case 'num': {
-      const o = NumOptions.safeParse(def.options ?? {});
-      const opts = o.success ? o.data : {};
-      return { kind: 'num', docs, whole: opts.whole === true, ...(opts.min === undefined ? {} : { min: opts.min }), ...(opts.max === undefined ? {} : { max: opts.max }) };
-    }
-    case 'enum': {
-      const o = EnumOptions.safeParse(def.options ?? {});
-      const choices = o.success ? Object.entries(o.data.values).map(([label, value]) => ({ label: humanize(label), value })) : [];
-      return { kind: 'enum', docs, choices };
-    }
-    case 'literal': {
-      const value = Json.safeParse(def.options?.['value']);
-      return { kind: 'literal', docs, value: value.success ? value.data : null };
-    }
-    case 'list': {
-      const o = ListOptions.safeParse(def.options ?? {});
-      const opts = o.success ? o.data : {};
-      return { kind: 'list', docs, item: generic('V'), ...(opts.minLength === undefined ? {} : { minLength: opts.minLength }), ...(opts.maxLength === undefined ? {} : { maxLength: opts.maxLength }) };
-    }
-    case 'map': return { kind: 'map', docs, key: generic('K'), value: generic('V') };
-    case 'tuple': {
-      const elements = z.array(Def).safeParse(def.options?.['elements']);
-      return { kind: 'tuple', docs, elements: elements.success ? elements.data.map((e, i) => sub(e, `${field}${i}`)) : [] };
-    }
-    case 'obj': {
-      const fields = Object.entries(def.props ?? {}).map(([name, prop]): FormField => {
-        const optional = prop.type.name === 'optional';
-        const inner = optional ? prop.type.generic?.['T'] : prop.type;
-        const fallback = NewDefault.safeParse(prop.default);
-        return {
-          name, label: humanize(name), docs: prop.docs ?? prop.type.docs ?? '', optional,
-          node: inner === undefined ? { kind: 'json', docs: '' } : sub(inner, name),
-          ...(fallback.success ? { fallback: fallback.data.value } : {}),
-        };
-      });
-      return { kind: 'obj', docs, fields };
-    }
-    case 'optional': case 'nullable': return { kind: 'nullable', docs, inner: generic('T') };
-    case 'or': {
-      const types = z.array(Def).safeParse(def.options?.['types']);
-      const options = types.success ? types.data.map((t, i) => ({ label: optionLabel(t, i), node: sub(t, field) })) : [];
-      return { kind: 'or', docs, options };
-    }
-    default: {
-      const scalar = Object.entries(SCALARS).find(([name]) => name === def.name)?.[1];
-      return scalar === undefined ? refNode(def.name, docs, field, resolve, within) : { kind: scalar, docs };
-    }
-  }
-}
 
 /** Words in a named text type's docs that say it runs over many lines (the hub's `LongText`). */
 const LONG_TEXT_DOCS = /many lines|text area/i;
 
-/** A ref to a named type, with the form of its definition when it resolves and isn't one it is already inside. */
-function refNode(name: string, docs: string, field: string, resolve: Resolve, within: ReadonlySet<string>): FormNode {
-  const found = within.has(name) ? undefined : Def.safeParse(resolve(name));
-  if (found === undefined || !found.success) { return { kind: 'ref', docs, name }; }
-  // a named type is an extension of the type it `extends`: its form is that type's, with the extension's options and props
-  const def = found.data.extends === undefined ? found.data : { ...found.data, name: found.data.extends };
-  const inner = nodeOf(def, field, resolve, new Set([...within, name]));
-  const shaped = inner.kind === 'text' && LONG_TEXT_DOCS.test(found.data.docs ?? '') ? { ...inner, multiline: true } : inner;
-  return { kind: 'ref', docs: docs === '' ? shaped.docs : docs, name, inner: shaped };
+/**
+ * Read a gin type definition into a form, by parsing it with the browser's type library into a live gin type.
+ * A definition gin can't parse becomes a JSON field (logged); a named type the library doesn't hold is a ref with
+ * no inner form (entered with its system's input, or as JSON).
+ */
+export function formOf(def: unknown, field = '', types: TypeSource = LOCAL_TYPES): FormNode {
+  const type = types.type(def);
+  return type === undefined ? { kind: 'json', docs: '' } : nodeOf(type, field, new Set());
 }
 
-function optionLabel(def: DefShape, i: number): string {
-  switch (def.name) {
-    case 'text': return 'Text';
-    case 'num': return 'Number';
-    case 'bool': return 'Yes or no';
-    case 'obj': return Object.keys(def.props ?? {}).length > 0 ? `With ${Object.keys(def.props ?? {}).slice(0, 2).map(humanize).join(', ').toLowerCase()}` : `Option ${i + 1}`;
-    case 'list': return 'List';
-    default: return humanize(def.name);
+/** A form node for a live gin type. `within` holds the named types being read, so a recursive one stops at a ref. */
+function nodeOf(type: Type, field: string, within: ReadonlySet<string>): FormNode {
+  const docs = type.docs ?? '';
+  const sub = (inner: Type, name: string): FormNode => nodeOf(inner, name, within);
+  if (type instanceof AliasType) { return named(type.options.name, docs, field, type.simplify(), within); }
+  if (type instanceof Extension) {
+    // a narrowing of a built-in class (`text{maxLength=40}`) is that class; any other extension is a named type
+    return isClassName(type) ? withDocs(sub(type.base, field), docs) : named(type.name, docs, field, type, within);
   }
+  if (type instanceof TextType) {
+    const { minLength, maxLength, pattern, flags } = type.options;
+    return {
+      kind: 'text', docs, multiline: TEXTY_NAMES.test(field) || (maxLength ?? 0) > 200,
+      ...(minLength === undefined ? {} : { minLength }), ...(maxLength === undefined ? {} : { maxLength }),
+      ...(pattern === undefined ? {} : { pattern }), ...(flags === undefined ? {} : { flags }),
+    };
+  }
+  if (type instanceof NumType) {
+    const { min, max, whole } = type.options;
+    return { kind: 'num', docs, whole: whole === true, ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }) };
+  }
+  if (type instanceof EnumType) {
+    const choices = Object.entries(type.options.values).flatMap(([label, value]): EnumChoice[] => (
+      typeof value === 'string' || typeof value === 'number' ? [{ label: humanize(label), value }] : []
+    ));
+    return { kind: 'enum', docs, choices };
+  }
+  if (type instanceof LiteralType) {
+    const value = Json.safeParse(type.literal);
+    return { kind: 'literal', docs, value: value.success ? value.data : null };
+  }
+  if (type instanceof ListType) {
+    const { minLength, maxLength } = type.options;
+    return { kind: 'list', docs, item: sub(type.item, field), ...(minLength === undefined ? {} : { minLength }), ...(maxLength === undefined ? {} : { maxLength }) };
+  }
+  if (type instanceof MapType) { return { kind: 'map', docs, key: sub(type.key, field), value: sub(type.value, field) }; }
+  if (type instanceof TupleType) { return { kind: 'tuple', docs, elements: type.elements.map((element, i) => sub(element, `${field}${i}`)) }; }
+  if (type instanceof ObjType) {
+    const fields = Object.entries(type.fields).map(([name, prop]): FormField => {
+      const optional = prop.type instanceof OptionalType;
+      const inner = prop.type instanceof OptionalType ? prop.type.inner : prop.type;
+      const fallback = prop.default instanceof NewExpr ? Json.safeParse(prop.default.value) : undefined;
+      return {
+        name, label: humanize(name), docs: prop.docs ?? prop.type.docs ?? inner.docs ?? '', optional, node: sub(inner, name),
+        ...(fallback?.success === true ? { fallback: fallback.data } : {}),
+      };
+    });
+    return { kind: 'obj', docs, fields };
+  }
+  if (type instanceof OptionalType || type instanceof NullableType) { return { kind: 'nullable', docs, inner: sub(type.inner, field) }; }
+  if (type instanceof OrType) { return { kind: 'or', docs, options: type.variants.map((variant, i) => ({ label: optionLabel(variant, i), node: sub(variant, field) })) }; }
+  const scalar = SCALARS.find(([cls]) => type instanceof cls)?.[1];
+  // fns, interfaces, intersections and type values have no form of their own: they are entered as JSON
+  return { kind: scalar ?? 'json', docs };
+}
+
+/** Whether an extension only narrows a built-in class, keeping its name (`text{maxLength=40}`), rather than naming a type. */
+function isClassName(type: Extension): boolean {
+  return type.registry.typeClass(type.name) !== undefined;
+}
+
+/** A node with the docs of the type that wraps it, when it has some. */
+function withDocs(node: FormNode, docs: string): FormNode {
+  return docs === '' ? node : { ...node, docs };
+}
+
+/**
+ * A named type: a ref, with the form of its definition when the library resolved it (`target` isn't the unresolved
+ * alias itself) and it isn't one it is already inside.
+ */
+function named(name: string, docs: string, field: string, target: Type, within: ReadonlySet<string>): FormNode {
+  if (within.has(name) || target instanceof AliasType) { return { kind: 'ref', docs, name }; }
+  // the named type's own definition is an extension of the type it `extends`: its form is that type's, narrowed
+  const definition = target instanceof Extension && target.name === name ? target : undefined;
+  const inner = nodeOf(definition === undefined ? target : definition.base, field, new Set([...within, name]));
+  const ownDocs = definition?.docs ?? target.docs ?? '';
+  const shaped = inner.kind === 'text' && LONG_TEXT_DOCS.test(ownDocs) ? { ...inner, multiline: true } : inner;
+  return { kind: 'ref', docs: docs === '' ? (ownDocs === '' ? shaped.docs : ownDocs) : docs, name, inner: shaped };
+}
+
+/** A union option's label, by what it is. */
+function optionLabel(type: Type, i: number): string {
+  if (type instanceof TextType) { return 'Text'; }
+  if (type instanceof NumType) { return 'Number'; }
+  if (type instanceof BoolType) { return 'Yes or no'; }
+  if (type instanceof ListType) { return 'List'; }
+  if (type instanceof ObjType) {
+    const names = Object.keys(type.fields);
+    return names.length > 0 ? `With ${names.slice(0, 2).map(humanize).join(', ').toLowerCase()}` : `Option ${i + 1}`;
+  }
+  return humanize(type instanceof AliasType ? type.options.name : type.name);
 }
 
 /** What has been typed so far for one node. */

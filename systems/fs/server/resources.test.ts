@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import type { ResourceChange } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AeyeDocuments, importCandidates, linkPath, plainText, toResourceLink } from './documents.ts';
+import { AeyeDocuments, linkPath, plainText, toResourceLink } from './documents.ts';
 import { FileService } from './files.ts';
 import { RootGuard, fileUri } from './paths.ts';
 import { FsResources, versionOf } from './resources.ts';
@@ -136,14 +136,6 @@ describe('links', () => {
     expect(linkPath({ value: 'react', kind: 'resource' }, from)).toBeUndefined();
     expect(linkPath({ value: '#top', kind: 'resource' }, from)).toBeUndefined();
     expect(linkPath({ value: 'https://x.io', kind: 'external' }, from)).toBeUndefined();
-  });
-
-  it('tries an import as written, its TypeScript source, each extension, then a folder index', () => {
-    const candidates = importCandidates('/w/src/c.js');
-    expect(candidates.slice(0, 3)).toEqual(['/w/src/c.js', '/w/src/c.ts', '/w/src/c.tsx']);
-    expect(candidates).toContain('/w/src/c.js.ts');
-    expect(candidates.at(-1)).toBe('/w/src/c.js/index.json');
-    expect(importCandidates('/w/lib')).toContain('/w/lib/index.ts');
   });
 });
 

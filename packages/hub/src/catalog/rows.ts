@@ -5,7 +5,7 @@ import type { Table, Where } from '../store/index.ts';
 export const PAGE = 200;
 
 /** Every row matching `where`, read page by page (the store never reads a whole table at once). */
-export async function allRows<Row>(table: Table<Row>, where?: Where<Row>): Promise<Row[]> {
+export async function allRows<Row, Key>(table: Table<Row, Key>, where?: Where<Row>): Promise<Row[]> {
   const rows: Row[] = [];
   let cursor: string | undefined;
   do {

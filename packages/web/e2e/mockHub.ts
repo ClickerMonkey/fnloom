@@ -81,7 +81,7 @@ class MockState {
 const SAMPLE: readonly { reason: NotificationReason; title: string; body: string; link: Record<string, string> }[] = [
   { reason: 'approval-needed', title: 'Approve writing 3 files', body: 'fs/write wants to change src/app.ts, src/main.ts and README.md.', link: { approval: 'apr_1' } },
   { reason: 'turn-finished', title: 'Your refactor is done', body: 'Renamed 14 symbols across 6 files. All tests pass.', link: { session: 'ses_refactor' } },
-  { reason: 'pairing-requested', title: 'A system wants to pair', body: 'notes (v0.3.1) on ws://192.168.50.20 asked to connect.', link: { pairing: 'pr_notes' } },
+  { reason: 'pairing-requested', title: 'A system wants to pair', body: 'notes (v0.3.1) on ws://192.168.50.20 asked to connect.', link: { pairing: 'par_notes' } },
   { reason: 'replied', title: 'Chat agent replied', body: 'Here is the summary of the meeting notes you asked for.', link: { session: 'ses_meeting' } },
   { reason: 'system-disconnected', title: 'embedder went offline', body: 'Search falls back to words until it reconnects.', link: { system: 'embedder' } },
   { reason: 'spend-limit', title: 'Daily budget reached', body: 'This session used $2.00 of its $2.00 daily budget.', link: { session: 'ses_budget' } },

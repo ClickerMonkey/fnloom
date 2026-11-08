@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { ApiError } from '@ayepi/core';
-import { ActorId, ContentRef, IDS, QualifiedName, SystemName, type Json, type LinkSession, type TypeRecord } from '@harness/core';
+import { ActorId, ContentRef, IDS, QualifiedName, SessionId, SystemName, type DeliveryRecord, type Json, type LinkSession, type TypeRecord } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeRun } from '../chat/testing.ts';
 import { openTestStore } from '../store/fixtures.ts';
 import type { SqliteStore } from '../store/sqlite.ts';
-import { ChunkedUploads, LinkServices, type LinkServiceDeps } from './services.ts';
+import { linkPayload } from '../testing.ts';
+import { ChunkedUploads, LinkServices, linkServiceHandlers, type LinkServiceDeps } from './services.ts';
 
 const FS: LinkSession = { system: SystemName.parse('fs'), instance: 'i1' };
 const SHOP: LinkSession = { system: SystemName.parse('shop'), instance: 'i2' };
@@ -38,7 +39,7 @@ async function services(overrides: Partial<LinkServiceDeps> = {}) {
   store = opened;
   const content = new FakeContent();
   const attached: Array<{ run: string; part: unknown }> = [];
-  const state: Array<{ op: string; owner: unknown }> = [];
+  const state: Array<{ op: string; owner: unknown; input?: unknown }> = [];
   let now = 1_000;
   const types: Record<string, TypeRecord> = {};
   const deps: LinkServiceDeps = {
@@ -52,7 +53,7 @@ async function services(overrides: Partial<LinkServiceDeps> = {}) {
     }),
     state: () => ({
       get: (owner) => { state.push({ op: 'get', owner }); return Promise.resolve({ values: { cwd: '/x' }, version: 3 }); },
-      set: (owner) => { state.push({ op: 'set', owner }); return Promise.resolve({ version: 4 }); },
+      set: (owner, input) => { state.push({ op: 'set', owner, input }); return Promise.resolve({ version: 4 }); },
     }),
     turns: () => ({ attach: (run, part) => { attached.push({ run, part }); return Promise.resolve(); } }),
     maxUpload: 10,
@@ -106,6 +107,23 @@ describe('state, settings and attachments for a system\'s own runs', () => {
     expect(state.map((e) => e.op)).toEqual(['get', 'set']);
   });
 
+  it('reads and writes state only for deliveries that went to the asking system', async () => {
+    const { services: s, store: db, state } = await services();
+    const delivery = (id: string, system: LinkSession['system']): DeliveryRecord => ({
+      id: IDS.delivery.parse(id), system, kind: { action: 'echo', input: {} }, session: SessionId.parse('ses_one'), actor: ADA, status: 'delivered', attempts: 1, createdAt: 0,
+    });
+    const mine = await db.table('deliveries').insert(delivery('dlv_fs', FS.system));
+    const theirs = await db.table('deliveries').insert(delivery('dlv_shop', SHOP.system));
+    expect(await s.stateGet(FS, { delivery: mine.id })).toEqual({ values: { cwd: '/x' }, version: 3 });
+    expect(await s.stateSet(FS, { delivery: mine.id }, { patch: { cwd: '/y' }, clear: [] })).toEqual({ version: 4 });
+    await expect(s.stateGet(FS, { delivery: theirs.id })).rejects.toMatchObject({ status: 403, code: 'NOT_YOUR_DELIVERY' });
+    await expect(s.stateSet(FS, { delivery: theirs.id }, { patch: { cwd: '/z' }, clear: [] })).rejects.toMatchObject({ status: 403, code: 'NOT_YOUR_DELIVERY' });
+    await expect(s.stateGet(SHOP, { delivery: mine.id })).rejects.toMatchObject({ status: 403, code: 'NOT_YOUR_DELIVERY' });
+    await expect(s.stateSet(FS, { delivery: IDS.delivery.parse('dlv_none') }, { patch: {}, clear: [] })).rejects.toMatchObject({ status: 404, code: 'DELIVERY_NOT_FOUND' });
+    // only the asking system's own delivery reached the state service
+    expect(state).toEqual([{ op: 'get', owner: { delivery: mine.id } }, { op: 'set', owner: { delivery: mine.id }, input: { patch: { cwd: '/y' }, clear: [] } }]);
+  });
+
   it('answers a setting with the person\'s own value, else their group\'s', async () => {
     const { services: s, store: db } = await services();
     const setting = QualifiedName.parse('fs/shell');
@@ -128,6 +146,37 @@ describe('state, settings and attachments for a system\'s own runs', () => {
       { type: 'link', link: { url: 'https://example.com', title: 'x' } },
       { type: 'attachment', attachment: 'fs/diff', data: { path: 'a' }, title: 'a' },
     ]);
+  });
+});
+
+describe('the link handlers', () => {
+  it('hands each endpoint\'s body to its service as the asking system', async () => {
+    const { services: s, state, attached, types, content } = await services();
+    const handlers = linkServiceHandlers(s);
+    const cwd = { cwd: '/y' };
+    expect(await handlers.stateGet(linkPayload({ owner: { run: RUN } }, FS))).toEqual({ values: { cwd: '/x' }, version: 3 });
+    expect(await handlers.stateSet(linkPayload({ owner: { run: RUN }, patch: cwd, clear: ['old'], version: 3 }, FS))).toEqual({ version: 4 });
+    expect(await handlers.stateSet(linkPayload({ owner: { run: RUN }, patch: cwd, clear: [] }, FS))).toEqual({ version: 4 });
+    await expect(handlers.stateGet(linkPayload({ owner: { run: RUN } }, SHOP))).rejects.toMatchObject({ status: 403 });
+    expect(state).toEqual([
+      { op: 'get', owner: { run: RUN } },
+      { op: 'set', owner: { run: RUN }, input: { patch: cwd, clear: ['old'], version: 3 } },
+      { op: 'set', owner: { run: RUN }, input: { patch: cwd, clear: [] } },
+    ]);
+    expect(await handlers.setting(linkPayload({ run: RUN, setting: QualifiedName.parse('fs/shell') }, FS))).toEqual({});
+    await handlers.attach(linkPayload({ run: RUN, item: { link: { url: 'https://example.com', title: 'x' } } }, FS));
+    expect(attached).toEqual([{ run: RUN, part: { type: 'link', link: { url: 'https://example.com', title: 'x' } } }]);
+    const uploaded = await handlers.upload(linkPayload({ upload: 'u', chunk: Buffer.from('hi').toString('base64'), last: true, mime: 'text/plain' }, FS));
+    expect(uploaded.ref?.size).toBe(2);
+    expect(content.stored.size).toBe(1);
+    if (uploaded.ref === undefined) { throw new Error('no upload'); }
+    expect(await handlers.content(linkPayload({ ref: uploaded.ref, offset: 0, length: 2 }, SHOP))).toEqual({ chunk: Buffer.from('hi').toString('base64') });
+    types['shop/Price'] = {
+      name: QualifiedName.parse('shop/Price'), system: SystemName.parse('shop'), description: '', def: { name: 'obj', props: {} }, display: { label: 'Price' }, references: [], updatedAt: 0,
+    };
+    const found = await handlers.types(linkPayload({ names: [QualifiedName.parse('shop/Price'), QualifiedName.parse('shop/Gone')] }, FS));
+    expect(found.types.map((t) => t.name)).toEqual(['shop/Price']);
+    expect(found.missing).toEqual(['shop/Gone']);
   });
 });
 

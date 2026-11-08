@@ -7,7 +7,7 @@
  * The implementation is `SqliteStore` (`store/sqlite.ts`, opened with `openSqliteStore`); `HybridSearch`
  * (`store/hybrid.ts`) merges the vector and text indexes by reciprocal rank on any `HubStore`.
  */
-import type { IndexedKind, Page, QualifiedName, RowOf, TableName } from '@harness/core';
+import type { IndexedKind, KeyOf, Page, QualifiedName, RowOf, TableName } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import type { RateLimitResult, RateLimitRule, RateLimitStore } from '@ayepi/rate';
 import type { SqliteDeadLetter } from '@ayepi/sqlite';
@@ -49,9 +49,12 @@ export interface TableQuery<Row> {
   cursor?: string | undefined;
 }
 
-/** One table, typed by its row. */
-export interface Table<Row> {
-  get(key: string): Promise<Row | undefined>;
+/**
+ * One table, typed by its row and by the key its readers pass (core's `KeyOf`: the key field's branded value, or
+ * the parts of a composite key by name), so a key of another table, or a hand-joined string, doesn't compile.
+ */
+export interface Table<Row, Key> {
+  get(key: Key): Promise<Row | undefined>;
   find(query: TableQuery<Row>): Promise<Page<Row>>;
   count(where?: Where<Row>): Promise<number>;
   /** Insert; refused when the key exists. */
@@ -59,9 +62,12 @@ export interface Table<Row> {
   /** Insert or replace by key. */
   put(row: Row): Promise<Row>;
   /** Change some fields; refused when the key doesn't exist. The result is parsed with the row schema. */
-  update(key: string, patch: Partial<Row>): Promise<Row>;
-  remove(key: string): Promise<boolean>;
+  update(key: Key, patch: Partial<Row>): Promise<Row>;
+  remove(key: Key): Promise<boolean>;
 }
+
+/** The table of one hub table name. */
+export type HubTable<K extends TableName> = Table<RowOf<K>, KeyOf<K>>;
 
 /**
  * A vector index per embedder (sqlite-vec now, pgvector later). An embedder's dimensions come from its declaration
@@ -138,7 +144,7 @@ export interface AyepiPorts {
 
 /** The storage port. */
 export interface HubStore {
-  table<K extends TableName>(name: K): Table<RowOf<K>>;
+  table<K extends TableName>(name: K): HubTable<K>;
   /**
    * Run `fn` in one transaction; everything it does through `store` (tables, indexes and ports) commits or rolls back
    * together. Nested `tx` on that store is a savepoint. Inside `fn`, use only `store`: the outer store waits for the

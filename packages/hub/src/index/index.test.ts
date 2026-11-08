@@ -1,5 +1,5 @@
 import {
-  ActorId, QualifiedName, ResourceUri, SectionKey, SectionRuleId, SessionId, SystemName, compositeKey,
+  ActorId, QualifiedName, ResourceUri, SectionKey, SectionRuleId, SessionId, SystemName,
   type Page, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceRoot, type ResourceStat, type Section, type Session,
 } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -126,7 +126,7 @@ describe('indexing', () => {
   it('stores text at once and embeds it once an embedder is connected', async () => {
     const { indexer, store, embedders } = ctx;
     await indexer.upsert([{ kind: 'fn', key: 'shop/get', text: 'Get a product by sku', system: SystemName.parse('shop') }]);
-    const row = await store.table('index').get(compositeKey(DOCUMENT, 'fn', 'shop/get'));
+    const row = await store.table('index').get({ embedder: DOCUMENT, kind: 'fn', key: 'shop/get' });
     expect(row).toMatchObject({ text: 'Get a product by sku', embedder: DOCUMENT });
     expect(row?.vectorHash).toBeUndefined();
     expect(await vectorKeys()).toEqual([]);
@@ -134,7 +134,7 @@ describe('indexing', () => {
     indexer.start();
     embedders.connect();
     await indexer.idle();
-    expect((await store.table('index').get(compositeKey(DOCUMENT, 'fn', 'shop/get')))?.vectorHash).toBe(row?.hash);
+    expect((await store.table('index').get({ embedder: DOCUMENT, kind: 'fn', key: 'shop/get' }))?.vectorHash).toBe(row?.hash);
     expect(await vectorKeys()).toEqual(['fn:shop/get']);
     expect((await store.vectors.nearest(DOCUMENT, [2, 0, 0.1], 1))[0]?.score).toBeCloseTo(1);
   });
@@ -165,7 +165,7 @@ describe('indexing', () => {
     await indexer.upsert([item]);
     expect(embedders.document.calls).toBe(1);
     await indexer.remove('context', ['shop/guide']);
-    expect(await store.table('index').get(compositeKey(DOCUMENT, 'context', 'shop/guide'))).toBeUndefined();
+    expect(await store.table('index').get({ embedder: DOCUMENT, kind: 'context', key: 'shop/guide' })).toBeUndefined();
     expect(await store.text.search({ text: 'shop', kinds: ['context'], limit: 5 })).toEqual([]);
     expect(await vectorKeys()).toEqual([]);
   });
@@ -190,12 +190,12 @@ describe('indexing', () => {
     await indexer.idle();
     const keys = (await store.table('index').find({ limit: 50 })).items.map((r) => `${r.kind}:${r.key}`).sort();
     expect(keys).toEqual(['context:shop/guide', 'fn:shop/Product.discount', 'fn:shop/get', 'fn:shop/list', 'type:shop/Product']);
-    expect((await store.table('index').get(compositeKey(DOCUMENT, 'fn', 'shop/get')))?.text).toBe('shop/get: Get a product by its sku.\nTags: read');
+    expect((await store.table('index').get({ embedder: DOCUMENT, kind: 'fn', key: 'shop/get' }))?.text).toBe('shop/get: Get a product by its sku.\nTags: read');
 
     await catalog.importManifest({ ...manifest, fns: manifest.fns.filter((f) => f.name !== 'list') });
     await settle(5);
     await indexer.idle();
-    expect(await store.table('index').get(compositeKey(DOCUMENT, 'fn', 'shop/list'))).toBeUndefined();
+    expect(await store.table('index').get({ embedder: DOCUMENT, kind: 'fn', key: 'shop/list' })).toBeUndefined();
   });
 });
 
@@ -208,13 +208,13 @@ describe('resources', () => {
     const first = await indexer.resource(uri);
     expect(first).toMatchObject({ from: '', to: 'v1', added: ['Intro', 'Usage'], changed: [], removed: [] });
     expect(await store.table('resources').get(uri)).toMatchObject({ indexedVersion: 'v1', sectioner: 'hub/headings', system: 'shop', links: [{ raw: './b.md' }] });
-    expect((await store.table('index').get(compositeKey(DOCUMENT, 'section', sectionIndexKey(uri, first?.added[0] ?? never()))))?.text).toBe('guide.md > Intro\n\n# Intro\nhello\n');
+    expect((await store.table('index').get({ embedder: DOCUMENT, kind: 'section', key: sectionIndexKey(uri, first?.added[0] ?? never()) }))?.text).toBe('guide.md > Intro\n\n# Intro\nhello\n');
 
     expect(await indexer.resource(uri)).toBeUndefined();
     router.files.set(uri, { text: '# Intro\nhello there\n# Setup\nstep\n', version: 'v2', format: 'markdown' });
     expect(await indexer.resource(uri)).toMatchObject({ from: 'v1', to: 'v2', added: ['Setup'], changed: ['Intro'], removed: ['Usage'] });
     expect((await store.table('sections').find({ limit: 10 })).items.map((s) => `${s.version}:${s.key}`).sort()).toEqual(['v2:Intro', 'v2:Setup']);
-    expect(await store.table('index').get(compositeKey(DOCUMENT, 'section', sectionIndexKey(uri, SectionKey.parse('Usage'))))).toBeUndefined();
+    expect(await store.table('index').get({ embedder: DOCUMENT, kind: 'section', key: sectionIndexKey(uri, SectionKey.parse('Usage')) })).toBeUndefined();
   });
 
   it('uses a user’s rule over the defaults, and a system’s sectioner over its link', async () => {
@@ -365,7 +365,7 @@ describe('search and suggestions', () => {
     expect(await ctx.suggester.suggest({ session: SessionId.parse('ses_none'), text: 'x', limit: 4 })).toEqual([]);
     expect(await ctx.suggester.suggest({ session, text: '  ', limit: 4 })).toEqual([]);
 
-    await ctx.store.table('systems').update('shop', { status: 'disconnected' });
+    await ctx.store.table('systems').update(SystemName.parse('shop'), { status: 'disconnected' });
     await ctx.catalog.refreshAvailability(SystemName.parse('shop'));
     expect(await ctx.suggester.suggest({ session, text: 'find a product by its sku', limit: 4 })).toEqual([]);
   });

@@ -1,18 +1,21 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="P extends MessagePart | OutgoingPart">
 /**
  * The parts a person wrote, in order: their words (line breaks kept, long tokens wrapping), mention chips, command
  * chips, invocation cards and files. What the hub and hooks added for the model is not here: the message shows it
- * as one dimmed "Added for the model" row.
+ * as one dimmed "Added for the model" row. It draws a stored message's parts or a message still on its way (the
+ * composer's parts); its mention events carry the part as it was given.
  */
-import type { MessagePart, QualifiedName, RunId } from '@harness/core';
+import type { MessagePart, OutgoingPart, QualifiedName, RunId } from '@harness/core';
 import { UiIcon } from '../../ui/index.ts';
 import { formatBytes } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
-import type { MentionPart as Mention } from '../logic/thread.ts';
 import MentionChip from './MentionChip.vue';
 
+/** A mention among the parts given. */
+type Mention = Extract<P, { type: 'mention' }>;
+
 defineProps<{
-  parts: readonly MessagePart[];
+  parts: readonly P[];
   /** A command's name for its context (`fs/tree` → `tree`). */
   commandName: (context: QualifiedName) => string;
 }>();

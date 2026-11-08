@@ -7,7 +7,7 @@
 import { client as apiClient, server, spec, type AnySpec, type ApiClient, type Server } from '@ayepi/core';
 import type { LogRecord } from '@ayepi/log';
 import { createPluginHost, type PluginHost } from '@ayepi/plugin';
-import { hubWebSpec, type HubWebSpec, type ManifestSection, type SystemName, type Tokens } from '@harness/core';
+import { hubWebSpec, type HubWebSpec, type Manifest, type ManifestSection, type SystemName, type Tokens } from '@harness/core';
 import type { Catalog, CatalogEntry } from '../../catalog/index.ts';
 import { MemoryEventBus } from '../../bus/memory.ts';
 import { parseHubSettings, type HubSettings } from '../../boot/env.ts';
@@ -215,6 +215,14 @@ export function fakeModules(fakes: Fakes = {}): HubModules {
 }
 
 /** A fake `Catalog.entries` answering from these entries per section. */
+/** A manifest of a system with every section empty, plus the parts a test cares about (its client build, say). */
+export function testManifest(name: SystemName, part: Partial<Manifest> = {}): Manifest {
+  return {
+    name, version: '1', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [],
+    mentions: [], embedders: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [], ...part,
+  };
+}
+
 export function entriesFrom(sections: { readonly [S in ManifestSection]?: ReadonlyArray<CatalogEntry<S>> }): Catalog['entries'] {
   return <S extends ManifestSection>(section: S, filter?: { system?: SystemName }) => {
     const entries: ReadonlyArray<CatalogEntry<S>> = sections[section] ?? [];

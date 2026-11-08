@@ -1,7 +1,8 @@
 /**
  * The UI test kit. A `Feature` drives one UI feature of a running harness (the base URL in `HARNESS_UI_URL`; nothing
- * is booted here) and asserts it works. `run.ts` runs every feature at desktop (1440x900) and phone (390x844), signed
- * in as the admin in one browser context per viewport, saving each step's screenshot to
+ * is booted here) and asserts it works. `run.ts` runs every feature at each of the app's layouts (`EVERY_FEATURE`: a
+ * desktop, a narrow laptop, a tablet and a phone), and the features that ask for them (`also`) at a wide screen and a
+ * phone on its side, signed in as the admin in one browser context per viewport, saving each step's screenshot to
  * `ui-tests/shots/<feature>/<viewport>-<step>.png` and checking the layout rules there (no sideways scroll, no
  * overlapping or off-screen controls).
  */
@@ -20,18 +21,37 @@ export const uiEnv = env({
   HARNESS_UI_PASSWORD: z.string().min(1),
   /** A comma list of feature ids to run; empty runs them all. */
   HARNESS_UI_ONLY: z.string().default(''),
+  /** A comma list of viewports to run (`tablet,phone`); empty runs them all. */
+  HARNESS_UI_VIEWPORTS: z.string().default(''),
   HARNESS_UI_HEADLESS: z.boolean().default(true),
   /** How long the fixture's agent turn may take. */
   HARNESS_UI_TURN_TIMEOUT: z.number().int().min(10_000).default(240_000),
 });
 export type UiSettings = ReturnType<typeof uiEnv.parse>;
 
-/** The two screens every feature is checked at. */
+/**
+ * The screens features are checked at, one for each layout the app has (its breakpoints: the compact shell below 760px
+ * wide or 500px tall, the chat list's own column from 1100px, a side panel beside the list from 1360px, and both
+ * with room to spare from 1720px). `compact` says the app shows its compact shell there (drawer navigation, sheets).
+ */
 export const VIEWPORTS = {
-  desktop: { width: 1440, height: 900, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
-  phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  /** 1360-1719px: a side panel takes the chat list's column. */
+  desktop: { width: 1440, height: 900, deviceScaleFactor: 1, isMobile: false, hasTouch: false, compact: false },
+  /** 1100-1359px: the list has its column, a panel is a sheet over the thread. */
+  laptop: { width: 1180, height: 800, deviceScaleFactor: 1, isMobile: false, hasTouch: false, compact: false },
+  /** 760-1099px: the sidebar, with the chat list as a drawer. */
+  tablet: { width: 768, height: 1024, deviceScaleFactor: 2, isMobile: true, hasTouch: true, compact: false },
+  /** Below 760px: the compact shell. */
+  phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true, compact: true },
+  /** From 1720px: the list and a side panel side by side. */
+  wide: { width: 1920, height: 1080, deviceScaleFactor: 1, isMobile: false, hasTouch: false, compact: false },
+  /** A phone on its side: wide enough for the sidebar, too short for it, so the compact shell. */
+  landscape: { width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true, compact: true },
 } as const;
 export type ViewportName = keyof typeof VIEWPORTS;
+
+/** The viewports every feature runs at; a feature adds others with `also`. */
+export const EVERY_FEATURE: readonly ViewportName[] = ['desktop', 'laptop', 'tablet', 'phone'];
 
 /** What the fixture session holds, made once through the API so features have something real to look at. */
 export interface Fixtures {
@@ -67,6 +87,8 @@ export interface Feature {
   readonly title: string;
   /** Start signed out, in a browser context of its own (sign-in, sign-out). */
   readonly signedOut?: boolean;
+  /** Viewports to run at besides `EVERY_FEATURE` (`wide` for panel-heavy features, `landscape` for the shell). */
+  readonly also?: readonly ViewportName[];
   run(ctx: FeatureContext): Promise<void>;
 }
 
@@ -140,8 +162,19 @@ export function openSession(ctx: FeatureContext, session: SessionId = ctx.fixtur
   return open(ctx, `/chat/${session}`, tid('thread'));
 }
 
-/** Whether this is the phone run. */
-export const isPhone = (ctx: FeatureContext): boolean => ctx.viewport === 'phone';
+/** Whether the app shows its compact shell at this viewport (a phone, upright or on its side). */
+export const isPhone = (ctx: FeatureContext): boolean => VIEWPORTS[ctx.viewport].compact;
+
+/** Whether this viewport is a touch screen (taps, not hovers; the send button, not Enter). */
+export const isTouch = (ctx: FeatureContext): boolean => VIEWPORTS[ctx.viewport].hasTouch;
+
+/** Whether the chat list has its own column beside the thread here (1100px and wider, outside the compact shell). */
+export const hasListColumn = (ctx: FeatureContext): boolean => !VIEWPORTS[ctx.viewport].compact && VIEWPORTS[ctx.viewport].width >= 1100;
+
+/** The viewports a feature runs at. */
+export function viewportsOf(feature: Feature): readonly ViewportName[] {
+  return [...EVERY_FEATURE, ...(feature.also ?? [])];
+}
 
 /** Empty the composer (a draft from an earlier run is kept per chat). */
 export async function clearComposer(page: Page): Promise<void> {
@@ -160,7 +193,7 @@ export async function compose(page: Page, text: string): Promise<void> {
 
 /** Send what is in the composer (Enter on desktop; the button on touch screens, where Enter breaks the line). */
 export async function sendComposer(ctx: FeatureContext): Promise<void> {
-  if (isPhone(ctx)) { await ctx.page.click(tid('send')); } else { await ctx.page.keyboard.press('Enter'); }
+  if (isTouch(ctx)) { await ctx.page.click(tid('send')); } else { await ctx.page.keyboard.press('Enter'); }
 }
 
 /** Start a new, empty chat through the UI and return its id (from the URL). */
@@ -177,7 +210,7 @@ export function onScreen(page: Page, id: string): Promise<boolean> {
 
 /** Hover an element on desktop, or tap it on a phone (where hover actions show on tap). */
 export async function point(ctx: FeatureContext, selector: string): Promise<void> {
-  if (isPhone(ctx)) { await ctx.page.tap(selector); } else { await ctx.page.hover(selector); }
+  if (isTouch(ctx)) { await ctx.page.tap(selector); } else { await ctx.page.hover(selector); }
   await settle(ctx.page, 250);
 }
 

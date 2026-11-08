@@ -16,7 +16,7 @@ import {
   ContentRef, Json, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
   type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
-  type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type UserInfo, ActorId, SystemName,
+  type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
 import { contentHash } from './content.ts';
@@ -177,6 +177,8 @@ export class FakeHub {
   readonly patches: ManifestPatch[] = [];
   readonly calls: Array<HubBody<'call'>> = [];
   readonly handled: Array<HubBody<'handle'>> = [];
+  /** The names each `types` request asked for. */
+  readonly typeRequests: Array<HubBody<'types'>['names']> = [];
   readonly controls: RunControl[] = [];
   readonly progress: Array<HubBody<'progress'>> = [];
   readonly allowed: Array<HubBody<'allow'>> = [];
@@ -202,6 +204,8 @@ export class FakeHub {
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled> = () => Promise.resolve({ status: 'done', result: null });
   /** Answers a run's handler. Default: refused. */
   onHandle: (call: FakeHub['handled'][number]) => Promise<HandlerAnswer> = () => Promise.resolve({ ok: false, error: { class: 'caller', message: 'no one answers handlers here' } });
+  /** Answers `ctx.types.definitions` (the real hub sends the closure, dependencies first). Default: every name missing. */
+  onTypes: (names: HubBody<'types'>['names']) => Promise<TypeDefinitions> = (names) => Promise.resolve({ types: [], missing: names });
   /** Streams an LLM answer. Default: the text `ok`. */
   onLlm: (forward: LlmForward) => AsyncIterable<LlmForwardChunk> = () => streamOf<LlmForwardChunk>([
     { type: 'chunk', chunk: { content: 'ok' } },
@@ -429,7 +433,10 @@ export class FakeHub {
         allow: ({ data }) => { this.allowed.push(data); },
         undoWith: ({ data }) => { this.undos.push(data); },
         attach: ({ data }) => { this.attachments.push(data); },
-        types: () => ({ types: [], missing: [] }),
+        types: async ({ data }) => {
+          this.typeRequests.push(data.names);
+          return this.onTypes(data.names);
+        },
         resourcesChanged: ({ data }) => { this.changes.push(...data.changes); },
         llm: ({ data }) => {
           this.forwards.push(data);

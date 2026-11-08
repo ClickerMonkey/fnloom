@@ -8,6 +8,21 @@ import type { z } from 'zod';
 /** The part of `Storage` a persisted ref uses, so tests can pass a map. */
 export type KeyValueStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
+/**
+ * Changes another tab made to the same storage: `listener` gets the key that changed (null when the storage was
+ * cleared). Returns the function that stops listening.
+ */
+export type StorageChanges = (listener: (key: string | null) => void) => () => void;
+
+/** A window's `storage` events, which fire for changes made by the page's other tabs. */
+export function windowStorageChanges(win: Pick<Window, 'addEventListener' | 'removeEventListener'>): StorageChanges {
+  return (listener) => {
+    const onStorage = (event: StorageEvent): void => { listener(event.key); };
+    win.addEventListener('storage', onStorage);
+    return () => { win.removeEventListener('storage', onStorage); };
+  };
+}
+
 /** Read a stored value through its schema. */
 export function readStored<S extends z.ZodType>(store: KeyValueStore, key: string, schema: S): z.output<S> | undefined {
   const raw = store.getItem(key);

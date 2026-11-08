@@ -1,6 +1,7 @@
 /**
  * Admin runs: every run, newest first; opening one shows its record, and the URL keeps it open. Scrolling a long list
- * keeps the admin tabs and the filters pinned at the top, so only the rows move.
+ * keeps the admin tabs and the filters pinned at the top, so only the rows move. A session filter in the URL narrows the
+ * list to that chat's runs.
  */
 import { check, feature, open, settle } from '../kit.ts';
 
@@ -9,6 +10,7 @@ const inView = (selector: string): string => `(() => { const el = document.query
 
 export default feature({
   id: 'admin-runs', ref: 'admin runs', title: 'Runs browser',
+  also: ['wide'],
   async run(ctx) {
     const { page, fixtures } = ctx;
     await open(ctx, '/admin/runs', '.browser-row');
@@ -26,7 +28,9 @@ export default feature({
       check(await page.evaluate(inView('[role="search"]')) === true, 'the filters stay pinned while the list scrolls');
       await ctx.shot('scrolled');
     }
-    await page.evaluate(() => { document.querySelector('.routed')?.scrollTo({ top: 0 }); });
+    // the fixture's run may be pages down the full list by now; the session filter (kept in the URL) narrows to it
+    await open(ctx, `/admin/runs?session=${fixtures.session}`, `[data-testid="run-${fixtures.bashRun}"]`);
+    check(new URL(page.url()).searchParams.get('session') === fixtures.session, 'the session filter is in the URL');
     await page.click(`[data-testid="run-${fixtures.bashRun}"]`);
     await page.waitForFunction(() => new URL(location.href).searchParams.has('run'));
     await settle(page);

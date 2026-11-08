@@ -17,54 +17,85 @@ import { ResourceUri } from '../resources.ts';
 export const SectionRow = Section.extend({ uri: ResourceUri, version: z.string(), hash: z.string() });
 export type SectionRow = z.infer<typeof SectionRow>;
 
-/** One table: its row schema and how a row's key is made from the row. */
-export interface TableDef<S extends z.ZodType> {
+/** Join parts into one key (`\u0000` between them). Table keys use it; so may in-memory maps keyed by several parts. */
+export const compositeKey = (...parts: readonly string[]): string => parts.join('\u0000');
+
+/** The fields of a row whose values are strings: the ones a table can be keyed by. */
+export type StringField<Row> = { [P in keyof Row]-?: Row[P] extends string ? P : never }[keyof Row] & string;
+
+/** The parts of a composite key: the row's key fields, by name, so their order is never restated. */
+export type KeyParts<Row, F extends keyof Row> = Readonly<Pick<Row, F>>;
+
+/**
+ * One table: its row schema, the fields that key it (in order), and the two ways to make the stored key: from a
+ * whole row, or from what a reader has (`Key`: the key field's own branded value, or the parts of a composite key).
+ * `HUB_TABLES` is the single source of truth for every key, so a reader never joins a key by hand.
+ */
+export interface TableDef<S extends z.ZodType, Key> {
   readonly row: S;
-  /** The row's primary key, as one string (composite keys are joined with `\u0000`). */
-  readonly key: (row: z.infer<S>) => string;
+  /** The key fields, in the order the stored key joins them. */
+  readonly fields: readonly string[];
+  /** The stored key of a row. */
+  readonly rowKey: (row: z.infer<S>) => string;
+  /** The stored key from a reader's key. */
+  readonly key: (key: Key) => string;
 }
 
-const table = <S extends z.ZodType>(row: S, key: (row: z.infer<S>) => string): TableDef<S> => ({ row, key });
-const join = (...parts: string[]): string => parts.join('\u0000');
+/** A table keyed by one string field: readers pass that field's value (a branded id, a name, a uri). */
+const byField = <S extends z.ZodType, F extends StringField<z.infer<S>>>(row: S, field: F): TableDef<S, z.infer<S>[F]> => ({
+  row,
+  fields: [field],
+  rowKey: (r) => String(r[field]),
+  key: (key) => String(key),
+});
+
+/** A table keyed by several string fields: readers pass the parts by name. */
+const byFields = <S extends z.ZodType, const F extends readonly [StringField<z.infer<S>>, StringField<z.infer<S>>, ...Array<StringField<z.infer<S>>>]>(
+  row: S,
+  ...fields: F
+): TableDef<S, KeyParts<z.infer<S>, F[number]>> => {
+  const join = (parts: KeyParts<z.infer<S>, F[number]>): string => compositeKey(...fields.map((field) => String(parts[field])));
+  return { row, fields, rowKey: join, key: join };
+};
 
 /** Every table, by name. */
 export const HUB_TABLES = {
-  actors: table(Actor, (r) => r.id),
-  memberships: table(Membership, (r) => join(r.group, r.user)),
-  credentials: table(Credential, (r) => join(r.user, r.kind)),
-  authSessions: table(AuthSession, (r) => r.id),
-  actorSettings: table(ActorSetting, (r) => join(r.setting, r.actor)),
-  policies: table(Policy, (r) => r.id),
-  approvals: table(Approval, (r) => r.id),
-  systems: table(SystemRecord, (r) => r.name),
-  manifests: table(SystemManifest, (r) => r.system),
-  pairings: table(PairingRequest, (r) => r.id),
-  pairingTokens: table(PairingToken, (r) => r.id),
-  types: table(TypeRecord, (r) => r.name),
-  kinds: table(KindRecord, (r) => r.name),
-  fns: table(FnRecord, (r) => r.name),
-  context: table(ContextRecord, (r) => r.name),
-  sessions: table(Session, (r) => r.id),
-  messages: table(ChatMessage, (r) => r.id),
-  turns: table(Turn, (r) => r.id),
-  runs: table(Run, (r) => r.id),
-  handlerCalls: table(HandlerCall, (r) => r.id),
-  stateFields: table(StateField, (r) => join(r.session, r.system, r.name, r.type)),
-  deliveries: table(DeliveryRecord, (r) => r.id),
-  llmInteractions: table(LlmInteraction, (r) => r.id),
-  resources: table(ResourceRecord, (r) => r.uri),
-  sections: table(SectionRow, (r) => join(r.uri, r.version, r.key)),
-  sectionRules: table(SectionRule, (r) => r.id),
-  index: table(IndexEntry, (r) => join(r.embedder, r.kind, r.key)),
-  secrets: table(Secret, (r) => r.id),
-  providers: table(ProviderRecord, (r) => r.id),
-  modelCategories: table(ModelCategory, (r) => r.id),
-  budgets: table(BudgetRule, (r) => r.id),
-  priorityRules: table(PriorityRule, (r) => r.id),
-  reservations: table(Reservation, (r) => r.id),
-  ledger: table(LedgerEntry, (r) => r.id),
-  notifications: table(Notification, (r) => r.id),
-  pushSubscriptions: table(PushSubscription, (r) => r.id),
+  actors: byField(Actor, 'id'),
+  memberships: byFields(Membership, 'group', 'user'),
+  credentials: byFields(Credential, 'user', 'kind'),
+  authSessions: byField(AuthSession, 'id'),
+  actorSettings: byFields(ActorSetting, 'setting', 'actor'),
+  policies: byField(Policy, 'id'),
+  approvals: byField(Approval, 'id'),
+  systems: byField(SystemRecord, 'name'),
+  manifests: byField(SystemManifest, 'system'),
+  pairings: byField(PairingRequest, 'id'),
+  pairingTokens: byField(PairingToken, 'id'),
+  types: byField(TypeRecord, 'name'),
+  kinds: byField(KindRecord, 'name'),
+  fns: byField(FnRecord, 'name'),
+  context: byField(ContextRecord, 'name'),
+  sessions: byField(Session, 'id'),
+  messages: byField(ChatMessage, 'id'),
+  turns: byField(Turn, 'id'),
+  runs: byField(Run, 'id'),
+  handlerCalls: byField(HandlerCall, 'id'),
+  stateFields: byFields(StateField, 'session', 'system', 'name', 'type'),
+  deliveries: byField(DeliveryRecord, 'id'),
+  llmInteractions: byField(LlmInteraction, 'id'),
+  resources: byField(ResourceRecord, 'uri'),
+  sections: byFields(SectionRow, 'uri', 'version', 'key'),
+  sectionRules: byField(SectionRule, 'id'),
+  index: byFields(IndexEntry, 'embedder', 'kind', 'key'),
+  secrets: byField(Secret, 'id'),
+  providers: byField(ProviderRecord, 'id'),
+  modelCategories: byField(ModelCategory, 'id'),
+  budgets: byField(BudgetRule, 'id'),
+  priorityRules: byField(PriorityRule, 'id'),
+  reservations: byField(Reservation, 'id'),
+  ledger: byField(LedgerEntry, 'id'),
+  notifications: byField(Notification, 'id'),
+  pushSubscriptions: byField(PushSubscription, 'id'),
 } as const;
 
 /** The table names. */
@@ -73,5 +104,5 @@ export type TableName = keyof typeof HUB_TABLES;
 /** The row type of a table. */
 export type RowOf<T extends TableName> = z.infer<(typeof HUB_TABLES)[T]['row']>;
 
-/** Make the composite key of a table from its parts, in the order its `key` joins them. */
-export const compositeKey = join;
+/** The key a reader passes for a table's rows: the key field's value, or the parts of a composite key, by name. */
+export type KeyOf<T extends TableName> = Parameters<(typeof HUB_TABLES)[T]['key']>[0];

@@ -3,7 +3,7 @@
  * sign-in calls made before there is a token. Components never import this; callers live in `api/*.ts` and reactive
  * state in `state/*.ts`, which receive the callers they use, so tests hand them fakes.
  */
-import { client, wsTransport, type ApiClient, type WsTransport } from '@ayepi/core/client';
+import { client, wsTransport, type ApiClient, type ClientWs, type WsTransport } from '@ayepi/core/client';
 import type { CallArgs, CallReturn, Caller } from '@ayepi/core';
 import type { HubWebSpec } from '@harness/core';
 import { manifest } from './manifest.gen.ts';
@@ -27,6 +27,43 @@ export interface HubOptions {
   readonly origin: string;
   /** The access token, or '' when signed out. Read again for every HTTP call and every socket connect. */
   readonly token: () => string;
+  /**
+   * The hub refused a call made with the access token (401): the sign-in ended there (its tokens expired, or the hub
+   * forgot them). Calls made before sign-in (no token) don't count.
+   */
+  readonly unauthorized?: () => void;
+}
+
+/** A ws call response the hub refused for its token: `$status` 401 (see the ayepi ws wire protocol). */
+const REFUSED_FRAME = '"$status":401';
+
+/** Whether a ws frame is a call the hub refused for its token. */
+export function isRefusedFrame(frame: string): boolean {
+  if (!frame.includes(REFUSED_FRAME)) { return false; }
+  try {
+    const parsed: unknown = JSON.parse(frame);
+    return typeof parsed === 'object' && parsed !== null && Reflect.get(parsed, '$status') === 401;
+  } catch {
+    return false;
+  }
+}
+
+/** The socket as the client sees it, reporting each call the hub refused for its token. */
+function watchRefusals(socket: WsTransport, refused: () => void): ClientWs {
+  return {
+    send: (frame) => { socket.send(frame); },
+    onMessage: (cb) => { socket.onMessage((frame) => { if (isRefusedFrame(frame)) { refused(); } cb(frame); }); },
+    onState: (cb) => socket.onState(cb),
+  };
+}
+
+/** `fetch`, reporting each call made with a token that the hub refused. */
+function watchedFetch(refused: () => void): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const response = await fetch(request);
+    if (response.status === 401 && request.headers.has('authorization')) { refused(); }
+    return response;
+  };
 }
 
 /** Socket settings: queue calls while reconnecting, check the line every 30s, back off up to 15s between tries. */
@@ -39,6 +76,7 @@ export function createHub(options: HubOptions): { hub: Hub; socket: WsTransport 
     const token = options.token();
     return `${options.origin.replace(/^http/, 'ws')}/ws${token === '' ? '' : `?access_token=${encodeURIComponent(token)}`}`;
   }, SOCKET);
+  const refused = options.unauthorized;
   const hub = client<HubWebSpec>({
     baseUrl: `${options.origin}/api`,
     manifest,
@@ -46,7 +84,8 @@ export function createHub(options: HubOptions): { hub: Hub; socket: WsTransport 
       const token = options.token();
       return token === '' ? {} : { authorization: `Bearer ${token}` };
     },
-    ws: socket,
+    ws: refused === undefined ? socket : watchRefusals(socket, refused),
+    ...(refused === undefined ? {} : { fetchImpl: watchedFetch(refused) }),
     prefer: 'ws',
   });
   return { hub, socket };

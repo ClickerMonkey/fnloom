@@ -8,8 +8,8 @@ import type { Notification } from '@harness/core';
 import { computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
-import { notificationTarget } from '../app/routes.ts';
-import { useQueryChoice, useQueryText } from '../app/url.ts';
+import { ROUTES, notificationTarget } from '../app/routes.ts';
+import { useRouteQuery } from '../app/url.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
 import NotificationList from '../components/inbox/NotificationList.vue';
 import { InboxFilter } from '../state/inbox.ts';
@@ -20,7 +20,8 @@ import { useNow } from '../ui/now.ts';
 const { inbox, toasts, chat } = useStores();
 const router = useRouter();
 const now = useNow();
-const filter = useQueryChoice('filter', InboxFilter, 'all');
+const query = useRouteQuery(ROUTES.inbox);
+const filter = query.choice('filter', InboxFilter, 'all');
 
 const tabs = computed<readonly TabItem<InboxFilter>[]>(() => [
   { value: 'all', label: 'All' },
@@ -29,7 +30,7 @@ const tabs = computed<readonly TabItem<InboxFilter>[]>(() => [
 
 watch(filter, (value) => { void inbox.load(value); }, { immediate: true });
 
-const opening = useQueryText(OPEN_KEY);
+const opening = query.text(OPEN_KEY);
 watch([opening, inbox.items], ([id, items]) => {
   const found = id === '' ? undefined : items.find((n) => n.id === id);
   if (found !== undefined) { void open(found); }

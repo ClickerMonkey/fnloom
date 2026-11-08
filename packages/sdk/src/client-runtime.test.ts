@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mintId, type DeliveryId, type DeliveryStatus, type Json } from '@harness/core';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import * as vue from 'vue';
 import { h, watchEffect } from 'vue';
 import { buildClient } from './build.ts';
-import { client, type AttachmentViewOf, type FnView, type FnViewOf, type ResourceView } from './client.ts';
+import { client, type AttachmentViewOf, type FnView, type FnViewOf, type InputViewOf, type ResourceView } from './client.ts';
 import { ClientRuntime, isClientModule, shareModules, type ClientBridge } from './client-runtime.ts';
-import { action, attachment, kind } from './declare.ts';
+import { action, attachment, kind, mention, type } from './declare.ts';
 import { fn, type UntypedFn } from './fn.ts';
 import { g } from './gin.ts';
 import * as sdk from './index.ts';
@@ -157,6 +157,75 @@ describe('ClientRuntime', () => {
   it('knows a client module when it sees one', () => {
     expect(isClientModule(module)).toBe(true);
     expect(isClientModule({ system: 'x' })).toBe(false);
+  });
+});
+
+describe('ClientRuntime views', () => {
+  const Stamp = type({ description: 'A stamped note.', shape: g.obj({ note: g.text(), at: g.timestamp() }), display: { label: 'Stamp', title: 'note' } });
+  const log = system('log', { description: 'A log.' }).with({ types: { Stamp } }).with(({ types }) => ({
+    kinds: { tail: kind({ description: 'A tail.', applicability: 'Reads.', payload: g.obj({}) }) },
+    fns: {
+      stamp: fn({ description: 'Stamp.', args: g.obj({ at: g.timestamp() }), returns: g.obj({ at: g.timestamp() }), state: g.obj({ since: g.timestamp(), label: g.text() }) }),
+      plain: fn({ description: 'Plain.', args: g.obj({}), returns: g.text() }),
+    },
+    attachments: { card: attachment({ description: 'A card.', data: g.obj({ at: g.timestamp() }) }) },
+    mentions: { notes: mention({ title: 'Notes', description: 'Notes.', target: g.obj({ at: g.timestamp() }), of: types.Stamp }) },
+  }));
+  const StampView = (view: FnViewOf<typeof log, 'stamp'>) => h('time', view.args.at.toISOString());
+  const TailView = (view: FnView<UntypedFn>) => h('pre', JSON.stringify(view.args));
+  const CardView = (view: AttachmentViewOf<typeof log, 'card'>) => h('time', view.data.at.toISOString());
+  const StampInput = (view: InputViewOf<typeof log, 'Stamp'>) => h('input', { value: view.modelValue?.note ?? '' });
+  const NotesCard = () => h('div');
+  const logModule = client(log, { fns: { stamp: StampView }, kinds: { tail: TailView }, attachments: { card: CardView }, inputs: { Stamp: StampInput }, mentions: { notes: NotesCard } });
+  const at = '2026-11-07T10:00:00.000Z';
+  const runtime = new ClientRuntime(fakeBridge().bridge);
+  runtime.register(logModule);
+  const run = mintId('run');
+  const wire = { fn: 'log/stamp' as const, kind: undefined, run, status: 'done' as const, args: { at }, result: { at }, state: { since: at, label: 'x' } };
+
+  it("decodes a fn's args, result and state with its own gin types", () => {
+    const view = runtime.fnView(wire);
+    expect(view?.component).toBe(StampView);
+    expect(view?.props).toMatchObject({ run, status: 'done', args: { at: new Date(at) }, result: { at: new Date(at) }, state: { since: new Date(at), label: 'x' } });
+    expect(view?.props.submit).toBeUndefined();
+    expect(view?.props.system).toBe(runtime.systemClient('log', run));
+  });
+
+  it('draws no view when the run does not fit its types, so the default card shows', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(runtime.fnView({ ...wire, args: { at: 'not a time' } })).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith('client.view.unfit', expect.objectContaining({ name: 'log/stamp' }));
+    warn.mockRestore();
+  });
+
+  it("gives a kind's renderer the JSON as it is, with the kind's own system", () => {
+    const view = runtime.fnView({ ...wire, fn: 'other/report', kind: 'log/tail', args: { at } });
+    expect(view?.component).toBe(TailView);
+    expect(view?.props.args).toEqual({ at });
+    expect(view?.props.system).toBe(runtime.systemClient('log', run));
+    expect(runtime.fnView({ ...wire, fn: 'other/report' })).toBeUndefined();
+    expect(runtime.fnView({ ...wire, fn: 'log/plain' })).toBeUndefined();
+  });
+
+  it("decodes an attachment's data and a mention's target", () => {
+    expect(runtime.attachmentView({ attachment: 'log/card', data: { at }, title: 'Card' })?.props).toMatchObject({ data: { at: new Date(at) }, title: 'Card' });
+    expect(runtime.attachmentView({ attachment: 'log/none', data: {}, title: 'None' })).toBeUndefined();
+    const mentioned = runtime.mentionView({ provider: 'log/notes', label: 'Note', target: { at }, hover: undefined });
+    expect(mentioned?.component).toBe(NotesCard);
+    expect(mentioned?.props.target).toEqual({ at: new Date(at) });
+  });
+
+  it("reads a custom input's value with the type's shape and writes edits back as JSON", () => {
+    const input = runtime.inputView('log/Stamp');
+    if (input === undefined) { throw new Error('Stamp has an input'); }
+    expect(input.component).toBe(StampInput);
+    expect(input.decode({ note: 'hi', at })).toEqual({ note: 'hi', at: new Date(at) });
+    expect(input.decode(undefined)).toBeUndefined();
+    expect(input.encode({ note: 'hi', at: new Date(at) })).toEqual({ note: 'hi', at });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(input.encode({ note: 1 })).toBeUndefined();
+    warn.mockRestore();
+    expect(runtime.inputView('log/Missing')).toBeUndefined();
   });
 });
 

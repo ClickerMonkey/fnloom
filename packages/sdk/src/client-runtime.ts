@@ -7,6 +7,10 @@
  *   renderers share the chat's Vue.
  * - **Lookup.** Renderers by fn (falling back to the fn's kind), attachment, input type, mention provider and resource
  *   format. Resource viewers are shared by format across systems.
+ * - **Views.** `fnView`, `attachmentView`, `inputView` and `mentionView` build a renderer's props from the wire
+ *   (JSON) form the chat holds, decoded with the contract's own gin types, so a renderer gets exactly the values its
+ *   typed view promises (a timestamp as a `Date`). A custom input's edits are encoded back the same way. A value that
+ *   doesn't fit its type gets no view, so the chat draws its default instead.
  * - **Talking back.** `systemClient(name)` is what renderers get as `system`: `online`, live, `send.<action>(input)`,
  *   whose input and result are checked with the contract's gin types, and `run.<fn>(args)`, which starts a run of one
  *   of the system's fns in the session, its args checked the same way. `submit(run, value)` sends a form the same way.
@@ -14,9 +18,10 @@
  *
  * This module is browser code: it imports Vue and the SDK's contract builders, nothing from Node.
  */
+import { ObjType } from '@aeye/gin';
 import { DeliveryStatus, qualify, type DeliveryId, type Json, type QualifiedName, type RunId } from '@harness/core';
 import { reactive, type Component } from 'vue';
-import type { ClientModule, Delivery, SystemClient } from './client.ts';
+import type { AnyViews, ClientModule, Delivery, InputMount, Mount, SystemClient, WireViews } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
 import type { ContractShape } from './system.ts';
 
@@ -68,6 +73,40 @@ interface Registered {
   readonly fns: ContractShape['fns'];
   /** Each fn's declared form type, by local name; undefined for a fn without one. */
   readonly forms: Readonly<Record<string, GinType | undefined>>;
+  /** Each attachment's data type, by local name. */
+  readonly attachments: Readonly<Record<string, GinType | undefined>>;
+  /** Each named type's shape, by local name. */
+  readonly types: Readonly<Record<string, GinType | undefined>>;
+  /** Each mention provider's target type, by local name. */
+  readonly mentions: Readonly<Record<string, GinType | undefined>>;
+}
+
+/** Each entry's gin type, picked out of a contract section. */
+function typesOf<D>(section: Readonly<Record<string, D>>, pick: (def: D) => GinType): Record<string, GinType> {
+  return Object.fromEntries(Object.entries(section).map(([name, def]) => [name, pick(def)]));
+}
+
+/** A system's name and an entry's local name, from `system/local`. */
+function split(name: QualifiedName): { readonly system: string; readonly local: string } {
+  const at = name.indexOf('/');
+  return { system: name.slice(0, at), local: name.slice(at + 1) };
+}
+
+/**
+ * A fn's session state fields decoded with its state type. The chat holds only the fields that are set, so an object
+ * state is decoded field by field; anything else is decoded whole.
+ */
+function decodeState(type: GinType | undefined, state: Readonly<Record<string, Json>>): Record<string, unknown> {
+  if (type === undefined) { return {}; }
+  if (!(type instanceof ObjType)) {
+    const whole = parseValue(type, state);
+    return typeof whole === 'object' && whole !== null ? { ...whole } : {};
+  }
+  const fields: Readonly<Record<string, { readonly type: GinType } | undefined>> = type.fields;
+  return Object.fromEntries(Object.entries(state).flatMap(([key, value]) => {
+    const field = fields[key];
+    return field === undefined ? [] : [[key, parseValue(field.type, value)]];
+  }));
 }
 
 /** Erase a module's contract types. Every typed renderer is a Vue component, which is all the chat needs to mount it. */
@@ -78,6 +117,9 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
     actions: module.contract.defs.actions,
     fns: module.contract.defs.fns,
     forms: Object.fromEntries(Object.entries(module.contract.defs.fns).map(([name, def]) => [name, def.form])),
+    attachments: typesOf(module.contract.defs.attachments, (def) => def.data),
+    types: typesOf(module.contract.defs.types, (def) => def.shape),
+    mentions: typesOf(module.contract.defs.mentions, (def) => def.target),
   };
 }
 
@@ -179,14 +221,85 @@ export class ClientRuntime {
    * Undefined when the fn declares no form, or its system's module isn't loaded.
    */
   formSubmit(fn: QualifiedName, run: RunId): ((value: unknown) => Delivery<void>) | undefined {
-    const at = fn.indexOf('/');
-    const form = this.#modules.get(fn.slice(0, at))?.forms[fn.slice(at + 1)];
+    const { system, local } = split(fn);
+    const form = this.#modules.get(system)?.forms[local];
     return form === undefined ? undefined : (value) => this.submit(run, form, value);
   }
 
+  /**
+   * A fn renderer and its props. The fn's own renderer gets the run decoded with the fn's gin types; a kind's renderer
+   * (drawing fns it doesn't know) gets the JSON as it is, as its `FnView<UntypedFn>` says, and its own system's
+   * client. Undefined when no renderer is loaded, or the run's values don't fit the fn's types.
+   */
+  fnView(wire: WireViews['fn']): Mount<'fn'> | undefined {
+    const { fn, kind, args, result, state, ...rest } = wire;
+    const own = this.#lookup(fn, 'fns');
+    const base = { ...rest, submit: this.formSubmit(fn, wire.run) };
+    if (own !== undefined) {
+      const { system, local } = split(fn);
+      const def = this.#modules.get(system)?.fns[local];
+      if (def === undefined) { return undefined; }
+      const decoded = this.#decode(fn, () => ({
+        args: parseValue(def.args, args), state: decodeState(def.state, state), ...(result === undefined ? {} : { result: parseValue(def.returns, result) }),
+      }));
+      return decoded === undefined ? undefined : { component: own, props: { ...base, ...decoded, system: this.systemClient(system, wire.run) } };
+    }
+    const byKind = kind === undefined ? undefined : this.#lookup(kind, 'kinds');
+    if (kind === undefined || byKind === undefined) { return undefined; }
+    const props: AnyViews['fn'] = { ...base, args, state, ...(result === undefined ? {} : { result }), system: this.systemClient(split(kind).system, wire.run) };
+    return { component: byKind, props };
+  }
+
+  /** An attachment's renderer, with its data decoded with the attachment's gin type. */
+  attachmentView(wire: WireViews['attachment']): Mount<'attachment'> | undefined {
+    const component = this.#lookup(wire.attachment, 'attachments');
+    const { system, local } = split(wire.attachment);
+    const type = this.#modules.get(system)?.attachments[local];
+    if (component === undefined || type === undefined) { return undefined; }
+    const data = this.#decode(wire.attachment, () => parseValue(type, wire.data));
+    return data === undefined ? undefined : { component, props: { data, title: wire.title, system: this.systemClient(system) } };
+  }
+
+  /** A mention provider's hover card, with its target decoded with the provider's gin type. */
+  mentionView(wire: WireViews['mention']): Mount<'mention'> | undefined {
+    const component = this.#lookup(wire.provider, 'mentions');
+    const { system, local } = split(wire.provider);
+    const type = this.#modules.get(system)?.mentions[local];
+    if (component === undefined || type === undefined) { return undefined; }
+    const target = this.#decode(wire.provider, () => parseValue(type, wire.target));
+    return target === undefined ? undefined : { component, props: { label: wire.label, target, hover: wire.hover, system: this.systemClient(system) } };
+  }
+
+  /**
+   * A named type's custom input (`fs/Entry`): its component and system, and how values cross between the form's
+   * JSON and what the input edits, both checked with the type's gin shape.
+   */
+  inputView(name: QualifiedName): InputMount | undefined {
+    const component = this.#lookup(name, 'inputs');
+    const { system, local } = split(name);
+    const type = this.#modules.get(system)?.types[local];
+    if (component === undefined || type === undefined) { return undefined; }
+    return {
+      component,
+      props: { system: this.systemClient(system) },
+      decode: (value) => (value === undefined ? undefined : this.#decode(name, () => parseValue(type, value))),
+      encode: (value) => (value === undefined ? undefined : this.#decode(name, () => encodeValue(type, value))),
+    };
+  }
+
+  /** Run a decode, or undefined (logged) when the value doesn't fit its type. */
+  #decode<T>(name: QualifiedName, decode: () => T): T | undefined {
+    try {
+      return decode();
+    } catch (error) {
+      console.warn('client.view.unfit', { name, error });
+      return undefined;
+    }
+  }
+
   #lookup(name: QualifiedName, section: Section): AnyRenderer | undefined {
-    const at = name.indexOf('/');
-    return this.#modules.get(name.slice(0, at))?.renderers[section][name.slice(at + 1)];
+    const { system, local } = split(name);
+    return this.#modules.get(system)?.renderers[section][local];
   }
 
   /** Send, then follow the delivery to its result. `id` and `status` read reactive state, so renderers update. */

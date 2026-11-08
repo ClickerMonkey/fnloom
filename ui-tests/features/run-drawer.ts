@@ -3,6 +3,7 @@ import { check, feature, find, openSession, settle, tid } from '../kit.ts';
 
 export default feature({
   id: 'run-drawer', ref: 'chat-features 4.6, 4.13', title: 'Run details from a card',
+  also: ['wide'],
   async run(ctx) {
     const { page, fixtures } = ctx;
     await openSession(ctx);

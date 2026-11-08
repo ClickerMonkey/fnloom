@@ -207,7 +207,9 @@ describe('hybrid search', () => {
     expect(fused.map((h) => h.key)).toEqual(['b', 'c', 'a', 'd']);
     // b is listed twice in text: it counts once, at its best rank
     expect(fused[0]?.ranks).toEqual({ vector: 2, text: 1 });
-    expect(fused[0]?.score).toBeCloseTo(1 / 62 + 1 / 61, 10);
+    // as a share of the best possible score, first in both lists (2 / 61)
+    expect(fused[0]?.score).toBeCloseTo((1 / 62 + 1 / 61) / (2 / 61), 10);
+    expect(fuseRanks({ only: [{ kind: 'fn', key: 'top' }] }, 60)[0]?.score).toBe(1);
     expect(fused.find((h) => h.key === 'd')?.ranks).toEqual({ text: 4 });
     expect(fuseRanks({ a: [] }, 60)).toEqual([]);
   });
@@ -229,6 +231,7 @@ describe('hybrid search', () => {
     // words alone while no embedder is connected
     const words = await store.search.search({ text: 'read', kinds: ['fn'], limit: 3 });
     expect(words.map((h) => h.key)).toEqual(['fs/read']);
+    expect(words[0]?.score).toBe(1);
     expect(await store.search.search({ text: 'read', kinds: [], limit: 3 })).toEqual([]);
     expect(await store.search.search({ text: 'read', kinds: ['fn'], limit: 0 })).toEqual([]);
   });

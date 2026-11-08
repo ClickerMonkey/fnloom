@@ -50,18 +50,21 @@ export function decodeCell(kind: ColumnKind, cell: Cell | undefined): unknown {
  * What the codec needs of a table definition (core's `TableDef`), typed by the row it produces rather than by its
  * schema's class, so a table picked by a generic name keeps its row type.
  */
-export interface RowDef<Row> {
+export interface RowDef<Row, Key> {
   readonly row: { safeParse(input: unknown): z.ZodSafeParseResult<Row> };
-  readonly key: (row: Row) => string;
+  /** The stored key of a row. */
+  readonly rowKey: (row: Row) => string;
+  /** The stored key from a reader's key (core's `KeyOf`). */
+  readonly key: (key: Key) => string;
 }
 
 /** Encodes and decodes the rows of one table. */
-export class RowCodec<Row> {
+export class RowCodec<Row, Key> {
   readonly table: string;
-  readonly def: RowDef<Row>;
+  readonly def: RowDef<Row, Key>;
   readonly layout: Layout;
 
-  constructor(table: string, def: RowDef<Row>, layout: Layout) {
+  constructor(table: string, def: RowDef<Row, Key>, layout: Layout) {
     this.table = table;
     this.def = def;
     this.layout = layout;
@@ -76,7 +79,12 @@ export class RowCodec<Row> {
 
   /** The key of a row. */
   keyOf(row: Row): string {
-    return this.def.key(row);
+    return this.def.rowKey(row);
+  }
+
+  /** The stored key from a reader's key. */
+  storedKey(key: Key): string {
+    return this.def.key(key);
   }
 
   /** Parse a row and turn it into cells: its key and every column (`NULL` for absent fields). */

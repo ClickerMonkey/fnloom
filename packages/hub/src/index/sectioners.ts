@@ -1,9 +1,12 @@
 /**
  * The hub's own sectioners (`hub/whole`, `hub/headings`, `hub/symbols`, `hub/pages`, `hub/paragraphs`, declared in
- * the hub's contract), and how sectioners are matched to resources. Every section key comes from structure (a
- * heading path, a symbol name, a page number, a paragraph's opening words) through the SDK's `sectionKeys`, so a
- * key survives content moving around it.
+ * the hub's contract), and how sectioners are matched to resources. Headings and symbols are found by
+ * `@aeye/resources` (`splitMarkdownSections`, `splitCodeBlocks`: fenced code skipped, the text before the first
+ * heading or declaration kept as its own section, doc comments kept with their declaration). Every section key comes
+ * from structure (a heading path, a symbol name, a page number, a paragraph's opening words) through the SDK's
+ * `sectionKeys`, so a key survives content moving around it.
  */
+import { inferTypeFromLocation, splitCodeBlocks, splitMarkdownSections } from '@aeye/resources';
 import { qualify, type QualifiedName, type ResourceStat, type Section, type SectionMatch } from '@harness/core';
 import { hub, sectionKeys } from '@harness/sdk';
 
@@ -31,42 +34,10 @@ function keyed(pieces: readonly Piece[]): Section[] {
   });
 }
 
-/** Lines of a text with their offsets. */
-function lines(text: string): Array<{ line: string; start: number }> {
-  const out: Array<{ line: string; start: number }> = [];
-  let start = 0;
-  for (const raw of text.split(/(?<=\n)/)) {
-    out.push({ line: raw.replace(/\r?\n$/, ''), start });
-    start += raw.length;
-  }
-  return out;
+/** The language a resource's code is in: its format when known, else what its URI's extension says (`text` if nothing). */
+function codeType(stat: ResourceStat): string {
+  return stat.format ?? inferTypeFromLocation(stat.uri) ?? 'text';
 }
-
-/**
- * Cut wherever `startsAt` says a line begins a piece. Text before the first is its own piece (titled `preamble`);
- * lines inside fenced code blocks never begin one.
- */
-function cutAt(text: string, startsAt: (line: string) => { path: string[]; title: string } | undefined, preamble: string): Piece[] {
-  const pieces: Piece[] = [];
-  let current: Piece = { path: [], title: preamble, start: 0, end: text.length };
-  let fence: string | undefined;
-  for (const { line, start } of lines(text)) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]?.[0];
-    if (marker !== undefined) {
-      fence = fence === undefined ? marker : marker === fence ? undefined : fence;
-      continue;
-    }
-    const begins = fence === undefined ? startsAt(line) : undefined;
-    if (begins === undefined) { continue; }
-    if (start > current.start || current.path.length > 0) { pieces.push({ ...current, end: start }); }
-    current = { path: begins.path, title: begins.title, start, end: text.length };
-  }
-  pieces.push(current);
-  return pieces;
-}
-
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/;
-const SYMBOL = /^(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:pub(?:\([^)]*\))?\s+)?(function\*?|class|interface|type|enum|const|let|var|def|fn|func|struct|trait|impl|module|namespace)\s+([A-Za-z_$][\w$]*)/;
 
 /** The hub's sectioners, by name. */
 export function hubSectioners(): Sectioner[] {
@@ -77,25 +48,16 @@ export function hubSectioners(): Sectioner[] {
     {
       name: name('headings'),
       match: defs.headings.match,
-      sections: (text, stat) => {
-        const stack: Array<string | undefined> = [];
-        return keyed(cutAt(text, (line) => {
-          const heading = HEADING.exec(line);
-          if (heading?.[1] === undefined || heading[2] === undefined) { return undefined; }
-          stack.length = heading[1].length - 1;
-          stack[heading[1].length - 1] = heading[2];
-          const path = stack.filter((h): h is string => h !== undefined);
-          return { path, title: heading[2] };
-        }, stat.name));
-      },
+      sections: (text, stat) => keyed(splitMarkdownSections(text).map((section) => ({
+        path: section.headings, title: section.headings.at(-1) ?? stat.name, start: section.start, end: section.end,
+      }))),
     },
     {
       name: name('symbols'),
       match: defs.symbols.match,
-      sections: (text, stat) => keyed(cutAt(text, (line) => {
-        const symbol = SYMBOL.exec(line);
-        return symbol?.[2] === undefined ? undefined : { path: [symbol[2]], title: `${symbol[1] ?? ''} ${symbol[2]}`.trim() };
-      }, stat.name)),
+      sections: (text, stat) => keyed(splitCodeBlocks(text, codeType(stat)).map((block) => ({
+        path: block.path, title: block.declaration ?? stat.name, start: block.start, end: block.end,
+      }))),
     },
     {
       name: name('pages'),

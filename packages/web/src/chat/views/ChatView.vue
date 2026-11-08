@@ -28,7 +28,8 @@ import type { SessionListHandle } from '../components/types.ts';
 import { resourceRenderView } from '../state/renderers.ts';
 import { LlmCallTab, RunTab, TAB_KEYS } from '../logic/inspect.ts';
 import { isTyping, shortcutFor } from '../logic/keys.ts';
-import { useQueryChoice } from '../../app/url.ts';
+import { useRouteQuery } from '../../app/url.ts';
+import { ROUTES } from '../../app/routes.ts';
 import { agentName, fnLabel } from '../logic/labels.ts';
 import { drawerRun, recordIsBehind } from '../logic/runs.ts';
 import { useChatUrl } from '../url.ts';
@@ -45,12 +46,14 @@ const { chat, toasts, session: auth, layout } = useStores();
 /** The shell's top bar is hidden on a chat when the screen is compact: the chat's header takes its place. */
 const shellCompact = useMediaQuery(COMPACT_QUERY);
 const url = useChatUrl();
-const runTab = useQueryChoice(TAB_KEYS.run, RunTab, 'overview');
-const callTab = useQueryChoice(TAB_KEYS.llm, LlmCallTab, 'saw');
+const query = useRouteQuery(ROUTES.session);
+const runTab = query.choice(TAB_KEYS.run, RunTab, 'overview');
+const callTab = query.choice(TAB_KEYS.llm, LlmCallTab, 'saw');
 const wide = useMediaQuery('(min-width: 1100px)');
 const roomy = useMediaQuery('(min-width: 1360px)');
 const spacious = useMediaQuery('(min-width: 1720px)');
-const phone = useMediaQuery('(max-width: 759.98px)');
+/** Panels open as sheets and the list is its own page: the compact shell's screens (narrow, or short like a phone on its side). */
+const phone = shellCompact;
 
 const listOpen = ref(false);
 const shortcutsOpen = ref(false);
@@ -79,7 +82,7 @@ async function create(): Promise<void> {
   const made = await sessions.create();
   if (made === undefined) { toasts.error("Couldn't start a chat", sessions.problem.value); return; }
   listOpen.value = false;
-  url.go(made.id);
+  url.go(made);
 }
 
 function open(id: SessionId): void {
@@ -121,7 +124,7 @@ async function remove(): Promise<void> {
 
 /** The list's state and moves, the same wherever it is drawn (its column, the drawer, the page on a phone). */
 const listBind = computed(() => ({
-  items: sessions.items.value, search: sessions.search.value, archived: sessions.archived.value, loading: sessions.loading.value, loaded: sessions.loaded.value,
+  items: sessions.listed(url.session.value), search: sessions.search.value, archived: sessions.archived.value, loading: sessions.loading.value, loaded: sessions.loaded.value,
   problem: sessions.problem.value, hasMore: sessions.hasMore.value, loadingMore: sessions.loadingMore.value, creating: sessions.creating.value, now: now.value,
 }));
 const listOn = {
@@ -139,7 +142,7 @@ function step(by: number): void {
 
 const panelOpen = computed({ get: () => url.top.value !== undefined, set: (open) => { if (!open) { url.close(); } } });
 /** The list has its own column: wide screens, unless a side panel needs that room. */
-const listColumn = computed(() => wide.value && (!(roomy.value && panelOpen.value) || spacious.value));
+const listColumn = computed(() => wide.value && !phone.value && (!(roomy.value && panelOpen.value) || spacious.value));
 const compact = computed(() => !listColumn.value);
 const runView = computed(() => {
   const id = url.run.value;
@@ -274,7 +277,7 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <PanelHost v-if="url.session.value !== undefined" v-model:open="panelOpen" :inline="roomy" :phone="phone" :label="panelTitle" :data-panel="url.top.value">
+    <PanelHost v-if="url.session.value !== undefined" v-model:open="panelOpen" :inline="roomy && !phone" :phone="phone" :label="panelTitle" :data-panel="url.top.value">
       <PanelFrame :title="panelTitle" :subtitle="panelSubtitle" @close="url.close()">
         <RunDetails
           v-if="url.top.value === 'run'" v-model:tab="runTab" :run="runView" :record="chat.inspector.run.value.value" :loading="chat.inspector.run.loading.value"

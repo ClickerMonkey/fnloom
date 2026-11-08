@@ -18,7 +18,7 @@ import { ReadWant, ResourceRead, ResourceUri, ContentRef } from './resources.ts'
 import { ClientInfo, RunUpdate } from './run.ts';
 import { Actor, ActorSetting, Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
 import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControlAction, SessionControls, SessionSummary } from './records/chat.ts';
-import { IndexedKind, Notification, ResourceRecord, SearchHit } from './records/content.ts';
+import { IndexedKind, Notification, PushSubscription, ResourceRecord, SearchHit } from './records/content.ts';
 import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNode, UndoReport } from './records/runs.ts';
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
 import { FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
@@ -226,9 +226,9 @@ export const findSlice = spec({
 export const inboxSlice = spec({
   endpoints: use(tel, hubAuth).group({
     notifications: { body: NotificationListQuery, response: page(Notification), ws: 'notifications' },
-    readNotifications: { body: z.object({ ids: z.array(z.string()) }), ws: 'readNotifications' },
+    readNotifications: { body: z.object({ ids: z.array(Notification.shape.id) }), ws: 'readNotifications' },
     pushKey: { method: 'GET', response: z.object({ publicKey: z.string() }), ws: 'pushKey' },
-    subscribePush: { body: z.object({ endpoint: z.url(), keys: z.object({ p256dh: z.string(), auth: z.string() }), device: z.string() }), response: z.object({ id: z.string() }), ws: 'subscribePush' },
+    subscribePush: { body: PushSubscription.pick({ endpoint: true, keys: true, device: true }), response: PushSubscription.pick({ id: true }), ws: 'subscribePush' },
   }),
 });
 
@@ -271,10 +271,10 @@ export const settingsSlice = spec({
     configureProvider: { body: ProviderInput, response: z.object({ models: z.number().int() }), ws: 'configureProvider' },
     providers: { body: z.object({}), response: z.array(z.object({ id: ProviderId, provider: ProviderKind, models: z.number().int() })), ws: 'providers' },
     /** Add a rule, or replace the one with `id` (an edit). */
-    setModelCategory: { body: ModelCategory.partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setModelCategory' },
-    setBudget: { body: BudgetRule.omit({ setBy: true }).partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setBudget' },
-    setPriority: { body: PriorityRule.omit({ setBy: true }).partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setPriority' },
-    setPolicy: { body: Policy.omit({ createdBy: true, createdAt: true }).partial({ id: true }), response: z.object({ id: z.string() }), ws: 'setPolicy' },
+    setModelCategory: { body: ModelCategory.partial({ id: true }), response: ModelCategory.pick({ id: true }), ws: 'setModelCategory' },
+    setBudget: { body: BudgetRule.omit({ setBy: true }).partial({ id: true }), response: BudgetRule.pick({ id: true }), ws: 'setBudget' },
+    setPriority: { body: PriorityRule.omit({ setBy: true }).partial({ id: true }), response: PriorityRule.pick({ id: true }), ws: 'setPriority' },
+    setPolicy: { body: Policy.omit({ createdBy: true, createdAt: true }).partial({ id: true }), response: Policy.pick({ id: true }), ws: 'setPolicy' },
     setActorSetting: { body: z.object({ setting: QualifiedName, actor: ActorId, value: Json }), response: z.object({ ok: z.boolean() }), ws: 'setActorSetting' },
     addUser: { body: z.object({ email: z.email(), name: z.string(), role: UserRole, groups: z.array(ActorId).optional() }), response: z.object({ id: ActorId }), ws: 'addUser' },
     addGroup: { body: z.object({ name: z.string(), about: z.string(), members: z.array(ActorId).optional() }), response: z.object({ id: ActorId }), ws: 'addGroup' },

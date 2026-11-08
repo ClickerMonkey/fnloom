@@ -40,6 +40,9 @@ export const chat: Scenario = {
     await shot('attachments');
     await page.$eval('button[data-testid="link-card"]', (el) => { if (el instanceof HTMLElement) { el.click(); } });
     await page.waitForFunction(() => new URL(location.href).searchParams.has('resource'), { timeout: 5_000 });
+    // on a tablet the panel is a sheet sliding in; press Close once it is there
+    await page.waitForSelector('[data-testid="panel-close"]', { visible: true });
+    await settle(page, 300);
     await page.click('[data-testid="panel-close"]');
     await page.waitForFunction(() => !new URL(location.href).searchParams.has('resource'));
 

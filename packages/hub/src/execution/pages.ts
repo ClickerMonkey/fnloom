@@ -8,7 +8,7 @@ import type { Table, TableQuery } from '../store/index.ts';
 export const PAGE = 500;
 
 /** Every row a query matches, page by page, in the query's order. */
-export async function* rows<Row>(table: Table<Row>, query: Omit<TableQuery<Row>, 'limit' | 'cursor'> = {}): AsyncGenerator<Row> {
+export async function* rows<Row, Key>(table: Table<Row, Key>, query: Omit<TableQuery<Row>, 'limit' | 'cursor'> = {}): AsyncGenerator<Row> {
   let cursor: string | undefined;
   do {
     const page = await table.find({ ...query, limit: PAGE, ...(cursor === undefined ? {} : { cursor }) });
@@ -18,7 +18,7 @@ export async function* rows<Row>(table: Table<Row>, query: Omit<TableQuery<Row>,
 }
 
 /** Every row a query matches, as an array. */
-export async function allRows<Row>(table: Table<Row>, query: Omit<TableQuery<Row>, 'limit' | 'cursor'> = {}): Promise<Row[]> {
+export async function allRows<Row, Key>(table: Table<Row, Key>, query: Omit<TableQuery<Row>, 'limit' | 'cursor'> = {}): Promise<Row[]> {
   const out: Row[] = [];
   for await (const row of rows(table, query)) out.push(row);
   return out;

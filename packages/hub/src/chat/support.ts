@@ -1,9 +1,10 @@
 /** Small helpers the chat services share: a monotonic clock, agent actors, session scoping, paging and system calls. */
 import {
-  IDS, QualifiedName, SystemName, splitName, type ActorId, type Json, type ManifestSection, type Page, type Participant, type Session, type SessionId,
+  IDS, QualifiedName, splitName, type SystemName, type ActorId, type Json, type ManifestSection, type Page, type Participant, type Session, type SessionId,
   type TurnId,
 } from '@harness/core';
 import { canonicalJson } from '@harness/sdk';
+import { HUB_SYSTEM, systemOf } from '../catalog/availability.ts';
 import type { Catalog, CatalogEntry } from '../catalog/index.ts';
 import type { SystemConnection, LinkService } from '../link/index.ts';
 import type { Table, TableQuery } from '../store/index.ts';
@@ -59,9 +60,6 @@ export function participantOf(session: Session, actor: ActorId): Participant | u
 export function peopleOf(session: Session): Participant[] {
   return session.participants.filter((p) => p.role !== 'agent');
 }
-
-/** The hub's own system name. */
-const HUB_SYSTEM = SystemName.parse('hub');
 
 /** Whether a session lets a system's fns, context, mentions and hooks apply. The hub's own always do. */
 export function allowsSystem(session: Pick<Session, 'systems'>, system: string): boolean {
@@ -134,8 +132,8 @@ function decodeCursor(cursor: string | undefined): { store: string | undefined; 
  * A page of the rows that pass `keep`, scanning the table page by page. The cursor is exact (it remembers where in a
  * store page it stopped), and a scan stops after `maxPages` store pages with a cursor to go on from.
  */
-export async function collect<Row>(
-  table: Table<Row>, query: Omit<TableQuery<Row>, 'cursor'> & { cursor?: string | undefined }, keep: (row: Row) => boolean, maxPages = 20,
+export async function collect<Row, Key>(
+  table: Table<Row, Key>, query: Omit<TableQuery<Row>, 'cursor'> & { cursor?: string | undefined }, keep: (row: Row) => boolean, maxPages = 20,
 ): Promise<Page<Row>> {
   let { store, skip } = decodeCursor(query.cursor);
   const items: Row[] = [];
@@ -158,7 +156,7 @@ export async function collect<Row>(
 }
 
 /** Every row a query matches, up to `max`, following cursors. */
-export async function readAll<Row>(table: Table<Row>, query: Omit<TableQuery<Row>, 'cursor' | 'limit'>, max: number): Promise<Row[]> {
+export async function readAll<Row, Key>(table: Table<Row, Key>, query: Omit<TableQuery<Row>, 'cursor' | 'limit'>, max: number): Promise<Row[]> {
   const rows: Row[] = [];
   let cursor: string | undefined;
   do {
@@ -182,7 +180,7 @@ export async function callSystem<T>(
 
 /** One manifest entry by its qualified name, from the catalog. */
 export async function entryOf<S extends ManifestSection>(catalog: Pick<Catalog, 'entries'>, section: S, name: QualifiedName): Promise<CatalogEntry<S> | undefined> {
-  const system = SystemName.safeParse(splitName(name).system);
-  if (!system.success) { return undefined; }
-  return (await catalog.entries(section, { system: system.data })).find((entry) => entry.name === name);
+  const system = systemOf(name);
+  if (system === undefined) { return undefined; }
+  return (await catalog.entries(section, { system })).find((entry) => entry.name === name);
 }

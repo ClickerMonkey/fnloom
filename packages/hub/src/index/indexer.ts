@@ -120,7 +120,7 @@ export class StoreIndexer implements Indexer {
     for (const item of items) {
       const text = item.text.slice(0, maxText);
       const hash = sha256Hex(text);
-      const existing = await store.table('index').get(compositeKey(document, item.kind, item.key));
+      const existing = await store.table('index').get({ embedder: document, kind: item.kind, key: item.key });
       if (existing?.hash === hash) { if (existing.vectorHash !== hash) { rows.push(existing); } continue; }
       rows.push(await store.table('index').put({
         kind: item.kind, key: item.key, text, hash, embedder: document, updatedAt: clock(),
@@ -136,7 +136,7 @@ export class StoreIndexer implements Indexer {
   async remove(kind: IndexedKind, keys: readonly string[]): Promise<void> {
     if (keys.length === 0) { return; }
     const { store, document } = this.#options;
-    for (const key of keys) { await store.table('index').remove(compositeKey(document, kind, key)); }
+    for (const key of keys) { await store.table('index').remove({ embedder: document, kind, key }); }
     await store.text.remove(kind, keys);
     await store.vectors.remove(document, kind, keys);
   }
@@ -176,7 +176,7 @@ export class StoreIndexer implements Indexer {
     }
     diff.removed.push(...old.keys());
     await store.tx(async (tx) => {
-      for (const row of before) { await tx.table('sections').remove(compositeKey(row.uri, row.version, row.key)); }
+      for (const row of before) { await tx.table('sections').remove(row); }
       for (const row of rows) { await tx.table('sections').put(row); }
       await tx.table('resources').put({ uri, system: route.system, stat, links, indexedVersion: stat.version, sectioner, seenAt: clock() });
     });
@@ -227,7 +227,7 @@ export class StoreIndexer implements Indexer {
         return { kind: r.kind, key: r.key, vector };
       });
       await store.vectors.upsert(document, entries);
-      for (const row of rows) { await store.table('index').update(compositeKey(document, row.kind, row.key), { vectorHash: row.hash }); }
+      for (const row of rows) { await store.table('index').update(row, { vectorHash: row.hash }); }
     } catch (error) {
       log.warn('index.embed.failed', { items: rows.length, error: messageOf(error) });
     }
@@ -279,7 +279,7 @@ export class StoreIndexer implements Indexer {
     const record = await store.table('resources').get(uri);
     if (record === undefined) { return; }
     const rows = record.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { uri, version: record.indexedVersion });
-    for (const row of rows) { await store.table('sections').remove(compositeKey(row.uri, row.version, row.key)); }
+    for (const row of rows) { await store.table('sections').remove(row); }
     await this.remove('section', rows.map((r) => sectionIndexKey(uri, r.key)));
     await store.table('resources').remove(uri);
   }

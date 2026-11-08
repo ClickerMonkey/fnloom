@@ -1,19 +1,36 @@
 /**
- * The session list: newest activity first, paged, searchable (debounced), with archived sessions behind a switch.
+ * The session list: newest activity first, paged, searchable, with archived sessions behind a switch. The search's
+ * pause and "only the newest page counts" are the callers' own policy (`searchSessions` debounces, both are
+ * `lastOnly`, see `chat/api.ts`); this store asks and shows what comes back.
  * Rows stay live from the one user channel (`session` and `session-deleted` events), not a subscription per row.
  * Starting, renaming, archiving and deleting go through here so the list and the hub agree.
+ *
+ * A chat nothing has happened in yet (no message, no setting changed) is a blank: New chat opens the blank there is
+ * rather than saving another, and the list leaves blanks out unless one is open, so trying the button leaves nothing
+ * behind.
  */
 import { SessionSummary, type QualifiedName, type Session, type SessionId, type UserEvent } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
-import { problemText } from '../../state/problems.ts';
+import { isSuperseded, problemText } from '../../state/problems.ts';
 import type { ChatApi } from '../api.ts';
 
-/** Sessions per page, and how long typing in search waits before searching (ms). */
+/** Sessions per page. */
 export const SESSIONS_PAGE = 40;
-export const SEARCH_DELAY = 250;
+
+/** What the list asks the hub for: a page of the active or archived chats, maybe searched. */
+interface ListQuery {
+  readonly limit: number;
+  readonly archived: boolean;
+  readonly search?: string;
+}
 
 const newestFirst = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt;
+
+/** Whether nothing has happened in a chat since it was made: no message sent, no setting changed. */
+export function isBlank(session: Pick<SessionSummary, 'createdAt' | 'updatedAt'>): boolean {
+  return session.updatedAt === session.createdAt;
+}
 
 /** The summary a list shows of a full session. */
 export function summaryOf(session: Session): SessionSummary {
@@ -22,13 +39,10 @@ export function summaryOf(session: Session): SessionSummary {
 
 /** The list of sessions. */
 export class SessionListStore {
-  readonly #api: Pick<ChatApi, 'sessions' | 'createSession' | 'updateSession' | 'deleteSession'>;
+  readonly #api: Pick<ChatApi, 'sessions' | 'searchSessions' | 'createSession' | 'updateSession' | 'deleteSession'>;
   readonly #events: UserEvents;
-  readonly #searchDelay: number;
   #stop: (() => void) | undefined;
   #cursor: string | undefined;
-  #generation = 0;
-  #searchTimer: ReturnType<typeof setTimeout> | undefined;
 
   readonly items = shallowRef<readonly SessionSummary[]>([]);
   readonly search = ref('');
@@ -41,10 +55,9 @@ export class SessionListStore {
   readonly #hasMore = ref(false);
   readonly hasMore = computed(() => this.#hasMore.value);
 
-  constructor(api: Pick<ChatApi, 'sessions' | 'createSession' | 'updateSession' | 'deleteSession'>, events: UserEvents, searchDelay = SEARCH_DELAY) {
+  constructor(api: Pick<ChatApi, 'sessions' | 'searchSessions' | 'createSession' | 'updateSession' | 'deleteSession'>, events: UserEvents) {
     this.#api = api;
     this.#events = events;
-    this.#searchDelay = searchDelay;
   }
 
   start(): void {
@@ -55,25 +68,30 @@ export class SessionListStore {
   stop(): void {
     this.#stop?.();
     this.#stop = undefined;
-    clearTimeout(this.#searchTimer);
+    this.#api.searchSessions.cancel();
   }
 
   /** Load the first page for the current search and archive choice. */
-  async load(): Promise<void> {
-    const generation = ++this.#generation;
+  load(): Promise<void> {
+    this.#api.searchSessions.cancel();
+    return this.#firstPage((query) => this.#api.sessions.call(query));
+  }
+
+  /** Fetch the first page with one of the list's callers; a page superseded by a newer one changes nothing. */
+  async #firstPage(fetch: (query: ListQuery) => ReturnType<ChatApi['sessions']['call']>): Promise<void> {
     this.loading.value = true;
     this.problem.value = '';
     try {
-      const page = await this.#api.sessions.call(this.#query());
-      if (generation !== this.#generation) { return; }
+      const page = await fetch(this.#query());
       this.items.value = page.items;
       this.#cursor = page.cursor;
       this.#hasMore.value = page.cursor !== undefined;
       this.loaded.value = true;
+      this.loading.value = false;
     } catch (error) {
-      if (generation === this.#generation) { this.problem.value = problemText(error, "Couldn't load your chats."); }
-    } finally {
-      if (generation === this.#generation) { this.loading.value = false; }
+      if (isSuperseded(error)) { return; }
+      this.problem.value = problemText(error, "Couldn't load your chats.");
+      this.loading.value = false;
     }
   }
 
@@ -94,11 +112,11 @@ export class SessionListStore {
     }
   }
 
-  /** Change the search; the list reloads once typing pauses. */
+  /** Change the search; the list reloads once typing pauses (the search caller's debounce). */
   setSearch(text: string): void {
     this.search.value = text;
-    clearTimeout(this.#searchTimer);
-    this.#searchTimer = setTimeout(() => { void this.load(); }, this.#searchDelay);
+    this.#api.sessions.cancel();
+    void this.#firstPage((query) => this.#api.searchSessions.call(query));
   }
 
   /** Show archived sessions, or the active ones. */
@@ -107,14 +125,24 @@ export class SessionListStore {
     await this.load();
   }
 
-  /** Start a new session; it goes to the top of the list. */
-  async create(input: { agent?: QualifiedName; title?: string } = {}): Promise<Session | undefined> {
+  /** The chats to list: blanks left out, unless it is the one open (`current`). */
+  listed(current?: SessionId): readonly SessionSummary[] {
+    return this.items.value.filter((s) => !isBlank(s) || s.id === current);
+  }
+
+  /**
+   * Start a new chat: the blank one already there when there is one (for the default agent), else a new one, which
+   * goes to the top of the list. Resolves with its id.
+   */
+  async create(input: { agent?: QualifiedName; title?: string } = {}): Promise<SessionId | undefined> {
     if (this.creating.value) { return undefined; }
+    const blank = input.agent === undefined && input.title === undefined && !this.archived.value ? this.items.value.find(isBlank) : undefined;
+    if (blank !== undefined) { return blank.id; }
     this.creating.value = true;
     try {
       const session = await this.#api.createSession.call(input);
       this.#upsert(summaryOf(session));
-      return session;
+      return session.id;
     } catch (error) {
       this.problem.value = problemText(error, "Couldn't start a new chat.");
       return undefined;
@@ -172,7 +200,7 @@ export class SessionListStore {
     }
   }
 
-  #query(): { limit: number; archived: boolean; search?: string } {
+  #query(): ListQuery {
     const search = this.search.value.trim();
     return { limit: SESSIONS_PAGE, archived: this.archived.value, ...(search === '' ? {} : { search }) };
   }

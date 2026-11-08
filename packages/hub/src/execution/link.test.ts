@@ -1,6 +1,7 @@
 import { agent, fn, g, handler, hub, system } from '@harness/sdk';
 import { ActorId, HandlerCallId, LinkSession, hubLinkSpec, type RunId, type LlmForwardChunk, type LlmRequest, type QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
+import { linkPayload } from '../testing.ts';
 import { EXECUTION_LINK_SPEC } from './create.ts';
 import type { RunInput } from './index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from './testing.ts';
@@ -46,10 +47,8 @@ async function parentRun(r: ExecutionRig): Promise<{ turn: Turn; run: RunId }> {
   return { turn, run };
 }
 
-/** Call a link handler the way the link server does, with the parts of the payload it reads. */
-function payload<D>(data: D, link: LinkSession = fsLink) {
-  return { data, link, signal: new AbortController().signal, req: new Request('http://hub/link'), emit: () => undefined, status: () => undefined, header: () => undefined, cookie: () => undefined };
-}
+/** Call a link handler the way the link server does, as the fs system unless told otherwise. */
+const payload = <D>(data: D, link: LinkSession = fsLink) => linkPayload(data, link);
 
 async function collect(stream: AsyncIterable<LlmForwardChunk> | Promise<AsyncIterable<LlmForwardChunk>>): Promise<LlmForwardChunk[]> {
   const out: LlmForwardChunk[] = [];

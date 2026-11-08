@@ -9,7 +9,7 @@
  * are recorded on the run with the value before, so undoing the turn puts them back.
  */
 import {
-  GinTypeDef, Json, compositeKey, qualify, type JsonObject, type Run, type RunId, type SessionId, type StateChange, type StateFieldValue, type StateField, type StateOwner, type SystemName,
+  GinTypeDef, Json, compositeKey, qualify, type JsonObject, type KeyOf, type Run, type RunId, type SessionId, type StateChange, type StateFieldValue, type StateField, type StateOwner, type SystemName,
 } from '@harness/core';
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
@@ -212,8 +212,8 @@ export class TableStateService implements StateService {
     return field;
   }
 
-  #key(scope: Scope, field: Pick<FieldSpec, 'name' | 'type'>): string {
-    return compositeKey(scope.session, scope.system, field.name, field.type);
+  #key(scope: Scope, field: Pick<FieldSpec, 'name' | 'type'>): KeyOf<'stateFields'> {
+    return { session: scope.session, system: scope.system, name: field.name, type: field.type };
   }
 
   async #read(store: HubStore, scope: Scope): Promise<{ values: Record<string, Json>; version: number }> {

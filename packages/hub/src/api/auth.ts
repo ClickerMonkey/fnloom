@@ -7,7 +7,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { signJwt } from '@ayepi/auth/server';
 import {
-  AccessClaims, compositeKey, mintId, UserView, type AuthSession, type AuthSessionId, type IdRandom, type SetupState, type Tokens, type UserActor,
+  AccessClaims, mintId, UserView, type AuthSession, type AuthSessionId, type IdRandom, type SetupState, type Tokens, type UserActor,
 } from '@harness/core';
 import type { HubStore } from '../store/index.ts';
 import type { Authenticator, PasswordHasher } from './index.ts';
@@ -82,7 +82,7 @@ export class AdminAuthenticator implements Authenticator {
 
   async signIn(input: { email: string; password: string; device: string }): Promise<Tokens | undefined> {
     const user = await findUserByEmail(this.#o.store, input.email);
-    const credential = user === undefined ? undefined : await this.#o.store.table('credentials').get(compositeKey(user.id, 'password'));
+    const credential = user === undefined ? undefined : await this.#o.store.table('credentials').get({ user: user.id, kind: 'password' });
     if (user === undefined || credential === undefined || user.disabled) {
       await this.#o.hasher.verify(input.password, await this.#decoyHash());
       return undefined;

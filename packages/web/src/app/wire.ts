@@ -8,11 +8,12 @@ import { XhrFileSender } from '../chat/api.ts';
 import { browserClient, ChatStore } from '../chat/state/chat.ts';
 import { MediaRecorderSource } from '../chat/state/voice.ts';
 import { createHub } from '../api/client.ts';
-import { SessionKeeper, SignInForm } from '../state/auth.ts';
+import { BrowserLock, SessionKeeper, SignInForm } from '../state/auth.ts';
 import { ConnectionStore } from '../state/connection.ts';
 import { InboxStore } from '../state/inbox.ts';
 import { LayoutStore } from '../state/layout.ts';
 import { BrowserPush, PushStore, SERVICE_WORKERS } from '../state/push.ts';
+import { windowStorageChanges } from '../state/persisted.ts';
 import { SessionStore } from '../state/session.ts';
 import type { Stores } from '../state/stores.ts';
 
@@ -37,9 +38,10 @@ import { Toasts } from '../state/toasts.ts';
 
 /** Build the app's stores for `win`. */
 export function createStores(win: Window): Stores {
-  const session = new SessionStore(win.localStorage);
-  const { hub } = createHub({ origin: win.location.origin, token: () => session.accessToken.value });
+  const session = new SessionStore(win.localStorage, Date.now, windowStorageChanges(win));
+  const { hub } = createHub({ origin: win.location.origin, token: () => session.accessToken.value, unauthorized: () => { void keeper.recover(); } });
   const api = createApi(hub);
+  const keeper = new SessionKeeper(api.auth, session, Date.now, new BrowserLock(win.navigator));
   const connection = new ConnectionStore(api.connection);
   const inbox = new InboxStore(api.notifications, api.userEvents);
   const chat = new ChatStore({
@@ -52,7 +54,7 @@ export function createStores(win: Window): Stores {
   resyncOnReconnect({ session, connection, inbox, chat, admin });
   return {
     session,
-    keeper: new SessionKeeper(api.auth, session),
+    keeper,
     theme: new ThemeStore({ store: win.localStorage, media: (query) => win.matchMedia(query), root: win.document.documentElement }),
     layout: new LayoutStore(win.localStorage),
     toasts: new Toasts(),

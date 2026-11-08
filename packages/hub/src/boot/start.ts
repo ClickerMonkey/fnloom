@@ -16,7 +16,7 @@ import { mountFiles } from '@ayepi/files/server';
 import type { Logger } from '@ayepi/log';
 import { createPluginHost } from '@ayepi/plugin';
 import { updown, type Component } from '@ayepi/updown';
-import { mintId, systemLinkSpec, type ActorId, type SystemActor, SystemName } from '@harness/core';
+import { mintId, systemLinkSpec, type ActorId, type SystemActor } from '@harness/core';
 import { ACCESS_TOKEN } from '../api/auth.ts';
 import { FILES_PATH, HttpFront } from '../api/http.ts';
 import { generateVapidKeys, WebPushSender, type PushSender } from '../api/push.ts';
@@ -25,6 +25,7 @@ import { NamedContentFiles } from '../api/files.ts';
 import { first, PAGE } from '../api/paging.ts';
 import { webPlugins } from '../api/web/index.ts';
 import { MemoryEventBus } from '../bus/memory.ts';
+import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { JwtSystemTokens } from '../link/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { parseHubSettings, type HubSettings } from './env.ts';
@@ -45,7 +46,7 @@ export interface StartSeams {
 
 /** The hub's own actor, made on first start. */
 export async function ensureHubActor(store: HubStore, clock: () => number): Promise<ActorId> {
-  const hub = SystemName.parse('hub');
+  const hub = HUB_SYSTEM;
   const found = await first((cursor) => store.table('actors').find({ where: { kind: 'system' }, limit: PAGE, cursor }), (actor) => actor.kind === 'system' && actor.system === hub);
   if (found !== undefined) { return found.id; }
   const actor: SystemActor = { id: mintId('actor'), kind: 'system', system: hub, name: HUB_INFO.name, about: 'The hub itself.', createdAt: clock(), disabled: false };

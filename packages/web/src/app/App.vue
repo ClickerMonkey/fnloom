@@ -4,8 +4,10 @@ import { provide } from 'vue';
 import { FORM_TYPES } from '../chat/forms/types.ts';
 import { useStores } from '../state/stores.ts';
 import AppShell from './AppShell.vue';
+import { useLeaveWhenSignedOut } from './signOut.ts';
 
 provide(FORM_TYPES, useStores().chat.types);
+useLeaveWhenSignedOut();
 </script>
 
 <template>

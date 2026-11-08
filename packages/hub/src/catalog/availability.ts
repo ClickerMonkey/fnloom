@@ -3,10 +3,23 @@
  * valid config. A fn also needs its functions switched on, not to be paused, its kind to exist on a usable system,
  * and every fn it depends on to be available. These rules are pure, so the catalog and its tests share them.
  */
-import { splitName, type Availability, type FnRecord, type FnUnavailable, type KindRecord, type QualifiedName, type SystemName, type SystemRecord } from '@harness/core';
+import { SystemName, splitName, type Availability, type FnRecord, type FnUnavailable, type KindRecord, type QualifiedName, type SystemRecord } from '@harness/core';
+import { hub } from '@harness/sdk';
 
-/** The hub's own system name. The hub is the process itself, so it is always connected. */
-export const HUB_SYSTEM = 'hub';
+/**
+ * The hub's own system name, from the hub contract (`hub.name`): renaming it there moves every user. The hub is the
+ * process itself, so it is always connected.
+ */
+export const HUB_SYSTEM: SystemName = SystemName.parse(hub.name);
+
+/** Whether a qualified name belongs to the hub's own contract. */
+export const isHubName = (name: QualifiedName): boolean => splitName(name).system === HUB_SYSTEM;
+
+/** The system a qualified name belongs to, or `undefined` when its system part isn't a valid system name. */
+export function systemOf(name: QualifiedName): SystemName | undefined {
+  const parsed = SystemName.safeParse(splitName(name).system);
+  return parsed.success ? parsed.data : undefined;
+}
 
 /** Unavailable, for a reason. */
 export function unavailable(reason: FnUnavailable, detail: string): Availability {
@@ -14,7 +27,7 @@ export function unavailable(reason: FnUnavailable, detail: string): Availability
 }
 
 /** Whether a system's contributions can be used now. */
-export function systemAvailability(system: SystemName | string, record: SystemRecord | undefined): Availability {
+export function systemAvailability(system: SystemName, record: SystemRecord | undefined): Availability {
   if (system === HUB_SYSTEM) { return true; }
   if (record === undefined) { return unavailable('system-disconnected', `${system} has never connected`); }
   switch (record.status) {
@@ -48,7 +61,7 @@ export class AvailabilityRules {
   }
 
   /** The availability of a system's contributions. */
-  system(system: string): Availability {
+  system(system: SystemName): Availability {
     return systemAvailability(system, this.inputs.systems.get(system));
   }
 
@@ -146,7 +159,8 @@ export class AvailabilityRules {
     if (record.decl.kind !== 'native') {
       const kind = this.inputs.kinds.get(record.decl.kind);
       if (kind === undefined) { return unavailable('kind-missing', `its kind ${record.decl.kind} does not exist`); }
-      const kindSystem = this.system(splitName(kind.name).system);
+      const owner = systemOf(kind.name);
+      const kindSystem = owner === undefined ? unavailable('kind-system-disconnected', `${kind.name} names no valid system`) : this.system(owner);
       if (kindSystem !== true) { return unavailable('kind-system-disconnected', `its kind ${kind.name}: ${kindSystem.detail}`); }
     }
     return true;
