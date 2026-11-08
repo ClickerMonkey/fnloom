@@ -524,6 +524,7 @@ export class FakeHub {
           return { version: next.version };
         },
         log: ({ data }) => { this.logs.push(data); },
+        connectionUpdate: () => undefined,
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);

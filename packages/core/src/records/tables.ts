@@ -20,6 +20,8 @@ import { FormRecord } from '../resource-forms.ts';
 import { HubMcp } from './mcps.ts';
 import { AutoPairSecret } from '../auto-pair.ts';
 import { HubOption } from '../suggestions.ts';
+import { AccessRecord } from '../access.ts';
+import { UserConnection } from '../connections.ts';
 import { ResourceUri } from '../resources.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
@@ -120,6 +122,9 @@ export const HUB_TABLES = {
   // build 3
   autoPairSecrets: byField(AutoPairSecret, 'id'),
   hubOptions: byField(HubOption, 'key'),
+  // build 4
+  access: byField(AccessRecord, 'key'),
+  connections: byField(UserConnection, 'id'),
 } as const;
 
 /** The table names. */

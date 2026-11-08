@@ -82,6 +82,11 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `query.ts` (build 3) | `ListQuery`, `Filter`, field types and operators, `LIST_FIELDS` (every list's fields and default sort), `queryProblems`, the `query` fn shapes |
 | `suggestions.ts` (build 3) | `SuggestionRecord` (what was suggested and what was not, with a `SkipReason`), `SuggestDecision` (the decision model setting), `HubOption` |
 | `auto-pair.ts` (build 3) | `AutoPairChoice`, `AutoPairGrant` (in `Welcome`), `AutoPairProof` (in `Hello`), `AutoPairSecret` (hashes only), `AutoPairView` |
+| `access.ts` (build 4) | `Visibility`, `Sharing`, `ShareRule`, `AccessTarget`, `accessKey`, `AccessRecord`, `AccessView`, `AccessInfo` |
+| `connections.ts` (build 4) | per-person systems: `ConnectDecl` (manifest `connect`), `UserConnection`, `ConnectionView`, `ConnectPage`, `RunConnection`, the connect link shapes |
+| `system-providers.ts` (build 4) | `SystemProviderDecl` (manifest `providers`), `ProviderChat` / `ProviderChunk` / `ProviderEmbed`, `awsProviderVariant` |
+| `validation.ts` (build 4) | `FnValidation` (`FnDecl.validate`), `InputVerdict`, `OutputVerdict`, `ValidateRequest` |
+| `pickers.ts` (build 4) | `PickSource`, `PickQuery`, `PickOption` (the `pick` endpoint behind `UiPicker`) |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.

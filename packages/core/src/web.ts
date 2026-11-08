@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { BudgetView, LlmFilter, LlmSummary, ModelInfo, OutputLine, ResourceFilter, RuleRef, RunFilter, SettingView } from './admin.ts';
 import { MentionHover, MentionOption, ImportReport, SuggestionScore } from './manifest.ts';
 import {
-  ActorId, ActorKind, ApprovalId, AutoPairId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
+  ActorId, ActorKind, ApprovalId, AutoPairId, ConnectionId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
   ModelCallId, PageRequest, PairingId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, page,
 } from './primitives.ts';
 import { ReadWant, ResourceRead, ResourceUri, ContentRef } from './resources.ts';
@@ -34,6 +34,9 @@ import { FormKind } from './resources.ts';
 import { FieldValueOption, ListQuery, ListValuesQuery, QueryFnArgs, QueryFnResult } from './query.ts';
 import { SuggestDecision, SuggestDecisionView, SuggestionRecord } from './suggestions.ts';
 import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
+import { AccessInfo, AccessTarget, AccessView, Sharing } from './access.ts';
+import { ConnectionChange, ConnectionView, ConnectPage } from './connections.ts';
+import { PickOption, PickQuery } from './pickers.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
 
@@ -531,10 +534,46 @@ export const autoPairSlice = spec({
   }),
 });
 
+// ─── Build 4 slices ───────────────────────────────────────────────────────────
+
+/**
+ * Visibility: whether the hub has more than one person (the controls show only then), a target's visibility, and
+ * setting it (its owner or an admin). The hub enforces it everywhere; this slice only reads and writes it.
+ */
+export const accessSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    accessInfo: { body: z.object({}), response: AccessInfo, ws: 'accessInfo' },
+    access: { body: z.object({ targets: z.array(AccessTarget).min(1).max(200) }), response: z.array(AccessView), ws: 'access' },
+    setAccess: { body: z.object({ target: AccessTarget, sharing: Sharing.omit({ owner: true }) }), response: AccessView, ws: 'setAccess' },
+  }),
+});
+
+/**
+ * Per-person systems: their pages (each `connect` system with the asker's connections), connecting (the URL to send the
+ * person to; the provider redirects back to the hub's `/connect/callback`; or `form` for a key form), changing a
+ * connection's settings, fn switches and sharing, and disconnecting. Every person, own connections only.
+ */
+export const connectionsSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    connectPages: { body: z.object({}), response: z.array(ConnectPage), ws: 'connectPages' },
+    connect: { body: z.object({ system: SystemName, form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect' },
+    updateConnection: { body: ConnectionChange, response: ConnectionView, ws: 'updateConnection' },
+    disconnect: { body: z.object({ connection: ConnectionId }), response: z.object({ ok: z.boolean() }), ws: 'disconnect' },
+  }),
+});
+
+/** Pickers: options for a search-as-you-type multi-select, or the labels of values already picked. */
+export const pickerSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    pick: { body: PickQuery, response: z.array(PickOption), ws: 'pick' },
+  }),
+});
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
   resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
   querySlice, suggestionsSlice, autoPairSlice,
+  accessSlice, connectionsSlice, pickerSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

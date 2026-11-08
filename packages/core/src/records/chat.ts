@@ -6,7 +6,7 @@ import { LlmMessage, ModelChoice } from '../llm.ts';
 import { DICTATION_ENGINES } from '../model-calls.ts';
 import { ChatModeConfig, ContextorConfig, GraphSelection } from '../modes.ts';
 import { CommandArg, HookBlock } from '../manifest.ts';
-import { ActorId, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
+import { ActorId, Json, MessageId, ModelCallId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
 import { ContentRef, Link } from '../resources.ts';
 import { SystemStatus } from './systems.ts';
 import { SuggestionRecord } from '../suggestions.ts';
@@ -70,6 +70,14 @@ const TextPart = z.object({ type: z.literal('text'), text: z.string() });
 const MentionPart = z.object({ type: z.literal('mention'), provider: QualifiedName, label: z.string(), target: Json, text: z.string() });
 const CommandPart = z.object({ type: z.literal('command'), context: QualifiedName, args: z.record(z.string(), z.string()) });
 const FilePart = z.object({ type: z.literal('file'), ref: ContentRef, name: z.string() });
+/**
+ * Answers to an input form (build 4): the model reads them as `<input-answer>` tags (`text` is what it reads, written
+ * by the web from the form's labels and values); the chat hides the part. `run` is the `input/*` run that asked.
+ */
+const InputAnswerPart = z.object({ type: z.literal('input-answer'), run: RunId, title: z.string(), value: Json, text: z.string() });
+
+/** The tag the model reads input answers in. */
+export const INPUT_ANSWER_TAG = 'input-answer';
 
 /** A piece of a message. */
 export const MessagePart = z.discriminatedUnion('type', [
@@ -80,6 +88,7 @@ export const MessagePart = z.discriminatedUnion('type', [
   CommandPart,
   z.object({ type: z.literal('invocation'), run: RunId, fn: QualifiedName }),
   FilePart,
+  InputAnswerPart,
   /** What the hub added by itself. Shown dimmed; the LLM sees it tagged. */
   z.object({ type: z.literal('extra'), extra: ExtraKind, blocks: z.array(HookBlock) }),
   /** What a system's hook added. Shown dimmed; the LLM sees it tagged. */
@@ -90,7 +99,7 @@ export const MessagePart = z.discriminatedUnion('type', [
 export type MessagePart = z.infer<typeof MessagePart>;
 
 /** The parts a person can send (the rest are added by the hub and by fns). A mention's text is written by the hub. */
-export const OutgoingPart = z.discriminatedUnion('type', [TextPart, MentionPart.omit({ text: true }), CommandPart, FilePart]);
+export const OutgoingPart = z.discriminatedUnion('type', [TextPart, MentionPart.omit({ text: true }), CommandPart, FilePart, InputAnswerPart]);
 export type OutgoingPart = z.infer<typeof OutgoingPart>;
 
 /** A message's role. `note`: something the hub says (a turn was undone, a system went away). */
@@ -115,6 +124,11 @@ export const ChatMessage = z.object({
   answerers: z.array(ActorId),
   /** User messages (build 3): the fns and context suggested for it, and those left out with their reasons. */
   suggestions: SuggestionRecord.optional(),
+  /**
+   * Assistant messages (build 4): the model call behind it read no prompt cache although an earlier call of the session
+   * did, in full-history mode with a model that caches; the chat draws a wavy rule above it with `at`.
+   */
+  cacheMiss: z.object({ call: ModelCallId, at: Timestamp }).optional(),
   createdAt: Timestamp,
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;

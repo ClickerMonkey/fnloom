@@ -237,6 +237,7 @@ export class TestSystem {
       paired: notHere, check: notHere, context: notHere, roots: notHere, list: notHere, stat: notHere, read: notHere, sections: notHere, watch: notHere,
       content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
       form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere,
+      validate: notHere, providerChat: notHere, providerEmbed: notHere, connectStart: notHere, connectFinish: notHere, disconnect: notHere,
     })]);
     let deliver: (frame: string) => void = () => undefined;
     const states = new Set<(state: 'closed' | 'connecting' | 'open') => void>();

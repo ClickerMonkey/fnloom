@@ -6,6 +6,7 @@ import {
   ProviderConfig, ProviderInput, ProviderKind, RunControl, RunControlAction, SessionControlAction, SessionId, isIdKind,
   isHeardSystemStatus, mintId, qualify, runsSlice, settingsSlice, splitName, systemLinkSpec, systemsSlice,
   contextSlice, contextorSlice, mcpsSlice, metricsSlice, modelsSlice, packagingSlice, resourcesSlice, querySlice, suggestionsSlice, autoPairSlice,
+  accessSlice, connectionsSlice, pickerSlice,
 } from './index.ts';
 
 describe('ids', () => {
@@ -142,6 +143,7 @@ describe('specs', () => {
     const slices = [
       authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
       resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice, querySlice, suggestionsSlice, autoPairSlice,
+      accessSlice, connectionsSlice, pickerSlice,
     ];
     const fromSlices = slices.flatMap((slice) => Object.entries(slice.endpoints));
     expect(Object.keys(hubWebSpec.endpoints)).toHaveLength(fromSlices.length);

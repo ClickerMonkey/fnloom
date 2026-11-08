@@ -36,7 +36,7 @@ export function plainText(parts: readonly MessagePart[]): string {
       case 'file': return part.name;
       case 'link': return part.link.title ?? '';
       case 'attachment': return part.title;
-      case 'reasoning': case 'extra': case 'hook': return '';
+      case 'reasoning': case 'extra': case 'hook': case 'input-answer': return '';
     }
   }).join('').trim();
 }

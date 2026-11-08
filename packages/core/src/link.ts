@@ -11,6 +11,9 @@ import { LlmForward, LlmForwardChunk } from './llm.ts';
 import { ModelForward, ModelForwardResult } from './model-calls.ts';
 import { PairingInfo } from './package.ts';
 import { AutoPairGrant, AutoPairProof } from './auto-pair.ts';
+import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, RunConnection } from './connections.ts';
+import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
+import { ValidateAnswer, ValidateRequest } from './validation.ts';
 import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, HandlerCallId, InstanceName, Json, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
@@ -140,6 +143,8 @@ export const RunRequest = z.object({
   deadline: Timestamp,
   /** The config version to run with. The system already has the value, so requests stay small. */
   configVersion: z.number().int().min(0),
+  /** Build 4: the person's connection a per-person fn acts as (`connect` systems), with its credentials revealed. */
+  connection: RunConnection.optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;
 
@@ -240,6 +245,8 @@ const linked = use(linkTel, linkSession).group({
     ws: 'ss',
   },
   log: { body: LogLine, ws: 'lg' },
+  /** Build 4: refreshed credentials for a person's connection, or that it expired. */
+  connectionUpdate: { body: ConnectionUpdate, ws: 'cu' },
 });
 
 /** What a system calls on the hub. */
@@ -320,6 +327,17 @@ export const systemLinkSpec = spec({
      * checkpoint) within `timeout`, then answers with where its data folder is, so the hub copies the folder it uses.
      */
     export: endpoint({ body: z.object({ timeout: Duration }), response: z.object({ data: z.string() }), ws: 'ex' }),
+    // Build 4
+    /** Run a fn's validation hook (`FnDecl.validate`): its input before the run, its result after it succeeds. */
+    validate: endpoint({ body: ValidateRequest, response: ValidateAnswer, ws: 'vl' }),
+    /** A chat call for one of the system's providers (manifest `providers`). */
+    providerChat: endpoint({ body: ProviderChat, streamOut: ProviderChunk, ws: 'pc' }),
+    providerEmbed: endpoint({ body: ProviderEmbed, response: ProviderEmbedResult, ws: 'pe' }),
+    /** Per-person systems (`connect`): where to send the person to connect (OAuth), then finish with what came back. */
+    connectStart: endpoint({ body: ConnectStart, response: z.object({ url: z.url() }), ws: 'cs' }),
+    connectFinish: endpoint({ body: ConnectFinish, response: ConnectResult, ws: 'cn' }),
+    /** The person disconnected: revoke the credentials at the provider where it can. */
+    disconnect: endpoint({ body: RunConnection.pick({ id: true, owner: true, credentials: true }), ws: 'dc' }),
   },
 });
 export type SystemLinkSpec = typeof systemLinkSpec;

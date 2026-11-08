@@ -48,6 +48,7 @@ export const ID_PREFIXES = {
   modelCall: 'mdl',
   mcp: 'mcp',
   autoPair: 'apk',
+  connection: 'cnx',
 } as const;
 
 /** The kinds of id. */
@@ -77,6 +78,9 @@ function idSchemas(): { readonly [K in IdKind]: IdSchema<K> } {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one entry per key of ID_PREFIXES, each built by `id` from its own key
   return schemas as { readonly [K in IdKind]: IdSchema<K> };
 }
+
+/** A local name inside a system: letters, digits, `_`, `-` and `.` (methods are `Type.method`). */
+export const LocalName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/);
 
 /** The id schemas by kind. */
 export const IDS = idSchemas();
@@ -136,6 +140,8 @@ export const HubMcpId = IDS.mcp;
 export type HubMcpId = IdOf<'mcp'>;
 export const AutoPairId = IDS.autoPair;
 export type AutoPairId = IdOf<'autoPair'>;
+export const ConnectionId = IDS.connection;
+export type ConnectionId = IdOf<'connection'>;
 
 /** Makes the random part of a new id. Injectable, so tests get stable ids. */
 export type IdRandom = () => string;

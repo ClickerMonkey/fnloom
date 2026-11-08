@@ -122,7 +122,7 @@ export function messageText(parts: readonly MessagePart[]): string {
       case 'file': return `[${part.name}]`;
       case 'link': return 'title' in part.link && part.link.title !== undefined ? part.link.title : '';
       case 'attachment': return part.title;
-      case 'reasoning': case 'invocation': case 'extra': case 'hook': return '';
+      case 'reasoning': case 'invocation': case 'extra': case 'hook': case 'input-answer': return '';
     }
   }).filter((text) => text !== '').join(' ').replace(/ {2,}/g, ' ').trim();
 }

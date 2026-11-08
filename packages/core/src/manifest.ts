@@ -6,13 +6,14 @@
 import { z } from 'zod';
 import { DeclaredLink } from './context-graph.ts';
 import { GinTypeDef } from './gin.ts';
-import { ActorKind, Audience, Duration, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
+import { ActorKind, Audience, LocalName, Duration, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
 import { SectionMatch, Link } from './resources.ts';
 import { Display, FnLimits, Operations, ProgressDecl, TimeInfo, UserInfo } from './run.ts';
 import { StatusTemplates } from './status.ts';
+import { ConnectDecl } from './connections.ts';
+import { SystemProviderDecl } from './system-providers.ts';
+import { FnValidation } from './validation.ts';
 
-/** A local name inside a system: letters, digits, `_`, `-` and `.` (methods are `Type.method`). */
-export const LocalName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/);
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
 export const TypeDisplay = z.object({
@@ -118,6 +119,8 @@ export const FnDecl = z.object({
    * example's args against the fn's own args type when the contract is built, so a wrong example does not build.
    */
   examples: z.array(FnExample).optional(),
+  /** Build 4: the validation hooks its system runs before and after a run (`validate` on the system link). */
+  validate: FnValidation.optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 
@@ -252,6 +255,10 @@ export const Manifest = z.object({
   config: GinTypeDef,
   /** Systems whose fns, kinds, types or context it refers to. */
   requires: z.array(SystemName),
+  /** Build 4: aeye providers whose code runs in the system; the hub registers each as `<system>/<name>`. */
+  providers: z.array(SystemProviderDecl).optional(),
+  /** Build 4: a per-person system: each person connects their own account on its page. */
+  connect: ConnectDecl.optional(),
 });
 export type Manifest = z.infer<typeof Manifest>;
 

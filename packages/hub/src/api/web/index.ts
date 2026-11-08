@@ -25,6 +25,7 @@ import { modelsPlugin } from './models.ts';
 import { packagingPlugin } from './packaging.ts';
 import { resourcesPlugin } from './resources.ts';
 import { build3Plugins } from './build3.ts';
+import { build4Plugins } from './build4.ts';
 
 /** The realtime plugin: while installed, bus events reach browsers as `session` and `user` events. */
 export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
@@ -62,6 +63,7 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     mcpsPlugin(hub, systems, ops),
     packagingPlugin(hub, systems, ops),
     ...build3Plugins(hub, systems, reads),
+    ...build4Plugins(systems),
     eventsPlugin(hub, auth),
   ];
 }

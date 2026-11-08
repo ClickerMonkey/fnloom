@@ -106,6 +106,9 @@ export interface AskerWire {
   time: TimeInfo;
 }
 
+/** A build 4 link endpoint the platform lane has not served yet. */
+const buildFourStub = (): never => { throw new Error('not served yet (build 4, platform lane)'); };
+
 /** Answers the hub's calls on the system link. */
 export class SystemRuntime<C extends ContractShape> {
   readonly #parts: RuntimeParts<C>;
@@ -205,6 +208,13 @@ export class SystemRuntime<C extends ContractShape> {
         await host.configured(before);
       },
       export: ({ data }) => this.#export(data.timeout),
+      // Build 4 stubs (design lane): the platform lane replaces these with fn validation, providers and connections.
+      validate: () => ({ ok: true }),
+      providerChat: buildFourStub,
+      providerEmbed: buildFourStub,
+      connectStart: buildFourStub,
+      connectFinish: buildFourStub,
+      disconnect: buildFourStub,
     })]);
   }
 
