@@ -8,8 +8,8 @@ import type { ResourceRecord, ResourceUri } from '@harness/core';
 import { UiBadge, UiIcon, relativeTime } from '../../ui/index.ts';
 import { formatBytes } from '../../chat/logic/format.ts';
 import type { ResourceAction } from '../logic/actions.ts';
-import { nameOf, type BrowserSort } from '../logic/browse.ts';
-import { BADGE_FORMS, FAMILY_ICON, FORM_LABEL, familyOfStat } from '../logic/formats.ts';
+import { nameOf, shortAddress, type BrowserSort } from '../logic/browse.ts';
+import { BADGE_FORMS, FAMILY_ICON, FORM_LABEL, familyOfStat, typeWord } from '../logic/formats.ts';
 import ResourceMenu from './ResourceMenu.vue';
 
 withDefaults(defineProps<{
@@ -46,10 +46,10 @@ const badges = (record: ResourceRecord): string[] => BADGE_FORMS.filter((kind) =
         <UiIcon class="c-icon" :name="FAMILY_ICON[familyOfStat(record.stat)]" :size="18" />
         <button type="button" class="c-name open" :aria-current="opened === record.uri ? 'true' : undefined" @click="emit('open', record.uri)">
           <span class="name">{{ nameOf(record) }}</span>
-          <span class="uri">{{ record.uri }}</span>
+          <span class="uri" :title="record.uri">{{ shortAddress(record.uri) }}</span>
           <span v-if="badges(record).length > 0" class="badges"><UiBadge v-for="label in badges(record)" :key="label" tone="accent">{{ label }}</UiBadge></span>
         </button>
-        <span class="c-type">{{ record.stat.format ?? record.stat.type }}<span class="system"> · {{ record.system }}</span></span>
+        <span class="c-type">{{ typeWord(record.stat) }}<span class="system"> · {{ record.system }}</span></span>
         <span class="c-size">{{ record.stat.size === undefined ? '—' : formatBytes(record.stat.size) }}</span>
         <span class="c-time">{{ relativeTime(record.stat.modifiedAt ?? record.seenAt, now) }}</span>
         <ResourceMenu class="c-menu" :record="record" @select="emit('action', $event, record)" />

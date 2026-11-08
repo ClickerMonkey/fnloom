@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** The design gallery's viewers section: each resource viewer drawn from sample data, without a hub. */
-import { ref } from 'vue';
+import { onBeforeUnmount, ref } from 'vue';
 import { UiCard, UiDiagram, UiMarkdown } from '../../ui/index.ts';
 import CodeViewer from '../../resources/viewers/CodeViewer.vue';
 import HtmlPreview from '../../resources/viewers/HtmlPreview.vue';
@@ -9,10 +9,13 @@ import JsonTree from '../../resources/viewers/JsonTree.vue';
 import MediaViewer from '../../resources/viewers/MediaViewer.vue';
 import PagesViewer from '../../resources/viewers/PagesViewer.vue';
 import TableViewer from '../../resources/viewers/TableViewer.vue';
-import { SAMPLE_CODE, SAMPLE_HTML, SAMPLE_JSON, SAMPLE_MARKDOWN, SAMPLE_PAGES, SAMPLE_SVG, SAMPLE_TABLES, SAMPLE_TRANSCRIPT } from './samples.ts';
+import { SAMPLE_CODE, SAMPLE_HTML, SAMPLE_JSON, SAMPLE_MARKDOWN, SAMPLE_PAGES, SAMPLE_SVG, SAMPLE_TABLES, SAMPLE_TRANSCRIPT, sampleWav } from './samples.ts';
 
 const line = ref(4);
 const page = ref(1);
+/** The audio sample: a short tone, played from a blob URL made here and let go when the page closes. */
+const audio = URL.createObjectURL(new Blob([sampleWav()], { type: 'audio/wav' }));
+onBeforeUnmount(() => { URL.revokeObjectURL(audio); });
 </script>
 
 <template>
@@ -42,7 +45,7 @@ const page = ref(1);
       <UiDiagram source="graph TD; Hub --> fs; Hub --> web" title="Systems" />
     </UiCard>
     <UiCard title="Audio with a transcript">
-      <MediaViewer src="" kind="audio" :transcript="SAMPLE_TRANSCRIPT" title="Walkthrough" />
+      <MediaViewer :src="audio" kind="audio" :transcript="SAMPLE_TRANSCRIPT" title="Walkthrough" />
     </UiCard>
   </div>
 </template>

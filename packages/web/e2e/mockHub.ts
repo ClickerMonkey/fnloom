@@ -183,10 +183,10 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       presence: () => undefined,
       systems: () => admin.list().map(withInstances),
       system: ({ data }) => withInstances(admin.system(data.system)),
-      pairings: () => admin.pairings,
+      pairings: ({ data }) => admin.pairingsWith(data.status),
       approvePairing: ({ data }) => {
         // the pairing page names the instance and sets the config in the same step
-        const answered = admin.answerPairing(data.pairing, data.approve);
+        const answered = admin.answerPairing(data.pairing, data.approve, data.instance);
         if (answered.system !== undefined && data.config !== undefined) { admin.configure(answered.system, data.config); }
         return answered;
       },

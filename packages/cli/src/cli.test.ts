@@ -105,6 +105,29 @@ describe('system new', () => {
     expect(await runCli(['system', 'new', 'other', '--from', 'nowhere'], io)).toBe(1);
     expect(await runCli(['system', 'new', 'Bad Name'], io)).toBe(2);
   });
+
+  it('rebases the paths that lead out of the template, so a system made anywhere builds', async () => {
+    const io = testIo();
+    const from = join(WORK, 'systems', 'template');
+    putFolder(io.memory, from, {
+      'system.json': '{ "name": "template" }',
+      'tsconfig.json': JSON.stringify({
+        extends: '../../tsconfig.base.json', compilerOptions: { rootDir: '.', outDir: '../../.types/system-template', tsBuildInfoFile: '../../.types/system-template.tsbuildinfo' },
+        include: ['shared'], references: [{ path: '../../packages/core' }],
+      }),
+      'package.json': JSON.stringify({ name: '@harness/system-template', dependencies: { '@ayepi/env': 'file:../../../ayepi/packages/env', zod: '^4' } }),
+    });
+    expect(await runCli(['system', 'new', 'notes', '--from', 'systems/template', '--dir', 'elsewhere/deeper'], io)).toBe(0);
+    const made = join(WORK, 'elsewhere', 'deeper', 'notes');
+    expect(JSON.parse(io.memory.text(join(made, 'tsconfig.json')))).toEqual({
+      extends: '../../../tsconfig.base.json', compilerOptions: { rootDir: '.', outDir: '../../../.types/system-notes', tsBuildInfoFile: '../../../.types/system-notes.tsbuildinfo' },
+      include: ['shared'], references: [{ path: '../../../packages/core' }],
+    });
+    expect(JSON.parse(io.memory.text(join(made, 'package.json')))).toEqual({ name: '@harness/system-notes', dependencies: { '@ayepi/env': 'file:../../../../ayepi/packages/env', zod: '^4' } });
+    // made where the template sits, nothing moves
+    expect(await runCli(['system', 'new', 'other', '--from', 'systems/template', '--dir', 'systems'], io)).toBe(0);
+    expect(JSON.parse(io.memory.text(join(WORK, 'systems', 'other', 'tsconfig.json')))).toMatchObject({ extends: '../../tsconfig.base.json' });
+  });
 });
 
 describe('system build', () => {

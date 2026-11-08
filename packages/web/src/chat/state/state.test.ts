@@ -546,7 +546,7 @@ describe('sendDraft', () => {
     expect(composer.uploads.items.value).toHaveLength(1);
     chat.api.send = fakeChatApi().send;
     const sent = await sendDraft(t, composer);
-    expect(sent).toEqual({ ok: true, moved: 0, undone: undefined });
+    expect(sent).toEqual({ ok: true, value: { moved: 0, undone: undefined } });
     expect(chat.api.send.calls[0]?.[0].parts.map((p) => p.type)).toEqual(['text', 'file']);
     expect([composer.text.value, composer.uploads.items.value.length]).toEqual(['', 0]);
   });
@@ -569,7 +569,7 @@ describe('sendDraft editing', () => {
 
     chat.api.undoTurn = fakeChatApi().undoTurn;
     const sent = await sendDraft(t, composer);
-    expect(sent).toMatchObject({ ok: true, moved: 0, undone: { undone: 0 } });
+    expect(sent).toMatchObject({ ok: true, value: { moved: 0, undone: { undone: 0 } } });
     expect(chat.api.undoTurn.calls.map((c) => c[0])).toEqual([{ turn: 'trn_e' }]);
     expect(chat.api.send.calls.at(-1)?.[0].parts).toEqual([{ type: 'text', text: 'second try' }]);
     expect([composer.text.value, composer.editing.value]).toEqual(['', undefined]);

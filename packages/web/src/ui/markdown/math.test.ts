@@ -70,7 +70,7 @@ describe('diagrams', () => {
     const calls: string[] = [];
     const renderer: DiagramRenderer = {
       languages: ['mermaid'],
-      render: (source) => { calls.push(source); return Promise.resolve(source.includes('bad') ? { ok: false, problem: 'Parse error' } : { ok: true, svg: '<svg/>' }); },
+      render: (source) => { calls.push(source); return Promise.resolve(source.includes('bad') ? { ok: false, problem: 'Parse error' } : { ok: true, value: '<svg/>' }); },
     };
     const good = mount(UiDiagram, { props: { source: 'graph TD; A-->B' }, global: { provide: { [DIAGRAMS]: renderer } } });
     await flushPromises();

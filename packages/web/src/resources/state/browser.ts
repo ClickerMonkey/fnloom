@@ -10,7 +10,7 @@ import {
 } from '@harness/core';
 import { computed, shallowRef } from 'vue';
 import type { FileSender } from '../../chat/api.ts';
-import { Loaded, Paged, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Paged, Task, type Outcome } from '../../state/loaded.ts';
 import { problemText } from '../../state/problems.ts';
 import type { ResourceEvents, ResourcesApi } from '../api/resources.ts';
 import { folderQuery, groupQuery, hubQuery, mergeFacets, PAGE_SIZE, type BrowserQuery } from '../logic/browse.ts';
@@ -181,7 +181,7 @@ export class ResourceBrowserStore {
   // ─── Actions ────────────────────────────────────────────────────────────
 
   /** Import a web page (or any URL) as a hub resource. */
-  async importUrl(url: string): Promise<TaskResult<ResourceRecord>> {
+  async importUrl(url: string): Promise<Outcome<ResourceRecord>> {
     const done = await this.importing.run(() => this.#deps.api.importResource.call({ url }), "Couldn't import that address.");
     if (done.ok) { void this.list.refresh(); }
     return done;

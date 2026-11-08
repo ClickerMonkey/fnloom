@@ -25,7 +25,7 @@ const hint = (field: keyof ModelLimits): string => {
 
 function save(): void {
   tried.value = true;
-  if (checked.value.ok) { emit('save', checked.value.limits); }
+  if (checked.value.ok) { emit('save', checked.value.value); }
 }
 </script>
 

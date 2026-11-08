@@ -101,8 +101,13 @@ export const GRAPH_EVALUATIONS = ['perMessage', 'perIteration'] as const;
 export const GraphEvaluation = z.enum(GRAPH_EVALUATIONS);
 export type GraphEvaluation = z.infer<typeof GraphEvaluation>;
 
-/** How the flexible budget is shared between history, context and fns; what one leaves unused flows to the others. */
-export const BudgetShares = z.object({ history: z.number().min(0), context: z.number().min(0), fns: z.number().min(0) });
+/** The pools a prompt's flexible budget is split into: the conversation so far, context items, and fn cards. */
+export const BUDGET_POOLS = ['history', 'context', 'fns'] as const;
+export const BudgetPool = z.enum(BUDGET_POOLS);
+export type BudgetPool = z.infer<typeof BudgetPool>;
+
+/** How the flexible budget is shared between the pools; what one leaves unused flows to the others. */
+export const BudgetShares = z.record(BudgetPool, z.number().min(0));
 export type BudgetShares = z.infer<typeof BudgetShares>;
 
 /**
@@ -153,6 +158,11 @@ export const ModelLimits = z.object({
 });
 export type ModelLimits = z.infer<typeof ModelLimits>;
 
+/** The limit fields, in the order they are resolved. */
+export const ModelLimitField = ModelLimits.keyof();
+export type ModelLimitField = z.infer<typeof ModelLimitField>;
+export const MODEL_LIMIT_FIELDS = ModelLimitField.options;
+
 /** Limits with every field known: what one prompt is budgeted against. */
 export const ResolvedModelLimits = ModelLimits.required();
 export type ResolvedModelLimits = z.infer<typeof ResolvedModelLimits>;
@@ -166,7 +176,7 @@ export type LimitSource = z.infer<typeof LimitSource>;
 export const ModelLimitsView = z.object({
   model: z.string(),
   limits: ResolvedModelLimits,
-  sources: z.record(z.enum(['contextWindow', 'maxOutputTokens', 'reasoningTokens', 'charsPerToken']), LimitSource),
+  sources: z.record(ModelLimitField, LimitSource),
   /** Measured input tokens over estimated, a moving average of recent calls (1.1 before any, so estimates err high). */
   ratio: z.number(),
 });
@@ -197,7 +207,7 @@ export const BudgetReport = z.object({
   reasoning: z.number().int().min(0),
   margin: z.number().int().min(0),
   fixed: z.number().int().min(0),
-  pools: z.object({ history: PoolUse, context: PoolUse, fns: PoolUse }),
+  pools: z.record(BudgetPool, PoolUse),
   /** The request's estimate, which is never more than `window − output − reasoning − margin`. */
   estimate: z.number().int().min(0),
   cut: z.array(z.object({ what: z.string(), why: z.string() })),

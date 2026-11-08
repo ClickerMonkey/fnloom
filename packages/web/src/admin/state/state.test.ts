@@ -167,11 +167,11 @@ describe('SystemStore', () => {
     await admin.system.loadFns();
     const [first] = admin.system.fns.value.value ?? [];
     if (first === undefined) { throw new Error('no fns'); }
-    const stats = { runs: 3, failures: 1, averageCost: 0.01, averageTime: 120, lastRunAt: 5 };
+    const stats = { outcomes: { done: 2, 'invalid-input': 0, failed: 1, cancelled: 0 }, averageCost: 0.01, averageTime: 120, tokens: 0, lastRunAt: 5 };
     user.push({ type: 'fn', fn: first.name, system: fs, stats });
     expect(admin.system.fns.value.value?.find((f) => f.name === first.name)?.stats).toEqual(stats);
     const before = admin.system.fns.value.value;
-    user.push({ type: 'fn', fn: first.name, system: SystemName.parse('other'), stats: { ...stats, runs: 9 } });
+    user.push({ type: 'fn', fn: first.name, system: SystemName.parse('other'), stats: { ...stats, averageTime: 9 } });
     expect(admin.system.fns.value.value).toBe(before);
   });
 });

@@ -29,5 +29,6 @@ const slots = defineSlots<{ default: () => unknown; actions?: () => unknown }>()
 .title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subtitle { margin: 0; color: var(--text-faint); font-size: var(--text-xs); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .actions { display: flex; gap: var(--space-1); }
-.body { min-height: 0; overflow-y: auto; padding: var(--space-4); padding-bottom: max(var(--space-4), var(--safe-bottom)); }
+/* positioned, so what is placed absolutely inside it (a screen-reader-only label) is clipped by its scroll, never spilling out of the panel */
+.body { position: relative; min-height: 0; overflow-y: auto; padding: var(--space-4); padding-bottom: max(var(--space-4), var(--safe-bottom)); }
 </style>

@@ -6,7 +6,8 @@
 import type { FnCtx, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
 import { fs, type FsContract } from '../shared/index.ts';
 import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';
-import { authoringText, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
+import { perPart } from '../shared/authoring.gen.ts';
+import { authoringPart, authoringStart, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
 import type { FsSettings } from './env.ts';
 import { FileService } from './files.ts';
 import { describeStatus } from './git.ts';
@@ -29,7 +30,7 @@ export interface FsDeps {
   readonly restarter: Restarter;
   readonly watch: WatchFolder;
   readonly now: () => number;
-  /** Where the `system-authoring` context reads the SDK's guide and finds the template. Default: the installed SDK's. */
+  /** Where the authoring context (its start item and parts) reads the SDK's guide and finds the template. Default: the installed SDK's. */
   readonly authoring?: AuthoringSource;
 }
 
@@ -191,7 +192,8 @@ export function createFsImpl(deps: FsDeps): FsServer {
       },
     },
     context: {
-      'system-authoring': (_args, ctx) => authoringText(authoring, ctx.signal),
+      'system-authoring': (_args, ctx) => authoringStart(authoring, ctx.signal),
+      ...perPart((part) => (_args: unknown, ctx: { readonly signal: AbortSignal }) => authoringPart(authoring, part, ctx.signal)),
       tree: async (args, ctx) => {
         const g = guard(ctx.config);
         if (g.roots.length === 0) { return 'No folders are configured yet.'; }

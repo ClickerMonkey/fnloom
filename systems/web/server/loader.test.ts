@@ -1,7 +1,7 @@
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { describe, expect, it } from 'vitest';
 import type { FetchSettings } from './index.ts';
-import { PageLoader, mimeFor, titleFor } from './loader.ts';
+import { PageLoader, titleFor } from './loader.ts';
 import { WebProblem } from './problem.ts';
 import { PageTabs } from './renderer.ts';
 import { PUBLIC_DNS, html, scriptedFetch, tableLookup, type Answer, type TabScript } from './testing.ts';
@@ -95,6 +95,9 @@ describe('PageLoader', () => {
     const page = await loader.fetch('https://example.com/files/Report%202026.pdf?token=secret', settings);
     expect(page).toMatchObject({ type: 'pdf', mime: 'application/pdf', title: 'example.com · Report 2026.pdf' });
     expect(Buffer.from(page.bytes).equals(Buffer.from(pdf))).toBe(true);
+    // a generic media type gives way to the detected type's
+    const notes = rig({ 'https://example.com/notes.md': new Response('# Notes', { headers: { 'content-type': 'text/plain' } }) });
+    expect(await notes.loader.fetch('https://example.com/notes.md', settings)).toMatchObject({ type: 'markdown', mime: 'text/markdown' });
   });
 
   it('transcodes text from its charset to utf-8', async () => {
@@ -124,16 +127,7 @@ describe('PageLoader', () => {
   });
 });
 
-describe('mimeFor and titleFor', () => {
-  it('prefers a specific media type, then the type\'s, then the generic one', () => {
-    expect(mimeFor('html', 'text/html')).toBe('text/html');
-    expect(mimeFor('markdown', 'text/plain')).toBe('text/markdown');
-    expect(mimeFor('pdf', undefined)).toBe('application/pdf');
-    expect(mimeFor(undefined, 'application/octet-stream')).toBe('application/octet-stream');
-    expect(mimeFor(undefined, undefined)).toBe('application/octet-stream');
-    expect(mimeFor('typescript', undefined)).toBe('application/octet-stream');
-  });
-
+describe('titleFor', () => {
   it('takes an html page\'s title, or labels it by its URL', () => {
     const bytes = (text: string) => new TextEncoder().encode(text);
     expect(titleFor('html', bytes('<title>  Two\n words </title>'), 'https://example.com/')).toBe('Two words');

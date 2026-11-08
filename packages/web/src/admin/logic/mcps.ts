@@ -5,8 +5,9 @@
  * is tested alone.
  */
 import {
-  FnMatch, McpSelector, McpSlug, NameGlob, ResourceSelector, SystemName, type HubMcpView, type McpRules, type McpToolMode,
+  FnMatch, McpSelector, McpSlug, NameGlob, ResourceSelector, SystemName, type HubMcpView, type Json, type McpRules, type McpToolMode,
 } from '@harness/core';
+import type { Outcome } from '../../ui/index.ts';
 
 /** The parts of a selector, in the order the editor shows them. */
 export const SELECTOR_PARTS = ['systems', 'fns', 'types', 'context', 'resources'] as const satisfies readonly (keyof McpSelector)[];
@@ -47,15 +48,12 @@ function fnMatchText(match: FnMatch): string {
   return [
     match.fn, ...(match.tags ?? []).map((tag) => `#${tag}`),
     match.system === undefined ? undefined : `system:${match.system}`, match.kind === undefined ? undefined : `kind:${match.kind}`,
-    match.when === undefined ? undefined : '(with a condition)',
+    match.when === undefined ? undefined : 'when its args match',
   ].filter((part) => part !== undefined).join(' ');
 }
 
-/** What reading an entry's text came to. */
-export type EntryRead<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly problem: string };
-
 /** Read a fn matcher from text: `fs/read`, `fs/*`, `#read`, `fs/* #write`, `system:fs`. */
-export function readFnMatch(text: string): EntryRead<FnMatch> {
+export function readFnMatch(text: string): Outcome<FnMatch> {
   const words = text.trim().split(/\s+/).filter((w) => w !== '');
   const tags = words.filter((w) => w.startsWith('#')).map((w) => w.slice(1)).filter((w) => w !== '');
   const system = words.find((w) => w.startsWith('system:'))?.slice('system:'.length);
@@ -67,14 +65,14 @@ export function readFnMatch(text: string): EntryRead<FnMatch> {
 }
 
 /** Read a resource selector from text: `file://` or `file:// on fs@laptop`. */
-export function readResourceSelector(text: string): EntryRead<ResourceSelector> {
+export function readResourceSelector(text: string): Outcome<ResourceSelector> {
   const match = /^(\S+)(?:\s+on\s+([a-z][a-z0-9-]*)(?:@([a-z][a-z0-9-]*))?)?$/.exec(text.trim());
   const parsed = match === null ? undefined : ResourceSelector.safeParse({ uri: match[1], ...(match[2] === undefined ? {} : { system: match[2] }), ...(match[3] === undefined ? {} : { instance: match[3] }) });
   return parsed?.success === true ? { ok: true, value: parsed.data } : { ok: false, problem: 'Write a URI prefix, optionally "on system@instance".' };
 }
 
 /** A selector with one entry added to a part, or why the text isn't one. */
-export function addEntry(selector: McpSelector, part: SelectorPart, text: string): EntryRead<McpSelector> {
+export function addEntry(selector: McpSelector, part: SelectorPart, text: string): Outcome<McpSelector> {
   const trimmed = text.trim();
   if (trimmed === '') { return { ok: false, problem: 'Write something to add.' }; }
   switch (part) {
@@ -97,6 +95,16 @@ export function addEntry(selector: McpSelector, part: SelectorPart, text: string
       return read.ok ? { ok: true, value: { ...selector, resources: [...(selector.resources ?? []), read.value] } } : read;
     }
   }
+}
+
+/** A selector with the condition (`when`) of its fn rule at `index` set, or removed when `when` is undefined. */
+export function setFnCondition(selector: McpSelector, index: number, when: Json | undefined): McpSelector {
+  const fns = (selector.fns ?? []).map((match, i) => {
+    if (i !== index) { return match; }
+    const { when: _old, ...rest } = match;
+    return when === undefined ? rest : { ...rest, when };
+  });
+  return { ...selector, fns };
 }
 
 /** A selector without the entry at `index` of a part (a part left empty is dropped). */
@@ -127,11 +135,16 @@ export const TOOL_MODE_WORDS = {
 /** The placeholder a snippet shows where the secret goes when it isn't known (it is shown once). */
 export const SECRET_PLACEHOLDER = '<secret>';
 
-/** How to connect an MCP client: Claude Code's command line and a `.mcp.json`. */
-export function connectSnippets(mcp: Pick<HubMcpView, 'slug' | 'url'>, secret: string = SECRET_PLACEHOLDER): { readonly claude: string; readonly json: string } {
+/**
+ * How to connect an MCP client: Claude Code's command line and a `.mcp.json`, each pasteable as is on another machine.
+ * The MCP's address is made absolute against `origin` (the hub's address as the page reached it) when the hub gave
+ * a path; an absolute one (the hub's public URL) is kept.
+ */
+export function connectSnippets(mcp: Pick<HubMcpView, 'slug' | 'url'>, origin: string, secret: string = SECRET_PLACEHOLDER): { readonly claude: string; readonly json: string } {
+  const url = new URL(mcp.url, origin).toString();
   const header = `Authorization: Bearer ${secret}`;
   return {
-    claude: `claude mcp add --transport http ${mcp.slug} ${mcp.url} --header "${header}"`,
-    json: JSON.stringify({ mcpServers: { [mcp.slug]: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${secret}` } } } }, null, 2),
+    claude: `claude mcp add --transport http ${mcp.slug} ${url} --header "${header}"`,
+    json: JSON.stringify({ mcpServers: { [mcp.slug]: { type: 'http', url, headers: { Authorization: `Bearer ${secret}` } } } }, null, 2),
   };
 }

@@ -4,7 +4,7 @@
  */
 import type { ModelCategory, ModelCategoryId, ProviderId, ProviderInput } from '@harness/core';
 import { computed } from 'vue';
-import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { ResponseOf } from '../../api/client.ts';
 import type { AdminApi } from '../api.ts';
 import type { ModelInfo } from '@harness/core';
@@ -39,13 +39,13 @@ export class ModelsStore {
   }
 
   /** Add or replace a provider; answers how many models it offers. */
-  async saveProvider(input: ProviderInput): Promise<TaskResult<{ models: number }>> {
+  async saveProvider(input: ProviderInput): Promise<Outcome<{ models: number }>> {
     const result = await this.save.run(() => this.#api.configureProvider.call(input), "Couldn't save the provider.");
     if (result.ok) { void this.load(true); }
     return result;
   }
 
-  async saveCategory(body: CategoryBody): Promise<TaskResult<{ id: string }>> {
+  async saveCategory(body: CategoryBody): Promise<Outcome<{ id: string }>> {
     const result = await this.save.run(() => this.#api.setModelCategory.call(body), "Couldn't save the category.");
     if (result.ok) { void this.categories.load(() => this.#api.modelCategories.call({}), "Couldn't load model categories.", true); }
     return result;

@@ -17,7 +17,7 @@ async function rig(machines: readonly InstanceName[]) {
   if (view === undefined) throw new Error('no view');
   const asked: SystemName[] = [];
   const instances: ContextorDeps['instances'] = { connected: (system) => { asked.push(system); return system === SystemName.parse('fs') ? machines : []; } };
-  const deps: ContextorDeps = { catalog: r.catalog, search: r.search, views: r.views, graph: r.graph, instances, settings: contextorEnv.parse(), log: r.log, clock: () => r.time.now };
+  const deps: ContextorDeps = { catalog: r.catalog, dynamic: r.dynamic, search: r.search, views: r.views, graph: r.graph, instances, settings: contextorEnv.parse(), log: r.log, clock: () => r.time.now };
   return { view, instances, asked, deps };
 }
 

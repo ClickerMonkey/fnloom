@@ -56,7 +56,7 @@ const tabs = computed<readonly TabItem<ModelsTab>[]>(() => [
   { value: 'models', label: 'Models', count: models.models.value.value?.length ?? 0 },
   { value: 'categories', label: 'Categories', count: categories.value.length },
   { value: 'roles', label: 'Roles' },
-  { value: 'limits', label: 'Limits', count: roles.limits.value.value?.length ?? 0 },
+  { value: 'limits', label: 'Model limits', count: roles.limits.value.value?.length ?? 0 },
 ]);
 const ready = computed(() => models.providers.value.value !== undefined);
 const providerName = (model: ModelInfo): string => PROVIDER_NAME[model.provider];

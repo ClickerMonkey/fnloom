@@ -44,10 +44,12 @@ scripts/       dev.ts (npm run dev), stack.ts (boots the stack), hub-client.ts (
   docs/        the authoring guide generator (`npm run docs:authoring`, `--check` in `npm run check`): the TypeScript
                compiler over the SDK's entry points (`extract.ts`), the section order every export must have a place in
                (`outline.ts`), the prose (`prose/`), and a compiled example system (`example/`) the guide quotes; it
-               writes `packages/sdk/AUTHORING.md`, which fs serves as the `fs/system-authoring` context (`/new-system`)
+               writes `packages/sdk/AUTHORING.md` and its parts (`systems/fs/shared/authoring.gen.ts`), which fs serves
+               as context: the start item `fs/system-authoring` (`/new-system`) and one item per section (`parts.ts`)
 e2e/           the end-to-end suite over the real stack (npm run e2e)
 ui-tests/      a puppeteer script per UI feature against a running harness (npm run ui-tests)
-types/         the approved type design (design record; not imported by code)
+types/         the approved type design (design record, frozen; not imported by code: the zod schemas in core and the
+               generated packages/sdk/AUTHORING.md are the sources)
 explorer/      the design explorer (npm run explorer)
 ```
 

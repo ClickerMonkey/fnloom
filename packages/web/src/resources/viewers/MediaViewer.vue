@@ -2,9 +2,11 @@
 /**
  * Audio or video with the browser's own player (seeking needs the content route's Range support, which presigned
  * downloads have), and its transcript beside it when there is one: the line playing is lit as it plays, and a click
- * on a line with a time seeks there.
+ * on a line with a time seeks there. Media that can't load (none given, or the browser can't fetch or play it) says so,
+ * with Try again and, when there is an address, Download.
  */
-import { computed, ref, useTemplateRef } from 'vue';
+import { computed, ref, useTemplateRef, watch } from 'vue';
+import { UiBanner, UiButton } from '../../ui/index.ts';
 import { clockOf, lineAt, transcriptLines } from '../logic/transcript.ts';
 
 const props = withDefaults(defineProps<{ src: string; kind: 'audio' | 'video'; transcript?: string; title?: string }>(), { transcript: '', title: '' });
@@ -13,6 +15,23 @@ const player = useTemplateRef<HTMLMediaElement>('player');
 const time = ref(0);
 const lines = computed(() => transcriptLines(props.transcript));
 const playing = computed(() => lineAt(lines.value, time.value));
+/** Whether the media failed to load; a new address tries again. */
+const failed = ref(false);
+watch(() => props.src, () => { failed.value = false; });
+const broken = computed(() => props.src === '' || failed.value);
+const what = computed(() => (props.kind === 'video' ? 'video' : 'audio'));
+
+function retry(): void {
+  failed.value = false;
+  player.value?.load();
+}
+function download(): void {
+  const link = document.createElement('a');
+  link.href = props.src;
+  link.download = props.title || what.value;
+  link.rel = 'noopener';
+  link.click();
+}
 
 function seek(at: number | undefined): void {
   if (at === undefined || player.value === null) { return; }
@@ -26,8 +45,17 @@ function tick(event: Event): void {
 
 <template>
   <div class="media-viewer" :class="kind" data-testid="media-view">
-    <video v-if="kind === 'video'" ref="player" class="player" :src="src" controls playsinline preload="metadata" :aria-label="title || 'Video'" @timeupdate="tick"></video>
-    <audio v-else ref="player" class="player" :src="src" controls preload="metadata" :aria-label="title || 'Audio'" @timeupdate="tick"></audio>
+    <UiBanner v-if="broken" tone="warn" icon="warning" data-testid="media-problem">
+      {{ src === '' ? `There is no ${what} to play.` : `Couldn't load this ${what}.` }}
+      <template v-if="src !== ''" #actions>
+        <UiButton size="sm" variant="ghost" icon="refresh" @click="retry">Try again</UiButton>
+        <UiButton size="sm" variant="ghost" icon="download" @click="download">Download</UiButton>
+      </template>
+    </UiBanner>
+    <template v-if="src !== ''">
+      <video v-if="kind === 'video'" v-show="!failed" ref="player" class="player" :src="src" controls playsinline preload="metadata" :aria-label="title || 'Video'" @timeupdate="tick" @error="failed = true"></video>
+      <audio v-else v-show="!failed" ref="player" class="player" :src="src" controls preload="metadata" :aria-label="title || 'Audio'" @timeupdate="tick" @error="failed = true"></audio>
+    </template>
     <section v-if="lines.length > 0" class="transcript" aria-label="Transcript">
       <h3 class="heading">Transcript</h3>
       <ol class="lines">

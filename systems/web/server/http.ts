@@ -5,6 +5,7 @@
  * rest (type detection, charsets, rendering).
  */
 import type { FetchFn } from '@aeye/resources';
+import { followRedirects } from '@harness/sdk/server';
 import { redactUrl } from '../shared/urls.ts';
 import type { AddressCheck } from './guard.ts';
 import { WebProblem, isAbort, isTimeout } from './problem.ts';
@@ -19,8 +20,6 @@ export interface GuardedFetchOptions {
   /** The most body bytes read. */
   readonly maxBytes: number;
 }
-
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 /** Turns what a fetch threw into a `WebProblem` naming `url` (shown as given); aborts of the caller's own signal pass through unchanged. */
 export function fetchProblem(error: unknown, url: string): unknown {
@@ -59,42 +58,32 @@ function finalResponse(response: Response, url: string, shown: string, maxBytes:
 }
 
 /**
- * A `FetchFn` that follows redirects itself, checking each hop, refuses statuses that aren't a success and bodies
- * whose declared or streamed size passes the limit.
+ * A `FetchFn` that follows redirects itself (the SDK's `followRedirects`, checking each hop with the guard), refuses
+ * statuses that aren't a success and bodies whose declared or streamed size passes the limit.
  */
 export function guardedFetch(options: GuardedFetchOptions): FetchFn {
   return async (input, init) => {
-    let url = new URL(input);
-    for (let hop = 0; ; hop += 1) {
-      // messages reach the LLM and the logs, so a signed or token-bearing URL is named with its credentials redacted
-      const shown = redactUrl(url);
-      await options.guard.check(url, init.signal ?? undefined);
-      init.signal?.throwIfAborted();
-      let response: Response;
-      try {
-        response = await options.fetch(url.href, { ...init, redirect: 'manual' });
-      } catch (error) {
-        throw fetchProblem(error, shown);
-      }
-      const location = response.headers.get('location');
-      if (REDIRECT_STATUSES.has(response.status)) {
-        void response.body?.cancel().catch(() => undefined);
-        if (location === null || !URL.canParse(location, url)) { throw new WebProblem('redirects', `${shown} redirected without a usable location.`); }
-        if (hop >= options.redirects) { throw new WebProblem('redirects', `${redactUrl(input)} redirected more than ${options.redirects} times.`); }
-        url = new URL(location, url);
-        continue;
-      }
-      if (!response.ok) {
-        void response.body?.cancel().catch(() => undefined);
-        throw statusProblem(response, shown);
-      }
-      const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10);
-      if (!Number.isNaN(declared) && declared > options.maxBytes) {
-        void response.body?.cancel().catch(() => undefined);
-        throw new WebProblem('too-large', `${shown} is ${declared} bytes, over the ${options.maxBytes}-byte limit.`);
-      }
-      return finalResponse(response, url.href, shown, options.maxBytes);
+    const { response, url } = await followRedirects(input, init, {
+      fetch: options.fetch,
+      check: (hop, signal) => options.guard.check(hop, signal),
+      redirects: options.redirects,
+      problems: {
+        // messages reach the LLM and the logs, so a signed or token-bearing URL is named with its credentials redacted
+        noLocation: (at) => new WebProblem('redirects', `${redactUrl(at)} redirected without a usable location.`),
+        tooMany: (start, limit) => new WebProblem('redirects', `${redactUrl(start)} redirected more than ${limit} times.`),
+        failed: (error, at) => fetchProblem(error, redactUrl(at)),
+      },
+    });
+    const shown = redactUrl(url);
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
+      throw statusProblem(response, shown);
     }
+    const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+    if (!Number.isNaN(declared) && declared > options.maxBytes) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new WebProblem('too-large', `${shown} is ${declared} bytes, over the ${options.maxBytes}-byte limit.`);
+    }
+    return finalResponse(response, url.href, shown, options.maxBytes);
   };
 }
-

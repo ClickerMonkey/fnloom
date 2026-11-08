@@ -49,9 +49,11 @@ describe('RunCard', () => {
     expect(card.find('[data-testid=run-status]').exists()).toBe(false);
     await card.get('.summary').trigger('click');
     expect(card.emitted('open')).toHaveLength(1);
-    await card.get('[aria-label=Expand]').trigger('click');
-    expect(card.emitted('toggle')?.[0]).toEqual([false]);
+    // a settled failure has nothing below its line, so no chevron offers to open it
+    expect(card.find('[aria-label=Expand]').exists()).toBe(false);
     const live = mount(RunCard, { props: { run: run(), now: T0, collapsed: false } });
+    await live.get('[aria-label=Collapse]').trigger('click');
+    expect(live.emitted('toggle')?.[0]).toEqual([true]);
     await live.get('[aria-label="Move to background"]').trigger('click');
     expect(live.emitted('background')).toHaveLength(1);
   });

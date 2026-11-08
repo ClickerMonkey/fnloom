@@ -4,6 +4,9 @@
  */
 import { z } from 'zod';
 
+/** Whether two types are each other, both ways round; `true satisfies Same<A, B>` pins two lists of one fact together. */
+export type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
 /** Any JSON value. */
 export const Json = z.json();
 export type Json = z.infer<typeof Json>;
@@ -11,6 +14,11 @@ export type Json = z.infer<typeof Json>;
 /** A JSON object. */
 export const JsonObject = z.record(z.string(), Json);
 export type JsonObject = z.infer<typeof JsonObject>;
+
+/** Whether a JSON value is an object (not null, not a list). */
+export function isJsonObject(value: Json | undefined): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 /** Every kind of id the hub mints, with the prefix its ids start with. */
 export const ID_PREFIXES = {

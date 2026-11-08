@@ -3,7 +3,7 @@ import type { LlmMessage } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { contiguousTail, exchanges, textOf, firstAndLast, isPersonMessage, namedIn, personWords, shorten, shortenResults, summarise } from './history.ts';
 import type { FnView } from './index.ts';
-import { cardsSection, contextBlock, earlierBlock, fnCard, listedLine, moreContext, parseRunBlocks, resultText, RunBlockFilter } from './render.ts';
+import { cardsSection, contextBlock, earlierBlock, fnCard, listedLine, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
 import { ContextCatalog } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
 
@@ -136,5 +136,21 @@ describe('history', () => {
   it('read a person\'s own words and the names they give', () => {
     expect(personWords('run fs/bash ls\n\n<suggested_fns>\n- fn fs/read\n</suggested_fns>')).toBe('run fs/bash ls');
     expect(namedIn('please run fs/bash and hub/load_fns, not a/b/c?')).toEqual(['fs/bash', 'hub/load_fns', 'a/b']);
+  });
+});
+
+describe('thinking written into an answer', () => {
+  it('streams it apart from the answer, across chunks that split a tag', () => {
+    const filter = new ThinkingFilter();
+    const parts = ['<thi', 'nk>Let me count', ' the lines.</th', 'ink>\n\nIt has ', '3 lines.'].map((chunk) => filter.push(chunk));
+    const end = filter.end();
+    expect(parts.map((p) => p.reasoning).join('') + end.reasoning).toBe('Let me count the lines.');
+    expect((parts.map((p) => p.text).join('') + end.text).trim()).toBe('It has 3 lines.');
+  });
+
+  it('keeps a thought left open as reasoning, and an answer with no thinking as it is', () => {
+    expect(splitThinking('<think>still thinking')).toEqual({ text: '', reasoning: 'still thinking' });
+    expect(splitThinking('Just the answer, with a < sign.')).toEqual({ text: 'Just the answer, with a < sign.', reasoning: '' });
+    expect(splitThinking('<think>a</think>One.<think>b</think> Two.')).toEqual({ text: 'One. Two.', reasoning: 'ab' });
   });
 });

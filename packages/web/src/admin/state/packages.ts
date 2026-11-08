@@ -9,7 +9,7 @@ import { InstanceName } from '@harness/core';
 import { ref } from 'vue';
 import type { FileSender } from '../../chat/api.ts';
 import { sendFile } from '../../chat/state/uploads.ts';
-import { Task, type TaskResult } from '../../state/loaded.ts';
+import { Task, type Outcome } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
 
 type PackagesApi = Pick<AdminApi, 'upload' | 'uploaded' | 'installPackage'>;
@@ -44,7 +44,7 @@ export class PackagesStore {
   }
 
   /** Upload a zip (and its data export) and install it; answers the instance it became. */
-  async installZip(zip: File, options: PackageOptions): Promise<TaskResult<InstanceRef>> {
+  async installZip(zip: File, options: PackageOptions): Promise<Outcome<InstanceRef>> {
     if (!isPackageFile(zip)) { return { ok: false, problem: 'A package is a .zip made by harness system pack.' }; }
     const instance = options.instance.trim();
     if (instance !== '' && !InstanceName.safeParse(instance).success) { return { ok: false, problem: 'An instance name is lowercase letters, digits and dashes, starting with a letter.' }; }

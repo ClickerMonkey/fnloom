@@ -110,6 +110,11 @@ export class FormReader implements ResourceReader {
     const table = version.tables[index];
     if (table === undefined) { throw reject(404, 'NO_TABLE', `${uri} has no table ${rows.table} (it has ${version.tables.map((t, i) => t.name ?? String(i + 1)).join(', ')})`); }
     const total = tableRowCounts(version)[index] ?? table.rows.length;
+    // the hub keeps the first `HARNESS_TABLE_ROWS` rows of a table (the library converts a sheet whole, with no row
+    // window); a range starting past them is refused, never answered empty as if the table ended there
+    if (rows.from >= table.rows.length && rows.from < total) {
+      throw reject(422, 'ROWS_NOT_KEPT', `${uri} keeps rows 0-${table.rows.length} of its ${total.toLocaleString('en-US')}; rows from ${rows.from} can't be read here (export the raw file for the rest)`);
+    }
     const to = Math.max(rows.from, Math.min(rows.to, table.rows.length));
     return { text: tableToMarkdown({ ...table, rows: table.rows.slice(rows.from, to) }), offset: rows.from, total, truncated: to < total };
   }

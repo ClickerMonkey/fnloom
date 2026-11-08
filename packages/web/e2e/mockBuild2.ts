@@ -195,8 +195,7 @@ export class MockBuild2 {
 
   /** A pairing request as the pairing page reads it: what the system said about itself, with its config type. */
   pairing(id: PairingId): PairingRequest {
-    const found = this.#admin.pairings.find((p) => p.id === id);
-    if (found === undefined) { throw new Error(`no pairing ${id}`); }
+    const found = this.#admin.pairingRecord(id);
     return { description: `${found.name} on Phil’s laptop`, instance: instanceName('laptop'), configType: FS_CONFIG, ...found };
   }
 

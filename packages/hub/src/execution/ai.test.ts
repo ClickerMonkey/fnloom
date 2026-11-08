@@ -55,8 +55,9 @@ describe('the hub AI hooks', () => {
   it('record a call outside a scope as the hub’s own work, with no budget or interaction', async () => {
     const { hooks, store } = await seeded();
     const h = hooks();
-    const ctx = { purpose: 'index' };
     const request: EmbeddingRequest = { texts: ['a', 'bcd'] };
+    // the engine method says what the call is, with its typed request
+    const ctx = { purpose: 'index', media: { modality: 'embed', request } } as const;
     const response: EmbeddingResponse = { embeddings: [{ embedding: [1, 2, 3], index: 0 }, { embedding: [4, 5, 6], index: 1 }], model: 'embed-1' };
     await h.before(ctx, request, { id: 'embed-1', provider: 'openai' }, 1);
     await h.after(ctx, response, true, false, { text: { input: 4 } }, 0.0001);
@@ -94,17 +95,24 @@ describe('the hub AI hooks', () => {
   it('close a failed or stopped call’s record with why', async () => {
     const { hooks, store, scope } = await seeded();
     const h = hooks();
-    const a = { call: scope };
     const heard: TranscriptionRequest = { audio: new Uint8Array(10) };
     const said: SpeechRequest = { text: 'hi there' };
     const spoken: SpeechResponse = { audio: new ReadableStream(), model: 'tts-1' };
+    const a = { call: scope, media: { modality: 'transcribe', request: heard } } as const;
     await h.before(a, heard, { id: 'whisper-1', provider: 'openai' }, 0);
     await h.failed(a, new Error('no hearing'));
-    const b = { call: scope };
+    const b = { call: scope, media: { modality: 'speech', request: said } } as const;
     await h.before(b, said, { id: 'tts-1', provider: 'openai' }, 0);
     await h.after(b, spoken, false, true, {}, 0);
     const rows = (await store.table('modelCalls').find({ order: [['startedAt', 'asc']], limit: 5 })).items;
     expect(rows.map((r) => [r.modality, r.status, r.error])).toEqual([['transcribe', 'failed', 'no hearing'], ['speech', 'aborted', 'stopped by its caller']]);
+  });
+
+  it('refuse a non-chat call its engine did not describe, so no call goes unrecorded or mislabelled', async () => {
+    const { hooks, store } = await seeded();
+    const said: SpeechRequest = { text: 'hi' };
+    await expect(hooks().before({ purpose: 'x' }, said, { id: 'tts-1', provider: 'openai' }, 0)).rejects.toThrow('did not make through its engine');
+    expect(await store.table('modelCalls').count()).toBe(0);
   });
 
   it('reserve, save the interaction as streaming, then settle it with the real cost', async () => {
@@ -179,8 +187,8 @@ describe('model choices', () => {
     const store = await testStore();
     const roles = { resolve: (role: string) => Promise.resolve(role === 'chat' ? { model: 'qwen2.5:3b', provider: 'ollama' } : undefined) };
     const models = new ModelResolver({ store, settings: testSettings(), roles });
-    expect(await models.resolve(undefined)).toEqual({ model: 'ollama/qwen2.5:3b' });
-    expect(await models.resolve({ category: 'none' })).toEqual({ model: 'ollama/qwen2.5:3b' });
+    expect(await models.resolve(undefined)).toEqual({ model: 'qwen2.5:3b', provider: 'ollama' });
+    expect(await models.resolve({ category: 'none' })).toEqual({ model: 'qwen2.5:3b', provider: 'ollama' });
     expect(await models.resolve({ model: 'x' })).toEqual({ model: 'x' });
   });
 });

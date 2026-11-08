@@ -4,7 +4,7 @@
  */
 import { encodeValue, parseValue, type FnRef } from '@harness/sdk';
 import {
-  splitName, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome, type RunControlAction,
+  splitName, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome, type RunControlAction,
 } from '@harness/core';
 import { fnError, messageOf, RunStopped } from './errors.ts';
 import type { ControlAnswer, ExecutionDeps, ExecutionJob, RunExecutor, UndoJob } from './ports.ts';
@@ -59,6 +59,21 @@ export class SystemExecutor implements RunExecutor {
   }
 }
 
+/**
+ * A hub fn's args were well formed but wrong (a name that isn't one, nothing by that name): the caller's mistake,
+ * which it can fix and retry. The run settles `invalid-input` with these problems, not `failed`.
+ */
+export class InvalidArgs extends Error {
+  override readonly name = 'InvalidArgs';
+  readonly invalid: InvalidInput;
+
+  constructor(problems: string | readonly [InputProblem, ...InputProblem[]]) {
+    const list: [InputProblem, ...InputProblem[]] = typeof problems === 'string' ? [{ path: '', message: problems }] : [...problems];
+    super(list.map((p) => p.message).join('; '));
+    this.invalid = { source: 'validation', problems: list };
+  }
+}
+
 /** What a hub fn's implementation gets besides its args. */
 export interface HubFnCtx {
   readonly request: RunRequest;
@@ -95,6 +110,7 @@ export class HubFns implements RunExecutor {
       return { status: 'done', result };
     } catch (error) {
       if (signal.aborted && signal.reason instanceof RunStopped) throw signal.reason;
+      if (error instanceof InvalidArgs) return { status: 'invalid-input', invalid: error.invalid };
       return { status: 'failed', error: fnError('caller', messageOf(error)) };
     }
   }

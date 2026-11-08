@@ -311,8 +311,9 @@ async function send(confirmed = false): Promise<void> {
     if (result.problem !== '') { toasts.error("Couldn't send", result.problem); }
     return;
   }
-  if (result.moved > 0) { flashNote(`${result.moved} run${result.moved === 1 ? '' : 's'} moved to the background`); }
-  if (result.undone !== undefined) { flashNote(`Undid ${result.undone.undone} change${result.undone.undone === 1 ? '' : 's'} and sent your edit`); }
+  const { moved, undone } = result.value;
+  if (moved > 0) { flashNote(`${moved} run${moved === 1 ? '' : 's'} moved to the background`); }
+  if (undone !== undefined) { flashNote(`Undid ${undone.undone} change${undone.undone === 1 ? '' : 's'} and sent your edit`); }
   scroller.value?.toBottom();
 }
 

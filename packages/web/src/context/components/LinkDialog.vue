@@ -4,7 +4,7 @@
  * optional section), how they relate (each relation with a line on what it means), and how strongly, 0 to 1. The draft
  * is checked as it is typed (`linkRequest`); the problem shows under the target, and Save sends the draft.
  */
-import { DECLARABLE_RELATIONS, type DeclarableRelation, type LinkTargetKind, type QualifiedName } from '@harness/core';
+import { DECLARABLE_RELATIONS, HUB_RESOURCE_ROOT, type DeclarableRelation, type LinkTargetKind, type QualifiedName } from '@harness/core';
 import { computed, ref, watch } from 'vue';
 import { UiBanner, UiButton, UiDialog, UiField, UiInput, UiSegmented, UiSelect, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { emptyLinkDraft, linkRequest, RELATION_WORDS, TARGET_WORDS, type LinkDraft } from '../logic/context.ts';
@@ -15,7 +15,7 @@ const emit = defineEmits<{ save: [draft: LinkDraft] }>();
 
 const KINDS: readonly SegmentOption<LinkTargetKind>[] = (['context', 'fn', 'type', 'resource'] as const).map((kind) => ({ value: kind, label: TARGET_WORDS[kind].label, icon: TARGET_WORDS[kind].icon }));
 const RELATIONS: readonly SelectOption<DeclarableRelation>[] = DECLARABLE_RELATIONS.map((relation) => ({ value: relation, label: RELATION_WORDS[relation].label }));
-const PLACEHOLDER = { context: 'fs/guide', fn: 'fs/read', type: 'fs/path', resource: 'fs://work/README.md' } as const satisfies Record<LinkTargetKind, string>;
+const PLACEHOLDER = { context: 'fs/guide', fn: 'fs/read', type: 'fs/path', resource: `${HUB_RESOURCE_ROOT}uploads/notes.md` } as const satisfies Record<LinkTargetKind, string>;
 
 const kind = ref<LinkTargetKind>('context');
 const target = ref('');

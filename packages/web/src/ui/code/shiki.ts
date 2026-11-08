@@ -52,10 +52,13 @@ export function tokensOf(lines: readonly (readonly ThemedToken[])[]): Token[] {
   return out;
 }
 
+/** The part of Shiki's highlighter core the highlighter uses: loading a grammar and tokenizing with it. */
+export type ShikiCore = Pick<HighlighterCore, 'codeToTokensBase' | 'loadLanguage'>;
+
 /** What loads Shiki: its core with the JavaScript engine, and its grammars by name. An interface so tests use a fake. */
 export interface ShikiLoader {
   /** The highlighter core, with no languages yet. */
-  core(): Promise<HighlighterCore>;
+  core(): Promise<ShikiCore>;
   /** The grammar loader of each language, by its name and its aliases. */
   languages(): Promise<ReadonlyMap<string, LanguageInput>>;
 }
@@ -76,8 +79,8 @@ export const BUNDLED_SHIKI: ShikiLoader = {
 export class ShikiHighlighter implements Highlighter {
   readonly #loader: ShikiLoader;
   readonly #fallback: Highlighter;
-  #core: Promise<HighlighterCore> | undefined;
-  #ready: HighlighterCore | undefined;
+  #core: Promise<ShikiCore> | undefined;
+  #ready: ShikiCore | undefined;
   readonly #loading = new Map<string, Promise<boolean>>();
   readonly #loaded = new Set<string>();
 
@@ -89,7 +92,14 @@ export class ShikiHighlighter implements Highlighter {
   tokens(code: string, language: string): readonly Token[] {
     const core = this.#ready;
     if (core === undefined || !this.#loaded.has(language)) { return this.#fallback.tokens(code, language); }
-    return tokensOf(core.codeToTokensBase(code, { lang: language, theme: SCOPES_ONLY.name ?? '', includeExplanation: 'scopeName' }));
+    try {
+      return tokensOf(core.codeToTokensBase(code, { lang: language, theme: SCOPES_ONLY.name ?? '', includeExplanation: 'scopeName' }));
+    } catch {
+      // Shiki tokenizes each line twice (scopes, then colours), each under its own time limit; when the first pass
+      // stops early on a slow device its tokens run out before the second pass's do and Shiki throws. The built-in
+      // highlighter answers for that draw instead.
+      return this.#fallback.tokens(code, language);
+    }
   }
 
   prepare(language: string): Promise<boolean> {

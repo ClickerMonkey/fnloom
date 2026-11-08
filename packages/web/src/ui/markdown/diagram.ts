@@ -4,9 +4,10 @@
  * an `<img>`), so no diagram can inject markup into the page. Without a renderer the source is shown as code.
  */
 import type { InjectionKey } from 'vue';
+import type { Outcome } from '../types.ts';
 
-/** What drawing a diagram came to: its SVG, or why it couldn't be drawn. */
-export type DiagramResult = { readonly ok: true; readonly svg: string } | { readonly ok: false; readonly problem: string };
+/** What drawing a diagram came to: its SVG text, or why it couldn't be drawn. */
+export type DiagramResult = Outcome<string>;
 
 /** Draws diagram source (mermaid) as SVG. */
 export interface DiagramRenderer {

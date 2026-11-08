@@ -82,7 +82,7 @@ useLive(() => { void calls.list.refresh(); }, BROWSER_REFRESH);
         <template #mark><UiIcon :name="MODALITY_WORDS[item.modality].icon" :size="16" :label="MODALITY_WORDS[item.modality].label" /></template>
         <template #badges><StatusBadge :look="MODEL_CALL_STATUS_LOOK[item.status]" /></template>
         <template #figures>
-          <span v-if="item.status !== 'running'">{{ unitsText(item.units) }}</span>
+          <span v-if="item.status === 'done'">{{ unitsText(item.units) }}</span>
           <span>{{ formatCost(item.cost) }}</span>
           <span v-if="callTook(item, now) !== undefined">{{ formatDuration(callTook(item, now) ?? 0) }}</span>
         </template>

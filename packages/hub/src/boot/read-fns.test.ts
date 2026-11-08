@@ -1,4 +1,4 @@
-import { fn, HUB_READ_ENDPOINTS, hub, manifestOf, type FnRef } from '@harness/sdk';
+import { encodeValue, fn, HUB_READ_ENDPOINTS, hub, manifestOf, type FnRef } from '@harness/sdk';
 import { ADMIN_TAG, INVALID_INPUT_CODE, QualifiedName, READ_TAG, type Json, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HubReads } from '../api/reads.ts';
@@ -78,5 +78,43 @@ describe('read fns', () => {
     // a person's own call names no system
     expect(await call(r, turn, 'mint_mcp_token', { mcp: 'mcp_1', label: 'session 1' })).toMatchObject({ status: 'failed', error: { message: /only a system/ } });
     expect(asked).toEqual([]);
+  });
+});
+
+/** The args a hub fn ref takes. */
+type ArgsOf<F> = F extends FnRef<QualifiedName, infer A, unknown> ? A : never;
+
+/** One valid body for every read fn answered here (the compiler checks each against its fn's args). */
+const READ_EXAMPLES: { readonly [N in (typeof HUB_READ_NAMES)[number]]: ArgsOf<(typeof hub.fns)[N]> } = {
+  types_get: { names: ['fs/Path'] },
+  runs_list: {},
+  run_get: { run: 'run_1' },
+  run_tree: { turn: 'trn_1' },
+  llm_call: { id: 'llm_1' },
+  model_calls: {},
+  fn_metrics: {},
+  sessions_list: {},
+  session_messages: { session: 'ses_1' },
+  systems_list: {},
+  system_get: { system: 'fs' },
+  system_fns: { system: 'fs' },
+  system_logs: { system: 'fs' },
+  model_roles: {},
+};
+
+describe('every read fn', () => {
+  it('runs the read of its own name', async () => {
+    const r = await executionRig();
+    rig = r;
+    for (const name of HUB_READ_NAMES) { addHubFn<unknown, unknown>(r, hub.fns[name], [READ_TAG]); }
+    // a read no test fakes fails naming itself, so a run shows which read it reached
+    registerReadFns(r.module.hubFns, () => fake<HubReads>('reads'));
+    await r.session();
+    await r.module.start();
+    const turn = await r.turn({ session: SESSION, text: 'look at everything' });
+    for (const name of HUB_READ_NAMES) {
+      const args = encodeValue<unknown>(hub.fns[name].args, READ_EXAMPLES[name]);
+      expect(await call(r, turn, name, args), name).toMatchObject({ status: 'failed', error: { message: `reads.${name} is not faked in this test` } });
+    }
   });
 });

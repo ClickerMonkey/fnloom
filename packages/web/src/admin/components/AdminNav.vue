@@ -1,14 +1,15 @@
 <script setup lang="ts">
 /**
- * The admin area's sections as a strip of links. It scrolls sideways when it doesn't fit (phones) and keeps the
- * current section in view.
+ * The admin area's sections as a strip of links. It scrolls sideways when it doesn't fit (phones), fading at an end
+ * with more beyond it, and keeps the current section in view.
  */
 import { nextTick, onMounted, ref, watch } from 'vue';
-import { UiIcon, countLabel } from '../../ui/index.ts';
+import { UiIcon, countLabel, useMoreEdges } from '../../ui/index.ts';
 import type { AdminNavEntry } from '../logic/nav.ts';
 
 const props = defineProps<{ entries: readonly AdminNavEntry[] }>();
 const list = ref<HTMLElement | null>(null);
+const edges = useMoreEdges(list);
 
 function reveal(): void {
   void nextTick(() => { list.value?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
@@ -19,7 +20,7 @@ watch(() => props.entries.find((e) => e.active)?.id, reveal);
 
 <template>
   <nav class="admin-nav" aria-label="Admin">
-    <ul ref="list" class="strip">
+    <ul ref="list" class="strip edge-fade" :data-more="edges">
       <li v-for="entry in entries" :key="entry.id">
         <RouterLink :to="entry.to" class="link" :class="{ active: entry.active }" :aria-current="entry.active ? 'page' : undefined" :data-testid="`admin-nav-${entry.id}`">
           <UiIcon :name="entry.icon" :size="16" />

@@ -6,6 +6,7 @@
 import { models as knownModels } from '@aeye/models';
 import type { ModuleFactory } from '../boot/index.ts';
 import type { Catalog } from '../catalog/index.ts';
+import { People } from '../chat/people.ts';
 import { ModelResolver } from '../execution/models.ts';
 import type { HubSettings } from '../boot/env.ts';
 import type { Search } from '../index/index.ts';
@@ -17,7 +18,8 @@ import type { HubStore } from '../store/index.ts';
 import { StoreTokenEstimates } from './calibration.ts';
 import type { ContextorEnv } from './env.ts';
 import { StoreContextGraph } from './graph.ts';
-import type { ContextorServices } from './index.ts';
+import { LinkDynamicContext, NO_DYNAMIC_CONTEXT } from './dynamic.ts';
+import type { ContextorServices, DynamicContext } from './index.ts';
 import { defaultProbes, HubModelLimits, type ProbeFactory } from './limits.ts';
 import { HubPromptPlanner } from './planner.ts';
 import { CatalogFnViews } from './views.ts';
@@ -40,6 +42,8 @@ export interface ContextorModuleInput {
   readonly instances?: Pick<InstanceRouter, 'connected'>;
   /** The model roles, for a preview's model when the agent names none (default: no roles, so the default model). */
   readonly roles?: Pick<ModelRoles, 'resolve'>;
+  /** Dynamic context's text from its system (default: none fetched, so dynamic items show their summary). */
+  readonly dynamic?: DynamicContext;
 }
 
 /** Build the contextor's services. */
@@ -55,8 +59,9 @@ export function createContextor(input: ContextorModuleInput): ContextorServices 
     store, settings: { model: { HARNESS_DEFAULT_MODEL: input.modelSettings.HARNESS_DEFAULT_MODEL } }, roles: input.roles ?? { resolve: () => Promise.resolve(undefined) },
   });
   const instances = input.instances ?? { connected: () => [] };
-  const planner = new HubPromptPlanner({ store, catalog, search, views, graph, instances, settings, log, clock, limits, tokens, models: input.models, resolver });
-  return { planner, limits, tokens, graph, views };
+  const dynamic = input.dynamic ?? NO_DYNAMIC_CONTEXT;
+  const planner = new HubPromptPlanner({ store, catalog, search, views, graph, instances, dynamic, settings, log, clock, limits, tokens, models: input.models, resolver });
+  return { planner, limits, tokens, graph, views, dynamic };
 }
 
 /** Builds the contextor module over the hub's store, catalog, index and the hub AI's model list. */
@@ -76,5 +81,13 @@ export const contextorModule: ModuleFactory<'contextor'> = ({ hub }) => ({
     clock: () => hub.clock(),
     instances: { connected: (system) => hub.link.instances.connected(system) },
     roles: { resolve: (role) => hub.models.roles.resolve(role) },
+    dynamic: new LinkDynamicContext({
+      write: (system, body, timeout) => {
+        const connection = hub.link.connections.connection(system);
+        return connection?.peer.call('context', body, { signal: AbortSignal.any([connection.signal, AbortSignal.timeout(timeout)]) });
+      },
+      person: (actor) => new People({ store: hub.store, clock: () => hub.clock(), catalog: hub.catalog }).info(actor),
+      settings: hub.settings.contextorEnv, log: hub.log, clock: () => hub.clock(),
+    }),
   }),
 });

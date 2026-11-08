@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import type { SystemEventType } from './manifest.ts';
-import { QualifiedName, RunId, SystemName } from './primitives.ts';
+import { QualifiedName, RunId, type Same, SystemName } from './primitives.ts';
 import { ChatMessage } from './records/chat.ts';
 import { SystemStatus } from './records/systems.ts';
 import { ResourceChange } from './resources.ts';
@@ -34,9 +34,6 @@ export const SystemEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('fns'), added: z.array(QualifiedName), removed: z.array(QualifiedName) }),
 ]);
 export type SystemEvent = z.infer<typeof SystemEvent>;
-
-/** Both ways round, so each type is the other. */
-type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 // Every event type a manifest can subscribe to has exactly one event shape, and no event lacks a type to subscribe by.
 true satisfies Same<SystemEvent['type'], SystemEventType>;

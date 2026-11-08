@@ -4,7 +4,7 @@
  */
 import type { LlmInteraction, LlmInteractionId, ModelCall, ModelCallFilter, ModelCallId, ResourceRead, ResourceRecord, ResourceUri, Run, RunId, TurnId, UndoReport } from '@harness/core';
 import { shallowRef } from 'vue';
-import { Loaded, Paged, Task, type PagedSource, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Paged, Task, type PagedSource, type Outcome } from '../../state/loaded.ts';
 import type { ChatApi } from '../../chat/api.ts';
 import type { AdminApi } from '../api.ts';
 import type { LlmFilter, LlmSummary, ResourceFilter, RunFilter } from '@harness/core';
@@ -56,14 +56,14 @@ export class RunsBrowser extends Browser<Run, RunFilter, RunId, Run> {
   }
 
   /** Stop the agent waiting for a run; the run carries on. */
-  async background(run: RunId): Promise<TaskResult<{ accepted: boolean }>> {
+  async background(run: RunId): Promise<Outcome<{ accepted: boolean }>> {
     const result = await this.control.run(() => this.#chat.background.call({ run }), "Couldn't move it to the background.");
     if (result.ok) { void this.open(run); }
     return result;
   }
 
   /** Undo everything a turn did that can be undone. */
-  async undoTurn(turn: TurnId): Promise<TaskResult<UndoReport>> {
+  async undoTurn(turn: TurnId): Promise<Outcome<UndoReport>> {
     const result = await this.control.run(() => this.#chat.undoTurn.call({ turn }), "Couldn't undo the turn.");
     if (result.ok) { void this.list.refresh(); }
     return result;

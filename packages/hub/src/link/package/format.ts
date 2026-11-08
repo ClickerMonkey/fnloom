@@ -5,7 +5,7 @@
  * hub's link protocol, every file is listed with its hash and nothing else is there, and its entries exist. Hashes
  * catch corruption, not malice: a package is code that runs as the hub's user.
  */
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../keys.ts';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { LINK_PROTOCOL, PACKAGE_MANIFEST_FILE, PackagePath, SystemPackageManifest } from '@harness/core';
@@ -20,11 +20,6 @@ export class PackageError extends Error {
     super(problems.join('; '));
     this.problems = problems;
   }
-}
-
-/** The sha-256 of some bytes, as lowercase hex (`ContentRef.hash`'s form). */
-export function sha256(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /** A checked package: its manifest and its other files. */
@@ -47,7 +42,7 @@ export function sealPackage(manifest: SystemPackageManifest, files: readonly Zip
   const others = files.filter((f) => f.path !== PACKAGE_MANIFEST_FILE).sort((a, b) => a.path.localeCompare(b.path));
   const problems = others.flatMap((f) => pathProblems(f.path));
   if (problems.length > 0) { throw new PackageError(problems); }
-  const sealed = SystemPackageManifest.parse({ ...manifest, files: Object.fromEntries(others.map((f) => [f.path, sha256(f.bytes)])) });
+  const sealed = SystemPackageManifest.parse({ ...manifest, files: Object.fromEntries(others.map((f) => [f.path, sha256Hex(f.bytes)])) });
   return [{ path: PACKAGE_MANIFEST_FILE, bytes: manifestBytes(sealed) }, ...others];
 }
 
@@ -69,7 +64,7 @@ export function readPackage(entries: readonly ZipEntry[], protocol: number = LIN
     for (const file of files) {
       const hash = listed[file.path];
       if (hash === undefined) { problems.push(`${file.path} is not listed in ${PACKAGE_MANIFEST_FILE}`); }
-      else if (hash !== sha256(file.bytes)) { problems.push(`${file.path} doesn't match its hash`); }
+      else if (hash !== sha256Hex(file.bytes)) { problems.push(`${file.path} doesn't match its hash`); }
     }
     for (const path of Object.keys(listed)) { if (!present.has(path)) { problems.push(`${path} is listed but missing`); } }
   }

@@ -5,9 +5,10 @@
  * browsers read the mock chat's own runs and calls, so what the chat does shows up there. Built from the same
  * fixtures as the unit tests.
  */
+import { reject } from '@ayepi/core';
 import { fixture } from './fixture.ts';
 import {
-  ImportReport, SystemName, mintId, type ActorKind, type QualifiedName, type ActorId, type BudgetId, type InstallSource, type Json, type LlmInteraction, type ModelCategory, type PairingId, type PairingRequest,
+  ImportReport, SystemName, mintId, type ActorKind, type InstanceName, type QualifiedName, type ActorId, type BudgetId, type InstallSource, type Json, type LlmInteraction, type ModelCategory, type PairingId, type PairingRequest,
   type Policy, type PriorityRule, type ProviderId, type ProviderKind, type ResolvedLimits, type ResourceRead, type ResourceRecord, type ResourceUri, type Run, type SystemStatus, type SystemView,
   type UserEvent,
 } from '@harness/core';
@@ -47,6 +48,7 @@ export class MockAdmin {
   #asked = 0;
   readonly systems = new Map<SystemName, SystemView>();
   readonly logs = new Map<SystemName, OutputLine[]>();
+  /** Every pairing request, answered ones kept with their status, as the hub keeps them. */
   pairings: PairingRequest[];
   providers: { id: ProviderId; provider: ProviderKind; models: number }[];
   models: ModelInfo[];
@@ -124,12 +126,31 @@ export class MockAdmin {
     return found;
   }
 
-  answerPairing(id: PairingId, approve: boolean): { system?: SystemName } {
+  /** The pairing requests, those with `status` when given. */
+  pairingsWith(status: PairingRequest['status'] | undefined): PairingRequest[] {
+    return status === undefined ? this.pairings : this.pairings.filter((p) => p.status === status);
+  }
+
+  /** One pairing request, answered or not; an unknown id is the hub's 404 `NO_PAIRING`. */
+  pairingRecord(id: PairingId): PairingRequest {
+    const found = this.pairings.find((p) => p.id === id);
+    if (found === undefined) { throw reject(404, 'NO_PAIRING', `no pairing ${id}`); }
+    return found;
+  }
+
+  /**
+   * Approve (as `instance` when named) or refuse a waiting request: it is kept as approved or rejected and announced;
+   * one not waiting is a 404.
+   */
+  answerPairing(id: PairingId, approve: boolean, instance?: InstanceName): { system?: SystemName } {
     const request = this.pairings.find((p) => p.id === id);
-    this.pairings = this.pairings.filter((p) => p.id !== id);
+    if (request?.status !== 'pending') { throw reject(404, 'NO_PAIRING', `no pending pairing ${id}`); }
+    const answered: PairingRequest = { ...request, status: approve ? 'approved' : 'rejected', ...(approve && instance !== undefined ? { instance } : {}) };
+    this.pairings = this.pairings.map((p) => (p.id === id ? answered : p));
+    this.#emit.user({ type: 'pairing', pairing: answered });
     // another system asks soon after, so the page has something live to show (and each e2e run one to approve)
-    if (this.pairings.length === 0) { setTimeout(() => { this.#askToPair(); }, 1_500); }
-    if (request === undefined || !approve) { return {}; }
+    if (this.pairingsWith('pending').length === 0) { setTimeout(() => { this.#askToPair(); }, 1_500); }
+    if (!approve) { return {}; }
     const made = systemView({ name: request.name, description: 'A newly paired system.', version: request.version, status: 'connected', fns: 3, configType: undefined, config: undefined });
     this.systems.set(made.name, made);
     this.#emit.user({ type: 'system', system: made.name, status: 'connected' });
@@ -196,7 +217,7 @@ export class MockAdmin {
       name: `${name}/${local}`, system: name,
       available: system.status === 'connected' ? (local === 'shell' ? { unavailable: 'disabled', detail: 'Turned off by an admin' } : true) : { unavailable: system.status === 'needs-config' ? 'system-needs-config' : 'system-disconnected', detail: '' },
       decl: { ...fnRecord().decl, name: local, description: ['Read a file', 'Write a file', 'List a folder', 'Search the files', 'Run a command', 'Move files'][i] ?? 'Do something', tags: local.startsWith('read') || local === 'list' || local === 'search' ? ['read'] : ['write'] },
-      stats: { runs: 140 - i * 23, failures: i, averageCost: 0, averageTime: 40 + i * 30, lastRunAt: this.#now() - (i + 1) * 7 * MINUTE },
+      stats: { outcomes: { done: 140 - i * 24, 'invalid-input': 0, failed: i, cancelled: 0 }, averageCost: 0, averageTime: 40 + i * 30, tokens: 0, lastRunAt: this.#now() - (i + 1) * 7 * MINUTE },
     }));
   }
 

@@ -11,6 +11,7 @@ export const mcpEnv = env({
   HARNESS_HUB_MCP_ASK_TIMEOUT: z.number().int().min(1_000).default(600_000).describe('How long an MCP call waits for a person\'s approval before it ends as not approved.'),
   HARNESS_HUB_MCP_RUN_TIMEOUT: z.number().int().min(1_000).default(1_800_000).describe('How long one MCP call may take in all.'),
   HARNESS_HUB_MCP_TOKEN_TTL: z.number().int().min(60_000).default(3_600_000).describe('How long a minted MCP session token lasts.'),
+  HARNESS_HUB_MCP_IDLE_TIMEOUT: z.number().int().min(60_000).default(1_800_000).describe('How long an MCP session may go with no request and no open event stream before it ends (a client that went away without saying so).'),
   HARNESS_HUB_MCP_RATE: z.number().int().min(1).default(120).describe('Most calls one MCP may start per minute.'),
 });
 

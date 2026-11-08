@@ -48,6 +48,17 @@ img, svg, video { max-width: 100%; }
 }
 .pinned::after { content: ''; position: absolute; inset: auto -100vmax -1px; height: 1px; background: var(--border); pointer-events: none; }
 
+/*
+ * A sideways-scrolling strip that fades at an end with more beyond it (`useMoreEdges` sets `data-more`), so a
+ * strip cut at its edge shows that it scrolls.
+ */
+.edge-fade {
+  --fade-start: 0px; --fade-end: 0px;
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+}
+.edge-fade[data-more='start'], .edge-fade[data-more='both'] { --fade-start: 28px; }
+.edge-fade[data-more='end'], .edge-fade[data-more='both'] { --fade-end: 28px; }
+
 /* Hidden but read by screen readers. */
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

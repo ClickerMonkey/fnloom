@@ -5,7 +5,8 @@
  * (`RawReader`) so the forms service is tested without a link.
  */
 import { reject } from '@ayepi/core';
-import type { ContentRef, ResourceLink, ResourceStat, ResourceUri, SystemName } from '@harness/core';
+import type { ContentRef, ResourceLink, ResourceRead, ResourceStat, ResourceUri, SystemName, systemLinkSpec } from '@harness/core';
+import type { z } from 'zod';
 import type { ContentStore } from '../api/index.ts';
 import type { LinkService, ResourceRouter } from '../link/index.ts';
 
@@ -28,10 +29,37 @@ export interface RawReader {
   stat(uri: ResourceUri): Promise<ResourceStat | undefined>;
 }
 
+/** What the hub sends a system's `read` and `content` link endpoints, and what they answer. */
+type ReadAsk = z.infer<typeof systemLinkSpec.endpoints.read.cfg.body>;
+type ContentAsk = z.infer<typeof systemLinkSpec.endpoints.content.cfg.body>;
+type ContentAnswer = z.infer<typeof systemLinkSpec.endpoints.content.cfg.response>;
+
+/** The connected instance serving a URI, as raw reads use it: its system, and its `read` and `content` endpoints. */
+export interface RawSource {
+  readonly system: SystemName;
+  read(ask: ReadAsk, signal?: AbortSignal): Promise<ResourceRead>;
+  content(ask: ContentAsk, signal?: AbortSignal): Promise<ContentAnswer>;
+}
+
+/** The instance serving a URI over the link, if one is connected. */
+export function linkSource(router: Pick<ResourceRouter, 'route'>, links: Pick<LinkService, 'connection'>, uri: ResourceUri): RawSource | undefined {
+  const route = router.route(uri);
+  const connection = route === undefined ? undefined : links.connection(route.system, route.instance);
+  if (connection === undefined) { return undefined; }
+  const options = (signal: AbortSignal | undefined) => (signal === undefined ? {} : { signal });
+  return {
+    system: connection.system,
+    read: (ask, signal) => connection.peer.call('read', ask, options(signal)),
+    content: (ask, signal) => connection.peer.call('content', ask, options(signal)),
+  };
+}
+
 /** What reading over the link needs. */
 export interface LinkRawReaderOptions {
-  readonly router: () => ResourceRouter;
-  readonly links: () => LinkService;
+  /** The instance serving a URI now (`linkSource`). */
+  readonly source: (uri: ResourceUri) => RawSource | undefined;
+  /** What the serving system says about a resource now. */
+  readonly stat: (uri: ResourceUri) => Promise<ResourceStat | undefined>;
   /** The hub's content store, where a system may have uploaded the bytes already. */
   readonly content: Pick<ContentStore, 'has' | 'read'>;
   /** The largest chunk asked for at once (`HARNESS_MAX_CHUNK`). */
@@ -47,31 +75,29 @@ export class LinkRawReader implements RawReader {
   }
 
   async read(uri: ResourceUri, signal?: AbortSignal): Promise<RawResource> {
-    const route = this.#o.router().route(uri);
-    const connection = route === undefined ? undefined : this.#o.links().connection(route.system, route.instance);
-    if (connection === undefined) { throw reject(404, 'NO_RESOURCE', `no connected system serves ${uri}`); }
-    const options = signal === undefined ? {} : { signal };
-    const read = await connection.peer.call('read', { uri, want: ['bytes', 'text', 'links'] }, options);
+    const source = this.#o.source(uri);
+    if (source === undefined) { throw reject(404, 'NO_RESOURCE', `no connected system serves ${uri}`); }
+    const read = await source.read({ uri, want: ['bytes', 'text', 'links'] }, signal);
     const fetch = async (ref: ContentRef): Promise<Uint8Array> => {
       if (await this.#o.content.has(ref)) { return this.#o.content.read(ref, 0, ref.size); }
       const parts: Uint8Array[] = [];
       let offset = 0;
       while (offset < ref.size) {
-        const { chunk } = await connection.peer.call('content', { ref, offset, length: Math.min(this.#o.maxChunk, ref.size - offset) }, options);
+        const { chunk } = await source.content({ ref, offset, length: Math.min(this.#o.maxChunk, ref.size - offset) }, signal);
         const bytes = Buffer.from(chunk, 'base64');
         if (bytes.length === 0) { break; }
         parts.push(bytes);
         offset += bytes.length;
       }
-      if (offset !== ref.size) { throw reject(502, 'CONTENT_SHORT', `${connection.system} sent ${offset} of the ${ref.size} bytes of ${uri}`); }
+      if (offset !== ref.size) { throw reject(502, 'CONTENT_SHORT', `${source.system} sent ${offset} of the ${ref.size} bytes of ${uri}`); }
       return Buffer.concat(parts);
     };
     const bytes = read.bytes === undefined ? undefined : await fetch(read.bytes);
     const text = read.text === undefined ? undefined : 'inline' in read.text ? read.text.inline : Buffer.from(await fetch(read.text.ref)).toString('utf8');
-    return { system: connection.system, stat: read.stat, links: read.links ?? [], ...(bytes === undefined ? {} : { bytes }), ...(text === undefined ? {} : { text }) };
+    return { system: source.system, stat: read.stat, links: read.links ?? [], ...(bytes === undefined ? {} : { bytes }), ...(text === undefined ? {} : { text }) };
   }
 
   stat(uri: ResourceUri): Promise<ResourceStat | undefined> {
-    return this.#o.router().stat(uri);
+    return this.#o.stat(uri);
   }
 }

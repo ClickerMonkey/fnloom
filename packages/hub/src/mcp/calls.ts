@@ -9,7 +9,7 @@
 import { errorResult, jsonResult, type McpCaller, type McpToolResult } from '@ayepi/mcp';
 import type { Logger } from '@ayepi/log';
 import type { Limiter } from '@ayepi/rate';
-import { mintId, messageOf, problemLine, UserView, type HubMcp, type InputProblem, type Json, type QualifiedName, type Run, type RunId, type Turn } from '@harness/core';
+import { mintId, messageOf, problemLine, UserView, type HubMcp, type InputProblem, type InstanceName, type Json, type QualifiedName, type Run, type RunId, type Turn } from '@harness/core';
 import { userInfo } from '../api/web/access.ts';
 import type { LimitResolver, RunService } from '../execution/index.ts';
 import { timeInfo } from '../execution/time.ts';
@@ -66,8 +66,8 @@ export class McpRunner {
     this.#deps = { ...deps, sleep: deps.sleep ?? wait };
   }
 
-  /** Run `fn` with `args` for an MCP's client and answer with its outcome. */
-  async call(mcp: HubMcp, fn: QualifiedName, args: Json, caller: McpCaller, signal: AbortSignal): Promise<McpToolResult> {
+  /** Run `fn` with `args` for an MCP's client (on a fleet's instance `on`, when named) and answer with its outcome. */
+  async call(mcp: HubMcp, fn: QualifiedName, args: Json, caller: McpCaller, signal: AbortSignal, on?: InstanceName): Promise<McpToolResult> {
     const { log, clock } = this.#deps;
     const rate = await this.#deps.rate.check(mcp.id, { now: clock() });
     if (!rate.allowed) {
@@ -85,6 +85,7 @@ export class McpRunner {
     try {
       started = await this.#deps.runs().start({
         fn, args, turn: turn.id, key: `mcp:${caller.session}`, actor: mcp.user, caller: mcp.actor, priority: turn.limits.priority, background: false, handlers: [],
+        ...(on === undefined ? {} : { on }),
       });
     } catch (error) {
       await this.#end(turn, 'failed');

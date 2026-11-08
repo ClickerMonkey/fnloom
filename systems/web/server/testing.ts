@@ -4,8 +4,8 @@
  * network. Used by the `*.test.ts` files only.
  */
 import type { FetchFn } from '@aeye/resources';
+import type { HostLookup } from '@harness/sdk/server';
 import type { SearchResultsValue } from '../shared/index.ts';
-import type { HostLookup } from './guard.ts';
 import type { FetchedPage, FetchSettings, PageSource, SearchArgs, SearchProvider } from './index.ts';
 import type { BrowserTab, HeadlessBrowser, LaunchBrowser, LoadedTab, TabLoad } from './renderer.ts';
 

@@ -2,12 +2,11 @@
 // a public page over the network, and a script-built page from a local server rendered in puppeteer's Chrome. Run
 // with `npm run test:live`.
 import { createServer, type Server } from 'node:http';
-import { lookup } from 'node:dns/promises';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
+import { systemLookup } from '@harness/sdk/server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { launchChrome } from './chrome.ts';
 import { webEnv } from './env.ts';
-import type { HostLookup } from './guard.ts';
 import type { FetchSettings } from './index.ts';
 import { PageLoader } from './loader.ts';
 import { PageTabs } from './renderer.ts';
@@ -42,9 +41,8 @@ describe('the page loader with a real browser', () => {
   document.getElementById('root').innerHTML = '<h1>Built in the browser</h1><p>' + 'Words the server never sent. '.repeat(20) + '</p>';
 }, 50);</script></body></html>`;
   let server: Server;
-  const dns: HostLookup = async (hostname) => (await lookup(hostname, { all: true, order: 'verbatim' })).map((found) => found.address);
   const renderers = new PageTabs({ launch: launchChrome({ executablePath: settings.WEB_CHROME }), concurrency: 1, timeout: 30_000, idle: 2_000, userAgent: settings.WEB_USER_AGENT });
-  const loader = new PageLoader({ registry: createDefaultResourceRegistry(), fetch: (input, init) => fetch(input, init), lookup: dns, renderers, redirects: 5, userAgent: settings.WEB_USER_AGENT });
+  const loader = new PageLoader({ registry: createDefaultResourceRegistry(), fetch: (input, init) => fetch(input, init), lookup: systemLookup, renderers, redirects: 5, userAgent: settings.WEB_USER_AGENT });
   const fetching: FetchSettings = { render: 'auto', allowPrivate: false, maxBytes: 5_000_000, timeout: 30_000 };
 
   beforeAll(async () => {

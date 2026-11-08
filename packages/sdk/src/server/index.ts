@@ -18,7 +18,7 @@ import { checkPackage, findPackageManifest } from './package.ts';
 
 /** How a system process connects. */
 export interface ServeOptions {
-  /** The hub's link URL: `ws://hub:4300/link`. */
+  /** The hub: its link URL (`ws://hub:4300/link`) or its own address (`http://hub:4300`), which becomes that link. */
   hub: string;
   /** The folder where the system keeps its key pair and outcome journal. */
   state: string;
@@ -124,3 +124,7 @@ export {
   PackageManifestError, parsePackageManifest, readPackageManifest, findPackageManifest, packageProblems, checkPackage, builtPackageManifest,
   packedPackageManifest, packageFileProblems, packageManifestText, type BuiltEntries,
 } from './package.ts';
+export {
+  addressVerdict, followRedirects, isLocalName, isPrivateAddress, systemLookup, REDIRECT_STATUSES, type AddressRefusal, type AddressRules, type AddressVerdict,
+  type FollowedResponse, type HostLookup, type RedirectOptions, type RedirectProblems,
+} from './address.ts';

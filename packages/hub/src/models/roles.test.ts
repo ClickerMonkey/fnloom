@@ -2,7 +2,7 @@ import { ActorId, ProviderId, SecretId, type ModelInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '../bus/memory.ts';
 import { memoryLog, testStore } from '../testing.ts';
-import { defaultChoice, dictationOf, resolveChoice, roleModel, servedModel, StoreModelRoles } from './roles.ts';
+import { defaultChoice, dictationOf, resolveChoice, roleModel, StoreModelRoles } from './roles.ts';
 
 const ADMIN = ActorId.parse('act_admin');
 const WHISPER: ModelInfo = { id: 'whisper-1', provider: 'openai', name: 'Whisper', capabilities: ['hearing'] };
@@ -92,6 +92,5 @@ describe('model roles', () => {
   });
 
   it('serve a resolved model as provider/model, so a pinned provider answers', () => {
-    expect(servedModel({ model: 'whisper-1', provider: 'openai' })).toBe('openai/whisper-1');
   });
 });

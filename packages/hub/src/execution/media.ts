@@ -1,11 +1,15 @@
 /**
- * Model calls other than chat, as the hub AI makes them: what each engine call takes and gives (`EmbedCall`, …),
- * and how the hub AI's hooks read any aeye request and response into a `ModelCall`: its modality, the units it used
- * (`unitsOf`) and how many bytes went each way (`sizesOf`). One place knows each request shape, so a new modality
- * fails to compile until it is read here.
+ * Model calls other than chat, as the hub AI makes them: what each engine call takes and gives (`EmbedCall`, …), and
+ * how the hub AI's hooks read a call into a `ModelCall`. The engine method that makes a call carries its modality and
+ * its typed aeye request (`MediaRequest`) to the hooks; `MODALITY_READERS` (one reader per modality, typed by that
+ * modality's aeye request and response) gives the units it used (`unitsOf`) and how many bytes went each way
+ * (`sizesOf`). A new modality fails to compile until it has its aeye shapes and its reader here.
  */
-import type { BaseRequest, BaseResponse, Usage } from '@aeye/core';
-import type { Modality, ModelUnits } from '@harness/core';
+import type {
+  EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, ImageGenerationResponse, SpeechRequest, SpeechResponse, TranscriptionRequest, TranscriptionResponse,
+} from '@aeye/ai';
+import type { BaseResponse, Request, Resource, Response, Usage } from '@aeye/core';
+import type { Modality, ModelUnits, SpeechFormat } from '@harness/core';
 import type { HubCallMetadata } from './scope.ts';
 
 /** Embeddings of some texts. */
@@ -47,7 +51,7 @@ export interface SpeechCall {
   readonly text: string;
   readonly metadata: HubCallMetadata;
   readonly voice?: string | undefined;
-  readonly format?: 'mp3' | 'wav' | 'ogg' | undefined;
+  readonly format?: SpeechFormat | undefined;
 }
 
 /** Audio a model spoke. */
@@ -56,90 +60,109 @@ export interface Spoken {
   readonly mime: string;
 }
 
-/** Whether a field of a request or response is an array (the shapes are told apart by their fields). */
-function arrayField(value: object, key: string): unknown[] | undefined {
-  const field: unknown = Reflect.get(value, key);
-  return Array.isArray(field) ? field : undefined;
+/** Each modality's aeye request and response. */
+export interface ModalityShapes {
+  readonly chat: { readonly request: Request; readonly response: Response };
+  readonly embed: { readonly request: EmbeddingRequest; readonly response: EmbeddingResponse };
+  readonly image: { readonly request: ImageGenerationRequest; readonly response: ImageGenerationResponse };
+  readonly transcribe: { readonly request: TranscriptionRequest; readonly response: TranscriptionResponse };
+  readonly speech: { readonly request: SpeechRequest; readonly response: SpeechResponse };
 }
 
-/** A string field. */
-function stringField(value: object, key: string): string | undefined {
-  const field: unknown = Reflect.get(value, key);
-  return typeof field === 'string' ? field : undefined;
+/** A call of one modality with its typed request. */
+export interface ModalityRequest<M extends Modality> {
+  readonly modality: M;
+  readonly request: ModalityShapes[M]['request'];
 }
 
-/** A field's byte size, when it is bytes. */
-function bytesField(value: object, key: string): number {
-  const field: unknown = Reflect.get(value, key);
-  if (field instanceof Uint8Array) return field.byteLength;
-  if (field instanceof ArrayBuffer) return field.byteLength;
-  if (field instanceof Blob) return field.size;
-  return typeof field === 'string' ? field.length : 0;
+/** A call of any modality with its typed request: what an engine method hands its hooks. */
+export type MediaRequest = { readonly [M in Modality]: ModalityRequest<M> }[Modality];
+
+/** A modality's units. */
+export type UnitsOf<M extends Modality> = Extract<ModelUnits, { readonly modality: M }>;
+
+/** How the hooks read one modality's calls. */
+export interface ModalityReader<M extends Modality> {
+  /** Whether an answer the hooks were handed is this modality's response. */
+  isResponse(response: BaseResponse): response is ModalityShapes[M]['response'];
+  /** What the call used, in the modality's units. */
+  units(request: ModalityShapes[M]['request'], response: ModalityShapes[M]['response'] | undefined, usage: Usage): UnitsOf<M>;
+  /** Bytes sent and received, roughly: the text and media each way. */
+  sizes(request: ModalityShapes[M]['request'], response: ModalityShapes[M]['response'] | undefined): { sent: number; received: number };
 }
 
-/** What an aeye request does, read from its fields. */
-export function modalityOf(request: BaseRequest): Modality {
-  if (arrayField(request, 'messages') !== undefined) return 'chat';
-  if (arrayField(request, 'texts') !== undefined) return 'embed';
-  if (Reflect.get(request, 'audio') !== undefined) return 'transcribe';
-  if (stringField(request, 'text') !== undefined) return 'speech';
-  return 'image';
+/** The bytes of an audio resource, as far as they can be told without reading a stream. */
+function resourceBytes(resource: Resource): number {
+  if (typeof resource === 'string') return resource.length;
+  if (resource instanceof Uint8Array || resource instanceof ArrayBuffer || resource instanceof DataView) return resource.byteLength;
+  if (resource instanceof Blob) return resource.size;
+  return 0;
 }
 
-/** The characters of all texts an embedding request sends. */
-function textsOf(request: BaseRequest): string[] {
-  return (arrayField(request, 'texts') ?? []).filter((text): text is string => typeof text === 'string');
+/** The characters of the texts an embedding request sends. */
+function characters(texts: readonly string[]): number {
+  return texts.reduce((sum, text) => sum + text.length, 0);
 }
 
-/** The length of the first vector an embedding response holds (at least 1, as `ModelUnits` asks). */
-function dimensionsOf(response: BaseResponse | undefined): number {
-  const first: unknown = response === undefined ? undefined : arrayField(response, 'embeddings')?.[0];
-  const vector: unknown = typeof first === 'object' && first !== null ? Reflect.get(first, 'embedding') : undefined;
-  return Array.isArray(vector) && vector.length > 0 ? vector.length : 1;
+/** The length of the first vector of an embedding response (at least 1, as `ModelUnits` asks). */
+function dimensionsOf(response: EmbeddingResponse | undefined): number {
+  return Math.max(1, response?.embeddings[0]?.embedding.length ?? 0);
+}
+
+/** Each modality's reader, typed by its aeye shapes: a modality without one does not compile. */
+export const MODALITY_READERS: { readonly [M in Modality]: ModalityReader<M> } = {
+  chat: {
+    isResponse: (response): response is Response => 'content' in response && typeof response.content === 'string',
+    units: (_request, _response, usage) => ({
+      modality: 'chat', input: usage.text?.input ?? 0, output: usage.text?.output ?? 0,
+      ...(usage.text?.cached === undefined ? {} : { cached: usage.text.cached }),
+      ...(usage.reasoning?.output === undefined ? {} : { reasoning: usage.reasoning.output }),
+    }),
+    sizes: (request, response) => ({ sent: JSON.stringify(request.messages).length, received: response?.content.length ?? 0 }),
+  },
+  embed: {
+    isResponse: (response): response is EmbeddingResponse => 'embeddings' in response && Array.isArray(response.embeddings),
+    units: (request, response, usage) => ({
+      modality: 'embed', texts: request.texts.length, characters: characters(request.texts), dimensions: dimensionsOf(response),
+      ...(usage.text?.input === undefined ? {} : { tokens: usage.text.input }),
+    }),
+    sizes: (request, response) => ({ sent: characters(request.texts), received: (response?.embeddings.length ?? 0) * dimensionsOf(response) * 8 }),
+  },
+  image: {
+    isResponse: (response): response is ImageGenerationResponse => 'images' in response && Array.isArray(response.images),
+    units: (request, response) => ({ modality: 'image', images: response?.images.length ?? 0, ...(request.size === undefined ? {} : { size: request.size }) }),
+    sizes: (request, response) => ({
+      sent: request.prompt.length, received: (response?.images ?? []).reduce((sum, image) => sum + Math.floor((image.b64_json?.length ?? 0) * 0.75), 0),
+    }),
+  },
+  transcribe: {
+    isResponse: (response): response is TranscriptionResponse => 'text' in response && typeof response.text === 'string',
+    units: (request, _response, usage) => ({ modality: 'transcribe', seconds: usage.audio?.seconds ?? 0, bytes: resourceBytes(request.audio) }),
+    sizes: (request, response) => ({ sent: resourceBytes(request.audio), received: response?.text.length ?? 0 }),
+  },
+  speech: {
+    isResponse: (response): response is SpeechResponse => 'audio' in response && response.audio instanceof ReadableStream,
+    units: (request, _response, usage) => ({ modality: 'speech', characters: request.text.length, ...(usage.audio?.seconds === undefined ? {} : { seconds: usage.audio.seconds }) }),
+    sizes: (request) => ({ sent: request.text.length, received: 0 }),
+  },
+};
+
+/** The modality's response among what the hooks were handed, when it is one. */
+function responseOf<M extends Modality>(call: ModalityRequest<M>, response: BaseResponse | undefined): ModalityShapes[M]['response'] | undefined {
+  const reader: ModalityReader<M> = MODALITY_READERS[call.modality];
+  return response !== undefined && reader.isResponse(response) ? response : undefined;
 }
 
 /** What a call used, in its modality's units. */
-export function unitsOf(modality: Modality, request: BaseRequest, response: BaseResponse | undefined, usage: Usage): ModelUnits {
-  switch (modality) {
-    case 'chat': return {
-      modality, input: usage.text?.input ?? 0, output: usage.text?.output ?? 0,
-      ...(usage.text?.cached === undefined ? {} : { cached: usage.text.cached }),
-      ...(usage.reasoning?.output === undefined ? {} : { reasoning: usage.reasoning.output }),
-    };
-    case 'embed': {
-      const texts = textsOf(request);
-      return {
-        modality, texts: texts.length, characters: texts.reduce((sum, text) => sum + text.length, 0), dimensions: dimensionsOf(response),
-        ...(usage.text?.input === undefined ? {} : { tokens: usage.text.input }),
-      };
-    }
-    case 'image': {
-      const size = stringField(request, 'size');
-      return { modality, images: response === undefined ? 0 : (arrayField(response, 'images')?.length ?? 0), ...(size === undefined ? {} : { size }) };
-    }
-    case 'transcribe': return { modality, seconds: usage.audio?.seconds ?? 0, bytes: bytesField(request, 'audio') };
-    case 'speech': return {
-      modality, characters: stringField(request, 'text')?.length ?? 0, ...(usage.audio?.seconds === undefined ? {} : { seconds: usage.audio.seconds }),
-    };
-  }
+export function unitsOf<M extends Modality>(call: ModalityRequest<M>, response: BaseResponse | undefined, usage: Usage): UnitsOf<M> {
+  const reader: ModalityReader<M> = MODALITY_READERS[call.modality];
+  return reader.units(call.request, responseOf(call, response), usage);
 }
 
-/** Bytes sent and received, roughly: the text and media each way (what matters for audio, images and embeddings). */
-export function sizesOf(modality: Modality, request: BaseRequest, response: BaseResponse | undefined): { sent: number; received: number } {
-  switch (modality) {
-    case 'chat': return { sent: JSON.stringify(arrayField(request, 'messages') ?? []).length, received: response === undefined ? 0 : (stringField(response, 'content')?.length ?? 0) };
-    case 'embed': {
-      const vectors = response === undefined ? 0 : (arrayField(response, 'embeddings')?.length ?? 0);
-      return { sent: textsOf(request).reduce((sum, text) => sum + text.length, 0), received: vectors * dimensionsOf(response) * 8 };
-    }
-    case 'image': {
-      const images = response === undefined ? [] : (arrayField(response, 'images') ?? []);
-      const received = images.reduce<number>((sum, image) => sum + (typeof image === 'object' && image !== null ? Math.floor((stringField(image, 'b64_json')?.length ?? 0) * 0.75) : 0), 0);
-      return { sent: stringField(request, 'prompt')?.length ?? 0, received };
-    }
-    case 'transcribe': return { sent: bytesField(request, 'audio'), received: response === undefined ? 0 : (stringField(response, 'text')?.length ?? 0) };
-    case 'speech': return { sent: stringField(request, 'text')?.length ?? 0, received: 0 };
-  }
+/** Bytes sent and received, roughly (what matters for audio, images and embeddings). */
+export function sizesOf<M extends Modality>(call: ModalityRequest<M>, response: BaseResponse | undefined): { sent: number; received: number } {
+  const reader: ModalityReader<M> = MODALITY_READERS[call.modality];
+  return reader.sizes(call.request, responseOf(call, response));
 }
 
 /** The file extension a transcription service reads an audio type by (`audio/mpeg` is `mp3`). */

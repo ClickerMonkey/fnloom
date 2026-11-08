@@ -90,7 +90,7 @@ async function confirmRemove(): Promise<void> {
 </script>
 
 <template>
-  <AppPage title="Limits" description="How much may be spent, and how urgently work runs, at each level.">
+  <AppPage title="Budgets" description="How much may be spent, and how urgently work runs, at each level.">
     <UiTabs v-model="tab" :tabs="tabs" label="Limits" />
     <LoadState
       v-if="tab !== 'resolved'" :loading="limits.budgets.loading.value" :problem="limits.budgets.problem.value || limits.priorities.problem.value"

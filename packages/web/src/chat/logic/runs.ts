@@ -187,10 +187,13 @@ export function runWords(run: Pick<RunView, 'fn' | 'attempt' | 'args' | 'text'> 
   return run.text?.phase === phase ? run.text : resolveStatus([], phase, { fn: run.fn, args: run.args ?? null });
 }
 
+/** A run whose input was refused, once it is over: settled words, not the retry phase's progress words. */
+export const INVALID_TEXT = 'Sent back for the agent to fix its call';
+
 /**
  * What a run is doing, in plain words: its fn's words for its phase ("Reading harness.md…", "Read harness.md",
- * "Retrying harness.md…", "Reading harness.md failed"), or the chat's own while it waits on a person or after it was
- * stopped or taken back.
+ * "Retrying harness.md…", "Reading harness.md failed"), or the chat's own while it waits on a person, after it was
+ * stopped or taken back, or once its input was refused and sent back for the agent to fix (`INVALID_TEXT`).
  */
 export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text' | 'asking'>): string {
   const label = fnLabel(run.fn);
@@ -200,7 +203,8 @@ export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' 
     case 'paused': return `${label} · paused`;
     case 'cancelled': return `${label} cancelled`;
     case 'undone': return `${label} undone`;
-    case 'queued': case 'running': case 'waiting': case 'done': case 'invalid-input': case 'failed': return runWords({ ...run, status: run.status }).one;
+    case 'invalid-input': return INVALID_TEXT;
+    case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return runWords({ ...run, status: run.status }).one;
   }
 }
 

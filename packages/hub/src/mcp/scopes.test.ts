@@ -1,4 +1,4 @@
-import { ADMIN_TAG, NameGlob, QualifiedName, SystemName, type FnRecord, type McpRules, type McpSelector } from '@harness/core';
+import { ADMIN_TAG, InstanceName, NameGlob, QualifiedName, SystemName, type FnRecord, type McpRules, type McpSelector } from '@harness/core';
 import { fn, g } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
 import { TestCatalog } from '../execution/testing.ts';
@@ -78,11 +78,18 @@ describe('what an MCP exposes', () => {
   it('selects resources by prefix or by system, minus what is excluded', async () => {
     const preview = await resolveRules(rules({ resources: [{ uri: 'file://main/docs/' }], systems: [WEB] }, { resources: [{ uri: 'https://' }] }), world());
     expect(preview.resources).toEqual([{ uri: 'file://main/docs/' }]);
-    const scope = scopeOf(rules({ resources: [{ uri: 'file://main/docs/', system: FS }] }, { resources: [{ uri: 'file://main/docs/private/' }] }), preview, () => FS);
+    const scope = scopeOf(rules({ resources: [{ uri: 'file://main/docs/', system: FS }] }, { resources: [{ uri: 'file://main/docs/private/' }] }), preview, () => ({ system: FS }));
     expect(scope.allowsResource('file://main/docs/a.md')).toBe(true);
     expect(scope.allowsResource('file://main/docs/private/b.md')).toBe(false);
     expect(scope.allowsResource('file://main/src/c.ts')).toBe(false);
-    expect(selectsResource({ resources: [{ uri: 'file://', system: WEB }] }, 'file://x', FS)).toBe(false);
+    expect(selectsResource({ resources: [{ uri: 'file://', system: WEB }] }, 'file://x', { system: FS })).toBe(false);
+  });
+
+  it('select a prefix on one instance only when that instance serves it', () => {
+    const laptop = { resources: [{ uri: 'file://', system: FS, instance: InstanceName.parse('laptop') }] };
+    expect(selectsResource(laptop, 'file://x', { system: FS, instance: InstanceName.parse('laptop') })).toBe(true);
+    expect(selectsResource(laptop, 'file://x', { system: FS, instance: InstanceName.parse('desk') })).toBe(false);
+    expect(selectsResource(laptop, 'file://x', undefined)).toBe(false);
   });
 
   it('never exposes admin-tagged fns, whatever the rules', () => {

@@ -4,8 +4,8 @@
  * No store, no clock: the service (`fn-metrics.ts`) reads and writes around these.
  */
 import {
-  DURATION_BUCKETS, RUN_OUTCOMES, type Duration, type DurationStats, type FnMetrics, type FnMetricsDay, type FnStats, type OutcomeCounts, type QualifiedName,
-  type Run, type RunOutcome, type SystemName, type Timestamp, type Usd,
+  DAY_MS, DURATION_BUCKETS, noOutcomes, RUN_OUTCOMES, runCount, type Duration, type DurationStats, type FnMetrics, type FnMetricsDay, type FnStats, type OutcomeCounts, type QualifiedName,
+  type Run, type RunOutcome, type SystemName, type Timestamp, type Usd, type UtcDay,
 } from '@harness/core';
 
 /** What one settled run adds to its fn's numbers. Durations are absent for the phases the run never went through. */
@@ -53,13 +53,13 @@ export function sampleOf(run: Run, modelCalls: number): RunSample | undefined {
 }
 
 /** The UTC day of a time, as `FnMetricsDay.day` keys it (`2026-11-07`). */
-export function dayOf(at: Timestamp): string {
+export function dayOf(at: Timestamp): UtcDay {
   return new Date(at).toISOString().slice(0, 10);
 }
 
 /** The UTC day `days - 1` days before `at`'s: the first day of a period of `days` days ending on `at`'s day. */
-export function firstDay(at: Timestamp, days: number): string {
-  return dayOf(at - (days - 1) * 86_400_000);
+export function firstDay(at: Timestamp, days: number): UtcDay {
+  return dayOf(at - (days - 1) * DAY_MS);
 }
 
 /** No durations yet. */
@@ -111,11 +111,6 @@ export function mean(stats: DurationStats): Duration | undefined {
   return stats.count === 0 ? undefined : Math.round(stats.sum / stats.count);
 }
 
-/** Every outcome at zero. */
-export function noOutcomes(): OutcomeCounts {
-  return { done: 0, 'invalid-input': 0, failed: 0, cancelled: 0 };
-}
-
 /** Outcome counts added together. */
 function addOutcomes(a: OutcomeCounts, b: OutcomeCounts): OutcomeCounts {
   return { done: a.done + b.done, 'invalid-input': a['invalid-input'] + b['invalid-input'], failed: a.failed + b.failed, cancelled: a.cancelled + b.cancelled };
@@ -142,7 +137,7 @@ export function foldDay(day: FnMetricsDay | undefined, sample: RunSample, now: T
 }
 
 /** Days of one fn merged into its metrics over the period `from` to `to` (inclusive). */
-export function rollup(fn: QualifiedName, system: SystemName, days: readonly FnMetricsDay[], period: { from: string; to: string }, lastRunAt?: Timestamp): FnMetrics {
+export function rollup(fn: QualifiedName, system: SystemName, days: readonly FnMetricsDay[], period: { from: UtcDay; to: UtcDay }, lastRunAt?: Timestamp): FnMetrics {
   let outcomes = noOutcomes();
   let ran = emptyDurations();
   let queued = emptyDurations();
@@ -157,7 +152,7 @@ export function rollup(fn: QualifiedName, system: SystemName, days: readonly FnM
     tokens += day.tokens;
     retries += day.retries;
   }
-  const runs = outcomes.done + outcomes['invalid-input'] + outcomes.failed + outcomes.cancelled;
+  const runs = runCount(outcomes);
   const p50 = percentile(ran, 0.5);
   const p95 = percentile(ran, 0.95);
   const averageQueued = mean(queued);
@@ -173,23 +168,21 @@ export function rollup(fn: QualifiedName, system: SystemName, days: readonly FnM
  * A fn's running numbers with one more run: counts by outcome, running means of cost, time and queue wait (no history
  * kept; times stay whole ms), the tokens it used, and the week's p95 run time read from the daily metrics.
  */
-export function addSample(stats: FnStats, sample: RunSample, p95Time: Duration | undefined): FnStats {
-  const runs = stats.runs + 1;
+export function addSample(stats: FnStats, sample: RunSample, p95: Duration | undefined): FnStats {
+  const before = runCount(stats.outcomes);
+  const runs = before + 1;
   const time = sample.ran ?? 0;
-  const queuedCount = stats.averageQueued === undefined ? 0 : stats.runs;
+  const queuedCount = stats.averageQueued === undefined ? 0 : before;
   const averageQueued = sample.queued === undefined
     ? stats.averageQueued
     : Math.round((stats.averageQueued ?? 0) + (sample.queued - (stats.averageQueued ?? 0)) / (queuedCount + 1));
   return {
-    runs,
-    failures: stats.failures + (sample.outcome === 'failed' ? 1 : 0),
-    invalidInputs: (stats.invalidInputs ?? 0) + (sample.outcome === 'invalid-input' ? 1 : 0),
-    cancelled: (stats.cancelled ?? 0) + (sample.outcome === 'cancelled' ? 1 : 0),
+    outcomes: { ...stats.outcomes, [sample.outcome]: stats.outcomes[sample.outcome] + 1 },
     averageCost: stats.averageCost + (sample.cost - stats.averageCost) / runs,
     averageTime: Math.round(stats.averageTime + (time - stats.averageTime) / runs),
     lastRunAt: Math.max(stats.lastRunAt ?? 0, sample.at),
-    tokens: (stats.tokens ?? 0) + sample.tokens,
+    tokens: stats.tokens + sample.tokens,
     ...(averageQueued === undefined ? {} : { averageQueued }),
-    ...(p95Time === undefined ? {} : { p95Time }),
+    ...(p95 === undefined ? {} : { p95 }),
   };
 }

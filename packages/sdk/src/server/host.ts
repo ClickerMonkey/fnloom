@@ -33,7 +33,7 @@ import { NodeFiles } from './files.ts';
 import type { KeyStore, RunningStatus, RunningSystem, ServeOptions, SystemHost } from './index.ts';
 import { FileJournal, type OutcomeJournal } from './journal.ts';
 import { FileKeyStore } from './keys.ts';
-import { hubClient, WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
+import { hubClient, linkUrl, WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
 import { ScopedLog, systemLogger } from './log.ts';
 import { ManifestState } from './manifest-state.ts';
 import { McpFace } from './mcp.ts';
@@ -130,6 +130,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   readonly name: N;
   readonly #contract: SystemContract<N, C>;
   readonly #options: ServeOptions;
+  /** The hub's link URL, read off `options.hub` (which may be the hub's http(s) address). */
+  readonly #link: string;
   readonly #deps: LinkHostDeps;
   readonly #env: SdkEnv;
   readonly #logger: Logger;
@@ -175,6 +177,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     this.name = contract.name;
     this.#contract = contract;
     this.#options = options;
+    this.#link = linkUrl(options.hub);
     this.#deps = deps;
     this.#env = deps.env ?? sdkEnv.parse();
     this.#limits = LinkLimits.parse({ maxFrame: this.#env.HARNESS_LINK_MAX_FRAME, maxChunk: this.#env.HARNESS_LINK_MAX_CHUNK, heartbeat: this.#env.HARNESS_LINK_HEARTBEAT });
@@ -261,9 +264,9 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
       backoff: this.#env.HARNESS_LINK_BACKOFF,
       backoffMax: this.#env.HARNESS_LINK_BACKOFF_MAX,
     });
-    const socket = transport.open(this.#options.hub);
+    const socket = transport.open(this.#link);
     this.#socket = socket;
-    this.#hub = hubClient(this.#options.hub, socket, this.#runtime.server());
+    this.#hub = hubClient(this.#link, socket, this.#runtime.server());
     socket.onState((state) => { this.#onSocket(state); });
     this.#lifecycleRunner = updown({
       signals: this.#deps.signals === false ? false : ['SIGINT', 'SIGTERM', 'SIGBREAK'],
@@ -541,7 +544,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     if (this.#unreachable !== undefined) { return; }
     const after = this.#options.connectTimeout ?? this.#env.HARNESS_CONNECT_TIMEOUT;
     this.#unreachable = setTimeout(() => {
-      if (this.#socket?.state !== 'open' && !this.#stop.signal.aborted) { this.#log.warn('system.hub-unreachable', { hub: this.#options.hub, after }); }
+      if (this.#socket?.state !== 'open' && !this.#stop.signal.aborted) { this.#log.warn('system.hub-unreachable', { hub: this.#link, after }); }
     }, after);
   }
 

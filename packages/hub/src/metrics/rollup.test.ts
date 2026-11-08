@@ -1,9 +1,9 @@
-import { DURATION_BUCKETS, RunId, SystemName, TurnId, type Run } from '@harness/core';
+import { DURATION_BUCKETS, FnStats, RunId, SystemName, TurnId, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { ALICE } from '../execution/testing.ts';
 import { addDuration, addSample, bucketOf, dayOf, emptyDurations, firstDay, foldDay, mean, mergeDurations, percentile, rollup, sampleOf, type RunSample } from './rollup.ts';
 
-const NONE = { runs: 0, failures: 0, averageCost: 0, averageTime: 0 };
+const NONE = FnStats.parse({ averageCost: 0, averageTime: 0 });
 const DAY = Date.UTC(2026, 10, 7, 12);
 
 /** A settled run of `fs/read`. */
@@ -92,17 +92,17 @@ describe('days', () => {
       averageQueued: 10, cost: 0.03, tokens: 15, lastRunAt: DAY,
     });
     expect(metrics.averageCost).toBeCloseTo(0.01);
-    expect(rollup('fs/read', SystemName.parse('fs'), [], { from: 'a', to: 'b' })).toMatchObject({ runs: 0, averageCost: 0 });
+    expect(rollup('fs/read', SystemName.parse('fs'), [], { from: '2026-11-07', to: '2026-11-07' })).toMatchObject({ runs: 0, averageCost: 0 });
   });
 });
 
 describe('a fn’s running numbers', () => {
   it('count each outcome apart, keep running means and add up tokens', () => {
     const once = addSample(NONE, sample('done', 100, { queued: 20 }), 100);
-    expect(once).toEqual({ runs: 1, failures: 0, invalidInputs: 0, cancelled: 0, averageCost: 0.01, averageTime: 100, lastRunAt: DAY, tokens: 5, averageQueued: 20, p95Time: 100 });
+    expect(once).toEqual({ outcomes: { done: 1, 'invalid-input': 0, failed: 0, cancelled: 0 }, averageCost: 0.01, averageTime: 100, lastRunAt: DAY, tokens: 5, averageQueued: 20, p95: 100 });
     const twice = addSample(once, sample('invalid-input', 301, { queued: 40, at: DAY - 5 }), undefined);
-    expect(twice).toMatchObject({ runs: 2, failures: 0, invalidInputs: 1, averageTime: 201, averageQueued: 30, lastRunAt: DAY, tokens: 10 });
+    expect(twice).toMatchObject({ outcomes: { done: 1, 'invalid-input': 1, failed: 0 }, averageTime: 201, averageQueued: 30, lastRunAt: DAY, tokens: 10 });
     const thrice = addSample(twice, sample('failed', 0, { queued: undefined }), 250);
-    expect(thrice).toMatchObject({ runs: 3, failures: 1, averageQueued: 30, p95Time: 250 });
+    expect(thrice).toMatchObject({ outcomes: { done: 1, 'invalid-input': 1, failed: 1, cancelled: 0 }, averageQueued: 30, p95: 250 });
   });
 });

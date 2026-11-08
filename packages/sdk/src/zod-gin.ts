@@ -5,7 +5,9 @@
  *
  * Covered: objects (with field descriptions), strings and string formats, template literals, numbers (with bounds and
  * whole numbers), booleans, literals, enums, arrays, unions (discriminated or not), optional, nullable,
- * defaults (optional on input) and pipes (their input side). JSON, records, `unknown` and lazy schemas become any JSON.
+ * defaults (optional on input), pipes (their input side), and records over a closed set of keys (an enum or literals),
+ * which become an object with one field per key (optional for `z.partialRecord`). JSON, records over open keys,
+ * `unknown` and lazy schemas become any JSON.
  */
 import type { FieldsInput } from '@aeye/gin';
 import { z } from 'zod';
@@ -64,8 +66,8 @@ export function ginOf(schema: z.core.$ZodType): GinType {
     return g.text({ ...(length.min === null ? {} : { minLength: length.min }), ...(length.max === null ? {} : { maxLength: length.max }) });
   }
   if (schema instanceof z.ZodNull) return g.null();
-  // a gin map is a list of pairs, not an object, so a record (an object of any keys) is any JSON, checked by zod after
-  if (schema instanceof z.ZodRecord || schema instanceof z.ZodLazy || schema instanceof z.ZodUnknown || schema instanceof z.ZodAny || schema instanceof z.ZodCustom) return json();
+  if (schema instanceof z.ZodRecord) return recordOf(schema);
+  if (schema instanceof z.ZodLazy || schema instanceof z.ZodUnknown || schema instanceof z.ZodAny || schema instanceof z.ZodCustom) return json();
   throw new Error(`zod-gin: a ${schema._zod.def.type} schema has no gin type`);
 }
 
@@ -99,6 +101,23 @@ function typedAs<T>(type: GinType): GinType<T> {
 
 /** Args that carry a non-object value as `input`. */
 const Wrapped = z.object({ input: z.unknown() });
+
+/**
+ * A record as gin types it: over a closed set of keys (an enum, literals) in strict mode, an object with a field per key,
+ * each optional when the record is partial (zod requires every key otherwise); over open keys, any JSON, checked by
+ * zod after (a gin map is a list of pairs, not an object).
+ */
+function recordOf(schema: z.ZodRecord): GinType {
+  const keys = schema.keyType._zod.values;
+  const { partial, mode } = schema._zod.def;
+  if (keys === undefined || mode === 'loose') return json();
+  const names = [...keys].flatMap((key) => typeof key === 'string' || typeof key === 'number' ? [String(key)] : []);
+  if (names.length !== keys.size) return json();
+  const value = ginOf(schema.valueType);
+  const field = partial === true ? g.optional(value) : value;
+  const docs = schema.valueType instanceof z.ZodType ? schema.valueType.description : undefined;
+  return g.obj(Object.fromEntries(names.map((name) => [name, docs === undefined ? field : g.field(field, { docs })])));
+}
 
 /** An object's fields as gin fields, each with its description as docs. */
 function fieldsOf(schema: z.ZodObject): FieldsInput {

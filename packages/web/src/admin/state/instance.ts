@@ -7,7 +7,7 @@
 import type { InstanceName, InstanceView, Json, SystemName, UserEvent } from '@harness/core';
 import { computed, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
-import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
 import type { ConfigResult } from './system.ts';
 
@@ -71,7 +71,7 @@ export class InstanceStore {
   }
 
   /** Zip this instance's data folder (its config's secrets only when asked); answers the download link. */
-  async exportData(withSecrets: boolean): Promise<TaskResult<{ readonly url: string; readonly size: number }>> {
+  async exportData(withSecrets: boolean): Promise<Outcome<{ readonly url: string; readonly size: number }>> {
     const key = this.key.value;
     if (key === undefined) { return { ok: false, problem: 'No instance is open.' }; }
     return this.exporting.run(async () => {

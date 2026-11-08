@@ -4,7 +4,8 @@
  * objects show their first entries with a "show more" row. JSON Lines read as an array of their lines. Search opens
  * the paths to every match. Pure, so it is tested alone.
  */
-import { Json } from '@harness/core';
+import { isJsonObject, Json } from '@harness/core';
+import type { Outcome } from '../../ui/index.ts';
 
 /** What a value is, for its colour and preview. */
 export type JsonKind = 'object' | 'array' | 'string' | 'number' | 'boolean' | 'null';
@@ -30,23 +31,18 @@ export type JsonRow =
 /** Entries of an open branch shown before a "show more" row. */
 export const PAGE = 100;
 
-/** Whether a value is a JSON object. */
-function isObject(value: Json): value is { readonly [key: string]: Json } {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** What a value is. */
 export function kindOf(value: Json): JsonKind {
   if (value === null) { return 'null'; }
   if (Array.isArray(value)) { return 'array'; }
-  if (isObject(value)) { return 'object'; }
+  if (isJsonObject(value)) { return 'object'; }
   return typeof value === 'string' ? 'string' : typeof value === 'number' ? 'number' : 'boolean';
 }
 
 /** A value in one line. */
 export function previewOf(value: Json): string {
   if (Array.isArray(value)) { return value.length === 0 ? '[]' : `[ ${value.length} ${value.length === 1 ? 'item' : 'items'} ]`; }
-  if (isObject(value)) {
+  if (isJsonObject(value)) {
     const n = Object.keys(value).length;
     return n === 0 ? '{}' : `{ ${n} ${n === 1 ? 'key' : 'keys'} }`;
   }
@@ -64,13 +60,13 @@ export function childPath(parent: string, key: string | number): string {
 /** A value's children, as key and value. */
 function childrenOf(value: Json): (readonly [string | number, Json])[] {
   if (Array.isArray(value)) { return value.map((item, i) => [i, item] as const); }
-  return isObject(value) ? Object.entries(value) : [];
+  return isJsonObject(value) ? Object.entries(value) : [];
 }
 
 /** Whether a value or its key has the search words. */
 function matches(key: string, value: Json, search: string): boolean {
   if (search === '') { return false; }
-  const scalar = Array.isArray(value) || isObject(value) ? '' : String(value);
+  const scalar = Array.isArray(value) || isJsonObject(value) ? '' : String(value);
   return key.toLowerCase().includes(search) || scalar.toLowerCase().includes(search);
 }
 
@@ -88,7 +84,7 @@ export function treeRows(root: Json, state: TreeState): JsonRow[] {
   const found = search === '' ? new Set<string>() : matchPaths(root, search);
   const rows: JsonRow[] = [];
   const walk = (value: Json, key: string, path: string, depth: number): void => {
-    const branch = Array.isArray(value) ? value.length > 0 : isObject(value) && Object.keys(value).length > 0;
+    const branch = Array.isArray(value) ? value.length > 0 : isJsonObject(value) && Object.keys(value).length > 0;
     const open = branch && (state.open.has(path) || [...found].some((p) => p !== path && isUnder(p, path)));
     rows.push({ kind: 'value', path, depth, key, type: kindOf(value), preview: previewOf(value), branch, open, match: found.has(path) });
     if (!open) { return; }
@@ -129,13 +125,13 @@ export function valueAt(root: Json, path: string): Json | undefined {
     if (index !== undefined) { at = Array.isArray(at) ? at[Number(index)] : undefined; continue; }
     const parsedKey: unknown = quoted === undefined ? name : JSON.parse(quoted);
     const key = typeof parsedKey === 'string' ? parsedKey : '';
-    at = at !== null && isObject(at) ? at[key] : undefined;
+    at = at !== null && isJsonObject(at) ? at[key] : undefined;
   }
   return at;
 }
 
 /** A JSON document, or JSON Lines as an array of their lines, or why it doesn't read. */
-export function parseJson(text: string, lines: boolean): { readonly ok: true; readonly value: Json } | { readonly ok: false; readonly problem: string } {
+export function parseJson(text: string, lines: boolean): Outcome<Json> {
   try {
     const raw: unknown = lines ? text.split(/\r?\n/).filter((line) => line.trim() !== '').map((line): unknown => JSON.parse(line)) : JSON.parse(text);
     const parsed = Json.safeParse(raw);

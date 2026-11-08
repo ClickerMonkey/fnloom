@@ -128,6 +128,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'internals',
     title: 'Runtime internals',
     reach: false,
+    reference: true,
     exports: [
       'manifestOf', 'manifestBody', 'fnDecl', 'canonicalJson', 'sha256', 'ManifestOptions',
       'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
@@ -136,7 +137,9 @@ export const OUTLINE: readonly Topic[] = [
       'McpFace', 'McpLimits', 'readClientBundle', 'CLIENT_ENTRY', 'ClientBundle',
       'LlmWire', 'LlmWireOptions', 'LlmDescriptors', 'UNSENDABLE_CONTENT', 'messageFromWire', 'requestFromWire', 'isObjectSchema', 'descriptorsOf', 'applyDescriptors',
       'usageToWire', 'usageFromWire', 'chunkToWire', 'chunkFromWire', 'responseToWire',
+      'addressVerdict', 'followRedirects', 'isLocalName', 'isPrivateAddress', 'systemLookup', 'REDIRECT_STATUSES', 'AddressRefusal', 'AddressRules', 'AddressVerdict',
+      'FollowedResponse', 'HostLookup', 'RedirectOptions', 'RedirectProblems',
     ],
   },
-  { id: 'core-types', title: 'Core types', exports: [] },
+  { id: 'core-types', title: 'Core types', exports: [], reference: true },
 ];

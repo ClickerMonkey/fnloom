@@ -16,6 +16,23 @@ export type RunOutcome = z.infer<typeof RunOutcome>;
 export const OutcomeCounts = z.record(RunOutcome, z.number().int().min(0));
 export type OutcomeCounts = z.infer<typeof OutcomeCounts>;
 
+/** Every outcome at zero. */
+export function noOutcomes(): OutcomeCounts {
+  return { done: 0, 'invalid-input': 0, failed: 0, cancelled: 0 };
+}
+
+/** How many runs some outcome counts hold. */
+export function runCount(outcomes: OutcomeCounts): number {
+  return RUN_OUTCOMES.reduce((sum, outcome) => sum + outcomes[outcome], 0);
+}
+
+/** A UTC day, as metrics key and bound their periods: `2026-11-07`. */
+export const UtcDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export type UtcDay = z.infer<typeof UtcDay>;
+
+/** One day in ms, for day arithmetic on timestamps. */
+export const DAY_MS: Duration = 86_400_000;
+
 /** The upper bounds (ms) of the duration histogram's buckets; a last bucket takes everything longer. */
 export const DURATION_BUCKETS = [50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 300_000] as const;
 
@@ -35,7 +52,7 @@ export type DurationStats = z.infer<typeof DurationStats>;
 export const FnMetricsDay = z.object({
   fn: QualifiedName,
   system: SystemName,
-  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  day: UtcDay,
   outcomes: OutcomeCounts,
   queued: DurationStats,
   approval: DurationStats,
@@ -53,8 +70,8 @@ export type FnMetricsDay = z.infer<typeof FnMetricsDay>;
 export const FnMetrics = z.object({
   fn: QualifiedName,
   system: SystemName,
-  from: z.string(),
-  to: z.string(),
+  from: UtcDay,
+  to: UtcDay,
   runs: z.number().int().min(0),
   outcomes: OutcomeCounts,
   p50: Duration.optional(),

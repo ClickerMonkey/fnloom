@@ -97,12 +97,12 @@ lane finishes. Never touch 4300, 4181, 4182, 8760, 11434 or `.harness`.
 | `context-graph.ts` | `MemoryScope`, `ContextCopy`, `ContextOrigin`, `ContextTokens`; `LINK_RELATIONS`, `HARD_RELATIONS`, `DeclarableRelation`, `LinkTarget`, `linkTargetKey`, `DeclaredLink`, `LinkSource`, `ContextLink`; hub fn shapes `RememberArgs`, `ContextFromResourceArgs`, `ContextFromResourceResult` |
 | `resources.ts` | `ConvertedKind` (read off `@aeye/resources/versions`), `MADE_FORM_KINDS`, `FormKind`; `Section.form`, `SectionMatch.form` |
 | `resource-forms.ts` | `ConvertedVersion` (= the library's `resourceVersionSchema`), `isConvertedKind`, `CONVERTED_VERSION_MIME`, `FormRecord`, `FormOffer`, `ResourceSource`, `HUB_RESOURCE_ROOT`, `FORMAT_FAMILIES`, `FORMAT_FAMILY`, `familyOf`, `ResourceGrouping`, `ResourceFacet`, `ResourceQuery`, hub fn shapes `ResourceReadArgs`, `ResourceReadResult`, `ResourceImportArgs` |
-| `model-calls.ts` | `Modality`, `ModelUnits`, `ModelCallStatus`, `ModelCall`, `ModelCallFilter`, `ModelCallQuery`, `ModelForward`, `ModelForwardResult`; `ModelRole`, `ModelOnlyRole`, `RoleModel`, `DictationEngine`, `RoleChoice`, `ModelRoleRecord`, `ModelRoleView` |
+| `model-calls.ts` | `Modality`, `ModelUnits`, `ModelUsage`, `SpeechFormat`, `ModelCallStatus`, `ModelCall` (a union on `modality`), `ModelCallFilter`, `ModelCallQuery`, `ModelForward`, `ModelForwardResult`; `ModelRole`, `ModelOnlyRole`, `RoleModel`, `DictationEngine`, `RoleChoice`, `ModelRoleRecord` (keyed by `choice.role`), `RoleResolution`, `ModelRoleView` |
 | `metrics.ts` | `RunOutcome`, `OutcomeCounts`, `DURATION_BUCKETS`, `DurationStats`, `FnMetricsDay`, `FnMetrics`, `FnMetricsQuery` |
 | `records/mcps.ts` | `McpSlug`, `ResourceSelector`, `McpSelector`, `McpRules`, `McpToolMode`, `HubMcp`, `HubMcpInput`, `McpTokenClaims`, `McpScopePreview`, `McpSessionView`, `HubMcpView` |
 | `package.ts` | `PACKAGE_FORMAT`, `SemVer`, `PackagePath`, `SystemPackageManifest`, `PACKAGE_MANIFEST_FILE`, `InstanceDirs`, `InstanceRecord`, `PairingInfo`, `SystemDataExport` |
 | `manifest.ts` | `FnExample`, `FnDecl.examples`; `ContextDecl.weight`, `.summary`, `.parent`, `.next`, `.links` |
-| `records/systems.ts` | `PairingRequest.description`, `.instance`, `.configType`; `FnStats.invalidInputs`, `.cancelled`, `.p95Time`, `.averageQueued`, `.tokens`; `ContextRecord.origin`, `.tokens`, `.disabled` |
+| `records/systems.ts` | `PairingRequest.description`, `.instance`, `.configType`; `FnStats.outcomes` (an `OutcomeCounts`, replacing `runs` and `failures`), `.p95`, `.averageQueued`, `.tokens` (the shapes `FnMetrics` has); `ContextRecord.origin`, `.tokens`, `.disabled` |
 | `records/chat.ts` | `Session.mode`, `.contextor`, `.selection`; `ChatCapabilities.dictation` |
 | `records/runs.ts` | `Run.tokens`, `.approvedAt`; `LlmInteraction.selection`, `.modelCall` |
 | `records/spend.ts` | `LedgerEntry.modelCall` |
@@ -524,7 +524,7 @@ fn's gin type (tools mode: before the fn runs, the run is created and settles `i
 the fn's card) as the tool reply and retries; it does **not** count toward `HARNESS_TURN_ERRORS`. A code caller
 hears `failed` with `code: INVALID_INPUT_CODE`, class `caller` and the `InvalidInput` as data. The chat shows such a
 run softly ("Retried", neutral tone, collapsed), never as a failure; the run inspector shows the problems. Metrics
-count it apart (`OutcomeCounts`, `FnStats.invalidInputs`).
+count it apart (`OutcomeCounts`, `FnStats.outcomes['invalid-input']`).
 
 **Checks**: a tool call with bad JSON, one with a wrong type and one refused by `ctx.invalid` each settle
 `invalid-input`, feed the problems back and don't stop the turn; `failed` still does; the web shows the soft row
@@ -636,7 +636,7 @@ admin fn tagged `admin` and refused for a member.
 | C2 | Retry catch-up calls after a reconnect | web | the connection store retries each catch-up (session, messages, waiting, runs) with backoff until it succeeds, and marks the view stale meanwhile | a test drops the socket mid catch-up and the missed run shows |
 | C3 | Mock-hub fixtures checked against their schemas | web | every fixture is `satisfies z.input<typeof Schema>` (Session, Run, Notification, …); no loose objects | typecheck fails when a schema changes |
 | C4 | Mock hub logs 500 for `/signIn` | web | the mock's logger records the real status | the mock test sees 200 and 401 |
-| C5 | Library asks | — | binary ws frames (ayepi core): still open, recorded; web push: `@ayepi/push` exists now, hub-platform replaces `web-push` with it; folder resolver: done in `@aeye/resources` (`folderResolver`), resources lane uses it for folder resources | `web-push` removed from dependencies |
+| C5 | Library asks | — | binary ws frames (ayepi core): still open, recorded; web push: `@ayepi/push` exists now, hub-platform replaces `web-push` with it; folder resolver: done in `@aeye/resources` (`folderResolver`), not used yet: fs's own listings stand in (see §10) | `web-push` removed from dependencies |
 
 ---
 
@@ -741,12 +741,18 @@ Open, recorded here; a lane that needs one says so in its report:
 - **@ayepi/core**: binary ws frames (MessagePack or CBOR).
 - **@ayepi/sqlite**: `sqliteFiles(db)`, a `FileStore` over a SQLite table, so the database content store lives in
   the library (the resources lane builds `SqliteFiles` in the hub until then).
-- **@ayepi/mcp**: server-sent `notifications/progress` for long calls and approval waits.
+- **@ayepi/mcp**: server-sent `notifications/progress` for long calls and approval waits; `serveStdio` answering
+  requests concurrently (it awaits each line, so `notifications/cancelled` can't reach a call in progress; the CLI
+  bridge drives its server with its own concurrent loop until then).
 - **@aeye/core**: `forget` should count tool definitions in its input estimate; a provider hook to report the
   served window (Ollama `num_ctx`); the static mode's text tool protocol as a schema fallback, once proven here.
 - **@aeye/resources**: `pptx` and `ipynb` converters; an `audio`/`video` type with a `transcribeAudio` callback; a
   thumbnail callback; converter versions on every converter id (the hub keys forms by `converter`, so an id like
-  `htmlConverter@2` is what it needs).
+  `htmlConverter@2` is what it needs); an address guard and redirect policy in the url loader
+  (`fetchResource(..., { allowPrivate, maxRedirects, lookup })`, applied to every hop and to renderer requests) that
+  pins the checked address for the connection, so DNS rebinding can't pass it. Until then the hub's own fetch and the
+  web system share one set of rules, `addressVerdict` and `followRedirects` in `@harness/sdk/server`
+  (`sdk/src/server/address.ts`), which check each hop before it is requested but don't pin the address.
 
 Done since build 1 (on the libraries' `harness` branches): `@ayepi/mcp` caller info, annotations, `McpRouter`,
 `BearerAuth`, views and `McpToolSet`; `@ayepi/push`; `@aeye/resources` versions and converters, the url loader with
@@ -794,3 +800,20 @@ What the build did differently from the sections above, accepted at integration:
   installs and runs it).
 - **Defaults outside the hub** (§3.12): an instance's data and cache folders default to `data/` and `cache/` in its
   state folder (`placeFolders`), and fs reads them from there like `ctx.dataDir` and `ctx.cacheDir`.
+- **The authoring guide is offered in parts** (§3.1): one file is about 105k tokens, more than most windows. fs's
+  `fs/system-authoring` (`/new-system`) is the start item (the guide's intro, every part with its size, the template
+  note), and each section of the guide is a dynamic context item of its own (`fs/authoring-<topic>`) under it, each
+  naming the next; the runtime internals and core types are reference parts, never suggested. `npm run
+  docs:authoring` writes the parts list beside the guide (`systems/fs/shared/authoring.gen.ts`, checked by `--check`),
+  the one source of fs's declarations and implementations of them.
+- **`harness mcp`'s bridge** (§3.12) is an `McpClient` to the hub MCP offered again by an `mcpSourceServer` whose
+  tools, resources and prompts are the client's (`proxySources`), so the stdio client's ids stay its own and a
+  `notifications/cancelled` from it aborts the local call, whose signal makes the client cancel its own request at the
+  hub. The stdio lines are driven by `serveLines`, which answers requests as they finish: `serveStdio` answers one
+  line at a time, so a cancel could not reach a call in progress (a library ask, §8).
+- **Folder listings stay fs's own** (C5): fs lists folders itself (`systems/fs/server/resources.ts`, `files.ts`) and
+  the hub has no `folder` form; `@aeye/resources`' `folderResolver` and `FolderListing` are not used yet. Moving fs's
+  folder resources onto them is open work for the resources and fs lanes.
+- **Table rows past `HARNESS_TABLE_ROWS`** (§3.6, §3.9): the hub keeps the first rows of each table (the library
+  converts a workbook whole, with no row window) and refuses a range that starts past them (`ROWS_NOT_KEPT`) instead of
+  answering empty. A row-window option for the library's table converters is a library ask (§8).

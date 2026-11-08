@@ -10,9 +10,6 @@ import { type CodeFormat, type ConvertedVersion, Section } from '@harness/core';
 import { z } from 'zod';
 import type { Converters } from './index.ts';
 
-/** The type the library gives any `text/*` mime it has no other rule for. */
-const GENERIC_TEXT = 'text';
-
 /** The prefix of every converter id made with the library, so forms record what made them. */
 export const LIBRARY_CONVERTER = '@aeye/resources';
 
@@ -55,13 +52,11 @@ export class RegistryConverters implements Converters {
   }
 
   /**
-   * The resource type of a location and mime type. The library reads the mime first, and a generic `text/*` mime
-   * (`text/typescript`, `text/x-python`) says only `text`; the name's extension is more exact then (`typescript`).
+   * The resource type of a location and mime type, by the library's rules: a specific mime wins, and a catch-all
+   * `text/*` one (`text/typescript`) yields to the name's extension (`typescript`).
    */
   typeOf(location: string, mime?: string): string | undefined {
-    const sent = this.#registry.inferType(location, mime);
-    const named = this.#registry.inferType(location);
-    return sent === GENERIC_TEXT && named !== undefined ? named : sent ?? named;
+    return this.#registry.inferType(location, mime);
   }
 
   current(type: string): readonly string[] {

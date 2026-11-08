@@ -6,6 +6,7 @@
  * Failures become one plain sentence (`problemText`).
  */
 import { computed, ref, shallowRef, type ShallowRef } from 'vue';
+import type { Outcome } from '../ui/types.ts';
 import { problemText } from './problems.ts';
 
 /** A loaded thing, with its loading and problem state. */
@@ -44,7 +45,7 @@ export class Loaded<T> {
 }
 
 /** What doing a task came to. */
-export type TaskResult<R> = { readonly ok: true; readonly value: R } | { readonly ok: false; readonly problem: string };
+export type { Outcome } from '../ui/types.ts';
 
 /** Something done, with busy and problem state. */
 export class Task {
@@ -54,7 +55,7 @@ export class Task {
   /** Why the last run failed; '' when it worked. */
   readonly problem = ref('');
 
-  async run<R>(work: () => Promise<R>, failure: string): Promise<TaskResult<R>> {
+  async run<R>(work: () => Promise<R>, failure: string): Promise<Outcome<R>> {
     this.#running.value++;
     this.problem.value = '';
     try {

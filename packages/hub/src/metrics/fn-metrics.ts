@@ -5,7 +5,7 @@
  * marked in the store's key/value port inside the same transaction.
  */
 import type { Logger } from '@ayepi/log';
-import type { FnMetrics, FnMetricsDay, FnMetricsQuery, QualifiedName, Run, SystemName } from '@harness/core';
+import { DAY_MS, type FnMetrics, type FnMetricsDay, type FnMetricsQuery, type QualifiedName, type Run, type SystemName } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { HubStore, Where } from '../store/index.ts';
 import type { FnMetricsService } from './index.ts';
@@ -14,7 +14,7 @@ import { addSample, dayOf, emptyDurations, firstDay, foldDay, mergeDurations, pe
 /** The period a query covers when it doesn't say, in days. */
 export const DEFAULT_DAYS = 7;
 /** How long a run stays marked as folded: longer than any run's settle can be delivered again. */
-const FOLDED_TTL = 30 * 86_400_000;
+const FOLDED_TTL = 30 * DAY_MS;
 /** How many rows a read takes at once. */
 const PAGE = 200;
 

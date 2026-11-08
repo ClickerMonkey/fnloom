@@ -90,6 +90,7 @@ export function fakeResourcesApi(options: { records?: readonly ResourceRecord[];
   return {
     browse: fakeCaller<'browseResources'>((query) => browse(ResourceQuery.parse(query ?? {}))),
     browseGroup: fakeCaller<'browseResources'>((query) => browse(ResourceQuery.parse(query ?? {}))),
+    find: fakeCaller<'browseResources'>((query) => browse(ResourceQuery.parse(query ?? {}))),
     forms: fakeCaller<'resourceForms'>(({ uri }) => {
       const found = find(uri);
       return Promise.resolve({ record: found, forms: (found.forms ?? []).map(formRecord), offers: [...(options.offers ?? [])] });

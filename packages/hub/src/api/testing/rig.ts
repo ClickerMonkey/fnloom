@@ -204,7 +204,7 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
       sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true,
     }), fakes.chat),
     index: group('index', keysOf<HubServices['index']>({ embedders: true, indexer: true, search: true, suggest: true }), fakes.index),
-    contextor: group('contextor', keysOf<HubServices['contextor']>({ planner: true, limits: true, tokens: true, graph: true, views: true }), fakes.contextor),
+    contextor: group('contextor', keysOf<HubServices['contextor']>({ planner: true, limits: true, tokens: true, graph: true, views: true, dynamic: true }), fakes.contextor),
     resources: group('resources', keysOf<HubServices['resources']>({ library: true, forms: true, reader: true, content: true, context: true }), fakes.resources),
     mcp: group('mcp', keysOf<HubServices['mcp']>({ registry: true, scopes: true, endpoints: true, tokens: true }), fakes.mcp),
     metrics: group('metrics', keysOf<HubServices['metrics']>({ calls: true, fns: true }), fakes.metrics),

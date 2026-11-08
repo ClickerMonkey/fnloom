@@ -1,61 +1,180 @@
-import type { JsonRpcNotification, JsonRpcOutgoingRequest, McpClientTransport, McpProtocolVersion } from '@ayepi/mcp';
+import {
+  McpMemoryClientTransport, mcpSourceServer, textResult,
+  type McpPromptSource, type McpResourceSource, type McpServer, type McpTool, type McpToolSource,
+} from '@ayepi/mcp';
 import { describe, expect, it } from 'vitest';
 import { runCli } from './cli.ts';
 import { bridge, linesOf } from './commands/mcp.ts';
 import { testIo } from './testing.ts';
 
-/** A transport that answers like a hub MCP and records what it was sent. */
-class FakeTransport implements McpClientTransport {
-  readonly requests: JsonRpcOutgoingRequest[] = [];
-  readonly notes: JsonRpcNotification[] = [];
-  opened_: McpProtocolVersion | undefined;
-  listening = false;
-  closed = false;
-  #listener: ((message: unknown) => void) | undefined;
+/** Lines fed one at a time, so a test can write after it has seen an answer; `end` closes the input. */
+class LineQueue implements AsyncIterable<string> {
+  readonly #lines: string[] = [];
+  #wake: (() => void) | undefined;
+  #ended = false;
 
-  request(message: JsonRpcOutgoingRequest): Promise<unknown> {
-    this.requests.push(message);
-    if (message.method === 'boom') { return Promise.reject(new Error('the hub went away')); }
-    const result = message.method === 'initialize'
-      ? { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'hub', version: '1' } }
-      : { tools: [] };
-    // the hub pushes a notification of its own while answering
-    this.#listener?.({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
-    return Promise.resolve({ jsonrpc: '2.0', id: message.id, result });
+  push(message: unknown): void {
+    this.#lines.push(typeof message === 'string' ? message : JSON.stringify(message));
+    this.#wake?.();
   }
-  notify(message: JsonRpcNotification): Promise<void> { this.notes.push(message); return Promise.resolve(); }
-  onMessage(listener: (message: unknown) => void): () => void { this.#listener = listener; return () => { this.#listener = undefined; }; }
-  opened(version: McpProtocolVersion): void { this.opened_ = version; }
-  listen(): void { this.listening = true; }
-  close(): Promise<void> { this.closed = true; return Promise.resolve(); }
+
+  end(): void {
+    this.#ended = true;
+    this.#wake?.();
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<string> {
+    for (;;) {
+      const line = this.#lines.shift();
+      if (line !== undefined) { yield line; continue; }
+      if (this.#ended) { return; }
+      await new Promise<void>((resolve) => { this.#wake = resolve; });
+      this.#wake = undefined;
+    }
+  }
 }
 
-async function* lines(...items: string[]): AsyncGenerator<string> { yield* items; }
+/** What the bridge wrote, parsed, with a wait for a message that fits. */
+class Written {
+  readonly messages: unknown[] = [];
+  readonly #waiting = new Set<() => void>();
+
+  write = (line: string): void => {
+    this.messages.push(JSON.parse(line));
+    for (const wake of [...this.#waiting]) { wake(); }
+  };
+
+  /** The first message matching `fits`, once written. */
+  async next(fits: (message: unknown) => boolean): Promise<unknown> {
+    for (;;) {
+      const found = this.messages.find(fits);
+      if (found !== undefined) { return found; }
+      await new Promise<void>((resolve) => {
+        const wake = (): void => { this.#waiting.delete(wake); resolve(); };
+        this.#waiting.add(wake);
+      });
+    }
+  }
+}
+
+/** Whether a message is the answer with an id. */
+const answerTo = (id: string | number | null) => (message: unknown): boolean => typeof message === 'object' && message !== null && 'id' in message && message.id === id && !('method' in message);
+
+const ECHO: McpTool = { name: 'echo', inputSchema: { type: 'object' } };
+const SLOW: McpTool = { name: 'slow', inputSchema: { type: 'object' } };
+
+/** A stand-in hub MCP: an echo tool, a tool that runs until it is cancelled, one resource and one prompt. */
+function fakeHub() {
+  const seen: { aborted: string[]; started: string[] } = { aborted: [], started: [] };
+  let tools: McpTool[] = [ECHO, SLOW];
+  const changes = new Set<() => void>();
+  const toolSource: McpToolSource = {
+    tools: () => tools,
+    call(name, args, signal) {
+      if (name === 'echo') { return Promise.resolve(textResult(JSON.stringify(args))); }
+      if (name !== 'slow') { return Promise.resolve(undefined); }
+      seen.started.push(name);
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { seen.aborted.push(name); reject(new Error('cancelled')); }, { once: true });
+      });
+    },
+    onChange: (listener) => { changes.add(listener); return () => { changes.delete(listener); }; },
+  };
+  const resources: McpResourceSource = {
+    list: () => Promise.resolve({ resources: [{ uri: 'hub://a', name: 'a' }] }),
+    templates: () => [{ uriTemplate: 'hub://{id}', name: 'any' }],
+    read: (uri) => Promise.resolve(uri === 'hub://a' ? [{ uri, text: 'A' }] : undefined),
+  };
+  const prompts: McpPromptSource = {
+    prompts: () => [{ name: 'hello' }],
+    get: (name) => Promise.resolve(name === 'hello' ? { messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }] } : undefined),
+  };
+  const server: McpServer = mcpSourceServer({ tools: toolSource, resources, prompts }, { serverInfo: { name: 'hub', version: '9' }, instructions: 'use the tools' });
+  const changeTools = (next: McpTool[]): void => { tools = next; for (const listener of [...changes]) { listener(); } };
+  return { server, seen, changeTools };
+}
+
+/** Run the bridge over a fresh fake hub, with the stdio client's handshake done. */
+async function bridged() {
+  const hub = fakeHub();
+  const input = new LineQueue();
+  const output = new Written();
+  const done = bridge(new McpMemoryClientTransport(hub.server), input, output);
+  input.push({ jsonrpc: '2.0', id: 'init', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude', version: '1' } } });
+  const init = await output.next(answerTo('init'));
+  input.push({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  return { hub, input, output, done, init };
+}
 
 describe('the stdio bridge', () => {
-  it('forwards requests with the client’s own ids, notifications, and the hub’s notifications', async () => {
-    const transport = new FakeTransport();
-    const out: string[] = [];
-    await bridge(transport, lines(
-      JSON.stringify({ jsonrpc: '2.0', id: 'a', method: 'initialize', params: { protocolVersion: '2025-06-18' } }),
-      JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
-      '',
-      JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/list' }),
-      'not json',
-      JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'boom' }),
-      JSON.stringify({ nope: true }),
-    ), { write: (line) => { out.push(line); } });
-    const messages = out.map((line): unknown => JSON.parse(line));
-    expect(transport.requests.map((r) => r.id)).toEqual([1, 2, 3]);
-    expect(transport.opened_).toBe('2025-06-18');
-    expect(transport.listening).toBe(true);
-    expect(transport.notes).toEqual([{ jsonrpc: '2.0', method: 'notifications/initialized' }]);
-    expect(out.find((line) => line.includes('"id":"a"'))).toContain('"protocolVersion":"2025-06-18"');
-    expect(messages).toContainEqual({ jsonrpc: '2.0', id: 7, result: { tools: [] } });
-    expect(messages).toContainEqual({ jsonrpc: '2.0', id: 8, error: { code: -32603, message: 'the hub went away' } });
-    expect(messages).toContainEqual({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'that line is not JSON' } });
-    expect(messages).toContainEqual({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
-    expect(transport.closed).toBe(true);
+  it('answers the handshake as the hub, with the client’s own ids', async () => {
+    const { input, done, init } = await bridged();
+    expect(init).toMatchObject({ id: 'init', result: { protocolVersion: '2025-06-18', serverInfo: { name: 'hub', version: '9' }, instructions: 'use the tools' } });
+    expect(init).toMatchObject({ result: { capabilities: { tools: { listChanged: true }, resources: {}, prompts: {} } } });
+    input.end();
+    await done;
+  });
+
+  it('lists and calls tools, and answers an unknown tool as bad params', async () => {
+    const { input, output, done } = await bridged();
+    input.push({ jsonrpc: '2.0', id: 7, method: 'tools/list' });
+    input.push({ jsonrpc: '2.0', id: 'call', method: 'tools/call', params: { name: 'echo', arguments: { a: 1 } } });
+    input.push({ jsonrpc: '2.0', id: 'nope', method: 'tools/call', params: { name: 'missing', arguments: {} } });
+    expect(await output.next(answerTo(7))).toEqual({ jsonrpc: '2.0', id: 7, result: { tools: [ECHO, SLOW] } });
+    expect(await output.next(answerTo('call'))).toMatchObject({ result: { content: [{ type: 'text', text: '{"a":1}' }] } });
+    expect(await output.next(answerTo('nope'))).toMatchObject({ error: { code: -32602 } });
+    input.end();
+    await done;
+  });
+
+  it('passes a cancel through to the hub call it names, though the ids differ', async () => {
+    const { hub, input, output, done } = await bridged();
+    input.push({ jsonrpc: '2.0', id: 'long', method: 'tools/call', params: { name: 'slow', arguments: {} } });
+    await expect.poll(() => hub.seen.started).toEqual(['slow']);
+    input.push({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'long', reason: 'user stopped it' } });
+    await expect.poll(() => hub.seen.aborted).toEqual(['slow']);
+    input.end();
+    await done;
+    expect(output.messages.filter(answerTo('long'))).toHaveLength(1);
+  });
+
+  it('forwards the hub’s tool list changes, with the new list', async () => {
+    const { hub, input, output, done } = await bridged();
+    hub.changeTools([ECHO]);
+    await output.next((message) => typeof message === 'object' && message !== null && 'method' in message && message.method === 'notifications/tools/list_changed');
+    input.push({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    expect(await output.next(answerTo(1))).toMatchObject({ result: { tools: [ECHO] } });
+    input.end();
+    await done;
+  });
+
+  it('proxies resources and prompts, and their not-found answers', async () => {
+    const { input, output, done } = await bridged();
+    input.push({ jsonrpc: '2.0', id: 1, method: 'resources/list' });
+    input.push({ jsonrpc: '2.0', id: 2, method: 'resources/templates/list' });
+    input.push({ jsonrpc: '2.0', id: 3, method: 'resources/read', params: { uri: 'hub://a' } });
+    input.push({ jsonrpc: '2.0', id: 4, method: 'resources/read', params: { uri: 'hub://b' } });
+    input.push({ jsonrpc: '2.0', id: 5, method: 'prompts/list' });
+    input.push({ jsonrpc: '2.0', id: 6, method: 'prompts/get', params: { name: 'hello' } });
+    input.push({ jsonrpc: '2.0', id: 7, method: 'prompts/get', params: { name: 'bye' } });
+    expect(await output.next(answerTo(1))).toMatchObject({ result: { resources: [{ uri: 'hub://a' }] } });
+    expect(await output.next(answerTo(2))).toMatchObject({ result: { resourceTemplates: [{ uriTemplate: 'hub://{id}' }] } });
+    expect(await output.next(answerTo(3))).toMatchObject({ result: { contents: [{ uri: 'hub://a', text: 'A' }] } });
+    expect(await output.next(answerTo(4))).toMatchObject({ error: { code: -32002 } });
+    expect(await output.next(answerTo(5))).toMatchObject({ result: { prompts: [{ name: 'hello' }] } });
+    expect(await output.next(answerTo(6))).toMatchObject({ result: { messages: [{ role: 'user' }] } });
+    expect(await output.next(answerTo(7))).toMatchObject({ error: { code: -32602 } });
+    input.end();
+    await done;
+  });
+
+  it('answers a line that is not JSON with a parse error and skips blank lines', async () => {
+    const { input, output, done } = await bridged();
+    input.push('');
+    input.push('not json');
+    expect(await output.next(answerTo(null))).toMatchObject({ error: { code: -32700 } });
+    input.end();
+    await done;
   });
 
   it('splits a stream into lines', async () => {

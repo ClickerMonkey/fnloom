@@ -1,6 +1,6 @@
 /**
  * The chat agent makes a system, end to end: given only the generated authoring guide as context (`/new-system`, fs's
- * `fs/system-authoring`, which is `packages/sdk/AUTHORING.md` and the template's whereabouts), a free model copies
+ * `fs/system-authoring`: the guide's parts and the template's whereabouts; the parts load by name), a free model copies
  * the template with fs and fills in a system with one fn. Then the CLI builds and packs it (typecheck included), the
  * hub installs the zip and runs it beside itself, and its fn runs. A failed build is told to the agent, which may fix
  * it twice. The made folder (`systems/<name>`, where the template's paths work) and the install are removed after.

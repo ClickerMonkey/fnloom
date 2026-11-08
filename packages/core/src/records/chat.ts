@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ModelInfo } from '../admin.ts';
 import { GinTypeDef } from '../gin.ts';
 import { LlmMessage, ModelChoice } from '../llm.ts';
+import { DICTATION_ENGINES } from '../model-calls.ts';
 import { ChatModeConfig, ContextorConfig, GraphSelection } from '../modes.ts';
 import { CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
@@ -137,7 +138,7 @@ export const ChatCapabilities = z.object({
   voiceInput: z.boolean(),
   voiceOutput: z.boolean(),
   /** How voice input is heard: the browser's speech recognition, or a recording sent to the dictation model. Absent while `voiceInput` is false. */
-  dictation: z.object({ engine: z.enum(['browser', 'model']), language: z.string().optional() }).optional(),
+  dictation: z.object({ engine: z.enum(DICTATION_ENGINES), language: z.string().optional() }).optional(),
   uploads: z.boolean(),
   /** `of` is the named type of the things a provider points at, whose methods its hover card offers. */
   mentions: z.array(z.object({ provider: QualifiedName, title: z.string(), of: QualifiedName.optional() })),

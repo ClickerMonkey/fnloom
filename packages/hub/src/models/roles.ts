@@ -8,7 +8,7 @@
 import type { ModelCapability } from '@aeye/ai';
 import type { Logger } from '@ayepi/log';
 import {
-  MODEL_ROLES, namesModel, ROLE_CAPABILITY, type ActorId, type ChatCapabilities, type ModelChoice, type ModelInfo, type ModelRole, type ModelRoleView, type ProviderId, type RoleChoice, type RoleModel,
+  MODEL_ROLES, namesModel, ROLE_CAPABILITY, type ActorId, type ChatCapabilities, type ModelChoice, type ModelInfo, type ModelRole, type ModelRoleView, type ProviderId, type ResolvedRole, type RoleChoice, type RoleModel, type RoleResolution,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { HubStore } from '../store/index.ts';
@@ -51,16 +51,13 @@ export function roleModel(choice: RoleChoice): RoleModel | undefined {
   return choice.engine.engine === 'browser' ? undefined : { model: choice.engine.model, ...(choice.engine.provider === undefined ? {} : { provider: choice.engine.provider }) };
 }
 
-/** What a resolution found: the model and the provider that serves it, or why the choice can't be used. */
-export type Resolution = { readonly model: string; readonly provider: string } | { readonly problem: string };
-
 /**
  * Resolve a model choice for a role against the offered models: an id as it is, a category as its first model, and
  * automatic selection as the cheapest offered model with the role's capability. A pinned provider must offer it.
  */
 export function resolveChoice(
   role: ModelRole, wanted: RoleModel, offered: readonly ModelInfo[], kindOf: (provider: ProviderId) => string | undefined, categories: ReadonlyMap<string, readonly string[]>,
-): Resolution {
+): RoleResolution {
   const capability = ROLE_ABILITIES[role];
   const pinned = wanted.provider === undefined ? undefined : kindOf(wanted.provider);
   if (wanted.provider !== undefined && pinned === undefined) return { problem: `There is no provider ${wanted.provider}.` };
@@ -111,7 +108,7 @@ export class StoreModelRoles implements ModelRoles {
   }
 
   async set(choice: RoleChoice, by: ActorId): Promise<ModelRoleView> {
-    await this.#deps.store.table('modelRoles').put({ role: choice.role, choice, setBy: by, updatedAt: this.#deps.clock() });
+    await this.#deps.store.table('modelRoles').put({ choice, setBy: by, updatedAt: this.#deps.clock() });
     this.#deps.log.info('model.role.set', { role: choice.role, by });
     this.#deps.bus.publish('capabilities.changed', {});
     return this.get(choice.role);
@@ -126,13 +123,13 @@ export class StoreModelRoles implements ModelRoles {
     return this.get(role);
   }
 
-  async resolve(role: ModelRole): Promise<{ model: string; provider: string } | undefined> {
+  async resolve(role: ModelRole): Promise<ResolvedRole | undefined> {
     const view = await this.get(role);
     return view.resolved !== undefined && 'model' in view.resolved ? view.resolved : undefined;
   }
 
   /** A model choice against what configured providers offer now. */
-  async #resolve(role: ModelRole, wanted: RoleModel): Promise<Resolution> {
+  async #resolve(role: ModelRole, wanted: RoleModel): Promise<RoleResolution> {
     const { store } = this.#deps;
     const [offered, providers, categories] = await Promise.all([
       this.#deps.models(),
@@ -142,11 +139,6 @@ export class StoreModelRoles implements ModelRoles {
     const kinds = new Map(providers.items.map((p) => [p.id, p.config.provider]));
     return resolveChoice(role, wanted, offered, (id) => kinds.get(id), new Map(categories.items.map((c) => [c.name, c.models])));
   }
-}
-
-/** A resolved model as the hub AI selects it: `provider/model`, so a pinned provider is the one that answers. */
-export function servedModel(resolved: { readonly model: string; readonly provider: string }): string {
-  return `${resolved.provider}/${resolved.model}`;
 }
 
 /** How the composer hears voice input, from the dictation role: undefined while it can't be heard at all. */

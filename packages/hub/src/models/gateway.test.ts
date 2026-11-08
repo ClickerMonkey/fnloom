@@ -52,12 +52,19 @@ describe('the model gateway', () => {
     expect(spoken).toMatchObject({ modality: 'speech', audio: { size: 3, mime: 'audio/mpeg' } });
   });
 
-  it('hears audio from the content store with the transcription role’s model, as provider/model', async () => {
+  it('hears audio from the content store with the transcription role’s model, pinned to the role’s provider', async () => {
     const { gateway, asked, content } = await rig({ transcribe: { model: 'whisper-1', provider: 'openai' } });
     const audio = await content.put(new Uint8Array(9), 'audio/webm');
     expect(await gateway.forward({ modality: 'transcribe', audio, language: 'en' }, { purpose: 'form:transcript' }, live()))
       .toMatchObject({ modality: 'transcribe', text: 'heard 9', segments: [{ start: 0, end: 1, text: 'hi' }] });
-    expect(asked[0]).toMatchObject({ input: { mime: 'audio/webm', language: 'en', metadata: { model: 'openai/whisper-1' } }, site: { purpose: 'form:transcript' } });
+    expect(asked[0]).toMatchObject({ input: { mime: 'audio/webm', language: 'en', metadata: { model: 'whisper-1', provider: 'openai' } }, site: { purpose: 'form:transcript' } });
+  });
+
+  it('uses the role it is asked to (dictation) when the request names no model', async () => {
+    const { gateway, asked, content } = await rig({ transcribe: { model: 'whisper-1', provider: 'openai' }, dictate: { model: 'gpt-4o-transcribe', provider: 'openrouter' } });
+    const audio = await content.put(new Uint8Array(4), 'audio/webm');
+    await gateway.forward({ modality: 'transcribe', audio }, { purpose: 'dictation' }, live(), 'dictate');
+    expect(asked[0]).toMatchObject({ input: { metadata: { model: 'gpt-4o-transcribe', provider: 'openrouter' } } });
   });
 
   it('refuses a job whose role has no model, and reads categories and weights', async () => {

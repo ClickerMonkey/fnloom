@@ -3,7 +3,7 @@
  * them, and the resolved view: the one priority and set of budgets a message by a person (in a chat) would get now.
  */
 import type { ActorId, BudgetId, PriorityRule, PriorityRuleId, ResolvedLimits, SessionId } from '@harness/core';
-import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
 import type { BudgetView } from '@harness/core';
 import type { BudgetBody, PriorityBody } from '../logic/forms.ts';
@@ -27,13 +27,13 @@ export class LimitsStore {
     await Promise.all([this.#loadBudgets(quiet), this.#loadPriorities(quiet)]);
   }
 
-  async saveBudget(body: BudgetBody): Promise<TaskResult<{ id: string }>> {
+  async saveBudget(body: BudgetBody): Promise<Outcome<{ id: string }>> {
     const result = await this.save.run(() => this.#api.setBudget.call(body), "Couldn't save the budget.");
     if (result.ok) { void this.#loadBudgets(true); }
     return result;
   }
 
-  async savePriority(body: PriorityBody): Promise<TaskResult<{ id: string }>> {
+  async savePriority(body: PriorityBody): Promise<Outcome<{ id: string }>> {
     const result = await this.save.run(() => this.#api.setPriority.call(body), "Couldn't save the priority rule.");
     if (result.ok) { void this.#loadPriorities(true); }
     return result;

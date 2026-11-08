@@ -62,9 +62,31 @@ export type DayMeasure = 'runs' | 'time';
 
 const dayLabel = (day: string): string => new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
-/** The bars of a per-day chart: how many runs each day, or each day's typical time (p50). */
-export function dayBars(days: readonly FnMetricsDay[], measure: DayMeasure): DayBar[] {
-  return days.map((day) => {
+/** A day's length in ms. */
+const DAY_MS = 86_400_000;
+
+/** The window a day chart covers: so many days, ending today (or on the latest day with data, if later). */
+export interface DayWindow {
+  readonly period: number;
+  readonly now: number;
+}
+
+/** Every UTC day of a window, oldest first. */
+export function windowDays(window: DayWindow, latest?: string): string[] {
+  const today = new Date(window.now).toISOString().slice(0, 10);
+  const end = Date.parse(`${latest !== undefined && latest > today ? latest : today}T00:00:00Z`);
+  return Array.from({ length: window.period }, (_, i) => new Date(end - (window.period - 1 - i) * DAY_MS).toISOString().slice(0, 10));
+}
+
+/**
+ * The bars of a per-day chart: one for every day of the window (a day without runs is an empty bar, so each date sits
+ * under its own bar), how many runs each day, or each day's typical time (p50).
+ */
+export function dayBars(days: readonly FnMetricsDay[], measure: DayMeasure, window: DayWindow): DayBar[] {
+  const byDay = new Map(days.map((day) => [day.day, day]));
+  return windowDays(window, days.map((d) => d.day).sort().at(-1)).map((key): DayBar => {
+    const day = byDay.get(key);
+    if (day === undefined) { return { day: key, label: dayLabel(key), value: 0, lines: [measure === 'runs' ? '0 runs' : 'No runs'] }; }
     const runs = day.ran.count;
     const p50 = percentile(day.ran, 0.5);
     const p95 = percentile(day.ran, 0.95);

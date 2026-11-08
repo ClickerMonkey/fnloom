@@ -76,7 +76,8 @@ const shown = computed(() => (pointed.value === undefined ? undefined : props.ba
   color: var(--text); font-size: var(--text-xs); white-space: nowrap; transform: translateX(-50%); pointer-events: none;
 }
 .labels { display: flex; gap: 2px; margin-left: 44px; }
-.label { flex: 1; min-width: 0; overflow: visible; color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
+/* each date centred under its own column */
+.label { flex: 1; min-width: 0; overflow: visible; color: var(--text-faint); font-size: var(--text-xs); text-align: center; white-space: nowrap; }
 .table summary { color: var(--text-dim); font-size: var(--text-xs); cursor: pointer; }
 .table table { width: 100%; margin-top: var(--space-2); border-collapse: collapse; font-size: var(--text-sm); }
 .table th, .table td { padding: 2px var(--space-2); border-bottom: 1px solid var(--border); text-align: left; }

@@ -28,7 +28,8 @@ const tab = defineModel<LlmCallTab>('tab', { default: 'saw' });
     <dl class="facts">
       <template v-if="!interaction">
         <dt>Model</dt><dd><code>{{ call.model }}</code> · {{ call.provider }}</dd>
-        <dt>Used</dt><dd data-testid="model-call-units">{{ unitsText(call.units) }}</dd>
+        <!-- what a call used is known once it is done; a failed or stopped one shows only what it sent (Size) -->
+        <template v-if="call.status === 'done'"><dt>Used</dt><dd data-testid="model-call-units">{{ unitsText(call.units) }}</dd></template>
         <dt>Cost</dt><dd>{{ formatCost(call.cost) }}</dd>
       </template>
       <dt>Waited</dt><dd>{{ formatDuration(call.queued) }}</dd>

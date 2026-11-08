@@ -12,7 +12,6 @@ import type { LlmGateway, Recorded } from '../execution/index.ts';
 import type { HubCallMetadata } from '../execution/scope.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ModelGateway, ModelRoles, ModelSite } from './index.ts';
-import { servedModel } from './roles.ts';
 
 /** The role whose model a modality uses when the call names none. */
 const ROLE_OF = { embed: undefined, image: undefined, transcribe: 'transcribe', speech: 'speak' } as const satisfies Record<ModelForward['modality'], ModelRole | undefined>;
@@ -39,8 +38,8 @@ export class HubModelGateway implements ModelGateway {
     this.#deps = deps;
   }
 
-  async forward(request: ModelForward, site: ModelSite, signal: AbortSignal): Promise<ModelForwardResult> {
-    const metadata = await this.#metadata(request.modality, request.model);
+  async forward(request: ModelForward, site: ModelSite, signal: AbortSignal, role?: ModelRole): Promise<ModelForwardResult> {
+    const metadata = await this.#metadata(role ?? ROLE_OF[request.modality], request.model);
     const { llm, content } = this.#deps;
     switch (request.modality) {
       case 'embed': {
@@ -64,8 +63,8 @@ export class HubModelGateway implements ModelGateway {
     }
   }
 
-  /** The aeye selection for a call: its own choice, else its role's model, else selection by capability. */
-  async #metadata(modality: ModelForward['modality'], choice: ModelChoice | undefined): Promise<HubCallMetadata> {
+  /** The aeye selection for a call: its own choice, else its role's model on its role's provider, else selection by capability. */
+  async #metadata(role: ModelRole | undefined, choice: ModelChoice | undefined): Promise<HubCallMetadata> {
     if (choice !== undefined) {
       if ('model' in choice) return { model: choice.model };
       if ('auto' in choice) return { weights: compactWeights(choice.auto) };
@@ -74,11 +73,10 @@ export class HubModelGateway implements ModelGateway {
       if (first === undefined) throw new NoModel(`The model category ${choice.category} has no models.`);
       return { model: first };
     }
-    const role = ROLE_OF[modality];
     if (role === undefined) return {};
     const resolved = await this.#deps.roles.resolve(role);
     if (resolved === undefined) throw new NoModel(`No model is set for ${role} (an admin chooses one under model roles).`);
-    return { model: servedModel(resolved) };
+    return { model: resolved.model, provider: resolved.provider };
   }
 
   /** The bytes of a content ref. */

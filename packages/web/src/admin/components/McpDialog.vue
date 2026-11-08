@@ -91,6 +91,8 @@ function save(): void {
       <UiInput v-model="origins" label="Browser origins" placeholder="https://claude.ai" hint="Comma separated. None allows only requests with no Origin header." />
       <UiSwitch v-model="enabled" label="On" description="Off refuses every call and keeps its settings." />
       <UiBanner v-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
+      <!-- Enter in a field submits the form; the visible button is in the footer, outside it -->
+      <button type="submit" hidden />
     </form>
     <template #footer>
       <UiButton variant="ghost" @click="open = false">Cancel</UiButton>

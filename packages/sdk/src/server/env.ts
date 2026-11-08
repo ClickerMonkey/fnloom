@@ -103,7 +103,7 @@ export type SdkEnv = ReturnType<typeof sdkEnv.parse>;
  */
 export function systemFields() {
   return {
-    /** The hub's link URL. */
+    /** The hub: its link URL, or its http(s) address (`http://127.0.0.1:4300`), which becomes `ws://…/link`. */
     [SYSTEM_ENV.hub]: z.string().default('ws://127.0.0.1:4300/link'),
     /** Which copy of the system this process is: `main` unless it is one of a fleet. */
     [SYSTEM_ENV.instance]: InstanceName.default(MAIN_INSTANCE),

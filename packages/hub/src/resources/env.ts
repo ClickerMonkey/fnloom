@@ -15,6 +15,7 @@ export const resourcesEnv = env({
   HARNESS_FORM_CONCURRENCY: z.number().int().min(1).default(2).describe('Forms made at once.'),
   HARNESS_CONTEXT_PIECE_TOKENS: z.number().int().min(50).default(600).describe('A section longer than this becomes a chain of context pieces (small-model friendly).'),
   HARNESS_FETCH_TIMEOUT: z.number().int().min(1_000).default(30_000).describe('How long a URL import waits when the web system isn\'t connected and the hub fetches itself.'),
+  HARNESS_FETCH_REDIRECTS: z.number().int().min(0).default(8).describe('The most redirects a URL import the hub fetches itself follows.'),
   HARNESS_FETCH_PRIVATE: z.boolean().default(false).describe('Allow importing private and loopback addresses (off: the hub\'s own data can\'t be fetched by asking).'),
 });
 

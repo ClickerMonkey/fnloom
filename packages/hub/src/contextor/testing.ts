@@ -3,7 +3,7 @@
  * made from a few fields, a catalog over them, and the contextor's services built over a test store. Tests only.
  */
 import { fn, fnDecl, g, type AnyFnDef } from '@harness/sdk';
-import { SystemName, type ManifestSection, type ContextDecl, type ContextRecord, type FnRecord, type ModelInfo, type QualifiedName, type SearchHit } from '@harness/core';
+import { noFnStats, SystemName, type ManifestSection, type ContextDecl, type ContextRecord, type FnRecord, type ModelInfo, type QualifiedName, type SearchHit } from '@harness/core';
 import { z } from 'zod';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
@@ -11,6 +11,7 @@ import type { HubStore } from '../store/index.ts';
 import { memoryLog, testStore } from '../testing.ts';
 import { createContextor } from './create.ts';
 import { contextorEnv, type ContextorEnv } from './env.ts';
+import type { DynamicContext } from './index.ts';
 import type { ProbeFactory } from './limits.ts';
 
 /** A small fast seeded generator (mulberry32): the same seed gives the same numbers. */
@@ -55,7 +56,7 @@ export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 
     const slash = name.indexOf('/');
     const record: FnRecord = {
       name, system: SystemName.parse(name.slice(0, slash)), decl: fnDecl(name.slice(slash + 1), def), version: 'v1', origin: 'contract', available: true, paused: false, disabled: false,
-      stats: { runs: 0, failures: 0, averageCost: 0, averageTime: 0 }, updatedAt: 0, ...extra,
+      stats: noFnStats(), updatedAt: 0, ...extra,
     };
     this.records.set(name, record);
     this.#defs.set(name, def);
@@ -133,7 +134,7 @@ export function chatModel(id: string, fields: Partial<ModelInfo> = {}): ModelInf
 }
 
 /** The contextor's services over a test store and a `ContextCatalog`. */
-export async function contextorRig(options: { models?: ModelInfo[]; settings?: Partial<ContextorEnv>; probes?: ProbeFactory } = {}) {
+export async function contextorRig(options: { models?: ModelInfo[]; settings?: Partial<ContextorEnv>; probes?: ProbeFactory; dynamic?: DynamicContext } = {}) {
   const store = await testStore();
   const catalog = new ContextCatalog();
   const search = new FixedSearch();
@@ -143,6 +144,7 @@ export async function contextorRig(options: { models?: ModelInfo[]; settings?: P
   const services = createContextor({
     store, catalog, search, settings: { ...contextorEnv.parse(), ...options.settings }, modelSettings: { HARNESS_DEFAULT_MODEL: 'small' },
     models: () => Promise.resolve(models), log, clock: () => time.now, probes: options.probes ?? (() => undefined),
+    ...(options.dynamic === undefined ? {} : { dynamic: options.dynamic }),
   });
   return { store, catalog, search, log, records, time, models, ...services };
 }

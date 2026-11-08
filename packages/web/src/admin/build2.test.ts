@@ -22,11 +22,11 @@ describe('model roles', () => {
   it('reads a role into the editor and back, for every engine', () => {
     const browser = roleView('dictate');
     expect(roleDraft(browser)).toEqual({ engine: 'browser', model: '', provider: '', language: '' });
-    expect(roleChoiceOf('dictate', roleDraft(browser))).toEqual({ ok: true, choice: { role: 'dictate', engine: { engine: 'browser' } } });
+    expect(roleChoiceOf('dictate', roleDraft(browser))).toEqual({ ok: true, value: { role: 'dictate', engine: { engine: 'browser' } } });
     const byModel = roleChoiceOf('dictate', { engine: 'model', model: 'openai/whisper-1', provider: '', language: 'en-GB' });
-    expect(byModel).toEqual({ ok: true, choice: { role: 'dictate', engine: { engine: 'model', model: { model: 'openai/whisper-1' } }, language: 'en-GB' } });
+    expect(byModel).toEqual({ ok: true, value: { role: 'dictate', engine: { engine: 'model', model: { model: 'openai/whisper-1' } }, language: 'en-GB' } });
     if (!byModel.ok) { throw new Error('expected a choice'); }
-    expect(roleDraft(roleView('dictate', { choice: byModel.choice }))).toEqual({ engine: 'model', model: 'openai/whisper-1', provider: '', language: 'en-GB' });
+    expect(roleDraft(roleView('dictate', { choice: byModel.value }))).toEqual({ engine: 'model', model: 'openai/whisper-1', provider: '', language: 'en-GB' });
     expect(roleChoiceOf('transcribe', { engine: 'model', model: ' ', provider: '', language: '' })).toEqual({ ok: false, problem: 'Choose a model.' });
     expect(roleDraft(roleView('transcribe')).model).toBe('openai/whisper-1');
   });
@@ -42,7 +42,7 @@ describe('model roles', () => {
 
   it('reads limits: blank leaves a field to the next source, the schema bounds the rest', () => {
     expect(limitsDraft(limitsView())).toEqual({ contextWindow: '', maxOutputTokens: '512', reasoningTokens: '', charsPerToken: '' });
-    expect(limitsOf({ contextWindow: '4096', maxOutputTokens: '', reasoningTokens: '', charsPerToken: '3.5' })).toEqual({ ok: true, limits: { contextWindow: 4_096, charsPerToken: 3.5 } });
+    expect(limitsOf({ contextWindow: '4096', maxOutputTokens: '', reasoningTokens: '', charsPerToken: '3.5' })).toEqual({ ok: true, value: { contextWindow: 4_096, charsPerToken: 3.5 } });
     expect(limitsOf({ contextWindow: 'lots', maxOutputTokens: '', reasoningTokens: '', charsPerToken: '' })).toEqual({ ok: false, problem: 'Context window must be a number.' });
     const small = limitsOf({ contextWindow: '100', maxOutputTokens: '', reasoningTokens: '', charsPerToken: '' });
     expect(small.ok).toBe(false);
@@ -95,8 +95,10 @@ describe('hub MCP rules', () => {
     expect(slugOf('Claude sessions!')).toBe('claude-sessions');
     expect(slugOf('42')).toBeUndefined();
     const mcp = mcpView();
-    expect(connectSnippets(mcp).claude).toBe('claude mcp add --transport http claude http://127.0.0.1:4300/mcp/claude --header "Authorization: Bearer <secret>"');
-    expect(JSON.parse(connectSnippets(mcp, 'hmcp_x').json)).toEqual({ mcpServers: { claude: { type: 'http', url: mcp.url, headers: { Authorization: 'Bearer hmcp_x' } } } });
+    expect(connectSnippets(mcp, 'http://elsewhere:1').claude).toBe('claude mcp add --transport http claude http://127.0.0.1:4300/mcp/claude --header "Authorization: Bearer <secret>"');
+    expect(JSON.parse(connectSnippets(mcp, 'http://elsewhere:1', 'hmcp_x').json)).toEqual({ mcpServers: { claude: { type: 'http', url: mcp.url, headers: { Authorization: 'Bearer hmcp_x' } } } });
+    // a path from the hub is made absolute against the page's origin, so the snippet pastes as is
+    expect(connectSnippets({ ...mcp, url: '/mcp/rf' }, 'http://192.168.1.5:4300').claude).toContain(' http://192.168.1.5:4300/mcp/rf ');
   });
 
   it('edits rules with a live preview, saves, rotates (keeping the secret to show once) and tries the MCP', async () => {
@@ -178,11 +180,18 @@ describe('fn metrics', () => {
     expect(strip.find((f) => f.key === 'failed')?.value).toBe('8');
     expect(strip.find((f) => f.key === 'runs')?.detail).toBe('84% done');
     const days = fnDays(7);
-    const runs = dayBars(days, 'runs');
+    const week = { period: 7, now: T0 };
+    const runs = dayBars(days, 'runs', week);
     expect(runs).toHaveLength(7);
     expect(runs[0]?.value).toBe(days[0]?.ran.count);
     expect(runs[0]?.lines[1]).toContain('retried');
-    expect(dayBars(days, 'time')[0]?.lines[0]).toMatch(/^Typical /);
+    expect(dayBars(days, 'time', week)[0]?.lines[0]).toMatch(/^Typical /);
+    // one day with runs still draws every day of the window, the day with runs in its own place
+    const one = dayBars(days.slice(-1), 'runs', week);
+    expect(one.map((b) => b.day)).toEqual(days.map((d) => d.day));
+    expect(one.slice(0, 6).every((b) => b.value === 0 && b.lines[0] === '0 runs')).toBe(true);
+    expect(one[6]?.value).toBe(days[6]?.ran.count);
+    expect(dayBars([], 'time', { period: 30, now: T0 })).toHaveLength(30);
     expect([niceMax(0), niceMax(7), niceMax(12), niceMax(480)]).toEqual([1, 10, 20, 500]);
   });
 
@@ -192,8 +201,8 @@ describe('fn metrics', () => {
     await admin.fn.open(fn, 30);
     expect(api.fnMetricsDays.calls[0]?.[0]).toEqual({ fn, days: 30 });
     expect(admin.fn.daily.value.value).toHaveLength(30);
-    user.push({ type: 'fn', fn, system: SystemName.parse('fs'), stats: { runs: 141, failures: 3, averageCost: 0, averageTime: 40 } });
-    expect(admin.fn.record.value.value?.stats.runs).toBe(141);
+    user.push({ type: 'fn', fn, system: SystemName.parse('fs'), stats: { outcomes: { done: 138, 'invalid-input': 0, failed: 3, cancelled: 0 }, averageCost: 0, averageTime: 40, tokens: 0 } });
+    expect(admin.fn.record.value.value?.stats.outcomes.done).toBe(138);
     await flush();
     expect(api.fnMetrics.calls).toHaveLength(2);
   });

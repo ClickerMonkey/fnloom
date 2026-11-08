@@ -6,7 +6,7 @@
 import type { InstallSource, Json, PairingId, PairingRequest, SystemName, SystemView, UserEvent } from '@harness/core';
 import { computed, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
-import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { ResponseOf } from '../../api/client.ts';
 import type { AdminApi } from '../api.ts';
 import { sortSystems } from '../logic/systems.ts';
@@ -58,7 +58,7 @@ export class SystemsStore {
   }
 
   /** Approve or reject a pairing. Approving adds the system to the list. */
-  async answerPairing(pairing: PairingId, approve: boolean): Promise<TaskResult<{ system?: SystemName | undefined }>> {
+  async answerPairing(pairing: PairingId, approve: boolean): Promise<Outcome<{ system?: SystemName | undefined }>> {
     this.answering.value = new Set([...this.answering.value, pairing]);
     const result = await this.answer.run(() => this.#api.approvePairing.call({ pairing, approve }), approve ? "Couldn't approve the pairing." : "Couldn't reject the pairing.");
     this.answering.value = new Set([...this.answering.value].filter((id) => id !== pairing));
@@ -70,12 +70,12 @@ export class SystemsStore {
   }
 
   /** Make a one-time pairing token, for a name or for any. */
-  async createToken(name: SystemName | undefined, expiresIn: number): Promise<TaskResult<PairingToken>> {
+  async createToken(name: SystemName | undefined, expiresIn: number): Promise<Outcome<PairingToken>> {
     return this.token.run(() => this.#api.createPairingToken.call({ expiresIn, ...(name === undefined ? {} : { name }) }), "Couldn't make a pairing token.");
   }
 
   /** Install a system for the hub to keep and run. */
-  async installSystem(source: InstallSource, autoStart: boolean, config?: Json): Promise<TaskResult<{ name: SystemName }>> {
+  async installSystem(source: InstallSource, autoStart: boolean, config?: Json): Promise<Outcome<{ name: SystemName }>> {
     const result = await this.install.run(
       () => this.#api.installSystem.call({ source, autoStart, ...(config === undefined ? {} : { config }) }),
       "Couldn't install the system.",

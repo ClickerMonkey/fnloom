@@ -13,7 +13,7 @@ import { ContextRecord, FnRecord, KindRecord, PairingRequest, PairingToken, Syst
 import { Section } from '../resources.ts';
 import { ContextLink } from '../context-graph.ts';
 import { FnMetricsDay } from '../metrics.ts';
-import { ModelCall, ModelRoleRecord } from '../model-calls.ts';
+import { ModelCall, type ModelRole, ModelRoleRecord } from '../model-calls.ts';
 import { ModelCalibration, ModelLimitsRecord } from '../modes.ts';
 import { InstanceRecord } from '../package.ts';
 import { FormRecord } from '../resource-forms.ts';
@@ -110,7 +110,9 @@ export const HUB_TABLES = {
   modelCalibration: byField(ModelCalibration, 'model'),
   forms: byFields(FormRecord, 'hash', 'kind', 'converter'),
   modelCalls: byField(ModelCall, 'id'),
-  modelRoles: byField(ModelRoleRecord, 'role'),
+  modelRoles: {
+    row: ModelRoleRecord, fields: ['choice.role'], rowKey: (record) => record.choice.role, key: (role) => role,
+  } satisfies TableDef<typeof ModelRoleRecord, ModelRole>,
   fnMetrics: byFields(FnMetricsDay, 'fn', 'day'),
   mcps: byField(HubMcp, 'id'),
 } as const;

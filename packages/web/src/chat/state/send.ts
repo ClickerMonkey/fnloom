@@ -7,11 +7,10 @@ import { isActive } from '../logic/runs.ts';
 import type { ComposerStore } from './composer.ts';
 import type { DraftSuggestions } from './suggest.ts';
 import type { ThreadStore, UndoSummary } from './thread.ts';
+import type { Outcome } from '../../ui/index.ts';
 
 /** How a send went. */
-export type SendResult =
-  | { readonly ok: true; readonly moved: number; readonly undone: UndoSummary | undefined }
-  | { readonly ok: false; readonly problem: string };
+export type SendResult = Outcome<{ readonly moved: number; readonly undone: UndoSummary | undefined }>;
 
 /** Send what the composer holds. */
 export async function sendDraft(thread: ThreadStore, composer: ComposerStore, suggestions?: DraftSuggestions): Promise<SendResult> {
@@ -26,11 +25,11 @@ export async function sendDraft(thread: ThreadStore, composer: ComposerStore, su
     const undone = await thread.editResend(editing, outgoing.parts);
     if (undone !== undefined) {
       composer.uploads.clear();
-      return { ok: true, moved: 0, undone };
+      return { ok: true, value: { moved: 0, undone } };
     }
   } else if (await thread.send(outgoing)) {
     composer.uploads.clear();
-    return { ok: true, moved, undone: undefined };
+    return { ok: true, value: { moved, undone: undefined } };
   }
   composer.restore(snapshot);
   return { ok: false, problem: thread.problem.value };

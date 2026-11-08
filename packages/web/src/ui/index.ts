@@ -40,5 +40,6 @@ export { place, type Align, type Box, type Placement, type Side } from './floati
 export { countLabel, fullTime, hueOf, initials, relativeTime } from './format.ts';
 export { copyText } from './clipboard.ts';
 export { useMediaQuery, useOverlay } from './overlay.ts';
+export { moreEdges, useMoreEdges, type MoreEdges } from './edges.ts';
 export { layers, LayerStack, type Layer } from './layers.ts';
 export * from './types.ts';

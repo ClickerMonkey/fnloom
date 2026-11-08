@@ -76,3 +76,9 @@ export type Presence = 'online' | 'busy' | 'away' | 'offline';
 
 /** Where a modal's panel sits: the centre (dialogs) or an edge (drawers and sheets). */
 export type ModalPlacement = 'center' | 'left' | 'right' | 'bottom';
+
+/**
+ * What something that can fail came to (a task, reading a field, drawing a diagram): its value, or one plain sentence
+ * saying why not. The one shape every such answer in the app takes.
+ */
+export type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly problem: string };

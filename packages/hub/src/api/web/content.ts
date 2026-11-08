@@ -8,7 +8,6 @@ import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { contentSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { servedModel } from '../../models/roles.ts';
 import type { FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
 
@@ -33,8 +32,8 @@ export function contentPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         if (!data.audio.mime.startsWith('audio/')) { throw reject(422, 'NOT_AUDIO', `a recording is audio, not ${data.audio.mime}`); }
         const language = role.choice?.language;
         const heard = await hub.models.gateway.forward({
-          modality: 'transcribe', audio: data.audio, model: { model: servedModel(resolved) }, ...(language === undefined ? {} : { language }),
-        }, { purpose: DICTATION_PURPOSE }, signal);
+          modality: 'transcribe', audio: data.audio, ...(language === undefined ? {} : { language }),
+        }, { purpose: DICTATION_PURPOSE }, signal, 'dictate');
         if (heard.modality !== 'transcribe') { throw new Error('the transcription answered with another modality'); }
         hub.log.info('content.transcribed', { user: user.id, size: data.audio.size, characters: heard.text.length, call: heard.call });
         return { text: heard.text };

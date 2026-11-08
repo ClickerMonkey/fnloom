@@ -16,7 +16,7 @@ import { LibraryFetcher, WEB, WebSystemFetcher } from './fetch.ts';
 import { NO_CONTENT, StoreFormService } from './forms.ts';
 import { HubResourceLibrary } from './library.ts';
 import { HubFormModels } from './models.ts';
-import { LinkRawReader } from './raw.ts';
+import { LinkRawReader, linkSource } from './raw.ts';
 import { FormReader } from './reader.ts';
 import { badges, isHubUri } from './rules.ts';
 
@@ -27,7 +27,9 @@ export const resourcesModule: ModuleFactory<'resources'> = ({ hub, hubActor }) =
   const content = hub.api.content;
   const converters = new RegistryConverters({ maxRows: settings.HARNESS_TABLE_ROWS });
   const models = new HubFormModels({ roles: () => hub.models.roles, llm: () => hub.execution.llm, gateway: () => hub.models.gateway });
-  const raw = new LinkRawReader({ router: () => hub.link.resources, links: () => hub.link.connections, content, maxChunk: hub.settings.linkEnv.HARNESS_MAX_CHUNK });
+  const raw = new LinkRawReader({
+    source: (uri) => linkSource(hub.link.resources, hub.link.connections, uri), stat: (uri) => hub.link.resources.stat(uri), content, maxChunk: hub.settings.linkEnv.HARNESS_MAX_CHUNK,
+  });
   const forms = new StoreFormService({
     store, content, raw, converters, models, log, clock, settings,
     onForms: (record) => { bus.publish('resource.forms', { uri: record.uri, forms: badges(record) }); },
@@ -40,7 +42,7 @@ export const resourcesModule: ModuleFactory<'resources'> = ({ hub, hubActor }) =
   const library = new HubResourceLibrary({ store, content, forms: () => forms, fetcher, converters, indexer: () => hub.index.indexer, bus, log, clock, settings, hubActor });
   const context = new StoreContextLibrary({
     store, forms: () => forms, reader: () => reader, graph: () => hub.contextor.graph, indexer: () => hub.index.indexer, log, clock, settings, hubActor,
-    onContext: (name) => { bus.publish('context.changed', { name }); },
+    onContext: (name) => { bus.publish('context.changed', { name }); }, dynamic: () => hub.contextor.dynamic,
   });
 
   const indexReader: IndexReader = {

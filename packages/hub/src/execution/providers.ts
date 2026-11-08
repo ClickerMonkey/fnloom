@@ -20,11 +20,11 @@ import type { HubStore } from '../store/index.ts';
 const APP_NAME = 'harness';
 
 /** Build the aeye provider for one stored config, revealing its keys with `key`. */
-export async function buildProvider(config: ProviderConfig, key: (id: SecretId) => Promise<string>): Promise<Provider> {
+export async function buildProvider(config: ProviderConfig, key: (id: SecretId) => Promise<string>, ollamaCap: number): Promise<Provider> {
   switch (config.provider) {
     case 'openai': return new OpenAIProvider({ apiKey: await key(config.apiKey), ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }) });
     case 'openrouter': return new OpenRouterProvider({ apiKey: await key(config.apiKey), defaultParams: { appName: APP_NAME } });
-    case 'ollama': return new OllamaProvider(config);
+    case 'ollama': return new OllamaProvider({ ...config, cap: ollamaCap });
   }
 }
 
@@ -47,6 +47,8 @@ export interface StoredProvidersDeps {
   readonly clock: () => number;
   /** The bootstrap OpenRouter key, stored as the first record when there is none. */
   readonly seed?: { readonly key: string; readonly owner: ActorId } | undefined;
+  /** The most window assumed for an Ollama model with no `num_ctx` (`HARNESS_OLLAMA_DEFAULT_CTX`). */
+  readonly ollamaCap: number;
 }
 
 /** Providers from the store's provider records. */
@@ -68,7 +70,7 @@ export class StoredProviders implements ProviderSource {
     };
     for (const record of await allRows(store.table('providers'))) {
       try {
-        providers[record.config.provider] = await buildProvider(record.config, reveal);
+        providers[record.config.provider] = await buildProvider(record.config, reveal, this.#deps.ollamaCap);
       } catch (error) {
         log.warn('provider.unusable', { provider: record.config.provider, record: record.id, error: messageOf(error) });
       }

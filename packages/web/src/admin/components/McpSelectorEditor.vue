@@ -3,11 +3,13 @@
  * One side of an MCP's rules (what it includes, or what it excludes): for each part (systems, fns, types, context,
  * resources) its entries as chips to remove, and a field to add one, with suggestions from the catalog. An entry is
  * checked as it is added (a fn glob, a #tag, a URI prefix on system@instance); a bad one says why and isn't added.
+ * A fn rule's condition (`FnMatch.when`, a gin predicate over its args) opens in gin's expression editor.
  */
-import type { McpSelector } from '@harness/core';
-import { ref, useId } from 'vue';
+import type { Json, McpSelector } from '@harness/core';
+import { computed, ref, useId } from 'vue';
 import { UiButton, UiIconButton } from '../../ui/index.ts';
-import { addEntry, entryText, removeEntry, SELECTOR_PARTS, SELECTOR_WORDS, type SelectorPart } from '../logic/mcps.ts';
+import { addEntry, entryText, removeEntry, SELECTOR_PARTS, SELECTOR_WORDS, setFnCondition, type SelectorPart } from '../logic/mcps.ts';
+import FnConditionDialog from './FnConditionDialog.vue';
 
 const props = withDefaults(defineProps<{
   title: string;
@@ -26,6 +28,16 @@ const problems = ref<Partial<Record<SelectorPart, string>>>({});
 
 function typed(part: SelectorPart, event: Event): void {
   if (event.target instanceof HTMLInputElement) { drafts.value = { ...drafts.value, [part]: event.target.value }; }
+}
+
+/** The fn rule whose condition is open, by its index; -1 for none. */
+const conditionOf = ref(-1);
+const conditionOpen = computed({ get: () => conditionOf.value >= 0, set: (isOpen: boolean) => { if (!isOpen) { conditionOf.value = -1; } } });
+const conditionMatch = computed(() => props.selector.fns?.[conditionOf.value]);
+const conditionTitle = computed(() => `Condition for ${entryText('fns', { fns: conditionMatch.value === undefined ? [] : [conditionMatch.value] })[0] ?? 'the rule'}`);
+function saveCondition(when: Json | undefined): void {
+  emit('change', setFnCondition(props.selector, conditionOf.value, when));
+  conditionOf.value = -1;
 }
 
 function add(part: SelectorPart): void {
@@ -51,6 +63,11 @@ function add(part: SelectorPart): void {
       <ul v-if="entryText(part, selector).length > 0" class="chips">
         <li v-for="(text, i) in entryText(part, selector)" :key="`${text}-${i}`" class="chip">
           <code>{{ text }}</code>
+          <UiIconButton
+            v-if="part === 'fns'" size="sm" icon="filter" :class="{ conditioned: selector.fns?.[i]?.when !== undefined }"
+            :label="selector.fns?.[i]?.when === undefined ? `Add a condition to ${text}` : `Change the condition of ${text}`" :data-testid="`${testid}-fns-when-${i}`"
+            @click="conditionOf = i"
+          />
           <UiIconButton size="sm" icon="x" :label="`Remove ${text}`" @click="emit('change', removeEntry(selector, part, i))" />
         </li>
       </ul>
@@ -65,6 +82,7 @@ function add(part: SelectorPart): void {
       </form>
       <p v-if="problems[part]" class="problem" role="alert">{{ problems[part] }}</p>
     </div>
+    <FnConditionDialog v-model:open="conditionOpen" :match="conditionMatch" :title="conditionTitle" @save="saveCondition" />
   </section>
 </template>
 
@@ -82,6 +100,7 @@ function add(part: SelectorPart): void {
 .chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; padding: 0 0 0 var(--space-2); border-radius: var(--radius-full); background: var(--surface-2); }
 .chip code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 .include .chip { background: var(--accent-soft); }
+.conditioned { color: var(--accent); }
 .add { display: flex; gap: var(--space-2); }
 .field {
   flex: 1; min-width: 0; height: var(--control-sm); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius);

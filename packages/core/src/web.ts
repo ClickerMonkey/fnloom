@@ -23,7 +23,7 @@ import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNo
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
 import { ContextRecord, FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
 import { Policy } from './records/actors.ts';
-import { ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs } from './context-graph.ts';
+import { CONTEXT_ORIGIN_TYPES, ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs } from './context-graph.ts';
 import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
 import { ModelCall, ModelCallQuery, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
 import { ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
@@ -386,7 +386,7 @@ export const resourcesSlice = spec({
 });
 
 /** What the context list narrows by. */
-export const ContextQuery = PageRequest.extend({ search: z.string().optional(), origin: z.enum(['system', 'memory', 'resource']).optional(), system: SystemName.optional() });
+export const ContextQuery = PageRequest.extend({ search: z.string().optional(), origin: z.enum(CONTEXT_ORIGIN_TYPES).optional(), system: SystemName.optional() });
 export type ContextQuery = z.infer<typeof ContextQuery>;
 
 /** One context item with its edges both ways and its text (dynamic context is asked for). */

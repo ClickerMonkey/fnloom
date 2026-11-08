@@ -1,16 +1,17 @@
 import { ActorId, RunId, SessionId, TurnId, type RunSettled } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { FETCH_RAW, guardedFetch, isPrivateAddress, LibraryFetcher, WebSystemFetcher, type FetchRuns, type ResolveHost } from './fetch.ts';
+import type { HostLookup } from '@harness/sdk/server';
+import { FETCH_RAW, guardedFetch, LibraryFetcher, WebSystemFetcher, type FetchRuns } from './fetch.ts';
 import { RegistryConverters } from './converters.ts';
 import { ALICE, bytes, HUB_ACTOR, MapFetcher, memoryContent } from './testing.ts';
 
 const who = { actor: ALICE };
-const settings = { HARNESS_FETCH_TIMEOUT: 5_000, HARNESS_FETCH_PRIVATE: false, HARNESS_IMPORT_MAX: 1_000_000 } as const;
+const settings = { HARNESS_FETCH_TIMEOUT: 5_000, HARNESS_FETCH_REDIRECTS: 8, HARNESS_FETCH_PRIVATE: false, HARNESS_IMPORT_MAX: 1_000_000 } as const;
 const converters = new RegistryConverters({ maxRows: 10 });
 
 /** Host names to addresses, for the guard. */
 const hosts: Record<string, string[]> = { 'site.dev': ['93.184.216.34'], 'inside.lan': ['192.168.1.5'], 'six.dev': ['2606:2800:220:1::1'] };
-const resolve: ResolveHost = (host) => Promise.resolve(hosts[host] ?? []);
+const lookup: HostLookup = (host) => { const found = hosts[host]; return found === undefined ? Promise.reject(new Error(`ENOTFOUND ${host}`)) : Promise.resolve(found); };
 
 /** A fetch answering from a table of URL → response maker, recording what was asked. */
 function fakeFetch(answers: Record<string, () => Response>) {
@@ -23,33 +24,35 @@ function fakeFetch(answers: Record<string, () => Response>) {
   return { fetch, asked };
 }
 
-describe('private addresses', () => {
-  it('knows private, loopback, link-local and mapped addresses', () => {
-    for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.0.10', '169.254.1.1', '100.100.4.74', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', 'not an ip']) {
-      expect(isPrivateAddress(address), address).toBe(true);
-    }
-    for (const address of ['93.184.216.34', '8.8.8.8', '2606:2800:220:1::1', '::ffff:8.8.8.8']) { expect(isPrivateAddress(address), address).toBe(false); }
-  });
+describe('the hub\'s guarded fetch', () => {
+  const rules = { lookup, allowPrivate: false };
 
-  it('refuses private hosts and redirects that lead to one, and other schemes', async () => {
-    const { fetch } = fakeFetch({
+  it('refuses private hosts, local names, multicast and redirects that lead to one, and other schemes', async () => {
+    const { fetch, asked } = fakeFetch({
       'https://site.dev/a': () => new Response(null, { status: 302, headers: { location: 'http://inside.lan/secret' } }),
       'https://site.dev/b': () => new Response(null, { status: 301, headers: { location: '/c' } }),
       'https://site.dev/c': () => new Response('ok'),
     });
-    const guarded = guardedFetch(fetch, resolve);
-    await expect(guarded('http://127.0.0.1:4300/api', {})).rejects.toMatchObject({ status: 403 });
-    await expect(guarded('http://inside.lan/', {})).rejects.toMatchObject({ status: 403 });
-    await expect(guarded('https://site.dev/a', {})).rejects.toMatchObject({ status: 403 });
+    const guarded = guardedFetch(fetch, rules, 8);
+    for (const url of ['http://127.0.0.1:4300/api', 'http://inside.lan/', 'https://site.dev/a', 'http://localhost:4300/', 'http://224.0.0.1/', 'http://[::ffff:7f00:1]/']) {
+      await expect(guarded(url, {}), url).rejects.toMatchObject({ status: 403 });
+    }
+    expect(asked).not.toContain('http://inside.lan/secret');
     await expect(guarded('file:///etc/passwd', {})).rejects.toMatchObject({ status: 422 });
+    await expect(guarded('https://nowhere.dev/', {})).rejects.toMatchObject({ status: 502 });
     expect(await (await guarded('https://site.dev/b', {})).text()).toBe('ok');
+  });
+
+  it('stops after the redirect limit', async () => {
+    const { fetch } = fakeFetch({ 'https://site.dev/loop': () => new Response(null, { status: 302, headers: { location: '/loop' } }) });
+    await expect(guardedFetch(fetch, rules, 2)('https://site.dev/loop', {})).rejects.toMatchObject({ status: 508 });
   });
 });
 
 describe('the hub fetching URLs itself', () => {
   it('fetches a page with its type, through the guard', async () => {
     const { fetch, asked } = fakeFetch({ 'https://site.dev/docs': () => new Response('<html><body><h1>Docs</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } }) });
-    const fetcher = new LibraryFetcher({ converters, settings, fetch, resolve });
+    const fetcher = new LibraryFetcher({ converters, settings, fetch, lookup });
     const page = await fetcher.fetch('https://site.dev/docs', 'auto', who);
     expect(page).toMatchObject({ mime: 'text/html', finalUrl: 'https://site.dev/docs', rendered: false });
     expect(new TextDecoder().decode(page.bytes)).toContain('<h1>Docs</h1>');
@@ -59,7 +62,7 @@ describe('the hub fetching URLs itself', () => {
 
   it('reaches private addresses only when an admin allows them', async () => {
     const { fetch } = fakeFetch({ 'http://inside.lan/': () => new Response('inside', { headers: { 'content-type': 'text/plain' } }) });
-    const fetcher = new LibraryFetcher({ converters, settings: { ...settings, HARNESS_FETCH_PRIVATE: true }, fetch, resolve });
+    const fetcher = new LibraryFetcher({ converters, settings: { ...settings, HARNESS_FETCH_PRIVATE: true }, fetch, lookup });
     expect(new TextDecoder().decode((await fetcher.fetch('http://inside.lan/', 'auto', who)).bytes)).toBe('inside');
   });
 });

@@ -7,7 +7,7 @@
 import type { FnRecord, ImportReport, Json, SystemEnabled, SystemName, SystemView, UserEvent } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
-import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { AdminApi, SystemLogEvents } from '../api.ts';
 import type { OutputLine } from '@harness/core';
 import type { SystemAction } from '../logic/systems.ts';
@@ -116,7 +116,7 @@ export class SystemStore {
   }
 
   /** Start, stop, restart, upgrade (to `version`, or the latest), reimport or remove it. */
-  async act(action: SystemAction, version?: string): Promise<TaskResult<ActionOutcome>> {
+  async act(action: SystemAction, version?: string): Promise<Outcome<ActionOutcome>> {
     const name = this.name.value;
     if (name === undefined) { return { ok: false, problem: 'No system is open.' }; }
     this.acting.value = action;

@@ -8,7 +8,7 @@ import type { ContextRecord } from '@harness/core';
 import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { fullTime, relativeTime, UiBadge, UiIcon } from '../../ui/index.ts';
-import { ORIGIN_WORDS, originOf } from '../logic/context.ts';
+import { ORIGIN_WORDS, originOf, sizeText } from '../logic/context.ts';
 
 const props = defineProps<{ record: ContextRecord; to: RouteLocationRaw; now: number }>();
 const origin = computed(() => ORIGIN_WORDS[originOf(props.record)]);
@@ -30,7 +30,7 @@ const command = computed(() => props.record.decl.command?.name);
     </span>
     <span class="side">
       <span class="origin">{{ origin.short }}</span>
-      <span v-if="record.tokens !== undefined" class="tokens">{{ record.tokens.full.toLocaleString() }} tokens</span>
+      <span v-if="sizeText(record) !== undefined" class="tokens">{{ sizeText(record) }}</span>
       <time class="when" :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time>
     </span>
   </RouterLink>

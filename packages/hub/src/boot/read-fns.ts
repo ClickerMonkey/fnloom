@@ -4,7 +4,8 @@
  * LLM sees what that person could see in the browser. The reads of other modules (resources, context, model limits)
  * are registered by those modules.
  */
-import { HUB_READ_ENDPOINTS, hub, toolArgsOf } from '@harness/sdk';
+import type { QualifiedName } from '@harness/core';
+import { HUB_READ_ENDPOINTS, hub, toolArgsOf, type FnRef } from '@harness/sdk';
 import type { z } from 'zod';
 import type { HubReadName, HubReads, ReadOp } from '../api/reads.ts';
 import type { Viewer } from '../api/web/access.ts';
@@ -25,7 +26,19 @@ export function viewerOf(ctx: HubFnCtx): Viewer {
   return { id: ctx.request.run.user.id, role: ctx.request.run.user.role };
 }
 
-/** A read fn's implementation, erased to what `HubFns` registers. */
+/** What a hub fn ref declares it returns. */
+type FnResult<F> = F extends FnRef<QualifiedName, infer _A, infer R> ? R : never;
+/** What the read behind a read fn answers. */
+type ReadResult<N extends HubReadName> = Awaited<ReturnType<HubReads[N]>>;
+
+/**
+ * Each read answers what its hub fn declares it returns (both come from the same endpoint's response), or this fails
+ * to compile naming the reads that don't; `HubFns.register` then takes each read as it is, its result checked here.
+ */
+type ResultsMatch = { readonly [N in HubReadName]: ReadResult<N> extends FnResult<(typeof hub.fns)[N]> ? true : N };
+export const READ_RESULTS_MATCH: ResultsMatch[HubReadName] extends true ? true : ResultsMatch[HubReadName] = true;
+
+/** A read fn's implementation as `HubFns` registers it; its result is checked against the fn's by `ResultsMatch`. */
 type ReadImpl = (args: unknown, ctx: HubFnCtx) => Promise<unknown>;
 
 /** Register the read fns. The reads are looked up when a fn runs, never while registering. */
@@ -35,6 +48,8 @@ export function registerReadFns(fns: HubFns, reads: () => HubReads): void {
     const args = toolArgsOf<E['cfg']['body']>(endpoint.cfg.body);
     return async (raw, ctx) => read(reads())(args.read(raw), viewerOf(ctx));
   };
+  // TypeScript can't carry one name through both `HUB_READ_ENDPOINTS` and `HubReads` in a loop, so each read names
+  // its endpoint here; the mapped type makes the table whole, and `ResultsMatch` checks what each answers
   const impls: { readonly [N in HubReadName]: ReadImpl } = {
     types_get: run(HUB_READ_ENDPOINTS.types_get, (r) => r.types_get),
     runs_list: run(HUB_READ_ENDPOINTS.runs_list, (r) => r.runs_list),

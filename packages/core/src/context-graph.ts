@@ -4,7 +4,7 @@
  * edges. The graph contextor walks the edges; loading an item brings what it hard-links (`imports`, `brings`).
  */
 import { z } from 'zod';
-import { ActorId, QualifiedName, RunId, SessionId, Timestamp } from './primitives.ts';
+import { ActorId, QualifiedName, RunId, type Same, SessionId, Timestamp } from './primitives.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
 
 // ─── Where context comes from ─────────────────────────────────────────────────
@@ -36,6 +36,9 @@ export const ContextOrigin = z.discriminatedUnion('type', [
 ]);
 export type ContextOrigin = z.infer<typeof ContextOrigin>;
 export type ContextOriginType = ContextOrigin['type'];
+/** Every kind of origin, for filters: exactly `ContextOrigin`'s (a new one fails to compile here until listed). */
+export const CONTEXT_ORIGIN_TYPES = ['system', 'memory', 'resource'] as const;
+true satisfies Same<(typeof CONTEXT_ORIGIN_TYPES)[number], ContextOriginType>;
 
 /** Who is asking to see a context item: the person, and the session they ask from (if any). */
 export interface ContextViewer {
@@ -90,6 +93,9 @@ export const LinkTarget = z.discriminatedUnion('kind', [
 ]);
 export type LinkTarget = z.infer<typeof LinkTarget>;
 export type LinkTargetKind = LinkTarget['kind'];
+/** Every kind of item a link can point at: exactly `LinkTarget`'s (a new one fails to compile here until listed). */
+export const LINK_TARGET_KINDS = ['fn', 'context', 'resource', 'type'] as const;
+true satisfies Same<(typeof LINK_TARGET_KINDS)[number], LinkTargetKind>;
 
 /** The stored key of a link target: `context:fs/guide`, `resource:file:///a.md#Usage`. */
 export function linkTargetKey(target: LinkTarget): string {

@@ -87,3 +87,24 @@ export const SAMPLE_SVG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="
 
 /** A transcript with times. */
 export const SAMPLE_TRANSCRIPT = '[0:00] Welcome to the harness walkthrough.\n[0:04] First, pair a system.\n[0:09] Then ask the chat to read a file.';
+
+/** The sample audio's rate (samples a second), length and pitch: a short, soft tone. */
+const TONE = { rate: 8_000, seconds: 2, hz: 440, gain: 0.2 } as const;
+
+/** A short tone as a WAV file (16-bit mono PCM), so the audio sample plays without a hub. */
+export function sampleWav(): Uint8Array<ArrayBuffer> {
+  const samples = TONE.rate * TONE.seconds;
+  const bytes = new Uint8Array(new ArrayBuffer(44 + samples * 2));
+  const view = new DataView(bytes.buffer);
+  const text = (at: number, word: string): void => { for (let i = 0; i < word.length; i++) { view.setUint8(at + i, word.charCodeAt(i)); } };
+  text(0, 'RIFF'); view.setUint32(4, 36 + samples * 2, true); text(8, 'WAVE');
+  text(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, TONE.rate, true); view.setUint32(28, TONE.rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  text(36, 'data'); view.setUint32(40, samples * 2, true);
+  for (let i = 0; i < samples; i++) {
+    // faded in and out, so it starts and ends without a click
+    const fade = Math.min(1, i / 400, (samples - i) / 400);
+    view.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * TONE.hz * i) / TONE.rate) * fade * TONE.gain * 32_767), true);
+  }
+  return bytes;
+}

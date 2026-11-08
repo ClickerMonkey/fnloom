@@ -1,4 +1,4 @@
-import { ADMIN_ENDPOINTS, fn, hub, manifestOf, type FnRef } from '@harness/sdk';
+import { ADMIN_ENDPOINTS, encodeValue, fn, hub, manifestOf, type AdminFnName, type FnRef } from '@harness/sdk';
 import { ADMIN_TAG, INVALID_INPUT_CODE, QualifiedName, READ_TAG, type Json, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AdminOperations } from '../api/admin-ops.ts';
@@ -92,5 +92,73 @@ describe('admin fns', () => {
     const settled = await call(r, turn, 'set_budget', { target: { scope: 'hub' }, period: 'per-turn', maxCost: 2, onLimit: 'refuse' });
     expect(settled).toMatchObject({ status: 'failed', error: { message: 'only an admin can change this' } });
     expect(asked).toEqual([]);
+  });
+});
+
+/** The args a hub fn ref takes. */
+type ArgsOf<F> = F extends FnRef<QualifiedName, infer A, unknown> ? A : never;
+
+/** One valid body for every admin fn (the compiler checks each against its fn's args). */
+const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]> } = {
+  configure_provider: { input: { provider: 'ollama' } },
+  set_model_category: { name: 'fast', description: 'Fast ones.', models: ['m'] },
+  set_budget: { target: { scope: 'hub' }, period: 'per-turn', maxCost: 1, onLimit: 'refuse' },
+  set_priority: { target: { scope: 'hub' } },
+  set_policy: { description: 'all', subject: { everyone: true }, target: {}, decision: { effect: 'allow' }, priority: 1 },
+  set_actor_setting: { setting: 'hub/theme', actor: ALICE, value: 'dark' },
+  add_user: { email: 'bo@example.com', name: 'Bo', role: 'member' },
+  add_group: { name: 'team', about: 'A team.' },
+  remove_rule: { input: { kind: 'budget', id: 'bgt_1' } },
+  approve_pairing: { pairing: 'par_1', approve: true },
+  create_pairing_token: { expiresIn: 60 },
+  configure_system: { system: 'fs', config: {} },
+  enable_system: { system: 'fs', functions: true },
+  remove_system: { system: 'fs' },
+  install_system: { source: { path: 'systems/fs' } },
+  start_system: { system: 'fs' },
+  stop_system: { system: 'fs' },
+  upgrade_system: { system: 'fs' },
+  set_model_role: { input: { role: 'chat', model: { model: 'm' } } },
+  clear_model_role: { role: 'chat' },
+  set_model_limits: { model: 'm', limits: {} },
+  create_mcp: {
+    slug: 'claude', name: 'Claude', instructions: '', rules: { include: {}, exclude: {} }, toolMode: 'each', user: ALICE, grantees: [], origins: [], enabled: true,
+  },
+  update_mcp: { mcp: 'mcp_1' },
+  rotate_mcp_secret: { mcp: 'mcp_1' },
+  delete_mcp: { mcp: 'mcp_1' },
+  preview_mcp: { rules: { include: {}, exclude: {} } },
+  install_package: { zip: { hash: 'a'.repeat(64), size: 1, mime: 'application/zip' } },
+  remove_instance: { system: 'fs', instance: 'one' },
+  export_system_data: { system: 'fs', instance: 'one' },
+};
+
+describe('every admin fn', () => {
+  it('runs the operation of its own name', async () => {
+    const r = await executionRig();
+    rig = r;
+    for (const name of ADMIN_FN_NAMES) { addAdminFn<unknown, unknown>(r, hub.fns[name]); }
+    /** Each operation fails naming itself, so a run shows which one it reached. */
+    const reached = (name: AdminFnName) => (): Promise<never> => Promise.reject(new Error(`reached ${name}`));
+    const ops: AdminOperations = {
+      configure_provider: reached('configure_provider'), set_model_category: reached('set_model_category'), set_budget: reached('set_budget'),
+      set_priority: reached('set_priority'), set_policy: reached('set_policy'), set_actor_setting: reached('set_actor_setting'), add_user: reached('add_user'),
+      add_group: reached('add_group'), remove_rule: reached('remove_rule'), approve_pairing: reached('approve_pairing'),
+      create_pairing_token: reached('create_pairing_token'), configure_system: reached('configure_system'), enable_system: reached('enable_system'),
+      remove_system: reached('remove_system'), install_system: reached('install_system'), start_system: reached('start_system'), stop_system: reached('stop_system'),
+      upgrade_system: reached('upgrade_system'), set_model_role: reached('set_model_role'), clear_model_role: reached('clear_model_role'),
+      set_model_limits: reached('set_model_limits'), create_mcp: reached('create_mcp'), update_mcp: reached('update_mcp'),
+      rotate_mcp_secret: reached('rotate_mcp_secret'), delete_mcp: reached('delete_mcp'), preview_mcp: reached('preview_mcp'),
+      install_package: reached('install_package'), remove_instance: reached('remove_instance'), export_system_data: reached('export_system_data'),
+    };
+    registerAdminFns(r.module.hubFns, () => ops);
+    await r.session();
+    await r.module.start();
+    const turn = await r.turn({ session: SESSION, text: 'change everything' });
+    for (const name of ADMIN_FN_NAMES) {
+      const ref = hub.fns[name];
+      const args = encodeValue<unknown>(ref.args, ADMIN_EXAMPLES[name]);
+      expect(await call(r, turn, name, args), name).toMatchObject({ status: 'failed', error: { message: `reached ${name}` } });
+    }
   });
 });

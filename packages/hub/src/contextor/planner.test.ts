@@ -6,7 +6,7 @@ import type { ChatModeFactories, ContextorFactories } from './index.ts';
 import { CHAT_MODES } from './modes.ts';
 import { CONTEXTORS } from './contextors.ts';
 import { contextOrder, modeChoice, PromptTooLarge } from './planner.ts';
-import { textOf } from './history.ts';
+import { exchanges, textOf } from './history.ts';
 import { contextorRig, contextRecord, seeded } from './testing.ts';
 
 const SESSION = mintId('session', () => 'plan');
@@ -32,10 +32,14 @@ async function planning(transcript: LlmMessage[] = [], patch: Partial<Session> =
   return { r, session, turn, plan, agentRecord };
 }
 
-/** Exchanges about numbered topics. */
-function talk(count: number): LlmMessage[] {
+/** Exchanges about numbered topics; the exchanges `withTool` picks look the topic up with a tool call first. */
+function talk(count: number, withTool: (i: number) => boolean = () => false): LlmMessage[] {
   return Array.from({ length: count }, (_, i): LlmMessage[] => [
     { role: 'user', content: `Tell me about zeta${i} please.` },
+    ...(withTool(i) ? [
+      { role: 'assistant', content: '', toolCalls: [{ id: `call-${i}`, name: 'run', arguments: `{"fn":"fs/read","args":{"path":"zeta${i}.md"}}` }] },
+      { role: 'tool', toolCallId: `call-${i}`, content: `Notes on zeta${i}.` },
+    ] satisfies LlmMessage[] : []),
     { role: 'assistant', content: `Zeta${i} is about ${'detail '.repeat(30)}. That is all about zeta${i}.` },
   ]).flat();
 }
@@ -80,16 +84,19 @@ describe('the graph contextor', () => {
   it('keeps the agent\'s own fns callable: native tools in tools mode, offered in static mode', async () => {
     const { r, session, turn } = await planning();
     r.catalog.addFn('hub/search_fns', hub.defs.fns.search_fns);
+    r.catalog.addFn('hub/run_status', hub.defs.fns.run_status);
     const toolbox = (mode: ChatModeConfig) => r.catalog.addFn(`hub/toolbox_${mode.type}`, agent({
-      description: 'Toolbox.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [hub.fns.search_fns], mode, contextor: { type: 'graph' },
+      description: 'Toolbox.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [hub.fns.search_fns, hub.fns.run_status], mode, contextor: { type: 'graph' },
     }));
     const planFor = (mode: ChatModeConfig) => r.planner.plan({ session, turn, agent: toolbox(mode), model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'hello' }] });
     const tools = await planFor({ type: 'tools' });
-    expect(tools.tools.map((t) => t.name)).toEqual(['hub__search_fns']);
-    expect(tools.report.fns.map((f) => f.name)).toEqual(['hub/search_fns']);
+    expect(tools.tools.map((t) => t.name).sort()).toEqual(['hub__run_status', 'hub__search_fns']);
+    expect(tools.report.fns.map((f) => f.name).sort()).toEqual(['hub/run_status', 'hub/search_fns']);
     expect(tools.report.fns[0]?.detail).not.toBe('listed');
+    // static mode leaves out build 1's search and load fns, whose jobs its own tools do
     const listed = await planFor({ type: 'static', protocol: 'auto', placement: 'system-end', loadDetail: 'full' });
-    expect(listed.report.fns.map((f) => f.name)).toEqual(['hub/search_fns']);
+    expect(listed.report.fns.map((f) => f.name)).toEqual(['hub/run_status']);
+    expect(listed.context).not.toContain('hub/search_fns');
     expect(listed.tools.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
   });
 
@@ -121,7 +128,7 @@ describe('the graph contextor', () => {
   });
 
   it('rebuilds history: the newest exchanges as messages, the relevant older ones as summaries', async () => {
-    const transcript = talk(30);
+    const transcript = talk(30, (i) => i % 3 === 0);
     const { plan } = await planning(transcript);
     const planned = await plan('remind me about zeta3');
     expect(planned.report.linear).toBeGreaterThanOrEqual(1);
@@ -130,8 +137,16 @@ describe('the graph contextor', () => {
     expect(planned.context).toContain('<earlier turn="3">');
     const last = planned.messages.at(-1);
     expect(last).toEqual({ role: 'user', content: 'remind me about zeta3' });
-    // tool calls never lose their replies, and the linear part is the newest exchanges in order
-    expect(planned.messages[0]?.role).toBe('user');
+    // the linear part is the newest exchanges whole and in order, then the current message
+    const newest = exchanges(transcript).slice(-planned.report.linear).flatMap((e) => [...e.messages]);
+    expect(planned.messages.slice(0, -1)).toEqual(newest);
+    // every tool call in it travels with its reply, right after the call
+    const calls = planned.messages.flatMap((m, i) => (m.toolCalls ?? []).map((call) => ({ id: call.id, at: i })));
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const reply = planned.messages.findIndex((m) => m.role === 'tool' && m.toolCallId === call.id);
+      expect(reply).toBeGreaterThan(call.at);
+    }
   });
 
   it('chooses the same for a retried job, and keeps its choice on the session', async () => {

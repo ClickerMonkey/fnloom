@@ -15,6 +15,9 @@ export const contextorEnv = env({
   HARNESS_LOADED_TURNS: z.number().int().min(0).default(3).describe('Turns an item the agent or person loaded stays forced into the prompt after its last use.'),
   HARNESS_EARLIER_TOKENS: z.number().int().min(16).default(120).describe('The most tokens one earlier exchange\'s summary takes in the system prompt.'),
   HARNESS_LINK_HALF_LIFE: z.number().int().min(86_400_000).default(30 * 86_400_000).describe('A learned link\'s use count halves after this long without use.'),
+  HARNESS_DYNAMIC_CONTEXT_TTL: z.number().int().min(0).default(300_000).describe('How long the text a system wrote for a dynamic context item (`fs/tree`, `/new-system`) is kept per session and person before it is asked again.'),
+  HARNESS_DYNAMIC_CONTEXT_TIMEOUT: z.number().int().min(100).default(15_000).describe('How long the hub waits for a system to write a dynamic context item.'),
+  HARNESS_DYNAMIC_CONTEXT_CACHE: z.number().int().min(1).default(500).describe('The most dynamic context texts kept in memory (the oldest go first).'),
   HARNESS_PROMPT_MARGIN: z.number().min(0).max(0.5).default(0.06).describe('The share of a model\'s window kept free for estimate error (at least 64 tokens).'),
 });
 

@@ -10,7 +10,7 @@ import { formatBytes } from '../../chat/logic/format.ts';
 import { UiBadge, UiIcon } from '../../ui/index.ts';
 import type { ResourceAction } from '../logic/actions.ts';
 import { nameOf } from '../logic/browse.ts';
-import { BADGE_FORMS, FAMILY_ICON, FORM_LABEL, familyOfStat } from '../logic/formats.ts';
+import { BADGE_FORMS, FAMILY_ICON, FORM_LABEL, familyOfStat, typeWord } from '../logic/formats.ts';
 import type { Peek } from '../state/browser.ts';
 import ResourceMenu from './ResourceMenu.vue';
 
@@ -23,7 +23,7 @@ const badges = computed(() => BADGE_FORMS.filter((kind) => props.record.forms?.i
 
 <template>
   <article class="resource-card" :class="{ selected, opened }" :data-uri="record.uri" data-testid="resource-card">
-    <button type="button" class="thumb" :class="`family-${family}`" :aria-label="`Open ${nameOf(record)}`" @click="emit('open')">
+    <button type="button" class="thumb" :class="[`family-${family}`, { badged: badges.length > 0 }]" :aria-label="`Open ${nameOf(record)}`" @click="emit('open')">
       <img v-if="peek?.kind === 'image'" :src="peek.url" :alt="nameOf(record)" loading="lazy" decoding="async" />
       <pre v-else-if="peek?.kind === 'text'" class="lines">{{ peek.text }}</pre>
       <UiIcon v-else :name="FAMILY_ICON[family]" :size="40" class="glyph" />
@@ -32,7 +32,7 @@ const badges = computed(() => BADGE_FORMS.filter((kind) => props.record.forms?.i
       <label class="check"><input type="checkbox" :checked="selected" :aria-label="`Select ${nameOf(record)}`" @change="emit('toggle')" /></label>
       <div class="titles">
         <span class="name" :title="record.uri">{{ nameOf(record) }}</span>
-        <span class="detail">{{ record.stat.format ?? record.stat.type }}<template v-if="record.stat.size !== undefined"> · {{ formatBytes(record.stat.size) }}</template></span>
+        <span class="detail">{{ typeWord(record.stat) }}<template v-if="record.stat.size !== undefined"> · {{ formatBytes(record.stat.size) }}</template></span>
       </div>
       <ResourceMenu :record="record" @select="emit('action', $event)" />
     </div>
@@ -55,6 +55,8 @@ const badges = computed(() => BADGE_FORMS.filter((kind) => props.record.forms?.i
 .titles { display: grid; min-width: 0; }
 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: var(--text-xs); }
+/* a text preview starts below the badges, so they never cover its first lines */
+.thumb.badged .lines { padding-top: calc(var(--space-2) + 26px); }
 /* over the thumbnail's corner, so every card in a row is the same height */
 .badges { position: absolute; top: var(--space-2); left: var(--space-2); right: var(--space-2); display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
 .badges > * { background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface); box-shadow: var(--shadow-sm); }

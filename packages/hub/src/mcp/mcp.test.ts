@@ -12,7 +12,6 @@ import { fn, g } from '@harness/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '../bus/memory.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { CatalogFnViews } from '../contextor/views.ts';
 import type { RunInput } from '../execution/index.ts';
 import { ALICE_INFO, OPEN_LIMITS, TestCatalog } from '../execution/testing.ts';
 import { memoryLog, settle, testStore } from '../testing.ts';
@@ -86,7 +85,7 @@ function testCatalog(): TestCatalog & Pick<Catalog, 'entries' | 'typeClosure' | 
 const stops: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); });
 
-async function hub(settings: { ask?: number; total?: number; rate?: number } = {}) {
+async function hub(settings: { ask?: number; total?: number; rate?: number; idle?: number } = {}) {
   const store = await testStore();
   const bus = new MemoryEventBus(() => undefined);
   const { log, records } = memoryLog();
@@ -102,13 +101,12 @@ async function hub(settings: { ask?: number; total?: number; rate?: number } = {
     settings: { HARNESS_HUB_MCP_ASK_TIMEOUT: settings.ask ?? 60_000, HARNESS_HUB_MCP_RUN_TIMEOUT: settings.total ?? 120_000 },
     rate: limiter({ limit: settings.rate ?? 100, window: 60_000 }),
   });
-  const views = new CatalogFnViews(catalog);
   const sources = { scopes: () => scopes, catalog: () => catalog, resources: () => ({ roots: () => [], read: () => Promise.reject(new Error('no resources here')) }), content: () => ({ read: () => Promise.resolve(new Uint8Array()) }) };
   const endpoints: HubMcpEndpoints = new HubMcpEndpoints({
-    registry: () => registry, tokens: () => tokens, bus, clock, log, maxBody: 1_048_576, serverInfo: { name: 'harness', version: 'test' },
+    registry: () => registry, tokens: () => tokens, bus, clock, log, maxBody: 1_048_576, idleTimeout: settings.idle ?? 1_800_000, serverInfo: { name: 'harness', version: 'test' },
     list: async () => (await store.table('mcps').find({ limit: 50 })).items,
     parts: (mcp) => ({
-      tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => catalog, views, runner, log }),
+      tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => catalog, runner, log }),
       resources: new HubMcpResources(mcp.id, sources),
       prompts: new HubMcpPrompts(mcp.id, sources),
     }),
@@ -201,18 +199,20 @@ describe('hub MCPs', () => {
     expect(h.runs.cancelled).toHaveLength(1);
   });
 
-  it('tell clients when the tool list changes, and refuse a tool hidden since', async () => {
+  it('end open sessions when the rules change, tell clients when the catalog changes the list, and refuse a tool hidden since', async () => {
     const h = await hub();
     const { mcp, secret } = await h.create();
     const client = await h.connect('claude', secret);
-    const changed = client.nextNotification('notifications/tools/list_changed');
+    expect((await client.listTools()).map((t) => t.name)).toEqual(['fs_read', 'fs_write']);
     await h.registry.update(mcp.id, { rules: { include: { systems: [SystemName.parse('fs')] }, exclude: { fns: [{ fn: 'fs/bash' }, { fn: 'fs/write' }] } } }, ALICE);
     await h.endpoints.settled();
-    // a change to an MCP remounts it, which ends its sessions: the next client sees the new list
+    // a change to an MCP remounts it, which ends its sessions: the open client's next call is refused, so it reconnects
+    await expect(client.listTools()).rejects.toThrow('unknown or ended session');
+    await expect(client.callTool('fs_write', { path: 'a', text: 'b' })).rejects.toThrow('unknown or ended session');
+    expect(h.runs.started).toEqual([]);
     const again = await h.connect('claude', secret);
     expect((await again.listTools()).map((t) => t.name)).toEqual(['fs_read']);
     expect(await again.callTool('fs_write', { path: 'a', text: 'b' }).catch((error: unknown) => (error instanceof Error ? error.message : ''))).toMatch(/unknown tool/);
-    void changed.catch(() => undefined);
     // a catalog change refreshes the list on the open session
     const next = again.nextNotification('notifications/tools/list_changed');
     h.catalog.add('fs', 'stat', fn({ description: 'Stat a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
@@ -256,20 +256,45 @@ describe('hub MCPs', () => {
     await expect(h.connect('claude', other)).rejects.toThrow();
   });
 
-  it('serve the static toolset scoped to the MCP', async () => {
+  it('drop a session when its client closes it, or goes quiet past the idle timeout', async () => {
+    const h = await hub({ idle: 40 });
+    const { mcp, secret } = await h.create();
+    const closing = await h.connect('claude', secret);
+    expect(h.endpoints.sessionCount(mcp.id)).toBe(1);
+    await closing.close();
+    expect(h.endpoints.sessionCount(mcp.id)).toBe(0);
+
+    // a client with no event stream that never says goodbye (killed, crashed)
+    const quiet = await McpClient.connect(new McpHttpClientTransport('http://hub/mcp/claude', {
+      fetch: (input, init) => h.endpoints.handle(new Request(input, init)), headers: { authorization: `Bearer ${secret}` }, events: false,
+    }), { clientInfo: { name: 'gone', version: '1' } });
+    await quiet.callTool('fs_read', { path: 'a' });
+    expect(await h.endpoints.sessions(mcp.id)).toMatchObject([{ client: { name: 'gone' }, calls: 1 }]);
+    await expect.poll(() => h.endpoints.sessionCount(mcp.id)).toBe(0);
+    expect(h.records).toContainEqual(expect.objectContaining({ msg: 'mcp.session.ended', mcp: mcp.id, reason: 'idle' }));
+    await expect(quiet.ping()).rejects.toThrow('unknown or ended session');
+  });
+
+  it('serve the static toolset: find and inspect as runs of the hub fns, run over the exposed fns', async () => {
     const h = await hub();
-    const { secret } = await h.create({ toolMode: 'static', slug: McpSlug.parse('small') });
+    const { mcp, secret } = await h.create({ toolMode: 'static', slug: McpSlug.parse('small') });
     const client = await h.connect('small', secret);
-    expect((await client.listTools()).map((t) => t.name)).toEqual(['find', 'inspect', 'run']);
-    expect(await client.callTool('find', { query: 'write a file' })).toMatchObject({ content: [{ text: 'fs/write — Write a file.\nfs/read — Read a file.' }] });
-    const card = await client.callTool('inspect', { name: 'fs/read' });
-    const text = card.content[0]?.type === 'text' ? card.content[0].text : '';
-    expect(text).toContain('run({ fn: "fs/read"');
-    expect(await client.callTool('inspect', { name: 'fs/bash' })).toMatchObject({ content: [{ text: 'There is no fn fs/bash here; use find.' }] });
-    expect(await client.callTool('run', { fn: 'fs/read', args: { path: 'x' } })).toMatchObject({ structuredContent: { read: { path: 'x' } } });
+    const tools = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(['find', 'inspect', 'run']);
+    // the args are the hub fns' own and the chat's `run` args, so a fleet's `on` is there too
+    expect(tools[0]?.inputSchema).toMatchObject({ properties: { query: {}, kinds: {}, limit: {} } });
+    expect(tools[1]?.inputSchema).toMatchObject({ properties: { name: {}, detail: {} } });
+    expect(tools[2]?.inputSchema).toMatchObject({ properties: { fn: {}, args: {}, on: {} } });
+    expect(await client.callTool('find', { query: 'write a file' })).toMatchObject({ structuredContent: { read: { query: 'write a file' } } });
+    expect(await client.callTool('inspect', { name: 'fs/read' })).toMatchObject({ structuredContent: { read: { name: 'fs/read' } } });
+    expect(await client.callTool('run', { fn: 'fs/read', args: { path: 'x' }, on: 'laptop' })).toMatchObject({ structuredContent: { read: { path: 'x' } } });
     expect(await client.callTool('run', { fn: 'fs/bash', args: { command: 'rm -rf /' } })).toMatchObject({ isError: true, content: [{ text: 'fs/bash is not available through this MCP.' }] });
     expect(await client.callTool('run', { fn: 'hub/create_mcp', args: {} })).toMatchObject({ isError: true });
-    expect(h.runs.started.map((r) => r.fn)).toEqual(['fs/read']);
+    expect(h.runs.started).toMatchObject([
+      { fn: 'hub/find', args: { query: 'write a file' }, caller: mcp.actor },
+      { fn: 'hub/inspect', args: { name: 'fs/read' }, caller: mcp.actor },
+      { fn: 'fs/read', args: { path: 'x' }, on: 'laptop', caller: mcp.actor },
+    ]);
   });
 
   it('limit how many calls an MCP may start a minute', async () => {

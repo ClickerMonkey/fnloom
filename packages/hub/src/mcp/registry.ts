@@ -4,13 +4,14 @@
  * and kept only as its sha-256 digest. Rotating gives a new secret and ends the MCP's open sessions. Every change is
  * announced (`mcp.changed`) so its endpoint is rebuilt.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
-import { mintId, type ActorId, type HubMcp, type HubMcpId, type HubMcpInput, type HubMcpView, type McpActor, type McpSlug } from '@harness/core';
+import { DAY_MS, mintId, type ActorId, type HubMcp, type HubMcpId, type HubMcpInput, type HubMcpView, type McpActor, type McpSlug, type Timestamp } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { MCP_PATH } from '../api/http.ts';
 import type { HubStore } from '../store/index.ts';
+import { sha256Hex } from '../link/keys.ts';
 import type { McpRegistry } from './index.ts';
 
 /** The prefix every endpoint secret starts with, so a leaked one is easy to find. */
@@ -25,12 +26,12 @@ export function newSecret(): string {
 
 /** The sha-256 digest of a secret, hex: what the record keeps and a bearer is looked up by. */
 export function secretDigest(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex');
+  return sha256Hex(secret);
 }
 
 /** The first moment of a time's UTC day. */
-function dayStart(at: number): number {
-  return at - (at % 86_400_000);
+function dayStart(at: Timestamp): Timestamp {
+  return at - (at % DAY_MS);
 }
 
 /** What the registry uses. */
@@ -39,8 +40,8 @@ export interface StoreMcpRegistryDeps {
   readonly bus: EventBus;
   readonly clock: () => number;
   readonly log: Logger;
-  /** The base the URL of an MCP starts with (the hub's public URL, or nothing for a path). */
-  readonly publicUrl: string | undefined;
+  /** The hub's public URL, which every MCP's URL starts with, so a client elsewhere can connect with it as shown. */
+  readonly publicUrl: string;
   /** How many sessions an MCP has open now (the endpoints know). */
   readonly sessions: (mcp: HubMcpId) => number;
 }
@@ -146,6 +147,6 @@ export class StoreMcpRegistry implements McpRegistry {
   async #view(record: HubMcp): Promise<HubMcpView> {
     const { secretDigest: _digest, ...shown } = record;
     const callsToday = await this.#deps.store.table('runs').count({ caller: record.actor, createdAt: { gte: dayStart(this.#deps.clock()) } });
-    return { ...shown, url: `${this.#deps.publicUrl?.replace(/\/$/, '') ?? ''}${MCP_PATH}/${record.slug}`, sessions: this.#deps.sessions(record.id), callsToday };
+    return { ...shown, url: `${this.#deps.publicUrl.replace(/\/$/, '')}${MCP_PATH}/${record.slug}`, sessions: this.#deps.sessions(record.id), callsToday };
   }
 }

@@ -11,7 +11,7 @@
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   mcpsSlice, metricsSlice, MintMcpTokenArgs, modelsSlice, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
-  Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, type Display, type LinkTargetKind,
+  Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn } from './fn.ts';
@@ -268,7 +268,7 @@ export const FnErrorType = g.obj({
 const RunStatusType = g.enum(RUN_STATUSES);
 
 /** What `hub/find` can look for: every kind of item a context link can point at (core's `LinkTarget`). */
-export const FIND_KINDS = ['fn', 'context', 'resource', 'type'] as const satisfies readonly LinkTargetKind[];
+export const FIND_KINDS = LINK_TARGET_KINDS;
 
 /** How much of an item the model sees, as a gin type (core's `Detail`). */
 const DetailType = g.enum(DETAIL_LEVELS);

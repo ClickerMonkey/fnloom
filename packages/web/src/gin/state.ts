@@ -175,7 +175,7 @@ export class ExprEditor {
     return type === undefined ? [] : [[name, type] as const];
   })));
   readonly parsed = computed(() => (this.def.value === undefined ? undefined : this.tools.parse(this.def.value)));
-  readonly expr = computed<Expr | undefined>(() => (this.parsed.value?.ok === true ? this.parsed.value.expr : undefined));
+  readonly expr = computed<Expr | undefined>(() => (this.parsed.value?.ok === true ? this.parsed.value.value : undefined));
   readonly view = computed<ExprView | undefined>(() => (this.expr.value === undefined ? undefined : viewOf(this.expr.value)));
   readonly typeText = computed(() => (this.expr.value === undefined ? '' : this.tools.typeText(this.expr.value, this.scope.value)));
   readonly problems = computed<readonly ExprProblem[]>(() => (this.expr.value === undefined ? [] : this.tools.problems(this.expr.value, this.scope.value)));

@@ -12,7 +12,7 @@
  * or the hub's own rule (`ApprovalDeciders`) settles it, and a decider that fails denies it.
  */
 import {
-  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type QualifiedName,
+  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type PolicyDecision, type QualifiedName,
   type Remember, type Run, type RunId, type SessionId, type Verdict,
 } from '@harness/core';
 import { messageOf } from './errors.ts';
@@ -56,7 +56,7 @@ export function globMatches(glob: string, name: string): boolean {
  * How specific a fn match is (higher is more specific), or undefined when it doesn't match. A `when` predicate over
  * the args can't be evaluated yet, so a policy with one matches only when it would deny or ask (never to allow).
  */
-export function targetRank(match: FnMatch, fn: FnRecord, effect: 'allow' | 'deny' | 'ask'): number | undefined {
+export function targetRank(match: FnMatch, fn: FnRecord, effect: PolicyDecision['effect']): number | undefined {
   if (match.when !== undefined && effect === 'allow') return undefined;
   let rank = 0;
   if (match.fn !== undefined) {

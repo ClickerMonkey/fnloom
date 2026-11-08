@@ -6,6 +6,7 @@
 import {
   ModelLimits, ROLE_CAPABILITY, RoleChoice, type DictationEngine, type LimitSource, type ModelInfo, type ModelLimitsView, type ModelRole, type ModelRoleView, type ProviderId,
 } from '@harness/core';
+import type { Outcome } from '../../ui/index.ts';
 
 /** What each role is for, and the ability its model needs (core's `ROLE_CAPABILITY`) in words. */
 export const ROLE_WORDS = {
@@ -50,14 +51,14 @@ export function roleDraft(view: ModelRoleView): RoleDraft {
 }
 
 /** The setting the editor's fields make, or a sentence saying what is missing. */
-export function roleChoiceOf(role: ModelRole, draft: RoleDraft): { readonly ok: true; readonly choice: RoleChoice } | { readonly ok: false; readonly problem: string } {
+export function roleChoiceOf(role: ModelRole, draft: RoleDraft): Outcome<RoleChoice> {
   const language = draft.language.trim();
   const pinned = { model: { model: draft.model.trim() }, ...(draft.provider === '' ? {} : { provider: draft.provider }) };
   const extra = language === '' ? {} : { language };
-  if (role === 'dictate' && draft.engine === 'browser') { return { ok: true, choice: RoleChoice.parse({ role, engine: { engine: 'browser' }, ...extra }) }; }
+  if (role === 'dictate' && draft.engine === 'browser') { return { ok: true, value: RoleChoice.parse({ role, engine: { engine: 'browser' }, ...extra }) }; }
   if (draft.model.trim() === '') { return { ok: false, problem: 'Choose a model.' }; }
   const parsed = RoleChoice.safeParse(role === 'dictate' ? { role, engine: { engine: 'model', ...pinned }, ...extra } : { role, ...pinned, ...extra });
-  return parsed.success ? { ok: true, choice: parsed.data } : { ok: false, problem: parsed.error.issues[0]?.message ?? 'That setting isn’t valid.' };
+  return parsed.success ? { ok: true, value: parsed.data } : { ok: false, problem: parsed.error.issues[0]?.message ?? 'That setting isn’t valid.' };
 }
 
 /** What a role resolves to now, in words: the model and provider, or why it can't be used. */
@@ -97,7 +98,7 @@ export function limitsDraft(view: ModelLimitsView): Record<keyof ModelLimits, st
 }
 
 /** The limits the editor's text makes: blank leaves a field to the next source; a field that isn't a number is a problem. */
-export function limitsOf(draft: Readonly<Record<keyof ModelLimits, string>>): { readonly ok: true; readonly limits: ModelLimits } | { readonly ok: false; readonly problem: string } {
+export function limitsOf(draft: Readonly<Record<keyof ModelLimits, string>>): Outcome<ModelLimits> {
   const limits: Record<string, number> = {};
   for (const field of LIMIT_FIELDS) {
     const text = draft[field].trim();
@@ -108,7 +109,7 @@ export function limitsOf(draft: Readonly<Record<keyof ModelLimits, string>>): { 
   }
   // the bounds (a whole number of tokens, at least 256 for a window, …) are the schema's
   const parsed = ModelLimits.safeParse(limits);
-  if (parsed.success) { return { ok: true, limits: parsed.data }; }
+  if (parsed.success) { return { ok: true, value: parsed.data }; }
   const issue = parsed.error.issues[0];
   const field = LIMIT_FIELDS.find((f) => f === issue?.path[0]);
   return { ok: false, problem: `${field === undefined ? 'A limit' : LIMIT_WORDS[field].label}: ${issue?.message ?? 'not valid'}.` };

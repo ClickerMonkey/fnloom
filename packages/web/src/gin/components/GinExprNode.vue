@@ -37,8 +37,8 @@ const emit = defineEmits<{ update: [def: ExprDef]; remove: [] }>();
 const tools = inject(EXPR_TOOLS, sharedExprTools, true);
 
 const parsed = computed(() => tools.parse(props.def));
-const view = computed(() => (parsed.value.ok ? viewOf(parsed.value.expr) : undefined));
-const typeText = computed(() => (parsed.value.ok ? tools.typeText(parsed.value.expr, props.scope) : ''));
+const view = computed(() => (parsed.value.ok ? viewOf(parsed.value.value) : undefined));
+const typeText = computed(() => (parsed.value.ok ? tools.typeText(parsed.value.value, props.scope) : ''));
 const children = computed(() => (view.value === undefined ? [] : childrenOf(view.value)));
 const own = computed(() => problemsAt(props.problems, props.path));
 const firstVariable = computed(() => [...props.scope.keys()][0] ?? 'value');
@@ -160,7 +160,7 @@ const comment = computed(() => (typeof props.def.comment === 'string' ? props.de
         <UiInput v-else :model-value="view.def.id" label="Native id" placeholder="num.add" size="sm" @update:model-value="scalar({ field: 'native', id: $event })" />
       </div>
       <code v-else-if="view.kind === 'lambda'" class="type-code">{{ lambdaType }}</code>
-      <UiCodeBlock v-else-if="view.kind === 'other'" :code="parsed.ok ? tools.code(parsed.expr) : ''" language="ts" :max-height="240" />
+      <UiCodeBlock v-else-if="view.kind === 'other'" :code="parsed.ok ? tools.code(parsed.value) : ''" language="ts" :max-height="240" />
 
       <!-- children -->
       <div v-if="children.length > 0" class="children">

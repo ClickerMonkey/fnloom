@@ -76,10 +76,19 @@ onBeforeUnmount(() => { observer?.disconnect(); sizer?.disconnect(); });
 <style scoped>
 .browser { display: grid; gap: var(--space-4); min-width: 0; }
 .browser.split { grid-template-columns: minmax(0, 1fr) 440px; align-items: start; }
+/*
+ * Beside the list, the opened item is a column pinned under the section nav: its header stays put and its body scrolls
+ * on its own (`PanelFrame`). Its height leaves the page's bottom padding (`AppPage`'s space-7) below it, so even when
+ * the list is short and the page is scrolled to its end, the column still sits below the nav, never under it.
+ */
 .browser.split :deep([data-testid='chat-panel']) {
-  position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto;
+  position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); height: calc(100dvh - var(--pinned-top, 0px) - var(--space-4) - var(--space-7)); overflow: hidden;
   border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
 }
+/* the pinned filters' fill runs out to the page's left edge only, never over the opened item beside the list */
+.browser.split .filters.pinned { clip-path: inset(0 0 -1px -100vmax); }
+/* beside an opened item the list is narrower: the filters narrow too, to stay on one row */
+.browser.split .filters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 124px), 1fr)); }
 .list-side { display: grid; gap: var(--space-3); min-width: 0; align-content: start; }
 .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--space-2) var(--space-3); align-items: end; }
 .rows { display: grid; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-sm); list-style: none; overflow: hidden; }

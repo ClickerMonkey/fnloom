@@ -61,6 +61,25 @@ export class WsLinkTransport implements LinkTransport {
   }
 }
 
+/** The path the hub serves its system link on. */
+export const LINK_PATH = '/link';
+
+/**
+ * The link URL for a hub address as a person gives it: the hub's own page (`http://hub:4300`, `https://hub`) becomes
+ * its link (`ws://hub:4300/link`, `wss://hub/link`), and a `ws(s)` URL with no path gets `/link`. A `ws(s)` URL with a
+ * path is kept as it is. Throws for a URL that isn't http(s) or ws(s).
+ */
+export function linkUrl(hub: string): string {
+  const parsed = new URL(hub);
+  const secure = parsed.protocol === 'https:' || parsed.protocol === 'wss:';
+  if (!secure && parsed.protocol !== 'http:' && parsed.protocol !== 'ws:') throw new Error(`The hub URL ${hub} must start with http(s):// or ws(s)://`);
+  const web = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  parsed.protocol = secure ? 'wss:' : 'ws:';
+  if (web || parsed.pathname === '' || parsed.pathname === '/') parsed.pathname = LINK_PATH;
+  parsed.hash = '';
+  return parsed.toString();
+}
+
 /** The HTTP base of a link URL (`ws://hub:4300/link` → `http://hub:4300`), for the client's HTTP side. */
 export function httpBase(url: string): string {
   const parsed = new URL(url);

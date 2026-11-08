@@ -4,16 +4,8 @@
  * collapsed ("3 items", "path, count and 2 more"). Read off the same `FormNode` the editor uses, so the viewer and the
  * editor never disagree about a type's shape. Pure, so they are tested alone.
  */
-import { humanize, type Json } from '@harness/core';
+import { humanize, isJsonObject, type Json } from '@harness/core';
 import { fits, hex, mapPairs, type FormNode } from './form.ts';
-
-/** A JSON object (not null, not a list). */
-export type JsonObject = { readonly [key: string]: Json };
-
-/** Whether a JSON value is an object. */
-export function isJsonObject(value: Json | undefined): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 const UNITS = [['h', 3_600_000], ['min', 60_000], ['s', 1_000]] as const;
 

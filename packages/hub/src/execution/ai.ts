@@ -9,16 +9,16 @@
  * `onError`, so the hooks pair a reservation with its settlement through a `WeakMap` keyed by that context.
  */
 import type { BaseRequest, BaseResponse, Request, Response, Streamer, Usage } from '@aeye/core';
-import { AI, type ModelInfo, type Providers } from '@aeye/ai';
+import { AI, type EmbeddingRequest, type ImageGenerationRequest, type ModelInfo, type Providers, type SpeechRequest, type TranscriptionRequest } from '@aeye/ai';
 import { models as knownModels, strictSupport } from '@aeye/models';
-import { compact, ProviderKind, type LlmInteractionId, type Modality, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
+import { compact, ProviderKind, type LlmInteractionId, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import type { ModelCallLog, OpenModelCall } from '../metrics/index.ts';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
 import type { CallSite, Ledger } from './index.ts';
 import type { InteractionRecorder } from './interactions.ts';
 import {
-  audioFile, audioMime, modalityOf, sizesOf, unitsOf, type EmbedCall, type Heard, type ImageCall, type MadeImage, type SpeechCall, type Spoken, type TranscribeCall,
+  audioFile, audioMime, sizesOf, unitsOf, type EmbedCall, type MediaRequest, type Heard, type ImageCall, type MadeImage, type SpeechCall, type Spoken, type TranscribeCall,
 } from './media.ts';
 import type { ExecutionBase, LlmEngine, RunCosts } from './ports.ts';
 import type { CallReceipts, HubCallContext, HubCallMetadata, LlmCallScope } from './scope.ts';
@@ -35,8 +35,8 @@ interface OpenCall {
   /** The run scope that pays for it; absent for the hub's own work. */
   readonly scope: LlmCallScope | undefined;
   readonly receipts: CallReceipts | undefined;
-  readonly modality: Modality;
-  readonly request: BaseRequest;
+  /** Its modality with its typed request. */
+  readonly media: MediaRequest;
   readonly model: CallModel;
   /** Its `ModelCall`. */
   readonly record: OpenModelCall;
@@ -109,7 +109,10 @@ export class HubAiHooks {
    */
   async before(ctx: object & HubCallContext, request: BaseRequest, model: CallModel, estimate: Usd): Promise<void> {
     const scope = ctx.call;
-    const modality = modalityOf(request);
+    // the engine method that made a non-chat call says what it is; anything else is the agent's chat
+    const media: MediaRequest | undefined = ctx.media ?? (isChatRequest(request) ? { modality: 'chat', request } : undefined);
+    if (media === undefined) throw new Error('a model call the hub did not make through its engine');
+    const { modality } = media;
     let held: OpenCall['held'];
     if (scope !== undefined) {
       const rate = await this.#deps.modelLimit.check(model.id, { now: this.#deps.clock() });
@@ -126,7 +129,7 @@ export class HubAiHooks {
         ? { purpose: ctx.purpose ?? HUB_PURPOSE }
         : compact({ run: scope.run, turn: scope.turn, session: scope.session, system: scope.system, fn: scope.fn, priority: scope.priority, purpose: ctx.purpose })),
     }, scope?.queuedAt ?? this.#deps.clock());
-    this.#open.set(ctx, { scope, receipts: ctx.receipts, modality, request, model, record, held, interaction });
+    this.#open.set(ctx, { scope, receipts: ctx.receipts, media, model, record, held, interaction });
   }
 
   /**
@@ -148,8 +151,9 @@ export class HubAiHooks {
 
   /** Settle, record on the run and the scope, and close the interaction and the model call. */
   async #finish(call: OpenCall, end: CallEnd): Promise<void> {
-    const { scope, record, modality, request } = call;
-    const units = unitsOf(modality, request, end.response, end.usage);
+    const { scope, record, media } = call;
+    const { modality } = media;
+    const units = unitsOf(media, end.response, end.usage);
     const wire = usageToWire(end.usage);
     const tokens = units.modality === 'chat' ? tokensOf(wire) : units.modality === 'embed' ? units.tokens ?? 0 : 0;
     if (scope !== undefined && call.held !== undefined) {
@@ -169,7 +173,7 @@ export class HubAiHooks {
     }
     if (scope?.firstTokenAt !== undefined) record.firstByte(scope.firstTokenAt);
     if (end.status === 'done') {
-      await record.done({ units, cost: end.cost, ...sizesOf(modality, request, end.response), ...(call.interaction === undefined ? {} : { interaction: call.interaction }) });
+      await record.done({ units, cost: end.cost, ...sizesOf(media, end.response), ...(call.interaction === undefined ? {} : { interaction: call.interaction }) });
     } else {
       await record.failed(end.error ?? (end.status === 'aborted' ? 'stopped by its caller' : 'the call ended early'), end.status === 'aborted', call.interaction);
     }
@@ -201,10 +205,18 @@ export function createHubAi(input: HubAiInput) {
   const { hooks, log } = input;
   const settle = (promise: Promise<void>, what: string): Promise<void> =>
     promise.catch((error: unknown) => { log.error('llm.hook-failed', { hook: what, error: messageOf(error) }); });
-  return AI.with<HubCallContext>()
+  return AI.with<HubCallContext, Pick<HubCallMetadata, 'provider'>>()
     .providers(input.providers)
     .create({ models: input.models ?? knownModels, modelOverrides: [...strictSupport] })
     .withHooks({
+      onModelSelected: (ctx, _request, selected) => {
+        const pinned = ctx.metadata?.provider;
+        if (pinned === undefined || selected.model.provider === pinned) return undefined;
+        const provider = ctx.ai.registry.getProvider(pinned);
+        if (provider === undefined) throw new Error(`The provider ${pinned} is not set up.`);
+        // the pinned provider's own record of the model when it lists one (its prices), else the same model under it
+        return { ...selected, model: ctx.ai.registry.getModel(`${pinned}/${selected.model.id}`) ?? { ...selected.model, provider: pinned }, provider };
+      },
       beforeRequest: (ctx, request, selected, _usage, estimate) => hooks.before(ctx, request, { id: selected.model.id, provider: selected.model.provider }, estimate),
       afterRequest: (ctx, _request, response, complete, _selected, usage, cost) => settle(hooks.after(ctx, response, complete, ctx.signal?.aborted === true, usage, cost), 'afterRequest'),
       onError: (type, message, error, ctx) => {
@@ -276,8 +288,8 @@ function modelOf(metadata: HubCallMetadata): { model?: string } {
 }
 
 /** The aeye context of a non-chat call: the hub's part, its selection metadata and its stop signal. */
-function contextOf(ctx: HubCallContext, metadata: HubCallMetadata, signal: AbortSignal | undefined): HubCallContext & { metadata: HubCallMetadata; signal?: AbortSignal } {
-  return { ...ctx, metadata, ...(signal === undefined ? {} : { signal }) };
+function contextOf(ctx: HubCallContext, media: MediaRequest, metadata: HubCallMetadata, signal: AbortSignal | undefined): HubCallContext & { metadata: HubCallMetadata; signal?: AbortSignal } {
+  return { ...ctx, media, metadata, ...(signal === undefined ? {} : { signal }) };
 }
 
 /** The hub AI as the agent loop and gateway use it. */
@@ -296,15 +308,17 @@ export class AeyeLlm implements RefreshableEngine {
   }
 
   async embed(input: EmbedCall, ctx: HubCallContext, signal?: AbortSignal): Promise<number[][]> {
-    const response = await this.#ai.embed.get({ texts: [...input.texts], ...modelOf(input.metadata) }, contextOf(ctx, input.metadata, signal));
+    const request: EmbeddingRequest = { texts: [...input.texts], ...modelOf(input.metadata) };
+    const response = await this.#ai.embed.get(request, contextOf(ctx, { modality: 'embed', request }, input.metadata, signal));
     return [...response.embeddings].sort((a, b) => a.index - b.index).map((e) => e.embedding);
   }
 
   async image(input: ImageCall, ctx: HubCallContext, signal?: AbortSignal): Promise<MadeImage[]> {
-    const response = await this.#ai.image.generate.get({
+    const request: ImageGenerationRequest = {
       prompt: input.prompt, responseFormat: 'b64_json', outputFormat: 'png', ...modelOf(input.metadata),
       ...(input.size === undefined ? {} : { size: input.size }), ...(input.count === undefined ? {} : { n: input.count }),
-    }, contextOf(ctx, input.metadata, signal));
+    };
+    const response = await this.#ai.image.generate.get(request, contextOf(ctx, { modality: 'image', request }, input.metadata, signal));
     return Promise.all(response.images.map(async (image): Promise<MadeImage> => {
       if (image.b64_json !== undefined) return { bytes: Uint8Array.from(Buffer.from(image.b64_json, 'base64')), mime: 'image/png' };
       if (image.url === undefined) throw new Error('the image model answered with no image');
@@ -314,9 +328,10 @@ export class AeyeLlm implements RefreshableEngine {
   }
 
   async transcribe(input: TranscribeCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Heard> {
-    const response = await this.#ai.transcribe.get({
+    const request: TranscriptionRequest = {
       audio: audioFile(input.audio, input.mime), ...modelOf(input.metadata), ...(input.language === undefined ? {} : { language: input.language }),
-    }, contextOf(ctx, input.metadata, signal));
+    };
+    const response = await this.#ai.transcribe.get(request, contextOf(ctx, { modality: 'transcribe', request }, input.metadata, signal));
     return {
       text: response.text,
       ...(response.segments === undefined ? {} : { segments: response.segments.map((s) => ({ start: s.start, end: s.end, text: s.text })) }),
@@ -325,9 +340,10 @@ export class AeyeLlm implements RefreshableEngine {
 
   async speech(input: SpeechCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Spoken> {
     const format = input.format === 'ogg' ? 'opus' : input.format;
-    const response = await this.#ai.speech.get({
+    const request: SpeechRequest = {
       text: input.text, ...modelOf(input.metadata), ...(input.voice === undefined ? {} : { voice: input.voice }), ...(format === undefined ? {} : { responseFormat: format }),
-    }, contextOf(ctx, input.metadata, signal));
+    };
+    const response = await this.#ai.speech.get(request, contextOf(ctx, { modality: 'speech', request }, input.metadata, signal));
     return { audio: new Uint8Array(await new Response(response.audio).arrayBuffer()), mime: audioMime(response.responseFormat ?? format) };
   }
 

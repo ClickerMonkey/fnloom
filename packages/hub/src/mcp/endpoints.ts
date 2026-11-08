@@ -3,15 +3,15 @@
  * tools, resources and prompts), mounted on an `McpRouter` at `/mcp/<slug>` with its own authorizer (`McpBearer`) and
  * allowed origins. A change to an MCP rebuilds its server (rotating the secret or switching it off ends its open
  * sessions); a change to the catalog, a system's status or the resource roots refreshes every MCP's lists, so clients
- * hear `list_changed`. Open sessions are tracked as they come and go, with the client each said it was.
+ * hear `list_changed`. Open sessions are tracked as the library opens and ends them (a client that goes quiet with
+ * no open event stream for `idleTimeout` is ended), with the client each said it was and its tool calls.
  */
 import { timingSafeEqual } from 'node:crypto';
 import {
-  bearerToken, mcpSourceServer, McpRouter, type McpAuthDecision, type McpAuthorizer, type McpHandleOptions, type McpServer,
+  bearerToken, mcpSourceServer, McpRouter, type McpAuthDecision, type McpAuthorizer, type McpHttpSession, type McpServer, type McpSessionEndReason,
 } from '@ayepi/mcp';
 import type { Logger } from '@ayepi/log';
 import { messageOf, type HubMcp, type HubMcpId, type McpSessionView } from '@harness/core';
-import { z } from 'zod';
 import type { EventBus } from '../bus.ts';
 import type { McpEndpoints, McpRegistry, McpTokens } from './index.ts';
 import { MCP_PATH } from '../api/http.ts';
@@ -53,12 +53,6 @@ function sameDigest(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-/** The parts of a JSON-RPC message session tracking reads. */
-const Message = z.object({
-  method: z.string(),
-  params: z.object({ clientInfo: z.object({ name: z.string(), version: z.string() }).optional() }).optional(),
-});
-
 /** One MCP's mounted server and its parts. */
 interface Face {
   readonly record: HubMcp;
@@ -66,6 +60,8 @@ interface Face {
   readonly tools: HubMcpTools;
   readonly prompts: HubMcpPrompts;
   readonly sessions: Map<string, McpSessionView>;
+  /** Stops hearing its tool calls. */
+  readonly unhear: () => void;
 }
 
 /** The parts of one MCP's server, made per MCP. */
@@ -86,6 +82,8 @@ export interface HubMcpEndpointsDeps {
   readonly clock: () => number;
   readonly log: Logger;
   readonly maxBody: number;
+  /** How long a session may go with no request and no open event stream before it ends, in milliseconds. */
+  readonly idleTimeout: number;
   readonly serverInfo: { readonly name: string; readonly version: string };
 }
 
@@ -99,7 +97,7 @@ export class HubMcpEndpoints implements McpEndpoints {
 
   constructor(deps: HubMcpEndpointsDeps) {
     this.#deps = deps;
-    this.#router = new McpRouter({ base: MCP_PATH, defaults: { maxBody: deps.maxBody } });
+    this.#router = new McpRouter({ base: MCP_PATH, defaults: { maxBody: deps.maxBody, idleTimeout: deps.idleTimeout } });
   }
 
   handle(request: Request): Promise<Response> {
@@ -154,12 +152,20 @@ export class HubMcpEndpoints implements McpEndpoints {
     const parts = this.#deps.parts(record);
     await Promise.all([parts.tools.refresh(), parts.prompts.refresh()]);
     const sessions = new Map<string, McpSessionView>();
-    const inner = mcpSourceServer({ tools: parts.tools, resources: parts.resources, prompts: parts.prompts }, {
+    const server = mcpSourceServer({ tools: parts.tools, resources: parts.resources, prompts: parts.prompts }, {
       serverInfo: this.#deps.serverInfo, ...(record.instructions === '' ? {} : { instructions: record.instructions }),
     });
-    const server = this.#tracked(record, inner, sessions);
-    this.#faces.set(record.id, { record, server, tools: parts.tools, prompts: parts.prompts, sessions });
-    this.#router.mount(record.slug, server, { authorize: new McpBearer(record.id, this.#deps.registry, this.#deps.tokens), allowedOrigins: record.origins });
+    const unhear = parts.tools.onCall(({ session }) => {
+      const known = sessions.get(session);
+      if (known !== undefined) sessions.set(session, { ...known, calls: known.calls + 1, lastCallAt: this.#deps.clock() });
+    });
+    this.#faces.set(record.id, { record, server, tools: parts.tools, prompts: parts.prompts, sessions, unhear });
+    this.#router.mount(record.slug, server, {
+      authorize: new McpBearer(record.id, this.#deps.registry, this.#deps.tokens),
+      allowedOrigins: record.origins,
+      onSessionOpened: (session) => { this.#opened(record, sessions, session); },
+      onSessionEnded: (session, reason) => { this.#ended(record, sessions, session, reason); },
+    });
     this.#deps.log.info('mcp.mounted', { mcp: record.id, slug: record.slug, mode: record.toolMode, tools: server.tools().length });
   }
 
@@ -169,6 +175,7 @@ export class HubMcpEndpoints implements McpEndpoints {
     if (face === undefined) return;
     this.#faces.delete(mcp);
     this.#router.unmount(face.record.slug);
+    face.unhear();
     face.server.close();
   }
 
@@ -179,40 +186,19 @@ export class HubMcpEndpoints implements McpEndpoints {
     }));
   }
 
-  /** A server that records the sessions it sees: when each began, the client it said it was, its calls. */
-  #tracked(record: HubMcp, server: McpServer, sessions: Map<string, McpSessionView>): McpServer {
-    const { clock, log } = this.#deps;
-    const seen = (message: unknown, options: McpHandleOptions | undefined): void => {
-      const id = options?.session;
-      const parsed = Message.safeParse(message);
-      if (id === undefined || !parsed.success) return;
-      const now = clock();
-      const known = sessions.get(id);
-      const view: McpSessionView = known ?? { mcp: record.id, session: id, label: options?.auth?.subject ?? 'secret', since: now, calls: 0 };
-      const client = parsed.data.params?.clientInfo;
-      const next: McpSessionView = {
-        ...view,
-        ...(parsed.data.method === 'initialize' && client !== undefined ? { client } : {}),
-        ...(parsed.data.method === 'tools/call' ? { calls: view.calls + 1, lastCallAt: now } : {}),
-      };
-      sessions.set(id, next);
-      if (known === undefined) log.info('mcp.session.opened', { mcp: record.id, session: id, label: next.label, client: next.client?.name ?? null });
+  /** Record a session the library opened: who it is, the client it said it was. */
+  #opened(record: HubMcp, sessions: Map<string, McpSessionView>, session: McpHttpSession): void {
+    const view: McpSessionView = {
+      mcp: record.id, session: session.id, label: session.auth?.subject ?? 'secret', since: this.#deps.clock(), calls: 0,
+      ...(session.client === undefined ? {} : { client: { name: session.client.name, version: session.client.version } }),
     };
-    return {
-      tools: () => server.tools(),
-      handle: (message, options) => {
-        seen(message, options);
-        return server.handle(message, options);
-      },
-      onNotification: (listener) => server.onNotification(listener),
-      endSession: (session) => {
-        if (session !== undefined && sessions.delete(session)) log.info('mcp.session.ended', { mcp: record.id, session });
-        server.endSession(session);
-      },
-      close: () => {
-        sessions.clear();
-        server.close();
-      },
-    };
+    sessions.set(session.id, view);
+    this.#deps.log.info('mcp.session.opened', { mcp: record.id, session: session.id, label: view.label, client: view.client?.name ?? null });
+  }
+
+  /** Forget a session the library ended: the client's DELETE, idle past the timeout, or the MCP taken down. */
+  #ended(record: HubMcp, sessions: Map<string, McpSessionView>, session: McpHttpSession, reason: McpSessionEndReason): void {
+    sessions.delete(session.id);
+    this.#deps.log.info('mcp.session.ended', { mcp: record.id, session: session.id, reason });
   }
 }

@@ -5,7 +5,7 @@
  * and the chosen items ranked by weight. Pure, so it is tested alone.
  */
 import {
-  ChatModeConfig, ContextorConfig, Json, type ChatModeType, type ContextorType, type Detail, type GinTypeDef, type SelectionReport, type SelectedItem,
+  BUDGET_POOLS, ChatModeConfig, ContextorConfig, isJsonObject, Json, type ChatModeType, type ContextorType, type Detail, type GinTypeDef, type SelectionReport, type SelectedItem,
 } from '@harness/core';
 import { ginOf, wireType } from '@harness/sdk';
 import type { z } from 'zod';
@@ -68,18 +68,14 @@ export function settingsValue(config: ChatModeConfig | ContextorConfig): Json {
 
 /** A mode read back from its type and edited settings; undefined when they don't make a valid mode. */
 export function modeFrom(type: ChatModeType, settings: Json): ChatModeConfig | undefined {
-  const parsed = ChatModeConfig.safeParse({ ...(isObject(settings) ? settings : {}), type });
+  const parsed = ChatModeConfig.safeParse({ ...(isJsonObject(settings) ? settings : {}), type });
   return parsed.success ? parsed.data : undefined;
 }
 
 /** A contextor read back from its type and edited settings; undefined when they don't make a valid contextor. */
 export function contextorFrom(type: ContextorType, settings: Json): ContextorConfig | undefined {
-  const parsed = ContextorConfig.safeParse({ ...(isObject(settings) ? settings : {}), type });
+  const parsed = ContextorConfig.safeParse({ ...(isJsonObject(settings) ? settings : {}), type });
   return parsed.success ? parsed.data : undefined;
-}
-
-function isObject(value: Json): value is { readonly [key: string]: Json } {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** A mode's or contextor's label. */
@@ -89,7 +85,7 @@ export const contextorLabel = (type: ContextorType): string => CONTEXTOR_WORDS[t
 // ─── The context inspector ────────────────────────────────────────────────────
 
 /** The parts a prompt's window is split into, in the order the budget bar draws them. */
-export const BUDGET_PARTS = ['fixed', 'history', 'context', 'fns', 'margin', 'reasoning', 'output', 'free'] as const;
+export const BUDGET_PARTS = ['fixed', ...BUDGET_POOLS, 'margin', 'reasoning', 'output', 'free'] as const;
 export type BudgetPart = (typeof BUDGET_PARTS)[number];
 
 /** What each part of the window is, in plain words. */

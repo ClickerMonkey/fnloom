@@ -22,7 +22,7 @@
 import type {
   ActorId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnRecord,
   InstanceName, InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
-  Session, SessionId, Turn, TurnId,
+  Session, SessionId, Turn, TurnId, UserInfo,
 } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import type { LlmPayload } from '@harness/sdk';
@@ -194,6 +194,8 @@ export interface ChatMode {
    * native tool it can call; `listed` in static mode, where `run` reaches any fn and a card costs tokens.
    */
   readonly alwaysDetail: Detail;
+  /** Hub fns whose jobs this mode's own tools do: never shown, whoever names them (static: build 1's search and load fns). */
+  readonly replaces: ReadonlySet<string>;
   /** The protocol for a model that does (or doesn't) take native tools. */
   protocol(nativeTools: boolean): CallProtocol;
   /** Text the mode always adds after the agent's instructions (how to call fns). */
@@ -236,6 +238,10 @@ export interface ContextorInput {
   readonly loaded: Names;
   /** What the current message asked for: its `/command` context and the fns it names. */
   readonly asked: Names;
+  /** The args of each of the current message's `/command`s, by context name (what its dynamic context is written with). */
+  readonly commands: ReadonlyMap<string, Readonly<Record<string, string>>>;
+  /** The person as systems see them (the turn's), for dynamic context; absent for previews, where the hub looks them up. */
+  readonly person: UserInfo | undefined;
   readonly mode: ChatMode;
   readonly ctx: ModeContext;
   readonly plan: BudgetPlan;
@@ -249,9 +255,30 @@ export interface Contextor {
   select(input: ContextorInput): Promise<Selection>;
 }
 
+/** Who a dynamic context item is written for. */
+export interface DynamicAsk {
+  readonly session: SessionId | undefined;
+  readonly actor: ActorId;
+  /** The person as systems see them; looked up by `actor` when absent. */
+  readonly user?: UserInfo | undefined;
+  /** The `/command`'s args; absent reuses the args the item was last written with for this session and person. */
+  readonly args?: Readonly<Record<string, string>> | undefined;
+}
+
+/** The text of dynamic context (declared without `content`), asked of the system that owns it. */
+export interface DynamicContext {
+  /**
+   * The record with its `content` filled in: unchanged when it declares content; else the text its system writes for
+   * this ask (kept a while); else, when the system can't answer (logged), the last text kept, or the record unchanged.
+   */
+  resolve(record: ContextRecord, ask: DynamicAsk): Promise<ContextRecord>;
+}
+
 /** The services modes and contextors are built with. */
 export interface ContextorDeps {
   readonly catalog: Pick<Catalog, 'fn' | 'context'>;
+  /** Dynamic context's text, for items a prompt shows in full. */
+  readonly dynamic: DynamicContext;
   readonly search: Pick<Search, 'search'>;
   readonly views: FnViewSource;
   readonly graph: ContextGraph;
@@ -371,6 +398,8 @@ export interface ContextorServices {
   readonly graph: ContextGraph;
   /** Fns as modes show them (cards, tools), for the contextor's hub fns. */
   readonly views: FnViewSource;
+  /** Dynamic context's text, for everything that shows context (`hub/inspect`, `hub/context_get`). */
+  readonly dynamic: DynamicContext;
 }
 
 /** The report of a prompt that could not be planned: the numbers behind the plain message. */

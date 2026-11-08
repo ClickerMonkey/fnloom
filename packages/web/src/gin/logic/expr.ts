@@ -13,6 +13,7 @@ import {
   type Type,
 } from '@aeye/gin';
 import { Json } from '@harness/core';
+import type { Outcome } from '../../ui/index.ts';
 
 /** One step of a `get` or `set` path, as the editor shows it. */
 export type StepView =
@@ -121,7 +122,7 @@ export interface ExprProblem {
 }
 
 /** A parsed expression, or why gin couldn't read it. */
-export type ParsedExpr = { readonly ok: true; readonly expr: Expr } | { readonly ok: false; readonly problem: string };
+export type ParsedExpr = Outcome<Expr>;
 
 /** gin's calls the expression editor makes: parsing, the result type, problems and code, over one registry. */
 export class ExprTools {
@@ -136,7 +137,7 @@ export class ExprTools {
   /** Parse a definition with gin; a refusal is its message. */
   parse(def: ExprDef): ParsedExpr {
     try {
-      return { ok: true, expr: this.registry.parseExpr(def) };
+      return { ok: true, value: this.registry.parseExpr(def) };
     } catch (error) {
       return { ok: false, problem: error instanceof Error ? error.message : String(error) };
     }

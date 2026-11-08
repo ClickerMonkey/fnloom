@@ -5,9 +5,10 @@
  * it, an audio transcript, a thumbnail). Forms are kept by the raw content's hash, so the same bytes at two URIs are
  * converted once. Sectioning, the index and the LLM read a resource's primary form by default.
  */
+import type { RenderMode as LibraryRenderMode } from '@aeye/resources';
 import { resourceVersionSchema } from '@aeye/resources/versions';
 import { z } from 'zod';
-import { ActorId, ModelCallId, PageRequest, QualifiedName, RunId, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, ModelCallId, PageRequest, QualifiedName, RunId, type Same, SystemName, Timestamp } from './primitives.ts';
 import { CONTENT_HASH, ContentRef, ConvertedKind, FormKind, ResourceUri, SectionKey } from './resources.ts';
 
 // ─── Forms ────────────────────────────────────────────────────────────────────
@@ -66,6 +67,19 @@ export const ResourceSource = z.discriminatedUnion('from', [
 export type ResourceSource = z.infer<typeof ResourceSource>;
 export type ResourceSourceKind = ResourceSource['from'];
 
+/** Every kind of source, for filters: exactly `ResourceSource`'s kinds (a new one fails to compile here until listed). */
+export const RESOURCE_SOURCES = ['system', 'upload', 'web', 'run'] as const;
+true satisfies Same<(typeof RESOURCE_SOURCES)[number], ResourceSourceKind>;
+
+/**
+ * When a fetched html page is run in a headless browser first: only when it looks script-built (`auto`), always, or
+ * never. Exactly `@aeye/resources`' render modes (a mode added there fails to compile here until it is listed).
+ */
+export const RENDER_MODES = ['auto', 'always', 'never'] as const;
+true satisfies Same<(typeof RENDER_MODES)[number], LibraryRenderMode>;
+export const RenderMode = z.enum(RENDER_MODES);
+export type RenderMode = z.infer<typeof RenderMode>;
+
 /** The root every hub resource lives under. */
 export const HUB_RESOURCE_ROOT = 'hub://resources/';
 
@@ -123,7 +137,7 @@ export const ResourceQuery = PageRequest.extend({
   search: z.string().optional(),
   system: SystemName.optional(),
   family: FormatFamily.optional(),
-  source: z.enum(['system', 'upload', 'web', 'run']).optional(),
+  source: z.enum(RESOURCE_SOURCES).optional(),
   /** A URI prefix (a folder). */
   under: z.string().optional(),
   /** Resources that have (or lack, with `missing`) a form. */
@@ -173,7 +187,7 @@ export type ResourceReadResult = z.infer<typeof ResourceReadResult>;
 
 /** `hub/resource_import`: a URL or uploaded content into a hub resource. */
 export const ResourceImportArgs = z.union([
-  z.object({ url: z.url(), render: z.enum(['auto', 'always', 'never']).optional(), name: z.string().optional() }),
+  z.object({ url: z.url(), render: RenderMode.optional(), name: z.string().optional() }),
   z.object({ content: ContentRef, name: z.string().min(1), path: z.string().optional() }),
 ]);
 export type ResourceImportArgs = z.infer<typeof ResourceImportArgs>;

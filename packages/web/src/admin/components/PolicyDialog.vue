@@ -7,6 +7,7 @@ import { ActorKind, type Policy } from '@harness/core';
 import { computed, ref, watch } from 'vue';
 import { UiBanner, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, UiTextarea, optionsOf, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { policyBody, policyDraft, type ApproverKind, type PolicyBody, type PolicyDraft, type SubjectKind } from '../logic/forms.ts';
+import { ACTOR_KIND_WORDS } from '../logic/policies.ts';
 import type { ActorOption } from '../state/actors.ts';
 
 const props = withDefaults(defineProps<{
@@ -20,8 +21,7 @@ const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ save: [body: PolicyBody] }>();
 
 const subjects = optionsOf({ everyone: 'Everyone', actor: 'One actor', group: 'A group', kind: 'A kind of actor' } satisfies Record<SubjectKind, string>);
-const KIND_LABEL = { user: 'People', group: 'Groups', agent: 'Agents', system: 'Systems', mcp: 'MCP clients' } as const satisfies Record<ActorKind, string>;
-const kinds = ActorKind.options.map((k): SelectOption<string> => ({ value: k, label: KIND_LABEL[k] }));
+const kinds = ActorKind.options.map((k): SelectOption<string> => ({ value: k, label: ACTOR_KIND_WORDS[k].label }));
 const effects: readonly SegmentOption<PolicyDraft['effect']>[] = optionsOf({ allow: 'Allow', ask: 'Ask', deny: 'Deny' } satisfies Record<PolicyDraft['effect'], string>);
 const approvers = optionsOf({ 'turn-user': "The message's sender", actor: 'A person', group: 'A group', judge: 'A judge fn', hub: 'The hub' } satisfies Record<ApproverKind, string>);
 const pick = (options: readonly ActorOption[]): readonly SelectOption<string>[] => [{ value: '', label: 'Choose…' }, ...options.map((o) => ({ value: o.id, label: o.name }))];

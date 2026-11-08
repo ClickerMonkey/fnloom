@@ -30,8 +30,8 @@ describe('fn metrics', () => {
     // a refused input is its own outcome, not a failure
     await (await start('c', { path: 3 })).settled;
     await until(() => r.bus.of('fn.stats').length === 3, 'every run to be counted');
-    expect((await r.store.table('fns').get('fs/read'))?.stats).toMatchObject({ runs: 3, failures: 1, invalidInputs: 1, cancelled: 0, averageCost: 0, lastRunAt: r.time.now });
-    expect(r.bus.of('fn.stats').at(-1)).toMatchObject({ fn: 'fs/read', system: 'fs', stats: { runs: 3, failures: 1, invalidInputs: 1 } });
+    expect((await r.store.table('fns').get('fs/read'))?.stats).toMatchObject({ outcomes: { done: 1, 'invalid-input': 1, failed: 1, cancelled: 0 }, averageCost: 0, lastRunAt: r.time.now });
+    expect(r.bus.of('fn.stats').at(-1)).toMatchObject({ fn: 'fs/read', system: 'fs', stats: { outcomes: { done: 1, 'invalid-input': 1, failed: 1 } } });
     const [day] = await r.metrics.days('fs/read', 1);
     expect(day).toMatchObject({ fn: 'fs/read', system: 'fs', outcomes: { done: 1, 'invalid-input': 1, failed: 1, cancelled: 0 } });
     expect(day?.ran.count).toBe(2);
@@ -47,7 +47,7 @@ describe('fn metrics', () => {
     if (settled === undefined) throw new Error('the run is gone');
     await r.metrics.settled(settled);
     await r.metrics.settled(settled);
-    expect((await r.store.table('fns').get('fs/read'))?.stats.runs).toBe(1);
+    expect((await r.store.table('fns').get('fs/read'))?.stats.outcomes.done).toBe(1);
     expect((await r.metrics.days('fs/read', 1))[0]?.outcomes.done).toBe(1);
   });
 

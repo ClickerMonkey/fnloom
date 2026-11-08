@@ -66,7 +66,8 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
         <span v-if="run.totalCost > 0" class="cost" :title="`This run ${formatCost(run.cost)}, with everything it called ${formatCost(run.totalCost)}`">{{ formatCost(run.totalCost) }}</span>
       </span>
       <UiIconButton v-if="canBackground" size="sm" icon="arrow-right" label="Move to background" @click="emit('background')" />
-      <UiIconButton size="sm" :icon="collapsed ? 'chevron-down' : 'chevron-up'" :label="collapsed ? 'Expand' : 'Collapse'" @click="emit('toggle', !collapsed)" />
+      <!-- a card with nothing below its line (a settled, retried call) has nothing to open, so no chevron that says it is open -->
+      <UiIconButton v-if="hasBody" size="sm" :icon="collapsed ? 'chevron-down' : 'chevron-up'" :label="collapsed ? 'Expand' : 'Collapse'" @click="emit('toggle', !collapsed)" />
     </header>
     <div v-if="!collapsed && hasBody" class="body">
       <p v-if="showStatus" class="status" data-testid="run-status">

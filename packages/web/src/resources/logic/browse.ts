@@ -8,9 +8,10 @@
  */
 import {
   FormatFamily, FormKind, HUB_RESOURCE_ROOT, ResourceGrouping, ResourceUri, SectionKey, SystemName,
-  type ResourceFacet, type ResourceQuery, type ResourceRecord,
+  type ResourceFacet, type ResourceLink, type ResourceQuery, type ResourceRecord,
 } from '@harness/core';
 import { z } from 'zod';
+import { typeWord } from './formats.ts';
 
 /** How the browser lays resources out. */
 export const BrowserView = z.enum(['list', 'grid', 'groups']);
@@ -136,8 +137,24 @@ export function crumbsOf(under: string): Crumb[] {
 }
 
 /** A resource's name for display: its stat's name, or the last part of its URI. */
-export function nameOf(record: Pick<ResourceRecord, 'uri' | 'stat'>): string {
+export function nameOf(record: { readonly uri: string; readonly stat: Pick<ResourceRecord['stat'], 'name'> }): string {
   return record.stat.name || record.uri.split('/').filter((p) => p !== '').at(-1) || record.uri;
+}
+
+/**
+ * An address short enough for one line, cut in the middle: its scheme and first part, then its distinguishing end
+ * (`file:///C:/Users/…/harness/README.md`). An address that fits is unchanged.
+ */
+export function shortAddress(uri: string, max = 56): string {
+  if (uri.length <= max) { return uri; }
+  const tail = Math.ceil((max - 1) * 0.6);
+  return `${uri.slice(0, max - 1 - tail)}…${uri.slice(uri.length - tail)}`;
+}
+
+/** A link's words as a list shows them: its title with inline-code marks (backticks) taken out, else the link as written. */
+export function linkLabel(link: Pick<ResourceLink, 'title' | 'raw'>): string {
+  const plain = (text: string): string => text.replace(/`+/g, '').trim();
+  return plain(link.title ?? '') || plain(link.raw) || link.raw;
 }
 
 /** Whether a resource lives in the hub (an upload, a web page, a fn's output): only these rename and delete. */
@@ -153,7 +170,7 @@ export function sortRecords(records: readonly ResourceRecord[], sort: BrowserSor
       case 'name': return nameOf(r).toLowerCase();
       case 'size': return r.stat.size ?? -1;
       case 'modified': return r.stat.modifiedAt ?? r.seenAt;
-      case 'type': return r.stat.format ?? r.stat.type;
+      case 'type': return typeWord(r.stat);
     }
   };
   const sorted = [...records].sort((a, b) => {

@@ -12,7 +12,8 @@ and become context; systems are packed, installed and run in fleets; admins make
 
 - [`docs/harness.md`](docs/harness.md): the design in plain language.
 - [`docs/architecture.md`](docs/architecture.md): the code layout, module interfaces, lane ownership and dev workflow.
-- `types/`: the approved type design, kept as the design record. `explorer/explorer.html` (`npm run explorer`) lets
+- `types/`: the approved type design, kept as the design record and frozen (not compiled against the code; the shapes
+  are the zod schemas in `packages/core` and the generated `packages/sdk/AUTHORING.md`). `explorer/explorer.html` (`npm run explorer`) lets
   you read the guide and click through every type, with notes (**Export notes** saves them for `review/notes.json`).
 
 ## Prerequisites

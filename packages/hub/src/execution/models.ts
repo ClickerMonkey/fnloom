@@ -5,7 +5,6 @@
  */
 import type { ModelChoice } from '@harness/core';
 import type { ModelRoles } from '../models/index.ts';
-import { servedModel } from '../models/roles.ts';
 import type { ExecutionBase, ExecutionSettings } from './ports.ts';
 import type { HubCallMetadata } from './scope.ts';
 
@@ -38,6 +37,6 @@ export class ModelResolver {
   /** The `chat` role's model, else the hub's default. */
   async #fallback(): Promise<HubCallMetadata> {
     const chat = await this.#deps.roles.resolve('chat');
-    return { model: chat === undefined ? this.#deps.settings.model.HARNESS_DEFAULT_MODEL : servedModel(chat) };
+    return chat === undefined ? { model: this.#deps.settings.model.HARNESS_DEFAULT_MODEL } : { model: chat.model, provider: chat.provider };
   }
 }

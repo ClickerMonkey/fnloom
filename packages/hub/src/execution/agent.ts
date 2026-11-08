@@ -21,7 +21,7 @@ import type { FnSignature } from '../catalog/index.ts';
 import type { MessageEnricher } from '../chat/index.ts';
 import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
 import { AUTO_MODEL } from '../contextor/limits.ts';
-import { parseRunBlocks, problemLines, resultText, RunBlockFilter } from '../contextor/render.ts';
+import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
 import { rows } from './pages.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type RunInput } from './index.ts';
@@ -331,6 +331,12 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     let suspended = false;
     let reasoning = '';
     const stream = (text: string): void => { if (message !== undefined && text !== '') this.#deps.turns.stream(message, { text }); };
+    // thinking a model writes into its answer (`<think>…</think>`) streams as reasoning, never as the answer
+    const thinking = new ThinkingFilter();
+    const answerText = (split: { text: string; reasoning: string }): void => {
+      if (message !== undefined && split.reasoning !== '') this.#deps.turns.stream(message, { reasoning: split.reasoning });
+      stream(blocks === undefined ? split.text : blocks.push(split.text));
+    };
     const ctx = {
       call: scope, messages: planned.messages.map(messageFromWire), signal, stream: this.#deps.llm.streamer, contextWindow: planned.contextWindow, maxOutputTokens: planned.maxTokens,
     };
@@ -338,7 +344,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       switch (event.type) {
         case 'textPartial':
           scope.markFirstToken(clock());
-          stream(blocks === undefined ? event.content : blocks.push(event.content));
+          answerText(thinking.push(event.content));
           break;
         case 'reasonPartial': {
           scope.markFirstToken(clock());
@@ -368,6 +374,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       }
     }
     if (signal.aborted) return 'done';
+    answerText(thinking.end());
     if (blocks !== undefined) stream(blocks.end());
     const at = await conversation.append(collected);
     const last = scope.last;
@@ -387,7 +394,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used: [] });
 
     if (answer === undefined) throw new Error(`${run.fn} ended without an answer`);
-    const result = output.result(answer);
+    const produced = output.result(answer);
+    const result = typeof produced === 'string' ? splitThinking(produced).text : produced;
     await store.table('runs').update(run.id, { resume: Json.parse({ ...state, ...this.#saved(conversation) }) });
     if (message !== undefined) await this.#deps.turns.finish(message, [{ type: 'text', text: replyText(result) }], 'done');
     await this.#deps.runs.settle(run.id, { status: 'done', result });

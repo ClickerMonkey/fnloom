@@ -3,6 +3,7 @@
  * one per iteration and the gateway one per forwarded request; it rides on the aeye context (`ctx.call`), so the hub
  * AI's hooks reserve, settle and record against it without any id threading.
  */
+import type { MediaRequest } from './media.ts';
 import type {
   ActorId, LlmInteractionId, LlmUsage, ModelCallId, Priority, QualifiedName, ResolvedLimits, RunId, SessionId, SystemName, TurnId, Usd,
 } from '@harness/core';
@@ -135,10 +136,17 @@ export type HubCallContext = {
   call?: LlmCallScope;
   purpose?: string;
   receipts?: CallReceipts;
+  /** A non-chat call's modality and typed request, set by the engine method that makes it (absent: a chat call). */
+  media?: MediaRequest;
 };
 
-/** Model selection for one call, as aeye metadata: a model id, or weights for automatic selection. */
+/**
+ * Model selection for one call, as aeye metadata: a model id (and the provider that must serve it, aeye's provider name
+ * as `ModelInfo.provider`), or weights for automatic selection.
+ */
 export interface HubCallMetadata {
   model?: string;
+  /** The provider the model is pinned to: a model id two providers serve answers from this one (`onModelSelected`). */
+  provider?: string;
   weights?: { cost?: number; speed?: number; accuracy?: number };
 }

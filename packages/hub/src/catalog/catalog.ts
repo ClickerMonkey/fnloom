@@ -6,8 +6,8 @@
 import type { Type } from '@aeye/gin';
 import type { Logger } from '@ayepi/log';
 import {
-  Json, QualifiedName, qualify, splitName,
-  type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type FnStats, type GinTypeDef, type ImportReport,
+  Json, noFnStats, QualifiedName, qualify, splitName,
+  type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl, type SystemName,
   type TypeDecl, type TypeRecord,
 } from '@harness/core';
@@ -50,7 +50,6 @@ function eachSection(make: <S extends ManifestSection>(section: S) => Array<Sect
 const emptyReport = (): ImportReport => ({ added: [], updated: [], removed: [], refused: [] });
 
 /** Running numbers for a fn that has never run. */
-const NO_STATS: FnStats = { runs: 0, failures: 0, averageCost: 0, averageTime: 0 };
 
 /** `@system/name` references in context text. */
 const MENTION = /@([a-z][a-z0-9-]*\/[A-Za-z_](?:[\w.-]*\w)?)/g;
@@ -593,7 +592,7 @@ export class StoreCatalog implements Catalog {
       available: existing?.available ?? unavailable('system-disconnected', 'not checked yet'),
       paused: existing?.paused ?? false,
       disabled: existing?.disabled ?? false,
-      stats: existing?.stats ?? NO_STATS,
+      stats: existing?.stats ?? noFnStats(),
       updatedAt: this.options.clock(),
     };
   }

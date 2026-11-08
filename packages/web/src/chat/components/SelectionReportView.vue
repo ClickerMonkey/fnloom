@@ -122,8 +122,8 @@ const itemTitle = (item: RankedItem): string => `${item.name}: ${DETAIL_WORDS[it
 .weight-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
 .cuts li { font-size: var(--text-sm); overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* on a phone the weight bar and its number wrap under the name and chip, never hidden: the weight is why it was chosen */
 @media (max-width: 420px) {
-  .item { grid-template-columns: minmax(0, 1fr) auto; }
-  .weight, .item > .num { display: none; }
+  .item { grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; }
 }
 </style>

@@ -6,7 +6,7 @@
  * empty (the indexer re-embeds). Tables made before are remembered when the store opens again. An embedder with no
  * table yet has no vectors: searching it finds nothing and removing from it removes nothing; only storing needs a size.
  */
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../link/keys.ts';
 import { IndexedKind, type QualifiedName, compositeKey } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import { sql } from 'kysely';
@@ -21,7 +21,7 @@ const Nearest = z.object({ kind: IndexedKind, key: z.string(), distance: z.numbe
 /** The `vec0` table of an embedder: readable, and unique even when two names slug the same. */
 export function vectorTable(embedder: string): string {
   const slug = embedder.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40);
-  const hash = createHash('sha256').update(embedder).digest('hex').slice(0, 8);
+  const hash = sha256Hex(embedder).slice(0, 8);
   return `_vec_${slug}_${hash}`;
 }
 

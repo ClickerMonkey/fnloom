@@ -16,6 +16,8 @@ export function resourcesApi(hub: Hub) {
     browse: hub.caller('browseResources', { lastOnly: true }),
     /** One group's first resources, or one folder's subfolders: many at once, none superseding another. */
     browseGroup: hub.caller('browseResources'),
+    /** A picker's search (a few matches by words): its own caller, so it never supersedes the list's pages. */
+    find: hub.caller('browseResources', { lastOnly: true }),
     forms: hub.caller('resourceForms', { dedupe: true }),
     read: hub.caller('readResource', { dedupe: true }),
     convert: hub.caller('convertResource'),

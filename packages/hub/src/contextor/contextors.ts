@@ -3,8 +3,9 @@
  * part), and reports what it asked for, what it got and what it cut.
  *
  * - `plain`: build 1's prompt. The agent's and session's context in full, its and the session's fns at `signature`,
- *   and the whole transcript, except that when the transcript would not fit, the oldest exchanges are left out (and
- *   reported) instead of letting the provider cut the front.
+ *   and the whole transcript, except that what won't fit is left out (and reported) instead of letting the provider
+ *   cut the front or refusing the turn: context and fns the message asks for first, then the agent's, then the
+ *   session's loaded ones, each kept whole or left out; then the newest exchanges, the oldest left out.
  * - `suggest`: `plain` plus, with `autoInject`, the best-matching context put in full into the system prompt, up to a
  *   number of items and tokens. The suggestion blocks themselves are the enricher's.
  * - `graph`: a fresh prompt each message. A bounded pool (always-items, loaded items, the last selection, the index's
@@ -19,11 +20,11 @@ import type { Pool, PoolTokens } from './budget.ts';
 import { choose, type Cut, type Level, type Unit } from './choose.ts';
 import { contiguousTail, shortenResults, summarise, type Exchange } from './history.ts';
 import type {
-  ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorFactories, ContextorInput, ExchangeSummary, FnView, Selection,
+  ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorFactories, ContextorInput, DynamicAsk, ExchangeSummary, FnView, Selection,
 } from './index.ts';
 import { contextBlock, earlierBlock, listedLine } from './render.ts';
 import { baseScore, metricSettings, spread, wordShare, words, type Edge, type Signals } from './score.ts';
-import { usable } from './views.ts';
+import { forModel, usable } from './views.ts';
 
 /** How many of the newest exchanges the `used` metric looks at. */
 export const USED_WINDOW = 5;
@@ -32,7 +33,7 @@ export const FLOOR_RESULT_CHARS = 600;
 /** The weight of memory when it sets none. */
 export const MEMORY_WEIGHT = 0.8;
 
-/** The text of a context item at a detail. Dynamic context (no content yet) shows its summary at `full`. */
+/** The text of a context item at a detail. Dynamic context not yet written by its system (`DynamicContext`) shows its summary at `full`. */
 export function contextText(record: ContextRecord, detail: Detail): string {
   switch (detail) {
     case 'listed': return listedLine(record.name, record.decl.description);
@@ -65,13 +66,18 @@ export function contextDetailAtMost(record: ContextRecord, detail: Detail): Deta
   return contextDetails(record).filter((d) => Detail.options.indexOf(d) <= wanted).at(-1) ?? 'listed';
 }
 
-/** The context records of names a person may see, in order, each once. */
-export async function contextsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'user'>): Promise<ContextRecord[]> {
+/** Who a prompt's dynamic context item is written for: the session's person, with the args its `/command` gave now. */
+export function dynamicAsk(input: Pick<ContextorInput, 'session' | 'user' | 'person' | 'commands'>, name: string): DynamicAsk {
+  return { session: input.session?.id, actor: input.user, user: input.person, args: input.commands.get(name) };
+}
+
+/** The context records of names a person may see, in order, each once, dynamic ones with their system's text. */
+export async function contextsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'user' | 'person' | 'commands'>): Promise<ContextRecord[]> {
   const records: ContextRecord[] = [];
   for (const name of unique(names)) {
     const parsed = QualifiedName.safeParse(name);
     const record = parsed.success ? await deps.catalog.context(parsed.data) : undefined;
-    if (record !== undefined && visible(record, input)) records.push(record);
+    if (record !== undefined && visible(record, input)) records.push(await deps.dynamic.resolve(record, dynamicAsk(input, record.name)));
   }
   return records;
 }
@@ -132,6 +138,12 @@ function fitHistory(history: readonly Exchange[], room: number, input: Contextor
   return { messages, kept: kept.length, used, cut };
 }
 
+/** Items in the order a prompt shows them (the agent's, then the session's, then the message's), by name. */
+function shownInOrder<T>(items: readonly T[], name: (item: T) => string, order: readonly string[]): T[] {
+  const at = new Map(unique(order).map((n, i) => [n, i]));
+  return [...items].sort((a, b) => (at.get(name(a)) ?? 0) - (at.get(name(b)) ?? 0));
+}
+
 /** The plain contextor: build 1's prompt, held to the budget. */
 export class PlainContextorImpl implements Contextor {
   readonly type: 'plain' | 'suggest' = 'plain';
@@ -143,27 +155,39 @@ export class PlainContextorImpl implements Contextor {
 
   async select(input: ContextorInput): Promise<Selection> {
     const { always, loaded, asked, payload, ctx } = input;
-    const records = (await contextsOf(this.deps, [...always.context, ...loaded.context, ...asked.context], input)).filter((r) => r.decl.content !== undefined);
-    const context: ChosenContext[] = records.map((record) => ({ record, detail: 'full', activation: 1, text: contextText(record, 'full') }));
-    const views = (await viewsOf(this.deps, [...always.fns, ...loaded.fns, ...asked.fns], input)).slice(0, payload.maxTools);
     const detail = input.mode.loadDetail;
+    // What the message asks for comes first, then what the agent always has, then what the session loaded; an item that
+    // won't fit what is left is left out (and reported), so a session's loaded context never makes a prompt too large.
+    const cut: Cut[] = [];
+    let left = Math.max(0, input.plan.flexible);
+    const fit = <T>(items: readonly T[], cost: (item: T) => number, name: (item: T) => string): T[] => items.filter((item) => {
+      const tokens = cost(item);
+      if (tokens <= left) { left -= tokens; return true; }
+      cut.push({ what: name(item), why: 'left out to fit the model\'s window' });
+      return false;
+    });
+    const wanted = (await contextsOf(this.deps, [...asked.context, ...always.context, ...loaded.context], input)).filter((r) => r.decl.content !== undefined);
+    const records = shownInOrder(fit(wanted, (r) => contextCost(r, 'full', input), (r) => r.name), (r) => r.name, [...always.context, ...loaded.context, ...asked.context]);
+    const context: ChosenContext[] = records.map((record) => ({ record, detail: 'full', activation: 1, text: contextText(record, 'full') }));
+    const wantedFns = (await viewsOf(this.deps, [...asked.fns, ...always.fns, ...loaded.fns], input)).slice(0, payload.maxTools);
+    const views = shownInOrder(fit(wantedFns, (v) => input.mode.cost(v, detail, ctx), (v) => v.record.name), (v) => v.record.name, [...always.fns, ...loaded.fns, ...asked.fns]);
     const fns: ChosenFn[] = views.map((view) => ({ view, detail, activation: 1 }));
     const contextTokens = records.reduce((sum, r) => sum + contextCost(r, 'full', input), 0);
     const fnTokens = views.reduce((sum, v) => sum + input.mode.cost(v, detail, ctx), 0);
-    const injected = await this.inject(input, context, input.plan.flexible - contextTokens - fnTokens);
+    const injected = await this.inject(input, context, left);
     const injectedTokens = injected.reduce((sum, c) => sum + contextCost(c.record, 'full', input), 0);
-    const room = input.plan.flexible - contextTokens - fnTokens - injectedTokens;
-    const history = fitHistory(input.history, Math.max(0, room), input);
+    const history = fitHistory(input.history, Math.max(0, left - injectedTokens), input);
     const all = [...context, ...injected];
     const historyAsk = input.ctx.estimator.messages(input.history.flatMap((e) => [...e.messages]));
+    const wantedTokens = wanted.reduce((sum, r) => sum + contextCost(r, 'full', input), 0);
     const pools = {
       history: { asked: historyAsk, got: history.used },
-      context: { asked: contextTokens + injectedTokens, got: contextTokens + injectedTokens },
-      fns: { asked: fnTokens, got: fnTokens },
+      context: { asked: wantedTokens + injectedTokens, got: contextTokens + injectedTokens },
+      fns: { asked: wantedFns.reduce((sum, v) => sum + input.mode.cost(v, detail, ctx), 0), got: fnTokens },
     };
     return {
       context: all, fns, linear: [...history.messages, ...input.current], earlier: [],
-      report: report(input, this.type, { context: all, fns, linear: history.kept, earlier: [], pools, cut: history.cut }),
+      report: report(input, this.type, { context: all, fns, linear: history.kept, earlier: [], pools, cut: [...cut, ...history.cut] }),
     };
   }
 
@@ -376,11 +400,13 @@ export class GraphContextorImpl implements Contextor {
       if (!parsed.success || parsed.data === input.agent.name) continue;
       const record = await this.#deps.catalog.context(parsed.data);
       if (record !== undefined) {
-        if (visible(record, input) && (forced.has(name) || offered(record.decl.suggest))) out.push({ kind: 'context', name: parsed.data, record });
+        if (!visible(record, input) || !(forced.has(name) || forModel(record.decl.suggest))) continue;
+        // what the agent, the session or the message pulls in is shown whole, so a dynamic item gets its system's text
+        out.push({ kind: 'context', name: parsed.data, record: forced.has(name) ? await this.#deps.dynamic.resolve(record, dynamicAsk(input, name)) : record });
         continue;
       }
       const view = await this.#deps.views.view(parsed.data);
-      if (view !== undefined && usable(view.record, input.session) && (forced.has(name) || offered(view.record.decl.visibility))) {
+      if (view !== undefined && usable(view.record, input.session) && (forced.has(name) || forModel(view.record.decl.visibility))) {
         out.push({ kind: 'fn', name: parsed.data, view });
       }
     }
@@ -411,11 +437,6 @@ export class GraphContextorImpl implements Contextor {
 function weightOf(candidate: Candidate): number {
   if (candidate.kind === 'fn') return 1;
   return candidate.record.decl.weight ?? (candidate.record.origin?.type === 'memory' ? MEMORY_WEIGHT : 1);
-}
-
-/** Whether an audience includes the model. */
-function offered(audience: ContextRecord['decl']['suggest']): boolean {
-  return audience === 'llm' || audience === 'both';
 }
 
 /** The context a record imports (recursively, cycles cut) and the fns it and they bring, among the candidates. */
@@ -471,7 +492,8 @@ function exchangeKey(exchange: Pick<Exchange, 'turn'>): string {
   return `exchange:${exchange.turn}`;
 }
 
-function unique<T>(items: readonly T[]): T[] {
+/** Items in order, each once. */
+export function unique<T>(items: readonly T[]): T[] {
   return [...new Set(items)];
 }
 

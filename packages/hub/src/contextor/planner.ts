@@ -19,7 +19,7 @@ import { budgetPlan } from './budget.ts';
 import { CONTEXTORS } from './contextors.ts';
 import { exchanges, isPersonMessage, namedIn, personWords, shorten, textOf } from './history.ts';
 import type {
-  BudgetPlan, CallPlan, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Names, Overflow,
+  BudgetPlan, CallPlan, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorInput, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Overflow,
   PlanInput, PlannedPrompt, PromptPlanner, Selection, TokenEstimates, TokenEstimator,
 } from './index.ts';
 import { AUTO_MODEL } from './limits.ts';
@@ -195,12 +195,15 @@ export class HubPromptPlanner implements PromptPlanner {
     const fitted = this.#fitCurrent(currentExchange?.messages ?? [], reserve, head, estimator, model);
     const plan = budgetPlan(view.limits, head + estimator.messages(fitted.messages), this.#deps.settings.HARNESS_PROMPT_MARGIN, payload.maxOutput);
     const query = currentExchange?.user ?? '';
+    // the fns the mode's own tools replace are never shown
+    const shown = (names: readonly string[]): string[] => names.filter((name) => !mode.replaces.has(name));
+    const asked = await this.#asked(planning.turn, currentExchange?.messages ?? []);
 
     const input = {
       session, user: planning.user, turn: planning.turn?.id, agent, payload, query, history, current: fitted.messages,
-      always: { context: [...payload.context, ...(await this.#alwaysFor(agent.name))], fns: payload.tools },
-      loaded: { context: session?.context ?? [], fns: session?.tools ?? [] },
-      asked: await this.#asked(planning.turn, currentExchange?.messages ?? []),
+      always: { context: [...payload.context, ...(await this.#alwaysFor(agent.name))], fns: shown(payload.tools) },
+      loaded: { context: session?.context ?? [], fns: shown(session?.tools ?? []) },
+      ...asked, asked: { ...asked.asked, fns: shown(asked.asked.fns) }, person: planning.turn?.user,
       mode, ctx, plan, cached: planning.cached,
     };
     let selection = await contextor.select(input);
@@ -284,10 +287,11 @@ export class HubPromptPlanner implements PromptPlanner {
     return (await this.#deps.catalog.entries('context')).filter((entry) => entry.decl.alwaysFor.includes(agent)).map((entry) => entry.name);
   }
 
-  /** What the current message asks for: its `/command` context, and the fns its person names (`fs/bash`, `@` mentions). */
-  async #asked(turn: Turn | undefined, current: readonly LlmMessage[]): Promise<Names> {
+  /** What the current message asks for: its `/command` context (with each command's args), and the fns its person names (`fs/bash`, `@` mentions). */
+  async #asked(turn: Turn | undefined, current: readonly LlmMessage[]): Promise<Pick<ContextorInput, 'asked' | 'commands'>> {
     const row = turn?.message === undefined ? undefined : await this.#deps.store.table('messages').get(turn.message);
-    const context = (row?.parts ?? []).flatMap((part) => (part.type === 'command' ? [part.context] : []));
+    const commands = (row?.parts ?? []).flatMap((part) => (part.type === 'command' ? [part] : []));
+    const context = commands.map((part) => part.context);
     const person = current.find(isPersonMessage);
     const named = person === undefined ? [] : namedIn(personWords(textOf(person)));
     const fns: QualifiedName[] = [];
@@ -295,7 +299,7 @@ export class HubPromptPlanner implements PromptPlanner {
       const parsed = QualifiedName.safeParse(name);
       if (parsed.success && (await this.#deps.catalog.fn(parsed.data)) !== undefined) fns.push(parsed.data);
     }
-    return { context, fns };
+    return { asked: { context, fns }, commands: new Map(commands.map((part) => [part.context, part.args])) };
   }
 
   /** Keep a graph selection on the session, for the next cycle's `selectedBefore`. */

@@ -1684,6 +1684,11 @@ export interface HubContract extends EmptyContract {
 export declare const hub: SystemContract<'hub', HubContract>;
 
 // ═══ Build 2: detail, links, forms, invalid input ═══
+//
+// FROZEN. The "Build 2" sections of types/ are the design phase's sketches, kept as the record of what was approved;
+// they are not compiled against the code and are not kept up to date (several already differ from it). The one source
+// of every shape is the code: the zod schemas in packages/core (types derived from them), the SDK's sources, and the
+// guide generated from them, packages/sdk/AUTHORING.md (npm run docs:authoring). Read those, and extend those, not this.
 
 /**
  * How much of a fn or context item the model sees: `listed` (its name and one line), `signature` (a fn's call

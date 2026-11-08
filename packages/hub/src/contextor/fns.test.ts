@@ -1,17 +1,19 @@
 import { fn, g, hub } from '@harness/sdk';
-import { ActorId, SessionId, TypeRecord, type ContextRecord, type Json, type QualifiedName, type RunSettled } from '@harness/core';
+import { ActorId, INVALID_INPUT_CODE, QualifiedName, SessionId, TypeRecord, type ContextRecord, type Json, type RunSettled } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT, ALICE, executionRig, SESSION, type ExecutionRig } from '../execution/testing.ts';
 import { createContextor } from './create.ts';
 import { contextorEnv } from './env.ts';
-import { registerContextorFns } from './fns.ts';
+import { registerContextorFns, type FnScope } from './fns.ts';
 import { contextRecord, FixedSearch, sessionLoader } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
 
 let rig: ExecutionRig | undefined;
+/** The actor of a hub MCP, whose runs keep to its scope. */
+const MCP_CALLER = ActorId.parse('act_mcp_small');
 afterEach(async () => { await rig?.module.stop(); rig = undefined; });
 
-async function started() {
+async function started(options: { scope?: FnScope } = {}) {
   const r = await executionRig();
   rig = r;
   r.catalog.add('fs', 'read', fn({ description: 'Read a text file.', args: g.obj({ path: g.text() }), returns: g.text() }));
@@ -24,6 +26,7 @@ async function started() {
   const memories = new Map<QualifiedName, ContextRecord>([
     ['memory/mine', contextRecord('memory/mine', { content: 'Alice likes tea.', origin: { type: 'memory', scope: { to: 'user', user: ALICE }, author: ALICE } })],
     ['memory/bobs', contextRecord('memory/bobs', { content: 'Bob likes coffee.', origin: { type: 'memory', scope: { to: 'user', user: BOB }, author: BOB } })],
+    ['fs/tree', contextRecord('fs/tree', { description: 'The folder tree.' })],
     ['memory/elsewhere', contextRecord('memory/elsewhere', { content: 'Another chat.', origin: { type: 'memory', scope: { to: 'session', session: SessionId.parse('ses_other') }, author: BOB } })],
   ]);
   const entry = TypeRecord.parse({ name: 'fs/Entry', system: 'fs', description: 'One file.', display: { label: 'Entry' }, def: { name: 'obj', props: { path: { type: { name: 'text' } } } }, references: [], updatedAt: 0 });
@@ -36,18 +39,20 @@ async function started() {
   const contextor = createContextor({
     store: r.store, catalog: r.catalog, search, settings: contextorEnv.parse(), modelSettings: { HARNESS_DEFAULT_MODEL: 'test-model' }, models: () => r.module.llm.models(),
     log: r.log, clock: () => r.time.now, probes: () => undefined,
+    // dynamic context, written by its system for the person
+    dynamic: { resolve: (record, ask) => Promise.resolve(record.decl.content !== undefined ? record : { ...record, decl: { ...record.decl, content: `tree for ${ask.user?.name ?? '?'}` } }) },
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => catalog, search: () => search, sessions: () => sessionLoader(r.store),
-    contextor: () => contextor, views: () => new CatalogFnViews(catalog),
+    contextor: () => contextor, views: () => new CatalogFnViews(catalog), mcpScope: (caller) => Promise.resolve(caller === MCP_CALLER ? options.scope : undefined),
   });
   await r.module.start();
   await r.session({ tools: ['fs/read'] });
   const turn = await r.turn({ session: SESSION });
   let n = 0;
-  const call = async (name: QualifiedName, args: Json): Promise<RunSettled> => {
+  const call = async (name: QualifiedName, args: Json, caller: ActorId = AGENT): Promise<RunSettled> => {
     const { settled } = await r.module.runs.start({
-      fn: name, args, turn: turn.id, session: SESSION, key: `k${++n}`, actor: ALICE, caller: AGENT, priority: 'interactive', background: false, handlers: [],
+      fn: name, args, turn: turn.id, session: SESSION, key: `k${++n}`, actor: ALICE, caller, priority: 'interactive', background: false, handlers: [],
     });
     return settled;
   };
@@ -74,12 +79,18 @@ describe('the contextor\'s hub fns', () => {
   });
 
   it('inspect shows a fn\'s card and a context item\'s text at a detail, and refuses what isn\'t there', async () => {
-    const { call } = await started();
+    const { r, call } = await started();
     expect(await call('hub/inspect', { name: 'fs/read', detail: 'listed' })).toEqual({ status: 'done', result: { name: 'fs/read', kind: 'fn', detail: 'listed', text: '### fs/read — Read a text file.' } });
     expect(await call('hub/inspect', { name: 'fs/guide' })).toEqual({ status: 'done', result: { name: 'fs/guide', kind: 'context', detail: 'full', text: 'Use fs/read for files.' } });
+    // a bad name is the model's mistake, which it can retry: the run is invalid input (a code caller sees the code), not a failure
     const nothing = await call('hub/inspect', { name: 'fs/nothing' });
+    expect(nothing).toMatchObject({ status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE, data: { source: 'validation', problems: [{ path: 'name' }] } } });
     expect(nothing.status === 'failed' ? nothing.error.message : '').toContain('use find');
-    expect(await call('hub/inspect', { name: 'fs/off' })).toMatchObject({ status: 'failed' });
+    expect((await r.store.table('runs').find({ where: { fn: 'hub/inspect', status: 'invalid-input' }, limit: 5 })).items).toHaveLength(1);
+    const notAName = await call('hub/inspect', { name: 'not a name' });
+    expect(notAName).toMatchObject({ error: { code: INVALID_INPUT_CODE } });
+    expect(notAName.status === 'failed' ? notAName.error.message : '').toContain('is not a name');
+    expect(await call('hub/inspect', { name: 'fs/off' })).toMatchObject({ error: { code: INVALID_INPUT_CODE, message: "name: fs/off can't be used here" } });
   });
 
   it('load and unload change the session\'s loaded fns and context, refusing what can\'t be loaded', async () => {
@@ -101,7 +112,7 @@ describe('the contextor\'s hub fns', () => {
   it('inspect and load show memory only in its scope, as every reader of context does', async () => {
     const { r, call } = await started();
     expect(await call('hub/inspect', { name: 'memory/mine' })).toMatchObject({ status: 'done', result: { kind: 'context', text: 'Alice likes tea.' } });
-    for (const name of ['memory/bobs', 'memory/elsewhere']) expect(await call('hub/inspect', { name })).toMatchObject({ status: 'failed' });
+    for (const name of ['memory/bobs', 'memory/elsewhere']) expect(await call('hub/inspect', { name })).toMatchObject({ status: 'failed', error: { code: INVALID_INPUT_CODE } });
     expect(await call('hub/load', { names: ['memory/mine', 'memory/bobs'] })).toEqual({
       status: 'done', result: { loaded: ['memory/mine'], refused: [{ name: 'memory/bobs', reason: 'no fn or context has that name' }] },
     });
@@ -119,5 +130,38 @@ describe('the contextor\'s hub fns', () => {
     expect(await call('hub/model_limits', { model: 'test-model' })).toMatchObject({
       status: 'done', result: [{ model: 'test-model', limits: { contextWindow: 100_000, maxOutputTokens: 1_024 }, sources: { contextWindow: 'model-info', maxOutputTokens: 'default' } }],
     });
+  });
+
+  it('inspect shows dynamic context with the text its system writes for the person', async () => {
+    const { call } = await started();
+    expect(await call('hub/inspect', { name: 'fs/tree' })).toMatchObject({ status: 'done', result: { kind: 'context', text: 'tree for Alice' } });
+    expect(await call('hub/inspect', { name: 'fs/tree', detail: 'signature' })).toMatchObject({ status: 'done', result: { text: 'The folder tree.' } });
+  });
+
+  it('find and inspect keep to a hub MCP\'s scope when its client runs them', async () => {
+    const scope: FnScope = {
+      fns: new Set([QualifiedName.parse('fs/read')]), types: new Set(), context: new Set([QualifiedName.parse('fs/guide')]), allowsResource: (uri) => uri.startsWith('file:///docs/'),
+    };
+    const { search, call } = await started({ scope });
+    search.hits = [
+      { kind: 'fn', key: 'fs/off', score: 1, text: '' },
+      { kind: 'fn', key: 'fs/read', score: 0.9, text: '' },
+      { kind: 'context', key: 'memory/mine', score: 0.8, text: '' },
+      { kind: 'context', key: 'fs/guide', score: 0.7, text: '' },
+      { kind: 'section', key: 'file:///a.md#Usage', score: 0.6, text: 'Usage' },
+      { kind: 'section', key: 'file:///docs/b.md#Intro', score: 0.5, text: 'Intro' },
+    ];
+    const found = await call('hub/find', { query: 'read', limit: 2 }, MCP_CALLER);
+    expect(found.status === 'done' ? found.result : found).toMatchObject([{ name: 'fs/read' }, { name: 'fs/guide' }]);
+    const all = await call('hub/find', { query: 'read' }, MCP_CALLER);
+    expect(all.status === 'done' ? all.result : all).toMatchObject([{ name: 'fs/read' }, { name: 'fs/guide' }, { name: 'file:///docs/b.md#Intro' }]);
+    expect(await call('hub/inspect', { name: 'fs/read', detail: 'listed' }, MCP_CALLER)).toMatchObject({ status: 'done' });
+    // what the MCP leaves out is not there for its client, even what the chat can see
+    for (const name of ['fs/Entry', 'memory/mine']) {
+      const hidden = await call('hub/inspect', { name }, MCP_CALLER);
+      expect(hidden).toMatchObject({ status: 'failed', error: { code: INVALID_INPUT_CODE } });
+      expect(hidden.status === 'failed' ? hidden.error.message : '').toContain('there is no fn, context or type');
+      expect(await call('hub/inspect', { name })).toMatchObject({ status: 'done' });
+    }
   });
 });

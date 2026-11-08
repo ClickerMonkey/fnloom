@@ -3,7 +3,7 @@
  * starts (its queue wait measured from when it was asked for) and closed once, with what it used, cost and took.
  */
 import {
-  compact, mintId, type IdRandom, type ModelCall, type ModelCallId, type ModelCallQuery, type ModelUnits, type Page, type Usd,
+  compact, mintId, usageFor, type IdRandom, type Modality, type ModelCall, type ModelCallId, type ModelCallQuery, type ModelUnits, type Page, type Usd,
 } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import type { HubStore } from '../store/index.ts';
@@ -13,7 +13,7 @@ import type { CallSiteInfo, ModelCallLog, OpenModelCall } from './index.ts';
 const PAGE_SIZE = 50;
 
 /** The units of a call that used nothing yet, by modality (what a failed call records). */
-export function emptyUnits(modality: ModelCall['modality']): ModelUnits {
+export function emptyUnits(modality: Modality): ModelUnits {
   switch (modality) {
     case 'chat': return { modality, input: 0, output: 0 };
     case 'embed': return { modality, texts: 0, characters: 0, dimensions: 1 };
@@ -35,13 +35,15 @@ export interface ModelCallLogDeps {
 class OpenCall implements OpenModelCall {
   readonly id: ModelCallId;
   readonly #deps: ModelCallLogDeps;
+  readonly #modality: Modality;
   readonly #startedAt: number;
   #firstByte: number | undefined;
   #closed = false;
 
-  constructor(deps: ModelCallLogDeps, id: ModelCallId, startedAt: number) {
+  constructor(deps: ModelCallLogDeps, id: ModelCallId, modality: Modality, startedAt: number) {
     this.#deps = deps;
     this.id = id;
+    this.#modality = modality;
     this.#startedAt = startedAt;
   }
 
@@ -50,7 +52,8 @@ class OpenCall implements OpenModelCall {
   }
 
   async done(input: { units: ModelUnits; cost: Usd; sent: number; received: number; interaction?: ModelCall['interaction'] }): Promise<ModelCall> {
-    return this.#close({ status: 'done', units: input.units, cost: input.cost, sent: input.sent, received: input.received, ...(input.interaction === undefined ? {} : { interaction: input.interaction }) });
+    if (input.units.modality !== this.#modality) throw new Error(`model call ${this.id} is ${this.#modality}, not ${input.units.modality}`);
+    return this.#close({ status: 'done', ...usageFor(input.units), cost: input.cost, sent: input.sent, received: input.received, ...(input.interaction === undefined ? {} : { interaction: input.interaction }) });
   }
 
   async failed(error: string, aborted: boolean, interaction?: ModelCall['interaction']): Promise<ModelCall> {
@@ -92,10 +95,9 @@ export class StoreModelCallLog implements ModelCallLog {
       ...compact({
         run: site.run, turn: site.turn, session: site.session, system: site.system, fn: site.fn, purpose: site.purpose, priority: site.priority,
       }),
-      modality: site.modality,
+      ...usageFor(emptyUnits(site.modality)),
       provider: site.provider,
       model: site.model,
-      units: emptyUnits(site.modality),
       cost: 0,
       status: 'running',
       sent: 0,
@@ -104,7 +106,7 @@ export class StoreModelCallLog implements ModelCallLog {
       startedAt,
     };
     await this.#deps.store.table('modelCalls').insert(row);
-    return new OpenCall(this.#deps, row.id, startedAt);
+    return new OpenCall(this.#deps, row.id, site.modality, startedAt);
   }
 
   get(id: ModelCallId): Promise<ModelCall | undefined> {

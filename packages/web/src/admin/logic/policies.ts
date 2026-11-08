@@ -7,13 +7,20 @@ import { fnLabel } from '../../chat/logic/labels.ts';
 import type { Tone } from '../../ui/index.ts';
 import type { NameOf } from './limits.ts';
 
-const KIND_PLURAL = { user: 'people', group: 'groups', agent: 'agents', system: 'systems', mcp: 'MCP clients' } as const satisfies Record<ActorKind, string>;
+/** Each kind of actor in the plural, as a sentence reads it ("All people") and as a heading or option (`label`). */
+export const ACTOR_KIND_WORDS = {
+  user: { plural: 'people', label: 'People' },
+  group: { plural: 'groups', label: 'Groups' },
+  agent: { plural: 'agents', label: 'Agents' },
+  system: { plural: 'systems', label: 'Systems' },
+  mcp: { plural: 'MCP clients', label: 'MCP clients' },
+} as const satisfies Record<ActorKind, { plural: string; label: string }>;
 
 /** Who a policy covers. */
 export function subjectText(subject: ActorMatch, nameOf: NameOf): string {
   if ('actor' in subject) { return nameOf(subject.actor); }
   if ('group' in subject) { return `Group ${nameOf(subject.group)}`; }
-  if ('kind' in subject) { return `All ${KIND_PLURAL[subject.kind]}`; }
+  if ('kind' in subject) { return `All ${ACTOR_KIND_WORDS[subject.kind].plural}`; }
   return 'Everyone';
 }
 

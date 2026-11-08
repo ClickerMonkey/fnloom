@@ -269,11 +269,15 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
 .entry > .grow { flex: 1 1 160px; }
 .grow { flex: 1; min-width: 0; }
 .item-actions { display: flex; gap: 2px; padding-top: 26px; flex: none; }
-/* in a narrow list the move and remove buttons become a small toolbar above the item, so its fields get the full width */
+/*
+ * In a narrow list the move and remove buttons sit on the item's own label row, at its end ("Tags 1   ^ v x"), so its
+ * fields get the full width and the buttons read as the item's, not the one above's.
+ */
 @container items (max-width: 520px) {
-  .item:not(.entry) { flex-direction: column; align-items: stretch; gap: var(--space-1); }
-  .item:not(.entry) > .item-actions { order: -1; justify-content: flex-end; padding-top: 0; }
-  .item:not(.entry) > .grow { flex: none; width: 100%; }
+  .item:not(.entry) { position: relative; display: block; }
+  .item:not(.entry) + .item:not(.entry) { padding-top: var(--space-3); border-top: 1px dashed var(--border); }
+  .item:not(.entry) > .item-actions { position: absolute; top: -5px; right: 0; padding-top: 0; }
+  .item:not(.entry) + .item:not(.entry) > .item-actions { top: calc(var(--space-3) - 5px); }
 }
 .entry-remove { margin-top: 26px; }
 .field { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }

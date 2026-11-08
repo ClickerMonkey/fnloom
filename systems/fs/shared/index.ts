@@ -4,6 +4,9 @@
  * implements it and its client draws it.
  */
 import { type Infer, type ValueOf, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { authoringContext } from './authoring.gen.ts';
+
+export { AUTHORING_PARTS, perPart, type AuthoringPart } from './authoring.gen.ts';
 
 /** A file or folder under one of the roots. */
 export const Entry = type({
@@ -215,15 +218,18 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         description: 'The folder tree of a root, as it is now.',
         command: { name: 'tree', args: { root: arg('Which root (default: all)', { required: false }) } },
       }),
-      // the SDK's authoring guide and the template, so the chat can write a system with these fns
+      // the start of the SDK's authoring guide (its parts follow, one item each) and the template, so the chat can
+      // write a system with these fns
       'system-authoring': context({
-        description: 'How to write a harness system: the complete SDK guide, where the template system is, and how to copy it.',
+        description: 'How to write a harness system: the parts of the SDK guide and their sizes, where the template system is, and how to copy it.',
         command: { name: 'new-system' },
         fns: [fns.write, fns.edit, fns.bash, fns.read],
         alwaysFor: [],
       }),
     },
   }))
+  // the authoring guide's parts, under its start item (generated from the guide: `npm run docs:authoring`)
+  .with(({ context: ctx }) => ({ context: authoringContext(ctx['system-authoring']) }))
   .with(({ fns, context: ctx }) => ({
     fns: {
       explore: agent({

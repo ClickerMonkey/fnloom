@@ -10,11 +10,11 @@
  *
  * It is provided under `RESOURCE_VIEWER`, so a system's renderer can show any resource with it.
  */
-import type { QualifiedName, ResourceUri, SectionKey } from '@harness/core';
+import type { QualifiedName, ResourceStat, ResourceUri, SectionKey } from '@harness/core';
 import { computed, watch } from 'vue';
 import { useStores } from '../state/stores.ts';
 import { copyText, UiBanner, UiButton, UiDiagram, UiIconButton, UiMarkdown, UiSkeleton, UiTabs, type TabItem } from '../ui/index.ts';
-import { languageOf } from './logic/formats.ts';
+import { languageOf, typeWord } from './logic/formats.ts';
 import { delimiterOf, parseDelimited } from './logic/tables.ts';
 import type { ModeRead } from './logic/viewers.ts';
 import CodeViewer from './viewers/CodeViewer.vue';
@@ -54,6 +54,8 @@ const emit = defineEmits<{
   notice: [text: string, tone: 'ok' | 'danger'];
   /** Context was made from the resource: the items made or updated. */
   context: [made: readonly QualifiedName[]];
+  /** What is known about the resource once it has loaded (its name, type and size), for a frame's title. */
+  opened: [stat: ResourceStat];
 }>();
 
 const { resources } = useStores();
@@ -63,6 +65,7 @@ watch(() => [props.uri, props.section] as const, ([uri, section]) => { void stor
 watch(() => props.mode, (mode) => { store.asked.value = mode === '' ? undefined : mode; }, { immediate: true });
 
 const opened = computed(() => store.opened.value.value);
+watch(opened, (now) => { if (now !== undefined) { emit('opened', now.stat); } }, { immediate: true });
 const plan = computed(() => store.plan.value);
 const current = computed(() => store.mode.value);
 const tabs = computed<readonly TabItem<string>[]>(() => (plan.value?.modes ?? []).map((m) => ({ value: m.id, label: m.label })));
@@ -167,7 +170,7 @@ async function makeContext(): Promise<void> {
         <OfferCard v-else-if="current.draws === 'offer' && current.offer" :offer="current.offer" :busy="store.making.busy.value" :problem="store.making.problem.value" @make="make" />
         <InfoPanel v-else-if="current.draws === 'info'" :stat="opened.stat" :record="opened.record" :forms="opened.forms" :links="opened.links" @open="emit('navigate', $event)" />
         <div v-else class="binary" data-testid="binary-view">
-          <p class="dim">There is no preview for this {{ opened.stat.format ?? opened.stat.type }}.</p>
+          <p class="dim">There is no preview for this {{ typeWord(opened.stat) }}.</p>
           <UiButton v-if="opened.from === 'library' && !compact" icon="download" @click="download">Download</UiButton>
           <UiButton v-if="plan.modes.some((m) => m.id === 'info') && !compact" variant="ghost" @click="shownMode = 'info'">Show its details</UiButton>
         </div>
@@ -180,7 +183,8 @@ async function makeContext(): Promise<void> {
 <style scoped>
 .resource-viewer { display: grid; gap: var(--space-3); min-width: 0; }
 .bar { display: flex; align-items: center; gap: var(--space-2); min-width: 0; flex-wrap: wrap; }
-.modes { flex: 1 1 240px; min-width: 0; }
+/* the tabs take their own width and the actions wrap below them when both don't fit; tabs wider than the row scroll, faded */
+.modes { flex: 1 1 auto; min-width: 0; }
 .actions { display: flex; gap: 2px; margin-left: auto; }
 .body { min-width: 0; }
 .markdown { min-width: 0; overflow-wrap: anywhere; }

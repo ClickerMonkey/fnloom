@@ -4,7 +4,7 @@
  * and how its runs have gone (count, failure rate, retried input apart from failures, typical and p95 time, cost).
  * Its name opens its page with its metrics; its numbers open its runs.
  */
-import type { FnRecord, QualifiedName } from '@harness/core';
+import { runCount, type FnRecord, type QualifiedName } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
@@ -13,7 +13,8 @@ import { availabilityText } from '../logic/systems.ts';
 
 defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; pageOf: (fn: QualifiedName) => RouteLocationRaw }>();
 
-const failureRate = (fn: FnRecord): string => (fn.stats.runs === 0 ? '' : `${Math.round((fn.stats.failures / fn.stats.runs) * 100)}% failed`);
+const runTotal = (fn: FnRecord): number => runCount(fn.stats.outcomes);
+const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math.round((fn.stats.outcomes.failed / runTotal(fn)) * 100)}% failed`);
 </script>
 
 <template>
@@ -34,8 +35,8 @@ const failureRate = (fn: FnRecord): string => (fn.stats.runs === 0 ? '' : `${Mat
         </p>
       </div>
       <RouterLink class="stats" :to="runsOf(fn.name)" :title="fn.stats.lastRunAt === undefined ? 'Never run' : `Last run ${fullTime(fn.stats.lastRunAt)}`">
-        <span class="runs">{{ fn.stats.runs.toLocaleString() }} {{ fn.stats.runs === 1 ? 'run' : 'runs' }}</span>
-        <span v-if="fn.stats.runs > 0" class="dim">{{ failureRate(fn) }}<template v-if="(fn.stats.invalidInputs ?? 0) > 0"> · {{ fn.stats.invalidInputs }} retried</template> · {{ formatDuration(fn.stats.averageTime) }}<template v-if="fn.stats.p95Time !== undefined"> (p95 {{ formatDuration(fn.stats.p95Time) }})</template> · {{ formatCost(fn.stats.averageCost) }}</span>
+        <span class="runs">{{ runTotal(fn).toLocaleString() }} {{ runTotal(fn) === 1 ? 'run' : 'runs' }}</span>
+        <span v-if="runTotal(fn) > 0" class="dim">{{ failureRate(fn) }}<template v-if="fn.stats.outcomes['invalid-input'] > 0"> · {{ fn.stats.outcomes['invalid-input'] }} retried</template> · {{ formatDuration(fn.stats.averageTime) }}<template v-if="fn.stats.p95 !== undefined"> (p95 {{ formatDuration(fn.stats.p95) }})</template> · {{ formatCost(fn.stats.averageCost) }}</span>
         <span v-if="fn.stats.lastRunAt !== undefined" class="dim">last {{ relativeTime(fn.stats.lastRunAt, now) }}</span>
       </RouterLink>
     </li>

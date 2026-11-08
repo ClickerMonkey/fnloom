@@ -3,17 +3,17 @@
  * One actor setting a system declared: what it controls, who it can be set on and how values combine, and the value
  * on each actor that has one. Each value opens for editing; Set adds one for another actor.
  */
-import type { ActorId, ActorKind, SettingMerge } from '@harness/core';
+import type { ActorId, SettingMerge } from '@harness/core';
 import { argSummary } from '../../chat/logic/runs.ts';
 import { UiBadge, UiButton, UiIconButton, fullTime, relativeTime } from '../../ui/index.ts';
 import type { NameOf } from '../logic/limits.ts';
+import { ACTOR_KIND_WORDS } from '../logic/policies.ts';
 import type { SettingEntry } from '../state/settings.ts';
 
 defineProps<{ entry: SettingEntry; nameOf: NameOf; now: number }>();
 const emit = defineEmits<{ edit: [actor: ActorId | undefined] }>();
 
 const MERGE = { 'user-wins': "The person's own value wins", union: 'Values add up', intersect: 'Only what all allow', 'most-restrictive': 'The strictest wins' } as const satisfies Record<SettingMerge, string>;
-const KIND = { user: 'people', group: 'groups', agent: 'agents', system: 'systems', mcp: 'MCP clients' } as const satisfies Record<ActorKind, string>;
 </script>
 
 <template>
@@ -23,7 +23,7 @@ const KIND = { user: 'people', group: 'groups', agent: 'agents', system: 'system
         <h3 class="title">{{ entry.view.decl.name }} <code class="name">{{ entry.view.setting }}</code></h3>
         <p class="description">{{ entry.view.decl.description }}</p>
         <p class="chips">
-          <UiBadge>On {{ entry.view.decl.appliesTo.map((k) => KIND[k]).join(', ') }}</UiBadge>
+          <UiBadge>On {{ entry.view.decl.appliesTo.map((k) => ACTOR_KIND_WORDS[k].plural).join(', ') }}</UiBadge>
           <UiBadge>{{ MERGE[entry.view.decl.merge] }}</UiBadge>
         </p>
       </div>

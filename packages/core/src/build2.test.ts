@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ChatModeConfig, ContextorConfig, ContextorType, ChatModeType, DeclaredLink, FormKind, GinExprDef, GinTypeDef, HUB_TABLES, InstanceName, InstanceRef, MAIN_INSTANCE,
   ModelForward, NameGlob, OutcomeCounts, OutcomeWire, PackagePath, RESERVED_SYSTEM_NAMES, RoleChoice, RunOutcome, SystemPackageManifest, familyOf,
-  instanceLabel, isConvertedKind, isGinExprDef, isGinTypeDef, isReservedSystemName, linkTargetKey, phaseOf, RUN_STATUS_WORDS, ModelLimits, ResolvedModelLimits,
+  FnStats, ModelCall, ModelCallId, ModelRoleRecord, runCount, usageFor, instanceLabel, isConvertedKind, isGinExprDef, isGinTypeDef, isReservedSystemName, linkTargetKey, phaseOf, RUN_STATUS_WORDS, ModelLimits, ResolvedModelLimits,
 } from './index.ts';
 
 describe('modes and contextors', () => {
@@ -127,5 +127,27 @@ describe('model calls and roles', () => {
     expect(RoleChoice.parse({ role: 'dictate', engine: { engine: 'browser' } })).toEqual({ role: 'dictate', engine: { engine: 'browser' } });
     expect(RoleChoice.parse({ role: 'transcribe', model: { model: 'openai/whisper-1' } })).toMatchObject({ role: 'transcribe' });
     expect(RoleChoice.safeParse({ role: 'dictate', model: { model: 'x' } }).success).toBe(false);
+  });
+});
+
+describe('model calls, fn stats and roles', () => {
+  const call = { id: ModelCallId.parse('mdl_1'), provider: 'openai', model: 'e', cost: 0, status: 'done', sent: 0, received: 0, queued: 0, startedAt: 1 };
+
+  it('keeps a call’s units its own modality’s', () => {
+    expect(ModelCall.safeParse({ ...call, modality: 'embed', units: { modality: 'embed', texts: 1, characters: 3, dimensions: 8 } }).success).toBe(true);
+    expect(ModelCall.safeParse({ ...call, modality: 'chat', units: { modality: 'embed', texts: 1, characters: 3, dimensions: 8 } }).success).toBe(false);
+    expect(usageFor({ modality: 'transcribe', seconds: 2, bytes: 10 })).toEqual({ modality: 'transcribe', units: { modality: 'transcribe', seconds: 2, bytes: 10 } });
+  });
+
+  it('counts a fn’s runs by outcome, and reads a build 1 row as no runs yet', () => {
+    const stats = FnStats.parse({ outcomes: { done: 2, 'invalid-input': 1, failed: 1, cancelled: 0 }, averageCost: 0, averageTime: 5 });
+    expect(runCount(stats.outcomes)).toBe(4);
+    expect(stats.tokens).toBe(0);
+    expect(FnStats.parse({ runs: 3, failures: 1, averageCost: 0.1, averageTime: 7 })).toEqual({ outcomes: { done: 0, 'invalid-input': 0, failed: 0, cancelled: 0 }, averageCost: 0.1, averageTime: 7, tokens: 0 });
+  });
+
+  it('keys a stored role by its choice’s role', () => {
+    const record = ModelRoleRecord.parse({ choice: { role: 'transcribe', model: { model: 'whisper-1' } }, setBy: 'act_a', updatedAt: 1 });
+    expect(HUB_TABLES.modelRoles.rowKey(record)).toBe('transcribe');
   });
 });

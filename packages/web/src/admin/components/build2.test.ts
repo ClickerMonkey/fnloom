@@ -6,6 +6,7 @@ import { SystemName } from '@harness/core';
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fleet, limitsView, mcpView, modelCall, roleView, scopePreview, fnDays } from '../test/build2.ts';
+import { T0 } from '../../chat/test/fakes.ts';
 import { model } from '../test/fakes.ts';
 import { dayBars } from '../logic/metrics.ts';
 import DayBars from './DayBars.vue';
@@ -49,12 +50,16 @@ describe('model roles and limits', () => {
     // the browser engine needs no model
     expect(document.body.querySelector('[data-testid=role-model]')).toBeNull();
     await click('[data-testid=role-engine] [role=radio]:last-child');
-    const options = [...document.body.querySelectorAll('[data-testid=role-model] option')].map((o) => o.textContent);
-    expect(options[1]).toBe('Whisper');
-    expect(options[2]).toContain('not listed as able to hear audio');
+    // only the models able to hear are offered, until every model is asked for
+    const offered = (): (string | null)[] => [...document.body.querySelectorAll('[data-testid=role-model] [data-model]')].map((o) => o.getAttribute('data-model'));
+    expect(offered()).toEqual(['openai/whisper-1']);
+    expect(document.body.querySelector('[data-testid=role-model] [data-model=default]')).toBeNull();
+    await click('[data-testid=role-every-model] [role=switch]');
+    expect(offered()).toHaveLength(2);
     await click('[data-testid=role-save]');
     expect(document.body.textContent).toContain('Choose a model.');
-    await set('[data-testid=role-model]', 'openai/whisper-1');
+    await click('[data-testid=role-model] [data-model="openai/whisper-1"]');
+    expect(find('[data-testid=role-chosen]').textContent).toContain('Whisper');
     await set('[data-testid=role-language]', 'en-GB');
     await click('[data-testid=role-save]');
     expect(dialog.emitted('save')?.[0]).toEqual([{ role: 'dictate', engine: { engine: 'model', model: { model: 'openai/whisper-1' } }, language: 'en-GB' }]);
@@ -128,7 +133,7 @@ describe('model calls, metrics and fleets', () => {
   });
 
   it('DayBars draws one bar per day, a tooltip for the pointed one, and a table', async () => {
-    const bars = dayBars(fnDays(7), 'runs');
+    const bars = dayBars(fnDays(7), 'runs', { period: 7, now: T0 });
     const chart = mount(DayBars, { props: { title: 'Runs per day', bars, format: (v: number) => String(v) } });
     expect(chart.findAll('.column')).toHaveLength(7);
     expect(chart.find('.tip').exists()).toBe(false);

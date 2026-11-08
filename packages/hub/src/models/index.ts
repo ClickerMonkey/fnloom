@@ -10,7 +10,7 @@
  *   SDK's forwarding provider) and for the hub's own work (forms, dictation), each budgeted, rate-limited and recorded
  *   as a `ModelCall`. Chat stays on the execution module's `LlmGateway`.
  */
-import type { ActorId, ModelForward, ModelForwardResult, ModelRole, ModelRoleView, RoleChoice, RunId, SystemName, TurnId } from '@harness/core';
+import type { ActorId, ModelForward, ModelForwardResult, ModelRole, ModelRoleView, ResolvedRole, RoleChoice, RunId, SystemName, TurnId } from '@harness/core';
 
 /** Which model each role uses. */
 export interface ModelRoles {
@@ -19,7 +19,7 @@ export interface ModelRoles {
   set(choice: RoleChoice, by: ActorId): Promise<ModelRoleView>;
   clear(role: ModelRole, by: ActorId): Promise<ModelRoleView>;
   /** The model and provider a role resolves to now, or undefined when the role is off. */
-  resolve(role: ModelRole): Promise<{ model: string; provider: string } | undefined>;
+  resolve(role: ModelRole): Promise<ResolvedRole | undefined>;
 }
 
 /** Who a non-chat call is for: a system's run, or the hub's own work. */
@@ -27,7 +27,11 @@ export type ModelSite = { readonly system: SystemName; readonly run?: RunId; rea
 
 /** Every non-chat modality through the hub provider. */
 export interface ModelGateway {
-  forward(request: ModelForward, site: ModelSite, signal: AbortSignal): Promise<ModelForwardResult>;
+  /**
+   * One call. Without a model in the request it goes to `role`'s model (default: the modality's role) on the provider
+   * that role resolved to, so the provider the settings page shows is the one that answers.
+   */
+  forward(request: ModelForward, site: ModelSite, signal: AbortSignal, role?: ModelRole): Promise<ModelForwardResult>;
 }
 
 /** The models module's services (`HubServices.models`). */

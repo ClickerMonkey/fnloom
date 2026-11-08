@@ -10,7 +10,7 @@
 import { z } from 'zod';
 import { ModelChoice } from './llm.ts';
 import {
-  ActorId, Duration, LlmInteractionId, ModelCallId, PageRequest, Priority, ProviderId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
+  ActorId, Duration, LlmInteractionId, ModelCallId, PageRequest, Priority, ProviderId, QualifiedName, RunId, type Same, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from './primitives.ts';
 import { ContentRef } from './resources.ts';
 
@@ -21,27 +21,33 @@ export const MODALITIES = ['chat', 'embed', 'image', 'transcribe', 'speech'] as 
 export const Modality = z.enum(MODALITIES);
 export type Modality = z.infer<typeof Modality>;
 
+/** What a chat call used: tokens in and out. */
+export const ChatUnits = z.object({ modality: z.literal('chat'), input: z.number().int().min(0), output: z.number().int().min(0), cached: z.number().int().min(0).optional(), reasoning: z.number().int().min(0).optional() });
+/** What an embedding call used: texts, their characters, and the vectors' size. */
+export const EmbedUnits = z.object({ modality: z.literal('embed'), texts: z.number().int().min(0), characters: z.number().int().min(0), tokens: z.number().int().min(0).optional(), dimensions: z.number().int().min(1) });
+/** What an image call used: images made, and their size. */
+export const ImageUnits = z.object({ modality: z.literal('image'), images: z.number().int().min(0), size: z.string().optional() });
+/** What a transcription call used: seconds and bytes of audio. */
+export const TranscribeUnits = z.object({ modality: z.literal('transcribe'), seconds: z.number().min(0), bytes: z.number().int().min(0) });
+/** What a speech call used: characters read, and the seconds of audio made. */
+export const SpeechUnits = z.object({ modality: z.literal('speech'), characters: z.number().int().min(0), seconds: z.number().min(0).optional() });
+
 /** What a call used, by modality: the units its price and its speed are measured in. */
-export const ModelUnits = z.discriminatedUnion('modality', [
-  z.object({ modality: z.literal('chat'), input: z.number().int().min(0), output: z.number().int().min(0), cached: z.number().int().min(0).optional(), reasoning: z.number().int().min(0).optional() }),
-  z.object({ modality: z.literal('embed'), texts: z.number().int().min(0), characters: z.number().int().min(0), tokens: z.number().int().min(0).optional(), dimensions: z.number().int().min(1) }),
-  z.object({ modality: z.literal('image'), images: z.number().int().min(0), size: z.string().optional() }),
-  z.object({ modality: z.literal('transcribe'), seconds: z.number().min(0), bytes: z.number().int().min(0) }),
-  z.object({ modality: z.literal('speech'), characters: z.number().int().min(0), seconds: z.number().min(0).optional() }),
-]);
+export const ModelUnits = z.discriminatedUnion('modality', [ChatUnits, EmbedUnits, ImageUnits, TranscribeUnits, SpeechUnits]);
 export type ModelUnits = z.infer<typeof ModelUnits>;
+
+/** The formats speech audio comes in. */
+export const SPEECH_FORMATS = ['mp3', 'wav', 'ogg'] as const;
+export const SpeechFormat = z.enum(SPEECH_FORMATS);
+export type SpeechFormat = z.infer<typeof SpeechFormat>;
 
 /** Where a model call is. */
 export const ModelCallStatus = z.enum(['running', 'done', 'failed', 'aborted']);
 export type ModelCallStatus = z.infer<typeof ModelCallStatus>;
 
-/**
- * One call to a model, of any modality. `queued` is how long it waited for a slot (rate limits, concurrency);
- * `firstByte` how long until the provider answered; `total` from start to end.
- */
-export const ModelCall = z.object({
+/** The fields every model call has, whatever its modality. */
+const ModelCallBase = z.object({
   id: ModelCallId,
-  modality: Modality,
   provider: z.string(),
   model: z.string(),
   /** The run it was made for; absent only for the hub's own background work (indexing, conversions). */
@@ -55,7 +61,6 @@ export const ModelCall = z.object({
   purpose: z.string().optional(),
   /** The chat call's whole request and response. */
   interaction: LlmInteractionId.optional(),
-  units: ModelUnits,
   cost: Usd,
   status: ModelCallStatus,
   error: z.string().optional(),
@@ -69,7 +74,33 @@ export const ModelCall = z.object({
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
 });
+/** A call's modality with its units, which the schema keeps in step (units always carry their own modality). */
+const usageOf = <U extends typeof ModelUnits.options[number]>(units: U) => z.object({ modality: units.shape.modality, units });
+
+/** The part of a `ModelCall` that varies by modality: the modality and what the call used, in its units. */
+export const ModelUsage = z.discriminatedUnion('modality', [usageOf(ChatUnits), usageOf(EmbedUnits), usageOf(ImageUnits), usageOf(TranscribeUnits), usageOf(SpeechUnits)]);
+export type ModelUsage = z.infer<typeof ModelUsage>;
+
+/** The usage of a call that used `units`: their modality with them. */
+export function usageFor(units: ModelUnits): ModelUsage {
+  return ModelUsage.parse({ modality: units.modality, units });
+}
+
+/** A call of one modality. */
+const callOf = <U extends typeof ModelUsage.options[number]>(usage: U) => ModelCallBase.extend(usage.shape);
+
+/**
+ * One call to a model, of any modality. `queued` is how long it waited for a slot (rate limits, concurrency);
+ * `firstByte` how long until the provider answered; `total` from start to end. A discriminated union on `modality`,
+ * so a call's units are always its own modality's.
+ */
+export const ModelCall = z.discriminatedUnion('modality', [
+  callOf(ModelUsage.options[0]), callOf(ModelUsage.options[1]), callOf(ModelUsage.options[2]), callOf(ModelUsage.options[3]), callOf(ModelUsage.options[4]),
+]);
 export type ModelCall = z.infer<typeof ModelCall>;
+
+// Every modality has its units and its call shape, and nothing else does.
+true satisfies Same<ModelCall['modality'], Modality>;
 
 /** A model call in a list: everything (it has no large fields). */
 export const ModelCallFilter = z.object({
@@ -91,7 +122,7 @@ export const ModelForward = z.discriminatedUnion('modality', [
   z.object({ modality: z.literal('embed'), texts: z.array(z.string()).min(1), model: ModelChoice.optional() }),
   z.object({ modality: z.literal('image'), prompt: z.string().min(1), model: ModelChoice.optional(), size: z.string().optional(), count: z.number().int().min(1).max(10).optional() }),
   z.object({ modality: z.literal('transcribe'), audio: ContentRef, model: ModelChoice.optional(), language: z.string().optional() }),
-  z.object({ modality: z.literal('speech'), text: z.string().min(1), model: ModelChoice.optional(), voice: z.string().optional(), format: z.enum(['mp3', 'wav', 'ogg']).optional() }),
+  z.object({ modality: z.literal('speech'), text: z.string().min(1), model: ModelChoice.optional(), voice: z.string().optional(), format: SpeechFormat.optional() }),
 ]).and(z.object({ run: RunId.optional() }));
 export type ModelForward = z.infer<typeof ModelForward>;
 
@@ -133,6 +164,9 @@ export const DictationEngine = z.discriminatedUnion('engine', [
   RoleModel.extend({ engine: z.literal('model') }),
 ]);
 export type DictationEngine = z.infer<typeof DictationEngine>;
+/** The ways dictation can run: exactly `DictationEngine`'s engines (a new one fails to compile here until listed). */
+export const DICTATION_ENGINES = ['browser', 'model'] as const;
+true satisfies Same<(typeof DICTATION_ENGINES)[number], DictationEngine['engine']>;
 
 /** The roles whose setting is a model (every role but dictation, which has an engine). */
 export const ModelOnlyRole = ModelRole.exclude(['dictate']);
@@ -145,16 +179,25 @@ export const RoleChoice = z.discriminatedUnion('role', [
 ]);
 export type RoleChoice = z.infer<typeof RoleChoice>;
 
-/** A stored role setting. Without one, a role falls back to the hub's env default (or is off). */
-export const ModelRoleRecord = z.object({ role: ModelRole, choice: RoleChoice, setBy: ActorId, updatedAt: Timestamp });
+/** A stored role setting, keyed by its choice's role. Without one, a role falls back to the hub's env default (or is off). */
+export const ModelRoleRecord = z.object({ choice: RoleChoice, setBy: ActorId, updatedAt: Timestamp });
 export type ModelRoleRecord = z.infer<typeof ModelRoleRecord>;
+
+/**
+ * What a role's choice resolves to now: the model and the provider (aeye's provider name, as `ModelInfo.provider`)
+ * that serves it, or why the choice can't be used (no provider, no such model, a model that can't do the job).
+ */
+export const RoleResolution = z.union([z.object({ model: z.string(), provider: z.string() }), z.object({ problem: z.string() })]);
+export type RoleResolution = z.infer<typeof RoleResolution>;
+/** A resolution that found its model. */
+export type ResolvedRole = Extract<RoleResolution, { model: string }>;
 
 /** A role as the settings page shows it: its choice (stored, or from env), and whether it can be used now. */
 export const ModelRoleView = z.object({
   role: ModelRole,
   choice: RoleChoice.optional(),
   from: z.enum(['setting', 'env', 'none']),
-  /** The model the choice resolves to now, and why not when it can't be used (no provider, no such model). */
-  resolved: z.union([z.object({ model: z.string(), provider: z.string() }), z.object({ problem: z.string() })]).optional(),
+  /** What the choice resolves to now; absent without a choice, or for dictation in the browser (no model). */
+  resolved: RoleResolution.optional(),
 });
 export type ModelRoleView = z.infer<typeof ModelRoleView>;

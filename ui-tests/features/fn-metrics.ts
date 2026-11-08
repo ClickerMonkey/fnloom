@@ -3,6 +3,7 @@
  * (runs, retried input apart from failures, typical and p95 time, waiting, cost, tokens) and its runs and typical
  * time per day, over a period in the URL (`?days=`), with a tooltip on the pointed day.
  */
+import { runCount } from '@harness/core';
 import { BUILD_2_VIEWPORTS, check, feature, find, inEachScheme, isTouch, open, settle, show, tid } from '../kit.ts';
 
 export default feature({
@@ -12,7 +13,7 @@ export default feature({
     // the busiest fn of any connected system (some systems, like an embedder, have no fns)
     const connected = (await api.hub.call('systems', {})).filter((s) => s.status === 'connected');
     const fns = (await Promise.all(connected.map((s) => api.hub.call('systemFns', { system: s.name })))).flat();
-    const fn = [...fns].sort((a, b) => b.stats.runs - a.stats.runs)[0];
+    const fn = [...fns].sort((a, b) => runCount(b.stats.outcomes) - runCount(a.stats.outcomes))[0];
     check(fn !== undefined, 'a system has fns');
     const [system, local] = fn.name.split('/');
 

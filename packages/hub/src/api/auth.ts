@@ -4,7 +4,7 @@
  * token (an HS256 JWT from `@ayepi/auth`) carrying the session and its version, and a refresh token stored only as a
  * hash. Revoking bumps or removes the session, so every request (`user`) sees it at once.
  */
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { signJwt } from '@ayepi/auth/server';
 import {
   AccessClaims, mintId, UserView, type AuthSession, type AuthSessionId, type IdRandom, type SetupState, type Tokens, type UserActor,
@@ -12,6 +12,7 @@ import {
 import type { HubStore } from '../store/index.ts';
 import type { Authenticator, PasswordHasher } from './index.ts';
 import { first, PAGE } from './paging.ts';
+import { sha256Hex } from '../link/keys.ts';
 
 /** Who access tokens come from and are for; the bearer middleware checks both. */
 export const ACCESS_TOKEN = { issuer: 'harness-hub', audience: 'web' } as const;
@@ -30,7 +31,6 @@ export interface AuthOptions {
   readonly random?: IdRandom;
 }
 
-const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 const sameHash = (a: string, b: string): boolean => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /** An email as the hub keeps and compares it: trimmed, lower case. */
@@ -103,7 +103,7 @@ export class AdminAuthenticator implements Authenticator {
     const session = await sessions.get(parsed.session);
     if (session === undefined) { return undefined; }
     const now = this.#o.clock();
-    if (!sameHash(sha256(parsed.secret), session.refreshHash)) {
+    if (!sameHash(sha256Hex(parsed.secret), session.refreshHash)) {
       // A refresh token that is no longer current was used: someone else has had it. End the session.
       await sessions.remove(session.id);
       return undefined;
@@ -115,7 +115,7 @@ export class AdminAuthenticator implements Authenticator {
     const user = await this.#activeUser(session.user, store);
     if (user === undefined) { return undefined; }
     const secret = this.#secret();
-    const updated = await sessions.update(session.id, { refreshHash: sha256(secret), lastSeenAt: now });
+    const updated = await sessions.update(session.id, { refreshHash: sha256Hex(secret), lastSeenAt: now });
     return this.#tokens(updated, user, secret);
   }
 
@@ -141,7 +141,7 @@ export class AdminAuthenticator implements Authenticator {
     const now = this.#o.clock();
     const secret = this.#secret();
     const session = await store.table('authSessions').insert({
-      id: mintId('authSession', this.#o.random), user: user.id, version: 1, refreshHash: sha256(secret), device, createdAt: now, lastSeenAt: now,
+      id: mintId('authSession', this.#o.random), user: user.id, version: 1, refreshHash: sha256Hex(secret), device, createdAt: now, lastSeenAt: now,
     });
     return this.#tokens(session, user, secret);
   }

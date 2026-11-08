@@ -50,6 +50,18 @@ describe('reading resources', () => {
     await expect(r.reader.read({ uri: r.page, rows: { table: '1', from: 0, to: 1 } }, who)).rejects.toMatchObject({ status: 422 });
   });
 
+  it('refuses rows past the ones it keeps instead of answering empty, and ends a range at what is kept', async () => {
+    const r = await rig();
+    // the rig keeps 5 of the sheet's 8 rows
+    await expect(r.reader.read({ uri: r.sheet, rows: { table: '1', from: 6, to: 8 } }, who)).rejects.toMatchObject({ status: 422, code: 'ROWS_NOT_KEPT' });
+    const edge = await r.reader.read({ uri: r.sheet, rows: { table: '1', from: 3, to: 8 } }, who);
+    expect(edge.text).toContain('row5');
+    expect(edge.text).not.toContain('row6');
+    expect(edge).toMatchObject({ offset: 3, total: 8, truncated: true });
+    // past the real end is an empty, whole read
+    expect(await r.reader.read({ uri: r.sheet, rows: { table: '1', from: 9, to: 12 } }, who)).toMatchObject({ total: 8, truncated: false });
+  });
+
   it('refuses the raw text of binary content, naming what can be read instead', async () => {
     const r = await rig();
     await expect(r.reader.read({ uri: r.bin }, who)).rejects.toMatchObject({ status: 422 });

@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ try: [secret: string]; copied: [what: string] }>();
 
 const typed = ref('');
-const snippets = computed(() => connectSnippets(props.mcp, props.secret === '' ? undefined : props.secret));
+const snippets = computed(() => connectSnippets(props.mcp, window.location.origin, props.secret === '' ? undefined : props.secret));
 
 async function copy(text: string, what: string): Promise<void> {
   if (await copyText(text)) { emit('copied', what); }

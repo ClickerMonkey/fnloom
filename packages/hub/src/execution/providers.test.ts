@@ -23,16 +23,16 @@ async function stored(seed?: string) {
   const store = await testStore();
   const vault = new MemoryVault();
   const { log, records } = memoryLog();
-  const providers = new StoredProviders({ store, secrets: vault, log, clock: () => 7, seed: seed === undefined ? undefined : { key: seed, owner: OWNER } });
+  const providers = new StoredProviders({ store, secrets: vault, log, clock: () => 7, seed: seed === undefined ? undefined : { key: seed, owner: OWNER }, ollamaCap: 4_096 });
   return { store, vault, records, providers };
 }
 
 describe('stored providers', () => {
   it('builds OpenAI and OpenRouter from their records with the keys revealed', async () => {
     const key = (id: SecretIdType): Promise<string> => Promise.resolve(`key of ${id}`);
-    const openai = await buildProvider({ provider: 'openai', apiKey: SecretId.parse('sec_1'), baseURL: 'https://llm.example.com/v1' }, key);
+    const openai = await buildProvider({ provider: 'openai', apiKey: SecretId.parse('sec_1'), baseURL: 'https://llm.example.com/v1' }, key, 4_096);
     expect(openai.name).toBe('openai');
-    expect((await buildProvider({ provider: 'openrouter', apiKey: SecretId.parse('sec_2') }, key)).name).toBe('openrouter');
+    expect((await buildProvider({ provider: 'openrouter', apiKey: SecretId.parse('sec_2') }, key, 4_096)).name).toBe('openrouter');
   });
 
   it('seeds the bootstrap OpenRouter key as the first record, once', async () => {

@@ -3,11 +3,11 @@
  * A diagram (mermaid) drawn by the app's renderer (`DIAGRAMS`) as an image from a blob URL, following light and dark
  * (it draws again when the theme changes), with its source a toggle away and opened large on a click. While it draws,
  * a skeleton holds its place; without a renderer, or when the source doesn't draw, the source shows as code with a
- * note saying why.
+ * note saying why. Its caption bar names it and holds the Source / Diagram switch.
  */
 import { computed, inject, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
+import UiButton from './UiButton.vue';
 import UiCodeBlock from './UiCodeBlock.vue';
-import UiIconButton from './UiIconButton.vue';
 import UiImageViewer from './UiImageViewer.vue';
 import UiSkeleton from './UiSkeleton.vue';
 import { DIAGRAMS } from './markdown/diagram.ts';
@@ -40,7 +40,7 @@ watch(() => [props.source, props.language, dark.value, supported.value] as const
   release();
   if (result.ok) {
     problem.value = '';
-    url.value = URL.createObjectURL(new Blob([result.svg], { type: 'image/svg+xml' }));
+    url.value = URL.createObjectURL(new Blob([result.value], { type: 'image/svg+xml' }));
   } else {
     problem.value = result.problem;
   }
@@ -61,8 +61,13 @@ const note = computed(() => {
     <UiSkeleton v-else-if="supported && drawing && !showSource" shape="block" />
     <UiCodeBlock v-else :code="source" :language="language" :filename="title" :max-height="360" />
     <figcaption class="bar">
-      <span v-if="note !== ''" class="note">{{ note }}</span>
-      <UiIconButton v-if="supported && url" :icon="showSource ? 'image' : 'file'" size="sm" :label="showSource ? 'Show the diagram' : 'Show the source'" :pressed="showSource" @click="showSource = !showSource" />
+      <span class="caption">{{ note === '' ? title : note }}</span>
+      <UiButton
+        v-if="supported && url" size="sm" variant="ghost" :icon="showSource ? 'image' : 'code'" :aria-pressed="showSource ? 'true' : 'false'" data-testid="diagram-source"
+        @click="showSource = !showSource"
+      >
+        {{ showSource ? 'Diagram' : 'Source' }}
+      </UiButton>
     </figcaption>
     <UiImageViewer v-if="url" v-model:open="large" :src="url" :alt="title" />
   </figure>
@@ -74,7 +79,6 @@ const note = computed(() => {
 .open { padding: 0; border: 0; background: none; cursor: zoom-in; max-width: 100%; }
 .open:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius); }
 .open img { display: block; max-width: 100%; height: auto; }
-.bar { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-height: 0; }
-.bar:empty { display: none; }
-.note { flex: 1; color: var(--text-faint); font-size: var(--text-xs); }
+.bar { display: flex; align-items: center; gap: var(--space-2); min-height: 0; }
+.caption { flex: 1; min-width: 0; color: var(--text-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 </style>

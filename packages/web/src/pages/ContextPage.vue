@@ -20,7 +20,8 @@ import { useStores } from '../state/stores.ts';
 import { UiButton, UiInput, UiSegmented, type SegmentOption } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { context, toasts } = useStores();
+const { context, resources, toasts } = useStores();
+const finder = resources.search();
 const router = useRouter();
 const now = useNow();
 const query = useRouteQuery(ROUTES.context);
@@ -94,7 +95,10 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
       </div>
     </LoadState>
     <MemoryDialog v-model:open="remembering" :busy="context.remembering.busy.value" :problem="context.remembering.problem.value" @save="remember" />
-    <FromResourceDialog v-model:open="making" :busy="context.making.busy.value" :problem="context.making.problem.value" @save="fromResource" />
+    <FromResourceDialog
+      v-model:open="making" :busy="context.making.busy.value" :problem="context.making.problem.value"
+      :found="finder.found.value.value ?? []" :finding="finder.found.loading.value" :find-problem="finder.found.problem.value" @find="finder.search($event)" @save="fromResource"
+    />
   </AppPage>
 </template>
 

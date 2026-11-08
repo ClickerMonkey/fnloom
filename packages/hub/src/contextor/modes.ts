@@ -18,7 +18,7 @@ import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
 import { cardsSection, fnCard, listedLine, moreFns, problemLines, textProtocolInstructions } from './render.ts';
-import { usable } from './views.ts';
+import { modelMayUse } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
 export const STATIC_HUB_FNS = {
@@ -27,6 +27,11 @@ export const STATIC_HUB_FNS = {
   load: { ref: hub.fns.load, def: hub.defs.fns.load },
   unload: { ref: hub.fns.unload, def: hub.defs.fns.unload },
 } as const satisfies Record<Exclude<StaticTool, 'run'>, { readonly ref: AnyFnRef; readonly def: { readonly description: string } }>;
+
+/** Build 1's search and load fns, whose jobs `find`, `inspect`, `load` and `unload` do in static mode, so it never shows them. */
+export const REPLACED_BY_STATIC: ReadonlySet<string> = new Set<string>([
+  hub.fns.search_fns.name, hub.fns.load_fns.name, hub.fns.drop_fns.name, hub.fns.search_context.name, hub.fns.load_context.name,
+]);
 
 /** The `run` tool's args. */
 export const RunArgs = z.object({
@@ -84,6 +89,12 @@ function contractTool(name: string, ref: AnyFnRef, description: string): ModeToo
   return modeTool(name, description, schema, z.toJSONSchema(schema, { unrepresentable: 'any' }));
 }
 
+/** A static tool that is a hub fn, as a native tool: its args are the hub fn's gin type (the one shape a chat and an MCP share). */
+export function staticToolOf(name: keyof typeof STATIC_HUB_FNS): ModeTool {
+  const { ref, def } = STATIC_HUB_FNS[name];
+  return contractTool(name, ref, def.description);
+}
+
 /** The problems of a zod failure, by dotted path. */
 export function problemsOf(error: z.ZodError): InputProblem[] {
   return error.issues.map((issue) => ({ path: issue.path.map(String).join('.'), message: issue.message }));
@@ -103,6 +114,7 @@ export class ToolsChatMode implements ChatMode {
   readonly type = 'tools';
   readonly loadDetail = 'signature';
   readonly alwaysDetail = 'signature';
+  readonly replaces: ReadonlySet<string> = new Set();
   readonly #deps: Pick<ContextorDeps, 'instances'>;
 
   constructor(deps: Pick<ContextorDeps, 'instances'>) {
@@ -164,6 +176,7 @@ export class StaticChatMode implements ChatMode {
   readonly type = 'static';
   readonly loadDetail: Detail;
   readonly alwaysDetail = 'listed';
+  readonly replaces = REPLACED_BY_STATIC;
   readonly #config: StaticMode;
   readonly #deps: ContextorDeps;
 
@@ -190,8 +203,7 @@ export class StaticChatMode implements ChatMode {
     if (ctx.protocol === 'text') return Promise.resolve([]);
     const tools = STATIC_TOOLS.map((name): ModeTool => {
       if (name === 'run') return modeTool('run', 'Run any fn by its qualified name with its args. A loaded fn\'s card shows its args.', RunArgs, z.toJSONSchema(RunArgs, { io: 'input' }));
-      const { ref, def } = STATIC_HUB_FNS[name];
-      return contractTool(name, ref, def.description);
+      return staticToolOf(name);
     });
     return Promise.resolve(tools);
   }
@@ -242,7 +254,7 @@ export class StaticChatMode implements ChatMode {
     if (own !== undefined) return { type: 'run', fn: own, args, ...(on === undefined ? {} : { on }) };
     const qualified = QualifiedName.safeParse(name);
     const view = qualified.success ? await this.#deps.views.view(qualified.data) : undefined;
-    if (view === undefined || !usable(view.record, scope.session)) {
+    if (view === undefined || !modelMayUse(view.record, scope.session)) {
       const near = await this.#near(name, scope);
       const hint = near.length === 0 ? 'Use find to look for one.' : `The nearest: ${near.join(', ')}.`;
       return invalid(qualified.success ? qualified.data : undefined, 'schema', [{ path: 'fn', message: `no fn named ${name} can run here` }], `There is no fn ${name} you can run here. ${hint}`);

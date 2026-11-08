@@ -11,7 +11,7 @@ import { memoryStore as rateMemory } from '@ayepi/rate';
 import { memoryBackend } from '@ayepi/work';
 import { fnDecl, type AnyFnDef } from '@harness/sdk';
 import {
-  ActorId, MAIN_INSTANCE, MessageId, SystemName, mintId, systemLinkSpec,
+  ActorId, MAIN_INSTANCE, MessageId, SystemName, mintId, noFnStats, systemLinkSpec,
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction,
@@ -137,7 +137,7 @@ export class TestCatalog implements Catalog {
     const qualified: QualifiedName = `${system}/${name}`;
     const record: FnRecord = {
       name: qualified, system: SystemName.parse(system), decl: fnDecl(name, def), version: 'v1', origin: 'contract', available: true, paused: false, disabled: false,
-      stats: { runs: 0, failures: 0, averageCost: 0, averageTime: 0 }, updatedAt: 0, ...extra,
+      stats: noFnStats(), updatedAt: 0, ...extra,
     };
     this.records.set(qualified, record);
     const argsSchema = def.args.toValueSchema();

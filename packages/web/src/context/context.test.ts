@@ -17,7 +17,7 @@ import LinkDialog from './components/LinkDialog.vue';
 import LinkGroups from './components/LinkGroups.vue';
 import MemoryDialog from './components/MemoryDialog.vue';
 import {
-  emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, originOf, readContextQuery, removable, scopeText, targetText, weightPercent,
+  emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
 } from './logic/context.ts';
 import { targetRoute } from './logic/targets.ts';
 import { contextLink, contextRecord, fakeContext, fixtureGraph, T_CONTEXT } from './test/fakes.ts';
@@ -72,20 +72,28 @@ describe('the context URL and drafts', () => {
     expect(linkRequest(base, GUIDE)).toEqual({ ok: false, problem: 'Give a name.' });
     expect(linkRequest({ ...base, target: 'nope' }, GUIDE)).toMatchObject({ ok: false });
     expect(linkRequest({ ...base, target: 'fs/guide' }, GUIDE)).toEqual({ ok: false, problem: "An item can't link to itself." });
-    expect(linkRequest({ ...base, kind: 'fn', target: ' fs/read ', relation: 'brings', weight: 3 }, GUIDE)).toEqual({ ok: true, to: { kind: 'fn', name: 'fs/read' }, relation: 'brings', weight: 1 });
+    expect(linkRequest({ ...base, kind: 'fn', target: ' fs/read ', relation: 'brings', weight: 3 }, GUIDE)).toEqual({ ok: true, value: { to: { kind: 'fn', name: 'fs/read' }, relation: 'brings', weight: 1 } });
     expect(linkRequest({ ...base, kind: 'resource', target: 'README.md' }, GUIDE)).toMatchObject({ ok: false });
-    expect(linkRequest({ ...base, kind: 'resource', target: 'fs://work/README.md', section: 'Usage' }, GUIDE)).toEqual({ ok: true, to: { kind: 'resource', uri: 'fs://work/README.md', section: 'Usage' }, relation: 'related', weight: 0.5 });
+    expect(linkRequest({ ...base, kind: 'resource', target: 'fs://work/README.md', section: 'Usage' }, GUIDE)).toEqual({ ok: true, value: { to: { kind: 'resource', uri: 'fs://work/README.md', section: 'Usage' }, relation: 'related', weight: 0.5 } });
   });
 
   it('reads the memory and make-from-a-resource forms', () => {
     expect(memoryRequest({ title: '', text: '  ', scope: 'user' })).toEqual({ ok: false, problem: 'Write what to remember.' });
-    expect(memoryRequest({ title: ' Tabs ', text: 'Use tabs.', scope: 'everyone' }, [{ kind: 'context', name: GUIDE }])).toEqual({ ok: true, args: { text: 'Use tabs.', title: 'Tabs', scope: 'everyone', about: [{ kind: 'context', name: 'fs/guide' }] } });
+    expect(memoryRequest({ title: ' Tabs ', text: 'Use tabs.', scope: 'everyone' }, [{ kind: 'context', name: GUIDE }])).toEqual({ ok: true, value: { text: 'Use tabs.', title: 'Tabs', scope: 'everyone', about: [{ kind: 'context', name: 'fs/guide' }] } });
     const memory = fixtureGraph().records[2];
     expect(memoryDraft(memory)).toEqual({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', scope: 'user' });
     expect(memoryDraft()).toEqual({ title: '', text: '', scope: 'user' });
     expect(fromResourceRequest({ uri: 'readme', copy: 'live', command: '' })).toMatchObject({ ok: false });
-    expect(fromResourceRequest({ uri: 'fs://work/README.md', copy: 'snapshot', command: '/readme' })).toEqual({ ok: true, args: { uri: 'fs://work/README.md', copy: 'snapshot', command: 'readme' } });
+    expect(fromResourceRequest({ uri: 'fs://work/README.md', copy: 'snapshot', command: '/readme' })).toEqual({ ok: true, value: { uri: 'fs://work/README.md', copy: 'snapshot', command: 'readme' } });
     expect(fromResourceRequest({ uri: 'fs://work/README.md', copy: 'live', command: 'Bad Name' })).toMatchObject({ ok: false });
+    const bad = fromResourceRequest({ uri: 'readme', copy: 'live', command: '' });
+    expect(bad.ok ? '' : bad.problem).toContain('hub://resources/uploads/notes.md');
+  });
+
+  it('says an item its system writes on load is written when loaded, not 0 tokens', () => {
+    expect(sizeText(contextRecord('fs/system-authoring', { tokens: { full: 0, summary: 26 } }))).toBe('Written when loaded');
+    expect(sizeText(contextRecord('fs/guide', { content: 'Use tabs.', tokens: { full: 1_200, summary: 40 } }))).toBe('1,200 tokens');
+    expect(sizeText(contextRecord('fs/guide', { content: 'Use tabs.' }))).toBeUndefined();
   });
 });
 

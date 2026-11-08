@@ -27,9 +27,10 @@ export default feature({
       await open(ctx, '/admin/models/roles?role=dictate', tid('role-form'));
       await page.click(`${tid('role-engine')} [role="radio"]:last-child`);
       await find(page, 'role-model');
-      const choices = await page.$$eval(`${tid('role-model')} option`, (options) => options.map((o) => o.getAttribute('value') ?? '').filter((v) => v !== ''));
+      // the searchable picker offers only models that can hear (no video or chat-only models)
+      const choices = await page.$$eval(`${tid('role-model')} [data-model]`, (rows) => rows.map((o) => o.getAttribute('data-model') ?? '').filter((v) => v !== '' && v !== 'default'));
       check(choices.length > 0, 'the role offers models to pick');
-      await page.select(`${tid('role-model')} select`, choices[0] ?? '');
+      await page.click(`${tid('role-model')} [data-model="${choices[0] ?? ''}"]`);
       await settle(page);
       await ctx.shot('dictate-model');
       await page.click(tid('role-save'));

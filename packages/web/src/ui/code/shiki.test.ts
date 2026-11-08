@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BUNDLED_SHIKI, kindOf, ShikiHighlighter, tokensOf } from './shiki.ts';
-import { BUILTIN_HIGHLIGHTER } from './highlighter.ts';
+import { BUILTIN_HIGHLIGHTER, type Highlighter } from './highlighter.ts';
 import { MermaidRenderer, sizedSvg } from '../markdown/mermaid.ts';
 
 describe('Shiki tokens', () => {
@@ -36,6 +36,33 @@ describe('the Shiki highlighter', () => {
     expect(shiki.knows('typescript')).toBe(true);
   });
 
+  it('answers with the built-in highlighter when Shiki throws mid-tokenize (a pass that stopped early)', async () => {
+    let throws = false;
+    const fallback: Highlighter = {
+      tokens: (code) => [{ kind: 'plain', text: `fallback: ${code}` }],
+      prepare: () => Promise.resolve(false),
+      knows: () => false,
+    };
+    const shiki = new ShikiHighlighter({
+      async core() {
+        const real = await BUNDLED_SHIKI.core();
+        return {
+          loadLanguage: (...langs) => real.loadLanguage(...langs),
+          codeToTokensBase: (code, options) => {
+            if (throws) { throw new TypeError("Cannot read properties of undefined (reading 'startIndex')"); }
+            return real.codeToTokensBase(code, options);
+          },
+        };
+      },
+      languages: () => BUNDLED_SHIKI.languages(),
+    }, fallback);
+    const code = 'const answer = 42;';
+    expect(await shiki.prepare('typescript')).toBe(true);
+    expect(shiki.tokens(code, 'typescript')).toContainEqual({ kind: 'keyword', text: 'const' });
+    throws = true;
+    expect(shiki.tokens(code, 'typescript')).toEqual([{ kind: 'plain', text: 'fallback: const answer = 42;' }]);
+  });
+
   it('knows a grammar by its alias, and leaves a language it has none for to the built-in one', async () => {
     const shiki = new ShikiHighlighter(BUNDLED_SHIKI);
     expect(await shiki.prepare('sh')).toBe(true);
@@ -58,8 +85,19 @@ describe('the mermaid renderer', () => {
       initialize: (config) => { configs.push(config); },
       render: (id: string, source: string) => (source === 'bad' ? Promise.reject(new Error('Parse error')) : Promise.resolve({ svg: `<svg id="${id}"></svg>`, diagramType: 'flowchart' })),
     }));
-    expect(await renderer.render('graph TD; A-->B', 'mermaid', true)).toEqual({ ok: true, svg: '<svg id="harness-diagram-1"></svg>' });
+    expect(await renderer.render('graph TD; A-->B', 'mermaid', true)).toEqual({ ok: true, value: '<svg id="harness-diagram-1"></svg>' });
     expect(await renderer.render('bad', 'mermaid', false)).toEqual({ ok: false, problem: 'Parse error' });
     expect(configs).toMatchObject([{ securityLevel: 'strict', theme: 'dark' }, { securityLevel: 'strict', theme: 'default' }]);
+  });
+
+  it('draws in the app’s own font and colours when it can read them', async () => {
+    const configs: unknown[] = [];
+    const look = { font: 'system-ui', background: '#fafafa', surface: '#f0f0f0', border: '#cccccc', text: '#222222', muted: '#666666', accent: '#3355ff' };
+    const renderer = new MermaidRenderer(() => Promise.resolve({
+      initialize: (config) => { configs.push(config); },
+      render: (id: string) => Promise.resolve({ svg: `<svg id="${id}"></svg>`, diagramType: 'flowchart' }),
+    }), () => look);
+    await renderer.render('graph TD; A-->B', 'mermaid', true);
+    expect(configs).toMatchObject([{ securityLevel: 'strict', theme: 'base', fontFamily: 'system-ui', themeVariables: { darkMode: true, primaryColor: '#f0f0f0', nodeBorder: '#cccccc', lineColor: '#666666' } }]);
   });
 });

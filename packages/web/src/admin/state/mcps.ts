@@ -7,7 +7,7 @@
  */
 import type { HubMcpId, HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
-import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
 import type { McpProbe, ProbeResult } from '../probe.ts';
 
@@ -29,7 +29,7 @@ export class McpsStore {
   }
 
   /** Make an MCP; answers it with its secret (the only time the secret is shown). */
-  async make(input: HubMcpInput): Promise<TaskResult<{ mcp: HubMcpView; secret: string }>> {
+  async make(input: HubMcpInput): Promise<Outcome<{ mcp: HubMcpView; secret: string }>> {
     const result = await this.create.run(() => this.#api.createMcp.call(input), "Couldn't make that MCP.");
     if (result.ok) { this.list.set([...(this.list.value.value ?? []), result.value.mcp]); }
     return result;
@@ -93,7 +93,7 @@ export class McpStore {
   }
 
   /** Save a change to the MCP (the draft rules unless the change names its own). */
-  async update(change: Partial<HubMcpInput> = {}): Promise<TaskResult<HubMcpView>> {
+  async update(change: Partial<HubMcpInput> = {}): Promise<Outcome<HubMcpView>> {
     const id = this.id.value;
     if (id === undefined) { return { ok: false, problem: 'No MCP is open.' }; }
     const rules = change.rules ?? this.draft.value;
@@ -106,7 +106,7 @@ export class McpStore {
   }
 
   /** A new secret; every open session ends. Kept to show once. */
-  async rotateSecret(): Promise<TaskResult<{ secret: string }>> {
+  async rotateSecret(): Promise<Outcome<{ secret: string }>> {
     const id = this.id.value;
     if (id === undefined) { return { ok: false, problem: 'No MCP is open.' }; }
     const result = await this.rotate.run(() => this.#api.rotateMcpSecret.call({ mcp: id }), "Couldn't rotate the secret.");

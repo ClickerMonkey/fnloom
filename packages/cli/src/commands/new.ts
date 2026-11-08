@@ -2,8 +2,11 @@
  * `harness system new <name> [--dir <parent>] [--from <template>]`: copy the template system (placeholders and
  * comments, no example code) into `<parent>/<name>` and give it the name: `'template'` and paths become the name,
  * identifiers become its camel and Pascal case (`templateEnv` → `notesDbEnv`, `TemplateConfig` → `NotesDbConfig`).
+ * Relative paths in `tsconfig.json` and `package.json` that lead out of the template (the base config, the project
+ * references, the build info, `file:` packages) are rewritten to reach the same places from the new folder, so a
+ * system made anywhere with `--dir` builds as one made under `systems/`.
  */
-import { join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SystemName } from '@harness/core';
 import { z } from 'zod';
@@ -35,6 +38,64 @@ export function rename(text: string, name: SystemName): string {
     .replace(/\bTEMPLATE(?=_|\b)/g, constant);
 }
 
+/** A relative path that leads out of `from`, made to reach the same place from `to`; any other value as it is. */
+export function rebased(value: string, from: string, to: string): string {
+  if (value !== '..' && !value.startsWith('../')) { return value; }
+  return relative(to, resolve(from, value)).split(sep).join('/');
+}
+
+/** The parts of a `tsconfig.json` that hold paths; everything else is kept as it is. */
+const TsconfigPaths = z.looseObject({
+  extends: z.string().optional(),
+  compilerOptions: z.looseObject({ outDir: z.string().optional(), tsBuildInfoFile: z.string().optional() }).optional(),
+  references: z.array(z.looseObject({ path: z.string() })).optional(),
+});
+
+/** The parts of a `package.json` that hold paths: `file:` dependencies. */
+const PackagePaths = z.looseObject({
+  dependencies: z.record(z.string(), z.string()).optional(),
+  devDependencies: z.record(z.string(), z.string()).optional(),
+});
+
+/** An object with the named string fields passed through `move` (those it has). */
+function moved<T extends Record<string, unknown>>(object: T, keys: readonly (keyof T & string)[], move: (value: string) => string): T {
+  const changes = Object.fromEntries(keys.flatMap((key) => { const value = object[key]; return typeof value === 'string' ? [[key, move(value)]] : []; }));
+  return { ...object, ...changes };
+}
+
+/** `file:` dependencies passed through `move`; other versions as they are. */
+function movedDeps(deps: Readonly<Record<string, string>> | undefined, move: (value: string) => string): Record<string, string> | undefined {
+  if (deps === undefined) { return undefined; }
+  return Object.fromEntries(Object.entries(deps).map(([dep, version]) => [dep, version.startsWith('file:') ? `file:${move(version.slice('file:'.length))}` : version]));
+}
+
+/** JSON as the repository writes it. */
+const jsonText = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+
+/**
+ * A copied file's text with its outward paths rebased from the template folder to the new one (`tsconfig.json` and
+ * `package.json` at any depth); other files as they are.
+ */
+export function relocate(path: string, text: string, from: string, to: string): string {
+  const move = (value: string): string => rebased(value, dirname(join(from, path)), dirname(join(to, path)));
+  const file = basename(path);
+  if (file === 'tsconfig.json') {
+    const config = TsconfigPaths.parse(JSON.parse(text));
+    return jsonText({
+      ...moved(config, ['extends'], move),
+      ...(config.compilerOptions === undefined ? {} : { compilerOptions: moved(config.compilerOptions, ['outDir', 'tsBuildInfoFile'], move) }),
+      ...(config.references === undefined ? {} : { references: config.references.map((reference) => moved(reference, ['path'], move)) }),
+    });
+  }
+  if (file === 'package.json') {
+    const pkg = PackagePaths.parse(JSON.parse(text));
+    const dependencies = movedDeps(pkg.dependencies, move);
+    const devDependencies = movedDeps(pkg.devDependencies, move);
+    return jsonText({ ...pkg, ...(dependencies === undefined ? {} : { dependencies }), ...(devDependencies === undefined ? {} : { devDependencies }) });
+  }
+  return text;
+}
+
 /** Files read as text and renamed; anything else is copied as it is. */
 const TEXT = /\.(?:ts|vue|json|md|txt|css|html|js|mjs|cjs)$/;
 
@@ -56,7 +117,7 @@ export const newCommand = command({
     for (const source of sources) {
       const path = relative(from, source);
       const bytes = await io.files.read(source);
-      await io.files.write(join(target, path), TEXT.test(path) ? rename(new TextDecoder().decode(bytes), name) : bytes);
+      await io.files.write(join(target, path), TEXT.test(path) ? relocate(path, rename(new TextDecoder().decode(bytes), name), from, target) : bytes);
     }
     io.out.line(`made ${relative(io.cwd, target) || target} (${sources.length} files) from ${relative(io.cwd, from) || from}`);
     io.out.line('next: fill in each TODO, add the folder to the root package.json workspaces and tsconfig.json references, run npm install,');

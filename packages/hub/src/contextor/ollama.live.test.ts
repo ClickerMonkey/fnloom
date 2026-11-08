@@ -78,7 +78,7 @@ afterEach(async () => { await rig?.module.stop(); rig = undefined; });
 
 /** The rig on Ollama, with the items, the session, the contextor's hub fns and a connected fs. */
 async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTalk(), agentName: 'tools/small' | 'tools/textual' = 'tools/small') {
-  const provider = new OllamaProvider({ baseURL: BASE_URL });
+  const provider = new OllamaProvider({ baseURL: BASE_URL, cap: contextorEnv.parse().HARNESS_OLLAMA_DEFAULT_CTX });
   const models = await provider.listModels();
   const search = new FixedSearch();
   const r = await executionRig({ settings: testSettings({ HARNESS_TOOL_TIMEOUT: 120_000 }, {}, model), llm: { providers: { ollama: provider }, models }, search });
@@ -101,7 +101,7 @@ async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTa
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store),
-    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog),
+    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined),
   });
   const fs = r.connect('fs');
   fs.behaviour.run = () => Promise.resolve({ status: 'done', result: 'line one\nline two\nline three' });

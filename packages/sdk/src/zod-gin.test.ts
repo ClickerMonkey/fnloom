@@ -62,3 +62,28 @@ describe('required fields', () => {
     expect(() => parseValue(type, { window: 4096 })).toThrow();
   });
 });
+
+describe('records', () => {
+  const Metric = z.enum(['embedding', 'words']);
+  const Weight = z.object({ weight: z.number().min(0), k: z.number().positive().optional() }).describe('A part of the score.');
+
+  it('reads a partial record over an enum as an object of optional fields, one per key', () => {
+    const type = ginOf(z.partialRecord(Metric, Weight));
+    expect(parseValue(type, {})).toEqual({});
+    expect(parseValue(type, { words: { weight: 2 } })).toEqual({ words: { weight: 2 } });
+    expect(() => parseValue(type, { words: { weight: -1 } })).toThrow();
+    expect(JSON.stringify(type.toJSON())).toContain('"docs":"A part of the score."');
+  });
+
+  it('reads a record over an enum as an object that needs every key', () => {
+    const type = ginOf(z.record(Metric, z.number()));
+    expect(parseValue(type, { embedding: 1, words: 2 })).toEqual({ embedding: 1, words: 2 });
+    expect(() => parseValue(type, { embedding: 1 })).toThrow();
+  });
+
+  it('reads a record over literal keys as an object, and one over open or loose keys as any JSON', () => {
+    expect(parseValue(ginOf(z.record(z.literal(['a', 'b']), z.boolean())), { a: true, b: false })).toEqual({ a: true, b: false });
+    expect(ginOf(z.record(z.string(), z.number())).toJSON()).toEqual(ginOf(z.json()).toJSON());
+    expect(ginOf(z.looseRecord(Metric, z.number())).toJSON()).toEqual(ginOf(z.json()).toJSON());
+  });
+});

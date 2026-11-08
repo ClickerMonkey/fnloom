@@ -14,7 +14,7 @@ import { FileJournal, MemoryJournal } from './journal.ts';
 import { contentHash, contentHasher } from './content.ts';
 import { FileKeyStore, MemoryKeyStore, verifyNonce } from './keys.ts';
 import type { HubAccess, HubLink } from './link.ts';
-import { httpBase } from './link.ts';
+import { httpBase, linkUrl } from './link.ts';
 import { jsonFields, ScopedLog } from './log.ts';
 import { ManifestState } from './manifest-state.ts';
 import { ConfigStore } from './runtime.ts';
@@ -208,6 +208,17 @@ describe('wire', () => {
   it('turns a link URL into its HTTP base', () => {
     expect(httpBase('ws://hub:4300/link')).toBe('http://hub:4300');
     expect(httpBase('wss://hub.example.com/link')).toBe('https://hub.example.com');
+  });
+
+  it('reads a hub address as its link URL', () => {
+    expect(linkUrl('http://127.0.0.1:4711')).toBe('ws://127.0.0.1:4711/link');
+    expect(linkUrl('http://127.0.0.1:4711/admin/systems#x')).toBe('ws://127.0.0.1:4711/link');
+    expect(linkUrl('https://hub.example.com/')).toBe('wss://hub.example.com/link');
+    expect(linkUrl('ws://hub:4300')).toBe('ws://hub:4300/link');
+    expect(linkUrl('wss://hub:4300/link')).toBe('wss://hub:4300/link');
+    expect(linkUrl('ws://hub/proxied/link')).toBe('ws://hub/proxied/link');
+    expect(() => linkUrl('ftp://hub')).toThrow(/must start with http\(s\):\/\/ or ws\(s\):\/\//);
+    expect(() => linkUrl('hub:4300')).toThrow();
   });
 });
 

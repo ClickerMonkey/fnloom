@@ -3,7 +3,7 @@
  * the system and whether the link's code is the one it shows, takes the instance name and the config the system asks
  * for, pairs in one step, and follows the system until it is connected. A throwaway system with a config type is
  * started here with only the hub's URL, so each run has one waiting (the mock hub always has one); it is stopped and
- * removed afterwards.
+ * removed afterwards. The answered link then says so, and an unknown pairing id is not found.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -68,6 +68,18 @@ export default feature({
       await ctx.shot('paired');
       const phase = await page.$eval(tid('pair-done'), (el) => el.getAttribute('data-phase'));
       check(phase === 'connected' || phase === 'needs-config', `the system joined (${phase ?? 'unknown'})`);
+
+      // the hub keeps an answered request: its link says so, and an unknown one is not found (never "the hub had a problem")
+      await inEachScheme(ctx, async (shot) => {
+        await open(ctx, link);
+        await page.waitForFunction(() => document.querySelector('main')?.textContent?.includes('Already answered') === true, { timeout: 10_000 });
+        check((await page.$eval('main', (el) => el.textContent)).includes('This request was approved'), 'a paired link says it was approved');
+        await shot('answered');
+        await open(ctx, '/pair/par_unknown0', tid('retry'));
+        const said = await page.$eval('main', (el) => el.textContent);
+        check(said.includes('No pairing par_unknown0') && !said.includes('The hub had a problem'), `an unknown pairing is not found (${said.trim().slice(0, 120)})`);
+        await shot('not-found');
+      });
     } finally {
       if (started !== undefined) {
         await started.running.stop();

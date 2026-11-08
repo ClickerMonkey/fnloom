@@ -244,8 +244,13 @@ systems/<name>/
   endpoints. `harness mcp <slug>` bridges a hub MCP to stdio.
 - **The template system** (`systems/template`) is a system with placeholder comments and no example code. The docs a
   system author (or an LLM writing a system) needs are generated from the SDK's sources into
-  `packages/sdk/AUTHORING.md` by a script, so they change when the SDK does; the fs system offers them as the
-  `fs/system-authoring` context (`/new-system`), so the chat can make systems itself.
+  `packages/sdk/AUTHORING.md` by a script, so they change when the SDK does; the fs system offers them in parts, so
+  the chat can make systems itself on any window: `fs/system-authoring` (`/new-system`) is the start item (the
+  guide's intro, every part with its size, where the template is), and each section of the guide is a context item
+  of its own under it (`fs/authoring-<topic>`, each naming the next; the runtime internals and core types are reference
+  parts, never suggested), so a contextor picks the parts a budget allows and a model loads the rest by name. The
+  script writes the list of parts beside the guide (`systems/fs/shared/authoring.gen.ts`), the one source of fs's
+  declarations of them.
 
 ### QR pairing
 
@@ -1108,3 +1113,21 @@ Already checked: type-checking all of the types and examples takes about two sec
   (`xlsx`, `pdf-parse`, `mammoth`, `jszip`, `js-yaml`), so workbooks become tables, pdfs pages and docx markdown.
 - **Reading a web page asks first** (build 2 integration): `web/read` imports through `hub/resource_import`, which is
   a write, so a person approves it unless a policy allows it.
+- **Dynamic context is written when it is used** (build 2 review): an item declared without `content` (`fs/tree`,
+  `/new-system`) gets its text from its system's `context` endpoint, as the person and with the `/command`'s args,
+  whenever a prompt shows it whole (commanded, loaded, always, or a graph pick of those), `hub/inspect` shows it or
+  `hub/context_get` reads it. The hub keeps each text a while (`HARNESS_DYNAMIC_CONTEXT_TTL`) per session and person,
+  so a later load reuses the command's args.
+- **The model runs only fns meant for it** (build 2 review): static `run`, `load` and `inspect` refuse, as invalid
+  input, a fn that is switched off, unavailable, outside the session's systems, or of visibility `none` or `user`
+  (`web/fetch_raw` is for the hub alone). A bad name given to `hub/inspect` is invalid input too, never a failure.
+- **A hub MCP's static toolset is the chat's** (build 2 review): its `find` and `inspect` are runs of the hub fns of
+  those names, kept inside the MCP's scope; its `run` takes the chat's `run` args, a fleet's `on` included.
+- **Prompts leave out, never refuse, what the session loaded** (build 2 review): the plain and suggest contextors keep
+  what the message asks for first, then the agent's, then the session's loaded context and fns, each whole or left out
+  (and reported); static mode never shows build 1's search and load fns, whose jobs its own tools do.
+- **Thinking is never the answer** (build 2 review): a `<think>…</think>` a model writes into its answer streams and is
+  kept as the message's reasoning, and the run's result is the answer without it.
+- **A role's provider answers its calls** (build 2 review): a model role resolves to a model and a provider, and the
+  call carries the provider as a real field (`HubCallMetadata.provider`, enforced in aeye's `onModelSelected`), so a
+  model name two providers serve answers from the one the settings page shows.

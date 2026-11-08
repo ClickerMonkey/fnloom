@@ -155,7 +155,7 @@ function storedProviders(hub: HubServices, owner: ActorId): StoredProviders {
   return new StoredProviders({
     store: hub.store, log: hub.log, clock: () => hub.clock(),
     secrets: { store: (input) => hub.api.secrets.store(input), reveal: (id) => hub.api.secrets.reveal(id) },
-    seed: key === undefined ? undefined : { key, owner },
+    seed: key === undefined ? undefined : { key, owner }, ollamaCap: hub.settings.contextorEnv.HARNESS_OLLAMA_DEFAULT_CTX,
   });
 }
 

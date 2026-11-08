@@ -3,16 +3,14 @@
  * for script-built pages, built renderers in the state folder, all served to the hub. Chromium runs here, never in
  * the hub. `npm run dev` starts it when `TAVILY_API_KEY` is set.
  */
-import { lookup } from 'node:dns/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { buildClient } from '@harness/sdk/build';
-import { loggedHost, serve } from '@harness/sdk/server';
+import { loggedHost, serve, systemLookup } from '@harness/sdk/server';
 import { web } from '../shared/index.ts';
 import { launchChrome } from './chrome.ts';
 import { webEnv } from './env.ts';
-import type { HostLookup } from './guard.ts';
 import { createWebImpl } from './impl.ts';
 import { PageLoader } from './loader.ts';
 import { PageTabs } from './renderer.ts';
@@ -22,7 +20,6 @@ import { RunUploads } from './uploads.ts';
 const settings = webEnv.parse();
 const { host, log } = loggedHost(web.name);
 
-const dns: HostLookup = async (hostname) => (await lookup(hostname, { all: true, order: 'verbatim' })).map((found) => found.address);
 const renderers = new PageTabs({
   launch: launchChrome({ executablePath: settings.WEB_CHROME }),
   concurrency: settings.WEB_RENDER_CONCURRENCY,
@@ -44,7 +41,7 @@ const server = createWebImpl({
   pages: new PageLoader({
     registry: createDefaultResourceRegistry(),
     fetch: (input, init) => fetch(input, init),
-    lookup: dns,
+    lookup: systemLookup,
     renderers,
     redirects: settings.WEB_REDIRECTS,
     userAgent: settings.WEB_USER_AGENT,

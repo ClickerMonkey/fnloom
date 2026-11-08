@@ -113,28 +113,36 @@ export function limitsOf(model: string, show: OllamaShow, unset: number): ModelL
   return { contextWindow: servedWindow(show, unset), ...(reasons(model, show) ? {} : { reasoningTokens: 0 }) };
 }
 
-/** Where an Ollama provider listens, and the window to assume for models with no `num_ctx`. */
+/**
+ * Where an Ollama provider listens, the window to assume for models with no `num_ctx`, and the most window assumed
+ * when none is set (`HARNESS_OLLAMA_DEFAULT_CTX`), so the model list and the probe (`OllamaProbe`) agree.
+ */
 export interface OllamaProviderConfig {
   readonly baseURL: string;
   readonly contextWindow?: number | undefined;
+  readonly cap: number;
+}
+
+/** The window an Ollama serves a model with no `num_ctx` at: the configured one, else its version's default held to `cap`. */
+export function unsetWindowOf(api: Pick<OllamaApi, 'version'>, config: Pick<OllamaProviderConfig, 'contextWindow' | 'cap'>): Promise<number> {
+  return api.version().then((version) => unsetWindow(version, config.contextWindow, config.cap));
 }
 
 /** Ollama through `@aeye/openai`: chat over `/v1`, the model list and abilities from the native API. */
 export class OllamaProvider extends OpenAIProvider {
   override readonly name = 'ollama';
   readonly #api: OllamaApi;
-  readonly #window: number | undefined;
+  readonly #config: OllamaProviderConfig;
 
   constructor(config: OllamaProviderConfig, fetcher: typeof fetch = fetch) {
     const api = new OllamaApi(config.baseURL, fetcher);
     super({ apiKey: 'ollama', baseURL: `${api.baseURL}/v1`, api: 'chat' });
     this.#api = api;
-    this.#window = config.contextWindow;
+    this.#config = config;
   }
 
   override async listModels(): Promise<ModelInfo[]> {
-    const [tags, version] = await Promise.all([this.#api.tags(), this.#api.version()]);
-    const unset = unsetWindow(version, this.#window);
+    const [tags, unset] = await Promise.all([this.#api.tags(), unsetWindowOf(this.#api, this.#config)]);
     return Promise.all(tags.models.map(async ({ name }) => {
       const show = await this.#api.show(name);
       const capabilities = new Set<ModelCapability>(['chat', 'streaming', 'json']);

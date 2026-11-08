@@ -338,7 +338,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.chat { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; overflow: hidden; }
+/* exactly the page's height, and never a scroll container itself (clip, not hidden: bringing a field into view can't scroll it), so only the thread and a panel's body scroll */
+.chat { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; overflow: clip; }
 .chat.compact { grid-template-columns: minmax(0, 1fr); }
 .chat.roomy { grid-template-columns: 300px minmax(0, 1fr) 440px; }
 .chat.compact.roomy { grid-template-columns: minmax(0, 1fr) 440px; }

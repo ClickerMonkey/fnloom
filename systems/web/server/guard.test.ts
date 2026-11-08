@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AddressGuard, isPrivateAddress } from './guard.ts';
+import { AddressGuard } from './guard.ts';
 import { WebProblem } from './problem.ts';
 import { tableLookup } from './testing.ts';
 
@@ -13,22 +13,8 @@ async function verdict(guard: AddressGuard, url: string): Promise<string> {
   }
 }
 
-describe('isPrivateAddress', () => {
-  it('knows private, loopback, link-local, shared and reserved ranges', () => {
-    for (const address of ['127.0.0.1', '127.8.9.10', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.50.112', '169.254.169.254', '100.100.4.74', '0.0.0.0', '224.0.0.1', '255.255.255.255', '::1', '::', 'fe80::1', 'fd12:3456::1', 'ff02::1', '[::1]', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:a00:1']) {
-      expect(isPrivateAddress(address), address).toBe(true);
-    }
-  });
-
-  it('lets public addresses through, and says no for names', () => {
-    for (const address of ['93.184.215.14', '8.8.8.8', '172.32.0.1', '2606:4700::1111', '::ffff:8.8.8.8', 'example.com']) {
-      expect(isPrivateAddress(address), address).toBe(false);
-    }
-  });
-});
-
 describe('AddressGuard', () => {
-  const dns = tableLookup({ 'example.com': ['93.184.215.14'], 'sneaky.example': ['93.184.215.14', '10.0.0.5'], 'v6.example': ['::1'] });
+  const dns = tableLookup({ 'example.com': ['93.184.215.14'], 'empty.example': [], 'sneaky.example': ['93.184.215.14', '10.0.0.5'], 'v6.example': ['::1'] });
 
   it('allows public hosts and refuses names that resolve to private addresses', async () => {
     const guard = new AddressGuard(dns, false);
@@ -58,7 +44,8 @@ describe('AddressGuard', () => {
     expect(await verdict(guard, 'http://localhost/')).toBe('ok');
   });
 
-  it('calls a name that does not resolve a network problem', async () => {
+  it('calls a name that does not resolve, or resolves to nothing, a network problem', async () => {
     expect(await verdict(new AddressGuard(dns, false), 'https://nowhere.example/')).toBe('network');
+    expect(await verdict(new AddressGuard(dns, false), 'https://empty.example/')).toBe('network');
   });
 });

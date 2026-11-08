@@ -43,7 +43,7 @@ describe('starting the execution module', () => {
     expect(await settled).toMatchObject({ status: 'done' });
     expect(resend).toHaveBeenCalledWith(fs.name);
     await until(() => r.bus.of('fn.stats').length === 1, 'the run to be counted');
-    expect((await r.store.table('fns').get('fs/read'))?.stats).toMatchObject({ runs: 1, failures: 0 });
+    expect((await r.store.table('fns').get('fs/read'))?.stats).toMatchObject({ outcomes: { done: 1, failed: 0 } });
   });
 
   it('hands every settled run to the agent loop to report back, and logs a report that fails', async () => {

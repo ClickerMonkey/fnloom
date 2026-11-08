@@ -6,6 +6,7 @@
  */
 import { nextTick, onMounted, ref, useId, watch } from 'vue';
 import UiIcon from './UiIcon.vue';
+import { useMoreEdges } from './edges.ts';
 import { countLabel } from './format.ts';
 import { roveFocus } from './keys.ts';
 import type { TabItem } from './types.ts';
@@ -14,6 +15,7 @@ const props = defineProps<{ tabs: readonly TabItem<V>[]; label: string }>();
 const model = defineModel<V>({ required: true });
 const id = useId();
 const list = ref<HTMLElement | null>(null);
+const edges = useMoreEdges(list);
 
 /** Keep the chosen tab in view when the strip scrolls sideways (phones). */
 function reveal(): void {
@@ -32,7 +34,7 @@ const slots = defineSlots<{ default?: (props: { value: V }) => unknown }>();
 
 <template>
   <div class="ui-tabs">
-    <div ref="list" class="list" role="tablist" :aria-label="label" data-roving>
+    <div ref="list" class="list edge-fade" :data-more="edges" role="tablist" :aria-label="label" data-roving>
       <button
         v-for="(tab, index) in tabs" :id="`${id}-tab-${tab.value}`" :key="tab.value" type="button" role="tab" class="tab"
         :aria-selected="model === tab.value ? 'true' : 'false'" :aria-controls="`${id}-panel`" :tabindex="model === tab.value ? 0 : -1"

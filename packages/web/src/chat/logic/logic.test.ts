@@ -10,7 +10,7 @@ import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage 
 import { isTyping, shortcutFor } from './keys.ts';
 import { agentName, confirmVerb, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
 import {
-  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
+  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, INVALID_TEXT, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
 } from './runs.ts';
 import { abilities, contextText, findModels, isFree, priceText, type ModelQuery } from './models.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, whoAnswers } from './session.ts';
@@ -68,6 +68,8 @@ describe('runs', () => {
     const base = { fn: 'fs/read_file' as const, attempt: 1 };
     expect(runText({ ...base, status: 'running' })).toBe('Read file…');
     expect(runText({ ...base, status: 'running', attempt: 2 })).toBe('Retrying read file…');
+    // refused input, once over, is said as settled, never as a retry still going
+    expect(runText({ ...base, status: 'invalid-input', attempt: 1 })).toBe(INVALID_TEXT);
     expect(runText({ ...base, status: 'done' })).toBe('Read file done');
     expect(runText({ ...base, status: 'failed' })).toBe('Read file failed');
     expect(runText({ ...base, status: 'awaiting-approval' })).toBe('Waiting for approval to read file');

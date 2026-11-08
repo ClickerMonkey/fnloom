@@ -4077,22 +4077,7 @@ This is the hub contract as the SDK declares it now:
     fn?: text,
     system?: text,
     days?: num{whole=true, min=1, max=365}
-  }) => list<obj{
-    fn: text,
-    system: text,
-    from: text,
-    to: text,
-    runs: num{whole=true, min=0},
-    outcomes: any,
-    p50?: num{whole=true, min=0},
-    p95?: num{whole=true, min=0},
-    averageQueued?: num{whole=true, min=0},
-    averageCost: num,
-    cost: num,
-    tokens: num{whole=true, min=0},
-    retries: num{whole=true, min=0},
-    lastRunAt?: num{whole=true}
-  }>
+  }) => list<obj{ fn, system, from, to, runs, outcomes, p50?, p95?, averageQueued?, averageCost, cost, tokens, retries, lastRunAt? … }>
   ```
 - `hub/sessions_list`: Chat sessions, most recent first. Tags: `read`.
 
@@ -4160,17 +4145,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/model_limits`: Each model's context window, output limit, reasoning reserve and characters per token, with where each came from. Tags: `read`.
 
   ```text
-  (obj{model?: text}) => list<obj{
-    model: text,
-    limits: obj{
-      contextWindow: num{whole=true, min=256},
-      maxOutputTokens: num{whole=true, min=16},
-      reasoningTokens: num{whole=true, min=0},
-      charsPerToken: num{min=1, max=8}
-    },
-    sources: any,
-    ratio: num
-  }>
+  (obj{model?: text}) => list<obj{ model, limits, sources, ratio … }>
   ```
 - `hub/resource_convert`: Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.
 
@@ -4384,17 +4359,7 @@ This is the hub contract as the SDK declares it now:
       reasoningTokens?: num{whole=true, min=0},
       charsPerToken?: num{min=1, max=8}
     }
-  }) => obj{
-    model: text,
-    limits: obj{
-      contextWindow: num{whole=true, min=256},
-      maxOutputTokens: num{whole=true, min=16},
-      reasoningTokens: num{whole=true, min=0},
-      charsPerToken: num{min=1, max=8}
-    },
-    sources: any,
-    ratio: num
-  }
+  }) => obj{ model, limits, sources, ratio … }
   ```
 - `hub/create_mcp`: Make a hub MCP: an MCP endpoint with its own route and secret, exposing the systems, fns, types, context and resources its rules include. Tags: `admin`.
 
@@ -4484,7 +4449,14 @@ This is the hub contract as the SDK declares it now:
       autoInject?: obj{tokens: num{whole=true, min=0}, items: num{whole=true, min=0}}
     }, obj{
       type: literal<text>{value="graph"},
-      metrics?: any,
+      metrics?: obj{
+        embedding?: obj{weight: num{min=0}, target?: num, k?: num{min=0}},
+        words?: obj{weight: num{min=0}, target?: num, k?: num{min=0}},
+        turnsAgo?: obj{weight: num{min=0}, target?: num, k?: num{min=0}},
+        age?: obj{weight: num{min=0}, target?: num, k?: num{min=0}},
+        selectedBefore?: obj{weight: num{min=0}, target?: num, k?: num{min=0}},
+        used?: obj{weight: num{min=0}, target?: num, k?: num{min=0}}
+      },
       spread?: obj{
         damping?: num{min=0, max=0.95},
         hops?: num{whole=true, min=0, max=4}
@@ -4677,8 +4649,6 @@ What `hub/find` can look for: every kind of item a context link can point at (co
 ```ts
 const FIND_KINDS: readonly ["fn", "context", "resource", "type"];
 ```
-
-Refers to: [`LinkTargetKind`](#core-linktargetkind).
 
 #### `LlmPayloadType`
 
@@ -4892,7 +4862,7 @@ How a system process connects.
 
 ```ts
 interface ServeOptions {
-  /** The hub's link URL: `ws://hub:4300/link`. */
+  /** The hub: its link URL (`ws://hub:4300/link`) or its own address (`http://hub:4300`), which becomes that link. */
   hub: string;
   /** The folder where the system keeps its key pair and outcome journal. */
   state: string;
@@ -8885,6 +8855,9 @@ progress and handlers, a hook, a mention provider, static and dynamic context, a
  * implements it and its client draws it.
  */
 import { type Infer, type ValueOf, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { authoringContext } from './authoring.gen.ts';
+
+export { AUTHORING_PARTS, perPart, type AuthoringPart } from './authoring.gen.ts';
 
 /** A file or folder under one of the roots. */
 export const Entry = type({
@@ -9096,15 +9069,18 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         description: 'The folder tree of a root, as it is now.',
         command: { name: 'tree', args: { root: arg('Which root (default: all)', { required: false }) } },
       }),
-      // the SDK's authoring guide and the template, so the chat can write a system with these fns
+      // the start of the SDK's authoring guide (its parts follow, one item each) and the template, so the chat can
+      // write a system with these fns
       'system-authoring': context({
-        description: 'How to write a harness system: the complete SDK guide, where the template system is, and how to copy it.',
+        description: 'How to write a harness system: the parts of the SDK guide and their sizes, where the template system is, and how to copy it.',
         command: { name: 'new-system' },
         fns: [fns.write, fns.edit, fns.bash, fns.read],
         alwaysFor: [],
       }),
     },
   }))
+  // the authoring guide's parts, under its start item (generated from the guide: `npm run docs:authoring`)
+  .with(({ context: ctx }) => ({ context: authoringContext(ctx['system-authoring']) }))
   .with(({ fns, context: ctx }) => ({
     fns: {
       explore: agent({
@@ -9832,6 +9808,161 @@ A whole response as it is saved with its interaction. An unfinished response is 
 function responseToWire(response: Response, finished: boolean): LlmResponse;
 ```
 
+#### `addressVerdict`
+
+function · `import { addressVerdict } from '@harness/sdk/server'`
+
+Whether `url` may be fetched under `rules`. A literal address and a local name are judged without DNS; a name is
+refused when any of its addresses is private, when it resolves to nothing, or when the lookup fails.
+
+```ts
+function addressVerdict(url: URL, rules: AddressRules, signal?: AbortSignal): Promise<AddressVerdict>;
+```
+
+#### `followRedirects`
+
+function · `import { followRedirects } from '@harness/sdk/server'`
+
+Fetch `input`, following redirects by hand: every hop is checked first, and a redirect's body is dropped.
+
+```ts
+function followRedirects(input: string, init: RequestInit, options: RedirectOptions): Promise<FollowedResponse>;
+```
+
+#### `isLocalName`
+
+function · `import { isLocalName } from '@harness/sdk/server'`
+
+True when a hostname names this machine or its network whatever DNS says.
+
+```ts
+function isLocalName(hostname: string): boolean;
+```
+
+#### `isPrivateAddress`
+
+function · `import { isPrivateAddress } from '@harness/sdk/server'`
+
+True when an IP address (v4 or v6, bracketed or not) is not on the public internet. Names are not addresses: false.
+
+```ts
+function isPrivateAddress(address: string): boolean;
+```
+
+#### `systemLookup`
+
+const · `import { systemLookup } from '@harness/sdk/server'`
+
+The machine's resolver: every address, in the order DNS gave them.
+
+```ts
+const systemLookup: HostLookup;
+```
+
+#### `REDIRECT_STATUSES`
+
+const · `import { REDIRECT_STATUSES } from '@harness/sdk/server'`
+
+The statuses that redirect.
+
+```ts
+const REDIRECT_STATUSES: ReadonlySet<number>;
+```
+
+#### `AddressRefusal`
+
+type · `import { AddressRefusal } from '@harness/sdk/server'`
+
+Why a URL may not be fetched: not http(s); a private address or local name; a name that didn't resolve.
+
+```ts
+type AddressRefusal = 'not-http' | 'private' | 'unresolved';
+```
+
+#### `AddressRules`
+
+interface · `import { AddressRules } from '@harness/sdk/server'`
+
+What an address check needs.
+
+```ts
+interface AddressRules {
+  readonly lookup: HostLookup;
+  /** Let private addresses and local names through (http and https are still the only schemes). */
+  readonly allowPrivate: boolean;
+}
+```
+
+#### `AddressVerdict`
+
+type · `import { AddressVerdict } from '@harness/sdk/server'`
+
+Whether a URL may be fetched; a refusal says why (and, for `unresolved`, what the lookup threw).
+
+```ts
+type AddressVerdict =
+| { readonly ok: true }
+| { readonly ok: false; readonly refusal: AddressRefusal; readonly cause?: unknown };
+```
+
+#### `FollowedResponse`
+
+interface · `import { FollowedResponse } from '@harness/sdk/server'`
+
+The response a redirect chain ended at (not a redirect), and the URL it came from.
+
+```ts
+interface FollowedResponse {
+  readonly response: Response;
+  readonly url: URL;
+}
+```
+
+#### `HostLookup`
+
+type · `import { HostLookup } from '@harness/sdk/server'`
+
+Resolves a hostname to its addresses (every A and AAAA record). A seam, so tests answer without DNS.
+
+```ts
+type HostLookup = (hostname: string, signal?: AbortSignal) => Promise<readonly string[]>;
+```
+
+#### `RedirectOptions`
+
+interface · `import { RedirectOptions } from '@harness/sdk/server'`
+
+How `followRedirects` fetches.
+
+```ts
+interface RedirectOptions {
+  /** The fetch underneath; it is always called with `redirect: 'manual'`. */
+  readonly fetch: FetchFn;
+  /** Checked before every hop is requested; throws to refuse it. */
+  check(url: URL, signal?: AbortSignal): Promise<void>;
+  /** The most redirects followed. */
+  readonly redirects: number;
+  readonly problems: RedirectProblems;
+}
+```
+
+#### `RedirectProblems`
+
+interface · `import { RedirectProblems } from '@harness/sdk/server'`
+
+The errors a redirect chain fails with, so each caller names them its own way.
+
+```ts
+interface RedirectProblems {
+  /** A redirect without a location that parses against `at`. */
+  noLocation(at: URL): unknown;
+  /** More than `limit` redirects from `start`. */
+  tooMany(start: URL, limit: number): unknown;
+  /** What to throw when the fetch at `at` threw `error` (default: `error` itself). */
+  failed?(error: unknown, at: URL): unknown;
+}
+```
+
 ## 28. Core types
 
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
@@ -9951,11 +10082,7 @@ type ContextorConfig = {
     hops: number;
   };
   floorExchanges: number;
-  shares: {
-    history: number;
-    context: number;
-    fns: number;
-  };
+  shares: Record<"fns" | "context" | "history", number>;
   threshold: number;
   evaluate: "perMessage" | "perIteration";
 };
@@ -10332,14 +10459,6 @@ type LinkSession = {
   instance: string & z.core.$brand<"InstanceName">;
   boot: string;
 };
-```
-
-#### <a id="core-linktargetkind"></a>`LinkTargetKind`
-
-type · declared in `packages/core/src/context-graph.ts`
-
-```ts
-type LinkTargetKind = LinkTarget['kind'];
 ```
 
 #### <a id="core-llmforward"></a>`LlmForward`

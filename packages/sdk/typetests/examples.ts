@@ -10,7 +10,7 @@ import {
 } from '@harness/sdk';
 import { harnessAiOf, serve, type HarnessAi } from '@harness/sdk/server';
 import { type ClientRuntime } from '@harness/sdk/client';
-import { fs, type Entry } from '@harness/system-fs';
+import { fs, perPart, type Entry } from '@harness/system-fs';
 import { mintId, type ContentRef, type FnError, type ModelChoice, type RunId } from '@harness/core';
 
 // Stand-ins for real file and shell code.
@@ -157,8 +157,9 @@ void serve(fs, {
   // fs declares no actions, so it can't implement one
   // @ts-expect-error actions the contract doesn't declare are refused
   actions: { rerun: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
-  // tree is dynamic context, so it must be implemented; its args are typed from the command
-  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}`, 'system-authoring': async () => 'How to write a system.' },
+  // tree is dynamic context, so it must be implemented; its args are typed from the command (and so are the authoring
+  // guide's start item and its parts)
+  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}`, 'system-authoring': async () => 'How to write a system.', ...perPart(() => async () => 'A part of the guide.') },
   hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
   mentions: {
     files: {

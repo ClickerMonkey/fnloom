@@ -5,11 +5,11 @@
  * into the hub's own argument shapes (`LinkTarget`, `RememberArgs`) with one plain problem when they don't parse.
  */
 import {
-  ContextFromResourceArgs, ContextQuery, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, SystemName,
+  ContextFromResourceArgs, ContextQuery, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, SystemName,
   type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope,
 } from '@harness/core';
 import { z } from 'zod';
-import type { IconName } from '../../ui/index.ts';
+import type { IconName, Outcome } from '../../ui/index.ts';
 
 /** The origins the list filters by (an origin's type; `system` when a record has none), as the hub's query takes them. */
 export const OriginChoice = ContextQuery.shape.origin.unwrap();
@@ -167,8 +167,21 @@ export function emptyLinkDraft(): LinkDraft {
   return { kind: 'context', target: '', section: '', relation: 'related', weight: 0.5 };
 }
 
+/** The problem with an address that isn't a resource's, with the forms real addresses take. */
+const ADDRESS_PROBLEM = `A resource address is a URI, like file:///home/me/notes.md or ${HUB_RESOURCE_ROOT}uploads/notes.md.`;
+
+/**
+ * An item's size in words: its full text in tokens, or "Written when loaded" for an item whose system writes its text
+ * on each load (no text kept, so nothing to count); undefined when the hub hasn't counted it.
+ */
+export function sizeText(record: Pick<ContextRecord, 'tokens' | 'decl'>): string | undefined {
+  if (record.tokens === undefined) { return undefined; }
+  if (record.decl.content === undefined && record.tokens.full === 0) { return 'Written when loaded'; }
+  return `${record.tokens.full.toLocaleString()} tokens`;
+}
+
 /** What the add-link form asks the hub for, or the one problem with it. */
-export type LinkRequest = { readonly ok: true; readonly to: LinkTarget; readonly relation: DeclarableRelation; readonly weight: number } | { readonly ok: false; readonly problem: string };
+export type LinkRequest = Outcome<{ readonly to: LinkTarget; readonly relation: DeclarableRelation; readonly weight: number }>;
 
 /** Read the add-link form; `from` is the item it starts at (an item can't link to itself). */
 export function linkRequest(draft: LinkDraft, from: QualifiedName): LinkRequest {
@@ -177,16 +190,16 @@ export function linkRequest(draft: LinkDraft, from: QualifiedName): LinkRequest 
   const weight = Math.min(1, Math.max(0, draft.weight));
   if (draft.kind === 'resource') {
     const uri = ResourceUri.safeParse(target);
-    if (!uri.success) { return { ok: false, problem: 'A resource address looks like fs://work/README.md.' }; }
+    if (!uri.success) { return { ok: false, problem: ADDRESS_PROBLEM }; }
     const section = draft.section.trim();
     const key = section === '' ? undefined : SectionKey.safeParse(section);
     if (key !== undefined && !key.success) { return { ok: false, problem: 'That section name is not valid.' }; }
-    return { ok: true, to: LinkTarget.parse({ kind: 'resource', uri: uri.data, ...(key === undefined ? {} : { section: key.data }) }), relation: draft.relation, weight };
+    return { ok: true, value: { to: LinkTarget.parse({ kind: 'resource', uri: uri.data, ...(key === undefined ? {} : { section: key.data }) }), relation: draft.relation, weight } };
   }
   const name = QualifiedName.safeParse(target);
   if (!name.success) { return { ok: false, problem: 'A name looks like system/name, as in fs/read.' }; }
   if (draft.kind === 'context' && name.data === from) { return { ok: false, problem: 'An item can\'t link to itself.' }; }
-  return { ok: true, to: LinkTarget.parse({ kind: draft.kind, name: name.data }), relation: draft.relation, weight };
+  return { ok: true, value: { to: LinkTarget.parse({ kind: draft.kind, name: name.data }), relation: draft.relation, weight } };
 }
 
 /** Who a memory written from the browser is for (the browser has no chat, so a memory is the person's or everyone's). */
@@ -207,14 +220,14 @@ export function memoryDraft(record?: Pick<ContextRecord, 'origin' | 'decl'>): Me
 }
 
 /** What the memory form asks the hub to remember, or the one problem with it. */
-export type MemoryRequest = { readonly ok: true; readonly args: RememberArgs } | { readonly ok: false; readonly problem: string };
+export type MemoryRequest = Outcome<RememberArgs>;
 
 /** Read the memory form; `about` is what the memory is about (the item it is written from). */
 export function memoryRequest(draft: MemoryDraft, about: readonly LinkTarget[] = []): MemoryRequest {
   const text = draft.text.trim();
   if (text === '') { return { ok: false, problem: 'Write what to remember.' }; }
   const title = draft.title.trim();
-  return { ok: true, args: RememberArgs.parse({ text, scope: draft.scope, ...(title === '' ? {} : { title }), ...(about.length === 0 ? {} : { about }) }) };
+  return { ok: true, value: RememberArgs.parse({ text, scope: draft.scope, ...(title === '' ? {} : { title }), ...(about.length === 0 ? {} : { about }) }) };
 }
 
 /** The make-from-a-resource form as typed. */
@@ -226,14 +239,14 @@ export interface FromResourceDraft {
 }
 
 /** What the make-from-a-resource form asks the hub for, or the one problem with it. */
-export type FromResourceRequest = { readonly ok: true; readonly args: ContextFromResourceArgs } | { readonly ok: false; readonly problem: string };
+export type FromResourceRequest = Outcome<ContextFromResourceArgs>;
 
 /** Read the make-from-a-resource form. */
 export function fromResourceRequest(draft: FromResourceDraft): FromResourceRequest {
   const uri = ResourceUri.safeParse(draft.uri.trim());
-  if (!uri.success) { return { ok: false, problem: 'A resource address looks like fs://work/README.md.' }; }
+  if (!uri.success) { return { ok: false, problem: ADDRESS_PROBLEM }; }
   const command = draft.command.trim().replace(/^\//, '');
   const args = ContextFromResourceArgs.safeParse({ uri: uri.data, copy: draft.copy, ...(command === '' ? {} : { command }) });
   if (!args.success) { return { ok: false, problem: 'A command is lower-case letters, digits and dashes, starting with a letter.' }; }
-  return { ok: true, args: args.data };
+  return { ok: true, value: args.data };
 }

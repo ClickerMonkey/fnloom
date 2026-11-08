@@ -1195,6 +1195,11 @@ export interface HubConfig {
 }
 
 // ═══ Build 2: chat modes and contextors ═══
+//
+// FROZEN. The "Build 2" sections of types/ are the design phase's sketches, kept as the record of what was approved;
+// they are not compiled against the code and are not kept up to date (several already differ from it). The one source
+// of every shape is the code: the zod schemas in packages/core (types derived from them), the SDK's sources, and the
+// guide generated from them, packages/sdk/AUTHORING.md (npm run docs:authoring). Read those, and extend those, not this.
 
 /** What the hub budgets a model's prompts against; each field from the first source that has it. */
 export interface ModelLimits {

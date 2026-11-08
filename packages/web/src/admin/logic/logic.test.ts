@@ -166,7 +166,9 @@ describe('browsers and nav', () => {
 
   it('lists every admin section and marks the current one', () => {
     const entries = adminNav({ name: 'system' }, { systems: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['systems', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'resources']);
+    expect(entries.map((e) => e.id)).toEqual(['systems', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps']);
+    // the resource browser is a top-level page; the admin nav has no entry that only redirects there
+    expect(entries.find((e) => e.label === 'Budgets')?.id).toBe('limits');
     // the LLM calls browser and a fn's page sit under their sections
     expect(adminNav({ name: 'llm-calls' }).find((e) => e.active)?.id).toBe('model-calls');
     expect(adminNav({ name: 'fn' }).find((e) => e.active)?.id).toBe('systems');

@@ -9,7 +9,7 @@
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  HUB_RESOURCE_ROOT, ResourceStat, type ActorId, type ContentRef, type QualifiedName, type ResourceImportArgs, type ResourcePage, type ResourceQuery,
+  HUB_RESOURCE_ROOT, ResourceStat, type ActorId, type ContentRef, type QualifiedName, type RenderMode, type ResourceImportArgs, type ResourcePage, type ResourceQuery,
   type ResourceRecord, type ResourceSource, type ResourceUri, type RunId,
 } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
@@ -22,7 +22,7 @@ import { sha256Hex } from '../link/keys.ts';
 import type { HubStore } from '../store/index.ts';
 import { facetsOf, inGroup, matches } from './browse.ts';
 import type { ResourcesEnv } from './env.ts';
-import type { RenderMode, UrlFetcher } from './fetch.ts';
+import type { UrlFetcher } from './fetch.ts';
 import type { Asking, Converters, FormService, ResourceLibrary } from './index.ts';
 import { dayOf, hubUri, isHubUri, resourceLinkKey, safeSegment, withoutCredentials } from './rules.ts';
 

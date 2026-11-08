@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { ContextDecl, FnDecl, KindDecl, Manifest, TypeDecl } from '../manifest.ts';
 import { ContextOrigin, ContextTokens } from '../context-graph.ts';
 import { GinTypeDef } from '../gin.ts';
-import { ActorId, Duration, InstanceName, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp, Usd } from '../primitives.ts';
+import { ActorId, Duration, InstanceName, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp } from '../primitives.ts';
 import { CONTENT_HASH } from '../resources.ts';
+import { FnMetrics, noOutcomes, OutcomeCounts } from '../metrics.ts';
 
 /**
  * Where an instance is. `needs-config`: connected, but without a valid config, so it can't be used yet. A system's
@@ -168,22 +169,22 @@ export type FnUnavailable = z.infer<typeof FnUnavailable>;
 export const Availability = z.union([z.literal(true), z.object({ unavailable: FnUnavailable, detail: z.string() })]);
 export type Availability = z.infer<typeof Availability>;
 
-/** Running numbers about a fn's runs. */
-export const FnStats = z.object({
-  runs: z.number().int(),
-  failures: z.number().int(),
-  averageCost: Usd,
+/**
+ * Running numbers about a fn's runs: how many ended each way, the running means of cost, run time and queue wait, the
+ * tokens they used, and `p95`, the 95th percentile run time over the last week from the daily metrics. The fields it
+ * shares with `FnMetrics` are `FnMetrics`' own. A build 1 row (which counted runs otherwise) starts its counts again.
+ */
+export const FnStats = FnMetrics.pick({ averageCost: true, averageQueued: true, p95: true, lastRunAt: true }).extend({
+  outcomes: OutcomeCounts.default(noOutcomes),
   averageTime: Duration,
-  lastRunAt: Timestamp.optional(),
-  /** Runs whose input was refused (retryable; not failures). */
-  invalidInputs: z.number().int().optional(),
-  cancelled: z.number().int().optional(),
-  /** The 95th percentile of run time over the last week, from the daily metrics. */
-  p95Time: Duration.optional(),
-  averageQueued: Duration.optional(),
-  tokens: z.number().int().optional(),
+  tokens: FnMetrics.shape.tokens.default(0),
 });
 export type FnStats = z.infer<typeof FnStats>;
+
+/** The numbers of a fn that hasn't run yet. */
+export function noFnStats(): FnStats {
+  return { outcomes: noOutcomes(), averageCost: 0, averageTime: 0, tokens: 0 };
+}
 
 /** The hub's row for a fn. */
 export const FnRecord = z.object({

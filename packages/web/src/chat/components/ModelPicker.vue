@@ -2,7 +2,8 @@
 /**
  * The model picker: search the hub's chat models by name ("free" and ability words filter), narrow by filter chips
  * (free, tools, vision, reasoning), sort by name, price or context, and pick one, or go back to the agent's own
- * choice. Each row shows the model's price, context size and abilities. Picking emits; the chat saves it.
+ * choice. Each row shows the model's provider, price, context size and abilities. Picking emits; the chat saves it.
+ * The admin's model role editor uses it too, over the models able to do the role and without the agent's-choice row.
  */
 import { computed, ref } from 'vue';
 import { UiBadge, UiIcon, UiInput, UiSegmented, type SegmentOption } from '../../ui/index.ts';
@@ -17,7 +18,11 @@ const props = withDefaults(defineProps<{
   current: ModelPick;
   /** How many rows show before the picker asks for a narrower search. */
   limit?: number;
-}>(), { limit: 150 });
+  /** Whether the first row offers the agent's own choice ('default'). */
+  ownChoice?: boolean;
+  /** A height the list scrolls within (a dialog); '' lets it grow with its rows (a panel that scrolls). */
+  listHeight?: string;
+}>(), { limit: 150, ownChoice: true, listHeight: '' });
 const emit = defineEmits<{ pick: [pick: ModelPick] }>();
 
 const text = ref('');
@@ -51,8 +56,8 @@ const pickOf = (model: ChatModel): ModelPick => `model:${model.id}`;
       </div>
       <UiSegmented v-model="sort" :options="SORTS" label="Sort by" data-testid="model-sort" />
     </div>
-    <ul class="list" role="listbox" aria-label="Models">
-      <li>
+    <ul class="list" :class="{ scrolls: listHeight !== '' }" :style="listHeight === '' ? undefined : { maxHeight: listHeight }" role="listbox" aria-label="Models">
+      <li v-if="ownChoice">
         <button type="button" class="row" role="option" :aria-selected="current === 'default'" data-model="default" @click="emit('pick', 'default')">
           <span class="main">
             <span class="name">The agent’s own choice</span>
@@ -66,6 +71,7 @@ const pickOf = (model: ChatModel): ModelPick => `model:${model.id}`;
           <span class="main">
             <span class="name">{{ model.name }}</span>
             <span class="facts">
+              <span>{{ model.provider }} · </span>
               <span :class="{ free: isFree(model) }">{{ priceText(model) }}</span>
               <span v-if="contextText(model) !== ''"> · {{ contextText(model) }}</span>
             </span>
@@ -96,7 +102,8 @@ const pickOf = (model: ChatModel): ModelPick => `model:${model.id}`;
 .chip:hover { background: var(--surface-2); color: var(--text); }
 .chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .chip:focus-visible { outline: none; box-shadow: var(--ring); }
-.list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.list { display: grid; align-content: start; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.list.scrolls { overflow-y: auto; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); }
 .row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-2) var(--space-3);
   border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); text-align: left;

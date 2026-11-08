@@ -1,7 +1,7 @@
 /** Policies: every policy in the order the hub weighs them, and saving and removing them. */
 import type { Policy, PolicyId } from '@harness/core';
 import { computed } from 'vue';
-import { Loaded, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
 import type { PolicyBody } from '../logic/forms.ts';
 import { sortPolicies } from '../logic/policies.ts';
@@ -24,7 +24,7 @@ export class PoliciesStore {
     await this.list.load(() => this.#api.policies.call({}), "Couldn't load policies.", quiet);
   }
 
-  async savePolicy(body: PolicyBody): Promise<TaskResult<{ id: string }>> {
+  async savePolicy(body: PolicyBody): Promise<Outcome<{ id: string }>> {
     const result = await this.save.run(() => this.#api.setPolicy.call(body), "Couldn't save the policy.");
     if (result.ok) { void this.load(true); }
     return result;

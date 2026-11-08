@@ -22,7 +22,7 @@ import {
 } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { allRows } from '../catalog/rows.ts';
-import type { ContextGraph } from '../contextor/index.ts';
+import type { ContextGraph, DynamicContext } from '../contextor/index.ts';
 import type { Indexer } from '../index/index.ts';
 import { contextText } from '../index/indexer.ts';
 import { sha256Hex } from '../link/keys.ts';
@@ -83,6 +83,8 @@ export interface StoreContextLibraryOptions {
   readonly hubActor: ActorId;
   /** Told when an item was written, linked or forgotten. */
   readonly onContext?: (name: QualifiedName) => void;
+  /** Dynamic context's text from its system, for `item` (default: none, so a dynamic item comes without text). */
+  readonly dynamic?: () => DynamicContext;
 }
 
 /** One item to write, with the resource edges it gets. */
@@ -178,9 +180,15 @@ export class StoreContextLibrary implements ContextLibrary {
   }
 
   async item(name: QualifiedName, who: Asking): Promise<ContextItemView> {
-    const record = await this.#visible(name, who);
-    const [links, backlinks] = await Promise.all([this.#o.graph().links(name), this.#o.graph().backlinks({ kind: 'context', name })]);
-    return { record, links, backlinks, ...(record.decl.content === undefined ? {} : { text: record.decl.content }) };
+    const found = await this.#visible(name, who);
+    const [record, links, backlinks] = await Promise.all([
+      this.#o.dynamic?.().resolve(found, { session: who.session, actor: who.actor }) ?? found, this.#o.graph().links(name), this.#o.graph().backlinks({ kind: 'context', name }),
+    ]);
+    const text = record.decl.content;
+    if (text === undefined) { return { record, links, backlinks }; }
+    // a dynamic item's size is known once its system wrote it
+    const sized = found.decl.content === undefined ? { ...record, tokens: { full: estimateTokens(text), summary: estimateTokens(record.decl.summary ?? record.decl.description) } } : record;
+    return { record: sized, links, backlinks, text };
   }
 
   async link(input: { from: QualifiedName; to: LinkTarget; relation: DeclarableRelation; weight: number }, who: Asking): Promise<ContextLink> {

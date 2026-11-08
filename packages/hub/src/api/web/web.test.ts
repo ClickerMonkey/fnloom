@@ -380,13 +380,13 @@ describe('inbox and content', () => {
   });
 
   it('transcribes an uploaded recording through the dictation role’s model, and offers voice input', async () => {
-    const heard: Array<{ request: ModelForward; site: unknown }> = [];
+    const heard: Array<{ request: ModelForward; site: unknown; role: unknown }> = [];
     const { r, web, as } = await signedIn({
       models: {
         roles: { get: () => Promise.resolve(DICTATION_MODEL) },
         gateway: {
-          forward: (request, site) => {
-            heard.push({ request, site });
+          forward: (request, site, _signal, role) => {
+            heard.push({ request, site, role });
             return Promise.resolve({ modality: 'transcribe', text: 'book a table for two', call: ModelCallId.parse('mdl_1'), cost: 0.001, model: 'whisper-1' });
           },
         },
@@ -397,7 +397,8 @@ describe('inbox and content', () => {
     });
     const audio = await r.api.content.put(new Uint8Array([1, 2, 3, 4, 5]), 'audio/webm');
     await expect(web.client.call('transcribe', { audio }, as)).resolves.toEqual({ text: 'book a table for two' });
-    expect(heard).toEqual([{ request: { modality: 'transcribe', audio, model: { model: 'openai/whisper-1' }, language: 'en' }, site: { purpose: 'dictation' } }]);
+    // the dictation role's model and provider answer: the gateway resolves them, the provider a real field, not a name prefix
+    expect(heard).toEqual([{ request: { modality: 'transcribe', audio, language: 'en' }, site: { purpose: 'dictation' }, role: 'dictate' }]);
     const picture = await r.api.content.put(new Uint8Array([9]), 'image/png');
     await expect(web.client.call('transcribe', { audio: picture }, as)).rejects.toMatchObject({ status: 422 });
     const caps = await web.client.call('capabilities', { session: sessionId }, as);

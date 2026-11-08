@@ -15,6 +15,7 @@ import { formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiButton, UiCard, UiEmpty, UiIcon, UiSegmented, type SegmentOption } from '../../ui/index.ts';
+import { useNow } from '../../ui/now.ts';
 import DayBars from '../components/DayBars.vue';
 import LoadState from '../components/LoadState.vue';
 import { dayBars, figures } from '../logic/metrics.ts';
@@ -38,8 +39,10 @@ const name = computed(() => {
 const record = computed(() => store.record.value.value);
 const metrics = computed(() => store.metrics.value.value);
 const strip = computed(() => (metrics.value === undefined ? [] : figures(metrics.value)));
-const runBars = computed(() => dayBars(store.daily.value.value ?? [], 'runs'));
-const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time'));
+const now = useNow(60_000);
+const dayWindow = computed(() => ({ period: period.value, now: now.value }));
+const runBars = computed(() => dayBars(store.daily.value.value ?? [], 'runs', dayWindow.value));
+const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time', dayWindow.value));
 
 watch([name, period], ([fn, d]) => { if (fn !== undefined) { void store.open(fn, d); } }, { immediate: true });
 onBeforeUnmount(() => { store.close(); });

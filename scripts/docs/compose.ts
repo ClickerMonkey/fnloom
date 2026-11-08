@@ -24,6 +24,8 @@ export interface Topic {
   readonly external?: readonly string[];
   /** Whether the core types its exports refer to go in the core types appendix. Default true; internals say false. */
   readonly reach?: boolean;
+  /** A reference part (internals, the core types): loaded when asked for, never suggested. Default false. */
+  readonly reference?: boolean;
 }
 
 /** Everything composition reads, as seams, so tests run it over fixtures. */
@@ -54,6 +56,11 @@ export class GuideProblems extends Error {
 const DIRECTIVE = /^<!--\s*(include|generate):\s*(\S+?)\s*-->$/gm;
 const REGION_START = /^\s*\/\/\s*#region\s+(\S+)\s*$/;
 const REGION_END = /^\s*\/\/\s*#endregion(?:\s+\S+)?\s*$/;
+
+/** A topic's section heading in the guide: its number in the outline (from 0) and its title. */
+export function topicHeading(topic: Topic, index: number): string {
+  return `## ${index + 1}. ${topic.title}`;
+}
 
 /** A heading's anchor as GitHub makes it: lowercase, punctuation dropped, each space a dash. */
 export function anchor(text: string): string {
@@ -190,7 +197,7 @@ export function composeGuide(input: ComposeInput): string {
       ...(topic.external ?? []).flatMap((name) => { const item = external.get(name); return item === undefined ? [] : [item]; }),
     ];
     const reference = items.length === 0 ? '' : `### Reference: ${topic.title.toLowerCase()}\n\n${items.map((item) => renderItem(item, reached)).join('\n\n')}`;
-    return [`## ${index + 1}. ${topic.title}`, expand(topic.id, (prose ?? '').replaceAll('\r\n', '\n').trim()), reference].filter((part) => part !== '').join('\n\n');
+    return [topicHeading(topic, index), expand(topic.id, (prose ?? '').replaceAll('\r\n', '\n').trim()), reference].filter((part) => part !== '').join('\n\n');
   });
 
   const unused = Object.keys(input.generators).filter((name) => !used.has(name));

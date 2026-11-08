@@ -2,7 +2,8 @@
 /**
  * One row of a browser: a leading mark, a title with a line under it, figures on the right, and the time. The whole
  * row opens the item; the opened one stays marked. Figures and time sit in fixed columns, right-aligned, so they line up
- * from row to row in every browser; on a phone the figures move under the title and wrap.
+ * from row to row in every browser; in a narrow list (a phone, or beside a docked sidebar) the figures move under the
+ * title and wrap, so long figures never run over the title.
  */
 import { fullTime, relativeTime } from '../../ui/index.ts';
 
@@ -27,6 +28,7 @@ const slots = defineSlots<{ mark?: () => unknown; badges?: () => unknown; figure
 </template>
 
 <style scoped>
+.browser-row { container: browser-row / inline-size; }
 .browser-row + .browser-row { border-top: 1px solid var(--border); }
 .open {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: var(--space-3); width: 100%;
@@ -44,7 +46,8 @@ const slots = defineSlots<{ mark?: () => unknown; badges?: () => unknown; figure
 .figures { grid-column: 3; display: flex; justify-content: flex-end; gap: var(--space-3); min-width: 0; color: var(--text-dim); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .figures :slotted(*) { min-width: 64px; text-align: right; }
 .at { grid-column: 4; min-width: 56px; color: var(--text-faint); font-size: var(--text-xs); text-align: right; white-space: nowrap; }
-@media (max-width: 559.98px) {
+/* keyed to the row's own width, not the viewport's: a list beside a docked sidebar or an opened item is narrow too */
+@container browser-row (max-width: 619.98px) {
   .open { grid-template-columns: auto minmax(0, 1fr) auto; }
   .figures :slotted(*) { min-width: 0; text-align: left; }
   .figures { grid-column: 2 / 4; grid-row: 2; flex-wrap: wrap; justify-content: flex-start; gap: var(--space-1) var(--space-3); white-space: normal; }

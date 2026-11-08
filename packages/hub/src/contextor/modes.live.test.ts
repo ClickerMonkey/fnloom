@@ -44,7 +44,7 @@ describe('the static toolset on a free OpenRouter model (live)', () => {
         log: r.log, clock: () => r.time.now, probes: () => undefined,
       });
       registerContextorFns(r.module.hubFns, {
-        store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store), contextor: () => contextor, views: () => new CatalogFnViews(r.catalog),
+        store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store), contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined),
       });
       const opened: string[] = [];
       r.connect('vault').behaviour.run = (request) => { opened.push(JSON.stringify(request.args)); return Promise.resolve({ status: 'done', result: `The secret word is ${SECRET}.` }); };

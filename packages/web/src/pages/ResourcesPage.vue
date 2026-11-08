@@ -7,7 +7,7 @@
  * viewer beside the list on roomy screens or in a sheet, with its mode, page and line in the URL too. Live: resource
  * changes refresh what is shown.
  */
-import { FormKind, ResourceUri, type FormatFamily, type QualifiedName, type ResourceRecord } from '@harness/core';
+import { FormKind, ResourceUri, type FormatFamily, type QualifiedName, type ResourceRecord, type ResourceStat } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
@@ -17,6 +17,7 @@ import ConfirmDialog from '../admin/components/ConfirmDialog.vue';
 import LoadState from '../admin/components/LoadState.vue';
 import PanelFrame from '../chat/components/PanelFrame.vue';
 import PanelHost from '../chat/components/PanelHost.vue';
+import { formatBytes } from '../chat/logic/format.ts';
 import { COMPACT_QUERY } from '../state/layout.ts';
 import { useStores } from '../state/stores.ts';
 import {
@@ -31,7 +32,7 @@ import ResourceList from '../resources/browser/ResourceList.vue';
 import ResourceUploader from '../resources/browser/ResourceUploader.vue';
 import { bulkActions, isMake, madeBy, type ResourceAction } from '../resources/logic/actions.ts';
 import { crumbsOf, DEFAULTS, isFiltered, isHubResource, nameOf, sortRecords, type BrowserSort, type BrowserView, type CardSize } from '../resources/logic/browse.ts';
-import { FAMILY_LABEL, FORM_LABEL } from '../resources/logic/formats.ts';
+import { FAMILY_LABEL, FORM_LABEL, typeWord } from '../resources/logic/formats.ts';
 import { useBrowserUrl } from '../resources/state/url.ts';
 
 const { resources, toasts } = useStores();
@@ -105,7 +106,16 @@ const peek = (record: ResourceRecord) => browser.peek(record).value.value;
 
 // ─── The opened resource ──────────────────────────────────────────────────
 const opened = computed(() => query.value.uri ?? '');
-const openedRecord = computed(() => browser.list.items.value.find((r) => r.uri === opened.value));
+/** What the viewer loaded about the opened resource: its own stat, whatever the list holds (a deep link, a reload). */
+const openedStat = shallowRef<ResourceStat | undefined>(undefined);
+const shownStat = computed(() => (openedStat.value?.uri === opened.value ? openedStat.value : browser.list.items.value.find((r) => r.uri === opened.value)?.stat));
+const panelTitle = computed(() => nameOf({ uri: opened.value, stat: shownStat.value ?? { name: '' } }) || 'Resource');
+/** The opened resource's type and size; its address until those are known. */
+const panelSubtitle = computed(() => {
+  const stat = shownStat.value;
+  if (stat === undefined) { return opened.value; }
+  return stat.size === undefined ? typeWord(stat) : `${typeWord(stat)} · ${formatBytes(stat.size)}`;
+});
 const panel = computed({ get: () => opened.value !== '', set: (open: boolean) => { if (!open) { url.set({ uri: '', mode: '', page: '', section: '' }); } } });
 /** The folder tree shows on wide screens, and beside an open resource only where there is room for all three. */
 const rail = computed(() => wide.value && (!panel.value || !roomy.value || spacious.value));
@@ -207,13 +217,18 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
 
       <section class="main" aria-label="Resources">
         <div class="toolbar" role="search" aria-label="Filter resources">
-          <UiInput v-model="search" class="search" type="search" icon="search" label="Search" hide-label placeholder="Search names, addresses and contents" clearable data-testid="resource-search" />
-          <UiSegmented v-model="view" :options="VIEWS" label="Layout" data-testid="resource-view" />
-          <UiSelect v-if="view === 'groups'" v-model="group" class="pick" :options="GROUPS" label="Group" hide-label size="sm" data-testid="resource-grouping" />
-          <UiSelect v-model="family" class="pick" :options="FAMILIES" label="Type" hide-label size="sm" data-testid="resource-family" />
-          <UiSelect v-model="formFilter" class="pick" :options="FORM_FILTERS" label="Forms" hide-label size="sm" />
-          <UiSegmented v-if="view === 'grid'" v-model="size" :options="SIZES" label="Card size" />
-          <UiButton v-if="isFiltered(query)" size="sm" variant="ghost" icon="x" @click="url.set({ q: '', family: '', form: '', missing: '', under: '', in: '', system: '' })">Clear</UiButton>
+          <!-- the filters keep their places in every layout; what a layout adds (grouping, card size) sits beside the layout switch -->
+          <div class="filters">
+            <UiInput v-model="search" class="search" type="search" icon="search" label="Search" hide-label placeholder="Search names, addresses and contents" clearable data-testid="resource-search" />
+            <UiSelect v-model="family" class="pick" :options="FAMILIES" label="Type" hide-label size="sm" data-testid="resource-family" />
+            <UiSelect v-model="formFilter" class="pick" :options="FORM_FILTERS" label="Forms" hide-label size="sm" />
+            <UiButton v-if="isFiltered(query)" size="sm" variant="ghost" icon="x" @click="url.set({ q: '', family: '', form: '', missing: '', under: '', in: '', system: '' })">Clear</UiButton>
+          </div>
+          <div class="layout">
+            <UiSelect v-if="view === 'groups'" v-model="group" class="pick" :options="GROUPS" label="Group" hide-label size="sm" data-testid="resource-grouping" />
+            <UiSegmented v-if="view === 'grid'" v-model="size" :options="SIZES" label="Card size" />
+            <UiSegmented v-model="view" :options="VIEWS" label="Layout" data-testid="resource-view" />
+          </div>
         </div>
 
         <nav v-if="crumbs.length > 1 || query.in" class="crumbs" aria-label="Where">
@@ -257,11 +272,11 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
         </LoadState>
       </section>
 
-      <PanelHost v-model:open="panel" :inline="roomy" :phone="phone" label="Resource">
-        <PanelFrame :title="openedRecord ? nameOf(openedRecord) : 'Resource'" :subtitle="opened" @close="panel = false">
+      <PanelHost v-model:open="panel" :inline="roomy" :phone="phone" :label="panelTitle">
+        <PanelFrame :title="panelTitle" :subtitle="panelSubtitle" @close="panel = false">
           <ResourceViewer
             v-if="opened !== '' && query.uri" v-model:mode="mode" v-model:page="page" v-model:line="line" :uri="query.uri" v-bind="query.section === undefined ? {} : { section: query.section }"
-            @navigate="open" @notice="notice" @context="(made) => toastContextMade(toasts, made, openContext)"
+            @navigate="open" @notice="notice" @context="(made) => toastContextMade(toasts, made, openContext)" @opened="openedStat = $event"
           />
         </PanelFrame>
       </PanelHost>
@@ -292,11 +307,17 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
 .resources.rail { grid-template-columns: 220px minmax(0, 1fr); }
 .resources.rail.split { grid-template-columns: 220px minmax(0, 1fr) 460px; }
 .resources.split:not(.rail) { grid-template-columns: minmax(0, 1fr) 460px; }
-.resources.split :deep([data-testid='chat-panel']) { position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto; align-self: start; }
+/* the opened resource: a column pinned in view whose header stays and whose body scrolls (as `BrowserFrame`'s) */
+.resources.split :deep([data-testid='chat-panel']) {
+  position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); height: calc(100dvh - var(--pinned-top, 0px) - var(--space-4) - var(--space-7)); overflow: hidden; align-self: start;
+  border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+}
 .rail { position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); align-self: start; max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto; }
 .main { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
-.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
-.search { flex: 1 1 240px; min-width: 0; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
+.filters { display: flex; flex: 1 1 420px; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.layout { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-left: auto; }
+.search { flex: 1 1 200px; min-width: 0; }
 .pick { width: auto; min-width: 140px; flex: 0 1 180px; }
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); font-size: var(--text-sm); }
 .crumb { padding: 2px 6px; border: 0; border-radius: 6px; background: none; color: var(--accent); font: inherit; cursor: pointer; overflow-wrap: anywhere; }

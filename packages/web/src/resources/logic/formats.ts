@@ -45,6 +45,16 @@ export function familyOfStat(stat: Pick<ResourceStat, 'format' | 'mime' | 'type'
   return stat.type === 'folder' ? 'folder' : familyOf(stat.format, stat.mime);
 }
 
+/**
+ * A resource's type in one word, as a row or card names it: its format, else its name's extension (`wav`), else its
+ * mime type's subtype, else its kind (`file`, `folder`).
+ */
+export function typeWord(stat: Pick<ResourceStat, 'format' | 'mime' | 'type' | 'name'>): string {
+  if (stat.format !== undefined && stat.format !== '') { return stat.format; }
+  if (stat.type === 'folder') { return stat.type; }
+  return extensionOf(stat.name) || (stat.mime?.split('/')[1]?.split(';')[0] ?? '') || stat.type;
+}
+
 /** The extension of a resource's name (`ts`, `tar.gz` reads as `gz`), lower case; '' when it has none. */
 export function extensionOf(name: string): string {
   const dot = name.lastIndexOf('.');

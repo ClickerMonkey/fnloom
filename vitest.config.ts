@@ -60,18 +60,24 @@ export default defineConfig({
       include: ['packages/*/src/**/*.{ts,vue}', 'systems/*/{shared,server,client}/**/*.{ts,vue}'],
       exclude: ['**/*.test.ts', '**/manifest.gen.ts', '**/*.d.ts'],
       // floors a little under today's numbers, so coverage can't quietly fall; `npm run check` runs with coverage.
-      // Each glob counts every file it matches (so `packages/hub/src/**` includes execution); the execution engine and
-      // the SDK runtime have floors of their own, so a drop there can't hide behind the rest of their package.
+      // Each glob counts every file it matches (so `packages/hub/src/**` includes execution); the execution engine, the
+      // SDK runtime and build 2's modules (the contextor, hub MCPs, resources, the CLI, the web system) have floors of
+      // their own, so a drop there can't hide behind the rest of their package.
       thresholds: {
-        statements: 82, branches: 70, functions: 76, lines: 86,
+        statements: 84, branches: 73, functions: 78, lines: 88,
         'packages/core/src/**': { statements: 99, branches: 88, functions: 99, lines: 99 },
-        'packages/hub/src/**': { statements: 90, branches: 80, functions: 89, lines: 93 },
+        'packages/hub/src/**': { statements: 91, branches: 82, functions: 90, lines: 94 },
         'packages/hub/src/execution/**': { statements: 86, branches: 74, functions: 85, lines: 91 },
+        'packages/hub/src/contextor/**': { statements: 90, branches: 80, functions: 89, lines: 93 },
+        'packages/hub/src/mcp/**': { statements: 88, branches: 78, functions: 88, lines: 94 },
+        'packages/hub/src/resources/**': { statements: 90, branches: 78, functions: 88, lines: 92 },
+        'packages/cli/src/**': { statements: 87, branches: 76, functions: 79, lines: 90 },
         'packages/sdk/src/**': { statements: 88, branches: 80, functions: 88, lines: 92 },
         'packages/sdk/src/server/**': { statements: 87, branches: 78, functions: 87, lines: 92 },
-        'packages/web/src/**': { statements: 70, branches: 61, functions: 61, lines: 75 },
+        'packages/web/src/**': { statements: 76, branches: 65, functions: 67, lines: 80 },
         'systems/embedder/**': { statements: 85, branches: 79, functions: 79, lines: 86 },
         'systems/fs/**': { statements: 86, branches: 81, functions: 86, lines: 87 },
+        'systems/web/**': { statements: 83, branches: 85, functions: 79, lines: 85 },
       },
     },
   },

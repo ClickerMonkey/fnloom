@@ -198,8 +198,65 @@ export class RunBlockFilter {
 }
 
 /** How many characters at the end of a text could begin `<run`. */
-function partialTail(text: string): number {
-  const open = `<${RUN_TAG}`;
+function partialTail(text: string, open = `<${RUN_TAG}`): number {
   for (let k = Math.min(open.length - 1, text.length); k > 0; k--) if (text.endsWith(open.slice(0, k))) return k;
   return 0;
+}
+
+/** The tags a model that thinks in its answer (deepseek-r1 through an OpenAI-style API) wraps its thinking in. */
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+
+/** What part of an answer is thinking, and what is the answer. */
+export interface ThinkingSplit {
+  readonly text: string;
+  readonly reasoning: string;
+}
+
+/**
+ * Splits a streamed answer's `<think>…</think>` out as reasoning, so thinking is kept and shown as reasoning (collapsed)
+ * and never as the answer. A chunk ending in what could start a tag waits for the next chunk.
+ */
+export class ThinkingFilter {
+  #buffer = '';
+  #inside = false;
+
+  /** Take a chunk; returns the answer text and the reasoning that can be streamed now. */
+  push(chunk: string): ThinkingSplit {
+    this.#buffer += chunk;
+    let text = '';
+    let reasoning = '';
+    const take = (part: string): void => { if (this.#inside) reasoning += part; else text += part; };
+    for (;;) {
+      const tag = this.#inside ? THINK_CLOSE : THINK_OPEN;
+      const at = this.#buffer.indexOf(tag);
+      if (at < 0) {
+        const keep = partialTail(this.#buffer, tag);
+        take(this.#buffer.slice(0, this.#buffer.length - keep));
+        this.#buffer = this.#buffer.slice(this.#buffer.length - keep);
+        break;
+      }
+      take(this.#buffer.slice(0, at));
+      this.#buffer = this.#buffer.slice(at + tag.length);
+      this.#inside = !this.#inside;
+    }
+    return { text, reasoning };
+  }
+
+  /** The answer ended: what is still held. */
+  end(): ThinkingSplit {
+    const rest = this.#buffer;
+    const inside = this.#inside;
+    this.#buffer = '';
+    this.#inside = false;
+    return inside ? { text: '', reasoning: rest } : { text: rest, reasoning: '' };
+  }
+}
+
+/** A whole answer with its thinking split out. */
+export function splitThinking(answer: string): ThinkingSplit {
+  const filter = new ThinkingFilter();
+  const first = filter.push(answer);
+  const rest = filter.end();
+  return { text: (first.text + rest.text).trim(), reasoning: (first.reasoning + rest.reasoning).trim() };
 }

@@ -8,6 +8,7 @@ import type { FormRecord, ResourceLink, ResourceRecord, ResourceStat } from '@ha
 import { computed } from 'vue';
 import { UiBadge, fullTime } from '../../ui/index.ts';
 import { formatBytes } from '../../chat/logic/format.ts';
+import { linkLabel } from '../logic/browse.ts';
 import { FAMILY_LABEL, FORM_LABEL, familyOfStat } from '../logic/formats.ts';
 
 const props = defineProps<{ stat: ResourceStat; record: ResourceRecord | undefined; forms: readonly FormRecord[]; links: readonly ResourceLink[] }>();
@@ -55,8 +56,8 @@ const facts = computed(() => [
       <h3 class="heading">Links</h3>
       <ul class="list">
         <li v-for="(link, i) in links.slice(0, 100)" :key="i" class="link">
-          <button v-if="link.uri" type="button" class="open" @click="emit('open', link.uri)">{{ link.title ?? link.raw }}</button>
-          <code v-else>{{ link.title ?? link.raw }}</code>
+          <button v-if="link.uri" type="button" class="open" @click="emit('open', link.uri)">{{ linkLabel(link) }}</button>
+          <code v-else>{{ linkLabel(link) }}</code>
           <span class="dim">{{ link.kind }}</span>
         </li>
       </ul>

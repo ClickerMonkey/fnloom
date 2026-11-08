@@ -11,12 +11,12 @@
  *   excluded is exposed all the same, with a warning.
  * - Context is exposed when selected; a context item that would bring a fn that isn't exposed is warned about (it
  *   brings only exposed fns).
- * - A resource is exposed when its URI starts with a selected prefix, or its system is selected, and no exclude
- *   selects it.
+ * - A resource is exposed when its URI starts with a selected prefix (served by the prefix's system and instance,
+ *   when it names them), or its system is selected, and no exclude selects it.
  */
 import {
-  ADMIN_TAG, ResourceUri, type FnMatch, type FnRecord, type HubMcpId, type McpRules, type McpScopePreview, type McpSelector, type NameGlob, type QualifiedName,
-  type ResourceSelector, type SystemName,
+  ADMIN_TAG, ResourceUri, type FnMatch, type FnRecord, type HubMcpId, type McpRules, type McpScopePreview, type McpSelector, type NameGlob, type PolicyDecision,
+  type QualifiedName, type ResourceSelector, type SystemName,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -51,7 +51,7 @@ export function exposable(fn: FnRecord): boolean {
 }
 
 /** Whether a selector selects a fn: its system, or one of its matchers (judged for `effect`, see the module notes). */
-function selectsFn(selector: McpSelector, fn: FnRecord, effect: 'allow' | 'deny'): boolean {
+function selectsFn(selector: McpSelector, fn: FnRecord, effect: Exclude<PolicyDecision['effect'], 'ask'>): boolean {
   if (selector.systems?.includes(fn.system) === true) return true;
   return (selector.fns ?? []).some((match: FnMatch) => targetRank(match, fn, effect) !== undefined);
 }
@@ -61,10 +61,23 @@ function selectsName(selector: McpSelector, entry: ScopeEntry, globs: readonly N
   return selector.systems?.includes(entry.system) === true || (globs ?? []).some((glob) => globMatches(glob, entry.name));
 }
 
-/** Whether a selector selects a resource URI (served by `system`, when known). */
-export function selectsResource(selector: McpSelector, uri: string, system: SystemName | undefined): boolean {
-  if (system !== undefined && selector.systems?.includes(system) === true) return true;
-  return (selector.resources ?? []).some((r) => uri.startsWith(r.uri) && (r.system === undefined || r.system === system));
+/** What serves a resource, as far as it is known: its system, and the instance when known. */
+export type ResourceServer = Omit<ResourceSelector, 'uri'> & { readonly system: SystemName };
+
+/**
+ * Whether a selector selects a resource URI (served by `server`, when known): a selected system, or a prefix whose
+ * system and instance, when it names them, are the ones serving it.
+ */
+export function selectsResource(selector: McpSelector, uri: string, server: ResourceServer | undefined): boolean {
+  if (server !== undefined && selector.systems?.includes(server.system) === true) return true;
+  return (selector.resources ?? []).some((r) => uri.startsWith(r.uri)
+    && (r.system === undefined || r.system === server?.system)
+    && (r.instance === undefined || r.instance === server?.instance));
+}
+
+/** The server a resource selector names, when it names a system. */
+function serverOf(selector: ResourceSelector): ResourceServer | undefined {
+  return selector.system === undefined ? undefined : { system: selector.system, ...(selector.instance === undefined ? {} : { instance: selector.instance }) };
 }
 
 /** Resolve rules against what the hub knows now. */
@@ -94,7 +107,7 @@ export async function resolveRules(rules: McpRules, world: ScopeWorld): Promise<
   const resources = [
     ...(include.resources ?? []),
     ...world.roots.filter((root) => root.system !== undefined && include.systems?.includes(root.system) === true),
-  ].filter((r) => !selectsResource(exclude, r.uri, r.system));
+  ].filter((r) => !selectsResource(exclude, r.uri, serverOf(r)));
 
   const byName = new Map(world.fns.map((fn) => [fn.name, fn]));
   const reach = new Set<QualifiedName>();
@@ -112,14 +125,14 @@ export async function resolveRules(rules: McpRules, world: ScopeWorld): Promise<
 }
 
 /** A scope from a resolved preview and the rules (resources are judged per URI, by the system serving it). */
-export function scopeOf(rules: McpRules, preview: McpScopePreview, systemOf: (uri: string) => SystemName | undefined): McpScope {
+export function scopeOf(rules: McpRules, preview: McpScopePreview, serverOf: (uri: string) => ResourceServer | undefined): McpScope {
   return {
     fns: new Set(preview.fns),
     types: new Set(preview.types),
     context: new Set(preview.context),
     allowsResource: (uri) => {
-      const system = systemOf(uri);
-      return selectsResource(rules.include, uri, system) && !selectsResource(rules.exclude, uri, system);
+      const server = serverOf(uri);
+      return selectsResource(rules.include, uri, server) && !selectsResource(rules.exclude, uri, server);
     },
   };
 }
@@ -152,16 +165,17 @@ export class CatalogMcpScopes implements McpScopes {
     if (record === undefined) return { fns: new Set(), types: new Set(), context: new Set(), allowsResource: () => false };
     const cached = this.#cache.get(mcp);
     if (cached?.updatedAt === record.updatedAt) return cached.scope;
-    const scope = this.preview(record.rules).then((preview) => scopeOf(record.rules, preview, (uri) => this.#systemOf(uri)));
+    const scope = this.preview(record.rules).then((preview) => scopeOf(record.rules, preview, (uri) => this.#serverOf(uri)));
     this.#cache.set(mcp, { updatedAt: record.updatedAt, scope });
     scope.catch(() => { this.#cache.delete(mcp); });
     return scope;
   }
 
-  /** The system serving a URI now, when one does. */
-  #systemOf(uri: string): SystemName | undefined {
+  /** The system and instance serving a URI now, when one does. */
+  #serverOf(uri: string): ResourceServer | undefined {
     const parsed = ResourceUri.safeParse(uri);
-    return parsed.success ? this.#deps.resources().route(parsed.data)?.system : undefined;
+    const route = parsed.success ? this.#deps.resources().route(parsed.data) : undefined;
+    return route === undefined ? undefined : { system: route.system, instance: route.instance };
   }
 
   async preview(rules: McpRules): Promise<McpScopePreview> {

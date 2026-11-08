@@ -58,14 +58,23 @@ describe('Ollama', () => {
 
   it('lists its models with their abilities and served windows', async () => {
     const { fetcher } = fakeOllama({ 'qwen2.5:3b': QWEN, 'deepseek-r1:7b': R1 });
-    const models = await new OllamaProvider({ baseURL: 'http://ollama.test:11434/' }, fetcher).listModels();
+    const models = await new OllamaProvider({ baseURL: 'http://ollama.test:11434/', cap: 4_096 }, fetcher).listModels();
     expect(models.map((m) => [m.id, m.provider, m.contextWindow, m.capabilities.has('tools'), m.capabilities.has('reasoning')])).toEqual([
       ['qwen2.5:3b', 'ollama', 8_192, true, false],
       ['deepseek-r1:7b', 'ollama', 2_048, false, true],
     ]);
-    const provider = await buildProvider({ provider: 'ollama', baseURL: 'http://127.0.0.1:11434' }, () => Promise.reject(new Error('no key')));
+    const provider = await buildProvider({ provider: 'ollama', baseURL: 'http://127.0.0.1:11434' }, () => Promise.reject(new Error('no key')), 4_096);
     expect(provider.name).toBe('ollama');
     expect(new OllamaApi('http://x:1/').baseURL).toBe('http://x:1');
+  });
+
+  it('serves the same window through its model list as through the probe, whatever the cap', async () => {
+    const { fetcher } = fakeOllama({ 'qwen2.5:3b': QWEN, 'deepseek-r1:7b': R1 });
+    for (const cap of [1_024, 4_096]) {
+      const listed = await new OllamaProvider({ baseURL: 'http://ollama.test:11434/', cap }, fetcher).listModels();
+      const probe = defaultProbes(cap, fetcher)({ provider: 'ollama', baseURL: 'http://ollama.test:11434' });
+      for (const model of listed) expect((await probe?.probe(model.id))?.contextWindow, `${model.id} at ${cap}`).toBe(model.contextWindow);
+    }
   });
 });
 

@@ -42,7 +42,7 @@ const node = (def: unknown): FormNode => formOf(def, '', LOCAL_TYPES);
 const parse = (def: ExprDef): ExprView => {
   const parsed = tools.parse(def);
   if (!parsed.ok) { throw new Error(parsed.problem); }
-  return viewOf(parsed.expr);
+  return viewOf(parsed.value);
 };
 
 describe('the registry', () => {
@@ -172,11 +172,11 @@ describe('the expression model', () => {
   it('asks gin what an expression gives, what is wrong with it and how it reads', () => {
     const parsed = tools.parse(IF);
     if (!parsed.ok) { throw new Error(parsed.problem); }
-    expect(tools.typeText(parsed.expr, scope)).toBe('or<text, text>');
-    expect(tools.code(parsed.expr)).toContain('count.gt');
+    expect(tools.typeText(parsed.value, scope)).toBe('or<text, text>');
+    expect(tools.code(parsed.value)).toContain('count.gt');
     const unknown = tools.parse({ kind: 'get', path: [{ prop: 'nothing' }] });
     if (!unknown.ok) { throw new Error(unknown.problem); }
-    expect(tools.problems(unknown.expr, scope).some((p) => p.severity === 'error')).toBe(true);
+    expect(tools.problems(unknown.value, scope).some((p) => p.severity === 'error')).toBe(true);
     expect(tools.parse({ kind: 'nonsense' }).ok).toBe(false);
   });
 

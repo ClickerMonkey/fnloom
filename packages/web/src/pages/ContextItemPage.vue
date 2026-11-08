@@ -16,7 +16,7 @@ import LoadState from '../admin/components/LoadState.vue';
 import LinkDialog from '../context/components/LinkDialog.vue';
 import LinkGroups from '../context/components/LinkGroups.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
-import { linkKey, ORIGIN_WORDS, originOf, scopeText, type LinkDraft, type MemoryDraft } from '../context/logic/context.ts';
+import { linkKey, ORIGIN_WORDS, originOf, scopeText, sizeText, type LinkDraft, type MemoryDraft } from '../context/logic/context.ts';
 import { targetRoute } from '../context/logic/targets.ts';
 import { useStores } from '../state/stores.ts';
 import { fullTime, relativeTime, UiBadge, UiBanner, UiButton, UiCard, UiIcon, UiMarkdown } from '../ui/index.ts';
@@ -102,7 +102,7 @@ async function save(draft: MemoryDraft): Promise<void> {
               <div v-if="fromResource"><dt>Text</dt><dd>{{ fromResource.copy === 'live' ? 'Live: read when loaded' : 'A snapshot' }}</dd></div>
               <div v-if="record.decl.command"><dt>Command</dt><dd><code>/{{ record.decl.command.name }}</code></dd></div>
               <div v-if="record.decl.alwaysFor.length > 0"><dt>Always given to</dt><dd class="chips"><code v-for="agent in record.decl.alwaysFor" :key="agent">{{ agent }}</code></dd></div>
-              <div v-if="record.tokens"><dt>Size</dt><dd>{{ record.tokens.full.toLocaleString() }} tokens, {{ record.tokens.summary.toLocaleString() }} as a summary</dd></div>
+              <div v-if="record.tokens"><dt>Size</dt><dd>{{ sizeText(record) }}<template v-if="record.decl.content !== undefined || record.tokens.full > 0">, {{ record.tokens.summary.toLocaleString() }} as a summary</template></dd></div>
               <div><dt>Weight</dt><dd>{{ (record.decl.weight ?? 1).toFixed(2) }}</dd></div>
               <div v-if="record.decl.tags.length > 0"><dt>Tags</dt><dd class="chips"><UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge></dd></div>
               <div><dt>Changed</dt><dd><time :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time></dd></div>

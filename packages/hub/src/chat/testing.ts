@@ -5,7 +5,7 @@
  */
 import { ApiError, type CallReturn, type Peer, type PeerCallArgs, type PeerKeys, type WsConn } from '@ayepi/core';
 import {
-  GinTypeDef, IDS, MAIN_INSTANCE, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
+  GinTypeDef, IDS, MAIN_INSTANCE, noFnStats, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
   type Notification, type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
   type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor, type SessionControlAction,
 } from '@harness/core';
@@ -60,7 +60,7 @@ export class FixtureCatalog implements Catalog {
   addFn(system: string, decl: Partial<FnDecl> & Pick<FnDecl, 'name'>): FnRecord {
     const record: FnRecord = {
       name: qualify(system, decl.name), system: SystemName.parse(system), decl: fnDecl(decl), version: 'v1', origin: 'contract', available: true, paused: false, disabled: false,
-      stats: { runs: 0, failures: 0, averageCost: 0, averageTime: 0 }, updatedAt: 0,
+      stats: noFnStats(), updatedAt: 0,
     };
     this.fnRecords.set(record.name, record);
     return record;

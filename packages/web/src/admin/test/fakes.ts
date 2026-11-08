@@ -61,7 +61,7 @@ export function pairing(overrides: Loose<PairingRequest> = {}): PairingRequest {
 export function fnRecord(overrides: Loose<FnRecord> = {}): FnRecord {
   return FnRecord.parse({
     name: 'fs/read_file', system: 'fs', version: 'v1', origin: 'contract', available: true, paused: false, disabled: false, updatedAt: T0,
-    stats: { runs: 140, failures: 3, averageCost: 0, averageTime: 42, lastRunAt: T0 - 30_000 },
+    stats: { outcomes: { done: 137, 'invalid-input': 0, failed: 3, cancelled: 0 }, averageCost: 0, averageTime: 42, tokens: 0, lastRunAt: T0 - 30_000 },
     decl: {
       name: 'read_file', description: 'Read a file', kind: 'native', args: { name: 'obj', props: { path: { type: { name: 'text' } } } }, returns: { name: 'text' },
       deps: [], handlers: {}, progress: { type: 'none' }, operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {},

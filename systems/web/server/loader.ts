@@ -4,28 +4,15 @@
  * with script-built html rendered by the shared headless browser first under `auto`, and the page's title worked out.
  * The bytes go to the hub as they are (text as utf-8); the hub converts them.
  */
-import { fetchResource, htmlToCleanMarkdown, isGenericMimeType, type FetchFn, type TypeInference } from '@aeye/resources';
+import { fetchResource, htmlToCleanMarkdown, type FetchFn, type TypeInference } from '@aeye/resources';
 import type { RenderModeValue } from '../shared/index.ts';
 import { labelOf, parseWebUrl, redactUrl } from '../shared/urls.ts';
-import { AddressGuard, type HostLookup } from './guard.ts';
+import type { HostLookup } from '@harness/sdk/server';
+import { AddressGuard } from './guard.ts';
 import { guardedFetch } from './http.ts';
 import type { FetchedPage, FetchSettings, PageSource } from './index.ts';
 import { WebProblem, isAbort, isTimeout, messageOf } from './problem.ts';
 import type { Renderers } from './renderer.ts';
-
-/** Media types by detected type, for content whose server named none (or only a generic one). */
-const TYPE_MIME: Readonly<Record<string, string>> = {
-  html: 'text/html', markdown: 'text/markdown', text: 'text/plain', json: 'application/json', yaml: 'text/yaml', xml: 'application/xml',
-  svg: 'image/svg+xml', csv: 'text/csv', tsv: 'text/tab-separated-values', pdf: 'application/pdf', zip: 'application/zip',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-};
-
-/** The bytes' media type: the specific one found, else the type's, else what the server said, else bytes. */
-export function mimeFor(type: string | undefined, found: string | undefined): string {
-  if (found !== undefined && !isGenericMimeType(found)) { return found; }
-  return (type === undefined ? undefined : TYPE_MIME[type]) ?? found ?? 'application/octet-stream';
-}
 
 /** A title for fetched content: an html page's own (`<title>`, `og:title`, the first `<h1>`), else a label from its URL. */
 export function titleFor(type: string | undefined, bytes: Uint8Array, url: string): string {
@@ -74,7 +61,7 @@ export class PageLoader implements PageSource {
       const bytes = page.source.input;
       return {
         bytes,
-        mime: mimeFor(page.source.type, page.source.mimeType),
+        mime: page.source.mimeType,
         type: page.source.type,
         requestedUrl: url.href,
         finalUrl: page.url,

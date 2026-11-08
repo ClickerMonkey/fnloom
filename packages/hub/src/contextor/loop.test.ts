@@ -4,12 +4,12 @@
  */
 import type { Message, Request } from '@aeye/core';
 import { agent, fn, g, hub } from '@harness/sdk';
-import { ActorId, type LlmMessage, type LlmRequest, type RunId, type RunSettled, type Turn } from '@harness/core';
+import { ActorId, SystemName, type LlmMessage, type LlmRequest, type RunId, type RunSettled, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type AgentKind, type RunInput } from '../execution/index.ts';
 import { messageToWire, requestToWire } from '../execution/wire.ts';
 import {
-  AGENT, ALICE, calls, executionRig, says, ScriptedProvider, SESSION, TEST_MODEL, type ExecutionRig,
+  AGENT, ALICE, calls, executionRig, says, ScriptedProvider, SESSION, TEST_MODEL, testSettings, type ExecutionRig,
 } from '../execution/testing.ts';
 import { createContextor } from './create.ts';
 import { contextorEnv } from './env.ts';
@@ -50,7 +50,7 @@ async function started(options: Parameters<typeof executionRig>[0] = {}) {
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store),
-    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog),
+    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined),
   });
   const fs = r.connect('fs');
   fs.behaviour.run = (request) => Promise.resolve({ status: 'done', result: request.fn === 'read' ? 'line 1\nline 2\nline 3' : 'no match' });
@@ -240,6 +240,89 @@ describe('the static toolset', () => {
   });
 });
 
+describe('what static `run` may run', () => {
+  const offDef = fn({ description: 'Switched off.', args: g.obj({}), returns: g.text() });
+  const rawDef = fn({ description: 'Fetch raw bytes for the hub.', args: g.obj({ url: g.text() }), returns: g.text(), visibility: 'none' });
+  const mineDef = fn({ description: 'Only for people.', args: g.obj({}), returns: g.text(), visibility: 'user' });
+
+  it('refuses a fn that is switched off, offline, outside the session\'s systems or not for the model, and starts no run', async () => {
+    const { r, fs } = await started();
+    r.catalog.add('fs', 'off', offDef, { disabled: true });
+    r.catalog.add('fs', 'gone', offDef, { available: { unavailable: 'system-disconnected', detail: 'fs is not connected' } });
+    r.catalog.add('web', 'fetch_raw', rawDef);
+    r.catalog.add('fs', 'mine', mineDef);
+    r.catalog.add('git', 'status', offDef);
+    await r.session({ agent: 'tools/small', systems: [SystemName.parse('fs'), SystemName.parse('web')] });
+    const names = ['fs/off', 'fs/gone', 'git/status', 'web/fetch_raw', 'fs/mine'];
+    r.provider.script(...names.map((name) => calls([['run', { fn: name, args: {} }]])), says('None of those.'));
+    const { settled, run } = await answer(r, 'tools/small', 'Try them');
+    expect(settled).toEqual({ status: 'done', result: 'None of those.' });
+    expect(fs.requests).toEqual([]);
+    // nothing ran: a refusal is at most a run settled invalid-input, shown softly as retried
+    const children = (await r.store.table('runs').find({ where: { parent: run }, limit: 10 })).items;
+    expect(children.every((child) => child.status === 'invalid-input' && child.startedAt === undefined)).toBe(true);
+    const replies = ((await r.store.table('sessions').get(SESSION))?.transcript ?? []).filter((m) => m.role === 'tool').map((m) => say(m));
+    expect(replies).toHaveLength(names.length);
+    names.forEach((name, i) => { expect(replies[i]).toContain(`There is no fn ${name} you can run here.`); });
+    expect(r.records.filter((rec) => rec.msg === 'agent.invalid-input')).toHaveLength(names.length);
+  });
+
+  it('keeps load and inspect to the same fns', async () => {
+    const { r } = await started();
+    r.catalog.add('web', 'fetch_raw', rawDef);
+    await r.session({ agent: 'tools/small' });
+    r.provider.script(calls([['load', { names: ['web/fetch_raw'] }]]), calls([['inspect', { name: 'web/fetch_raw' }]]), says('No.'));
+    await answer(r, 'tools/small', 'Load the raw fetch');
+    const replies = ((await r.store.table('sessions').get(SESSION))?.transcript ?? []).filter((m) => m.role === 'tool').map((m) => say(m));
+    expect(replies[0]).toContain('not for the model');
+    expect(replies[1]).toContain('can\'t be used here');
+    expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
+  });
+});
+
+describe('invalid input does not count toward the turn\'s error limit', () => {
+  const ONE = { settings: testSettings({}, { HARNESS_AGENT_TOOL_FAILURES: 1 }) };
+
+  it('lets a static model retry bad args and unknown fns past the limit, and the turn still ends done', async () => {
+    const { r, fs } = await started(ONE);
+    await r.session({ agent: 'tools/small' });
+    r.provider.script(
+      calls([['run', { fn: 'fs/read', args: { file: 'a' } }]]),
+      calls([['run', { fn: 'fs/reed', args: { path: 'a' } }]]),
+      calls([['run', { args: { path: 'a' } }]]),
+      says('Gave up.'),
+    );
+    const { settled } = await answer(r, 'tools/small', 'Read a');
+    expect(settled).toEqual({ status: 'done', result: 'Gave up.' });
+    expect(fs.requests).toEqual([]);
+    expect(r.provider.requests).toHaveLength(4);
+  });
+
+  it('lets a text-protocol model write bad JSON past the limit', async () => {
+    const provider = new ScriptedProvider();
+    const noTools = { ...TEST_MODEL, id: 'plain-model', capabilities: new Set(['chat', 'streaming'] as const) };
+    const { r } = await started({ ...ONE, llm: { providers: { openrouter: provider }, models: [noTools] } });
+    await r.session({ agent: 'tools/small', model: { model: 'plain-model' } });
+    provider.script(says('<run fn="fs/read">{path: a}</run>'), says('<run fn="fs/read">{"path": </run>'), says('Sorry.'));
+    const { settled } = await answer(r, 'tools/small', 'Read a');
+    expect(settled).toEqual({ status: 'done', result: 'Sorry.' });
+    expect(provider.requests).toHaveLength(3);
+  });
+
+  it('lets a fn refuse its input (ctx.invalid) in tools mode past the limit, while one failed round stops the turn', async () => {
+    const { r, fs } = await started(ONE);
+    fs.behaviour.run = () => Promise.resolve({ status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: 'path', message: 'outside the root' }] } });
+    await r.session({ agent: 'tools/helper', tools: ['fs/read'] });
+    r.provider.script(calls([['fs__read', { path: '/etc' }]]), calls([['fs__read', { path: '/root' }]]), says('Both outside.'));
+    expect((await answer(r, 'tools/helper', 'Read them')).settled).toEqual({ status: 'done', result: 'Both outside.' });
+    expect(fs.requests).toHaveLength(2);
+
+    fs.behaviour.run = () => Promise.resolve({ status: 'failed', error: { class: 'caller', message: 'disk on fire' } });
+    r.provider.script(calls([['fs__read', { path: 'a' }]]), says('never'));
+    expect((await answer(r, 'tools/helper', 'Read a')).settled).toMatchObject({ status: 'failed', error: { code: 'tool-failures' } });
+  });
+});
+
 describe('budgets in the loop', () => {
   const LIMITS = { contextWindow: 2_048, maxOutputTokens: 256 };
   const B = 2_048 - 256 - Math.ceil(0.06 * 2_048);
@@ -277,5 +360,20 @@ describe('budgets in the loop', () => {
     expect(settled.status).toBe('failed');
     expect(settled.status === 'failed' ? settled.error.message : '').toMatch(/^This message is about [\d,]+ tokens; test-model takes [\d,]+ here\. Shorten it or pick a model with a larger window\.$/);
     expect(r.provider.requests).toEqual([]);
+  });
+});
+
+describe('a model that thinks in its answer', () => {
+  it('streams its <think> block as reasoning and answers without it, through the text protocol', async () => {
+    const provider = new ScriptedProvider();
+    const noTools = { ...TEST_MODEL, id: 'plain-model', capabilities: new Set(['chat', 'streaming'] as const) };
+    const { r } = await started({ llm: { providers: { openrouter: provider }, models: [noTools] } });
+    await r.session({ agent: 'tools/small', model: { model: 'plain-model' } });
+    provider.script(says('<think>The file has three lines, so</think>\n\nIt has 3 lines.'));
+    const { settled } = await answer(r, 'tools/small', 'How many lines?');
+    expect(settled).toEqual({ status: 'done', result: 'It has 3 lines.' });
+    expect(r.chat.streamed.map((s) => s.reasoning ?? '').join('')).toBe('The file has three lines, so');
+    expect(r.chat.streamed.map((s) => s.text ?? '').join('')).not.toContain('<think>');
+    expect(r.chat.finished.at(-1)?.parts).toEqual([{ type: 'text', text: 'It has 3 lines.' }]);
   });
 });

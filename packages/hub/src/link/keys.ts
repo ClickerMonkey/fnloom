@@ -7,9 +7,9 @@ import { createHash, randomBytes } from 'node:crypto';
 
 export { isPublicKey, KEY_FILE, makeKeyPair, signNonce, StoredKeyPair, verifyNonce } from '@harness/sdk/server';
 
-/** The sha-256 of a string, hex. */
-export function sha256Hex(text: string | Buffer): string {
-  return createHash('sha256').update(text).digest('hex');
+/** The sha-256 of a string or some bytes, as lowercase hex (`ContentRef.hash`'s form): the hub's one digest helper. */
+export function sha256Hex(data: string | Uint8Array): string {
+  return createHash('sha256').update(data).digest('hex');
 }
 
 /** A public key's fingerprint: the sha-256 of its DER bytes, hex, in groups of four (what an admin compares). */

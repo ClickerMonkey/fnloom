@@ -8,17 +8,14 @@
  */
 import type { ModelInfo as AeyeModelInfo } from '@aeye/ai';
 import type { Logger } from '@ayepi/log';
-import { messageOf, namesModel, type ActorId, type LimitSource, type ModelInfo, type ModelLimits, type ModelLimitsView, type ProviderConfig, type ResolvedModelLimits } from '@harness/core';
+import { messageOf, MODEL_LIMIT_FIELDS, namesModel, type ActorId, type LimitSource, type ModelInfo, type ModelLimitField, type ModelLimits, type ModelLimitsView, type ProviderConfig, type ResolvedModelLimits } from '@harness/core';
 import { allRows } from '../catalog/rows.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ContextorEnv } from './env.ts';
 import type { ModelLimitsService } from './index.ts';
-import { limitsOf, OllamaApi, unsetWindow } from './ollama.ts';
+import { limitsOf, OllamaApi, unsetWindowOf, type OllamaProviderConfig } from './ollama.ts';
 import { CALIBRATION, DEFAULT_CHARS_PER_TOKEN, TOKENIZER_CHARS } from './tokens.ts';
 
-/** The limit fields, in the order they are resolved. */
-export const LIMIT_FIELDS = ['contextWindow', 'maxOutputTokens', 'reasoningTokens', 'charsPerToken'] as const satisfies ReadonlyArray<keyof ModelLimits>;
-type LimitField = (typeof LIMIT_FIELDS)[number];
 
 /** The model key limits are resolved under when the model is picked automatically (by weights). */
 export const AUTO_MODEL = 'auto';
@@ -37,26 +34,24 @@ const FAMILY_CHARS: Readonly<Record<string, number>> = { qwen2: 3.5, qwen3: 3.5,
 /** Probes Ollama models: the served window (`servedWindow`; Ollama's default held to `cap`), and whether the model thinks. */
 export class OllamaProbe implements ModelProbe {
   readonly #api: OllamaApi;
-  readonly #window: number | undefined;
-  readonly #cap: number;
+  readonly #config: Pick<OllamaProviderConfig, 'contextWindow' | 'cap'>;
 
-  constructor(api: OllamaApi, options: { readonly window?: number | undefined; readonly cap: number }) {
+  constructor(api: OllamaApi, config: Pick<OllamaProviderConfig, 'contextWindow' | 'cap'>) {
     this.#api = api;
-    this.#window = options.window;
-    this.#cap = options.cap;
+    this.#config = config;
   }
 
   async probe(model: string): Promise<ModelLimits | undefined> {
-    const [show, version] = await Promise.all([this.#api.show(model), this.#api.version()]);
+    const [show, unset] = await Promise.all([this.#api.show(model), unsetWindowOf(this.#api, this.#config)]);
     const family = show.details?.family;
     const chars = family === undefined ? undefined : FAMILY_CHARS[family];
-    return { ...limitsOf(model, show, unsetWindow(version, this.#window, this.#cap)), ...(chars === undefined ? {} : { charsPerToken: chars }) };
+    return { ...limitsOf(model, show, unset), ...(chars === undefined ? {} : { charsPerToken: chars }) };
   }
 }
 
 /** The probe factory for the providers the hub can probe. */
 export function defaultProbes(cap: number, fetcher: typeof fetch = fetch): ProbeFactory {
-  return (config) => (config.provider === 'ollama' ? new OllamaProbe(new OllamaApi(config.baseURL, fetcher), { window: config.contextWindow, cap }) : undefined);
+  return (config) => (config.provider === 'ollama' ? new OllamaProbe(new OllamaApi(config.baseURL, fetcher), { contextWindow: config.contextWindow, cap }) : undefined);
 }
 
 /** What the limits service reads. */
@@ -93,8 +88,8 @@ export class HubModelLimits implements ModelLimitsService {
       ...(known?.maxOutputTokens === undefined ? {} : { maxOutputTokens: known.maxOutputTokens }),
       ...(known?.tokenizer === undefined || TOKENIZER_CHARS[known.tokenizer] === undefined ? {} : { charsPerToken: TOKENIZER_CHARS[known.tokenizer] }),
     };
-    const sources: Partial<Record<LimitField, LimitSource>> = {};
-    const pick = (field: LimitField, fallback: number): number => {
+    const sources: Partial<Record<ModelLimitField, LimitSource>> = {};
+    const pick = (field: ModelLimitField, fallback: number): number => {
       for (const [source, limits] of [['admin', admin], ['probe', probe], ['model-info', card]] as const) {
         const value = limits[field];
         if (value !== undefined) { sources[field] = source; return value; }
@@ -125,7 +120,7 @@ export class HubModelLimits implements ModelLimitsService {
 
   async set(model: string, limits: ModelLimits, by: ActorId): Promise<ModelLimitsView> {
     const table = this.#deps.store.table('modelLimits');
-    const given = Object.fromEntries(LIMIT_FIELDS.flatMap((field) => (limits[field] === undefined ? [] : [[field, limits[field]]])));
+    const given = Object.fromEntries(MODEL_LIMIT_FIELDS.flatMap((field) => (limits[field] === undefined ? [] : [[field, limits[field]]])));
     if (Object.keys(given).length === 0) await table.remove(model);
     else await table.put({ model, limits, setBy: by, updatedAt: this.#deps.clock() });
     this.#guessed.delete(model);

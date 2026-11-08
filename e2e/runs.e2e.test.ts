@@ -56,7 +56,7 @@ describe('fn metrics', () => {
     const days = await me.hub.call('fnMetricsDays', { fn: READ, days: 7 });
     expect(days.at(-1)?.outcomes['invalid-input']).toBeGreaterThanOrEqual(1);
     const record = (await me.hub.call('systemFns', { system: metrics.system })).find((fn) => fn.name === READ);
-    expect(record?.stats.invalidInputs).toBeGreaterThanOrEqual(1);
+    expect(record?.stats.outcomes['invalid-input']).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -135,6 +135,10 @@ export function registerHubContract(module: { readonly hubFns: ExecutionModule['
   registerContextorFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions,
     contextor: () => hub.contextor, views: () => hub.contextor.views,
+    mcpScope: async (caller) => {
+      const mcp = (await hub.store.table('mcps').find({ where: { actor: caller }, limit: 1 })).items[0];
+      return mcp === undefined ? undefined : hub.mcp.scopes.scope(mcp.id);
+    },
   });
 }
 

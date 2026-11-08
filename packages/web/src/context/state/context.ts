@@ -6,7 +6,7 @@
  */
 import type { ContextFromResourceArgs, ContextFromResourceResult, ContextItemView, ContextLink, ContextRecord, QualifiedName } from '@harness/core';
 import { getCurrentScope, onScopeDispose, ref } from 'vue';
-import { Loaded, Paged, Task, type TaskResult } from '../../state/loaded.ts';
+import { Loaded, Paged, Task, type Outcome } from '../../state/loaded.ts';
 import type { ContextApi, ContextEvents } from '../api/context.ts';
 import { linkRequest, memoryRequest, type ContextFilter, type LinkDraft, type MemoryDraft } from '../logic/context.ts';
 
@@ -62,25 +62,25 @@ export class ContextItemStore {
   }
 
   /** Draw a link from the open item. */
-  async addLink(draft: LinkDraft): Promise<TaskResult<ContextLink>> {
+  async addLink(draft: LinkDraft): Promise<Outcome<ContextLink>> {
     const from = this.name.value;
     if (from === undefined) { return { ok: false, problem: 'No context item is open.' }; }
     const request = linkRequest(draft, from);
     if (!request.ok) { this.linking.problem.value = request.problem; return request; }
-    const result = await this.linking.run(() => this.#api.link.call({ from, to: request.to, relation: request.relation, weight: request.weight }), "Couldn't add that link.");
+    const result = await this.linking.run(() => this.#api.link.call({ from, to: request.value.to, relation: request.value.relation, weight: request.value.weight }), "Couldn't add that link.");
     if (result.ok) { await this.reload(); }
     return result;
   }
 
   /** Remove a link a person drew. */
-  async removeLink(link: Pick<ContextLink, 'from' | 'toKey' | 'relation'>): Promise<TaskResult<boolean>> {
+  async removeLink(link: Pick<ContextLink, 'from' | 'toKey' | 'relation'>): Promise<Outcome<boolean>> {
     const result = await this.unlinking.run(async () => (await this.#api.unlink.call({ from: link.from, toKey: link.toKey, relation: link.relation })).ok, "Couldn't remove that link.");
     if (result.ok) { await this.reload(); }
     return result;
   }
 
   /** Forget the open memory: it is turned off and left out of every selection and search. */
-  async forget(): Promise<TaskResult<boolean>> {
+  async forget(): Promise<Outcome<boolean>> {
     const name = this.name.value;
     if (name === undefined) { return { ok: false, problem: 'No context item is open.' }; }
     const result = await this.forgetting.run(async () => (await this.#api.forget.call({ name })).ok, "Couldn't forget this memory.");
@@ -92,7 +92,7 @@ export class ContextItemStore {
    * Change the open memory: a memory's name comes from its text, so the change is written as a new memory (about
    * what the old one was about) and the old one is forgotten. Answers the new memory's name.
    */
-  async edit(draft: MemoryDraft): Promise<TaskResult<QualifiedName>> {
+  async edit(draft: MemoryDraft): Promise<Outcome<QualifiedName>> {
     const view = this.view.value.value;
     if (view?.record.origin?.type !== 'memory') { return { ok: false, problem: 'Only a memory can be edited.' }; }
     const about = view.links.filter((link) => link.relation === 'about').map((link) => link.to);
@@ -100,7 +100,7 @@ export class ContextItemStore {
     if (!request.ok) { this.saving.problem.value = request.problem; return request; }
     const old = view.record.name;
     const result = await this.saving.run(async () => {
-      const { name } = await this.#api.remember.call(request.args);
+      const { name } = await this.#api.remember.call(request.value);
       if (name !== old) { await this.#api.forget.call({ name: old }); }
       return name;
     }, "Couldn't save this memory.");
@@ -161,16 +161,16 @@ export class ContextStore {
   }
 
   /** Write a memory; answers its name. */
-  async remember(draft: MemoryDraft): Promise<TaskResult<QualifiedName>> {
+  async remember(draft: MemoryDraft): Promise<Outcome<QualifiedName>> {
     const request = memoryRequest(draft);
     if (!request.ok) { this.remembering.problem.value = request.problem; return request; }
-    const result = await this.remembering.run(async () => (await this.#deps.api.remember.call(request.args)).name, "Couldn't remember that.");
+    const result = await this.remembering.run(async () => (await this.#deps.api.remember.call(request.value)).name, "Couldn't remember that.");
     if (result.ok) { void this.list.refresh(); }
     return result;
   }
 
   /** Make context from a resource (or chosen sections of it). Making it again updates the same items. */
-  async fromResource(args: ContextFromResourceArgs): Promise<TaskResult<ContextFromResourceResult>> {
+  async fromResource(args: ContextFromResourceArgs): Promise<Outcome<ContextFromResourceResult>> {
     const result = await this.making.run(() => this.#deps.api.fromResource.call(args), "Couldn't make context from that resource.");
     if (result.ok) { void this.list.refresh(); }
     return result;
