@@ -12,7 +12,7 @@
  * or the hub's own rule (`ApprovalDeciders`) settles it, and a decider that fails denies it.
  */
 import {
-  mintId, READ_TAG, type ActorId, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type QualifiedName,
+  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type QualifiedName,
   type Remember, type Run, type RunId, type SessionId, type Verdict,
 } from '@harness/core';
 import { messageOf } from './errors.ts';
@@ -31,7 +31,7 @@ export function fallback(fn: FnRecord): Policy['decision'] {
 /** What an actor is, for matching subjects. */
 export interface ActorFacts {
   readonly id: ActorId;
-  readonly kind: 'user' | 'group' | 'agent' | 'system' | undefined;
+  readonly kind: ActorKind | undefined;
   readonly groups: ReadonlySet<ActorId>;
 }
 

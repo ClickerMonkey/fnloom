@@ -37,6 +37,8 @@ export const ID_PREFIXES = {
   provider: 'prv',
   sectionRule: 'srl',
   authSession: 'aus',
+  modelCall: 'mdl',
+  mcp: 'mcp',
 } as const;
 
 /** The kinds of id. */
@@ -119,6 +121,10 @@ export const SectionRuleId = IDS.sectionRule;
 export type SectionRuleId = IdOf<'sectionRule'>;
 export const AuthSessionId = IDS.authSession;
 export type AuthSessionId = IdOf<'authSession'>;
+export const ModelCallId = IDS.modelCall;
+export type ModelCallId = IdOf<'modelCall'>;
+export const HubMcpId = IDS.mcp;
+export type HubMcpId = IdOf<'mcp'>;
 
 /** Makes the random part of a new id. Injectable, so tests get stable ids. */
 export type IdRandom = () => string;
@@ -174,7 +180,7 @@ export const Audience = z.enum(['user', 'llm', 'both', 'none']);
 export type Audience = z.infer<typeof Audience>;
 
 /** What kind of thing an actor is. */
-export const ActorKind = z.enum(['user', 'group', 'agent', 'system']);
+export const ActorKind = z.enum(['user', 'group', 'agent', 'system', 'mcp']);
 export type ActorKind = z.infer<typeof ActorKind>;
 
 /** A schema for a page of items with a cursor for the next page (absent on the last page). */
@@ -193,3 +199,47 @@ export function messageOf(error: unknown): string {
 
 /** The tag that marks a fn as only reading: with no policy that matches, it runs without asking. */
 export const READ_TAG = 'read';
+
+/**
+ * The tag that marks a fn as changing what others may reach (MCPs, policies, config, pairing, installs). Such a fn is
+ * never exposed through a hub MCP, whatever its rules say.
+ */
+export const ADMIN_TAG = 'admin';
+
+/**
+ * System names the hub keeps for context it owns: memory (`memory/prefers-pnpm`) and context made from resources
+ * (`resource/harness-md-decided-3f9a1c2e`). Pairing refuses them, so such a name can never collide with a real system.
+ */
+export const RESERVED_SYSTEM_NAMES = ['hub', 'memory', 'resource'] as const;
+export type ReservedSystemName = (typeof RESERVED_SYSTEM_NAMES)[number];
+
+/** Whether a name is one the hub keeps for itself. */
+export function isReservedSystemName(name: string): name is ReservedSystemName {
+  return RESERVED_SYSTEM_NAMES.some((reserved) => reserved === name);
+}
+
+/**
+ * One attached copy of a system: a fleet of fs machines is one system `fs` with instances `laptop` and `desk`. A system
+ * that runs one copy has the single instance `main`. Same shape as a system name.
+ */
+export const InstanceName = z.string().regex(SYSTEM_NAME_PATTERN).brand<'InstanceName'>();
+export type InstanceName = z.infer<typeof InstanceName>;
+
+/** The instance a system has when it runs one copy. */
+export const MAIN_INSTANCE = InstanceName.parse('main');
+
+/** One instance of one system, written `fs@laptop` in logs and the UI. */
+export const InstanceRef = z.object({ system: SystemName, instance: InstanceName });
+export type InstanceRef = z.infer<typeof InstanceRef>;
+
+/** An instance ref as people read it: `fs@laptop`. */
+export function instanceLabel(ref: InstanceRef): string {
+  return `${ref.system}@${ref.instance}`;
+}
+
+/**
+ * A qualified name or a glob over qualified names: `fs/read`, `fs/*`, `hub/search_*`. The one selector over names that
+ * policies (`FnMatch.fn`) and hub MCP rules share; `globMatch` in the catalog is its one matcher.
+ */
+export const NameGlob = z.string().regex(/^[a-z*][a-z0-9*-]*\/[A-Za-z0-9_.*-]+$/).brand<'NameGlob'>();
+export type NameGlob = z.infer<typeof NameGlob>;

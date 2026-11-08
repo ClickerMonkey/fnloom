@@ -60,3 +60,11 @@ export async function visibleTurn(hub: Pick<HubServices, 'chat' | 'store'>, turn
   if (found === undefined || !(await mayView(hub, user, found))) { throw reject(404, 'TURN_NOT_FOUND', 'no such turn'); }
   return found;
 }
+
+/**
+ * The handler of an endpoint whose lane hasn't built it yet: it answers 501 `NOT_BUILT`. Build 2's slices start as
+ * these, so the hub serves every endpoint of `hubWebSpec` from the start and each lane replaces its own.
+ */
+export function notBuilt(what: string): () => never {
+  return () => { throw reject(501, 'NOT_BUILT', `${what} is not built yet.`); };
+}

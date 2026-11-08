@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@aeye/gin": "file:../../../aits/packages/gin",
+    "@aeye/resources": "file:../../../aits/packages/resources",
     "@ayepi/auth": "file:../../../ayepi/packages/auth",
     "@ayepi/core": "file:../../../ayepi/packages/core",
     "@ayepi/log": "file:../../../ayepi/packages/log",

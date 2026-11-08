@@ -10,6 +10,7 @@ import type {
   GinTypeDef, FnError, RunStatus, RunUpdate, Operations, FnLimits, ModelChoice, KindDescription,
   ResourceUri, ResourceStat, ResourceLink, ResourceRead, ResourceRoot, ResourceChange, ReadWant, ContentRef, Section, SectionKey, SectionMatch,
   HookInput, MentionOption, MentionHover, SystemEvent, UndoOutcome, Link, Display, RunInfo, UserInfo, TimeInfo, TypeDisplay,
+  Detail, InvalidInput, FormKind, LinkTarget, ChatModeConfig, ContextorConfig,
 } from './sdk.ts';
 
 // ═══ Wire: what a system sends ═══
@@ -1191,6 +1192,268 @@ export interface HubConfig {
   /** The hub-level defaults, used until an admin sets hub rules. */
   defaults: { priority: Priority; perTurn: { cost: Usd; time: Duration } };
   embedder: QualifiedName;
+}
+
+// ═══ Build 2: chat modes and contextors ═══
+
+/** What the hub budgets a model's prompts against; each field from the first source that has it. */
+export interface ModelLimits {
+  /** The window the provider actually serves (Ollama's `num_ctx`), never the trained length alone. */
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  /** Reserved on top of the answer for a reasoning model's thinking. */
+  reasoningTokens?: number;
+  charsPerToken?: number;
+}
+
+/** A model's limits with every field known, where each came from, and its estimate calibration. */
+export interface ModelLimitsView {
+  model: string;
+  limits: Required<ModelLimits>;
+  sources: Record<keyof ModelLimits, 'admin' | 'probe' | 'model-info' | 'default'>;
+  /** Measured input tokens over estimated (a clamped moving average). */
+  ratio: number;
+}
+
+/** How one prompt's tokens were spent. The request's estimate is never more than `window − output − reasoning − margin`. */
+export interface BudgetReport {
+  window: number;
+  output: number;
+  reasoning: number;
+  margin: number;
+  fixed: number;
+  pools: Record<'history' | 'context' | 'fns', { asked: number; got: number }>;
+  estimate: number;
+  cut: Array<{ what: string; why: string }>;
+}
+
+/** What one contextor cycle chose, saved on the LLM interaction and shown in the run inspector. */
+export interface SelectionReport {
+  contextor: ContextorConfig['type'];
+  mode: ChatModeConfig['type'];
+  context: Array<{ name: QualifiedName; detail: Detail; activation: number }>;
+  fns: Array<{ name: QualifiedName; detail: Detail; activation: number }>;
+  linear: number;
+  earlier: number[];
+  budget: BudgetReport;
+}
+
+/** How fns reach the model and how its calls come back. One per `ChatModeConfig` variant. */
+export interface ChatMode {
+  cost(fn: QualifiedName, detail: Detail): number;
+  /** Native tools (none for the text protocol), text after the instructions, and an optional trailing message. */
+  render(selection: SelectionReport): { tools: Json[]; systemEnd: string; tail?: string; protocol: 'native' | 'text' };
+  /** One model call → a run of the named fn (never a wrapper), or an immediate invalid-input reply with the fn's card. */
+  interpret(call: { name: string; arguments: string }): { type: 'run'; fn: QualifiedName; args: Json } | { type: 'invalid'; invalid: InvalidInput; reply: string };
+}
+
+/** What one prompt holds. One per `ContextorConfig` variant. */
+export interface Contextor {
+  select(input: { session?: Session; turn: Turn; query: string; transcript: Message[]; limits: Required<ModelLimits> }): Promise<SelectionReport>;
+}
+
+/** What the agent loop calls each iteration: never plans more than the model takes. */
+export interface PromptPlanner {
+  plan(input: { session?: Session; turn: Turn; agent: QualifiedName; model: string; instructions: string; query: string }): Promise<{ system: string; messages: Message[]; tools: Json[]; maxTokens: number; report: SelectionReport }>;
+  /** After the call: calibrate the model's ratio and learn links between what the turn used. */
+  settled(input: { model: string; estimate: number; actual: number; used: QualifiedName[] }): Promise<void>;
+  /** What a message would get, without calling the model. */
+  preview(session: SessionId, text: string): Promise<SelectionReport>;
+}
+
+// ═══ Build 2: context as a graph ═══
+
+/** Where a context item came from. */
+export type ContextOrigin =
+  | { type: 'system' }
+  | { type: 'memory'; scope: { to: 'session'; session: SessionId } | { to: 'user'; user: ActorId } | { to: 'everyone' }; author: ActorId; run?: RunId }
+  | { type: 'resource'; uri: ResourceUri; section?: SectionKey; version: string; copy: 'live' | 'snapshot' };
+
+/** One directed edge between a context item (or fn) and context, a fn, a type or a resource. */
+export interface ContextLink {
+  from: QualifiedName;
+  to: LinkTarget;
+  relation: 'imports' | 'brings' | 'suggests' | 'parent' | 'next' | 'related' | 'mentions' | 'about' | 'learned';
+  /** 0 to 1. Learned edges cap at 0.6, so they never outweigh a declared one. */
+  weight: number;
+  /** `declared` and `mentioned` are derived from the item's record and rewritten with it; `learned` decays. */
+  source: 'declared' | 'mentioned' | 'resource' | 'learned' | 'authored';
+  updatedAt: Timestamp;
+}
+
+/** The context graph's edges. */
+export interface ContextGraph {
+  links(from: QualifiedName): Promise<ContextLink[]>;
+  backlinks(to: LinkTarget): Promise<ContextLink[]>;
+  neighbours(names: QualifiedName[], hops: number, limit: number): Promise<Map<QualifiedName, number>>;
+  /** Rewrite an item's derived edges from its record, in the same write. */
+  derive(record: ContextRecord): Promise<void>;
+  /** One turn's co-use strengthens learned edges. */
+  learn(used: QualifiedName[]): Promise<void>;
+}
+
+// ═══ Build 2: resources, raw and converted ═══
+
+/** Where a resource came from. Hub resources (`hub://resources/…`) have only the hub's copy. */
+export type ResourceSource =
+  | { from: 'system'; system: string }
+  | { from: 'upload'; by: ActorId }
+  | { from: 'web'; url: string; finalUrl?: string; fetchedAt: Timestamp; rendered: boolean }
+  | { from: 'run'; run: RunId; fn: QualifiedName };
+
+/** One stored form of some raw content, kept by the raw hash, kind and converter. */
+export interface FormRecord {
+  hash: string;
+  kind: FormKind;
+  /** `@aeye/resources:htmlConverter@2`, `model:openai/gpt-4o-mini`. */
+  converter: string;
+  content: ContentRef;
+  chars: number;
+  tokens: number;
+  /** The model call that made it (descriptions, text in images, transcripts). */
+  call?: Id<'modelCall'>;
+  createdAt: Timestamp;
+}
+
+/** Forms: made once per key, by one job, looked up by hash. */
+export interface FormService {
+  forms(uri: ResourceUri): Promise<{ forms: FormRecord[]; offers: Array<{ kind: FormKind; model?: string; estimate?: Usd }> }>;
+  ensure(uri: ResourceUri, kind: FormKind, run?: RunId): Promise<FormRecord>;
+  text(form: FormRecord): Promise<string>;
+}
+
+/** The hub's own resources. */
+export interface ResourceLibrary {
+  import(args: { url: string } | { content: ContentRef; name: string }, by: ActorId): Promise<ResourceRecord>;
+  rename(uri: ResourceUri, name: string): Promise<ResourceRecord>;
+  remove(uri: ResourceUri): Promise<{ deleted: boolean; referencedBy: number }>;
+  browse(query: { group?: 'type' | 'source' | 'path' | 'date'; in?: string; search?: string; cursor?: string }): Promise<Page<ResourceRecord> & { facets: Array<{ value: string; label: string; count: number }> }>;
+}
+
+/** Context made from resources, and memory. */
+export interface ContextLibrary {
+  fromResource(args: { uri: ResourceUri; sections?: SectionKey[]; copy?: 'live' | 'snapshot'; command?: string }): Promise<{ created: QualifiedName[]; updated: QualifiedName[]; links: number }>;
+  remember(args: { text: string; title?: string; scope?: 'session' | 'user' | 'everyone'; about?: LinkTarget[] }): Promise<{ name: QualifiedName }>;
+  forget(name: QualifiedName): Promise<boolean>;
+}
+
+// ═══ Build 2: every model call, model roles, fn metrics ═══
+
+/** One call to a model, of any modality, through the hub provider. Chat calls also keep their `LlmInteraction`. */
+export interface ModelCall {
+  id: Id<'modelCall'>;
+  modality: 'chat' | 'embed' | 'image' | 'transcribe' | 'speech';
+  provider: string;
+  model: string;
+  run?: RunId;
+  turn?: TurnId;
+  session?: SessionId;
+  system?: string;
+  fn?: QualifiedName;
+  /** For the hub's own work: `index`, `form:description`. */
+  purpose?: string;
+  interaction?: Id<'llmInteraction'>;
+  /** What it used, in its modality's units: tokens, texts, images, seconds, characters. */
+  units: Json;
+  cost: Usd;
+  status: 'running' | 'done' | 'failed' | 'aborted';
+  sent: number;
+  received: number;
+  queued: Duration;
+  firstByte?: Duration;
+  total?: Duration;
+  startedAt: Timestamp;
+}
+
+/** The jobs the hub picks a model for itself, and dictation's engine. */
+export type RoleChoice =
+  | { role: 'dictate'; engine: { engine: 'browser' } | { engine: 'model'; model: ModelChoice; provider?: Id<'provider'> }; language?: string }
+  | { role: 'chat' | 'transcribe' | 'speak' | 'describe' | 'ocr'; model: ModelChoice; provider?: Id<'provider'>; language?: string };
+
+/** Which model each role uses. */
+export interface ModelRoles {
+  list(): Promise<Array<{ role: RoleChoice['role']; choice?: RoleChoice; from: 'setting' | 'env' | 'none' }>>;
+  set(choice: RoleChoice, by: ActorId): Promise<void>;
+  resolve(role: RoleChoice['role']): Promise<{ model: string; provider: string } | undefined>;
+}
+
+/** One fn's runs on one day: outcomes, queue, approval and run time histograms, cost, tokens, retries. */
+export interface FnMetricsDay {
+  fn: QualifiedName;
+  day: string;
+  outcomes: Record<'done' | 'invalid-input' | 'failed' | 'cancelled', number>;
+  queued: { count: number; sum: Duration; max: Duration; histogram: number[] };
+  approval: { count: number; sum: Duration; max: Duration; histogram: number[] };
+  ran: { count: number; sum: Duration; max: Duration; histogram: number[] };
+  cost: Usd;
+  tokens: number;
+  retries: number;
+  modelCalls: number;
+}
+
+// ═══ Build 2: hub MCPs ═══
+
+/** What a hub MCP rule selects. Fns use the policies' `FnMatch`; names may be globs (`fs/*`). */
+export interface McpSelector {
+  systems?: string[];
+  fns?: FnMatch[];
+  types?: string[];
+  context?: string[];
+  resources?: Array<{ uri: string; system?: string; instance?: string }>;
+}
+
+/** An admin-made MCP endpoint at `/mcp/<slug>`: its own secret and rules; every tool call is a real run. */
+export interface HubMcp {
+  id: Id<'mcp'>;
+  slug: string;
+  name: string;
+  instructions: string;
+  rules: { include: McpSelector; exclude: McpSelector };
+  /** One tool per fn, or the static toolset over the exposed set. */
+  toolMode: 'each' | 'static';
+  /** Whose permissions, budgets and approvals its runs use. */
+  user: ActorId;
+  /** The `mcp` actor its runs are attributed to. */
+  actor: ActorId;
+  secretDigest: string;
+  /** Systems that may mint short-lived session tokens for it. */
+  grantees: string[];
+  origins: string[];
+  enabled: boolean;
+}
+
+/** Hub MCPs: records, live scopes, the HTTP endpoints and session tokens. */
+export interface McpService {
+  create(input: Omit<HubMcp, 'id' | 'actor' | 'secretDigest'>, by: ActorId): Promise<{ mcp: HubMcp; secret: string }>;
+  rotate(mcp: Id<'mcp'>): Promise<{ secret: string }>;
+  /** What rules expose now: fns (never `admin`-tagged), types (with the closure exposed fns need), context, resources. */
+  preview(rules: HubMcp['rules']): Promise<{ fns: QualifiedName[]; types: QualifiedName[]; closure: QualifiedName[]; context: QualifiedName[]; warnings: string[] }>;
+  handle(request: Request): Promise<Response>;
+  mint(mcp: Id<'mcp'>, label: string, ttl: Duration): Promise<{ token: string; expiresAt: Timestamp }>;
+}
+
+// ═══ Build 2: packages, instances, pairing ═══
+
+/** One attached copy of a system: a fleet of fs machines is one system with instances `laptop` and `desk`. */
+export interface InstanceRecord {
+  system: string;
+  instance: string;
+  description: string;
+  status: SystemStatus;
+  keyFingerprint: string;
+  version: string;
+  config?: { value: Json; version: number; setBy: ActorId; setAt: Timestamp };
+  /** The hub's folders for an installed instance, outside the package. */
+  dirs?: { state: string; data: string; cache: string };
+  lastSeenAt?: Timestamp;
+}
+
+/** What a waiting system tells the hub for the QR pairing page: its description, instance and config type. */
+export interface PairingInfo {
+  pairing: Id<'pairing'>;
+  description: string;
+  instance: string;
+  configType?: GinTypeDef;
 }
 
 // ═══ Later ═══

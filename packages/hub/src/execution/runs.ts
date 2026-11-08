@@ -10,7 +10,7 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  isSettled, mintId, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  compact, INVALID_INPUT_CODE, isSettled, mintId, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError,
 } from '@harness/core';
@@ -58,6 +58,8 @@ export function settledOf(outcome: OutcomeWire | undefined, run: RunId): RunSett
   if (outcome === undefined) return { status: 'background', run };
   switch (outcome.status) {
     case 'done': return { status: 'done', result: outcome.result };
+    // a code caller hears refused input as a caller error carrying the problems; agents read the run's own status
+    case 'invalid-input': return { status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE, message: outcome.invalid.problems.map((p) => p.path === '' ? p.message : `${p.path}: ${p.message}`).join('; '), data: compact(outcome.invalid) } };
     case 'failed': return { status: 'failed', error: outcome.error };
     case 'cancelled': return { status: 'cancelled' };
     case 'paused': return { status: 'background', run };

@@ -11,6 +11,13 @@ import { DeliveryRecord, HandlerCall, LlmInteraction, Run, StateField, Turn } fr
 import { BudgetRule, LedgerEntry, ModelCategory, PriorityRule, ProviderRecord, Reservation, Secret } from './spend.ts';
 import { ContextRecord, FnRecord, KindRecord, PairingRequest, PairingToken, SystemManifest, SystemRecord, TypeRecord } from './systems.ts';
 import { Section } from '../resources.ts';
+import { ContextLink } from '../context-graph.ts';
+import { FnMetricsDay } from '../metrics.ts';
+import { ModelCall, ModelRoleRecord } from '../model-calls.ts';
+import { ModelCalibration, ModelLimitsRecord } from '../modes.ts';
+import { InstanceRecord } from '../package.ts';
+import { FormRecord } from '../resource-forms.ts';
+import { HubMcp } from './mcps.ts';
 import { ResourceUri } from '../resources.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
@@ -96,6 +103,16 @@ export const HUB_TABLES = {
   ledger: byField(LedgerEntry, 'id'),
   notifications: byField(Notification, 'id'),
   pushSubscriptions: byField(PushSubscription, 'id'),
+  // build 2
+  instances: byFields(InstanceRecord, 'system', 'instance'),
+  contextLinks: byFields(ContextLink, 'from', 'toKey', 'relation'),
+  modelLimits: byField(ModelLimitsRecord, 'model'),
+  modelCalibration: byField(ModelCalibration, 'model'),
+  forms: byFields(FormRecord, 'hash', 'kind', 'converter'),
+  modelCalls: byField(ModelCall, 'id'),
+  modelRoles: byField(ModelRoleRecord, 'role'),
+  fnMetrics: byFields(FnMetricsDay, 'fn', 'day'),
+  mcps: byField(HubMcp, 'id'),
 } as const;
 
 /** The table names. */

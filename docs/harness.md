@@ -15,10 +15,11 @@ This document is the plain-language picture. The same picture as TypeScript is i
   refuse. It is checked by the compiler, so the SDK can't drift from what this guide promises.
 
 The explorer (`explorer/explorer.html`) shows all of it and lets you leave notes on any section, type or
-member. Nothing is implemented yet: the types are for review first, then zod schemas, then code.
+member. The first milestone is built (see [Build order](#g/build-order)); build 2 is designed in
+[plans/build-2-design.md](plans/build-2-design.md), its contracts are in `@harness/core`, and its types are in the
+explorer under the "Build 2" groups.
 
-**Status:** draft for review. Names are placeholders where noted. Decisions waiting on you are in
-[Open questions](#g/open-questions).
+**Status:** build 1 running; build 2 designed. What was decided is under [Decided](#g/decided).
 
 ## What carries over from product, and what doesn't
 
@@ -30,8 +31,8 @@ Harness borrows ideas from `product` but starts fresh:
 - **Changed:** product's core was one interwoven process. Harness is a small hub plus loosely coupled
   systems that talk over one small protocol. Fn kinds live in systems, not in the hub. The hub ships
   only two kinds (`native` and `llm`).
-- **Dropped for now:** apps, components, plans, widgets, dashboards, fn authoring agents, the graph
-  contextor, the database-first design. A database system comes later.
+- **Dropped for now:** apps, components, plans, widgets, dashboards, fn authoring agents, the database-first
+  design. A database system comes later. (The graph contextor came back in build 2.)
 
 ## Words
 
@@ -48,6 +49,12 @@ Harness borrows ideas from `product` but starts fresh:
 | **Resource** | Content that lives somewhere: a folder, a file, a web page, a database row. Served by a system at an absolute URI. |
 | **Section** | A stable, addressable piece of a resource (a heading, a function, a page). |
 | **Context** | Content made available to the LLM. It can mention and import other context and fns. |
+| **Form** | Something made from a resource's raw content for people and LLMs: its markdown, tables or pages, or a model's description, text-in-image or transcript. |
+| **Instance** | One attached copy of a system (`fs@laptop`). A system that runs one copy has the instance `main`. |
+| **Chat mode** | How fns reach the model: strict native tools, or the static toolset with fn cards and `run`. |
+| **Contextor** | What one prompt holds: the plain transcript, plus suggestions, or a graph selection under the model's budget. |
+| **Model call** | One call to a model of any modality (chat, embeddings, images, transcription, speech), recorded by the hub. |
+| **Hub MCP** | An MCP endpoint an admin makes on the hub, with its own route, secret and rules over what it exposes. |
 
 ## Architecture
 
@@ -156,6 +163,14 @@ commands ↔ MCP prompts. So:
 - **An MCP bridge system** connects any MCP server to the hub and presents it as a system.
 - The **Claude Code system** is a wrapper: it runs Claude Code sessions and exposes them (list, read,
   send, interrupt) and imports Claude's agents, skills and MCP servers as context and fns.
+- **Hub MCPs.** An admin can make MCP endpoints on the hub itself, each at its own route (`/mcp/<slug>`) with its
+  own secret and include/exclude rules over systems, fns, types, context and resources. Through one, an MCP client
+  (for example the Claude sessions a Claude system starts) talks to the hub, and every tool call is a real run with
+  the MCP's person's permissions, approvals and budgets, attributed to the MCP. Fns that change what an MCP can reach
+  (tagged `admin`) are never exposed; a hidden tool is a refused tool. A grantee system can mint short-lived,
+  labelled session tokens from an MCP so its secret never leaves the hub. Use a hub MCP whenever the hub runs; a
+  system's own MCP face is for using one system with no hub.
+
 
 ### Building a system
 
@@ -166,8 +181,9 @@ A system package has three folders. The [system SDK](#g/the-system-sdk) section 
 - `server/`: the process. It implements the contract and connects to the hub.
 - `client/`: browser renderers, typed by the contract. The hub serves them to the chat UI.
 
-`harness-system build` builds the server and client; `harness-system dev` runs it with reload. On
-connect the hub reads everything from the contract, so nothing is registered by hand.
+`harness system build` builds the server and client and `harness system pack` zips them (see [System folders,
+packages and data](#g/system-folders-packages-and-data)). On connect the hub reads everything from the contract, so
+nothing is registered by hand.
 
 ### Config, installed systems and lifecycle
 
@@ -197,6 +213,57 @@ connect the hub reads everything from the contract, so nothing is registered by 
 - **Lifecycle.** A system can handle `installed` (first connect with a valid config), `started` (every connect),
   `configured` (the config changed), `stopping` (with a reason and a deadline: restart, upgrade, shutdown,
   removed), `upgraded` (first start of a new version) and `uninstalled`.
+
+### System folders, packages and data
+
+A system is a folder in one shape, which is also what is zipped and installed:
+
+```
+systems/<name>/
+  system.json   name, version, description, link protocol, server and client entries, one instance or many
+  package.json  npm dependencies and scripts (development only)
+  shared/       the contract
+  server/       the process (server/main.ts)
+  client/       renderers (client/index.ts, optional)
+  dist/         what `harness system build` makes and `pack` zips
+```
+
+- **`system.json` is the one source** of a system's name and version; its contract's name must be the same (the build
+  and `serve()` both check).
+- **Config lives in the hub's database**, never in a file in the folder.
+- **Data:** the hub gives each installed instance its own folders outside the package:
+  `systems/<name>/instances/<instance>/{state,data,cache}` in the hub's data folder, beside
+  `systems/<name>/versions/<version>/`. Upgrades and rollbacks keep them. A system stores whatever it likes in
+  `ctx.dataDir` (files, SQLite); `ctx.cacheDir` is for what can be rebuilt. Portability comes from the folder being
+  known: the hub exports an instance's data with its config as a zip (after asking the system to quiesce, the
+  `exporting` lifecycle event) and installs it back.
+- **The `harness` CLI:** `harness system new <name>` copies the template system, `build` typechecks and bundles the
+  server and client into `dist/`, `pack` hashes every file and zips `dist/`, `install <zip|dir|npm>` installs on a
+  running hub (zips are checked: format, link protocol, every file's hash, no path leaving the folder),
+  `export-data` downloads an instance's data, and `list`, `start`, `stop`, `upgrade`, `uninstall` wrap the admin
+  endpoints. `harness mcp <slug>` bridges a hub MCP to stdio.
+- **The template system** (`systems/template`) is a system with placeholder comments and no example code. The docs a
+  system author (or an LLM writing a system) needs are generated from the SDK's sources into
+  `packages/sdk/AUTHORING.md` by a script, so they change when the SDK does; the fs system offers them as the
+  `fs/system-authoring` context (`/new-system`), so the chat can make systems itself.
+
+### QR pairing
+
+A system started with a hub URL and no pairing tells the hub its description, instance and config type while it
+waits, and prints a **QR code** of its pairing link with the code under it. Scanning opens `/pair/<pairing>` on the
+hub (from the address the system used to reach it, or `HARNESS_PUBLIC_URL`), where an admin sees the system and
+its key, fills in its config with the type's form, names the instance and presses **Pair**: the system is paired
+and configured in one step, and the page follows it until it is connected.
+
+### Fleets: many instances of one system
+
+Several copies of a system can be attached at once: a fleet of fs machines is **one system `fs` with instances**
+`laptop` and `desk`, so fn names, typed refs and the LLM's tool list stay the same however many machines there are.
+A system that runs one copy has the single instance `main`. Keys, config, status and data are per instance; the
+catalog keeps one manifest per system. Which instance runs a call is the hub's choice, never a fn argument: an
+explicit `on` (offered to the LLM only when more than one instance is connected), else the instance a resource URI
+belongs to (`file://laptop/…`), else the session's pinned one, the default, or the only one; otherwise the call is
+refused as invalid input that names the choices.
 
 ### Changing itself
 
@@ -455,6 +522,13 @@ export default client(fs, {
 });
 ```
 
+- **Inputs are editors and viewers.** A system's input for one of its named types gets `readonly`: the same component
+  edits a value (in `!` forms, handler prompts, config forms) and shows it (in run cards, mention cards). The hub's
+  own editors and viewers cover every gin type, gin expression and gin type definition, each one component with the
+  same flag.
+- **Resource views.** A system's viewer for a format either replaces the hub's preview or adds a tab beside it
+  (`{ component, mode: 'tab', label: 'Schema' }`).
+
 ### Talking back to the system
 
 A renderer can call code on its own system. Two ways, both typed by the contract, both through the hub:
@@ -531,6 +605,32 @@ right viewer: `<ResourceViewer :uri="uri" compact />`.
   stops what can stop; the rest finishes and is reported.
 - **Undo a turn:** every run with an undo payload is undone, newest first. The chat reports what was
   created, updated and removed.
+
+### Chat modes and contextors
+
+Two choices shape an agent's prompt, each set on the agent fn and changeable per session:
+
+- **The chat mode** says how fns reach the model. **Tools** (strict) sends every selected fn as a native tool, as in
+  build 1. **Static** sends five fixed tools whatever is loaded: `find`, `inspect`, `load`, `unload` and `run`.
+  Loaded fns are shown as text cards at the end of the prompt (name and line, then the call signature, then
+  instructions, examples and the types they use, as the budget allows), and the model runs any fn the session may
+  use with `run(fn, args)`; the run is of that fn itself, with its policy, card and record. A fn's result can show
+  the agent more fns (`ctx.expose`), at a detail. A model without native tool calls writes `<run fn="…">{…}</run>`
+  blocks instead. Static is cheaper than strict tools and needs no "drop the least used tool".
+- **The contextor** says what the prompt holds. **Plain** sends the conversation and the loaded context.
+  **Suggest** adds suggestions (and optionally the best context's content). **Graph** starts every user message
+  with a fresh prompt: the recent exchanges as the conversation, summaries of older relevant exchanges, and the
+  context and fns most likely to matter, chosen by weights (similarity, words, recency, use, links) at the detail
+  that fits.
+
+**Never more than the model takes.** Every prompt, in every mode, is planned against the model's real limits: the
+window the provider actually serves (for Ollama, its `num_ctx`, never the length the model was trained to), the
+reply (and a reasoning model's thinking), and a safety margin. What doesn't fit is shortened or left out in a fixed
+order and reported, never cut silently by the provider. The run inspector shows what the prompt held and why
+("4,096 window: 1,024 reply, 246 margin, 612 fixed, 1,230 history, 640 context, 344 fns"). An admin can set a
+model's limits; token estimates calibrate themselves against what the provider reports.
+
+Static plus graph is the setup for small local models; `hub/chat_small` is the chat agent with it.
 
 ### What gets added to a message
 
@@ -641,6 +741,40 @@ were away, a system waiting for pairing, a budget reached.
   (args, outcome, progress, timing, cost, errors). The **fn tree** of a turn is a query away.
 - **Providers and models** are configured on the hub (or by asking in chat) and come from aeye.
 
+### Every model call is recorded
+
+Every call to a model of any modality goes through the hub: chat, embeddings, images, transcription and speech.
+Systems use the hub as their provider for all of them. Each call is a **model call** record: modality, provider,
+model, what it used (tokens, texts, images, seconds), cost, queue wait, time to first byte, total time and size,
+attributed to the run that made it (or to the hub's own work, like indexing). A chat call also keeps its whole
+request and response. Model calls are not fns: fns are what agents choose to run.
+
+### Model roles
+
+Besides the model an agent uses, the hub picks a model for its own jobs: **transcribing** audio, **dictation** in
+the composer (or the browser's own speech recognition), **speaking** answers, **describing** images and **reading
+text** in them, and the default chat model. Each role is set in the admin's model settings (a model, optionally the
+provider that serves it, a language) or by asking in chat.
+
+### Fn metrics
+
+Every run records how long it waited in the queue, waited for approval and ran, what it cost and used, how it ended
+(done, invalid input, failed, cancelled) and how often it was retried. The hub rolls these up per fn and per day;
+the admin's fn pages show them and `hub/fn_metrics` gives them to the LLM.
+
+### Invalid input is not an error
+
+A model's mistake in calling a fn (JSON that doesn't parse, arguments that don't fit the fn's type, input the fn's
+own checks refuse) ends the run as **invalid input**: the problems go back to the model so it can try again, the
+chat shows it softly as "Retried", and it doesn't count as a failure. A real failure is **failed**.
+
+### The LLM can see and do everything
+
+Hub fns cover everything a person can see or do in the browser: resources (list, read any form, outline, convert,
+import, send to the model, rename, delete), context (read, make from a resource, remember, forget), types, runs,
+model calls, fn metrics, sessions, systems and their logs, and, with approval, every admin setting. A read fn and
+its web endpoint are one operation with one shape.
+
 ### Priority and budgets
 
 Priority and budgets can be set at each level a turn passes through: the **hub**, the user's **groups**, the
@@ -700,6 +834,42 @@ the tightest.
   **mention or import** other context and fns, so loading it brings those along (a "skill").
 - **Indexing:** the hub embeds fns, context and sections with an embedder (from a provider or a system)
   and searches them for suggestions, `get_fn`/`get_context`-style tools and `@` mentions.
+
+### Context as a graph
+
+Context items link to other context, fns, types and resources with **weighted edges**. An item comes from a system
+(skills, guides, `/commands`), is **memory** written by a person or an agent (`memory/…`, for a session, a person
+or everyone), or is **made from a resource** (`resource/…`, one item per section, chained when long, live or a
+snapshot). What an item declares becomes its edges: context it imports and fns it brings travel with it; suggested
+fns, its parent, the next piece of a chain, related items and what it is about only spread weight. The hub also
+finds edges in the text (mentions) and learns them from use (two things used in one turn), weaker than declared
+ones and fading when unused. A person can draw edges in the context view. The graph contextor walks the edges, so
+a skill's fns reach the prompt without the model asking.
+
+### Raw content and forms
+
+The hub keeps a resource's **raw** bytes in its content store (files under its data folder by default, or its
+database) and makes **forms** from them for people and LLMs: the markdown of an html page or a document, the typed
+tables of a spreadsheet, the pages of a pdf, the text of code; and, through a model, an image's description and the
+text in it, an audio transcript, a thumbnail. Forms are kept by the raw content's hash, so the same bytes are
+converted once wherever they are; model-made forms are made when someone needs them and cost a recorded model call.
+Every form can be viewed beside the raw. Sectioning, the index and the LLM read a resource's primary form by default
+(so a web page is cut by its headings, a workbook by its tables). The hub also owns resources of its own
+(`hub://resources/…`): uploads, imported URLs and fn outputs.
+
+### Viewing resources
+
+Every common type has a viewer with a preview and a source mode where both make sense: images (zoom, pan), code
+and data with real syntax highlighting, markdown with mermaid diagrams drawn, html in a sandbox, tables with sheets,
+sorting and paging, pdf pages, audio and video with transcripts, JSON as a tree. The resource browser lists, shows
+thumbnails, or groups resources automatically (by type, source, folder path or date) with counts, filters and bulk
+actions, everything in the URL.
+
+### The web system
+
+A system for the web: search (Tavily) and reading a page, which imports the page as a hub resource (rendered with a
+headless browser first when it is built by scripts) and gives back its markdown. It refuses private addresses
+unless an admin allows them.
 
 ## Storage
 
@@ -764,11 +934,16 @@ Done, on the libraries' `harness` branches:
 - **aeye resources: stable section ids** and TS import resolution (extensions and index files).
 - **JSON schema → zod:** zod 4.6's `fromJSONSchema` covers it; the SDK's LLM wire uses it.
 
+Done for build 2: **ayepi mcp** caller info, tool annotations, a router for many endpoints and bearer secrets;
+**ayepi push** (VAPID web push); **aeye resources** converted versions, converters, a url loader with pluggable page
+renderers, the folder resolver and sections of a converted version.
+
 Still open:
 
 - **ayepi core: binary frames** (MessagePack or CBOR) for the ws protocol.
-- **ayepi: web push** (VAPID). The hub uses the `web-push` package directly for now.
-- **aeye resources: a folder resolver.**
+- **ayepi sqlite: a `FileStore` over SQLite**, for keeping raw content in the database (the hub has its own until then).
+- **ayepi mcp: server progress notifications.**
+- **aeye core:** `forget` counting tool definitions; a provider hook for the served context window.
 
 ## Later
 
@@ -776,7 +951,6 @@ Still open:
   expressions, mapping a hub user to a database user (required or not), and public or private types. The
   admin sets this up and can change it through fns.
 - **MCP bridge system** and **Claude Code system** (described above).
-- **Web system:** fetch and web search.
 - **Scheduled fns and trigger fns.**
 - Product's other kinds (`api`, `query`, `code`, `input`, …).
 
@@ -806,6 +980,12 @@ Status (2026-11-07): steps 1 to 3 are built and run together (`npm run dev`).
 - **Tests:** unit and web tests (`npm test`, with coverage), minimal live tests on a free OpenRouter model and the
   local embedder (`npm run test:live`), the end-to-end suite over the real stack (`npm run e2e`), and a puppeteer
   script per UI feature at every screen size (`npm run ui-tests`).
+
+Build 2 (designed 2026-11-07, see [plans/build-2-design.md](plans/build-2-design.md)): the template system and
+generated authoring docs, model roles for transcription and dictation, chat modes and the graph contextor with
+token budgets, context links, raw content and forms, the web system, resource viewers and the browser, QR pairing,
+hub MCPs, system packages and the CLI, invalid input, fleets, gin editors and viewers, every model call recorded,
+fn metrics, and hub fns for everything.
 
 ## Risks and proofs of concept
 
@@ -882,3 +1062,27 @@ Already checked: type-checking all of the types and examples takes about two sec
   in every context as `ctx.config`, and the `configured` event announces changes.
 - **Installed systems:** the hub can install systems, keep them on disk and in its database, start them with the
   hub, and restart them; systems have lifecycle events.
+- **Context is a graph** (build 2): items link to context, fns, types and resources with weighted edges; sources are
+  skills, memory, resource-derived context, items injected into an agent by name, `/commands`; an item can bring
+  fns. The graph contextor walks the edges.
+- **Chat modes and contextors** (build 2): `tools` and `static` modes, `plain`, `suggest` and `graph`
+  contextors, chosen per agent fn and per session; every prompt is planned against the model's real limits and never
+  sent larger.
+- **System packages** (build 2): a folder with `system.json`, `server/`, `client/`; the hub gives each installed
+  instance data, state and cache folders outside the package; config in the hub database; `harness system
+  new|build|pack|install|export-data`; the hub installs zips.
+- **Invalid input vs error** (build 2): `invalid-input` is its own run status, retryable, fed back to the LLM and
+  shown softly as "Retried"; `failed` is a real failure.
+- **Model calls** (build 2): every model call of every modality is a `ModelCall` record attributed to its run; not a
+  fn kind; nothing bypasses the hub.
+- **Systems add resource views, type inputs (editors that are also viewers) and value renderers** through `client()`.
+- **Fn metrics** (build 2): queue and approval wait, run time, cost, tokens, outcome, retries per run, rolled up per
+  fn and day, shown in admin and given to the LLM.
+- **Hub MCPs** (build 2, the owner's "fn sets"): admin-made MCP endpoints with their own route, secret and
+  include/exclude rules; every call is a run.
+- **Forms** (build 2): raw content in the hub's files or database; converted and model-made forms kept by content
+  hash; sectioning reads the primary form.
+- **Fleets** (build 2): one system, many instances; the instance is a hub-owned run option.
+- **Web pages are hub resources** (build 2): the web system fetches and renders, the hub imports and converts.
+- **Model roles** (build 2): transcription, dictation, speech, image description and text-in-image models are set in
+  the admin's model settings.

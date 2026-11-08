@@ -45,7 +45,7 @@ export function emptyRun(id: RunId, fn: QualifiedName, status: RunStatus = 'queu
  */
 const ACTIVE_BY_STATUS = {
   'awaiting-approval': false, queued: true, running: true, waiting: true, paused: false,
-  done: false, failed: false, cancelled: false, undone: false,
+  done: false, 'invalid-input': false, failed: false, cancelled: false, undone: false,
 } as const satisfies Record<RunStatus, boolean>;
 
 /** Whether a run is doing something now (not waiting on a person, not settled). */
@@ -100,6 +100,8 @@ export const STATUS_LOOK = {
   waiting: { tone: 'warn', icon: 'clock', word: RUN_STATUS_WORDS.waiting },
   paused: { tone: 'neutral', icon: 'clock', word: RUN_STATUS_WORDS.paused },
   done: { tone: 'ok', icon: 'success', word: RUN_STATUS_WORDS.done },
+  // refused input is retried by the agent: shown softly, never as a failure
+  'invalid-input': { tone: 'neutral', icon: 'refresh', word: RUN_STATUS_WORDS['invalid-input'] },
   failed: { tone: 'danger', icon: 'error', word: RUN_STATUS_WORDS.failed },
   cancelled: { tone: 'neutral', icon: 'x', word: RUN_STATUS_WORDS.cancelled },
   undone: { tone: 'neutral', icon: 'refresh', word: RUN_STATUS_WORDS.undone },
@@ -179,7 +181,7 @@ export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' 
     case 'paused': return `${label} · paused`;
     case 'cancelled': return `${label} cancelled`;
     case 'undone': return `${label} undone`;
-    case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return runWords({ ...run, status: run.status }).one;
+    case 'queued': case 'running': case 'waiting': case 'done': case 'invalid-input': case 'failed': return runWords({ ...run, status: run.status }).one;
   }
 }
 
@@ -214,7 +216,7 @@ export function phaseOf(run: Pick<RunView, 'status' | 'attempt' | 'asking'>): Ph
   switch (run.status) {
     case 'awaiting-approval': case 'paused': return 'waiting';
     case 'cancelled': case 'undone': return 'done';
-    case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return runPhase(run.status, run.attempt);
+    case 'queued': case 'running': case 'waiting': case 'done': case 'invalid-input': case 'failed': return runPhase(run.status, run.attempt);
   }
 }
 
@@ -266,7 +268,7 @@ export function lineHasNews(line: StatusLine): boolean {
 function groupText(first: RunView, count: number): string {
   switch (first.status) {
     case 'awaiting-approval': case 'paused': case 'cancelled': case 'undone': return runText(first);
-    case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return countedText(runWords({ ...first, status: first.status }), count);
+    case 'queued': case 'running': case 'waiting': case 'done': case 'invalid-input': case 'failed': return countedText(runWords({ ...first, status: first.status }), count);
   }
 }
 

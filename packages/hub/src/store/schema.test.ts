@@ -46,7 +46,7 @@ describe('layoutOf', () => {
     const layout = layoutOf('actors', Actor);
     expect(Object.fromEntries(layout)).toEqual({
       id: 'text', name: 'text', about: 'text', createdAt: 'integer', disabled: 'bool', kind: 'text', email: 'text', role: 'text', timeZone: 'text',
-      fn: 'text', system: 'text',
+      fn: 'text', system: 'text', mcp: 'text',
     });
   });
 

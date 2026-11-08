@@ -8,6 +8,8 @@ import { ctx, endpoint, middleware, spec, use } from '@ayepi/core';
 import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
 import { LlmForward, LlmForwardChunk } from './llm.ts';
+import { ModelForward, ModelForwardResult } from './model-calls.ts';
+import { PairingInfo } from './package.ts';
 import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, HandlerCallId, Json, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
@@ -203,6 +205,11 @@ const linked = use(linkTel, linkSession).group({
   resourcesChanged: { body: z.object({ changes: z.array(ResourceChange) }), ws: 'rc' },
   /** The LLM forward behind `ctx.llm` and the aeye provider systems use. */
   llm: { body: LlmForward, streamOut: LlmForwardChunk, ws: 'llm' },
+  /**
+   * Every other modality through the hub provider (embeddings, images, transcription, speech): one `ModelCall` each,
+   * budgeted and attributed to `run`. Nothing a system does reaches a provider any other way.
+   */
+  model: { body: ModelForward, response: ModelForwardResult, ws: 'mdl' },
   embed: { body: z.object({ texts: z.array(z.string()), run: RunId.optional() }), response: z.object({ vectors: z.array(z.array(z.number())), cost: Usd }), ws: 'em' },
   /** Resource access for `ctx.resources`, routed to whichever system serves the URI. */
   resource: { body: z.object({ uri: ResourceUri, want: z.array(ReadWant), run: RunId.optional() }), response: ResourceRead, ws: 'rs' },
@@ -227,6 +234,11 @@ export const hubLinkSpec = spec({
     ...use(linkTel).group({
       hello: { body: Hello, response: HelloReply, ws: 'hi' },
       prove: { body: ChallengeAnswer, response: Welcome, ws: 'pr' },
+      /**
+       * While waiting for pairing: what the pairing page shows (description, instance, config type), so the admin can
+       * set config as they approve. Only the socket that started the pairing may send it.
+       */
+      pairingInfo: { body: PairingInfo, ws: 'pi' },
     }),
     ...linked,
   },

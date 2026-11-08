@@ -13,7 +13,7 @@ defineProps<{ entry: SettingEntry; nameOf: NameOf; now: number }>();
 const emit = defineEmits<{ edit: [actor: ActorId | undefined] }>();
 
 const MERGE = { 'user-wins': "The person's own value wins", union: 'Values add up', intersect: 'Only what all allow', 'most-restrictive': 'The strictest wins' } as const satisfies Record<SettingMerge, string>;
-const KIND = { user: 'people', group: 'groups', agent: 'agents', system: 'systems' } as const satisfies Record<ActorKind, string>;
+const KIND = { user: 'people', group: 'groups', agent: 'agents', system: 'systems', mcp: 'MCP clients' } as const satisfies Record<ActorKind, string>;
 </script>
 
 <template>

@@ -185,6 +185,7 @@ export class McpFace implements McpToolSource {
       const outcome = await run.outcome();
       switch (outcome.status) {
         case 'done': return outcome.result;
+        case 'invalid-input': throw new Error(outcome.invalid.problems.map((p) => p.message).join('; '));
         case 'failed': throw new Error(outcome.error.message);
         case 'paused': throw new Error('The fn paused; MCP calls cannot be resumed.');
         case 'cancelled': throw new Error('The fn was cancelled.');

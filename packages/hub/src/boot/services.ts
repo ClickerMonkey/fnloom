@@ -70,7 +70,7 @@ export interface Assembly {
 }
 
 /** The modules in the order `builds` builds them (an order only; each still builds what it reads first). */
-const MODULE_ORDER = ['catalog', 'link', 'index', 'execution', 'chat'] as const satisfies readonly ModuleKey[];
+const MODULE_ORDER = ['catalog', 'link', 'index', 'metrics', 'models', 'execution', 'contextor', 'resources', 'chat', 'mcp'] as const satisfies readonly ModuleKey[];
 
 /** Put the hub's services together. */
 export function assemble(base: BaseServices, api: HubServices['api'], modules: HubModules, extras: Omit<ModuleContext, 'hub'>): Assembly {
@@ -98,6 +98,11 @@ export function assemble(base: BaseServices, api: HubServices['api'], modules: H
     execution: once('execution', modules.execution),
     chat: once('chat', modules.chat),
     index: once('index', modules.index),
+    contextor: once('contextor', modules.contextor),
+    resources: once('resources', modules.resources),
+    mcp: once('mcp', modules.mcp),
+    metrics: once('metrics', modules.metrics),
+    models: once('models', modules.models),
   } as const satisfies { readonly [K in ModuleKey]: () => ModuleBuild<HubServices[K]> };
   const hub: HubServices = {
     ...base,
@@ -107,6 +112,11 @@ export function assemble(base: BaseServices, api: HubServices['api'], modules: H
     get execution() { return built.execution().services; },
     get chat() { return built.chat().services; },
     get index() { return built.index().services; },
+    get contextor() { return built.contextor().services; },
+    get resources() { return built.resources().services; },
+    get mcp() { return built.mcp().services; },
+    get metrics() { return built.metrics().services; },
+    get models() { return built.models().services; },
   };
   const context: ModuleContext = { ...extras, hub };
   return { hub, builds: () => MODULE_ORDER.map((key) => built[key]()) };

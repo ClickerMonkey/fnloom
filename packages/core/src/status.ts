@@ -50,6 +50,8 @@ export function phaseOf(status: RunStatus, attempt: number): RunPhase | undefine
 export function phaseOf(status: RunStatus, attempt: number): RunPhase | undefined {
   switch (status) {
     case 'queued': case 'running': case 'waiting': return attempt > 1 ? 'retry' : 'active';
+    // refused input is retried by the agent: shown softly, in the retry words
+    case 'invalid-input': return 'retry';
     case 'done': return 'done';
     case 'failed': return 'failed';
     case 'awaiting-approval': case 'paused': case 'cancelled': case 'undone': return undefined;

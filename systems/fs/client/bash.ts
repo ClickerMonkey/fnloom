@@ -18,7 +18,7 @@ export function statusChip(status: RunStatus, exitCode: number | undefined, erro
   const label = RUN_STATUS_WORDS[status];
   switch (status) {
     case 'running': return { label, tone: 'busy' };
-    case 'awaiting-approval': case 'queued': case 'waiting': case 'paused': case 'cancelled': case 'undone': return { label, tone: 'quiet' };
+    case 'awaiting-approval': case 'queued': case 'waiting': case 'paused': case 'invalid-input': case 'cancelled': case 'undone': return { label, tone: 'quiet' };
     case 'failed': return { label: error?.code === 'timeout' ? 'Timed out' : label, tone: 'bad' };
     case 'done': return exitCode === undefined || exitCode === 0 ? { label, tone: 'ok' } : { label: `Exit ${exitCode}`, tone: 'bad' };
   }

@@ -20,6 +20,11 @@ import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, Provid
 import type { Embedders, Indexer, Search, Suggester } from '../index/index.ts';
 import type { ConfigService, LinkService, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens } from '../link/index.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
+import type { ContextorServices } from '../contextor/index.ts';
+import type { McpServices } from '../mcp/index.ts';
+import type { MetricsServices } from '../metrics/index.ts';
+import type { ModelServices } from '../models/index.ts';
+import type { ResourceServices } from '../resources/index.ts';
 import type { HubSettings } from './env.ts';
 
 /** A person's answer to a handler a run asked them for (`answer` in the web API). Implemented by the execution module. */
@@ -54,6 +59,12 @@ export interface HubServices {
   };
   readonly index: { readonly embedders: Embedders; readonly indexer: Indexer; readonly search: Search; readonly suggest: Suggester };
   readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault };
+  // build 2
+  readonly contextor: ContextorServices;
+  readonly resources: ResourceServices;
+  readonly mcp: McpServices;
+  readonly metrics: MetricsServices;
+  readonly models: ModelServices;
 }
 
 /** The updown component names, in start order. The lifecycle is typed by them, so a misspelt name or dependency cannot compile. */
@@ -78,7 +89,7 @@ export interface StageHooks {
 }
 
 /** The modules other lanes build; boot builds the base services and the api module itself. */
-export type ModuleKey = 'catalog' | 'link' | 'execution' | 'chat' | 'index';
+export type ModuleKey = 'catalog' | 'link' | 'execution' | 'chat' | 'index' | 'contextor' | 'resources' | 'mcp' | 'metrics' | 'models';
 
 /** What building a module gives the hub. */
 export interface ModuleBuild<T> {

@@ -4,6 +4,7 @@
  * inside a manifest are local (unqualified); references to other things are qualified.
  */
 import { z } from 'zod';
+import { DeclaredLink } from './context-graph.ts';
 import { GinTypeDef } from './gin.ts';
 import { ActorKind, Audience, Duration, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
 import { SectionMatch, Link } from './resources.ts';
@@ -80,6 +81,10 @@ export type HandlerDecl = z.infer<typeof HandlerDecl>;
 export const FnKindName = z.union([z.literal('native'), QualifiedName]);
 export type FnKindName = z.infer<typeof FnKindName>;
 
+/** One example call of a fn: its args, and what the example shows. */
+export const FnExample = z.object({ args: Json, note: z.string().optional() });
+export type FnExample = z.infer<typeof FnExample>;
+
 /**
  * A fn. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a payload; the hub
  * asks the kind's system to describe it and checks the result against the declared signature.
@@ -108,6 +113,11 @@ export const FnDecl = z.object({
   limits: FnLimits,
   visibility: Audience,
   tags: z.array(z.string()),
+  /**
+   * Example calls, shown on the fn's card at `full` detail and in its invalid-input replies. The SDK checks each
+   * example's args against the fn's own args type when the contract is built, so a wrong example does not build.
+   */
+  examples: z.array(FnExample).optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 
@@ -128,6 +138,15 @@ export const ContextDecl = z.object({
   visible: Audience,
   alwaysFor: z.array(QualifiedName),
   tags: z.array(z.string()),
+  /** How much it counts when scored (0 leaves it out; 1 when absent). */
+  weight: z.number().min(0).max(2).optional(),
+  /** A short form shown at `signature` detail; its description when absent. */
+  summary: z.string().optional(),
+  /** Its parent in a hierarchy, and the next piece of a chain (a long text in ordered pieces). */
+  parent: QualifiedName.optional(),
+  next: QualifiedName.optional(),
+  /** Weighted links to other context, fns, types and resources. */
+  links: z.array(DeclaredLink).optional(),
 });
 export type ContextDecl = z.infer<typeof ContextDecl>;
 

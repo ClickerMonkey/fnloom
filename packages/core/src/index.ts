@@ -15,8 +15,17 @@
  * - `records/*`: what the hub stores, and `HUB_TABLES`.
  * - `system-events`: the hub events systems subscribe to.
  * - `web`: the web API spec (`hubWebSpec`) and its events.
+ * - `modes`: chat modes, contextors, model limits and what a prompt held (build 2).
+ * - `context-graph`: context origins and weighted links (build 2).
+ * - `resource-forms`: raw content, converted and made forms, sources, families (build 2).
+ * - `model-calls`: every model call of every modality, and model roles (build 2).
+ * - `metrics`: fn metrics (build 2).
+ * - `package`: system packages, instances, pairing info, data exports (build 2).
+ * - `records/mcps`: hub MCPs (build 2).
  */
 export * from './primitives.ts';
+export * from './modes.ts';
+export * from './context-graph.ts';
 export * from './objects.ts';
 export * from './ports.ts';
 export * from './gin.ts';
@@ -24,7 +33,10 @@ export * from './run.ts';
 export * from './labels.ts';
 export * from './status.ts';
 export * from './resources.ts';
+export * from './resource-forms.ts';
 export * from './llm.ts';
+export * from './model-calls.ts';
+export * from './metrics.ts';
 export * from './manifest.ts';
 export * from './link.ts';
 export * from './records/systems.ts';
@@ -33,6 +45,8 @@ export * from './records/spend.ts';
 export * from './records/runs.ts';
 export * from './records/chat.ts';
 export * from './records/content.ts';
+export * from './records/mcps.ts';
+export * from './package.ts';
 export * from './records/tables.ts';
 export * from './system-events.ts';
 export * from './admin.ts';

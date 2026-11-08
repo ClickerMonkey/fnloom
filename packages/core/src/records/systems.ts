@@ -1,7 +1,9 @@
 /** The hub's records of systems: what is paired, installed and configured, and what each contributes. */
 import { z } from 'zod';
 import { ContextDecl, FnDecl, KindDecl, Manifest, TypeDecl } from '../manifest.ts';
-import { ActorId, Duration, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp, Usd } from '../primitives.ts';
+import { ContextOrigin, ContextTokens } from '../context-graph.ts';
+import { GinTypeDef } from '../gin.ts';
+import { ActorId, Duration, InstanceName, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp, Usd } from '../primitives.ts';
 
 /** Where a system is. `needs-config`: connected, but without a valid config, so it can't be used yet. */
 export const SystemStatus = z.enum(['pairing', 'needs-config', 'connected', 'disconnected', 'removed']);
@@ -91,6 +93,12 @@ export const PairingRequest = z.object({
   code: z.string().optional(),
   /** The name is paired to a different key; approving replaces that system. */
   replaces: SystemName.optional(),
+  /** What the system said about itself while waiting (`pairingInfo`): shown on the pairing page. */
+  description: z.string().optional(),
+  /** The instance it asks to be; the admin may rename it when approving. */
+  instance: InstanceName.optional(),
+  /** Its config type, so the pairing page asks for config at approval. */
+  configType: GinTypeDef.optional(),
   status: z.enum(['pending', 'approved', 'rejected', 'expired']),
   createdAt: Timestamp,
   expiresAt: Timestamp,
@@ -130,7 +138,20 @@ export const Availability = z.union([z.literal(true), z.object({ unavailable: Fn
 export type Availability = z.infer<typeof Availability>;
 
 /** Running numbers about a fn's runs. */
-export const FnStats = z.object({ runs: z.number().int(), failures: z.number().int(), averageCost: Usd, averageTime: Duration, lastRunAt: Timestamp.optional() });
+export const FnStats = z.object({
+  runs: z.number().int(),
+  failures: z.number().int(),
+  averageCost: Usd,
+  averageTime: Duration,
+  lastRunAt: Timestamp.optional(),
+  /** Runs whose input was refused (retryable; not failures). */
+  invalidInputs: z.number().int().optional(),
+  cancelled: z.number().int().optional(),
+  /** The 95th percentile of run time over the last week, from the daily metrics. */
+  p95Time: Duration.optional(),
+  averageQueued: Duration.optional(),
+  tokens: z.number().int().optional(),
+});
 export type FnStats = z.infer<typeof FnStats>;
 
 /** The hub's row for a fn. */
@@ -176,11 +197,18 @@ export type TypeRecord = z.infer<typeof TypeRecord>;
 export const TypeDefinitions = z.object({ types: z.array(TypeRecord), missing: z.array(QualifiedName) });
 export type TypeDefinitions = z.infer<typeof TypeDefinitions>;
 
-/** The hub's row for context. */
+/** The hub's row for context: declared by a system, written as memory, or made from a resource. */
 export const ContextRecord = z.object({
   name: QualifiedName,
+  /** The owning system; `hub` for memory and resource context. */
   system: SystemName,
+  /** Where it came from; absent means declared by its system. */
+  origin: ContextOrigin.optional(),
   decl: ContextDecl,
+  /** Estimated tokens of the full content and of the summary; absent until the contextor sizes it. */
+  tokens: ContextTokens.optional(),
+  /** Turned off by a person (`hub/forget` disables memory); left out of every selection and search. */
+  disabled: z.boolean().optional(),
   /** References found in the text (`@fs/read`), added to what loading brings along. */
   mentions: z.object({ context: z.array(QualifiedName), fns: z.array(QualifiedName) }),
   /** A source section changed since this was written. */

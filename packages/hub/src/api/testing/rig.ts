@@ -51,6 +51,11 @@ export interface Fakes {
   execution?: { [K in keyof HubServices['execution']]?: Partial<HubServices['execution'][K]> };
   chat?: { [K in keyof HubServices['chat']]?: Partial<HubServices['chat'][K]> };
   index?: { [K in keyof HubServices['index']]?: Partial<HubServices['index'][K]> };
+  contextor?: { [K in keyof HubServices['contextor']]?: Partial<HubServices['contextor'][K]> };
+  resources?: { [K in keyof HubServices['resources']]?: Partial<HubServices['resources'][K]> };
+  mcp?: { [K in keyof HubServices['mcp']]?: Partial<HubServices['mcp'][K]> };
+  metrics?: { [K in keyof HubServices['metrics']]?: Partial<HubServices['metrics'][K]> };
+  models?: { [K in keyof HubServices['models']]?: Partial<HubServices['models'][K]> };
 }
 
 /** Every key of a service group, from a record that must name them all (so a new service can't be left unfaked). */
@@ -198,6 +203,11 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
       sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true,
     }), fakes.chat),
     index: group('index', keysOf<HubServices['index']>({ embedders: true, indexer: true, search: true, suggest: true }), fakes.index),
+    contextor: group('contextor', keysOf<HubServices['contextor']>({ planner: true, limits: true, tokens: true, graph: true }), fakes.contextor),
+    resources: group('resources', keysOf<HubServices['resources']>({ library: true, forms: true, reader: true, content: true, context: true }), fakes.resources),
+    mcp: group('mcp', keysOf<HubServices['mcp']>({ registry: true, scopes: true, endpoints: true, tokens: true }), fakes.mcp),
+    metrics: group('metrics', keysOf<HubServices['metrics']>({ calls: true, fns: true }), fakes.metrics),
+    models: group('models', keysOf<HubServices['models']>({ roles: true, gateway: true }), fakes.models),
   };
 }
 
@@ -211,6 +221,11 @@ export function fakeModules(fakes: Fakes = {}): HubModules {
     execution: () => ({ services: services.execution }),
     chat: () => ({ services: services.chat }),
     index: () => ({ services: services.index }),
+    contextor: () => ({ services: services.contextor }),
+    resources: () => ({ services: services.resources }),
+    mcp: () => ({ services: services.mcp }),
+    metrics: () => ({ services: services.metrics }),
+    models: () => ({ services: services.models }),
   };
 }
 

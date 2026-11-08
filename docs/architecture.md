@@ -32,10 +32,13 @@ packages/
     typetests/                  compile-time DX tests (ported from types/examples.ts), checked by `npm run typecheck`
   hub/         @harness/hub     the hub: one folder per module, each with an index.ts interface
   web/         @harness/web     Vue 3 + Vite + vue-router chat and admin app
+  cli/         @harness/cli     the `harness` CLI: system new|build|pack|install|export-data, mcp (build 2, packaging lane)
     e2e/                        reusable puppeteer scenarios (every viewport, light and dark, layout checks)
 systems/
   fs/          @harness/system-fs        shared/ (contract), server/, client/ (Vue renderers)
   embedder/    @harness/system-embedder  shared/ (contract + service schemas), server/
+  web/         @harness/system-web       Tavily search, page reading and rendering (build 2, web-system lane)
+  template/    the template system `harness system new` copies: system.json, shared/, server/, client/ (build 2)
 scripts/       dev.ts (npm run dev), stack.ts (boots the stack), hub-client.ts and session.ts (driving a hub from scripts),
                web-manifest.ts (generated web manifest)
 e2e/           the end-to-end suite over the real stack (npm run e2e)
@@ -45,7 +48,8 @@ explorer/      the design explorer (npm run explorer)
 ```
 
 Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `core` imports only zod, `@ayepi/core`,
-`@ayepi/auth` and `@ayepi/otel` defs (frontend-safe) and gin's `TypeDef` type, so the browser can import it.
+`@ayepi/auth` and `@ayepi/otel` defs (frontend-safe), gin's `TypeDef` and `ExprDef` types, and
+`@aeye/resources/versions` (zod only), so the browser can import it.
 
 ## The shared contracts (`@harness/core`)
 
@@ -61,7 +65,14 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `link.ts` | `hubLinkSpec` (system → hub) and `systemLinkSpec` (hub → system), the handshake (`Hello`, `HelloReply`, `Welcome`), `RunRequest`, the `linkSession` middleware def |
 | `records/*.ts` | everything the hub stores (systems, actors and policies, spend, runs and turns, chat, content and notifications) |
 | `records/tables.ts` | `HUB_TABLES`: every table's row schema and key; `RowOf<T>` types the store |
-| `web.ts` | the web API slices (`authSlice`, `chatSlice`, …, one per hub plugin, each under its middleware chains), `hubWebSpec` joining them with `mergeSpecs`, the `tel` / `hubAuth` / `adminOnly` middleware defs and the `session` / `user` events |
+| `web.ts` | the web API slices (`authSlice`, `chatSlice`, …, one per hub plugin, each under its middleware chains), `hubWebSpec` joining them with `mergeSpecs`, the `tel` / `hubAuth` / `adminOnly` middleware defs and the `session` / `user` events. Build 2 adds `resourcesSlice`, `contextSlice`, `contextorSlice`, `modelsSlice`, `metricsSlice`, `mcpsSlice`, `packagingSlice` |
+| `modes.ts` | chat modes (`ChatModeConfig`), contextors (`ContextorConfig`), `Detail`, model limits and calibration, `BudgetReport`, `SelectionReport`, `GraphSelection` |
+| `context-graph.ts` | `ContextOrigin` (system, memory, resource), `ContextLink` and its relations and targets, the memory and context-from-resource fn shapes |
+| `resource-forms.ts` | `FormRecord`, `ConvertedVersion` (the library's schema), `ResourceSource`, format families (`familyOf`), `ResourceQuery`, the resource read and import fn shapes |
+| `model-calls.ts` | `ModelCall` (every model call of every modality), `ModelForward` / `ModelForwardResult` (the `model` link endpoint), model roles (`RoleChoice`, `ModelRoleView`) |
+| `metrics.ts` | `RunOutcome`, `FnMetricsDay` (daily rollups with duration histograms), `FnMetrics` |
+| `package.ts` | `SystemPackageManifest` (`system.json`), `InstanceRecord`, `PairingInfo`, `SystemDataExport` |
+| `records/mcps.ts` | `HubMcp`, `McpRules` / `McpSelector`, `McpScopePreview`, `McpSessionView`, `McpTokenClaims` |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.
@@ -101,22 +112,36 @@ through each other's implementation files. Each module's handlers are installed 
 | `api/` | `PasswordHasher`, `Authenticator`, `ContentStore`, `PushService`, `EventRelay` | `@ayepi/auth`, `@ayepi/files`, `@ayepi/otel`, `@ayepi/cache`, `@ayepi/rate` (sign-in), web-push |
 | `boot/` | `HubServices`, `RunningHub`, `StartHub`, `COMPONENTS`; env slices in `env.ts`, merged as `HUB_SETTINGS` (`mergeEnvs`; `.env.example` is generated from it by `scripts/env-example.ts`); the hub fns (`hub-fns.ts`) and the admin fns (`admin-fns.ts`), which run the same `AdminOperations` (`api/admin-ops.ts`) as the web admin endpoints | `@ayepi/env`, `@ayepi/log`, `@ayepi/updown`, `@ayepi/codec` |
 | `bus.ts` | `EventBus`, `HubEvents` | — |
+| `contextor/` (build 2) | `PromptPlanner`, `ChatMode`, `Contextor`, `TokenEstimates`, `ModelLimitsService`, `ContextGraph` (factories typed by `ChatModeFactories` / `ContextorFactories`) | `@aeye/core`, `@aeye/gin` (`toCode`, `toCodeDefinition`), `@aeye/models` |
+| `resources/` (build 2) | `ResourceLibrary`, `Converters`, `FormService`, `ResourceReader`, `MessageContent`, `ContextLibrary` | `@aeye/resources` (registry, converters, `sectionVersion`, `fetchResource`), `@ayepi/files`, `@ayepi/work` |
+| `mcp/` (build 2) | `McpRegistry`, `McpScopes`, `McpEndpoints`, `McpTokens` | `@ayepi/mcp` (`McpRouter`, `mcpSourceServer`, authorizers), `@ayepi/auth`, `@ayepi/rate` |
+| `metrics/` (build 2) | `ModelCallLog`, `FnMetricsService` | core records |
+| `models/` (build 2) | `ModelRoles`, `ModelGateway` | `@aeye/ai` and its providers |
+
+Build 2's modules are wired into `HubServices` (`contextor`, `resources`, `mcp`, `metrics`, `models`) and built by
+their `create.ts` factories (`BUILD_2_MODULES` in `boot/modules.ts`). Until a lane builds one, its factory returns
+`notBuiltService` stubs (`boot/not-built.ts`) whose methods answer 501 `NOT_BUILT`, and its web slice is served by
+`notBuilt` handlers (`api/web/access.ts`), so the hub serves every endpoint from the start.
 
 ## Lanes and what they own
 
+Build 2's lanes, their directories, the order of the first steps and the file-level ownership of `packages/core` are
+in [plans/build-2-design.md](plans/build-2-design.md) §1, which is binding. In short:
+
 | Lane | Owns | Builds |
 |---|---|---|
-| **sdk** | `packages/sdk/**` | `serve` runtime (`LinkHost`), ctx services, `HarnessProvider`, MCP face, client runtime; keeps `typetests/` passing |
-| **fs** | `systems/fs/**` | the fs server (files, shell, resources, git hook, mentions, restart) and its Vue renderers |
-| **data** | `packages/hub/src/store/**`, `packages/hub/src/index/**`, `systems/embedder/**` | SQLite store, vectors and full text, embedders, indexer, hybrid search, suggestions, the embedder system |
-| **link** | `packages/hub/src/link/**`, `packages/hub/src/catalog/**` | link handlers and peers, pairing, config, supervisor, manifest import, gin scopes, availability |
-| **execution** | `packages/hub/src/execution/**` | runs and queues, agent loop, LLM gateway and the hub as provider, policies, limits, ledger |
-| **chat** | `packages/hub/src/chat/**` | sessions, turns, reply rule, enrichment and hooks, session state, deliveries, undo |
-| **api** | `packages/hub/src/api/**`, `packages/hub/src/boot/**`, `packages/hub/src/bus.ts`, `packages/hub/src/main.ts`, `scripts/dev.ts` | auth (single admin), web API plugins, realtime relay, files, push, serving the web build, boot and shutdown |
-| **web** | `packages/web/**` | the Vue chat and admin app (`api/` callers, `state/` stores, `components/`, `pages/`), e2e scenarios |
+| **template-docs** | `systems/template/**`, `scripts/docs/**`, `packages/sdk/AUTHORING.md` (generated), the fs `system-authoring` context | the template system, the authoring docs generator |
+| **packaging** | `packages/cli/**`, `packages/hub/src/link/**`, `api/web/packaging.ts`, `systems/*/system.json` | the CLI, packages and zip install, data dirs and export, QR pairing (hub), fleets |
+| **contextor** | `packages/hub/src/contextor/**`, `api/web/contextor.ts`, hooks in `execution/agent.ts`, `tools.ts`, `models.ts`, `providers.ts`, `chat/enrich.ts`, `turns.ts`, `catalog/catalog.ts` | chat modes, contextors, budgets, limits, the context graph |
+| **resources** | `packages/hub/src/resources/**`, `api/web/resources.ts`, `api/web/context.ts`, hooks in `index/sectioners.ts`, `sectioning.ts`, `indexer.ts`, `link/resources.ts`, `api/files.ts`, fs `server/resources.ts` and `documents.ts` | raw storage, forms, readers, context from resources, memory |
+| **web-system** | `systems/web/**` | Tavily search, page reading and rendering |
+| **hub-platform** | the rest of `packages/hub/**` (with `mcp/`, `metrics/`, `models/`) | hub MCPs, model calls, fn metrics, invalid input, model roles, the hub fn surface |
+| **sdk** | `packages/sdk/**` | the hub contract's new fns, ctx and client extensions, every modality in the forwarding provider, packaging checks, the QR display |
+| **web** | `packages/web/**`, `ui-tests/**` | the UI for all of it |
 
-`packages/core`, `docs/architecture.md`, root configs and `types/` belong to the orchestrator. A lane that needs a
-contract change writes it in its report (the schema, and why); it is made between phases so every lane sees it.
+Build 1's lanes (sdk, fs, data, link, execution, chat, api, web) built the first milestone; their files now belong to
+the build 2 lanes above. A lane that needs a contract change it doesn't own writes it in its report (the schema, and
+why).
 
 ## Dev workflow
 
@@ -143,10 +168,16 @@ or a free one above 4300, bound to `0.0.0.0`, stopped before finishing.
 
 ## Library asks
 
-Still open:
+Still open (build 2's list is in [plans/build-2-design.md](plans/build-2-design.md) §8):
 
-- **@aeye/resources:** a folder resolver (a folder as a resource listing its entries).
-- **@ayepi/core:** binary ws frames; **@ayepi:** web push (the hub uses the `web-push` package directly).
+- **@ayepi/core:** binary ws frames.
+- **@ayepi/sqlite:** a `FileStore` over SQLite (the resources lane keeps a `SqliteFiles` in the hub until then).
+- **@ayepi/mcp:** server progress notifications.
+- **@aeye/core:** `forget` counting tool definitions; a provider hook for the served context window.
+
+Done for build 2: `@ayepi/mcp` caller info, annotations, `McpRouter`, `BearerAuth`, views and `McpToolSet`;
+`@ayepi/push` (web push; the hub moves off `web-push`); `@aeye/resources` converted versions and converters, the url
+loader with page renderers, the folder resolver, sections of a version.
 
 Settled in the libraries, on their `harness` branches (harness carries no workaround):
 

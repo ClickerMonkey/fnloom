@@ -1,4 +1,5 @@
 /** Resources, sections, content refs and links: content that systems serve at absolute URIs. */
+import { RESOURCE_VERSION_KINDS } from '@aeye/resources/versions';
 import { z } from 'zod';
 import { RunId, Timestamp } from './primitives.ts';
 
@@ -81,6 +82,19 @@ export const ResourceRead = z.object({
 });
 export type ResourceRead = z.infer<typeof ResourceRead>;
 
+/** The kinds of LLM-ready converted version `@aeye/resources` makes, read off the library's schema. */
+export const ConvertedKind = z.enum(RESOURCE_VERSION_KINDS);
+export type ConvertedKind = z.infer<typeof ConvertedKind>;
+
+/** The forms a model makes through the hub provider, each a `ModelCall` with its cost. */
+export const MADE_FORM_KINDS = ['description', 'ocr', 'transcript', 'thumbnail'] as const;
+export const MadeFormKind = z.enum(MADE_FORM_KINDS);
+export type MadeFormKind = z.infer<typeof MadeFormKind>;
+
+/** Every kind of form made from a resource's raw content: the converted versions, then the made ones. See `resource-forms.ts`. */
+export const FormKind = z.enum([...RESOURCE_VERSION_KINDS, ...MADE_FORM_KINDS]);
+export type FormKind = z.infer<typeof FormKind>;
+
 /** A stable piece of a resource. */
 export const Section = z.object({
   key: SectionKey,
@@ -92,6 +106,8 @@ export const Section = z.object({
   end: z.number().int().min(0),
   /** What gets embedded: the text plus its headings and the resource name. Default: built by the hub. */
   embedText: z.string().optional(),
+  /** The form its offsets are into; the raw text when absent. */
+  form: FormKind.optional(),
 });
 export type Section = z.infer<typeof Section>;
 
@@ -109,6 +125,8 @@ export const SectionMatch = z.object({
   mime: z.string().optional(),
   /** Glob over the URI. */
   glob: z.string().optional(),
+  /** The form a sectioner reads (`table` for any spreadsheet's tables). */
+  form: FormKind.optional(),
 });
 export type SectionMatch = z.infer<typeof SectionMatch>;
 

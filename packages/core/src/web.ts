@@ -11,8 +11,8 @@ import { z } from 'zod';
 import { BudgetView, LlmFilter, LlmSummary, ModelInfo, OutputLine, ResourceFilter, RuleRef, RunFilter, SettingView } from './admin.ts';
 import { MentionHover, MentionOption, ImportReport, SuggestionScore } from './manifest.ts';
 import {
-  ActorId, ActorKind, ApprovalId, DeliveryId, Duration, ProviderId, HandlerCallId, Json, LlmInteractionId, MessageId, PageRequest, PairingId, Priority, QualifiedName,
-  RunId, SessionId, SystemName, Timestamp, TurnId, page,
+  ActorId, ActorKind, ApprovalId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
+  ModelCallId, PageRequest, PairingId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, page,
 } from './primitives.ts';
 import { ReadWant, ResourceRead, ResourceUri, ContentRef } from './resources.ts';
 import { ClientInfo, RunUpdate } from './run.ts';
@@ -21,8 +21,16 @@ import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Se
 import { IndexedKind, Notification, PushSubscription, ResourceRecord, SearchHit } from './records/content.ts';
 import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNode, UndoReport } from './records/runs.ts';
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
-import { FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
+import { ContextRecord, FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
 import { Policy } from './records/actors.ts';
+import { ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs } from './context-graph.ts';
+import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
+import { ModelCall, ModelCallQuery, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
+import { ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
+import { InstanceRecord } from './package.ts';
+import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery, ResourceReadArgs, ResourceReadResult } from './resource-forms.ts';
+import { HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } from './records/mcps.ts';
+import { FormKind } from './resources.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
 
@@ -107,6 +115,10 @@ export const UserEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session-deleted'), session: SessionId }),
   /** A fn's running numbers changed (one of its runs settled). */
   z.object({ type: z.literal('fn'), fn: QualifiedName, system: SystemName, stats: FnStats }),
+  /** A resource changed or a form of it was made: browsers refresh its badges and open viewer. */
+  z.object({ type: z.literal('resource'), uri: ResourceUri, forms: z.array(FormKind) }),
+  /** A context item was written, linked or forgotten. */
+  z.object({ type: z.literal('context'), name: QualifiedName }),
 ]);
 export type UserEvent = z.infer<typeof UserEvent>;
 
@@ -162,6 +174,9 @@ export const chatSlice = spec({
         notify: NotifyChoice.optional(),
         /** The model the agent answers with here; `null` goes back to the one its fn chooses. */
         model: Session.shape.model.unwrap().nullable().optional(),
+        /** The chat mode and contextor here; `null` goes back to the agent fn's. */
+        mode: Session.shape.mode.unwrap().nullable().optional(),
+        contextor: Session.shape.contextor.unwrap().nullable().optional(),
       }),
       response: Session,
       ws: 'updateSession',
@@ -249,7 +264,12 @@ export const systemsSlice = spec({
     systems: { body: z.object({}), response: z.array(SystemView), ws: 'systems' },
     system: { body: z.object({ system: SystemName }), response: SystemView, ws: 'system' },
     pairings: { body: z.object({ status: PairingRequest.shape.status.optional() }), response: z.array(PairingRequest), ws: 'pairings' },
-    approvePairing: { body: z.object({ pairing: PairingId, approve: z.boolean() }), response: z.object({ system: SystemName.optional() }), ws: 'approvePairing' },
+    /** Approve or refuse; an approval may name the instance and set the config in the same step (the QR pairing page). */
+    approvePairing: {
+      body: z.object({ pairing: PairingId, approve: z.boolean(), instance: InstanceName.optional(), config: Json.optional() }),
+      response: z.object({ system: SystemName.optional() }),
+      ws: 'approvePairing',
+    },
     createPairingToken: { body: z.object({ name: SystemName.optional(), expiresIn: Duration }), response: z.object({ token: z.string(), expiresAt: Timestamp }), ws: 'createPairingToken' },
     /** Set a system's config. Refused unless it is valid for the system's config type. */
     configureSystem: { body: z.object({ system: SystemName, config: Json }), response: z.union([z.object({ version: z.number().int() }), z.object({ problems: z.array(z.string()) })]), ws: 'configureSystem' },
@@ -321,6 +341,137 @@ export const eventsSlice = spec({
   },
 });
 
+// ─── Build 2 slices ───────────────────────────────────────────────────────────
+
+/** A page of resources with the counts of one grouping's values. */
+export const ResourcePage = page(ResourceRecord).extend({ facets: z.array(ResourceFacet) });
+export type ResourcePage = z.infer<typeof ResourcePage>;
+
+/** A resource's forms: the record, what has been made, and what could be. */
+export const ResourceForms = z.object({ record: ResourceRecord, forms: z.array(FormRecord), offers: z.array(FormOffer) });
+export type ResourceForms = z.infer<typeof ResourceForms>;
+
+/**
+ * Resources: browsing with groups and facets, reading any form, making forms, importing URLs and uploads, renaming
+ * and deleting hub resources, and making context from a resource. Each endpoint runs the same operation as the hub
+ * fn of the same purpose (`hub/resource_read` and `readResource`), so the chat LLM and the browser see the same.
+ */
+export const resourcesSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    browseResources: { body: ResourceQuery, response: ResourcePage, ws: 'browseResources' },
+    resourceForms: { body: z.object({ uri: ResourceUri }), response: ResourceForms, ws: 'resourceForms' },
+    readResource: { body: ResourceReadArgs, response: ResourceReadResult, ws: 'readResource' },
+    /** Make a form now (describe, OCR, transcribe, convert) and answer when it is made. */
+    convertResource: { body: z.object({ uri: ResourceUri, kind: FormKind }), response: FormRecord, ws: 'convertResource' },
+    /** A presigned download of the raw content or one form (with Range, for audio and video). */
+    downloadResource: { body: z.object({ uri: ResourceUri, form: FormKind.optional() }), response: z.object({ url: z.string(), mime: z.string(), size: z.number().int().min(0) }), ws: 'downloadResource' },
+    importResource: { body: ResourceImportArgs, response: ResourceRecord, ws: 'importResource' },
+    renameResource: { body: z.object({ uri: ResourceUri, name: z.string().min(1) }), response: ResourceRecord, ws: 'renameResource' },
+    /** Hub resources only. `referencedBy` counts the messages, context and runs that still point at it. */
+    deleteResource: { body: z.object({ uri: ResourceUri }), response: z.object({ deleted: z.boolean(), referencedBy: z.number().int().min(0) }), ws: 'deleteResource' },
+    contextFromResource: { body: ContextFromResourceArgs, response: ContextFromResourceResult, ws: 'contextFromResource' },
+  }),
+});
+
+/** What the context list narrows by. */
+export const ContextQuery = PageRequest.extend({ search: z.string().optional(), origin: z.enum(['system', 'memory', 'resource']).optional(), system: SystemName.optional() });
+export type ContextQuery = z.infer<typeof ContextQuery>;
+
+/** One context item with its edges both ways and its text (dynamic context is asked for). */
+export const ContextItemView = z.object({ record: ContextRecord, links: z.array(ContextLink), backlinks: z.array(ContextLink), text: z.string().optional() });
+export type ContextItemView = z.infer<typeof ContextItemView>;
+
+/** Context: browse every item and its links, write and forget memory, draw and remove links. */
+export const contextSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    contexts: { body: ContextQuery, response: page(ContextRecord), ws: 'contexts' },
+    contextItem: { body: z.object({ name: QualifiedName }), response: ContextItemView, ws: 'contextItem' },
+    remember: { body: RememberArgs, response: z.object({ name: QualifiedName }), ws: 'remember' },
+    forget: { body: z.object({ name: QualifiedName }), response: z.object({ ok: z.boolean() }), ws: 'forget' },
+    linkContext: { body: z.object({ from: QualifiedName, to: LinkTarget, relation: DeclarableRelation, weight: z.number().min(0).max(1) }), response: ContextLink, ws: 'linkContext' },
+    unlinkContext: { body: ContextLink.pick({ from: true, toKey: true, relation: true }), response: z.object({ ok: z.boolean() }), ws: 'unlinkContext' },
+  }),
+});
+
+/** Chat modes and contextors: model limits, and a dry run of what a message's prompt would hold. */
+export const contextorSlice = mergeSpecs(
+  spec({
+    endpoints: use(tel, hubAuth).group({
+      /** Each model's resolved limits with where each came from (all chat models when `model` is absent). */
+      modelLimits: { body: z.object({ model: z.string().optional() }), response: z.array(ModelLimitsView), ws: 'modelLimits' },
+      /** What the session's contextor would put in the prompt for this text, without calling the model. */
+      previewSelection: { body: z.object({ session: SessionId, text: z.string() }), response: SelectionReport, ws: 'previewSelection' },
+    }),
+  }),
+  spec({
+    endpoints: use(tel, hubAuth, adminOnly).group({
+      /** Set (or, with every field absent, clear) the limits of one model. */
+      setModelLimits: { body: z.object({ model: z.string().min(1), limits: ModelLimits }), response: ModelLimitsView, ws: 'setModelLimits' },
+    }),
+  }),
+);
+
+/** Model roles: which model and provider transcribes, dictates, speaks, describes images and reads text in them (admins). */
+export const modelsSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    modelRoles: { body: z.object({}), response: z.array(ModelRoleView), ws: 'modelRoles' },
+    setModelRole: { body: RoleChoice, response: ModelRoleView, ws: 'setModelRole' },
+    clearModelRole: { body: z.object({ role: ModelRole }), response: ModelRoleView, ws: 'clearModelRole' },
+  }),
+});
+
+/** Every model call of every modality, and fn metrics (admins). */
+export const metricsSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    modelCalls: { body: ModelCallQuery, response: page(ModelCall), ws: 'modelCalls' },
+    modelCall: { body: z.object({ id: ModelCallId }), response: ModelCall, ws: 'modelCall' },
+    fnMetrics: { body: FnMetricsQuery, response: z.array(FnMetrics), ws: 'fnMetrics' },
+    /** One fn's daily rollups, oldest first, for its charts. */
+    fnMetricsDays: { body: z.object({ fn: QualifiedName, days: z.number().int().min(1).max(365).optional() }), response: z.array(FnMetricsDay), ws: 'fnMetricsDays' },
+  }),
+});
+
+/** Hub MCPs (admins). `createMcp` and `rotateMcpSecret` return the secret: the only time it is shown. */
+export const mcpsSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    mcps: { body: z.object({}), response: z.array(HubMcpView), ws: 'mcps' },
+    mcp: { body: z.object({ mcp: HubMcpId }), response: HubMcpView, ws: 'mcp' },
+    createMcp: { body: HubMcpInput, response: z.object({ mcp: HubMcpView, secret: z.string() }), ws: 'createMcp' },
+    updateMcp: { body: HubMcpInput.partial().extend({ mcp: HubMcpId }), response: HubMcpView, ws: 'updateMcp' },
+    /** A new secret; every open session of the MCP ends. */
+    rotateMcpSecret: { body: z.object({ mcp: HubMcpId }), response: z.object({ secret: z.string() }), ws: 'rotateMcpSecret' },
+    deleteMcp: { body: z.object({ mcp: HubMcpId }), response: z.object({ ok: z.boolean() }), ws: 'deleteMcp' },
+    /** What draft rules would expose now, before saving. */
+    previewMcp: { body: z.object({ rules: McpRules }), response: McpScopePreview, ws: 'previewMcp' },
+    mcpSessions: { body: z.object({ mcp: HubMcpId }), response: z.array(McpSessionView), ws: 'mcpSessions' },
+  }),
+});
+
+/** Pairing pages, a fleet's instances, and data exports (admins). */
+export const packagingSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    /** One pairing request for the `/pair/:pairing` page, with what the system said about itself. */
+    pairing: { body: z.object({ pairing: PairingId }), response: PairingRequest, ws: 'pairing' },
+    instances: { body: z.object({ system: SystemName }), response: z.array(InstanceRecord.omit({ publicKey: true })), ws: 'instances' },
+    /**
+     * Install a package zip (`harness system pack`) uploaded with `upload`: checked (format, protocol, file hashes, no
+     * path leaving the folder), placed under `systems/<name>/versions/<version>`, paired, configured and started. A
+     * name already installed adds an instance (for a fleet) or is refused (upgrade is `upgradeSystem`).
+     */
+    installPackage: {
+      body: z.object({ zip: ContentRef, instance: InstanceName.optional(), config: Json.optional(), autoStart: z.boolean().optional() }),
+      response: InstanceRef,
+      ws: 'installPackage',
+    },
+    removeInstance: { body: InstanceRef, response: z.object({ ok: z.boolean() }), ws: 'removeInstance' },
+    /** Zip an instance's data folder with its config (secret fields only when asked); the CLI downloads the ref. */
+    exportSystemData: { body: InstanceRef.extend({ withSecrets: z.boolean().optional() }), response: ContentRef, ws: 'exportSystemData' },
+  }),
+});
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
-export const hubWebSpec = mergeSpecs(authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice);
+export const hubWebSpec = mergeSpecs(
+  authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
+  resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
+);
 export type HubWebSpec = typeof hubWebSpec;

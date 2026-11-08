@@ -14,7 +14,7 @@ describe('run status groups', () => {
   it('splits every status into active or settled, once', () => {
     expect([covers, disjoint]).toEqual([true, true]);
     expect([...ACTIVE_RUN_STATUSES, ...SETTLED_RUN_STATUSES].sort()).toEqual([...RUN_STATUSES].sort());
-    expect(SETTLED_RUN_STATUSES).toEqual(['done', 'failed', 'cancelled', 'undone']);
+    expect(SETTLED_RUN_STATUSES).toEqual(['done', 'invalid-input', 'failed', 'cancelled', 'undone']);
     expect(ACTIVE_RUN_STATUSES).toEqual(['awaiting-approval', 'queued', 'running', 'waiting', 'paused']);
   });
 

@@ -186,7 +186,7 @@ describe('McpResources', () => {
   it('offers no subscriptions for a provider that cannot watch, and no roots as an empty listing', async () => {
     const resources: McpResourceSource = McpResources.of(provider, content);
     expect('watch' in resources).toBe(false);
-    expect(await resources.list(undefined, new AbortController().signal)).toEqual({ resources: [] });
+    expect(await resources.list(undefined, new AbortController().signal, { session: 'test', auth: undefined })).toEqual({ resources: [] });
   });
 
   it('refuses a cursor it did not give', async () => {

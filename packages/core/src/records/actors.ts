@@ -1,7 +1,7 @@
 /** Actors (users, groups, agents, systems), sign-in, settings, policies and approvals. */
 import { z } from 'zod';
 import {
-  ActorId, ActorKind, ApprovalId, AuthSessionId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
+  ActorId, ActorKind, ApprovalId, AuthSessionId, HubMcpId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
 } from '../primitives.ts';
 import { FnKindName } from '../manifest.ts';
 
@@ -27,9 +27,12 @@ export const AgentActor = z.object({ ...actorBase, kind: z.literal('agent'), fn:
 export type AgentActor = z.infer<typeof AgentActor>;
 export const SystemActor = z.object({ ...actorBase, kind: z.literal('system'), system: SystemName });
 export type SystemActor = z.infer<typeof SystemActor>;
+/** A hub MCP: its runs are attributed to it (and run for its person), so policies can target MCP clients. */
+export const McpActor = z.object({ ...actorBase, kind: z.literal('mcp'), mcp: HubMcpId });
+export type McpActor = z.infer<typeof McpActor>;
 
 /** Anything that acts, owns, or is granted something. */
-export const Actor = z.discriminatedUnion('kind', [UserActor, GroupActor, AgentActor, SystemActor]);
+export const Actor = z.discriminatedUnion('kind', [UserActor, GroupActor, AgentActor, SystemActor, McpActor]);
 export type Actor = z.infer<typeof Actor>;
 
 /** The public view of a user, as the browser gets it. */

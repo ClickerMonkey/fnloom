@@ -4,10 +4,11 @@ import { GinTypeDef } from '../gin.ts';
 import { LlmChunk, LlmRequest, LlmUsage } from '../llm.ts';
 import { FnKindName } from '../manifest.ts';
 import {
-  ActorId, DeliveryId, HandlerCallId, Json, LlmInteractionId, MessageId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
+  ActorId, DeliveryId, HandlerCallId, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
 import { RunText } from '../status.ts';
+import { SelectionReport } from '../modes.ts';
 import { ResolvedLimits } from './spend.ts';
 
 /** A session state change a run made, with the value before, so undoing the turn can put it back. */
@@ -50,7 +51,11 @@ export const Run = z.object({
   undo: Json.optional(),
   resume: Json.optional(),
   stateChanges: z.array(StateChange),
+  /** Model tokens it and its model calls used (for metrics). */
+  tokens: z.number().int().min(0).optional(),
   createdAt: Timestamp,
+  /** When a person approved it, so the approval wait is told apart from the queue wait. */
+  approvedAt: Timestamp.optional(),
   startedAt: Timestamp.optional(),
   endedAt: Timestamp.optional(),
 });
@@ -183,6 +188,10 @@ export const LlmInteraction = z.object({
   status: LlmStatus,
   error: z.string().optional(),
   priority: Priority,
+  /** What the contextor put in this prompt, and how its tokens were spent. */
+  selection: SelectionReport.optional(),
+  /** Its `ModelCall` (the record every model call has, of every modality). */
+  modelCall: ModelCallId.optional(),
   queuedAt: Timestamp,
   startedAt: Timestamp.optional(),
   firstTokenAt: Timestamp.optional(),

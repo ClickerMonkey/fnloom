@@ -11,7 +11,7 @@
  */
 import {
   argSummary, isSettled, mintId, type ActorId, type Approval, type Approver, type BudgetRule, type HandlerCall, type Notification, type NotificationId, type NotificationLink, type NotificationReason,
-  type Page, type PairingRequest, type RunId, type RunStatus, type SystemName, type SystemStatus, type Compact, type NotificationListQuery,
+  type Page, type PairingRequest, type RunId, type SettledRunStatus, type SystemName, type SystemStatus, type Compact, type NotificationListQuery,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
@@ -34,7 +34,7 @@ const RESOLVE_WINDOW = 200;
 const APPROVAL_END = { approved: 'Approved', denied: 'Denied', expired: 'Timed out' } as const satisfies Record<Exclude<Approval['status'], 'pending'>, string>;
 const HANDLER_END = { answered: 'Answered', failed: 'No longer needed' } as const satisfies Record<Exclude<HandlerCall['status'], 'pending'>, string>;
 const PAIRING_END = { approved: 'Paired', rejected: 'Rejected', expired: 'Expired' } as const satisfies Record<Exclude<PairingRequest['status'], 'pending'>, string>;
-const RUN_END = { done: 'Run finished', failed: 'Run failed', cancelled: 'Run cancelled', undone: 'Run undone' } as const satisfies Record<Extract<RunStatus, 'done' | 'failed' | 'cancelled' | 'undone'>, string>;
+const RUN_END = { done: 'Run finished', 'invalid-input': 'Run retried', failed: 'Run failed', cancelled: 'Run cancelled', undone: 'Run undone' } as const satisfies Record<SettledRunStatus, string>;
 
 /** The action items about a run, which end when it does. */
 const RUN_ITEMS = ['approval-needed', 'input-needed', 'spend-limit'] as const satisfies readonly NotificationReason[];

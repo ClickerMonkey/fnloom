@@ -477,6 +477,9 @@ export class FakeHub {
           return { version: next.version };
         },
         log: ({ data }) => { this.logs.push(data); },
+        // build 2 endpoints the SDK lane fills in (the forwarding provider's other modalities, QR pairing)
+        model: () => { throw reject(501, 'NOT_IMPLEMENTED', 'The fake hub forwards no model calls yet.'); },
+        pairingInfo: () => { throw reject(501, 'NOT_IMPLEMENTED', 'The fake hub keeps no pairing info yet.'); },
       });
   }
 }

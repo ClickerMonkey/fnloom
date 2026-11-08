@@ -20,6 +20,11 @@ import { registerAdminFns } from './admin-fns.ts';
 import { registerHubFns } from './hub-fns.ts';
 import { HUB_INFO } from './info.ts';
 import type { HubModules, HubServices, ModuleContext, ModuleFactory } from './index.ts';
+import { contextorModule } from '../contextor/create.ts';
+import { mcpModule } from '../mcp/create.ts';
+import { metricsModule } from '../metrics/create.ts';
+import { modelsModule } from '../models/create.ts';
+import { resourcesModule } from '../resources/create.ts';
 
 /** What the production modules can be given instead of their defaults (tests, the e2e hub). */
 export interface ModuleSeams {
@@ -114,5 +119,15 @@ export function hubModules(seams: ModuleSeams = {}): HubModules {
       },
     }),
     chat: chatModule,
+    ...BUILD_2_MODULES,
   };
 }
+
+/** Build 2's modules, each its lane's factory (`<module>/create.ts`). */
+export const BUILD_2_MODULES = {
+  contextor: contextorModule,
+  resources: resourcesModule,
+  mcp: mcpModule,
+  metrics: metricsModule,
+  models: modelsModule,
+} as const satisfies Pick<HubModules, 'contextor' | 'resources' | 'mcp' | 'metrics' | 'models'>;

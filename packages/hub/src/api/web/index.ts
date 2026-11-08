@@ -16,6 +16,13 @@ import { inboxPlugin } from './inbox.ts';
 import { runsPlugin } from './runs.ts';
 import { settingsPlugin } from './settings.ts';
 import { systemsPlugin } from './systems.ts';
+import { contextPlugin } from './context.ts';
+import { contextorPlugin } from './contextor.ts';
+import { mcpsPlugin } from './mcps.ts';
+import { metricsPlugin } from './metrics.ts';
+import { modelsPlugin } from './models.ts';
+import { packagingPlugin } from './packaging.ts';
+import { resourcesPlugin } from './resources.ts';
 
 /** The realtime plugin: while installed, bus events reach browsers as `session` and `user` events. */
 export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
@@ -44,6 +51,14 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     systems,
     settingsPlugin(hub, systems, ops),
     adminPlugin(hub, systems, ops),
+    // build 2 slices: each starts as `notBuilt` stubs its lane replaces
+    resourcesPlugin(auth),
+    contextPlugin(auth),
+    contextorPlugin(systems),
+    modelsPlugin(systems),
+    metricsPlugin(systems),
+    mcpsPlugin(systems),
+    packagingPlugin(systems),
     eventsPlugin(hub, auth),
   ];
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ModelInfo } from '../admin.ts';
 import { GinTypeDef } from '../gin.ts';
 import { LlmMessage, ModelChoice } from '../llm.ts';
+import { ChatModeConfig, ContextorConfig, GraphSelection } from '../modes.ts';
 import { CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
 import { ContentRef, Link } from '../resources.ts';
@@ -33,6 +34,11 @@ export const Session = z.object({
   agent: QualifiedName,
   /** The model the agent answers with in this chat, instead of the one its fn chooses. */
   model: ModelChoice.optional(),
+  /** The chat mode and contextor here, instead of the agent fn's. */
+  mode: ChatModeConfig.optional(),
+  contextor: ContextorConfig.optional(),
+  /** What the graph contextor chose last, rewritten every cycle. */
+  selection: GraphSelection.optional(),
   participants: z.array(Participant),
   /** Only these systems' fns, context, mentions and hooks apply. The hub's own message extras always do. */
   systems: z.union([z.array(SystemName), z.literal('all')]),
@@ -130,6 +136,8 @@ export type Presence = z.infer<typeof Presence>;
 export const ChatCapabilities = z.object({
   voiceInput: z.boolean(),
   voiceOutput: z.boolean(),
+  /** How voice input is heard: the browser's speech recognition, or a recording sent to the dictation model. Absent while `voiceInput` is false. */
+  dictation: z.object({ engine: z.enum(['browser', 'model']), language: z.string().optional() }).optional(),
   uploads: z.boolean(),
   /** `of` is the named type of the things a provider points at, whose methods its hover card offers. */
   mentions: z.array(z.object({ provider: QualifiedName, title: z.string(), of: QualifiedName.optional() })),

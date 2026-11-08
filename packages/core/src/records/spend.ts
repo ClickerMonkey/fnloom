@@ -1,7 +1,7 @@
 /** Providers, models, priorities, budgets and the ledger. */
 import { z } from 'zod';
 import {
-  ActorId, BudgetId, Duration, LedgerId, LlmInteractionId, ModelCategoryId, Priority, PriorityRuleId, ProviderId, QualifiedName,
+  ActorId, BudgetId, Duration, LedgerId, LlmInteractionId, ModelCallId, ModelCategoryId, Priority, PriorityRuleId, ProviderId, QualifiedName,
   ReservationId, RunId, SecretId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 
@@ -135,6 +135,8 @@ export const LedgerEntry = z.object({
   fn: QualifiedName,
   model: z.string().optional(),
   llmCall: LlmInteractionId.optional(),
+  /** The model call it paid for (every modality). */
+  modelCall: ModelCallId.optional(),
   run: RunId,
 });
 export type LedgerEntry = z.infer<typeof LedgerEntry>;

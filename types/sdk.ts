@@ -305,6 +305,8 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   instructions?: string;
   args: GinType<A>;
   returns: GinType<R>;
+  /** Example calls, shown on the fn's card and in its invalid-input replies. Each example's args must fit `args`. */
+  examples?: Array<{ args: A; note?: string }>;
   /** Fns the implementation may call. Nothing else can be called. */
   deps?: D;
   /** Callbacks the caller may supply. */
@@ -456,6 +458,8 @@ export interface FnError {
 export type Outcome<T extends FnTypes> =
   | { status: 'done'; result: T['result']; undo?: T['undo']; cost?: Usd }
   | { status: 'paused'; resume: T['resume']; cost?: Usd }
+  /** The input was refused: retryable, fed back to the agent, shown softly as "Retried". Made with `ctx.invalid(problems)`. */
+  | { status: 'invalid-input'; invalid: InvalidInput; cost?: Usd }
   | { status: 'failed'; error: FnError; undo?: T['undo']; cost?: Usd }
   | { status: 'cancelled'; partial?: T['result']; undo?: T['undo']; cost?: Usd };
 
@@ -478,6 +482,15 @@ export type FnImpl<T extends FnTypes, Cfg = unknown> =
 export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
+  /** Refuse the input (retryable, shown softly): the problems go back to the agent so it can call again. */
+  invalid(problems: Array<{ path: string; message: string }>): Outcome<T>;
+  /** Show the agent a fn with this result (`fs/search` exposing `fs/read` at `signature`): its card follows the reply. */
+  expose(fn: AnyFnRef, detail: Detail): void;
+  /** This instance's own folders: `data` (kept across upgrades, exported) and `cache` (rebuildable, never exported). */
+  readonly dataDir: string;
+  readonly cacheDir: string;
+  /** Which instance of a fleet this is (`main` for a system that runs one copy). */
+  readonly instance: string;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
   readonly run: RunInfo;
   /** What is left of the turn's money and time, for information. The hub enforces LLM spend itself. */
@@ -619,7 +632,7 @@ export type RunUpdate =
   | { type: 'cost'; cost: Usd; total: Usd };
 
 /** Where a run is. */
-export type RunStatus = 'awaiting-approval' | 'queued' | 'running' | 'waiting' | 'paused' | 'done' | 'failed' | 'cancelled' | 'undone';
+export type RunStatus = 'awaiting-approval' | 'queued' | 'running' | 'waiting' | 'paused' | 'done' | 'invalid-input' | 'failed' | 'cancelled' | 'undone';
 
 // ═══ Services ═══
 
@@ -662,6 +675,10 @@ export interface Llm {
   object<T>(input: { prompt: string; output: GinType<T>; system?: string; model?: ModelChoice }): Promise<T>;
   stream(input: { prompt: string; system?: string; model?: ModelChoice }): AsyncIterable<string>;
   embed(texts: string[]): Promise<number[][]>;
+  /** Every other modality, through the hub provider (each a `ModelCall` on the run). */
+  image(input: { prompt: string; model?: ModelChoice; size?: string; count?: number }): Promise<ContentRef[]>;
+  transcribe(input: { audio: ContentRef; model?: ModelChoice; language?: string }): Promise<{ text: string; segments?: Array<{ start: number; end: number; text: string }> }>;
+  speak(input: { text: string; model?: ModelChoice; voice?: string }): Promise<ContentRef>;
 }
 
 /** File operations. */
@@ -940,6 +957,15 @@ export interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
   visible?: Audience;
   alwaysFor?: AnyFnRef[];
   tags?: string[];
+  /** How much it counts when the graph contextor scores it (0 leaves it out; 1 when absent). */
+  weight?: number;
+  /** A short form shown at `signature` detail; its description when absent. */
+  summary?: string;
+  /** Its parent in a hierarchy, and the next piece of a chain. */
+  parent?: AnyContextRef;
+  next?: AnyContextRef;
+  /** Weighted links to other context, fns, types and resources. */
+  links?: DeclaredLink[];
 }
 
 /** Declare static context. */
@@ -1386,6 +1412,12 @@ export type SystemImpl<C extends ContractShape> =
 /** What hooks, mentions, actions, dynamic context, events and lifecycle events get. */
 export interface SystemCtx<Cfg = unknown> {
   readonly system: string;
+  /** Which instance of a fleet this is (`main` for a system that runs one copy). */
+  readonly instance: string;
+  /** This instance's data folder (the hub's, outside the package; kept across upgrades, exported with the data). */
+  readonly dataDir: string;
+  /** This instance's cache folder (rebuildable; never exported). */
+  readonly cacheDir: string;
   /** The system's current config. */
   readonly config: Cfg;
   readonly llm: Llm;
@@ -1538,6 +1570,8 @@ export interface InputView<T> {
   modelValue: T | undefined;
   /** Problems with the current value, from the type's checks. */
   problems: string[];
+  /** Draw the value without editing it: the same component is the type's editor and its viewer. */
+  readonly: boolean;
 }
 
 /** The props of a custom mention hover card. */
@@ -1554,7 +1588,10 @@ export interface MentionView<T> {
 export interface ResourceView {
   stat: ResourceStat;
   section?: SectionKey;
-  text(): Promise<string>;
+  /** The forms made from its raw content (`markdown`, `table`, `description`, …). */
+  forms: FormKind[];
+  /** The raw text (`raw`) or one form's text. */
+  text(form?: FormKind | 'raw'): Promise<string>;
   bytes(): Promise<Uint8Array>;
 }
 
@@ -1584,7 +1621,18 @@ export interface ClientRenderers<C extends ContractShape> {
    * format is shown with that format's viewer, whichever system serves it. The hub ships viewers for the common
    * formats (text, markdown, code, images, PDF, JSON, CSV, folders), so most systems need none.
    */
-  resources?: Record<string, Renderer<ResourceView & WithSystem<C>>>;
+  resources?: Record<string, Renderer<ResourceView & WithSystem<C>> | ResourceRenderer<C>>;
+}
+
+/**
+ * A resource viewer with its place: `replace` draws instead of the hub's preview for the format; `tab` adds a mode
+ * beside the hub's (a "Schema" view of `.sql` files that keeps the source view).
+ */
+export interface ResourceRenderer<C extends ContractShape> {
+  component: Renderer<ResourceView & WithSystem<C>>;
+  mode: 'replace' | 'tab';
+  /** The tab's label (`tab` only). */
+  label?: string;
 }
 
 /**
@@ -1634,3 +1682,161 @@ export interface HubContract extends EmptyContract {
 
 /** The hub's contract. */
 export declare const hub: SystemContract<'hub', HubContract>;
+
+// ═══ Build 2: detail, links, forms, invalid input ═══
+
+/**
+ * How much of a fn or context item the model sees: `listed` (its name and one line), `signature` (a fn's call
+ * signature and types; a context item's summary), `full` (instructions and examples too; the whole content).
+ */
+export type Detail = 'listed' | 'signature' | 'full';
+
+/** A refused input: where it came from and what was wrong, by path into the args. Retryable. */
+export interface InvalidInput {
+  source: 'json' | 'schema' | 'validation';
+  problems: Array<{ path: string; message: string }>;
+  /** The text the model wrote, when it wasn't JSON. */
+  raw?: string;
+}
+
+/** The forms made from a resource's raw content: converted versions (`@aeye/resources`) and model-made ones. */
+export type FormKind = 'markdown' | 'text' | 'code' | 'pages' | 'table' | 'description' | 'ocr' | 'transcript' | 'thumbnail';
+
+/** What a context link points at. */
+export type LinkTarget =
+  | { kind: 'context'; name: QualifiedName }
+  | { kind: 'fn'; name: QualifiedName }
+  | { kind: 'type'; name: QualifiedName }
+  | { kind: 'resource'; uri: ResourceUri; section?: SectionKey };
+
+/**
+ * A link a system or person declares on a context item. Hard links travel with the item (`imports`: context it
+ * brings; `brings`: fns it adds); the rest only spread activation in the graph contextor.
+ */
+export interface DeclaredLink {
+  to: LinkTarget;
+  relation: 'imports' | 'brings' | 'suggests' | 'parent' | 'next' | 'related' | 'about';
+  /** 0 to 1; 0.5 when absent. */
+  weight?: number;
+}
+
+/** A chat mode: strict native tools, or the static toolset with fn cards and one `run` tool. */
+export type ChatModeConfig =
+  | { type: 'tools' }
+  | { type: 'static'; protocol?: 'auto' | 'native' | 'text'; placement?: 'system-end' | 'tail'; loadDetail?: Detail };
+
+/** A contextor: what one prompt holds. */
+export type ContextorConfig =
+  | { type: 'plain' }
+  | { type: 'suggest'; topN?: number; autoInject?: { tokens: number; items: number } }
+  | {
+    type: 'graph';
+    metrics?: Partial<Record<'embedding' | 'words' | 'turnsAgo' | 'age' | 'selectedBefore' | 'used', { weight: number; target?: number; k?: number }>>;
+    spread?: { damping?: number; hops?: number };
+    floorExchanges?: number;
+    shares?: { history: number; context: number; fns: number };
+    threshold?: number;
+    evaluate?: 'perMessage' | 'perIteration';
+  };
+
+/**
+ * What an agent's payload gains in build 2: its chat mode, contextor and reply cap. `agent({ mode: { type: 'static' },
+ * contextor: { type: 'graph' } })` is the setup for small local models; the defaults (`tools` + `plain`) are build 1's.
+ */
+export interface LlmPayloadBuild2 {
+  mode?: ChatModeConfig;
+  contextor?: ContextorConfig;
+  /** The most tokens one reply may take (lowered to the model's own limit). */
+  maxOutput?: number;
+}
+
+// ═══ Build 2: the hub's new fns ═══
+
+/** A hub fn tagged `admin`: never exposed through a hub MCP; asks the person unless a policy says otherwise. */
+type HubAdminFn<A, R> = HubFn<A, R>;
+
+/**
+ * The hub fns build 2 adds, so the chat LLM can see and do everything the browser can. Read fns are tagged `read`;
+ * the rest ask the person unless a policy allows them. Each runs the same operation as its web endpoint; its args and
+ * results are that endpoint's body and response (or a core schema), so the two can't drift.
+ */
+export interface HubContractBuild2 {
+  fns: {
+    // the static toolset (also the MCP static toolset)
+    find: HubFn<{ query: string; kinds?: Array<'fn' | 'context' | 'resource' | 'type'>; limit?: number }, Array<{ name: string; kind: string; line: string; loaded: boolean }>>;
+    inspect: HubFn<{ name: string; detail?: Detail }, { name: string; text: string }>;
+    load: HubFn<{ names: string[]; detail?: Detail }, { loaded: string[]; refused: Array<{ name: string; reason: string }> }>;
+    unload: HubFn<{ names: string[] }, { unloaded: string[] }>;
+    // resources
+    resource_list: HubFn<{ under?: string; family?: string; source?: string; cursor?: string; limit?: number }, { items: ResourceStat[]; cursor?: string }>;
+    resource_read: HubFn<{ uri: ResourceUri; form?: FormKind | 'raw'; section?: SectionKey; offset?: number; maxChars?: number }, { text: string; total: number; truncated: boolean; forms: FormKind[] }>;
+    resource_outline: HubFn<{ uri: ResourceUri }, Section[]>;
+    resource_convert: HubFn<{ uri: ResourceUri; kind: FormKind }, { kind: FormKind; chars: number }>;
+    resource_import: HubFn<{ url: string } | { content: ContentRef; name: string }, ResourceStat>;
+    resource_send: HubFn<{ uri: ResourceUri }, { parts: number }>;
+    resource_rename: HubFn<{ uri: ResourceUri; name: string }, ResourceStat>;
+    resource_delete: HubFn<{ uri: ResourceUri }, { deleted: boolean; referencedBy: number }>;
+    // context
+    context_get: HubFn<{ name: string }, { text: string; links: Array<{ to: LinkTarget; relation: string; weight: number }> }>;
+    context_from_resource: HubFn<{ uri: ResourceUri; sections?: SectionKey[]; copy?: 'live' | 'snapshot'; command?: string }, { created: string[]; updated: string[]; links: number }>;
+    remember: HubFn<{ text: string; title?: string; scope?: 'session' | 'user' | 'everyone'; about?: LinkTarget[] }, { name: string }>;
+    forget: HubFn<{ name: string }, { ok: boolean }>;
+    // looking at everything (read)
+    types_get: HubFn<{ names: string[] }, Array<{ name: string; code: string }>>;
+    runs_list: HubFn<{ status?: RunStatus; fn?: string; session?: SessionId; limit?: number }, Array<{ id: RunId; fn: string; status: RunStatus }>>;
+    run_tree: HubFn<{ run: RunId }, Json>;
+    fn_metrics: HubFn<{ fn?: string; system?: string; days?: number }, Json>;
+    model_calls: HubFn<{ modality?: string; run?: RunId; limit?: number }, Json>;
+    sessions_list: HubFn<{ search?: string; limit?: number }, Array<{ id: SessionId; title: string }>>;
+    session_messages: HubFn<{ session: SessionId; limit?: number }, Json>;
+    systems_list: HubFn<{}, Array<{ name: string; status: string; instances: number }>>;
+    system_logs: HubFn<{ system: string; limit?: number }, Array<{ at: Timestamp; text: string }>>;
+    // admin (tagged admin)
+    set_model_role: HubAdminFn<{ role: string; model?: ModelChoice; engine?: 'browser' | 'model' }, { role: string }>;
+    set_model_limits: HubAdminFn<{ model: string; contextWindow?: number; maxOutputTokens?: number }, { model: string }>;
+    create_mcp: HubAdminFn<{ slug: string; name: string; rules: Json }, { id: string; secret: string }>;
+    update_mcp: HubAdminFn<{ mcp: string; rules?: Json; enabled?: boolean }, { id: string }>;
+    rotate_mcp_secret: HubAdminFn<{ mcp: string }, { secret: string }>;
+    delete_mcp: HubAdminFn<{ mcp: string }, { ok: boolean }>;
+    mint_mcp_token: HubAdminFn<{ mcp: string; label: string; ttl?: Duration }, { token: string; expiresAt: Timestamp }>;
+    install_package: HubAdminFn<{ zip: ContentRef; instance?: string; config?: Json }, { system: string; instance: string }>;
+    export_system_data: HubAdminFn<{ system: string; instance?: string }, ContentRef>;
+  };
+  sectioners: { tables: SectionerDef };
+}
+
+// ═══ Build 2: packages and the CLI ═══
+
+/** `system.json`: what a system package is (core's `SystemPackageManifest`). */
+export interface SystemPackageManifest {
+  format: 1;
+  name: string;
+  version: string;
+  description: string;
+  /** The link protocol it speaks. */
+  protocol: number;
+  server: { entry: string; external?: Record<string, string>; node?: string };
+  client?: { entry: string };
+  /** `one`: a single instance named `main`; `many`: a fleet. */
+  instances?: 'one' | 'many';
+  /** sha-256 of every packed file, written by `pack`. */
+  files?: Record<string, string>;
+}
+
+/** One `harness` CLI command: a zod-checked args schema and a run over injected io, so every command is unit tested. */
+export interface CliCommand<A> {
+  readonly name: string;
+  readonly summary: string;
+  parse(argv: readonly string[]): A;
+  run(args: A, io: CliIo): Promise<number>;
+}
+
+/** What a CLI command touches, injected. */
+export interface CliIo {
+  readonly out: (line: string) => void;
+  readonly err: (line: string) => void;
+  /** The hub's web API, signed in as an admin. */
+  readonly hub: () => Promise<unknown>;
+  readonly files: { read(path: string): Promise<Uint8Array>; write(path: string, data: Uint8Array | string): Promise<void>; list(dir: string): Promise<string[]> };
+  readonly cwd: string;
+}

@@ -12,7 +12,7 @@ import type { Peer } from '@ayepi/core';
 import type {
   ActorId, ConfigValue, ImportReport, InstallSource, InstalledSystem, Json, LinkSession, Page, PairingId, PairingRequest, QualifiedName, ReadWant,
   ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section, StopReason, SystemEnabled, SystemLinkSpec, SystemName, SystemRecord,
-  Timestamp,
+  Timestamp, InstanceName, InstanceRef, InvalidInput, SessionId,
 } from '@harness/core';
 
 /** One connected system: who it is and how to call it. */
@@ -105,4 +105,18 @@ export interface ResourceRouter {
 /** Short-lived tokens a linked system uses for the hub's HTTP routes (asset upload, presigned content). */
 export interface SystemTokens {
   issue(session: LinkSession): string;
+}
+
+// ─── Build 2: fleets (packaging lane) ─────────────────────────────────────────
+
+/**
+ * Which instance of a fleet runs a call. The instance is a hub-owned option, never a fn arg: an explicit `on`, else
+ * the instance a resource URI in the args belongs to (`file://<instance>/…`), else the session's pinned instance,
+ * else the system's default instance, else the only connected one; otherwise refused as invalid input naming the
+ * choices. The run service asks once per run (hub-platform's one call site).
+ */
+export interface InstanceRouter {
+  route(input: { fn: QualifiedName; args: Json; on?: InstanceName; session?: SessionId }): Promise<{ instance: InstanceRef } | { invalid: InvalidInput }>;
+  /** The connected instances of a system, for the `on` enum added to tool schemas when there is more than one. */
+  connected(system: SystemName): readonly InstanceName[];
 }

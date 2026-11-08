@@ -1,7 +1,8 @@
 /** Resources, sections and the search index, as the hub keeps them; and notifications. */
 import { z } from 'zod';
 import { ActorId, ApprovalId, NotificationId, PairingId, PushId, QualifiedName, RunId, SectionRuleId, SessionId, SystemName, Timestamp } from '../primitives.ts';
-import { ResourceLink, ResourceStat, ResourceUri, SectionKey, SectionMatch } from '../resources.ts';
+import { ContentRef, FormKind, ResourceLink, ResourceStat, ResourceUri, SectionKey, SectionMatch } from '../resources.ts';
+import { ResourceSource } from '../resource-forms.ts';
 
 /** The hub's row for a resource. */
 export const ResourceRecord = z.object({
@@ -11,6 +12,14 @@ export const ResourceRecord = z.object({
   links: z.array(ResourceLink),
   indexedVersion: z.string().optional(),
   sectioner: QualifiedName.optional(),
+  /** Where it came from; absent means served by `system`. */
+  source: ResourceSource.optional(),
+  /** Its raw content in the hub's content store: the only copy for hub resources, a snapshot for system ones. */
+  raw: ContentRef.optional(),
+  /** The forms made from the current raw content, for the browser's badges. */
+  forms: z.array(FormKind).optional(),
+  /** The form sectioning, the index and the LLM read by default. */
+  primary: FormKind.optional(),
   seenAt: Timestamp,
 });
 export type ResourceRecord = z.infer<typeof ResourceRecord>;

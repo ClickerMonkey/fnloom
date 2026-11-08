@@ -7,7 +7,7 @@ import { fnLabel } from '../../chat/logic/labels.ts';
 import type { Tone } from '../../ui/index.ts';
 import type { NameOf } from './limits.ts';
 
-const KIND_PLURAL = { user: 'people', group: 'groups', agent: 'agents', system: 'systems' } as const satisfies Record<ActorKind, string>;
+const KIND_PLURAL = { user: 'people', group: 'groups', agent: 'agents', system: 'systems', mcp: 'MCP clients' } as const satisfies Record<ActorKind, string>;
 
 /** Who a policy covers. */
 export function subjectText(subject: ActorMatch, nameOf: NameOf): string {

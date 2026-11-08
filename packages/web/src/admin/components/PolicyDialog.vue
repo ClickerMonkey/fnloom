@@ -20,7 +20,7 @@ const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ save: [body: PolicyBody] }>();
 
 const subjects = optionsOf({ everyone: 'Everyone', actor: 'One actor', group: 'A group', kind: 'A kind of actor' } satisfies Record<SubjectKind, string>);
-const KIND_LABEL = { user: 'People', group: 'Groups', agent: 'Agents', system: 'Systems' } as const satisfies Record<ActorKind, string>;
+const KIND_LABEL = { user: 'People', group: 'Groups', agent: 'Agents', system: 'Systems', mcp: 'MCP clients' } as const satisfies Record<ActorKind, string>;
 const kinds = ActorKind.options.map((k): SelectOption<string> => ({ value: k, label: KIND_LABEL[k] }));
 const effects: readonly SegmentOption<PolicyDraft['effect']>[] = optionsOf({ allow: 'Allow', ask: 'Ask', deny: 'Deny' } satisfies Record<PolicyDraft['effect'], string>);
 const approvers = optionsOf({ 'turn-user': "The message's sender", actor: 'A person', group: 'A group', judge: 'A judge fn', hub: 'The hub' } satisfies Record<ApproverKind, string>);

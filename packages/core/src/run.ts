@@ -4,6 +4,7 @@ import {
   ActorId, Duration, Json, Priority, QualifiedName, RunId, SessionId, Timestamp, TurnId, Usd,
 } from './primitives.ts';
 import { RunText } from './status.ts';
+import { Exposure } from './modes.ts';
 
 // ─── Who and when ─────────────────────────────────────────────────────────────
 
@@ -143,8 +144,35 @@ export const FnError = z.object({
 });
 export type FnError = z.infer<typeof FnError>;
 
-/** Where a run is. */
-export const RUN_STATUSES = ['awaiting-approval', 'queued', 'running', 'waiting', 'paused', 'done', 'failed', 'cancelled', 'undone'] as const;
+/** Why a run's input was refused: its JSON didn't parse, it didn't fit the fn's args type, or the fn's own checks failed. */
+export const INPUT_PROBLEM_SOURCES = ['json', 'schema', 'validation'] as const;
+export const InputProblemSource = z.enum(INPUT_PROBLEM_SOURCES);
+export type InputProblemSource = z.infer<typeof InputProblemSource>;
+
+/** One thing wrong with a run's input: where (a dotted path into the args, empty for the whole) and what. */
+export const InputProblem = z.object({ path: z.string(), message: z.string() });
+export type InputProblem = z.infer<typeof InputProblem>;
+
+/**
+ * A run's input was refused before (or by) its fn. This is retryable and often expected from a model: the hub feeds the
+ * problems back to the agent and the chat shows the run softly as "Retried". A real failure is `failed`.
+ */
+export const InvalidInput = z.object({
+  source: InputProblemSource,
+  problems: z.array(InputProblem).min(1),
+  /** The text the model wrote, when it wasn't JSON. */
+  raw: z.string().optional(),
+});
+export type InvalidInput = z.infer<typeof InvalidInput>;
+
+/**
+ * The `FnError.code` a code caller sees when its child call's input was refused. Child calls settle as `failed`
+ * with this code, class `caller` and the `InvalidInput` as `data`, so code needs no extra case; agents read the run.
+ */
+export const INVALID_INPUT_CODE = 'invalid-input';
+
+/** Where a run is. `invalid-input`: its input was refused (retryable, shown softly); `failed`: a real error. */
+export const RUN_STATUSES = ['awaiting-approval', 'queued', 'running', 'waiting', 'paused', 'done', 'invalid-input', 'failed', 'cancelled', 'undone'] as const;
 export const RunStatus = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof RunStatus>;
 
@@ -154,7 +182,7 @@ export type RunStatus = z.infer<typeof RunStatus>;
  */
 const SETTLED_BY_STATUS = {
   'awaiting-approval': false, queued: false, running: false, waiting: false, paused: false,
-  done: true, failed: true, cancelled: true, undone: true,
+  done: true, 'invalid-input': true, failed: true, cancelled: true, undone: true,
 } as const satisfies Record<RunStatus, boolean>;
 
 /**
@@ -163,7 +191,7 @@ const SETTLED_BY_STATUS = {
  */
 export const RUN_STATUS_WORDS = {
   'awaiting-approval': 'Needs approval', queued: 'Queued', running: 'Running', waiting: 'Waiting', paused: 'Paused',
-  done: 'Done', failed: 'Failed', cancelled: 'Cancelled', undone: 'Undone',
+  done: 'Done', 'invalid-input': 'Retried', failed: 'Failed', cancelled: 'Cancelled', undone: 'Undone',
 } as const satisfies Record<RunStatus, string>;
 
 /** A status a run never leaves on its own. */
@@ -200,7 +228,15 @@ export type RunUpdate = z.infer<typeof RunUpdate>;
 
 /** How a run ended, on the wire. The SDK's `Outcome<T>` is the typed form of this. */
 export const OutcomeWire = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('done'), result: Json, undo: Json.optional(), cost: Usd.optional() }),
+  z.object({
+    status: z.literal('done'),
+    result: Json,
+    undo: Json.optional(),
+    cost: Usd.optional(),
+    /** Fns the result shows the agent (`ctx.expose`): their cards follow the tool reply, and they stay near the top of the next selection. */
+    expose: z.array(Exposure).optional(),
+  }),
+  z.object({ status: z.literal('invalid-input'), invalid: InvalidInput, cost: Usd.optional() }),
   z.object({ status: z.literal('paused'), resume: Json, cost: Usd.optional() }),
   z.object({ status: z.literal('failed'), error: FnError, undo: Json.optional(), cost: Usd.optional() }),
   z.object({ status: z.literal('cancelled'), partial: Json.optional(), undo: Json.optional(), cost: Usd.optional() }),
