@@ -1,5 +1,6 @@
 import { IDS, SuggestDecision, type Suggestion } from '@harness/core';
 import { describe, expect, it } from 'vitest';
+import { candidateFor } from './suggestions.ts';
 import { CLIENT, chatWorld } from './testing.ts';
 
 const candidates: Suggestion[] = [
@@ -76,5 +77,18 @@ describe('suggestions for a sent message', () => {
     const w = await chatWorld();
     expect((await w.chat.suggestions.setting()).value).toMatchObject({ enabled: false, messages: 3 });
     expect(await w.chat.suggestions.decide({ session: w.session.id, text: 'hello' })).toEqual({ suggestions: [] });
+  });
+});
+
+describe('candidateFor', () => {
+  it('tells a fn and a context item of one name apart by key, and takes a bare name only when it is unique', () => {
+    const pool: Suggestion[] = [
+      { kind: 'fn', name: 'fs/guide', description: '', score: 0.5 },
+      { kind: 'context', name: 'fs/guide', description: '', score: 0.5 },
+      { kind: 'fn', name: 'fs/read', description: '', score: 0.5 },
+    ];
+    expect(candidateFor(pool, 'context:fs/guide')).toBe(pool[1]);
+    expect(candidateFor(pool, 'fs/guide')).toBeUndefined();
+    expect(candidateFor(pool, 'fs/read')).toBe(pool[2]);
   });
 });

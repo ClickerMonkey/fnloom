@@ -9,8 +9,11 @@
 import { z } from 'zod';
 import { ActorId, AutoPairId, Duration, InstanceName, SystemName, Timestamp } from './primitives.ts';
 
-/** The admin's choice at pairing: auto pair, expiring after `expiresIn` ms, or never (`null`). */
-export const AutoPairChoice = z.object({ expiresIn: Duration.nullable() });
+/**
+ * The admin's choice at pairing: auto pair, expiring after `expiresIn` ms, never (`null`), or after the hub's default
+ * (`HARNESS_AUTO_PAIR_EXPIRY`, 90 days) when absent.
+ */
+export const AutoPairChoice = z.object({ expiresIn: Duration.nullable().optional() });
 export type AutoPairChoice = z.infer<typeof AutoPairChoice>;
 
 /** What the hub gives the system (in `Welcome`): keep it, private, in the state dir; replace it each time. */

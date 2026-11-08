@@ -9,7 +9,7 @@ import {
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ChatDeps } from './deps.ts';
-import { ChatError } from './errors.ts';
+import { ChatError, messageOf } from './errors.ts';
 import type { PresenceTracker, SessionService } from './index.ts';
 import type { People } from './people.ts';
 import type { StreamBuffer } from './streams.ts';
@@ -200,6 +200,25 @@ export class StoreSessionService implements SessionService {
     const controls = await this.controls(session);
     this.#deps.bus.publish('session.controls', { session, controls });
     return controls;
+  }
+
+  /**
+   * Send a session's controls again whenever one of its runs starts, settles, pauses or changes what it allows, so
+   * the stop and pause menu lists the runs of a turn while it runs. Updates in one tick go out as one. The unsubscribe.
+   */
+  follow(): () => void {
+    const due = new Set<SessionId>();
+    return this.#deps.bus.subscribe('run.update', ({ session, update }) => {
+      if (session === undefined || (update.type !== 'status' && update.type !== 'allowed') || due.has(session)) { return; }
+      due.add(session);
+      queueMicrotask(() => {
+        due.delete(session);
+        this.controls(session).then(
+          (controls) => { this.#deps.bus.publish('session.controls', { session, controls }); },
+          (error: unknown) => { this.#deps.log.warn('chat.session.controls.failed', { session, error: messageOf(error) }); },
+        );
+      });
+    });
   }
 
   async presence(presence: Omit<Presence, 'lastActiveAt'>): Promise<void> {

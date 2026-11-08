@@ -164,6 +164,8 @@ export const links = {
   runs: (query: RouteQuery<typeof ROUTES.runs> = {}): RouteLocationRaw => ({ name: ROUTES.runs, ...queryOf(ROUTES.runs, query) }),
   /** The runs of one fn. */
   fnRuns: (fn: QualifiedName): RouteLocationRaw => links.runs({ q: queryParam('runs', { filters: [{ field: 'fn', op: 'is', value: fn }] }) }),
+  /** The fns catalogue narrowed to one system's fns. */
+  systemFns: (system: SystemName): RouteLocationRaw => links.fns({ q: queryParam('fns', { filters: [{ field: 'system', op: 'is', value: system }] }) }),
   /** The LLM calls browser; `query` narrows it (`q`) or opens one (`call`). */
   llmCalls: (query: RouteQuery<typeof ROUTES.llmCalls> = {}): RouteLocationRaw => ({ name: ROUTES.llmCalls, ...queryOf(ROUTES.llmCalls, query) }),
   /** The resource browser; `query` lays it out (`view`, `group`), narrows it (`q`, `system`, `family`, `under`, `in`) or opens one (`uri`, `mode`). */

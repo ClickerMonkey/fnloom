@@ -37,7 +37,7 @@ const token = shallowRef<PairingToken | undefined>(undefined);
 const search = useListQuery('systems');
 const filter = computed(() => hubListQuery(search.value));
 const narrowed = computed(() => Object.keys(filter.value).some((key) => key !== 'sort'));
-watch(filter, (value) => { void systems.search(value); });
+watch(filter, (value, before) => { if (JSON.stringify(value) !== JSON.stringify(before)) { void systems.search(value); } });
 onMounted(() => { systems.query.value = filter.value; void systems.load(systems.list.value.value !== undefined); });
 
 async function answer(pairing: PairingRequest, approve: boolean, autoPair?: AutoPairChoice): Promise<void> {

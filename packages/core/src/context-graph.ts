@@ -173,7 +173,11 @@ export const RememberArgs = z.object({
 }).extend(ContextOptions.shape);
 
 /** Edit a memory (build 3): any of what `remember` takes; the scope is fixed once written. */
-export const UpdateMemoryArgs = RememberArgs.omit({ scope: true }).partial().extend({ name: QualifiedName });
+export const UpdateMemoryArgs = RememberArgs.omit({ scope: true }).partial().extend({
+  name: QualifiedName,
+  /** Options to remove; an option left out of the edit stays as it was. */
+  clear: z.array(ContextOptions.keyof()).optional(),
+});
 export type UpdateMemoryArgs = z.infer<typeof UpdateMemoryArgs>;
 export type RememberArgs = z.infer<typeof RememberArgs>;
 

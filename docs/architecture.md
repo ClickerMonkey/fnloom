@@ -79,6 +79,9 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `metrics.ts` | `RunOutcome`, `FnMetricsDay` (daily rollups with duration histograms), `FnMetrics` |
 | `package.ts` | `SystemPackageManifest` (`system.json`), `InstanceRecord`, `PairingInfo`, `SystemDataExport` |
 | `records/mcps.ts` | `HubMcp`, `McpRules` / `McpSelector`, `McpScopePreview`, `McpSessionView`, `McpTokenClaims` |
+| `query.ts` (build 3) | `ListQuery`, `Filter`, field types and operators, `LIST_FIELDS` (every list's fields and default sort), `queryProblems`, the `query` fn shapes |
+| `suggestions.ts` (build 3) | `SuggestionRecord` (what was suggested and what was not, with a `SkipReason`), `SuggestDecision` (the decision model setting), `HubOption` |
+| `auto-pair.ts` (build 3) | `AutoPairChoice`, `AutoPairGrant` (in `Welcome`), `AutoPairProof` (in `Hello`), `AutoPairSecret` (hashes only), `AutoPairView` |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.
@@ -113,7 +116,7 @@ through each other's implementation files. Each module's handlers are installed 
 | `catalog/` | `Catalog`, `FnSignature`, `KindDescriber` | `@aeye/gin` (`parse`, `compatible`, `typeClosure`, `toValueSchema`) |
 | `link/` | `LinkService`, `SystemConnection`, `PairingService`, `ConfigService`, `Supervisor` | `@ayepi/core` peers, `@ayepi/node`, `@ayepi/updown` |
 | `execution/` | `RunService`, `PolicyEngine`, `LimitResolver`, `Ledger`, `LlmGateway`, `AgentLoop` | `@ayepi/work`, `@ayepi/rate`, `@aeye/core` (`Prompt`, `PromptSuspend`), `@aeye/ai`, `@aeye/openrouter`, `@aeye/models` |
-| `chat/` | `SessionService`, `TurnService`, `ReplyRule`, `MessageEnricher`, `StateService`, `DeliveryService`, `UndoService` | core records |
+| `chat/` | `SessionService`, `TurnService`, `ReplyRule`, `MessageEnricher`, `StateService`, `DeliveryService`, `UndoService`, `SuggestionDecider` (`suggestions.ts`, build 3: picks the suggested fns and context by score or the decision model, and records the ones not used with a reason) | core records |
 | `index/` | `Embedder`, `Embedders`, `Indexer`, `Search`, `Suggester` | `@ayepi/work` batches, `@aeye/resources` |
 | `api/` | `PasswordHasher`, `Authenticator`, `ContentStore`, `PushService`, `EventRelay` | `@ayepi/auth`, `@ayepi/files`, `@ayepi/otel`, `@ayepi/cache`, `@ayepi/rate` (sign-in), `@ayepi/push` |
 | `boot/` | `HubServices`, `RunningHub`, `StartHub`, `COMPONENTS`; env slices in `env.ts`, merged as `HUB_SETTINGS` (`mergeEnvs`; `.env.example` is generated from it by `scripts/env-example.ts`); the hub fns (`hub-fns.ts`) and the admin fns (`admin-fns.ts`), which run the same `AdminOperations` (`api/admin-ops.ts`) as the web admin endpoints | `@ayepi/env`, `@ayepi/log`, `@ayepi/updown`, `@ayepi/codec` |
@@ -121,6 +124,7 @@ through each other's implementation files. Each module's handlers are installed 
 | `contextor/` (build 2) | `PromptPlanner`, `ChatMode`, `Contextor`, `TokenEstimates`, `ModelLimitsService`, `ContextGraph` (factories typed by `ChatModeFactories` / `ContextorFactories`) | `@aeye/core`, `@aeye/gin` (`toCode`, `toCodeDefinition`), `@aeye/models` |
 | `resources/` (build 2) | `ResourceLibrary`, `Converters`, `FormService`, `ResourceReader`, `MessageContent`, `ContextLibrary` | `@aeye/resources` (registry, converters, `sectionVersion`, `fetchResource`), `@ayepi/files`, `@ayepi/work` |
 | `mcp/` (build 2) | `McpRegistry`, `McpScopes`, `McpEndpoints`, `McpTokens` | `@ayepi/mcp` (`McpRouter`, `mcpSourceServer`, authorizers), `@ayepi/auth`, `@ayepi/rate` |
+| `query/` (build 3) | `QueryService`, `ListSource`, `FieldAccessors`: one source per list in `LIST_FIELDS`, filters and sorts server side (pushed down where a source can, else the in-memory evaluator in `evaluate.ts`); the `query` and `listValues` endpoints and the `hub/query` fn | core `query.ts` |
 | `metrics/` (build 2) | `ModelCallLog`, `FnMetricsService` | core records |
 | `models/` (build 2) | `ModelRoles`, `ModelGateway` | `@aeye/ai` and its providers |
 

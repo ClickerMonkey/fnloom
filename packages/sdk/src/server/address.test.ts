@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressVerdict, followRedirects, isLocalName, isPrivateAddress, type AddressRules, type HostLookup } from './address.ts';
+import { addressVerdict, followRedirects, isLocalName, isPlainOffMachine, isPrivateAddress, type AddressRules, type HostLookup } from './address.ts';
 
 /** DNS from a table, recording every name asked. */
 function tableLookup(table: Readonly<Record<string, readonly string[]>>): HostLookup & { readonly asked: string[] } {
@@ -44,6 +44,13 @@ describe('isLocalName', () => {
   it('knows the names of this machine and its network', () => {
     for (const name of ['localhost', 'LOCALHOST.', 'api.localhost', 'printer.local', 'db.internal']) { expect(isLocalName(name), name).toBe(true); }
     for (const name of ['example.com', 'localhost.example.com', 'internal.example']) { expect(isLocalName(name), name).toBe(false); }
+  });
+});
+
+describe('isPlainOffMachine', () => {
+  it('flags plain ws to another machine only', () => {
+    expect(['ws://192.168.1.5:4300/link', 'ws://hub.example/link'].map(isPlainOffMachine)).toEqual([true, true]);
+    expect(['wss://hub.example/link', 'ws://127.0.0.1:4300/link', 'ws://localhost:4300/link', 'ws://[::1]:4300/link'].map(isPlainOffMachine)).toEqual([false, false, false, false]);
   });
 });
 

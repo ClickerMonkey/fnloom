@@ -1966,7 +1966,8 @@ export const manifest = {
         "visible",
         "suggest",
         "parent",
-        "name"
+        "name",
+        "clear"
       ],
       "f": [],
       "hasBody": true,

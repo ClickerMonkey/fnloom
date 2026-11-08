@@ -102,11 +102,12 @@ export class HubSuggestions implements SuggestionDecider {
       call = answer.call;
       const parsed = DecisionAnswer.safeParse(answerJson(answer.value));
       if (!parsed.success) { throw new Error('the decision model did not answer the JSON asked for'); }
-      const reasons = new Map(parsed.data.declined?.map((d) => [d.name, d.reason]) ?? []);
-      const picked = new Map<string, string | undefined>();
-      for (const pick of parsed.data.picks) { if (picked.size < decision.cap && pool.some((item) => item.name === pick.name)) { picked.set(pick.name, pick.reason); } }
-      const chosen = pool.filter((item) => picked.has(item.name));
-      const items = pool.map((item) => (picked.has(item.name) ? used(item, picked.get(item.name)) : skipped(item, 'declined', reasons.get(item.name))));
+      const reasons = new Map<Suggestion, string | undefined>();
+      for (const declined of parsed.data.declined ?? []) { const item = candidateFor(pool, declined.name); if (item !== undefined) { reasons.set(item, declined.reason); } }
+      const picked = new Map<Suggestion, string | undefined>();
+      for (const pick of parsed.data.picks) { const item = candidateFor(pool, pick.name); if (item !== undefined && picked.size < decision.cap) { picked.set(item, pick.reason); } }
+      const chosen = pool.filter((item) => picked.has(item));
+      const items = pool.map((item) => (picked.has(item) ? used(item, picked.get(item)) : skipped(item, 'declined', reasons.get(item))));
       this.#deps.log.info('suggestions.decided', { session: input.session, candidates: pool.length, picked: chosen.length, call });
       return finish(chosen, { ...base, call, items: [...items, ...rest, ...hidden] });
     } catch (error) {
@@ -138,15 +139,26 @@ function finish(chosen: Suggestion[], record: SuggestionRecord): DecidedSuggesti
 }
 
 
+/** How a candidate is named to the decision model: its kind and name, so a fn and a context item of one name differ. */
+export const candidateKey = (item: Pick<Suggestion, 'kind' | 'name'>): string => `${item.kind}:${item.name}`;
+
+/** The candidate an answered name means: by its key, or by a bare name when exactly one candidate has it. */
+export function candidateFor(pool: readonly Suggestion[], answered: string): Suggestion | undefined {
+  const keyed = pool.find((item) => candidateKey(item) === answered);
+  if (keyed !== undefined) { return keyed; }
+  const named = pool.filter((item) => item.name === answered);
+  return named.length === 1 ? named[0] : undefined;
+}
+
 /** The decision model's prompt: the person's recent messages, the candidates, and the JSON to answer with. */
 export function prompt(messages: readonly string[], pool: readonly Suggestion[], cap: number): LlmMessage[] {
   const system = [
     'You choose which tools (fns) and context items to offer an assistant for the latest user message.',
     `Pick at most ${cap} that clearly help with what the user is asking now; pick none when none fit.`,
-    'Answer with JSON only: {"picks":[{"name":"...","reason":"..."}],"declined":[{"name":"...","reason":"..."}]}. Use the names exactly as given; keep each reason under 12 words.',
+    'Answer with JSON only: {"picks":[{"name":"...","reason":"..."}],"declined":[{"name":"...","reason":"..."}]}. Use the key of each candidate (kind:name) exactly as given; keep each reason under 12 words.',
   ].join('\n');
   const recent = messages.map((text, i) => `${i === messages.length - 1 ? 'Latest' : 'Earlier'}: ${text}`).join('\n');
-  const candidates = pool.map((item) => `- ${item.kind} ${item.name} (score ${item.score.toFixed(2)}): ${item.description}`).join('\n');
+  const candidates = pool.map((item) => `- ${candidateKey(item)} (score ${item.score.toFixed(2)}): ${item.description}`).join('\n');
   return [
     { role: 'system', content: system },
     { role: 'user', content: `User messages:\n${recent}\n\nCandidates:\n${candidates}` },

@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core';
-import { IDS, noFnStats, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
+import { IDS, LIST_FIELDS, noFnStats, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { chatWorld, FixtureCatalog, makeRun } from '../chat/testing.ts';
 import { testStore } from '../testing.ts';
@@ -110,5 +110,16 @@ describe('the lists', () => {
     // the session's owner, seen as a member
     expect((await lists.page('modelCalls', {}, { id: w.admin.id, role: 'member' })).items.map((c) => c.id)).toEqual(['mdl_1']);
     expect((await lists.page('modelCalls', { filters: [{ field: 'tokens', op: 'is', value: 15 }] }, admin)).items).toHaveLength(2);
+    // every declared field reads its row: a field asked to be filled finds the rows that fill it, and no more
+    for (const list of ['fns', 'modelCalls', 'sessions'] as const) {
+      const all = (await lists.page(list, {}, admin)).items.length;
+      for (const [field, decl] of Object.entries<FieldDecl>(LIST_FIELDS[list].fields)) {
+        const [yes, no]: [Filter, Filter] = decl.type === 'boolean'
+          ? [{ field, op: 'is', value: true }, { field, op: 'is', value: false }]
+          : [{ field, op: 'notEmpty' }, { field, op: 'empty' }];
+        const counted = await Promise.all([yes, no].map(async (filter) => (await lists.page(list, { filters: [filter] }, admin)).items.length));
+        expect((counted[0] ?? 0) + (counted[1] ?? 0)).toBe(all);
+      }
+    }
   });
 });

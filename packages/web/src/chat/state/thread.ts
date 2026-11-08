@@ -802,8 +802,8 @@ export class ThreadStore {
   }
 
   /**
-   * A turn started: the controls the hub last sent were for the turn before (the hub sends them again as the turn
-   * settles), so Stop offers Cancel until it says what this one allows.
+   * A turn started: the controls the hub last sent were for the turn before (the hub sends them again as its runs
+   * start and settle), so Stop offers Cancel until it says what this one allows.
    */
   #newTurn(): void {
     this.controls.value = undefined;

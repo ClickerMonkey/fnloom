@@ -298,7 +298,9 @@ export function memoryUpdate(name: QualifiedName, draft: MemoryDraft): Outcome<U
   if (text === '') { return { ok: false, problem: 'Write what to remember.' }; }
   const options = optionsRequest(draft.options, true);
   if (!options.ok) { return options; }
-  return { ok: true, value: UpdateMemoryArgs.parse({ name, text, title: draft.title.trim(), ...options.value }) };
+  // the text options left blank are removed; the rest are always sent
+  const clear = (['summary', 'command', 'parent'] as const).filter((key) => options.value[key] === undefined);
+  return { ok: true, value: UpdateMemoryArgs.parse({ name, text, title: draft.title.trim(), ...options.value, ...(clear.length === 0 ? {} : { clear }) }) };
 }
 
 /** The make-from-a-resource form as typed. */

@@ -66,6 +66,8 @@ export const sdkEnv = env({
   HARNESS_LINK_MAX_CHUNK: z.number().int().min(1_024).default(256_000),
   /** How long without a connection before the system logs that the hub is unreachable; `ServeOptions.connectTimeout` overrides it. */
   HARNESS_CONNECT_TIMEOUT: z.number().int().min(100).default(10_000),
+  /** How long to wait before saying hello again when the hub is limiting auto-pair attempts (its window is HARNESS_AUTO_PAIR_WINDOW). */
+  HARNESS_AUTO_PAIR_RETRY: z.number().int().min(1_000).default(60_000),
   /** How long a call through the MCP face may run. */
   HARNESS_MCP_TIMEOUT: z.number().int().min(1_000).default(600_000),
   /** The largest request body the MCP face accepts over HTTP, in bytes. */

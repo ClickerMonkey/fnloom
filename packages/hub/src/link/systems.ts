@@ -5,6 +5,7 @@ import type { ActorId, ImportReport, InstanceRef, SystemEnabled, SystemName } fr
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
+import type { AutoPairService } from './auto-pair.ts';
 import type { LinkService, SystemAdmin } from './index.ts';
 import type { InstanceKeeper } from './status.ts';
 
@@ -15,6 +16,8 @@ export interface SystemAdminOptions {
   readonly catalog: Catalog;
   readonly links: LinkService;
   readonly instances: InstanceKeeper;
+  /** Its auto-pair secrets are revoked when an instance is removed, so only a new pairing brings it back. */
+  readonly autoPairs: AutoPairService;
   /** How long a removed instance gets to stop. */
   readonly stopTimeout: number;
 }
@@ -47,8 +50,9 @@ export class StoreSystemAdmin implements SystemAdmin {
 
   /** Mark one instance removed and ask it to stop. Its key no longer proves it; it must pair again. */
   async removeInstance(ref: InstanceRef, by: ActorId): Promise<void> {
-    const { links, instances, log, stopTimeout } = this.#options;
+    const { links, instances, autoPairs, log, stopTimeout } = this.#options;
     await instances.sync(ref, { status: 'removed' });
+    await autoPairs.revokeInstance(ref, by);
     const connection = links.connection(ref.system, ref.instance);
     if (connection !== undefined) {
       try {

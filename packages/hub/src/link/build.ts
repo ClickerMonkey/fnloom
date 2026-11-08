@@ -96,6 +96,7 @@ export function buildSystems(options: SystemsOptions) {
   const instances = new InstanceKeeper({ store, bus, catalog, links: connections });
   const autoPairs = new StoreAutoPairs({
     store, log, clock, rate: store.ports.rate, limit: settings.packaging.HARNESS_AUTO_PAIR_LIMIT, window: settings.packaging.HARNESS_AUTO_PAIR_WINDOW,
+    expiry: settings.packaging.HARNESS_AUTO_PAIR_EXPIRY,
   });
   const pairing = new StorePairingService({
     store, bus, log, clock, instances, autoPairs, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,
@@ -104,7 +105,7 @@ export function buildSystems(options: SystemsOptions) {
   });
   const config = new StoreConfigService({ log, clock, catalog, bus, links: connections, instances });
   const resources = new PeerResourceRouter({ links: connections, catalog, bus, log, maxChunk: settings.link.HARNESS_MAX_CHUNK });
-  const admin = new StoreSystemAdmin({ store, log, catalog, links: connections, instances, stopTimeout: settings.link.HARNESS_STOP_TIMEOUT });
+  const admin = new StoreSystemAdmin({ store, log, catalog, links: connections, instances, autoPairs, stopTimeout: settings.link.HARNESS_STOP_TIMEOUT });
   const router = new FleetRouter({ links: connections, resources, store, instances });
   const installer = options.installer ?? new NodeInstaller({
     npm: settings.packaging.HARNESS_NPM, maxBytes: settings.packaging.HARNESS_PACKAGE_MAX, zips: { bytes: (hash) => contentBytes(options.content(), hash) },

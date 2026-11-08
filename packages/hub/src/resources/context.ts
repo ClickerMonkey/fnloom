@@ -16,7 +16,7 @@
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  ContextFromResourceArgs, qualify, RememberArgs, seesOrigin, UpdateMemoryArgs, type ContextOptions, type ActorId, type ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
+  ContextFromResourceArgs, qualify, RememberArgs, seesOrigin, UpdateMemoryArgs, type ContextOptions, type ActorId, ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
   type ContextOrigin, type ContextQuery, type ContextRecord, type DeclarableRelation, type LinkTarget, type MemoryScope, type Page, type QualifiedName,
   type ResourceUri, type Section, type SectionKey,
 } from '@harness/core';
@@ -163,12 +163,15 @@ export class StoreContextLibrary implements ContextLibrary {
     const title = args.title?.trim();
     const description = title === undefined || title === '' ? record.decl.description : title;
     const content = args.text ?? record.decl.content;
-    const decl: ContextDecl = {
-      ...record.decl, ...declOptions(args), description, ...(content === undefined ? {} : { content }),
+    const cleared = new Set<string>(args.clear ?? []);
+    const kept = Object.fromEntries(Object.entries(record.decl).filter(([key]) => !cleared.has(key)));
+    // a cleared option goes back to what a plain memory has
+    const decl: ContextDecl = ContextDecl.parse({
+      ...this.#decl(args.name, { description }), ...kept, ...declOptions(args), description, ...(content === undefined ? {} : { content }),
       // a summary that only repeated the title follows a new one
-      ...(args.summary === undefined && record.decl.summary === record.decl.description ? { summary: description } : {}),
+      ...(args.summary === undefined && !cleared.has('summary') && record.decl.summary === record.decl.description ? { summary: description } : {}),
       ...(args.about === undefined ? {} : { links: args.about.map((to) => ({ to, relation: 'about' as const, weight: ABOUT_WEIGHT })) }),
-    };
+    });
     const updated: ContextRecord = { ...this.#record(args.name, decl, record.origin), ...(record.disabled === undefined ? {} : { disabled: record.disabled }) };
     await this.#o.store.table('context').put(updated);
     await this.#o.graph().derive(updated);

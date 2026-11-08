@@ -24,7 +24,7 @@ import { JwtSystemTokens } from './tokens.ts';
 /** The settings the rig builds with: small chunks so content is fetched in several, a minute to pair. */
 export const RIG_SETTINGS: SystemsSettings = {
   hub: { HARNESS_URL: 'http://hub:4300/', HARNESS_SYSTEMS_DIR: '.harness-test/systems' },
-  packaging: { HARNESS_PUBLIC_URL: undefined, HARNESS_AUTO_PAIR_LIMIT: 3, HARNESS_AUTO_PAIR_WINDOW: 60_000, HARNESS_PACKAGE_MAX: 10_000_000, HARNESS_NPM: 'npm' },
+  packaging: { HARNESS_PUBLIC_URL: undefined, HARNESS_AUTO_PAIR_LIMIT: 3, HARNESS_AUTO_PAIR_WINDOW: 60_000, HARNESS_AUTO_PAIR_EXPIRY: 7_776_000_000, HARNESS_PACKAGE_MAX: 10_000_000, HARNESS_NPM: 'npm' },
   link: {
     HARNESS_MAX_FRAME: 262_144, HARNESS_MAX_CHUNK: 1_024, HARNESS_HEARTBEAT: 15_000, HARNESS_PAIRING_TIMEOUT: 60_000, HARNESS_STOP_TIMEOUT: 1_000,
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2,

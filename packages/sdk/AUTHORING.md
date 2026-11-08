@@ -4277,7 +4277,7 @@ This is the hub contract as the SDK declares it now:
     instance?: text,
     config?: any,
     autoPair?: obj{
-      expiresIn: nullable<num{whole=true, min=0}>
+      expiresIn?: nullable<num{whole=true, min=0}>
     }
   }) => obj{system?: text}
   ```
@@ -4288,7 +4288,7 @@ This is the hub contract as the SDK declares it now:
     name?: text,
     expiresIn: num{whole=true, min=0},
     autoPair?: obj{
-      expiresIn: nullable<num{whole=true, min=0}>
+      expiresIn?: nullable<num{whole=true, min=0}>
     }
   }) => obj{token: text, expiresAt: num{whole=true}}
   ```

@@ -1,5 +1,5 @@
-import { IDS, SystemName } from '@harness/core';
-import { describe, expect, it } from 'vitest';
+import { IDS, QualifiedName, SystemName } from '@harness/core';
+import { describe, expect, it, vi } from 'vitest';
 import { ChatError } from './errors.ts';
 import { DEFAULT_AGENT, UNTITLED, sessionPriorityRule } from './sessions.ts';
 import { agentActorId } from './support.ts';
@@ -161,6 +161,18 @@ describe('session controls', () => {
     w.runs.controlled.length = 0;
     await w.chat.sessions.control(w.session.id, 'pause', w.admin.id, [IDS.run.parse('run_c')]);
     expect(w.runs.controlled).toEqual([]);
+  });
+
+  it('send the controls again when a run of the session changes status, once per tick', async () => {
+    const w = await busy();
+    const stop = w.chat.sessions.follow();
+    const update = { run: IDS.run.parse('run_a'), fn: QualifiedName.parse('fs/write'), session: w.session.id, update: { type: 'status', status: 'running' } } as const;
+    w.bus.publish('run.update', update);
+    w.bus.publish('run.update', update);
+    w.bus.publish('run.update', { run: update.run, fn: update.fn, update: update.update });
+    await vi.waitFor(() => { expect(w.bus.of('session.controls')).toHaveLength(1); });
+    expect(w.bus.of('session.controls')[0]?.controls.runs?.length).toBe(3);
+    stop();
   });
 
   it('leave the session running when one of several runs that can pause is paused', async () => {

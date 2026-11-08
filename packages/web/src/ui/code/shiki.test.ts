@@ -34,7 +34,7 @@ describe('the Shiki highlighter', () => {
     expect(tokens).toEqual(expect.arrayContaining([{ kind: 'keyword', text: 'const' }, { kind: 'number', text: '42' }]));
     expect(tokens.find((t) => t.kind === 'comment')?.text).toContain('the answer');
     expect(shiki.knows('typescript')).toBe(true);
-  });
+  }, 30_000); // loading the grammar and its wasm engine is slow when the whole suite runs at once
 
   it('answers with the built-in highlighter when Shiki throws mid-tokenize (a pass that stopped early)', async () => {
     let throws = false;

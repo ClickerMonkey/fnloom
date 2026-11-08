@@ -54,6 +54,13 @@ function rekeyed(proof: { id: string; secret: string }): FakeSystem {
 }
 
 describe('auto pair', () => {
+  it('revokes the secrets of an instance that is removed, so only a new pairing brings it back', async () => {
+    const { secret, id } = await pairWithAutoPair(90 * DAY);
+    await rig.packages.removeInstance(ref, ADMIN);
+    expect((await rig.store.table('autoPairSecrets').get(AutoPairId.parse(id)))?.revokedAt).toBeDefined();
+    expect(await refusal(rekeyed({ id, secret }).connect())).toEqual({ status: 401, code: 'AUTO_PAIR_REFUSED' });
+  });
+
   it('grants a secret once, keeps only its hash, and lists it without hashes', async () => {
     const { system, secret, id } = await pairWithAutoPair(90 * DAY);
     expect(welcomed(await system.connect()).autoPair).toBeUndefined();

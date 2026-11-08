@@ -57,7 +57,7 @@ export function createChat(given: ChatDeps): ChatModule {
   return {
     sessions, turns, reply, enrich, suggestions, state, deliveries, undo, mentions, notifications, presence, approvers: new StoreApprovers(deps),
     start: () => {
-      const stops = [deliveries.start(), notifications.start()];
+      const stops = [deliveries.start(), notifications.start(), sessions.follow()];
       return () => { for (const stop of stops) { stop(); } };
     },
   };

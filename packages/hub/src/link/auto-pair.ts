@@ -32,6 +32,8 @@ export interface AutoPairOptions {
   /** Most re-pair attempts per address, and per secret, in `window`. */
   readonly limit: number;
   readonly window: number;
+  /** How long a secret lasts when the choice names no expiry, in ms. */
+  readonly expiry: number;
 }
 
 /** A secret a hello proved, ready to re-pair its instance once the hello's key signs the challenge. */
@@ -60,6 +62,8 @@ export interface AutoPairService {
   list(system?: SystemName): Promise<AutoPairView[]>;
   /** Revoke a secret; whether it was live. */
   revoke(id: AutoPairId, by: ActorId): Promise<boolean>;
+  /** Revoke every live secret of an instance (it was removed, so it must pair again); how many. */
+  revokeInstance(ref: InstanceRef, by: ActorId): Promise<number>;
 }
 
 /** The one refusal for every secret that can't be used, so a caller learns nothing about which it was. */
@@ -103,7 +107,7 @@ export class StoreAutoPairs implements AutoPairService {
     for (const old of await this.#live(ref.system)) {
       if (old.instance === ref.instance) { await store.table('autoPairSecrets').update(old.id, { revokedAt: now }); }
     }
-    const expiresAt = choice.expiresIn === null ? undefined : now + choice.expiresIn;
+    const expiresAt = choice.expiresIn === null ? undefined : now + (choice.expiresIn ?? this.#options.expiry);
     // the hash of a secret nobody holds: the instance's next welcome replaces it with one it is given
     const row: AutoPairSecret = {
       id: mintId('autoPair'), system: ref.system, instance: ref.instance, secretHash: sha256Hex(randomToken(SECRET_BYTES)), createdBy: by, createdAt: now, uses: 0,
@@ -177,6 +181,14 @@ export class StoreAutoPairs implements AutoPairService {
   async list(system?: SystemName): Promise<AutoPairView[]> {
     const rows = await allRows(this.#options.store.table('autoPairSecrets'), system === undefined ? {} : { system });
     return rows.sort((a, b) => b.createdAt - a.createdAt).map(viewOf);
+  }
+
+  async revokeInstance(ref: InstanceRef, by: ActorId): Promise<number> {
+    let revoked = 0;
+    for (const row of await this.#live(ref.system)) {
+      if (row.instance === ref.instance && await this.revoke(row.id, by)) { revoked++; }
+    }
+    return revoked;
   }
 
   async revoke(id: AutoPairId, by: ActorId): Promise<boolean> {

@@ -27,6 +27,7 @@ import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
 import { configTypeOf, type ConfigOf, type ContractShape, type SystemContract, type SystemImpl } from '../system.ts';
+import { isPlainOffMachine } from './address.ts';
 import { readClientBundle, uploadClientBundle, type ClientBundle } from './assets.ts';
 import { HubContent, LocalContent } from './content.ts';
 import { placeFolders, SYSTEM_ENV, sdkEnv, type SdkEnv } from './env.ts';
@@ -53,8 +54,6 @@ export class SystemStopped extends Error {
 
 /** How long after a pairing request runs out the system asks for a new one (so the hub has marked it expired). */
 const PAIRING_RENEW_AFTER = 1_000;
-/** How long the system waits to say hello again when the hub is limiting its auto-pair attempts. */
-const AUTO_PAIR_RETRY = 60_000;
 
 /** The seams `LinkHost` runs on. Every one has a real default; tests replace them. */
 export interface LinkHostDeps {
@@ -135,6 +134,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   readonly #options: ServeOptions;
   /** The hub's link URL, read off `options.hub` (which may be the hub's http(s) address). */
   readonly #link: string;
+  /** Whether the plain-link warning for the auto-pair secret was logged (once per process). */
+  #warnedPlain = false;
   readonly #deps: LinkHostDeps;
   readonly #env: SdkEnv;
   readonly #logger: Logger;
@@ -370,6 +371,10 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     try {
       this.#setStatus('connecting');
       const autoPair = await this.#keys.autoPair();
+      if (autoPair !== undefined && !this.#warnedPlain && isPlainOffMachine(this.#link)) {
+        this.#warnedPlain = true;
+        this.#log.warn('system.auto-pair.plain-link', { hub: this.#link, hint: 'use wss:// to reach a hub on another machine; the auto-pair secret rides every hello' });
+      }
       const reply = await hub.call('hello', {
         protocol: LINK_PROTOCOL,
         name: this.#contract.name,
@@ -408,8 +413,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
         return;
       }
       if (error instanceof ApiError && error.code === 'AUTO_PAIR_LIMITED') {
-        this.#log.warn('system.auto-pair.limited', { instance: this.#instance, retryIn: AUTO_PAIR_RETRY });
-        setTimeout(() => { if (connection === this.#connection && !this.#stop.signal.aborted) { void this.#handshake(connection); } }, AUTO_PAIR_RETRY).unref();
+        this.#log.warn('system.auto-pair.limited', { instance: this.#instance, retryIn: this.#env.HARNESS_AUTO_PAIR_RETRY });
+        setTimeout(() => { if (connection === this.#connection && !this.#stop.signal.aborted) { void this.#handshake(connection); } }, this.#env.HARNESS_AUTO_PAIR_RETRY).unref();
         return;
       }
       this.#log.error('system.handshake-failed', { error: messageOf(error) });

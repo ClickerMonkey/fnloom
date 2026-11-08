@@ -82,7 +82,8 @@ describe('QR pairing', () => {
       const now = await me.hub.call('instances', { system: FS });
       return now.filter((i) => i.status === 'connected').length === 2 ? now : undefined;
     }, { timeout: 60_000, every: 500 });
-    expect(instances.map((i) => i.instance).sort()).toEqual(['desk', 'main']);
+    // an instance another suite removed stays listed as removed
+    expect(instances.filter((i) => i.status === 'connected').map((i) => i.instance).sort()).toEqual(['desk', 'main']);
   }, 90_000);
 });
 

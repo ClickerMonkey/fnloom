@@ -152,6 +152,10 @@ describe('memory', () => {
     expect(edited?.decl).toMatchObject({
       content: 'Use pnpm 9.', description: 'Package tool', summary: 'Package tool', weight: 1.5, tags: ['tools'], fns: ['fs/read'], suggestFns: ['fs/write'], visible: 'llm',
     });
+    await r.context.update({ name, clear: ['command', 'fns', 'visible'] }, who);
+    const cleared = (await r.store.table('context').get(name))?.decl;
+    expect(cleared).toMatchObject({ tags: ['tools'], weight: 1.5 });
+    expect([cleared?.command, cleared?.fns, cleared?.visible]).toEqual([undefined, [], 'both']);
     await expect(r.context.update({ name, text: 'mine now' }, { actor: BOB })).rejects.toMatchObject({ status: 403 });
   });
 });

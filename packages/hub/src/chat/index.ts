@@ -34,6 +34,8 @@ export interface SessionService {
   /** Messages, newest first. A message still streaming carries the text streamed so far. */
   messages(session: SessionId, viewer: ActorId, query: Compact<Omit<MessageListQuery, 'session'>>): Promise<Page<ChatMessage>>;
   controls(session: SessionId): Promise<SessionControls>;
+  /** Send a session's controls again whenever one of its runs changes status or what it allows; the unsubscribe. */
+  follow(): () => void;
   /** Pause, resume or cancel the session's active runs: those named in `runs` (others of the session are ignored), else all. */
   control(session: SessionId, action: SessionControlAction, by: ActorId, runs?: readonly RunId[]): Promise<SessionControls>;
   presence(presence: Omit<Presence, 'lastActiveAt'>): Promise<void>;

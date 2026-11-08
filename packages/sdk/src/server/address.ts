@@ -69,6 +69,14 @@ export function isLocalName(hostname: string): boolean {
   return host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal');
 }
 
+/** True when a link URL is plain `ws:` to another machine, so whatever rides it (an auto-pair secret too) can be read on the way. */
+export function isPlainOffMachine(url: string): boolean {
+  const parsed = URL.parse(url);
+  if (parsed?.protocol !== 'ws:' && parsed?.protocol !== 'http:') { return false; }
+  const host = unbracketed(parsed.hostname).toLowerCase();
+  return !(host === 'localhost' || host.endsWith('.localhost') || host === '::1' || (isIP(host) === 4 && host.startsWith('127.')));
+}
+
 /** Why a URL may not be fetched: not http(s); a private address or local name; a name that didn't resolve. */
 export type AddressRefusal = 'not-http' | 'private' | 'unresolved';
 
