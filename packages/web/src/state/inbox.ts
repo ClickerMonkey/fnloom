@@ -1,8 +1,8 @@
 /**
  * The notifications inbox: the list (all, or only unread), paged; the unread count for the bell; live arrivals from
- * the user's event channel; and marking read, shown at once and put back if the hub refuses.
+ * the user's event channel (shown only while no search narrows the list); and marking read, shown at once and put back if the hub refuses.
  */
-import type { Notification, NotificationId, UserEvent } from '@harness/core';
+import type { ListQuery, Notification, NotificationId, NotificationListQuery, UserEvent } from '@harness/core';
 import { z } from 'zod';
 import { computed, ref, shallowRef } from 'vue';
 import type { NotificationsApi, UserEvents } from '../api/notifications.ts';
@@ -22,6 +22,8 @@ export class InboxStore {
   readonly #events: UserEvents;
   #stopEvents: (() => void) | undefined;
   #cursor: string | undefined;
+  /** The search the list is narrowed by (words, filters, sort), sent with every page. */
+  #query: ListQuery = {};
 
   /** The notifications shown, newest first. */
   readonly items = shallowRef<readonly Notification[]>([]);
@@ -54,14 +56,15 @@ export class InboxStore {
     this.#stopEvents = undefined;
   }
 
-  /** Load the first page for a filter. */
-  async load(filter: InboxFilter = this.filter.value): Promise<void> {
+  /** Load the first page for a filter and search (each kept for later pages and refreshes when left out). */
+  async load(filter: InboxFilter = this.filter.value, query: ListQuery = this.#query): Promise<void> {
     this.filter.value = filter;
+    this.#query = query;
     this.loading.value = true;
     this.problem.value = '';
     try {
-      const page = await this.#api.list.call({ limit: INBOX_PAGE, ...(filter === 'unread' ? { unread: true } : {}) });
-      if (this.filter.value !== filter) { return; }
+      const page = await this.#api.list.call(this.#body());
+      if (this.filter.value !== filter || this.#query !== query) { return; }
       this.items.value = page.items;
       this.#cursor = page.cursor;
       this.#hasMore.value = page.cursor !== undefined;
@@ -79,7 +82,7 @@ export class InboxStore {
     if (cursor === undefined || this.loadingMore.value) { return; }
     this.loadingMore.value = true;
     try {
-      const page = await this.#api.list.call({ limit: INBOX_PAGE, cursor, ...(this.filter.value === 'unread' ? { unread: true } : {}) });
+      const page = await this.#api.list.call(this.#body(cursor));
       const known = new Set(this.items.value.map((n) => n.id));
       this.items.value = [...this.items.value, ...page.items.filter((n) => !known.has(n.id))];
       this.#cursor = page.cursor;
@@ -133,12 +136,22 @@ export class InboxStore {
     await Promise.all([this.loaded.value ? this.load() : Promise.resolve(), this.countUnread()]);
   }
 
+  /** A page request for the current filter and search. */
+  #body(cursor?: string): NotificationListQuery {
+    return { limit: INBOX_PAGE, ...(cursor === undefined ? {} : { cursor }), ...(this.filter.value === 'unread' ? { unread: true } : {}), ...(this.#searched() ? { query: this.#query } : {}) };
+  }
+
+  /** Whether a search narrows the list (then live arrivals are not added: the hub decides what matches). */
+  #searched(): boolean {
+    return Object.keys(this.#query).length > 0;
+  }
+
   #onEvent(event: UserEvent): void {
     if (event.type !== 'notification') { return; }
     const notification = event.notification;
     const held = this.items.value.find((n) => n.id === notification.id);
     if (held !== undefined) { this.#replace(held, notification); return; }
-    if (this.loaded.value && (this.filter.value === 'all' || !notification.read)) {
+    if (this.loaded.value && !this.#searched() && (this.filter.value === 'all' || !notification.read)) {
       this.items.value = [notification, ...this.items.value];
     }
     if (!notification.read) { this.unread.value++; }

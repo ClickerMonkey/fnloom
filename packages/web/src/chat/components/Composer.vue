@@ -7,20 +7,21 @@
  *
  * Around it: the picker (`@`, `/`, `!`) floating above, with arrow keys and Enter working only while it is open;
  * the reply or edit strip; the command argument hint; staged files; attach (pick, drop, paste images); dictation;
- * reply-all; and Send, with Stop beside it while a turn runs (Pause and Cancel as the turn allows) or Resume when it
- * is paused. Under it, who will answer. It draws what it is given and reports what the person does.
+ * reply-all; and Send, with the run control beside it (Stop while a turn runs, Resume while it is paused; it can pick
+ * which running fns to pause, resume or cancel). Under it, who will answer when that isn't the usual agent. It draws what it is given and reports what the person does.
  */
-import type { SessionControls } from '@harness/core';
+import type { RunId, SessionControls } from '@harness/core';
 import { computed, nextTick, onMounted, ref, useId, watch } from 'vue';
-import { UiButton, UiIcon, UiIconButton, UiMenu, type MenuItem } from '../../ui/index.ts';
+import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { enterSends, type CommandHint } from '../logic/composer.ts';
 import { formatDuration } from '../logic/format.ts';
 import type { PickerItem } from '../state/composer.ts';
-import type { StopAction } from '../state/thread.ts';
+import type { ControlVerb } from '../logic/controls.ts';
 import type { StagedFile } from '../state/uploads.ts';
 import type { VoiceState } from '../state/voice.ts';
 import FileChips from './FileChips.vue';
 import PickerList from './PickerList.vue';
+import RunControl from './RunControl.vue';
 
 const props = withDefaults(defineProps<{
   text: string;
@@ -43,7 +44,7 @@ const props = withDefaults(defineProps<{
   /** Editing an earlier message: sending undoes the turns after it. */
   editing?: boolean;
   replyAll: { readonly shown: boolean; readonly on: boolean };
-  /** Who will answer ("Chat agent will answer"). */
+  /** Who will answer, when it isn't the usual agent ("No agent will answer; reply to one"); '' says nothing. */
   answerers: string;
   canAttach: boolean;
   voice: { readonly available: boolean; readonly state: VoiceState; readonly startedAt: number; readonly problem: string };
@@ -57,8 +58,8 @@ const emit = defineEmits<{
   input: [text: string, caret: number];
   caret: [caret: number];
   send: [];
-  stop: [action: StopAction];
-  resume: [];
+  /** Pause, resume or cancel: the runs named, or all (`undefined`). */
+  control: [verb: ControlVerb, runs: readonly RunId[] | undefined];
   pickerMove: [delta: number];
   pickerHover: [index: number];
   pick: [item: PickerItem | undefined];
@@ -102,16 +103,6 @@ const segments = computed(() => {
   return out;
 });
 
-const stopItems = computed<MenuItem<StopAction>[]>(() => {
-  const controls = props.controls;
-  const items: MenuItem<StopAction>[] = [];
-  if (controls?.pause === true) { items.push({ value: 'pause', label: 'Pause', icon: 'pause', hint: 'Resumable' }); }
-  if (controls === undefined || controls.cancel) {
-    const left = controls?.uncancellable.length ?? 0;
-    items.push({ value: 'cancel', label: 'Cancel', icon: 'stop', danger: true, ...(left > 0 ? { hint: `${left} run${left === 1 ? '' : 's'} will finish` } : {}) });
-  }
-  return items;
-});
 const recording = computed(() => props.voice.state === 'recording');
 const activeId = computed(() => (props.picker.open && props.picker.items.length > 0 ? `${id}-picker-${props.picker.active}` : undefined));
 
@@ -279,23 +270,15 @@ defineExpose({ focus: () => { area.value?.focus(); } });
           </button>
         </div>
         <div class="right">
-          <UiButton v-if="paused" size="sm" variant="secondary" icon="play" data-testid="resume" @click="emit('resume')">Resume</UiButton>
-          <UiMenu v-else-if="running && stopItems.length > 0" :items="stopItems" label="Stop the turn" side="top" align="end" @select="emit('stop', $event)">
-            <template #trigger="{ toggle, attrs }">
-              <UiButton size="sm" variant="secondary" icon="stop" v-bind="attrs" :loading="stopping" data-testid="stop" @click="toggle">Stop</UiButton>
-            </template>
-          </UiMenu>
+          <RunControl :controls="controls" :running="running" :paused="paused" :stopping="stopping" @control="(verb, runs) => emit('control', verb, runs)" />
           <UiIconButton
-            class="send" :class="{ ready: canSend }" icon="arrow-up" :label="editing ? 'Save and resend' : 'Send'" :disabled="!canSend || sending"
+            class="send" :class="{ ready: canSend }" icon="arrow-up" :label="editing ? 'Save and resend' : touch ? 'Send' : 'Send (Enter; Shift+Enter for a new line)'" :disabled="!canSend || sending"
             data-testid="send" @click="emit('send')"
           />
         </div>
       </div>
     </div>
-    <p class="answerers" data-testid="answerers">
-      <span>{{ note || answerers }}</span>
-      <span v-if="!touch" class="keys">Enter to send · Shift+Enter for a new line</span>
-    </p>
+    <p v-if="note !== '' || answerers !== ''" class="answerers" data-testid="answerers">{{ note || answerers }}</p>
   </div>
 </template>
 
@@ -341,9 +324,7 @@ defineExpose({ focus: () => { area.value?.focus(); } });
 .recording { display: inline-flex; align-items: center; gap: var(--space-1); padding-left: var(--space-2); color: var(--danger); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: ui-pulse 1s var(--ease-in-out) infinite; }
 .transcribing { padding: 0 var(--space-2); color: var(--text-dim); font-size: var(--text-sm); }
-.answerers { display: flex; justify-content: space-between; gap: var(--space-3); margin: 0; padding: 0 var(--space-3); color: var(--text-faint); font-size: var(--text-xs); }
-.keys { flex: none; }
-@media (max-width: 520px) { .keys { display: none; } }
+.answerers { margin: 0; padding: 0 var(--space-3); color: var(--text-faint); font-size: var(--text-xs); }
 /* a short screen (a phone on its side): the box is one row, its tools beside the text, and the who-answers line goes, so the thread keeps its height */
 @media (max-height: 499.98px) {
   .box { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }

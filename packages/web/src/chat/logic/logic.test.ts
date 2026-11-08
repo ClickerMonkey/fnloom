@@ -1,4 +1,4 @@
-import { ActorId, HookBlock, ResolvedLimits, RUN_STATUSES, RunId, type ChatCapabilities, type ModelInfo } from '@harness/core';
+import { ActorId, HookBlock, ResolvedLimits, QualifiedName, RUN_STATUSES, RunId, type ChatCapabilities, type ModelInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { capabilities, llmCall, message, run, session, T0, tree } from '../test/fakes.ts';
 import {
@@ -10,10 +10,11 @@ import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage 
 import { isTyping, shortcutFor } from './keys.ts';
 import { agentName, confirmVerb, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
 import {
-  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, INVALID_TEXT, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
+  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, INVALID_TEXT, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, repeatsArgs, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
 } from './runs.ts';
 import { abilities, contextText, findModels, isFree, priceText, type ModelQuery } from './models.ts';
-import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, whoAnswers } from './session.ts';
+import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, skipText, whoAnswers } from './session.ts';
+import { choosableRuns, controlPlan, toggleRun } from './controls.ts';
 import {
   answerPieces, appendToken, dayLabel, invocationCarriers, messageText, messageTextLength, prependPage, resendParts, splitParts, storedReasoning, threadItems, undoneTurns, upsertMessage,
 } from './thread.ts';
@@ -38,7 +39,7 @@ describe('labels', () => {
 
 describe('format', () => {
   it('formats money, time, sizes and tokens', () => {
-    expect([formatCost(0), formatCost(0.004), formatCost(0.031), formatCost(240)]).toEqual(['$0', '<$0.01', '$0.03', '$240']);
+    expect([formatCost(0), formatCost(0.004), formatCost(0.000423), formatCost(0.0000012), formatCost(0.031), formatCost(240)]).toEqual(['$0', '$0.004', '$0.00042', '$0.0000012', '$0.03', '$240']);
     expect([formatDuration(850), formatDuration(4_200), formatDuration(65_000), formatDuration(7_380_000)]).toEqual(['850ms', '4.2s', '1m 05s', '2h 03m']);
     expect([formatBytes(512), formatBytes(4_300), formatBytes(12 * 1_048_576)]).toEqual(['512 B', '4.2 KB', '12 MB']);
     expect([formatTokens(820), formatTokens(12_400), formatTokens(1_200_000)]).toEqual(['820', '12k', '1.2M']);
@@ -245,9 +246,9 @@ describe('composer rules', () => {
 describe('session facts', () => {
   it('applies the reply rule', () => {
     const solo = session();
-    expect(whoAnswers(solo, undefined, false).text).toBe('Chat agent will answer');
+    expect(whoAnswers(solo, undefined, false)).toMatchObject({ text: 'Chat agent will answer', usual: true });
     const group = session({ participants: [...solo.participants, { actor: 'act_bea', role: 'member', notify: 'all', joinedAt: T0 }] });
-    expect(whoAnswers(group, undefined, false).agents).toEqual([]);
+    expect(whoAnswers(group, undefined, false)).toMatchObject({ agents: [], usual: false });
     expect(whoAnswers(group, message({ author: 'act_agent' }), false).agents).toEqual(['act_agent']);
     expect(whoAnswers(group, undefined, true).agents).toEqual(['act_agent']);
   });
@@ -292,6 +293,23 @@ describe('session facts', () => {
     expect(found.fns.map((f) => [f.name, f.score])).toEqual([['fs/read_file', 0.873], ['fs/glob', 0.41], ['fs/tree', undefined]]);
     expect(scoreText(0.873)).toBe('87%');
     expect(scoreText(1.2)).toBe('100%');
+  });
+
+  it('merges the hub’s suggestion record: used items join the parts, left-out ones keep their reason', () => {
+    const blocks = [HookBlock.parse({ type: 'suggest-fns', items: [{ fn: 'fs/read_file', score: 0.9, why: 'reads' }] })];
+    const found = messageSuggestions(message({
+      parts: [{ type: 'extra', extra: 'suggested-fns', blocks }],
+      suggestions: { by: 'score', threshold: 0.5, items: [
+        { used: true, kind: 'fn', name: 'fs/read_file', score: 0.9, note: 'ignored, the part says why' },
+        { used: true, kind: 'context', name: 'fs/readme', note: 'the docs' },
+        { used: false, kind: 'fn', name: 'fs/glob', score: 0.2, reason: 'below-threshold' },
+        { used: false, kind: 'fn', name: 'fs/tree', score: 0.4, reason: 'declined', note: 'off topic' },
+      ] },
+    }), undefined);
+    expect(found.fns.map((f) => [f.name, f.why])).toEqual([['fs/read_file', 'reads']]);
+    expect(found.context.map((c) => [c.name, c.why])).toEqual([['fs/readme', 'the docs']]);
+    expect(found.skippedFns?.map((s) => [s.name, skipText(s)])).toEqual([['fs/tree', 'The decision model declined it: off topic'], ['fs/glob', 'Score under the threshold']]);
+    expect([found.by, found.threshold]).toEqual(['score', 0.5]);
   });
 });
 
@@ -482,5 +500,30 @@ describe('invocation carriers', () => {
     expect(items.filter((i) => i.kind !== 'day').map((i) => i.kind)).toEqual(['user', 'answer']);
     const user = items.find((i) => i.kind === 'user');
     expect(user?.kind === 'user' ? user.carried : []).toEqual([carrier]);
+  });
+});
+
+describe('run control', () => {
+  const a = { run: RunId.parse('run_a'), fn: QualifiedName.parse('fs/bash'), status: 'running', pause: true, resume: false, cancel: true } as const;
+  const b = { run: RunId.parse('run_b'), fn: QualifiedName.parse('fs/glob'), status: 'paused', pause: false, resume: true, cancel: false } as const;
+  const controls = { pause: true, cancel: true, uncancellable: [], undoLastTurn: false, runs: [a, b] };
+
+  it('names no runs for all, and only the chosen runs that allow the action otherwise', () => {
+    expect(controlPlan(controls, false, 'all', 'pause')).toEqual({ enabled: true, runs: undefined });
+    expect(controlPlan(controls, false, 'all', 'resume').enabled).toBe(true);
+    expect(controlPlan(controls, false, new Set([b.run]), 'cancel')).toEqual({ enabled: false, runs: [] });
+    expect(controlPlan(controls, false, new Set([a.run, b.run]), 'resume')).toEqual({ enabled: true, runs: [b.run] });
+    expect(controlPlan(undefined, false, 'all', 'cancel').enabled).toBe(true);
+  });
+
+  it('lists runs only when there is a choice, and goes back to all when every run is chosen', () => {
+    expect(choosableRuns({ ...controls, runs: [a] })).toEqual([]);
+    const one = toggleRun('all', a.run, [a, b]);
+    expect(one).toEqual(new Set([b.run]));
+    expect(toggleRun(one, a.run, [a, b])).toBe('all');
+  });
+
+  it('spots words that only repeat the args', () => {
+    expect([repeatsArgs('Running ls -la', 'ls -la'), repeatsArgs('Read 3 files', 'src'), repeatsArgs('Thinking', '')]).toEqual([true, false, false]);
   });
 });

@@ -6,13 +6,14 @@
  * from the config type the system sent) and pairs it in one step, or refuses. It then follows the system live until
  * it is connected and links to its admin page. Signing in comes first and returns here.
  */
-import { InstanceName, PairingId, type Json } from '@harness/core';
+import { InstanceName, PairingId, type AutoPairChoice, type Json } from '@harness/core';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import GinValueView from '../gin/GinValueView.vue';
+import AutoPairPicker from '../admin/components/AutoPairPicker.vue';
 import LoadState from '../admin/components/LoadState.vue';
 import { useStores } from '../state/stores.ts';
 import { UiBadge, UiBanner, UiButton, UiCard, UiEmpty, UiIcon, UiInput, UiSpinner, fullTime } from '../ui/index.ts';
@@ -31,6 +32,7 @@ const phase = computed(() => store.phase.value);
 const instance = ref('');
 const config = shallowRef<Json | undefined>(undefined);
 const configValid = ref(true);
+const autoPair = ref<AutoPairChoice | undefined>(undefined);
 
 watch(id, (pairing) => { if (pairing !== undefined) { void store.open(pairing); } }, { immediate: true });
 watch(request, (r) => {
@@ -48,7 +50,7 @@ const leftText = computed(() => { const s = Math.floor(left.value / 1_000); retu
 
 async function pair(): Promise<void> {
   const name = instanceName.value.success ? instanceName.value.data : undefined;
-  const result = await store.approve(name, request.value?.configType === undefined ? undefined : config.value);
+  const result = await store.approve(name, request.value?.configType === undefined ? undefined : config.value, autoPair.value);
   if (!result.ok) { toasts.error(result.problem); }
 }
 
@@ -88,7 +90,10 @@ async function refuse(): Promise<void> {
 
         <template v-if="phase === 'waiting' || phase === 'pairing'">
           <UiCard title="Instance" subtitle="Its name here, so a fleet's copies can be told apart (fs@laptop).">
-            <UiInput v-model="instance" label="Instance" hide-label :error="instanceProblem" data-testid="pair-instance" />
+            <div class="instance">
+              <UiInput v-model="instance" label="Instance" hide-label :error="instanceProblem" data-testid="pair-instance" />
+              <AutoPairPicker v-model="autoPair" />
+            </div>
           </UiCard>
           <UiCard v-if="request.configType" title="Config" subtitle="Checked against the system’s config type; it starts with this.">
             <GinValueView v-model="config" :type="request.configType" label="Config" data-testid="pair-config" @problems="configValid = $event.length === 0" />
@@ -126,6 +131,7 @@ async function refuse(): Promise<void> {
 </template>
 
 <style scoped>
+.instance { display: grid; gap: var(--space-3); }
 .who { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
 .mark { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent); }
 .main { min-width: 0; }

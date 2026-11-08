@@ -1,9 +1,12 @@
 /** Numbers people read in the chat: money, durations, sizes and token counts. Pure, so they are tested alone. */
 
-/** Dollars: "$0", "<$0.01", "$0.03", "$12.40". */
+/** Dollars, exact below a cent: "$0", "$0.00042" (two significant digits), "$0.03", "$12.40", "$240". */
 export function formatCost(usd: number): string {
   if (usd <= 0) { return '$0'; }
-  if (usd < 0.01) { return '<$0.01'; }
+  if (usd < 0.01) {
+    const decimals = 1 - Math.floor(Math.log10(usd));
+    return `$${Number(usd.toPrecision(2)).toFixed(decimals).replace(/0+$/, '')}`;
+  }
   return `$${usd < 100 ? usd.toFixed(2) : usd.toFixed(0)}`;
 }
 

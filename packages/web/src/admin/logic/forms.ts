@@ -6,7 +6,7 @@
  */
 import {
   InstallSource, ProviderInput, type ActorKind, type ActorMatch, type Approver, type BudgetPeriod, type BudgetRule, type LimitLevel, type ModelCategory, type Policy, type Priority, type PriorityLevel,
-  type PriorityRule,
+  type PriorityRule, type AutoPairChoice,
 } from '@harness/core';
 import type { z } from 'zod';
 import { checkForm, type FieldProblems } from '../../state/problems.ts';
@@ -312,6 +312,19 @@ export const TOKEN_LIFETIMES = [
   { label: '1 hour', ms: 3_600_000 },
   { label: '1 day', ms: 86_400_000 },
 ] as const;
+
+/** How long an auto pair secret lasts, as the pairing forms offer it (90 days first: the hub's default); `null` never ends. */
+export const AUTO_PAIR_LIFETIMES = [
+  { label: '90 days', ms: 90 * 86_400_000 },
+  { label: '30 days', ms: 30 * 86_400_000 },
+  { label: '1 year', ms: 365 * 86_400_000 },
+  { label: 'Never ends', ms: null },
+] as const;
+
+/** The pairing body's auto pair part: `{ autoPair }` when chosen, nothing otherwise. */
+export function autoPairPart(choice: AutoPairChoice | undefined): { autoPair?: AutoPairChoice } {
+  return choice === undefined ? {} : { autoPair: choice };
+}
 
 export type TokenBody = z.output<typeof BODIES.createPairingToken>;
 

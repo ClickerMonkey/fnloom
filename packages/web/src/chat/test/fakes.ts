@@ -143,6 +143,7 @@ export function fakeChatApi() {
     sessions: fakeCaller<'sessions'>(() => Promise.resolve(({ items: [summary({ id: 'ses_1', title: current.title })] }))),
     searchSessions: fakeCaller<'sessions'>(() => Promise.resolve(({ items: [summary({ id: 'ses_1', title: current.title })] }))),
     session: fakeCaller<'session'>(({ session: id }) => Promise.resolve(session({ id }))),
+    listValues: fakeCaller<'listValues'>(() => Promise.resolve([])),
     createSession: fakeCaller<'createSession'>(() => Promise.resolve(session({ id: 'ses_new', title: 'New chat' }))),
     updateSession: fakeCaller<'updateSession'>(({ session: id, ...change }) => Promise.resolve(session({ id, ...change }))),
     limits: fakeCaller<'limits'>(() => Promise.resolve(({ priority: 'interactive', priorityFrom: { default: 'hub' }, turn: { cost: 1, time: 600_000 }, budgets: [] }))),

@@ -1,7 +1,8 @@
 /**
  * The roots served as resources: `file://` URIs for folders and files, folder listings by page, reads with text and
  * links (through `Documents`), and change reports from watching the roots. Each file's `format` lets the hub pick a
- * sectioner (headings for markdown, symbols for code) and a viewer for it.
+ * sectioner (headings for markdown, symbols for code) and a viewer for it. Files the config marks as secrets (see
+ * `secrets.ts`) are never listed, read or reported.
  */
 import { join } from 'node:path';
 import type { Page, ReadWant, ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri } from '@harness/core';
@@ -11,7 +12,8 @@ import type { Documents, Located, PathGuard, WatchFolder } from './index.ts';
 import { lastSegment } from '../shared/format.ts';
 import { fileUri, inside, normalize, uriPath } from './paths.ts';
 import { FsProblem } from './problem.ts';
-import { collect } from './walk.ts';
+import type { SecretFilter } from './secrets.ts';
+import { collect, type WalkEntry } from './walk.ts';
 
 /** How resources are served. */
 export interface ResourceLimits {
@@ -30,16 +32,18 @@ export function versionOf(modifiedAt: Date, size: number): string {
   return `${modifiedAt.getTime()}-${size}`;
 }
 
-/** The fs system's resource provider. The guard comes from the current config, so it follows config changes. */
+/** The fs system's resource provider. The guard and secrets come from the current config, so they follow its changes. */
 export class FsResources implements ResourceProvider {
   private readonly guard: () => PathGuard;
+  private readonly secrets: () => SecretFilter;
   private readonly files: FileService;
   private readonly documents: Documents;
   private readonly limits: ResourceLimits;
   private readonly watchFolder: WatchFolder;
 
-  constructor(deps: { guard: () => PathGuard; files: FileService; documents: Documents; limits: ResourceLimits; watch: WatchFolder }) {
+  constructor(deps: { guard: () => PathGuard; secrets: () => SecretFilter; files: FileService; documents: Documents; limits: ResourceLimits; watch: WatchFolder }) {
     this.guard = deps.guard;
+    this.secrets = deps.secrets;
     this.files = deps.files;
     this.documents = deps.documents;
     this.limits = deps.limits;
@@ -60,7 +64,7 @@ export class FsResources implements ResourceProvider {
   async list(uri: ResourceUri, cursor?: string): Promise<Page<ResourceStat>> {
     const at = this.located(uri);
     const from = cursor === undefined ? 0 : Number.parseInt(cursor, 10) || 0;
-    const children = await collect(at.path, { ignore: this.limits.ignore, depth: 1 });
+    const children = await this.children(at);
     const slice = children.slice(from, from + this.limits.page);
     // a link is listed as what it leads to, and left out when that is outside the roots
     const stats = await Promise.all(slice.map((child) => (child.type === 'link' ? this.stat(fileUri(child.path)) : this.statPath(child.path, at))));
@@ -87,6 +91,7 @@ export class FsResources implements ResourceProvider {
   watch(uris: ResourceUri[], onChange: (changes: ResourceChange[]) => void): () => void {
     const wanted = uris.flatMap((uri) => { const path = uriPath(uri); return path === undefined ? [] : [path]; });
     const guard = this.guard();
+    const secrets = this.secrets();
     const folders = new Set(wanted.flatMap((path) => { const at = guard.locate(path); return at === undefined ? [] : [at.root.folder]; }));
     const pending = new Map<string, 'rename' | 'change'>();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -104,7 +109,7 @@ export class FsResources implements ResourceProvider {
     const stops = [...folders].map((folder) => this.watchFolder(folder, (event, file) => {
       const path = normalize(join(folder, file));
       const rel = inside(folder, path);
-      if (rel === undefined || rel.split('/').some((part) => this.limits.ignore.includes(part))) { return; }
+      if (rel === undefined || rel.split('/').some((part) => this.limits.ignore.includes(part)) || secrets.hides(rel)) { return; }
       if (!wanted.some((root) => inside(root, path) !== undefined)) { return; }
       pending.set(path, pending.get(path) === 'rename' ? 'rename' : event);
       timer ??= setTimeout(() => { void flush(); }, this.limits.debounce);
@@ -115,12 +120,16 @@ export class FsResources implements ResourceProvider {
     };
   }
 
-  /** Where a URI is inside the roots, or `undefined` when it is outside them (also through a link) or not a file URI. */
+  /**
+   * Where a URI is inside the roots, or `undefined` when it is outside them (also through a link), a secret, or not a
+   * file URI.
+   */
   private within(uri: ResourceUri): Located | undefined {
     const path = uriPath(uri);
     if (path === undefined) { return undefined; }
     try {
-      return this.guard().resolve(path, { write: false });
+      const at = this.guard().resolve(path, { write: false });
+      return this.secret(at.path, at) ? undefined : at;
     } catch (error) {
       if (error instanceof FsProblem) { return undefined; }
       throw error;
@@ -129,12 +138,24 @@ export class FsResources implements ResourceProvider {
 
   private located(uri: ResourceUri): Located {
     const at = this.within(uri);
-    if (at === undefined) { throw new Error(`${uri} isn't under any of this system's roots.`); }
+    if (at === undefined) { throw new Error(`${uri} isn't served: it is outside this system's roots, or a secret.`); }
     return at;
   }
 
+  /** Whether a path under `at`'s root is a secret. */
+  private secret(path: string, at: Located): boolean {
+    const rel = inside(at.root.folder, path);
+    return rel !== undefined && this.secrets().hides(rel);
+  }
+
+  /** A folder's children, secrets left out. */
+  private async children(at: Located): Promise<WalkEntry[]> {
+    const all = await collect(at.path, { ignore: this.limits.ignore, depth: 1 });
+    return all.filter((child) => !this.secret(child.path, at));
+  }
+
   private async readFolder(at: Located, stat: ResourceStat, want: ReadWant[]): Promise<ResourceRead> {
-    const children = await collect(at.path, { ignore: this.limits.ignore, depth: 1 });
+    const children = await this.children(at);
     const links: ResourceLink[] = children.map((child) => ({ uri: fileUri(child.path), raw: child.name, kind: 'child', title: child.name }));
     const text = children.map((child) => (child.type === 'folder' ? `${child.name}/` : child.name)).join('\n');
     return { stat, ...(want.includes('links') ? { links } : {}), ...(want.includes('text') ? { text: { inline: text } } : {}) };

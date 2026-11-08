@@ -1,15 +1,18 @@
 /**
  * One fn's admin page: its record (from its system's fns), its rollup over a period (runs, outcomes, p50 and p95,
- * queue wait, cost, tokens, retries) and its daily rollups for the charts. A settled run of the fn (the user channel's
+ * queue wait, cost, tokens, retries), its daily rollups for the charts and its latest runs. A settled run of the fn (the user channel's
  * `fn` event) updates its running numbers at once and reads the rollups again quietly.
  */
-import { splitName, SystemName, type FnMetrics, type FnMetricsDay, type FnRecord, type QualifiedName, type UserEvent } from '@harness/core';
+import { splitName, SystemName, type FnMetrics, type FnMetricsDay, type FnRecord, type QualifiedName, type Run, type UserEvent } from '@harness/core';
 import { ref } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
 
-type FnApi = Pick<AdminApi, 'systemFns' | 'fnMetrics' | 'fnMetricsDays'>;
+type FnApi = Pick<AdminApi, 'systemFns' | 'fnMetrics' | 'fnMetricsDays' | 'runs'>;
+
+/** How many of its latest runs the page lists; the rest are a link away. */
+export const FN_RECENT_RUNS = 8;
 
 /** The periods the page offers, in days. */
 export const FN_PERIODS = [7, 30, 90] as const;
@@ -25,6 +28,8 @@ export class FnStore {
   readonly record = new Loaded<FnRecord>();
   readonly metrics = new Loaded<FnMetrics | undefined>();
   readonly daily = new Loaded<readonly FnMetricsDay[]>();
+  /** Its latest runs, newest first. */
+  readonly recent = new Loaded<readonly Run[]>();
 
   constructor(api: FnApi, events: UserEvents) {
     this.#api = api;
@@ -48,6 +53,7 @@ export class FnStore {
     this.record.reset();
     this.metrics.reset();
     this.daily.reset();
+    this.recent.reset();
   }
 
   async #loadRecord(fn: QualifiedName, quiet: boolean): Promise<void> {
@@ -63,6 +69,7 @@ export class FnStore {
     await Promise.all([
       this.metrics.load(async () => (await this.#api.fnMetrics.call({ fn, days })).find((m) => m.fn === fn), "Couldn't load this fn's metrics.", quiet),
       this.daily.load(() => this.#api.fnMetricsDays.call({ fn, days }), "Couldn't load this fn's days.", quiet),
+      this.recent.load(async () => (await this.#api.runs.call({ query: { filters: [{ field: 'fn', op: 'is', value: fn }] }, limit: FN_RECENT_RUNS })).items, "Couldn't load this fn's runs.", quiet),
     ]);
   }
 

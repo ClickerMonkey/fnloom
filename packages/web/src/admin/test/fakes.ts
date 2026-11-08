@@ -12,7 +12,7 @@ import { fakeCaller } from '../../test/fakes.ts';
 import { fakeSender, llmCall, run, T0 } from '../../chat/test/fakes.ts';
 import type { McpProbe, ProbeResult } from '../probe.ts';
 import type { SystemLogEvents } from '../api.ts';
-import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView } from '@harness/core';
+import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView, SuggestDecision } from '@harness/core';
 import { AdminStore } from '../state/admin.ts';
 import { fakeBuild2Api } from './build2.ts';
 
@@ -172,6 +172,12 @@ export function fakeAdminApi() {
     actors: fakeCaller<'actors'>(() => Promise.resolve([actor(), actor({ id: 'act_eng', kind: 'group', name: 'Engineering', about: 'The builders', email: undefined, role: undefined })])),
     actorSettings: fakeCaller<'actorSettings'>(() => Promise.resolve({ declared: [settingView()], values: [settingValue()] })),
     setActorSetting: fakeCaller<'setActorSetting'>(() => Promise.resolve({ ok: true })),
+    fns: fakeCaller<'fns'>(() => Promise.resolve({ items: [] })),
+    autoPairs: fakeCaller<'autoPairs'>(() => Promise.resolve([])),
+    revokeAutoPair: fakeCaller<'revokeAutoPair'>(() => Promise.resolve({ ok: true })),
+    suggestDecision: fakeCaller<'suggestDecision'>(() => Promise.resolve({ value: SuggestDecision.parse({}) })),
+    setSuggestDecision: fakeCaller<'setSuggestDecision'>((value) => Promise.resolve({ value: SuggestDecision.parse(value) })),
+    previewSuggestions: fakeCaller<'previewSuggestions'>(() => Promise.resolve({ by: 'score' as const, threshold: 0.5, items: [] })),
     runs: fakeCaller<'runs'>(() => Promise.resolve({ items: [run({ id: 'run_a' }), run({ id: 'run_b', status: 'failed' })] })),
     llmCalls: fakeCaller<'llmCalls'>(() => Promise.resolve({ items: [llmSummary({ id: 'llm_a' })] })),
     resources: fakeCaller<'resources'>(() => Promise.resolve({ items: [resourceRecord()] })),

@@ -13,7 +13,7 @@
  *   they hard-link, and the greedy chooser picks the detail of each under the budget. History is rebuilt: the newest
  *   selected exchanges in a row are real messages, older selected ones are summaries in the system prompt.
  */
-import { Detail, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor } from '@harness/core';
+import { Detail, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor, type SuggestionOutcome } from '@harness/core';
 import { allowsSystem, searchSystems } from '../chat/support.ts';
 import { toolName } from '../execution/wire.ts';
 import type { Pool, PoolTokens } from './budget.ts';
@@ -388,7 +388,18 @@ export class GraphContextorImpl implements Contextor {
     this.#deps.log.debug('contextor.selected', {
       context: context.length, fns: fns.length, linear: tail, earlier: earlier.length, pool: candidates.length, used: choice.total, flexible: input.plan.flexible,
     });
-    return { context, fns, linear, earlier, report: report(input, 'graph', { context, fns, linear: tail, earlier, pools, cut: choice.cut }) };
+    // what this cycle considered, for the user message's suggestions: each item shown, and each candidate left out and why
+    const items: SuggestionOutcome[] = [
+      ...context.map((c): SuggestionOutcome => ({ used: true, kind: 'context', name: c.record.name, score: c.activation })),
+      ...fns.map((f): SuggestionOutcome => ({ used: true, kind: 'fn', name: f.view.record.name, score: f.activation })),
+      ...candidates.filter((c) => !detailOf.has(c.name)).map((c): SuggestionOutcome => ({
+        used: false, kind: c.kind, name: c.name, score: act(c.name), reason: forcedLevel.has(c.name) || act(c.name) >= config.threshold ? 'budget' : 'below-threshold',
+      })),
+    ];
+    return {
+      context, fns, linear, earlier, report: report(input, 'graph', { context, fns, linear: tail, earlier, pools, cut: choice.cut }),
+      ...(items.length === 0 ? {} : { considered: { by: 'graph', threshold: config.threshold, items } }),
+    };
   }
 
   /** The candidates among names: context a person may see and fns the session may use, offered to the model. */

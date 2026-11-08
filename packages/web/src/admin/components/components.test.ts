@@ -178,7 +178,7 @@ describe('lists and cards', () => {
 
   it('AdminNav links every section and marks the current one', () => {
     const nav = mount(AdminNav, { props: { entries: adminNav({ name: 'runs' }, { systems: 3 }) }, global: { stubs } });
-    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(8);
+    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(9);
     expect(nav.get('[aria-current=page]').text()).toContain('Runs');
     expect(nav.get('.count').text()).toBe('3');
   });
@@ -235,7 +235,7 @@ describe('dialogs', () => {
     expect(dialog.emitted('create')).toBeUndefined();
     await type(field('System name'), 'notes');
     await click('[data-testid=token-create]');
-    expect(dialog.emitted('create')?.[0]).toEqual(['notes', 3_600_000]);
+    expect(dialog.emitted('create')?.[0]).toEqual(['notes', 3_600_000, undefined]);
     await dialog.setProps({ token: { token: 'ptk-abc', expiresAt: T0 + 3_600_000 } });
     expect(find('[data-testid=token-made]').textContent).toContain('ptk-abc');
     dialog.unmount();

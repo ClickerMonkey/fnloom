@@ -5,7 +5,7 @@
  */
 import {
   ACTIVE_RUN_STATUSES, IDS, SessionSummary, isUnsettled, mintId, type ActorId, type ChatMessage, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
-  type Run, type Session, type SessionControls, type SessionId, type SessionPatch, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
+  type Run, type RunId, type Session, type SessionControls, type SessionId, type SessionPatch, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ChatDeps } from './deps.ts';
@@ -172,12 +172,15 @@ export class StoreSessionService implements SessionService {
       cancel: active.some((r) => r.allowed.cancel),
       uncancellable: active.filter((r) => !r.allowed.cancel).map((r) => r.id),
       undoLastTurn: active.length === 0 && last !== undefined && (last.status === 'done' || last.status === 'failed' || last.status === 'cancelled'),
+      runs: active.map((r) => ({ run: r.id, fn: r.fn, status: r.status, pause: r.allowed.pause && r.status !== 'paused', resume: r.status === 'paused', cancel: r.allowed.cancel })),
     };
   }
 
-  async control(session: SessionId, action: SessionControlAction, by: ActorId): Promise<SessionControls> {
+  async control(session: SessionId, action: SessionControlAction, by: ActorId, runs?: readonly RunId[]): Promise<SessionControls> {
     await this.require(session, by);
-    const active = await this.#active(session);
+    const chosen = runs === undefined ? undefined : new Set(runs);
+    const all = await this.#active(session);
+    const active = all.filter((run) => chosen === undefined || chosen.has(run.id));
     const results = await Promise.all(active.map(async (run): Promise<boolean> => {
       switch (action) {
         case 'pause': return run.allowed.pause && run.status !== 'paused' ? (await this.#deps.runs.pause(run.id, by)).accepted : false;
@@ -189,8 +192,11 @@ export class StoreSessionService implements SessionService {
       }
     }));
     const accepted = results.filter(Boolean).length;
-    if (accepted > 0 && action !== 'cancel') { await this.save(session, { status: action === 'pause' ? 'paused' : 'running' }); }
-    this.#deps.log.info('chat.session.control', { session, action, by, runs: active.length, accepted });
+    // the session reads paused once every run that can pause is (pausing one of several leaves it running)
+    const pausedNow = new Set(active.filter((_, i) => action === 'pause' && results[i] === true).map((run) => run.id));
+    const allPaused = all.filter((run) => run.allowed.pause).every((run) => run.status === 'paused' || pausedNow.has(run.id));
+    if (accepted > 0 && action !== 'cancel') { await this.save(session, { status: action === 'pause' && allPaused ? 'paused' : 'running' }); }
+    this.#deps.log.info('chat.session.control', { session, action, by, runs: active.length, accepted, chosen: runs?.length });
     const controls = await this.controls(session);
     this.#deps.bus.publish('session.controls', { session, controls });
     return controls;

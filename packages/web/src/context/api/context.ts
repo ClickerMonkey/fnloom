@@ -1,6 +1,6 @@
 /**
  * The context pages' callers, made once from the one hub client: every context item (filtered, page by page), one
- * item with its links both ways and its text, writing and forgetting memory, drawing and removing links, and making
+ * item with its links both ways and its text, writing, changing and forgetting memory, drawing and removing links, and making
  * context from a resource. Stores receive only the callers they use (`Pick<ContextApi, …>`), so tests hand them fakes.
  * Live changes come through `ContextEvents`.
  */
@@ -15,6 +15,7 @@ export function contextApi(hub: Hub) {
     list: hub.caller('contexts', { lastOnly: true }),
     item: hub.caller('contextItem', { dedupe: true }),
     remember: hub.caller('remember'),
+    updateMemory: hub.caller('updateMemory'),
     forget: hub.caller('forget'),
     link: hub.caller('linkContext'),
     unlink: hub.caller('unlinkContext'),

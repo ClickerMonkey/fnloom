@@ -3,16 +3,21 @@
  * pairs a system name with its public key once; after that the system proves it holds the private key by signing a
  * challenge nonce. Ed25519; the public key is SPKI DER in base64, the private key PKCS8 DER in base64, and the
  * signature is over the UTF-8 bytes of the nonce, in base64. A pair is kept as `key.json` (`KEY_FILE`) in the
- * system's state folder; the hub writes it there for a system it installs.
+ * system's state folder; the hub writes it there for a system it installs. An auto-pair secret the hub granted is kept
+ * beside it as `auto-pair.json` (`AUTO_PAIR_FILE`), private to the user (0600), and replaced on every rotation.
  */
 import { generateKeyPairSync, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { AutoPairGrant } from '@harness/core';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import type { KeyStore } from './index.ts';
 
 /** The file in a system's state folder that holds its key pair. */
 export const KEY_FILE = 'key.json';
+
+/** The file beside it that holds the auto-pair secret. */
+export const AUTO_PAIR_FILE = 'auto-pair.json';
 
 /** A key pair as stored: SPKI and PKCS8 DER, both base64. */
 export const StoredKeyPair = z.object({ publicKey: z.string().min(1), privateKey: z.string().min(1) });
@@ -55,6 +60,7 @@ export function isPublicKey(publicKey: string): boolean {
 /** Keys held in memory, made on first use. For tests and throwaway systems. */
 export class MemoryKeyStore implements KeyStore {
   #keys: StoredKeyPair | undefined;
+  #autoPair: AutoPairGrant | undefined;
 
   publicKey(): Promise<string> {
     return Promise.resolve(this.#ensure().publicKey);
@@ -62,6 +68,15 @@ export class MemoryKeyStore implements KeyStore {
 
   sign(nonce: string): Promise<string> {
     return Promise.resolve(signNonce(this.#ensure().privateKey, nonce));
+  }
+
+  autoPair(): Promise<AutoPairGrant | undefined> {
+    return Promise.resolve(this.#autoPair);
+  }
+
+  saveAutoPair(grant: AutoPairGrant | undefined): Promise<void> {
+    this.#autoPair = grant;
+    return Promise.resolve();
   }
 
   #ensure(): StoredKeyPair {
@@ -73,10 +88,12 @@ export class MemoryKeyStore implements KeyStore {
 /** Keys kept in `key.json` in the system's state folder, made on first use. */
 export class FileKeyStore implements KeyStore {
   readonly #file: string;
+  readonly #autoPairFile: string;
   #keys: Promise<StoredKeyPair> | undefined;
 
   constructor(stateFolder: string) {
     this.#file = join(stateFolder, KEY_FILE);
+    this.#autoPairFile = join(stateFolder, AUTO_PAIR_FILE);
   }
 
   async publicKey(): Promise<string> {
@@ -85,6 +102,26 @@ export class FileKeyStore implements KeyStore {
 
   async sign(nonce: string): Promise<string> {
     return signNonce((await this.#load()).privateKey, nonce);
+  }
+
+  async autoPair(): Promise<AutoPairGrant | undefined> {
+    try {
+      const parsed = AutoPairGrant.safeParse(JSON.parse(await readFile(this.#autoPairFile, 'utf8')));
+      return parsed.success ? parsed.data : undefined;
+    } catch (error) {
+      if (isMissing(error) || error instanceof SyntaxError) { return undefined; }
+      throw error;
+    }
+  }
+
+  async saveAutoPair(grant: AutoPairGrant | undefined): Promise<void> {
+    if (grant === undefined) {
+      await rm(this.#autoPairFile, { force: true });
+      return;
+    }
+    await mkdir(dirname(this.#autoPairFile), { recursive: true });
+    await writeFile(this.#autoPairFile, JSON.stringify(grant), { mode: 0o600 });
+    await chmod(this.#autoPairFile, 0o600); // `mode` only applies when the file is made
   }
 
   #load(): Promise<StoredKeyPair> {

@@ -164,7 +164,7 @@ export function adminOperations(hub: HubServices): AdminOperations {
         hub.log.info('pairing.rejected', { pairing: data.pairing, user: by });
         return {};
       }
-      const record = await link.pairing.approve(data.pairing, by, compact({ instance: data.instance, config: data.config }));
+      const record = await link.pairing.approve(data.pairing, by, compact({ instance: data.instance, config: data.config, autoPair: data.autoPair }));
       hub.log.info('pairing.approved', { pairing: data.pairing, system: record.system, instance: record.instance, user: by });
       return { system: record.system };
     },

@@ -35,7 +35,7 @@ async function survivesReload(ctx: FeatureContext, what: string, ready: string):
 
 /** Type into a labelled search field the way a person does. */
 async function typeInto(page: Page, label: string, text: string): Promise<void> {
-  const field = await page.waitForSelector(`main ::-p-aria([name="${label}"][role="searchbox"])`, { timeout: 10_000 });
+  const field = await page.waitForSelector(`main ::-p-aria([name="${label}"][role="combobox"])`, { timeout: 10_000 });
   check(field !== null, `no ${label} field`);
   await field.click({ count: 3 });
   await page.keyboard.type(text);
@@ -57,25 +57,25 @@ export default feature({
     await survivesReload(ctx, 'the fs config tab', 'main');
     await ctx.shot('system-tab');
 
-    // runs: a filter typed in, then a run opened on its Timeline tab
+    // runs: a filter typed in (it becomes a pill at the space), then a run opened on its Timeline tab
     await open(ctx, '/admin/runs', 'main');
-    await typeInto(page, 'Fn', 'fs/bash');
-    await urlHas(page, 'fn', 'fs/bash', 'the runs filter');
-    await page.goto(ctx.url(`/admin/runs?fn=fs%2Fbash&run=${fixtures.bashRun}`), { waitUntil: 'networkidle0' });
+    await typeInto(page, 'Search runs', 'fn:fs/bash ');
+    await urlHas(page, 'q', 'fn:fs/bash', 'the runs filter');
+    await page.goto(ctx.url(`/admin/runs?q=fn%3Afs%2Fbash&run=${fixtures.bashRun}`), { waitUntil: 'networkidle0' });
     await settle(page, 600);
     await survivesReload(ctx, 'the runs filter with a run open', 'main');
     await ctx.shot('runs');
 
     // LLM calls: the model filter typed in
     await open(ctx, '/admin/llm', 'main');
-    await typeInto(page, 'Model', 'free');
-    await urlHas(page, 'model', 'free', 'the LLM calls filter');
+    await typeInto(page, 'Search LLM calls', 'free');
+    await urlHas(page, 'q', 'free', 'the LLM calls filter');
     await survivesReload(ctx, 'the LLM calls filter', 'main');
     await ctx.shot('llm');
 
     // resources: a search typed in
     await open(ctx, '/admin/resources', 'main');
-    await typeInto(page, 'Search', 'README');
+    await typeInto(page, 'Search resources', 'README');
     await urlHas(page, 'q', 'README', 'the resources search');
     await survivesReload(ctx, 'the resources search', 'main');
     await ctx.shot('resources');
@@ -98,11 +98,11 @@ export default feature({
     await open(ctx, hasListColumn(ctx) ? `/chat/${fixtures.session}` : '/chat', 'main');
     await typeInto(page, 'Search chats', 'UI');
     await urlHas(page, 'q', 'UI', 'the chat search');
-    await page.click('[aria-label="Which chats"] ::-p-aria([name="Archived"][role="radio"])');
+    await page.click('[data-testid="show-archived"]');
     await urlHas(page, 'chats', 'archived', 'the Archived view');
     await survivesReload(ctx, 'the chat list search and Archived view', 'main');
     await ctx.shot('chat-list');
-    await page.click('[aria-label="Which chats"] ::-p-aria([name="Active"][role="radio"])');
+    await page.click('[data-testid="show-archived"]');
     await page.waitForFunction(() => !new URL(location.href).searchParams.has('chats'));
   },
 });

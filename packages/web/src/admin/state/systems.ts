@@ -3,12 +3,13 @@
  * waiting for the admin (new ones arrive live), approving or rejecting them, one-time pairing tokens, and installing
  * a system for the hub to run.
  */
-import type { InstallSource, Json, PairingId, PairingRequest, SystemName, SystemView, UserEvent } from '@harness/core';
+import type { AutoPairChoice, InstallSource, Json, ListQuery, PairingId, PairingRequest, SystemName, SystemView, UserEvent } from '@harness/core';
 import { computed, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
 import type { ResponseOf } from '../../api/client.ts';
 import type { AdminApi } from '../api.ts';
+import { autoPairPart } from '../logic/forms.ts';
 import { sortSystems } from '../logic/systems.ts';
 
 type SystemsApi = Pick<AdminApi, 'systems' | 'pairings' | 'approvePairing' | 'createPairingToken' | 'installSystem'>;
@@ -24,8 +25,13 @@ export class SystemsStore {
 
   readonly list = new Loaded<readonly SystemView[]>();
   readonly pairings = new Loaded<readonly PairingRequest[]>();
-  /** Systems, needing the admin first. */
-  readonly sorted = computed(() => sortSystems(this.list.value.value ?? []));
+  /** The list's query (words, filters, sort), which the hub applies. */
+  readonly query = shallowRef<ListQuery>({});
+  /** Systems in the hub's order when a sort is chosen, else needing the admin first. */
+  readonly sorted = computed(() => {
+    const list = this.list.value.value ?? [];
+    return this.query.value.sort === undefined ? sortSystems(list) : list;
+  });
   /** How many pairing requests wait for an answer. */
   readonly pending = computed(() => (this.pairings.value.value ?? []).filter((p) => p.status === 'pending').length);
   /** The pairing requests being answered now. */
@@ -52,26 +58,38 @@ export class SystemsStore {
   /** Fetch the systems and the pairing requests waiting. */
   async load(quiet = false): Promise<void> {
     await Promise.all([
-      this.list.load(() => this.#api.systems.call({}), "Couldn't load systems.", quiet),
+      this.#loadList(quiet),
       this.pairings.load(() => this.#api.pairings.call({ status: 'pending' }), "Couldn't load pairing requests.", quiet),
     ]);
   }
 
-  /** Approve or reject a pairing. Approving adds the system to the list. */
-  async answerPairing(pairing: PairingId, approve: boolean): Promise<Outcome<{ system?: SystemName | undefined }>> {
+  /** Search the systems: fetch them again for `query` (nothing when it is the same). */
+  async search(query: ListQuery): Promise<void> {
+    if (JSON.stringify(query) === JSON.stringify(this.query.value)) { return; }
+    this.query.value = query;
+    await this.#loadList(false);
+  }
+
+  async #loadList(quiet: boolean): Promise<void> {
+    const query = this.query.value;
+    await this.list.load(() => this.#api.systems.call(Object.keys(query).length === 0 ? {} : { query }), "Couldn't load systems.", quiet);
+  }
+
+  /** Approve or reject a pairing; approving may hand it an auto pair secret. Approving adds the system to the list. */
+  async answerPairing(pairing: PairingId, approve: boolean, autoPair?: AutoPairChoice): Promise<Outcome<{ system?: SystemName | undefined }>> {
     this.answering.value = new Set([...this.answering.value, pairing]);
-    const result = await this.answer.run(() => this.#api.approvePairing.call({ pairing, approve }), approve ? "Couldn't approve the pairing." : "Couldn't reject the pairing.");
+    const result = await this.answer.run(() => this.#api.approvePairing.call({ pairing, approve, ...(approve ? autoPairPart(autoPair) : {}) }), approve ? "Couldn't approve the pairing." : "Couldn't reject the pairing.");
     this.answering.value = new Set([...this.answering.value].filter((id) => id !== pairing));
     if (result.ok) {
       this.pairings.set((this.pairings.value.value ?? []).filter((p) => p.id !== pairing));
-      if (approve) { void this.list.load(() => this.#api.systems.call({}), "Couldn't load systems.", true); }
+      if (approve) { void this.#loadList(true); }
     }
     return result;
   }
 
-  /** Make a one-time pairing token, for a name or for any. */
-  async createToken(name: SystemName | undefined, expiresIn: number): Promise<Outcome<PairingToken>> {
-    return this.token.run(() => this.#api.createPairingToken.call({ expiresIn, ...(name === undefined ? {} : { name }) }), "Couldn't make a pairing token.");
+  /** Make a one-time pairing token, for a name or for any; with `autoPair`, the system it pairs gets a secret too. */
+  async createToken(name: SystemName | undefined, expiresIn: number, autoPair?: AutoPairChoice): Promise<Outcome<PairingToken>> {
+    return this.token.run(() => this.#api.createPairingToken.call({ expiresIn, ...(name === undefined ? {} : { name }), ...autoPairPart(autoPair) }), "Couldn't make a pairing token.");
   }
 
   /** Install a system for the hub to keep and run. */

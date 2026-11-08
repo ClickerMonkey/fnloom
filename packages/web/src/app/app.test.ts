@@ -1,4 +1,4 @@
-import { LlmInteractionId, MessageId, NotificationLink, RunId, SessionId } from '@harness/core';
+import { LlmInteractionId, MessageId, NotificationLink, QualifiedName, RunId, SessionId } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -14,7 +14,6 @@ import { links, notificationTarget, ROUTES, safeNext } from './routes.ts';
 import { useChatUrl } from '../chat/url.ts';
 import { useParamChoice, useRouteQuery } from './url.ts';
 import { resyncOnReconnect } from './wire.ts';
-import { isRefusedFrame } from '../api/client.ts';
 import { DesignSection } from './routes.ts';
 
 /** Size the window as a phone or a desktop through happy-dom's own viewport; media queries follow it. */
@@ -54,20 +53,18 @@ describe('routes', () => {
     expect(await at({ session: 'ses_1' })).toMatchObject({ name: ROUTES.session, params: { session: 'ses_1' } });
     expect(await at({ system: 'fs' })).toMatchObject({ name: ROUTES.system, params: { name: 'fs' } });
     expect(await at({ pairing: 'par_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'par_1' } });
-    expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.runs, query: { status: 'awaiting-approval' } });
+    expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.runs, query: { q: 'status:awaiting-approval' } });
     expect(await at({ run: 'run_1' })).toEqual({ name: ROUTES.runs, query: { run: 'run_1' } });
     expect(await at({ run: 'run_chat' })).toEqual({ name: ROUTES.session, params: { session: 'ses_9' } });
     expect(await notificationTarget(NotificationLink.parse({ run: 'run_x' }), () => Promise.reject(new Error('gone')))).toEqual({ name: ROUTES.runs, query: { run: 'run_x' } });
   });
 
   it('writes only the keys a page declares, checked with their schemas', () => {
-    expect(links.runs({ status: 'failed', fn: 'fs/*' })).toEqual({ name: ROUTES.runs, query: { status: 'failed', fn: 'fs/*' } });
+    expect(links.fnRuns(QualifiedName.parse('fs/read'))).toEqual({ name: ROUTES.runs, query: { q: 'fn:fs/read' } });
     expect(links.llmCalls({ call: LlmInteractionId.parse('llm_1') })).toEqual({ name: ROUTES.llmCalls, query: { call: 'llm_1' } });
     expect(links.systems()).toEqual({ name: ROUTES.systems });
     // @ts-expect-error a key the runs page doesn't read
     expect(() => links.runs({ approval: 'apr_1' })).not.toThrow();
-    // @ts-expect-error a status runs don't have
-    expect(() => links.runs({ status: 'bogus' })).toThrow();
   });
 
   it('opens a model call by its own address in the list', async () => {
@@ -81,15 +78,6 @@ describe('routes', () => {
     expect(links.inbox()).toEqual({ name: ROUTES.inbox });
     expect(links.inbox('unread')).toEqual({ name: ROUTES.inbox, query: { filter: 'unread' } });
     expect(links.signIn()).toEqual({ name: ROUTES.signIn });
-  });
-});
-
-describe('a refused token', () => {
-  it('is seen in a ws call the hub answered 401, and nowhere else', () => {
-    expect(isRefusedFrame(JSON.stringify({ id: 'c1', $status: 401, $error: 'sign in again' }))).toBe(true);
-    expect(isRefusedFrame(JSON.stringify({ id: 'c1', $status: 200, data: { text: '"$status":401' } }))).toBe(false);
-    expect(isRefusedFrame(JSON.stringify({ id: 'c2', $status: 403 }))).toBe(false);
-    expect(isRefusedFrame('{"$status":401')).toBe(false);
   });
 });
 
@@ -190,10 +178,10 @@ describe('url state', () => {
   });
 
   it('writes free text to the query, replacing the entry (or pushing one), and leaves empty text out', async () => {
-    const { router, got } = await probe('/admin/runs?status=failed#top', () => ({ fn: useRouteQuery(ROUTES.runs).text('fn'), open: useRouteQuery(ROUTES.runs).text('run', { push: true }) }));
+    const { router, got } = await probe('/admin/runs?status=failed#top', () => ({ fn: useRouteQuery(ROUTES.runs).text('q'), open: useRouteQuery(ROUTES.runs).text('run', { push: true }) }));
     got.fn.value = 'bash';
     await flushPromises();
-    expect(router.currentRoute.value.query).toEqual({ status: 'failed', fn: 'bash' });
+    expect(router.currentRoute.value.query).toEqual({ status: 'failed', q: 'bash' });
     expect(router.currentRoute.value.hash).toBe('#top');
     got.fn.value = '';
     await flushPromises();
@@ -379,15 +367,18 @@ describe('pages', () => {
     app.unmount();
   });
 
-  it('keeps the inbox filter in the URL', async () => {
+  it('keeps the inbox filter and search in the URL', async () => {
     const { app, router, api } = await start('/inbox?filter=unread');
     await flushPromises();
     expect(api.notifications.list.calls.some(([data]) => data?.unread === true && data.limit === 30)).toBe(true);
     expect(app.text()).toContain('Nothing unread');
-    const all = app.findAll('[role="tab"]')[0];
-    await all?.trigger('click');
+    await app.get('[data-testid="inbox-filter"] [role="radio"]').trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/inbox');
+    await router.replace('/inbox?q=kind:approval');
+    await flushPromises();
+    expect(api.notifications.list.calls.at(-1)?.[0]?.query).toEqual({ filters: [{ field: 'kind', op: 'is', value: 'approval' }] });
+    expect(app.text()).toContain('Nothing matches');
     app.unmount();
   });
 

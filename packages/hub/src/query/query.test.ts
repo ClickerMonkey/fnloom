@@ -1,0 +1,114 @@
+import { ApiError } from '@ayepi/core';
+import { IDS, noFnStats, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
+import { describe, expect, it } from 'vitest';
+import { chatWorld, FixtureCatalog, makeRun } from '../chat/testing.ts';
+import { testStore } from '../testing.ts';
+import { queryEnv } from './env.ts';
+import { evaluate, passes } from './evaluate.ts';
+import { HubQuery } from './service.ts';
+import { listSources } from './sources.ts';
+
+const admin = { id: IDS.actor.parse('act_admin'), role: 'admin' as const };
+const member = { id: IDS.actor.parse('act_bo'), role: 'member' as const };
+
+describe('the query evaluator', () => {
+  const rows = [
+    { name: 'Alpha', cost: 0.5, tags: ['a', 'b'], at: 3 },
+    { name: 'beta', cost: 0.01, tags: [], at: 1 },
+    { name: 'Gamma', cost: undefined, tags: ['b'], at: 2 },
+  ];
+  type Row = (typeof rows)[number];
+  // a list's fields stand in for these rows: name (text), tags (dynamic), cost (number), updatedAt (date)
+  const how = {
+    list: 'contexts' as const,
+    fields: {
+      name: (r: Row) => r.name, system: () => undefined, origin: () => undefined, tags: (r: Row) => r.tags, disabled: () => false, stale: () => false,
+      tokens: (r: Row) => r.cost, updatedAt: (r: Row) => r.at,
+    },
+  };
+  const names = (query: ListQuery) => evaluate(rows, query, how, 50).items.map((r) => r.name);
+
+  it('filters by every operator, a list field passing when any value does', () => {
+    expect(names({ filters: [{ field: 'name', op: 'contains', value: 'A' }] })).toEqual(['Alpha', 'Gamma', 'beta']);
+    expect(names({ filters: [{ field: 'name', op: 'is', value: 'alpha' }] })).toEqual(['Alpha']);
+    expect(names({ filters: [{ field: 'tokens', op: 'gt', value: 0.1 }] })).toEqual(['Alpha']);
+    expect(names({ filters: [{ field: 'tokens', op: 'between', from: 0, to: '0.1' }] })).toEqual(['beta']);
+    expect(names({ filters: [{ field: 'tokens', op: 'empty' }] })).toEqual(['Gamma']);
+    expect(names({ filters: [{ field: 'tags', op: 'in', values: ['b'] }] })).toEqual(['Alpha', 'Gamma']);
+    expect(names({ filters: [{ field: 'tags', op: 'notIn', values: ['a'] }] })).toEqual(['Gamma', 'beta']);
+    expect(names({ filters: [{ field: 'tags', op: 'empty' }] })).toEqual(['beta']);
+    expect(passes(undefined, { field: 'x', op: 'isNot', value: 'y' }, { label: 'X', type: 'text', sortable: true, filterable: true })).toBe(true);
+  });
+
+  it('matches free text word by word, sorts by the query or the list default, and pages with a cursor', () => {
+    expect(names({ text: 'gam' })).toEqual(['Gamma']);
+    expect(names({})).toEqual(['Alpha', 'Gamma', 'beta']);
+    expect(names({ sort: [{ field: 'name', dir: 'asc' }] })).toEqual(['Alpha', 'beta', 'Gamma']);
+    expect(names({ sort: [{ field: 'tokens', dir: 'desc' }] })).toEqual(['Alpha', 'beta', 'Gamma']);
+    const first = evaluate(rows, { limit: 2 }, how, 50);
+    expect(first).toMatchObject({ cursor: '2', total: 3 });
+    expect(evaluate(rows, { limit: 2, cursor: first.cursor }, how, 50).items.map((r) => r.name)).toEqual(['beta']);
+  });
+});
+
+describe('the lists', () => {
+  async function rig() {
+    const store = await testStore();
+    const catalog = new FixtureCatalog();
+    const lists = new HubQuery(listSources({ store, catalog }, queryEnv.parse()));
+    const turn = IDS.turn.parse('trn_1');
+    await store.table('runs').insert(makeRun({ id: IDS.run.parse('run_a'), fn: 'fs/read', turn, actor: admin.id, status: 'done', cost: 0.002, createdAt: 1 }));
+    await store.table('runs').insert(makeRun({ id: IDS.run.parse('run_b'), fn: 'fs/write', turn, actor: member.id, status: 'failed', cost: 0.2, createdAt: 2 }));
+    await store.table('runs').insert(makeRun({ id: IDS.run.parse('run_c'), fn: 'fs/read', turn, actor: member.id, status: 'done', cost: 0, createdAt: 3 }));
+    return { store, lists };
+  }
+
+  it('serves runs by the standard, a member seeing only their own', async () => {
+    const { lists } = await rig();
+    const ids = async (query: ListQuery, who: typeof admin | typeof member = admin) => (await lists.page('runs', query, who)).items.map((r) => r.id);
+    expect(await ids({})).toEqual(['run_c', 'run_b', 'run_a']);
+    expect(await ids({ filters: [{ field: 'fn', op: 'is', value: 'fs/read' }] })).toEqual(['run_c', 'run_a']);
+    expect(await ids({ filters: [{ field: 'status', op: 'in', values: ['failed'] }] })).toEqual(['run_b']);
+    expect(await ids({ filters: [{ field: 'cost', op: 'gte', value: 0.002 }], sort: [{ field: 'cost', dir: 'asc' }] })).toEqual(['run_a', 'run_b']);
+    expect(await ids({}, member)).toEqual(['run_c', 'run_b']);
+    const result = await lists.query({ list: 'runs', query: { limit: 1 } }, admin);
+    expect(result).toMatchObject({ cursor: '1', total: 3, sort: [{ field: 'createdAt', dir: 'desc' }] });
+    expect(result.items[0]).toMatchObject({ id: 'run_c', fn: 'fs/read' });
+  });
+
+  it('refuses a query its list cannot answer (422) and lists admin-only lists to admins only (403)', async () => {
+    const { lists } = await rig();
+    await expect(lists.page('runs', { filters: [{ field: 'nope', op: 'is', value: 1 }] }, admin)).rejects.toSatisfy((e) => e instanceof ApiError && e.status === 422);
+    await expect(lists.page('runs', { filters: [{ field: 'cost', op: 'contains', value: '1' }] }, admin)).rejects.toThrow(/does not take/);
+    await expect(lists.page('fns', {}, member)).rejects.toSatisfy((e) => e instanceof ApiError && e.status === 403);
+  });
+
+  it('offers a field\'s values with counts, and an enum\'s declared values even when none has them', async () => {
+    const { lists } = await rig();
+    expect(await lists.values({ list: 'runs', field: 'fn' }, admin)).toEqual([{ value: 'fs/read', count: 2 }, { value: 'fs/write', count: 1 }]);
+    const statuses = await lists.values({ list: 'runs', field: 'status', prefix: 'fai' }, admin);
+    expect(statuses).toEqual([{ value: 'failed', count: 1 }]);
+    await expect(lists.values({ list: 'runs', field: 'nope' }, admin)).rejects.toThrow(/no field/);
+  });
+
+  it('serves the fns catalogue with stats, and a member only the model calls of their own sessions', async () => {
+    const w = await chatWorld();
+    const lists = new HubQuery(listSources(w, queryEnv.parse()));
+    for (const [name, failed] of [['read', 0], ['write', 2]] as const) {
+      const record = w.catalog.addFn('fs', { name, description: `${name} things` });
+      await w.store.table('fns').put({ ...record, stats: { ...noFnStats(), outcomes: { done: 3, failed, 'invalid-input': 0, cancelled: 0 } } });
+    }
+    const fns = await lists.page('fns', { filters: [{ field: 'failures', op: 'gt', value: 0 }] }, admin);
+    expect(fns.items.map((f) => [f.name, f.stats.outcomes.failed])).toEqual([['fs/write', 2]]);
+    expect((await lists.page('fns', { text: 'read things' }, admin)).items.map((f) => f.name)).toEqual(['fs/read']);
+    const call = (id: string, session?: SessionId): ModelCall => ({
+      id: IDS.modelCall.parse(id), provider: 'p', model: 'm', modality: 'chat', units: { modality: 'chat', input: 10, output: 5 }, cost: 0.00042, status: 'done', sent: 0, received: 0,
+      queued: 0, total: 30, startedAt: 1, ...(session === undefined ? {} : { session }),
+    });
+    await w.store.table('modelCalls').insert(call('mdl_1', w.session.id));
+    await w.store.table('modelCalls').insert(call('mdl_2'));
+    // the session's owner, seen as a member
+    expect((await lists.page('modelCalls', {}, { id: w.admin.id, role: 'member' })).items.map((c) => c.id)).toEqual(['mdl_1']);
+    expect((await lists.page('modelCalls', { filters: [{ field: 'tokens', op: 'is', value: 15 }] }, admin)).items).toHaveLength(2);
+  });
+});

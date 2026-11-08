@@ -22,7 +22,7 @@
 import type {
   ActorId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnRecord,
   InstanceName, InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
-  Session, SessionId, Turn, TurnId, UserInfo,
+  Session, SuggestionRecord, SessionId, Turn, TurnId, UserInfo,
 } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import type { LlmPayload } from '@harness/sdk';
@@ -129,6 +129,8 @@ export interface Selection {
   readonly linear: readonly LlmMessage[];
   readonly earlier: readonly ExchangeSummary[];
   readonly report: SelectionReport;
+  /** What a graph cycle considered (used, under its threshold, or no room), recorded on the user message as its suggestions. */
+  readonly considered?: SuggestionRecord;
 }
 
 /**
@@ -319,6 +321,8 @@ export interface PlannedPrompt {
   readonly estimate: number;
   readonly rendered: RenderedIteration;
   readonly report: SelectionReport;
+  /** What a graph cycle considered, for the user message's suggestions. */
+  readonly considered?: SuggestionRecord;
   /** What the prompt was planned for, to interpret its calls. */
   readonly mode: ChatMode;
   readonly ctx: ModeContext;

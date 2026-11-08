@@ -15,7 +15,7 @@ import { implement, peers, reject, server, type Peer, type Peers, type Server, t
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
   type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
-  type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
+  type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
@@ -175,6 +175,10 @@ export interface FakeHubOptions {
   maxChunk?: number;
   /** The instance name the welcome gives (an admin renamed it at approval); default: the one the system asked for. */
   instance?: InstanceName;
+  /** An auto-pair grant every welcome carries. */
+  autoPair?: AutoPairGrant;
+  /** Refuse every hello that brings an auto-pair secret, as the hub does for an expired or revoked one. */
+  refuseAutoPair?: boolean;
 }
 
 /** A hub in memory for testing systems. */
@@ -184,7 +188,7 @@ export class FakeHub {
   readonly process = new FakeProcess();
 
   // ─── What systems sent ──────────────────────────────────────────────────────
-  readonly hellos: Array<{ name: string; instance: InstanceName; boot: string; manifestHash: string; pairingToken?: string | undefined }> = [];
+  readonly hellos: Array<{ name: string; instance: InstanceName; boot: string; manifestHash: string; pairingToken?: string | undefined; autoPair?: AutoPairProof | undefined }> = [];
   readonly manifests: Manifest[] = [];
   readonly patches: ManifestPatch[] = [];
   readonly calls: Array<HubBody<'call'>> = [];
@@ -410,7 +414,10 @@ export class FakeHub {
       .handlers({
         hello: ({ data, conn }) => {
           if (conn === undefined) { throw reject(400, 'WS_ONLY', 'The link is WebSocket only.'); }
-          this.hellos.push({ name: data.name, instance: data.instance, boot: data.boot, manifestHash: data.manifestHash, pairingToken: data.pairingToken });
+          this.hellos.push({ name: data.name, instance: data.instance, boot: data.boot, manifestHash: data.manifestHash, pairingToken: data.pairingToken, autoPair: data.autoPair });
+          if (data.autoPair !== undefined && this.#options.refuseAutoPair === true) {
+            throw reject(401, 'AUTO_PAIR_REFUSED', 'the auto-pair secret is unknown, expired or revoked');
+          }
           const known = this.keys.get(data.name);
           if (known === undefined && this.#options.pairing === true && data.pairingToken === undefined) {
             const pairing = mintId('pairing');
@@ -440,6 +447,7 @@ export class FakeHub {
             token: 'test-token',
             sendManifest,
             limits: { maxFrame: 1_000_000, maxChunk: this.#options.maxChunk ?? 64_000, heartbeat: 1_000 },
+            ...(this.#options.autoPair === undefined ? {} : { autoPair: this.#options.autoPair }),
           };
         },
         manifest: ({ data }) => {

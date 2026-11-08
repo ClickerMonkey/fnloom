@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core/client';
-import { ActorId, BudgetId, LlmInteractionId, PairingId, PolicyId, ResourceUri, RunId, SessionId, SystemName, TurnId } from '@harness/core';
+import { ActorId, BudgetId, LlmInteractionId, PairingId, PolicyId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ListQuery } from '@harness/core';
 import { flushPromises } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { fakeCaller } from '../../test/fakes.ts';
@@ -231,8 +231,9 @@ describe('ModelsStore, LimitsStore, PoliciesStore and ActorSettingsStore', () =>
 describe('browsers', () => {
   it('lists runs for a filter and opens one whole', async () => {
     const { admin, api } = fakeAdmin();
-    await admin.runs.list.load({ status: 'failed' });
-    expect(api.runs.calls[0]?.[0]).toEqual({ status: 'failed', limit: 50 });
+    const failed: ListQuery = { filters: [{ field: 'status', op: 'is', value: 'failed' }] };
+    await admin.runs.list.load(failed);
+    expect(api.runs.calls[0]?.[0]).toEqual({ query: failed, limit: 50 });
     expect(admin.runs.list.items.value.map((r) => r.id)).toEqual(['run_a', 'run_b']);
     await admin.runs.open(RunId.parse('run_a'));
     expect(admin.runs.opened.value.value?.id).toBe('run_a');

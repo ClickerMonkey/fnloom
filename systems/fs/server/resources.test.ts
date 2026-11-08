@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AeyeDocuments, linkPath, plainText, toResourceLink } from './documents.ts';
 import { FileService } from './files.ts';
 import { RootGuard, fileUri } from './paths.ts';
+import { GlobSecrets } from './secrets.ts';
 import { FsResources, versionOf } from './resources.ts';
 import { DiskSnapshots } from './snapshots.ts';
 import { tempFolder } from './testing.ts';
@@ -28,6 +29,7 @@ describe('FsResources', () => {
     const files = new FileService(new DiskSnapshots(`${tmp.path}/../.s`), { readLines: 100, fileMax: 10_000, listLimit: 100, ignore: ['node_modules'] });
     resources = new FsResources({
       guard: () => guard,
+      secrets: () => new GlobSecrets(),
       files,
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
       limits: { page: 2, textMax: 1_000, ignore: ['node_modules'], debounce: 50 },
@@ -90,9 +92,32 @@ describe('FsResources', () => {
   });
 
   it('refuses URIs outside the roots and reads only the stat when nothing else is wanted', async () => {
-    await expect(resources.read('file:///definitely/elsewhere.txt', ['text'])).rejects.toThrow(/isn't under/);
+    await expect(resources.read('file:///definitely/elsewhere.txt', ['text'])).rejects.toThrow(/isn't served/);
     await expect(resources.read(fileUri(`${tmp.path}/gone.txt`), ['text'])).rejects.toThrow(/doesn't exist/);
     expect(Object.keys(await resources.read(fileUri(`${tmp.path}/f1.txt`), ['bytes']))).toEqual(['stat']);
+  });
+
+  it('never lists, stats, reads or reports secrets, but serves the env example', async () => {
+    await writeFile(`${tmp.path}/.env`, 'KEY=secret');
+    await writeFile(`${tmp.path}/.env.example`, 'KEY=');
+    await writeFile(`${tmp.path}/docs/site.pem`, 'pem');
+    const names = (await resources.read(fileUri(tmp.path), ['links'])).links?.map((link) => link.title);
+    expect(names).toContain('.env.example');
+    expect(names).not.toContain('.env');
+    expect((await resources.list(fileUri(`${tmp.path}/docs`))).items.map((item) => item.name)).toEqual(['guide.md']);
+    expect(await resources.stat(fileUri(`${tmp.path}/.env`))).toBeUndefined();
+    await expect(resources.read(fileUri(`${tmp.path}/docs/site.pem`), ['text'])).rejects.toThrow(/secret/);
+    vi.useFakeTimers();
+    try {
+      const seen: ResourceChange[][] = [];
+      const stop = resources.watch([fileUri(tmp.path)], (changes) => { seen.push(changes); });
+      listeners.get(tmp.path)?.('change', '.env');
+      await vi.advanceTimersByTimeAsync(60);
+      expect(seen).toEqual([]);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports watched changes once per path after the debounce, skipping ignored folders', async () => {

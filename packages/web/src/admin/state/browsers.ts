@@ -1,13 +1,20 @@
 /**
  * The browsers: runs, LLM calls, model calls and resources. Each is a list paged for a filter (taken from the URL by
- * its page) and the one item opened beside it, fetched whole. One class, four sources.
+ * its page: the list's query, which the hub filters and sorts) and the one item opened beside it, fetched whole. One
+ * class, four sources.
  */
-import type { LlmInteraction, LlmInteractionId, ModelCall, ModelCallFilter, ModelCallId, ResourceRead, ResourceRecord, ResourceUri, Run, RunId, TurnId, UndoReport } from '@harness/core';
+import type { ListQuery, LlmInteraction, LlmInteractionId, ModelCall, ModelCallId, ResourceRead, ResourceRecord, ResourceUri, Run, RunId, TurnId, UndoReport } from '@harness/core';
 import { shallowRef } from 'vue';
 import { Loaded, Paged, Task, type PagedSource, type Outcome } from '../../state/loaded.ts';
 import type { ChatApi } from '../../chat/api.ts';
 import type { AdminApi } from '../api.ts';
-import type { LlmFilter, LlmSummary, ResourceFilter, RunFilter } from '@harness/core';
+import type { LlmSummary, ResourceFilter } from '@harness/core';
+
+/** The model calls browser's filter: the list's query, and the run they were made for (a link from a run). */
+export interface ModelCallsFilter {
+  readonly query: ListQuery;
+  readonly run?: RunId;
+}
 
 /** How many rows a browser fetches per page. */
 export const BROWSER_PAGE = 50;
@@ -46,11 +53,11 @@ export class Browser<T, F, Id, D> {
 }
 
 /** The runs browser, which can also move a run to the background and undo a run's turn. */
-export class RunsBrowser extends Browser<Run, RunFilter, RunId, Run> {
+export class RunsBrowser extends Browser<Run, ListQuery, RunId, Run> {
   readonly #chat: Pick<ChatApi, 'background' | 'undoTurn'>;
   readonly control = new Task();
 
-  constructor(source: BrowserSource<Run, RunFilter, RunId, Run>, chat: Pick<ChatApi, 'background' | 'undoTurn'>) {
+  constructor(source: BrowserSource<Run, ListQuery, RunId, Run>, chat: Pick<ChatApi, 'background' | 'undoTurn'>) {
     super(source, {});
     this.#chat = chat;
   }
@@ -70,20 +77,20 @@ export class RunsBrowser extends Browser<Run, RunFilter, RunId, Run> {
   }
 }
 
-export type LlmBrowser = Browser<LlmSummary, LlmFilter, LlmInteractionId, LlmInteraction>;
+export type LlmBrowser = Browser<LlmSummary, ListQuery, LlmInteractionId, LlmInteraction>;
 
 /** A model call opened: its record and, for a chat call, the whole request and response. */
 export interface OpenedModelCall {
   readonly call: ModelCall;
   readonly interaction?: LlmInteraction;
 }
-export type ModelCallsBrowser = Browser<ModelCall, ModelCallFilter, ModelCallId, OpenedModelCall>;
+export type ModelCallsBrowser = Browser<ModelCall, ModelCallsFilter, ModelCallId, OpenedModelCall>;
 export type ResourcesBrowser = Browser<ResourceRecord, ResourceFilter, ResourceUri, ResourceRead>;
 
 /** Runs, newest first; a run opens with its full record. */
 export function runsBrowser(api: Pick<AdminApi, 'runs'>, chat: Pick<ChatApi, 'run' | 'background' | 'undoTurn'>): RunsBrowser {
   return new RunsBrowser({
-    fetch: (filter, cursor, limit) => api.runs.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) }),
+    fetch: (query, cursor, limit) => api.runs.call({ query, limit, ...(cursor === undefined ? {} : { cursor }) }),
     key: (run) => run.id,
     failure: "Couldn't load runs.",
     limit: BROWSER_PAGE,
@@ -95,7 +102,7 @@ export function runsBrowser(api: Pick<AdminApi, 'runs'>, chat: Pick<ChatApi, 'ru
 /** LLM calls, newest first; a call opens with what the model saw and said. */
 export function llmBrowser(api: Pick<AdminApi, 'llmCalls'>, chat: Pick<ChatApi, 'llmCall'>): LlmBrowser {
   return new Browser({
-    fetch: (filter, cursor, limit) => api.llmCalls.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) }),
+    fetch: (query, cursor, limit) => api.llmCalls.call({ query, limit, ...(cursor === undefined ? {} : { cursor }) }),
     key: (call) => call.id,
     failure: "Couldn't load LLM calls.",
     limit: BROWSER_PAGE,
@@ -116,7 +123,7 @@ export function modelCallsBrowser(api: Pick<AdminApi, 'modelCalls' | 'modelCall'
       return call.interaction === undefined ? { call } : { call, interaction: await chat.llmCall.call({ id: call.interaction }) };
     },
     oneFailure: "Couldn't load this model call.",
-  }, {});
+  }, { query: {} });
 }
 
 /** Resources the hub knows; one opens with its text and links, in its viewer. */

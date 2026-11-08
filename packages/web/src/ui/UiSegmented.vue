@@ -7,7 +7,12 @@ import UiIcon from './UiIcon.vue';
 import { roveFocus } from './keys.ts';
 import type { SegmentOption } from './types.ts';
 
-const props = defineProps<{ options: readonly SegmentOption<T>[]; label: string }>();
+const props = withDefaults(defineProps<{
+  options: readonly SegmentOption<T>[];
+  label: string;
+  /** Show only the options' icons (each keeps its words as its name and tooltip), for a crowded toolbar. */
+  iconOnly?: boolean;
+}>(), { iconOnly: false });
 const model = defineModel<T>({ required: true });
 
 function choose(at: number): void {
@@ -21,10 +26,11 @@ function choose(at: number): void {
     <button
       v-for="(option, index) in options" :key="option.value" type="button" role="radio" class="option"
       :aria-checked="model === option.value ? 'true' : 'false'" :tabindex="model === option.value ? 0 : -1"
+      :aria-label="iconOnly && option.icon ? option.label : undefined" :title="iconOnly && option.icon ? option.label : undefined"
       @click="model = option.value" @keydown="roveFocus($event, index, '[role=radio]', 'both', choose)"
     >
       <UiIcon v-if="option.icon" :name="option.icon" :size="16" />
-      <span>{{ option.label }}</span>
+      <span v-if="!iconOnly || !option.icon">{{ option.label }}</span>
     </button>
   </div>
 </template>

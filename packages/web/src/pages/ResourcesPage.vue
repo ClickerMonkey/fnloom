@@ -2,14 +2,18 @@
 /**
  * The resource browser (`/resources`), every part of it in the URL: a list (sortable), a grid of thumbnails (three
  * card sizes), or groups made by the hub by type, source, folder or date ("Show all" narrows to one); a folder tree
- * beside them on wide screens; words, family and form filters; the folder trail; bulk select with the actions every
+ * beside them on wide screens; the list's search bar (words, filter pills, the sort, which the hub applies) and a form
+ * filter on one row; the folder trail; bulk select with the actions every
  * selected resource allows; the uploader (files, a pasted image, a web address); and the opened resource in the
  * viewer beside the list on roomy screens or in a sheet, with its mode, page and line in the URL too. Live: resource
  * changes refresh what is shown.
  */
-import { FormKind, ResourceUri, type FormatFamily, type QualifiedName, type ResourceRecord, type ResourceStat } from '@harness/core';
+import { FormKind, ResourceUri, sortOf, type QualifiedName, type ResourceRecord, type ResourceStat } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import ListSearch from '../components/query/ListSearch.vue';
+import { fieldsOf, useListQuery } from '../state/query.ts';
+import { withSort } from '../ui/search.ts';
 import AppPage from '../app/AppPage.vue';
 import { links } from '../app/routes.ts';
 import { toastContextMade } from '../context/made.ts';
@@ -21,7 +25,7 @@ import { formatBytes } from '../chat/logic/format.ts';
 import { COMPACT_QUERY } from '../state/layout.ts';
 import { useStores } from '../state/stores.ts';
 import {
-  copyText, optionsOf, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, useMediaQuery, type SegmentOption, type SelectOption,
+  copyText, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, useMediaQuery, type SegmentOption, type SelectOption,
 } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 import ResourceViewer from '../resources/ResourceViewer.vue';
@@ -30,9 +34,9 @@ import ResourceGrid from '../resources/browser/ResourceGrid.vue';
 import ResourceGroups from '../resources/browser/ResourceGroups.vue';
 import ResourceList from '../resources/browser/ResourceList.vue';
 import ResourceUploader from '../resources/browser/ResourceUploader.vue';
-import { bulkActions, isMake, madeBy, type ResourceAction } from '../resources/logic/actions.ts';
-import { crumbsOf, DEFAULTS, isFiltered, isHubResource, nameOf, sortRecords, type BrowserSort, type BrowserView, type CardSize } from '../resources/logic/browse.ts';
-import { FAMILY_LABEL, FORM_LABEL, typeWord } from '../resources/logic/formats.ts';
+import { bulkActions, contextConfirm, isMake, madeBy, type ResourceAction } from '../resources/logic/actions.ts';
+import { columnSort, crumbsOf, DEFAULTS, isFiltered, isHubResource, nameOf, SORT_FIELDS, type BrowserSort, type BrowserView, type CardSize } from '../resources/logic/browse.ts';
+import { FORM_LABEL, typeWord } from '../resources/logic/formats.ts';
 import { useBrowserUrl } from '../resources/state/url.ts';
 
 const { resources, toasts } = useStores();
@@ -50,7 +54,6 @@ const VIEWS: readonly SegmentOption<BrowserView>[] = [{ value: 'list', label: 'L
 const GROUPS = [{ value: 'type', label: 'By type' }, { value: 'source', label: 'By source' }, { value: 'path', label: 'By folder' }, { value: 'date', label: 'By date' }] as const satisfies readonly SelectOption<string>[];
 const SIZES: readonly SegmentOption<CardSize>[] = [{ value: 's', label: 'S' }, { value: 'm', label: 'M' }, { value: 'l', label: 'L' }];
 const ANY = 'any';
-const FAMILIES: readonly SelectOption<FormatFamily | typeof ANY>[] = [{ value: ANY, label: 'Any type' }, ...optionsOf<FormatFamily>(FAMILY_LABEL)];
 /** The forms the filter offers, as present or missing. */
 const FILTER_FORMS = ['markdown', 'table', 'description', 'transcript'] as const satisfies readonly FormKind[];
 type FormFilter = `has:${FormKind}` | `lacks:${FormKind}` | typeof ANY;
@@ -64,7 +67,6 @@ const FORM_FILTERS: readonly SelectOption<FormFilter>[] = [
 const view = computed({ get: () => query.value.view ?? DEFAULTS.view, set: (next: BrowserView) => { url.set({ view: next, in: '' }); } });
 const group = computed({ get: () => query.value.group ?? DEFAULTS.group, set: (next: string) => { const parsed = GROUPS.find((g) => g.value === next); if (parsed) { url.set({ group: parsed.value, in: '' }); } } });
 const size = computed({ get: () => query.value.size ?? DEFAULTS.size, set: (next: CardSize) => { url.set({ size: next }); } });
-const family = computed({ get: (): FormatFamily | typeof ANY => query.value.family ?? ANY, set: (next: FormatFamily | typeof ANY) => { url.set({ family: next === ANY ? '' : next }); } });
 /** The form filter's choice, from the URL's `form` (present) or `missing`. */
 function formChoice(): FormFilter {
   if (query.value.form !== undefined) { return `has:${query.value.form}`; }
@@ -80,24 +82,21 @@ const formFilter = computed({
   },
 });
 
-/** The search box: typed at once, in the URL once typing pauses. */
-const search = ref(query.value.q ?? '');
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
-watch(search, (text) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { url.set({ q: text.trim() }); }, 300); });
-watch(() => query.value.q, (q) => { if ((q ?? '') !== search.value.trim()) { search.value = q ?? ''; } });
+/** The list's query (words, filters, sort) in `q`. */
+const search = useListQuery('resources');
 
 /** What the list shows: everything but the opened resource's mode, page and line. */
-const listKey = computed(() => JSON.stringify({ ...query.value, uri: undefined, mode: undefined, page: undefined, section: undefined, sort: undefined, desc: undefined, size: undefined }));
+const listKey = computed(() => JSON.stringify({ ...query.value, uri: undefined, mode: undefined, page: undefined, section: undefined, size: undefined }));
 watch(listKey, () => { void browser.show(query.value); }, { immediate: true });
-watch(() => [query.value.group, query.value.q, query.value.family, query.value.system] as const, () => { void browser.openFolder('', true); }, { immediate: true });
+watch(() => [query.value.group, query.value.q] as const, () => { void browser.openFolder('', true); }, { immediate: true });
 onMounted(() => { browser.start(); });
-onBeforeUnmount(() => { browser.stop(); clearTimeout(searchTimer); });
+onBeforeUnmount(() => { browser.stop(); });
 
-const sort = computed<BrowserSort>(() => query.value.sort ?? DEFAULTS.sort);
-const descending = computed(() => query.value.desc === '1');
-const records = computed(() => sortRecords(browser.list.items.value, sort.value, descending.value));
+/** The column the hub sorted by (the list's sort, its default when none is chosen): the headers show it and change it. */
+const column = computed(() => columnSort(query.value));
+const records = computed(() => browser.list.items.value);
 function sortBy(next: BrowserSort): void {
-  url.set(next === sort.value ? { desc: descending.value ? '' : '1' } : { sort: next, desc: '' });
+  search.value = { ...search.value, sort: withSort(fieldsOf('resources'), sortOf('resources', search.value), SORT_FIELDS[next]) };
 }
 const showGroups = computed(() => view.value === 'groups' && query.value.in === undefined);
 const inLabel = computed(() => browser.facets.value.find((f) => f.value === query.value.in)?.label ?? query.value.in ?? '');
@@ -138,6 +137,17 @@ const deleteOpen = computed({ get: () => deleting.value.length > 0, set: (show: 
 const deleteTitle = computed(() => { const [only] = deleting.value; return deleting.value.length === 1 && only !== undefined ? `Delete ${nameOf(only)}?` : `Delete ${deleting.value.length} resources?`; });
 const selectedRecords = computed(() => browser.list.items.value.filter((r) => browser.selected.value.has(r.uri)));
 const bulk = computed(() => bulkActions(selectedRecords.value));
+/** The resources "Make context" waits to confirm for. */
+const contexting = shallowRef<readonly ResourceRecord[]>([]);
+const contextOpen = computed({ get: () => contexting.value.length > 0, set: (show: boolean) => { if (!show) { contexting.value = []; } } });
+const contextText = computed(() => contextConfirm(contexting.value.map(nameOf)));
+async function makeContext(): Promise<void> {
+  const targets = contexting.value;
+  contexting.value = [];
+  const made = await browser.makeContext(targets.map((r) => r.uri));
+  if (made === undefined) { toasts.error("Couldn't make context", browser.acting.problem.value); return; }
+  toastContextMade(toasts, made, openContext);
+}
 
 async function act(action: ResourceAction, targets: readonly ResourceRecord[]): Promise<void> {
   const first = targets[0];
@@ -162,12 +172,7 @@ async function act(action: ResourceAction, targets: readonly ResourceRecord[]): 
       link.click();
       return;
     }
-    case 'context': {
-      const made = await browser.makeContext(targets.map((r) => r.uri));
-      if (made === undefined) { toasts.error("Couldn't make context", browser.acting.problem.value); return; }
-      toastContextMade(toasts, made, openContext);
-      return;
-    }
+    case 'context': contexting.value = targets; return;
     case 'refetch': {
       const fetched = await browser.refetch(targets);
       if (fetched === undefined) { toasts.error("Couldn't fetch that again", browser.acting.problem.value); return; }
@@ -217,18 +222,13 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
 
       <section class="main" aria-label="Resources">
         <div class="toolbar" role="search" aria-label="Filter resources">
-          <!-- the filters keep their places in every layout; what a layout adds (grouping, card size) sits beside the layout switch -->
-          <div class="filters">
-            <UiInput v-model="search" class="search" type="search" icon="search" label="Search" hide-label placeholder="Search names, addresses and contents" clearable data-testid="resource-search" />
-            <UiSelect v-model="family" class="pick" :options="FAMILIES" label="Type" hide-label size="sm" data-testid="resource-family" />
+          <!-- one row: the search bar with the sort, then the form filter and what the layout adds (grouping, card size) beside the layout switch -->
+          <ListSearch v-model="search" list="resources" label="resources" placeholder="Search names, addresses and contents" :count="showGroups ? undefined : records.length" :more="browser.list.hasMore.value" data-testid="resource-search">
             <UiSelect v-model="formFilter" class="pick" :options="FORM_FILTERS" label="Forms" hide-label size="sm" />
-            <UiButton v-if="isFiltered(query)" size="sm" variant="ghost" icon="x" @click="url.set({ q: '', family: '', form: '', missing: '', under: '', in: '', system: '' })">Clear</UiButton>
-          </div>
-          <div class="layout">
             <UiSelect v-if="view === 'groups'" v-model="group" class="pick" :options="GROUPS" label="Group" hide-label size="sm" data-testid="resource-grouping" />
             <UiSegmented v-if="view === 'grid'" v-model="size" :options="SIZES" label="Card size" />
-            <UiSegmented v-model="view" :options="VIEWS" label="Layout" data-testid="resource-view" />
-          </div>
+            <UiSegmented v-model="view" :options="VIEWS" label="Layout" icon-only data-testid="resource-view" />
+          </ListSearch>
         </div>
 
         <nav v-if="crumbs.length > 1 || query.in" class="crumbs" aria-label="Where">
@@ -263,7 +263,7 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
             @open="open" @toggle="browser.toggle($event)" @action="(action, record) => act(action, [record])"
           />
           <ResourceList
-            v-else :records="records" :selected="browser.selected.value" :opened="opened" :sort="sort" :descending="descending" :now="now"
+            v-else :records="records" :selected="browser.selected.value" :opened="opened" :sort="column.sort" :descending="column.descending" :now="now"
             @open="open" @toggle="browser.toggle($event)" @toggle-all="browser.toggleAll()" @sort="sortBy" @action="(action, record) => act(action, [record])"
           />
           <div v-if="browser.list.hasMore.value" class="more">
@@ -299,6 +299,9 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
       v-model:open="deleteOpen" :title="deleteTitle"
       body="Its content and forms are removed from the hub. Context made from it stays until it is forgotten." confirm="Delete" :busy="browser.acting.busy.value" @confirm="remove"
     />
+    <ConfirmDialog
+      v-model:open="contextOpen" :title="contextText.title" :body="contextText.body" :confirm="contextText.confirm" :danger="false" @confirm="makeContext"
+    />
   </AppPage>
 </template>
 
@@ -314,11 +317,8 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
 }
 .rail { position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); align-self: start; max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto; }
 .main { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
-.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
-.filters { display: flex; flex: 1 1 420px; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
-.layout { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-left: auto; }
-.search { flex: 1 1 200px; min-width: 0; }
-.pick { width: auto; min-width: 140px; flex: 0 1 180px; }
+.toolbar { display: grid; min-width: 0; }
+.pick { width: auto; min-width: 128px; flex: 0 1 160px; }
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); font-size: var(--text-sm); }
 .crumb { padding: 2px 6px; border: 0; border-radius: 6px; background: none; color: var(--accent); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
 .crumb[aria-current], .crumb.current { color: var(--text); font-weight: var(--weight-medium); cursor: default; }

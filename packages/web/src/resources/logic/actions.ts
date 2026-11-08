@@ -62,6 +62,17 @@ export function actionsFor(record: ActionTarget): ActionItem[] {
   ];
 }
 
+/** What "Make context" asks before it acts: what it makes from which resources, and the button's words. */
+export function contextConfirm(names: readonly string[]): { readonly title: string; readonly body: string; readonly confirm: string } {
+  const [only] = names;
+  const what = names.length === 1 && only !== undefined ? only : `these ${names.length} resources`;
+  return {
+    title: names.length === 1 ? 'Make context from this?' : `Make context from ${names.length} resources?`,
+    body: `This adds ${what} to the context library, one item per section, so the agent can be given it in chats. Running it again updates those items.`,
+    confirm: 'Make context',
+  };
+}
+
 /** The actions every one of several resources allows, for the bulk bar. */
 export function bulkActions(records: readonly ActionTarget[]): ActionItem[] {
   if (records.length === 0) { return []; }

@@ -11,7 +11,8 @@ import {
 } from '@harness/core';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
-import type { Search, Suggester } from '../index/index.ts';
+import type { Considered, Search, Suggester } from '../index/index.ts';
+import type { LlmGateway, Recorded } from '../execution/index.ts';
 import type { ConnectionChange, LinkService, SystemConnection } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { FaultyStore, RecordingBus, memoryLog, settle, testStore } from '../testing.ts';
@@ -295,8 +296,28 @@ export class FixtureIndex implements Search, Suggester {
     return Promise.resolve(this.hits.filter((h) => query.kinds.includes(h.kind)));
   }
 
+  /** Candidates a rule hides, for `consider`. */
+  hidden: Considered['hidden'] = [];
+
   async suggest(): Promise<Suggestion[]> {
     return this.suggestions instanceof Error ? Promise.reject(this.suggestions) : Promise.resolve(this.suggestions);
+  }
+
+  async consider(): Promise<Considered> {
+    return this.suggestions instanceof Error ? Promise.reject(this.suggestions) : Promise.resolve({ offered: this.suggestions, hidden: this.hidden });
+  }
+}
+
+/** The hub's own chat calls from fixtures: each call takes the next answer (text, or an error to throw). */
+export class FixtureLlm implements Pick<LlmGateway, 'chat'> {
+  answers: Array<string | Error> = [];
+  readonly asked: Array<Parameters<LlmGateway['chat']>[0]> = [];
+
+  async chat(input: Parameters<LlmGateway['chat']>[0]): Promise<Recorded<string>> {
+    this.asked.push(input);
+    const answer = this.answers.shift() ?? new Error('no answer');
+    if (answer instanceof Error) { return Promise.reject(answer); }
+    return Promise.resolve({ value: answer, call: IDS.modelCall.parse(`mdl_${this.asked.length}`), cost: 0.0001, model: 'fixture' });
   }
 }
 
@@ -330,15 +351,16 @@ export async function chatRig() {
   const limits = new FixedLimits();
   const index = new FixtureIndex();
   const push = new FakePush();
+  const llm = new FixtureLlm();
   const { log, records: logs } = memoryLog();
   catalog.addFn('hub', { name: 'chat', kind: AGENT_KIND, description: 'The chat agent.' });
   const deps: ChatDeps = {
     settings: { chat: chatEnv.parse(), queue: { HARNESS_ACTIVE_WINDOW: 120_000 }, model: { HARNESS_SUGGESTIONS: 6 } },
-    log, clock: () => now, random, bus, store, catalog, link, runs, agents, limits, search: index, suggest: index, push, hubActor: actorId('act_hub'),
+    log, clock: () => now, random, bus, store, catalog, link, runs, agents, limits, search: index, suggest: index, llm, push, hubActor: actorId('act_hub'),
   };
   const admin: UserActor = { id: actorId('act_admin'), kind: 'user', name: 'Ada', email: 'ada@example.com', role: 'admin', about: '', createdAt: 0, disabled: false };
   return {
-    deps, store, bus, catalog, link, runs, agents, limits, index, push, logs, admin,
+    deps, store, bus, catalog, link, runs, agents, limits, index, llm, push, logs, admin,
     /** Move the clock forward. */
     advance(ms: number): void { now += ms; },
     /** Add a user (a member unless given). */

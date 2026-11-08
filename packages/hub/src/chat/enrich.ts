@@ -4,11 +4,11 @@
  * systems adds its own blocks, in hook order. Every addition is a tagged block, so the model tells it from the
  * person's words.
  */
-import { splitName, type ChatMessage, type HookBlock, type HookInput, type Link, type MessagePart, type Session, type Suggestion, type TurnId, type UserInfo } from '@harness/core';
+import { splitName, type ChatMessage, type HookBlock, type HookInput, type Link, type MessagePart, type Session, type SuggestionRecord, type TurnId, type UserInfo } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
 import type { CatalogEntry } from '../catalog/index.ts';
-import type { MessageEnricher } from './index.ts';
+import type { MessageEnricher, SuggestionDecider } from './index.ts';
 import { allowsSystem, callSystem, escapeAttribute, escapeBody } from './support.ts';
 import { timeInfo, weekday } from '../execution/time.ts';
 import { modeChoice } from '../contextor/planner.ts';
@@ -17,19 +17,25 @@ import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 /** The tags the hub's own extras carry for the LLM. */
 export const EXTRA_TAGS = { 'local-time': 'local_time', 'suggested-context': 'suggested_context', 'suggested-fns': 'suggested_fns' } as const;
 
+/** A message with nothing suggested. */
+const NO_SUGGESTIONS: { parts: MessagePart[]; record?: SuggestionRecord } = { parts: [] };
+
 /** Enriches and renders messages. */
 export class HubMessageEnricher implements MessageEnricher {
-  readonly #deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'suggest' | 'catalog' | 'link'>;
+  readonly #deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link'>;
+  readonly #decider: Pick<SuggestionDecider, 'decide'>;
 
-  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'suggest' | 'catalog' | 'link'>) {
+  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link'>, decider: Pick<SuggestionDecider, 'decide'>) {
     this.#deps = deps;
+    this.#decider = decider;
   }
 
-  async enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<MessagePart[]> {
+  async enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord }> {
     // the graph contextor chooses context and fns for each prompt itself, so its sessions get no suggestion blocks
     const suggest = !(await this.#graph(input.session));
-    const [suggested, hooks] = await Promise.all([suggest ? this.#suggestions(input.session, input.text) : [], this.#hooks(input)]);
-    return [this.#localTime(input.user), ...suggested, ...hooks];
+    const [suggested, hooks] = await Promise.all([suggest ? this.#suggestions(input.session, input.text) : NO_SUGGESTIONS, this.#hooks(input)]);
+    const parts = [this.#localTime(input.user), ...suggested.parts, ...hooks];
+    return suggested.record === undefined ? { parts } : { parts, suggestions: suggested.record };
   }
 
   /** Whether a session's prompts are chosen by the graph contextor (its own choice, else its agent's). */
@@ -97,17 +103,16 @@ export class HubMessageEnricher implements MessageEnricher {
     return { type: 'extra', extra: 'local-time', blocks: [{ type: 'text', tag: 'now', text }] };
   }
 
-  async #suggestions(session: Session, text: string): Promise<MessagePart[]> {
-    const limit = this.#deps.settings.model.HARNESS_SUGGESTIONS;
-    if (limit === 0 || text.trim() === '') { return []; }
-    let suggestions: Suggestion[];
+  /** The suggested context and fns as the extras the LLM reads, and the record of every candidate. */
+  async #suggestions(session: Session, text: string): Promise<{ parts: MessagePart[]; record?: SuggestionRecord }> {
+    let decided: Awaited<ReturnType<SuggestionDecider['decide']>>;
     try {
-      suggestions = await this.#deps.suggest.suggest({ session: session.id, text, limit });
+      decided = await this.#decider.decide({ session: session.id, text });
     } catch (error) {
       this.#deps.log.warn('chat.suggest.failed', { session: session.id, error: messageOf(error) });
-      return [];
+      return { parts: [] };
     }
-    const ranked = [...suggestions].sort((a, b) => b.score - a.score);
+    const ranked = [...decided.suggestions].sort((a, b) => b.score - a.score);
     const fns = ranked.filter((s) => s.kind === 'fn');
     const context = ranked.filter((s) => s.kind === 'context');
     const parts: MessagePart[] = [];
@@ -117,7 +122,7 @@ export class HubMessageEnricher implements MessageEnricher {
     if (fns.length > 0) {
       parts.push({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: fns.map((s) => ({ fn: s.name, why: s.description, score: s.score })) }] });
     }
-    return parts;
+    return decided.record === undefined ? { parts } : { parts, record: decided.record };
   }
 
   async #hooks(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<MessagePart[]> {

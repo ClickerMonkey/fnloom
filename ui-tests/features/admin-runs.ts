@@ -29,8 +29,8 @@ export default feature({
       await ctx.shot('scrolled');
     }
     // the fixture's run may be pages down the full list by now; the session filter (kept in the URL) narrows to it
-    await open(ctx, `/admin/runs?session=${fixtures.session}`, `[data-testid="run-${fixtures.bashRun}"]`);
-    check(new URL(page.url()).searchParams.get('session') === fixtures.session, 'the session filter is in the URL');
+    await open(ctx, `/admin/runs?q=session:${fixtures.session}`, `[data-testid="run-${fixtures.bashRun}"]`);
+    check(new URL(page.url()).searchParams.get('q')?.includes(fixtures.session) === true, 'the session filter is in the URL');
     await page.click(`[data-testid="run-${fixtures.bashRun}"]`);
     await page.waitForFunction(() => new URL(location.href).searchParams.has('run'));
     await settle(page);

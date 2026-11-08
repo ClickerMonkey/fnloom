@@ -1,15 +1,16 @@
-import { ActorId, BudgetId, LlmInteractionId } from '@harness/core';
+import { ActorId, BudgetId, LlmInteractionId, QualifiedName } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { RunFilter } from '@harness/core';
 import { budget, installed, pairing, policy, systemView, T0 } from '../test/fakes.ts';
 import { LLM_STATUS_LOOK, filterOf, llmTimes } from './browsers.ts';
 import {
-  budgetBody, budgetDraft, categoryBody, installFields, installSource, policyBody, policyDraft, priorityBody, priorityDraft, providerBody, providerFields, tokenBody,
+  budgetBody, budgetDraft, categoryBody, installFields, installSource, policyBody, policyDraft, priorityBody, priorityDraft, providerBody, providerFields, tokenBody, autoPairPart,
 } from './forms.ts';
 import { budgetAmount, budgetUse, periodText, resolvedText, scopeText } from './limits.ts';
 import { adminNav } from './nav.ts';
 import { decisionText, sortPolicies, subjectText, targetText } from './policies.ts';
-import { availabilityText, groupedCode, pendingPairings, sortSystems, systemActions, timeLeft } from './systems.ts';
+import { autoPairState, availabilityText, endsText, groupedCode, pendingPairings, sortSystems, systemActions, timeLeft } from './systems.ts';
+import { decisionDraft, decisionModelText, decisionOf, previewParts } from './suggestions.ts';
 
 const names: Record<string, string> = { act_eng: 'Engineering', act_ada: 'Ada' };
 const nameOf = (id: ActorId): string => names[id] ?? id;
@@ -166,14 +167,46 @@ describe('browsers and nav', () => {
 
   it('lists every admin section and marks the current one', () => {
     const entries = adminNav({ name: 'system' }, { systems: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['systems', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps']);
+    expect(entries.map((e) => e.id)).toEqual(['systems', 'fns', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps']);
     // the resource browser is a top-level page; the admin nav has no entry that only redirects there
     expect(entries.find((e) => e.label === 'Budgets')?.id).toBe('limits');
     // the LLM calls browser and a fn's page sit under their sections
     expect(adminNav({ name: 'llm-calls' }).find((e) => e.active)?.id).toBe('model-calls');
-    expect(adminNav({ name: 'fn' }).find((e) => e.active)?.id).toBe('systems');
+    expect(adminNav({ name: 'fn' }).find((e) => e.active)?.id).toBe('fns');
     expect(entries.find((e) => e.active)?.id).toBe('systems');
     expect(entries[0]?.count).toBe(2);
     expect(adminNav({ name: undefined }).some((e) => e.active)).toBe(false);
+  });
+});
+
+describe('build 3 admin forms', () => {
+  it('reads the decision model form, says the setting in words and splits a try-out', () => {
+    const off = decisionDraft(undefined);
+    expect(decisionOf(off)).toMatchObject({ ok: true, value: { enabled: false, messages: 3, cap: 6 } });
+    expect(decisionOf({ ...off, enabled: true })).toMatchObject({ ok: false, at: 'model' });
+    expect(decisionOf({ ...off, cap: '99' })).toEqual({ ok: false, problem: 'Most it picks is out of range.', at: 'numbers' });
+    const on = decisionOf({ ...off, enabled: true, model: 'gpt-4o-mini' });
+    if (!on.ok) { throw new Error(on.problem); }
+    expect(decisionDraft({ value: on.value }).model).toBe('gpt-4o-mini');
+    expect(decisionModelText({ value: on.value })).toBe('gpt-4o-mini · last 3 messages · up to 6 of 20 above 0.2');
+    expect(decisionModelText(undefined)).toBe('Off: the score threshold decides');
+    const parts = previewParts({ by: 'decision', items: [
+      { used: true, kind: 'fn', name: QualifiedName.parse('fs/read') },
+      { used: false, kind: 'fn', name: QualifiedName.parse('fs/write'), reason: 'declined', note: 'only reads' },
+    ] });
+    expect(parts.used.map((i) => i.name)).toEqual(['fs/read']);
+    expect(parts.left[0]?.why).toContain('only reads');
+  });
+
+  it('says where an auto pair secret stands and when it ends', () => {
+    const now = T0;
+    expect(autoPairState({}, now)).toBe('active');
+    expect(autoPairState({ expiresAt: now - 1 }, now)).toBe('expired');
+    expect(autoPairState({ expiresAt: now + 1, revokedAt: now }, now)).toBe('revoked');
+    expect(endsText(undefined, now)).toBe('never ends');
+    expect(endsText(now + 78 * 86_400_000, now)).toBe('ends in 78 days');
+    expect(endsText(now - 86_400_000, now)).toBe('ended 1 day ago');
+    expect(autoPairPart(undefined)).toEqual({});
+    expect(autoPairPart({ expiresIn: null })).toEqual({ autoPair: { expiresIn: null } });
   });
 });

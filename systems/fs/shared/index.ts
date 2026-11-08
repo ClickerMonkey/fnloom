@@ -66,6 +66,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       roots: g.list(Root),
       // its own source folder, so it can change itself and restart
       self: g.optional(g.text()),
+      // globs of files never served as resources (a name, or a path from the root with `/`; `!` serves one again);
+      // left out: env files but .env.example, keys, credentials (see server/secrets.ts); [] serves everything
+      secrets: g.optional(g.list(g.text())),
     }),
     types: { Entry },
     settings: {

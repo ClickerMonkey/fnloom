@@ -33,6 +33,7 @@ import type { SystemTokens } from './index.ts';
 import type { PackagingEnv } from './env.ts';
 import { migrateLegacyInstances } from './migrate.ts';
 import { contentBytes, HubPackages, type PackageContent } from './packages.ts';
+import { StoreAutoPairs } from './auto-pair.ts';
 import { StorePairingService } from './pairing.ts';
 import { NodeInstaller, type Installer, type ProcessLauncher } from './process.ts';
 import { FleetRouter } from './router.ts';
@@ -93,8 +94,11 @@ export function buildSystems(options: SystemsOptions) {
   const describer = new LinkKindDescriber(connections);
   const catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
   const instances = new InstanceKeeper({ store, bus, catalog, links: connections });
+  const autoPairs = new StoreAutoPairs({
+    store, log, clock, rate: store.ports.rate, limit: settings.packaging.HARNESS_AUTO_PAIR_LIMIT, window: settings.packaging.HARNESS_AUTO_PAIR_WINDOW,
+  });
   const pairing = new StorePairingService({
-    store, bus, log, clock, instances, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,
+    store, bus, log, clock, instances, autoPairs, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,
     check: (system, type, value) => catalog.check(system, type, value),
     configType: async (system) => (await catalog.manifest(system))?.config,
   });
@@ -138,7 +142,7 @@ export function buildSystems(options: SystemsOptions) {
   });
 
   const handshake = new LinkHandshake({
-    log, clock, catalog, links: connections, pairing, config, instances, tokens, resources, output,
+    log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output,
     embedding: options.embedding ?? new IndexEmbedding({ embedders, batcher, catalog }),
     limits: { maxFrame: settings.link.HARNESS_MAX_FRAME, maxChunk: settings.link.HARNESS_MAX_CHUNK, heartbeat: settings.link.HARNESS_HEARTBEAT },
   });
@@ -146,7 +150,7 @@ export function buildSystems(options: SystemsOptions) {
   let stopIndexer: (() => void) | undefined;
   let stopOutput: (() => void) | undefined;
   return {
-    catalog, connections, pairing, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output,
+    catalog, connections, pairing, autoPairs, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output,
     index: { embedders, indexer, search, suggest, sectioning, batcher },
     /** The link plugin to install on the hub link server. */
     plugin: linkPlugin(handshake, { log, clock }),

@@ -110,7 +110,7 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
       },
       control: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
-        return chat.sessions.control(data.session, data.action, user.id);
+        return chat.sessions.control(data.session, data.action, user.id, data.runs);
       },
       presence: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);

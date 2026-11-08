@@ -6,7 +6,7 @@
  * `finish`; `settle` closes the turn and tells people who are away.
  */
 import {
-  ACTIVE_RUN_STATUSES, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart,
+  ACTIVE_RUN_STATUSES, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
   type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type UserInfo,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
@@ -84,10 +84,12 @@ export class StoreTurnService implements TurnService {
       this.#deps.limits.resolve({ user, session: session.id, turn }),
       this.#parts.enricher.enrich({ session, turn, text, user }),
     ]);
+    const { parts: extraParts, suggestions } = extras;
     const now = this.#deps.clock();
     const draft: ChatMessage = {
-      id: mintId('message', this.#deps.random), session: session.id, turn, author: input.author, role: 'user', parts: [...parts, ...extras], runs: [], status: 'done',
+      id: mintId('message', this.#deps.random), session: session.id, turn, author: input.author, role: 'user', parts: [...parts, ...extraParts], runs: [], status: 'done',
       ...(input.replyTo === undefined ? {} : { replyTo: input.replyTo }), replyAll: input.replyAll ?? false, answerers: [], createdAt: now,
+      ...(suggestions === undefined ? {} : { suggestions }),
     };
     const answerers = this.#parts.reply.answerers({ session, message: draft, ...(repliedTo === undefined ? {} : { repliedTo }) });
     const message: ChatMessage = { ...draft, answerers: [...answerers] };
@@ -98,7 +100,7 @@ export class StoreTurnService implements TurnService {
     });
     this.#deps.log.info('chat.turn.sent', { session: session.id, turn, message: message.id, answerers: answerers.length, parts: message.parts.length });
     this.#deps.bus.publish('message', { message });
-    await this.#parts.sessions.save(session.id, this.#sessionAfterSend(session, message, text, await this.#loads(session, extras), commanded));
+    await this.#parts.sessions.save(session.id, this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts), commanded));
     await this.#notifyMessage(session, message, repliedTo);
     await this.#wake(session, record, answerers);
     return { turn, message };
@@ -165,6 +167,13 @@ export class StoreTurnService implements TurnService {
     }
     if (delta.text !== undefined && delta.text !== '') { this.#deps.bus.publish('message.token', { session: streamed.session, message, text: delta.text }); }
     if (delta.reasoning !== undefined && delta.reasoning !== '') { this.#deps.bus.publish('message.reasoning', { session: streamed.session, message, text: delta.reasoning }); }
+  }
+
+  async suggested(message: MessageId, record: SuggestionRecord): Promise<void> {
+    const row = await this.#deps.store.table('messages').get(message);
+    if (row === undefined || row.suggestions !== undefined) { return; }
+    const updated = await this.#deps.store.table('messages').update(message, { suggestions: record });
+    this.#deps.bus.publish('message', { message: updated });
   }
 
   async track(message: MessageId, runs: readonly RunId[]): Promise<void> {

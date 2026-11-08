@@ -17,7 +17,7 @@ import LinkDialog from './components/LinkDialog.vue';
 import LinkGroups from './components/LinkGroups.vue';
 import MemoryDialog from './components/MemoryDialog.vue';
 import {
-  emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
+  emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
 } from './logic/context.ts';
 import { targetRoute } from './logic/targets.ts';
 import { contextLink, contextRecord, fakeContext, fixtureGraph, T_CONTEXT } from './test/fakes.ts';
@@ -28,17 +28,18 @@ const MEMORY = name('memory/likes-tabs-ab12');
 
 describe('the context URL and drafts', () => {
   it('reads the query through its schema, dropping what does not parse', () => {
-    expect(readContextQuery({ q: 'files', origin: 'memory', system: 'fs', remember: '1' })).toEqual({ q: 'files', origin: 'memory', system: 'fs', remember: '1' });
-    expect(readContextQuery({ q: '', origin: 'nonsense', system: 'Not A System!', from: '2' })).toEqual({});
-    expect(filterOf({ q: '  tabs ', origin: 'memory' })).toEqual({ search: 'tabs', origin: 'memory' });
-    expect(filterOf({ q: '   ' })).toEqual({});
+    expect(readContextQuery({ q: 'origin:memory files', remember: '1' })).toEqual({ q: 'origin:memory files', remember: '1' });
+    expect(readContextQuery({ q: '', from: '2' })).toEqual({});
+    expect(filterOf({ text: 'tabs' })).toEqual({ query: { text: 'tabs' } });
+    expect(filterOf({})).toEqual({});
     expect(isFiltered({})).toBe(false);
-    expect(isFiltered({ origin: 'system' })).toBe(true);
+    expect(isFiltered({ query: { sort: [{ field: 'name', dir: 'asc' }] } })).toBe(false);
+    expect(isFiltered({ query: { filters: [{ field: 'origin', op: 'is', value: 'system' }] } })).toBe(true);
   });
 
   it('makes links for every target the app has a page for', () => {
     expect(links.contextItem(GUIDE)).toEqual({ name: 'context-item', params: { system: 'fs', local: 'guide' } });
-    expect(links.context({ origin: 'memory', q: 'tabs' })).toEqual({ name: 'context', query: { origin: 'memory', q: 'tabs' } });
+    expect(links.context({ q: 'origin:memory tabs' })).toEqual({ name: 'context', query: { q: 'origin:memory tabs' } });
     expect(targetRoute({ kind: 'context', name: GUIDE }, false)).toEqual(links.contextItem(GUIDE));
     expect(targetRoute({ kind: 'fn', name: name('fs/read') }, false)).toBeUndefined();
     expect(targetRoute({ kind: 'fn', name: name('fs/read') }, true)).toEqual(links.fn(name('fs/read')));
@@ -78,11 +79,19 @@ describe('the context URL and drafts', () => {
   });
 
   it('reads the memory and make-from-a-resource forms', () => {
-    expect(memoryRequest({ title: '', text: '  ', scope: 'user' })).toEqual({ ok: false, problem: 'Write what to remember.' });
-    expect(memoryRequest({ title: ' Tabs ', text: 'Use tabs.', scope: 'everyone' }, [{ kind: 'context', name: GUIDE }])).toEqual({ ok: true, value: { text: 'Use tabs.', title: 'Tabs', scope: 'everyone', about: [{ kind: 'context', name: 'fs/guide' }] } });
+    const options = PLAIN_OPTIONS;
+    expect(memoryRequest({ title: '', text: '  ', scope: 'user', options })).toEqual({ ok: false, problem: 'Write what to remember.' });
+    expect(memoryRequest({ title: ' Tabs ', text: 'Use tabs.', scope: 'everyone', options }, [{ kind: 'context', name: GUIDE }])).toEqual({ ok: true, value: { text: 'Use tabs.', title: 'Tabs', scope: 'everyone', about: [{ kind: 'context', name: 'fs/guide' }] } });
     const memory = fixtureGraph().records[2];
-    expect(memoryDraft(memory)).toEqual({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', scope: 'user' });
-    expect(memoryDraft()).toEqual({ title: '', text: '', scope: 'user' });
+    expect(memoryDraft(memory)).toMatchObject({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', scope: 'user' });
+    expect(memoryDraft()).toEqual({ title: '', text: '', scope: 'user', options });
+    // the Advanced options: only those changed go with a new memory, every one with an edit, and a bad one is the problem
+    const tied = { ...options, fns: [QualifiedName.parse('fs/read')], command: '/tabs', weight: 1.5 };
+    expect(changedOptions(tied)).toBe(3);
+    expect(memoryRequest({ title: '', text: 'Tabs.', scope: 'user', options: tied })).toEqual({ ok: true, value: { text: 'Tabs.', scope: 'user', fns: ['fs/read'], command: 'tabs', weight: 1.5 } });
+    expect(memoryUpdate(GUIDE, { title: 'T', text: 'Tabs.', scope: 'user', options: tied })).toMatchObject({ ok: true, value: { name: GUIDE, tags: [], suggestFns: [], visible: 'both', fns: ['fs/read'] } });
+    expect(memoryRequest({ title: '', text: 'Tabs.', scope: 'user', options: { ...options, parent: 'not a name' } })).toMatchObject({ ok: false });
+    expect(memoryRequest({ title: '', text: 'Tabs.', scope: 'user', options: { ...options, command: 'Bad Name' } })).toMatchObject({ ok: false });
     expect(fromResourceRequest({ uri: 'readme', copy: 'live', command: '' })).toMatchObject({ ok: false });
     expect(fromResourceRequest({ uri: 'fs://work/README.md', copy: 'snapshot', command: '/readme' })).toEqual({ ok: true, value: { uri: 'fs://work/README.md', copy: 'snapshot', command: 'readme' } });
     expect(fromResourceRequest({ uri: 'fs://work/README.md', copy: 'live', command: 'Bad Name' })).toMatchObject({ ok: false });
@@ -105,10 +114,10 @@ describe('ContextStore', () => {
     expect(context.list.hasMore.value).toBe(true);
     await context.list.more();
     expect(context.list.items.value).toHaveLength(60);
-    await context.show({ search: 'item-05' });
+    await context.show({ query: { text: 'item-05' } });
     expect(context.list.items.value.map((r) => r.name)).toEqual(['fs/item-05']);
     const calls = api.list.calls.length;
-    await context.show({ search: 'item-05' });
+    await context.show({ query: { text: 'item-05' } });
     expect(api.list.calls.length).toBe(calls + 1);
     expect(context.list.loading.value).toBe(false);
   });
@@ -140,25 +149,26 @@ describe('ContextStore', () => {
 
   it('writes, edits and forgets memory', async () => {
     const { context, api, state } = fakeContext();
-    expect((await context.remember({ title: '', text: ' ', scope: 'user' })).ok).toBe(false);
+    const options = PLAIN_OPTIONS;
+    expect((await context.remember({ title: '', text: ' ', scope: 'user', options })).ok).toBe(false);
     expect(api.remember.calls).toHaveLength(0);
-    const made = await context.remember({ title: 'Short answers', text: 'Answer in one line.', scope: 'everyone' });
+    const made = await context.remember({ title: 'Short answers', text: 'Answer in one line.', scope: 'everyone', options });
     if (!made.ok) { throw new Error(made.problem); }
     expect(state.records[0]?.origin).toMatchObject({ type: 'memory', scope: { to: 'everyone' } });
 
     await context.item.open(MEMORY);
-    const edited = await context.item.edit({ title: 'Likes tabs', text: 'Tabs, always.', scope: 'user' });
+    const edited = await context.item.edit({ title: 'Likes tabs', text: 'Tabs, always.', scope: 'user', options: { ...options, fns: [QualifiedName.parse('fs/read')] } });
     if (!edited.ok) { throw new Error(edited.problem); }
-    expect(edited.value).not.toBe(MEMORY);
-    expect(api.forget.calls[0]?.[0]).toEqual({ name: MEMORY });
-    expect(context.item.name.value).toBe(edited.value);
+    // changed in place: the same name, its links kept, nothing forgotten
+    expect(edited.value).toBe(MEMORY);
+    expect(api.forget.calls).toHaveLength(0);
     expect(context.item.view.value.value?.text).toBe('Tabs, always.');
-    expect(state.links.some((l) => l.from === edited.value && l.relation === 'about' && l.toKey === 'context:fs/guide')).toBe(true);
+    expect(context.item.view.value.value?.record.decl.fns).toEqual(['fs/read']);
 
     expect((await context.item.forget()).ok).toBe(true);
     expect(context.item.view.value.value?.record.disabled).toBe(true);
     await context.item.open(GUIDE);
-    expect((await context.item.edit({ title: '', text: 'x', scope: 'user' })).ok).toBe(false);
+    expect((await context.item.edit({ title: '', text: 'x', scope: 'user', options })).ok).toBe(false);
     expect((await context.item.forget()).ok).toBe(false);
   });
 
@@ -257,7 +267,7 @@ describe('the context components', () => {
     expect(area?.value).toBe('The owner likes tabs, not spaces.');
     document.querySelector<HTMLButtonElement>('[data-testid="memory-save"]')?.click();
     await flushPromises();
-    expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', scope: 'user' });
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', scope: 'user' });
     wrapper.unmount();
   });
 
@@ -293,13 +303,13 @@ describe('the context pages', () => {
   afterEach(() => { for (const app of mounted.splice(0)) { app.unmount(); } screen(1440); });
 
   it('lists context from the URL and filters by origin', async () => {
-    const { app, router: r, context } = await start('/context?origin=memory');
-    expect(context.api.list.calls[0]?.[0]).toMatchObject({ origin: 'memory' });
+    const { app, router: r, context } = await start('/context?q=origin:memory');
+    expect(context.api.list.calls[0]?.[0]).toMatchObject({ query: { filters: [{ field: 'origin', op: 'is', value: 'memory' }] } });
     expect(app.findAll('[data-testid="context-row"]').map((row) => row.attributes('data-context'))).toEqual(['memory/likes-tabs-ab12']);
-    const all = app.findAll('[data-testid="context-origin"] [role="radio"]').find((b) => b.text() === 'All');
-    await all?.trigger('click');
+    expect(app.get('[data-testid="search-pill"]').text()).toContain('Origin: Memory');
+    await app.get('[data-testid="search-pill"] button[aria-label^="Remove"]').trigger('click');
     await flushPromises();
-    expect(r.currentRoute.value.query['origin']).toBeUndefined();
+    expect(r.currentRoute.value.query['q']).toBeUndefined();
     expect(app.findAll('[data-testid="context-row"]')).toHaveLength(4);
   });
 

@@ -298,6 +298,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       session, turn, agent: fn, model, instructions: payload.instructions, transcript: await conversation.messages(), cached: state.selection,
     });
     if (state.selection === undefined) {
+      if (planned.considered !== undefined && session !== undefined && turn.message !== undefined) await this.#deps.turns.suggested(turn.message, planned.considered);
       state = { ...state, selection: planned.report };
       await store.table('runs').update(run.id, { resume: Json.parse(state) });
     }

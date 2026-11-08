@@ -14,7 +14,7 @@ import {
   ActorId, MAIN_INSTANCE, MessageId, SystemName, mintId, noFnStats, systemLinkSpec,
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
-  type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction,
+  type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -272,6 +272,7 @@ export interface ChatRecord {
   readonly settled: Array<{ turn: TurnId; status: Exclude<TurnStatus, 'running' | 'paused' | 'undone'> }>;
   /** Runs recorded on assistant messages (`track`). */
   readonly tracked: Array<{ message: MessageId; runs: readonly RunId[] }>;
+  readonly suggested: Array<{ message: MessageId; record: SuggestionRecord }>;
   /** Follow-up turns the agent loop asked for. */
   readonly followUps: Array<{ turn: TurnId; agent: ActorId }>;
 }
@@ -296,7 +297,7 @@ export async function executionRig(options: {
   const hub = linkServer();
   const systems = new Map<string, TestSystem>();
   const provider = new ScriptedProvider();
-  const chat: ChatRecord = { begun: [], streamed: [], finished: [], settled: [], tracked: [], followUps: [] };
+  const chat: ChatRecord = { begun: [], streamed: [], finished: [], settled: [], tracked: [], suggested: [], followUps: [] };
   const presence = { active: options.active ?? false };
   const configs = new Map<string, ConfigValue>();
   const approverSets = new Map<ApprovalId, ActorId[]>();
@@ -334,6 +335,7 @@ export async function executionRig(options: {
       },
       settle: (turn, status) => { chat.settled.push({ turn, status }); return Promise.resolve(); },
       track: (message, runs) => { chat.tracked.push({ message, runs }); return Promise.resolve(); },
+      suggested: (message, record) => { chat.suggested.push({ message, record }); return Promise.resolve(); },
       followUp: (input) => { chat.followUps.push(input); return Promise.resolve(undefined); },
     },
     enrich: { render: (message) => message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') },

@@ -15,8 +15,9 @@ export default feature({
     await inEachScheme(ctx, async (shot) => {
       await open(ctx, '/admin/model-calls', '[data-testid^="model-call-"]');
       await shot('list');
-      await open(ctx, '/admin/model-calls?modality=chat', '[data-testid^="model-call-"]');
-      check(await page.$eval(`${tid('filter-modality')} select`, (el) => (el instanceof HTMLSelectElement ? el.value : '')) === 'chat', 'the kind filter reads the URL');
+      await open(ctx, '/admin/model-calls?q=modality:chat', '[data-testid^="model-call-"]');
+      const pills = await page.evaluate(() => [...document.querySelectorAll('[data-testid="search-pill"]')].map((el) => el.textContent.trim()));
+      check(pills.some((text) => text.toLowerCase().includes('chat')), `the kind filter reads the URL (pills: ${pills.join(', ')})`);
       await shot('chat-only');
       await open(ctx, `/admin/model-calls?call=${chat.id}`, tid('model-call'));
       if (chat.interaction !== undefined) { await find(page, 'llm-call'); }

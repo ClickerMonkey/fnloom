@@ -4,6 +4,7 @@
  * so switching back is instant and drafts stay). `app/wire.ts` builds it from the real callers; tests build it from
  * fakes. Pages reach it through `useStores().chat`.
  */
+import type { ListValuesCaller } from '../../state/query.ts';
 import type { ActorId, ClientInfo, ContentRef, RunId, SessionId } from '@harness/core';
 import { ref } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
@@ -56,6 +57,8 @@ export function browserClient(now: () => number = Date.now): ClientInfo {
 
 /** Everything the chat keeps. */
 export class ChatStore {
+  /** A list field's values in the data, for every search box's suggestions. */
+  readonly listValues: ListValuesCaller;
   readonly sessions: SessionListStore;
   readonly capabilities: CapabilitiesStore;
   readonly inspector: Inspector;
@@ -75,6 +78,7 @@ export class ChatStore {
 
   constructor(deps: ChatDeps) {
     this.#deps = deps;
+    this.listValues = deps.api.listValues;
     this.sessions = new SessionListStore(deps.api, deps.userEvents);
     this.capabilities = new CapabilitiesStore(deps.api, deps.userEvents);
     this.inspector = new Inspector(deps.api);

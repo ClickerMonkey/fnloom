@@ -131,7 +131,7 @@ export const OUTLINE: readonly Topic[] = [
     reference: true,
     exports: [
       'manifestOf', 'manifestBody', 'fnDecl', 'canonicalJson', 'sha256', 'ManifestOptions',
-      'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
+      'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'AUTO_PAIR_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
       'OutcomeJournal', 'FileJournal', 'contentHash', 'contentHasher', 'ContentHasher', 'StateConflict', 'LinkGap', 'InvalidValue',
       'LinkTransport', 'LinkSocket', 'WsLinkTransport', 'HubAccess', 'HubLink', 'NodeFiles', 'FilesFactory', 'FilesScope', 'fileUri', 'uriInstance', 'mimeOf', 'NodeProcess', 'ProcessControl',
       'McpFace', 'McpLimits', 'readClientBundle', 'CLIENT_ENTRY', 'ClientBundle',

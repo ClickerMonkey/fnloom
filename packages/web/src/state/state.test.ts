@@ -365,6 +365,22 @@ describe('InboxStore', () => {
     expect(inbox.unread.value).toBe(1);
   });
 
+  it('sends the search with every page and leaves live arrivals out while it narrows the list', async () => {
+    const api = fakeApi();
+    api.notifications.list = fakeCaller<'notifications'>(async (data) => (data?.cursor === undefined ? { items: [], cursor: 'c2' } : { items: [] }));
+    const events = fakeUserEvents();
+    const inbox = new InboxStore(api.notifications, events.subscribe);
+    inbox.start();
+    const query = { filters: [{ field: 'kind', op: 'is' as const, value: 'approval' }] };
+    await inbox.load('unread', query);
+    await inbox.loadMore();
+    expect(api.notifications.list.calls.slice(-2)).toEqual([[{ limit: INBOX_PAGE, unread: true, query }], [{ limit: INBOX_PAGE, cursor: 'c2', unread: true, query }]]);
+    events.push({ type: 'notification', notification: notification() });
+    expect(inbox.items.value).toEqual([]);
+    await inbox.load('all', {});
+    expect(api.notifications.list.calls.at(-1)).toEqual([{ limit: INBOX_PAGE }]);
+  });
+
   it('shows a notification the hub resolved as it is now, and stops counting it', async () => {
     const api = fakeApi();
     const events = fakeUserEvents();

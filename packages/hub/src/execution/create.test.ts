@@ -96,6 +96,7 @@ describe('chatPorts', () => {
             finish: (...args) => { calls.push(['turns.finish', args]); return Promise.resolve(message); },
             settle: (...args) => { calls.push(['turns.settle', args]); return Promise.resolve(); },
             track: (...args) => { calls.push(['turns.track', args]); return Promise.resolve(); },
+            suggested: (...args) => { calls.push(['turns.suggested', args]); return Promise.resolve(); },
             followUp: (...args) => { calls.push(['turns.followUp', args]); return Promise.resolve(turn); },
           },
           enrich: { render: (...args) => { calls.push(['enrich.render', args]); return 'rendered'; } },

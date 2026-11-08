@@ -11,4 +11,6 @@ packages/web/e2e/shots/
 
 # UI test screenshots and their fixture ids
 ui-tests/shots/
+# the screenshot gallery (npm run gallery), with its staging and swap folders
+ui-tests/gallery*/
 .harness-test/

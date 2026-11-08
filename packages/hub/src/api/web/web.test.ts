@@ -5,7 +5,7 @@
 import { ApiError, manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, hubWebSpec, mintId, ModelCallId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelForward, type ModelInfo, type ModelRoleView, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
+  ActorId, hubWebSpec, MAIN_INSTANCE, mintId, ModelCallId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelForward, type ModelInfo, type ModelRoleView, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
 import { fn, g, wireType } from '@harness/sdk';
 import { TestCatalog } from '../../execution/testing.ts';
@@ -462,6 +462,25 @@ describe('admin', () => {
     expect(calls).toEqual([`approve ${pairing}`, `reject ${pairing}`]);
   });
 
+  it('passes the auto-pair choice on, and lists and revokes auto-pair secrets as the admin', async () => {
+    const calls: unknown[] = [];
+    const id = mintId('autoPair');
+    const view = { id, system: SystemName.parse('fs'), instance: MAIN_INSTANCE, createdBy: mintId('actor'), createdAt: 1, uses: 0 };
+    const { web, as } = await signedIn({
+      link: {
+        pairing: { approve: (_pairing, _by, choice) => { calls.push(choice); return Promise.resolve(instanceRow('fs', 'connected')); } },
+        autoPairs: {
+          list: (system) => { calls.push(system); return Promise.resolve([view]); },
+          revoke: (revoked) => { calls.push(revoked); return Promise.resolve(true); },
+        },
+      },
+    });
+    await web.client.call('approvePairing', { pairing: mintId('pairing'), approve: true, autoPair: { expiresIn: null } }, as);
+    await expect(web.client.call('autoPairs', { system: SystemName.parse('fs') }, as)).resolves.toEqual([view]);
+    await expect(web.client.call('revokeAutoPair', { id }, as)).resolves.toEqual({ ok: true });
+    expect(calls).toEqual([{ autoPair: { expiresIn: null } }, 'fs', id]);
+  });
+
   it('stores provider keys sealed and replaces a provider’s old key', async () => {
     let reloads = 0;
     const models: ModelInfo[] = [
@@ -554,6 +573,19 @@ describe('admin reads', () => {
     expect((await web.client.call('runs', { status: 'done' }, as)).items.map((run) => run.id)).toEqual(['run_a']);
     expect((await web.client.call('runs', { fn: 'not a name' }, as)).items).toEqual([]);
     expect((await web.client.call('llmCalls', {}, as)).items).toEqual([]);
+  });
+
+  it('answers every list by the query standard: on its own endpoint, through query, with values, and refuses a bad query', async () => {
+    const { r, web, as } = await signedIn();
+    await r.store.table('runs').insert(runRow('run_a', { createdAt: 1, status: 'done', cost: 0.5 }));
+    await r.store.table('runs').insert(runRow('run_b', { createdAt: 2, status: 'failed', cost: 0.01 }));
+    const query = { filters: [{ field: 'status', op: 'isNot' as const, value: 'failed' }] };
+    expect((await web.client.call('runs', { status: 'failed', query }, as)).items.map((run) => run.id)).toEqual(['run_a']);
+    const found = await web.client.call('query', { list: 'runs', query: { sort: [{ field: 'cost', dir: 'asc' }] } }, as);
+    expect(found).toMatchObject({ total: 2, sort: [{ field: 'cost', dir: 'asc' }], items: [{ id: 'run_b' }, { id: 'run_a' }] });
+    await expect(web.client.call('listValues', { list: 'runs', field: 'status', prefix: 'do' }, as)).resolves.toEqual([{ value: 'done', count: 1 }]);
+    await expect(web.client.call('query', { list: 'runs', query: { sort: [{ field: 'nope', dir: 'asc' }] } }, as)).rejects.toMatchObject({ status: 422 });
+    expect((await web.client.call('fns', {}, as)).items).toBeInstanceOf(Array);
   });
 
   it('shows a system\'s output and its fns', async () => {

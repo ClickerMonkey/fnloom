@@ -15,6 +15,13 @@ export default feature({
         await open(ctx, '/admin/models/roles', tid('roles'));
         check(await page.$$eval(`${tid('roles')} [data-role]`, (rows) => rows.length) === 6, 'the roles tab lists every role');
         await shot('roles');
+        // the decision model for suggestions (build 3): its setting and a try-out
+        await open(ctx, '/admin/models/roles?decision=1', tid('decision-form'));
+        await page.type(`${tid('decision-try')} input`, 'read the readme');
+        await page.click(tid('decision-try-run'));
+        await page.waitForSelector(tid('decision-preview'), { timeout: 10_000 }).catch(() => undefined);
+        await settle(page);
+        await shot('decision');
         await open(ctx, '/admin/models/limits', tid('model-limits'));
         await shot('limits');
         const model = await page.$eval(`${tid('model-limits')} [data-model]`, (row) => row.getAttribute('data-model') ?? '');

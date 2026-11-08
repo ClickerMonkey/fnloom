@@ -20,7 +20,7 @@
  */
 import type {
   ActorId, ContentRef, ContextFromResourceArgs, ContextFromResourceResult, ContextItemView, ContextLink, ContextQuery, ContextRecord, ConvertedVersion,
-  DeclarableRelation, FormKind, FormRecord, LinkTarget, LlmContentPart, MadeFormKind, ModelCallId, ModelInfo, Page, QualifiedName, RememberArgs,
+  DeclarableRelation, FormKind, FormRecord, LinkTarget, LlmContentPart, MadeFormKind, ModelCallId, ModelInfo, Page, QualifiedName, RememberArgs, UpdateMemoryArgs,
   ResourceForms, ResourceImportArgs, ResourcePage, ResourceQuery, ResourceReadArgs, ResourceReadResult, ResourceRecord, ResourceUri, RunId, Section, SectionKey,
   SessionId,
 } from '@harness/core';
@@ -131,6 +131,8 @@ export interface MessageContent {
 export interface ContextLibrary {
   fromResource(args: ContextFromResourceArgs, who: Asking): Promise<ContextFromResourceResult>;
   remember(args: RememberArgs, who: Asking): Promise<{ name: QualifiedName }>;
+  /** Edit a memory its author wrote: text, title and any context option (tied fns are its `decl.fns`). */
+  update(args: UpdateMemoryArgs, who: Asking): Promise<{ name: QualifiedName }>;
   /** Disable a memory (memory only; system context is turned off by its system or an admin). */
   forget(name: QualifiedName, who: Asking): Promise<boolean>;
   list(query: ContextQuery, who: Asking): Promise<Page<ContextRecord>>;

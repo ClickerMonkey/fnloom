@@ -1,23 +1,23 @@
 /**
  * The resource browser's state, all of it in the URL: the view (list, grid or groups), the grouping, the group
- * narrowed to (`in`), the folder (`under`), the filters (words, system, family, a form present or missing), the
- * list's sort, the grid's card size, and the opened resource with its viewer mode. One schema (`BrowserQuery`) is
+ * narrowed to (`in`), the folder (`under`), the list's query (`q`: words, filters and sort, which the hub applies), a
+ * form present or missing, the grid's card size, and the opened resource with its viewer mode. One schema (`BrowserQuery`) is
  * the route's query, so links and the page read the same keys. From it come the hub's `ResourceQuery` for the list,
  * each group's own query, and the folder trail. Grouping keys are the hub's (its facets); the web only asks for them.
  * Pure, so it is tested alone.
  */
 import {
-  FormatFamily, FormKind, HUB_RESOURCE_ROOT, ResourceGrouping, ResourceUri, SectionKey, SystemName,
-  type ResourceFacet, type ResourceLink, type ResourceQuery, type ResourceRecord,
+  FormKind, HUB_RESOURCE_ROOT, ResourceGrouping, ResourceUri, SectionKey, sortOf,
+  type ListField, type ListQuery, type ResourceFacet, type ResourceLink, type ResourceQuery, type ResourceRecord, type Sort,
 } from '@harness/core';
 import { z } from 'zod';
-import { typeWord } from './formats.ts';
+import { hubListQuery, readListQuery } from '../../state/query.ts';
 
 /** How the browser lays resources out. */
 export const BrowserView = z.enum(['list', 'grid', 'groups']);
 export type BrowserView = z.infer<typeof BrowserView>;
 
-/** What the list sorts by (the rows of the pages loaded). */
+/** The list's columns it can be sorted by (each a field of the hub's `resources` list: `SORT_FIELDS`). */
 export const BrowserSort = z.enum(['seen', 'name', 'size', 'modified', 'type']);
 export type BrowserSort = z.infer<typeof BrowserSort>;
 
@@ -33,13 +33,10 @@ export const BrowserQuery = z.object({
   in: z.string(),
   /** A folder: a URI prefix. */
   under: z.string(),
+  /** The list's written query (`family:code read sort:name`). */
   q: z.string(),
-  system: SystemName,
-  family: FormatFamily,
   form: FormKind,
   missing: FormKind,
-  sort: BrowserSort,
-  desc: z.enum(['1']),
   size: CardSize,
   /** The opened resource, its viewer mode, a section of it, and a page (pdf). */
   uri: ResourceUri,
@@ -49,8 +46,26 @@ export const BrowserQuery = z.object({
 }).partial();
 export type BrowserQuery = z.infer<typeof BrowserQuery>;
 
+/** What the browser asks the hub for: the resource query, with the list's query when it has one. */
+export type BrowseQuery = ResourceQuery & { readonly query?: ListQuery };
+
 /** The default view and grouping. */
-export const DEFAULTS = { view: 'list', group: 'type', sort: 'seen', size: 'm' } as const satisfies Required<Pick<BrowserQuery, 'view' | 'group' | 'sort' | 'size'>>;
+export const DEFAULTS = { view: 'list', group: 'type', size: 'm' } as const satisfies Required<Pick<BrowserQuery, 'view' | 'group' | 'size'>>;
+
+/** The `resources` field each column sorts by. */
+export const SORT_FIELDS = { seen: 'seenAt', name: 'name', size: 'size', modified: 'modifiedAt', type: 'family' } as const satisfies Record<BrowserSort, ListField<'resources'>>;
+
+/** The column the list is sorted by and which way, from the query's sort (the list's default when it has none). */
+export function columnSort(query: BrowserQuery): { readonly sort: BrowserSort; readonly descending: boolean } {
+  const [first] = sortOf('resources', readListQuery('resources', query.q ?? ''));
+  const column = BrowserSort.options.find((key) => SORT_FIELDS[key] === first?.field) ?? 'seen';
+  return { sort: column, descending: first?.dir === 'desc' };
+}
+
+/** The sort keys for a column: its field, in `dir`. */
+export function sortFor(column: BrowserSort, descending: boolean): Sort[] {
+  return [{ field: SORT_FIELDS[column], dir: descending ? 'desc' : 'asc' }];
+}
 
 /** How many resources a list or grid page holds, and how many each group shows before "show all". */
 export const PAGE_SIZE = 60;
@@ -80,18 +95,18 @@ export function patchQuery(query: BrowserQuery, patch: { readonly [K in keyof Br
   return next;
 }
 
-/** Whether the browser narrows the resources at all (words, a system, a family, a form, a folder or a group). */
+/** Whether the browser narrows the resources at all (words or filters, a form, a folder or a group). */
 export function isFiltered(query: BrowserQuery): boolean {
-  return [query.q, query.system, query.family, query.form, query.missing, query.under, query.in].some((v) => v !== undefined && v !== '');
+  const list = readListQuery('resources', query.q ?? '');
+  return (list.text ?? '') !== '' || (list.filters ?? []).length > 0 || [query.form, query.missing, query.under, query.in].some((v) => v !== undefined && v !== '');
 }
 
-/** The hub's query for the list or grid: the filters, the folder, and the group narrowed to. */
-export function hubQuery(query: BrowserQuery): ResourceQuery {
+/** The hub's query for the list or grid: the list's query, the form filter, the folder, and the group narrowed to. */
+export function hubQuery(query: BrowserQuery): BrowseQuery {
   const group = query.group ?? DEFAULTS.group;
+  const list = hubListQuery(readListQuery('resources', query.q ?? ''));
   return {
-    ...(query.q === undefined || query.q === '' ? {} : { search: query.q }),
-    ...(query.system === undefined ? {} : { system: query.system }),
-    ...(query.family === undefined ? {} : { family: query.family }),
+    ...(Object.keys(list).length === 0 ? {} : { query: list }),
     ...(query.form === undefined ? {} : { form: query.form }),
     ...(query.missing === undefined ? {} : { missing: query.missing }),
     ...(query.under === undefined || query.under === '' ? {} : { under: query.under }),
@@ -101,12 +116,12 @@ export function hubQuery(query: BrowserQuery): ResourceQuery {
 }
 
 /** The query for one group's first resources in the groups view. */
-export function groupQuery(query: BrowserQuery, facet: ResourceFacet): ResourceQuery {
+export function groupQuery(query: BrowserQuery, facet: ResourceFacet): BrowseQuery {
   return { ...hubQuery({ ...query, in: facet.value }), limit: GROUP_PREVIEW };
 }
 
 /** The query for the folders under `under` (the hub's `path` facets), for the folder tree. */
-export function folderQuery(query: BrowserQuery, under: string): ResourceQuery {
+export function folderQuery(query: BrowserQuery, under: string): BrowseQuery {
   const { in: _in, under: _under, ...rest } = hubQuery(query);
   return { ...rest, group: 'path', ...(under === '' ? {} : { under }), limit: 1 };
 }
@@ -160,25 +175,6 @@ export function linkLabel(link: Pick<ResourceLink, 'title' | 'raw'>): string {
 /** Whether a resource lives in the hub (an upload, a web page, a fn's output): only these rename and delete. */
 export function isHubResource(uri: string): boolean {
   return uri.startsWith(HUB_RESOURCE_ROOT);
-}
-
-/** The loaded rows sorted for the list. `seen` keeps the hub's order (most recently seen first). */
-export function sortRecords(records: readonly ResourceRecord[], sort: BrowserSort, descending: boolean): ResourceRecord[] {
-  if (sort === 'seen') { return descending ? [...records].reverse() : [...records]; }
-  const value = (r: ResourceRecord): string | number => {
-    switch (sort) {
-      case 'name': return nameOf(r).toLowerCase();
-      case 'size': return r.stat.size ?? -1;
-      case 'modified': return r.stat.modifiedAt ?? r.seenAt;
-      case 'type': return typeWord(r.stat);
-    }
-  };
-  const sorted = [...records].sort((a, b) => {
-    const x = value(a);
-    const y = value(b);
-    return typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
-  });
-  return descending ? sorted.reverse() : sorted;
 }
 
 /** The facets of two pages of the same query merged: a value's count is the latest one, new values are added. */

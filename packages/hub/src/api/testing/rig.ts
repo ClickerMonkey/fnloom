@@ -198,10 +198,10 @@ export async function webRig(r: Rig): Promise<WebRig> {
 export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
   return {
     catalog: fake('catalog', fakes.catalog),
-    link: group('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true, packages: true, instances: true }), fakes.link),
+    link: group('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true, packages: true, instances: true, autoPairs: true }), fakes.link),
     execution: group('execution', keysOf<HubServices['execution']>({ runs: true, agents: true, llm: true, limits: true, ledger: true, policies: true, handlers: true, providers: true }), fakes.execution),
     chat: group('chat', keysOf<HubServices['chat']>({
-      sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true,
+      sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true, suggestions: true,
     }), fakes.chat),
     index: group('index', keysOf<HubServices['index']>({ embedders: true, indexer: true, search: true, suggest: true }), fakes.index),
     contextor: group('contextor', keysOf<HubServices['contextor']>({ planner: true, limits: true, tokens: true, graph: true, views: true, dynamic: true }), fakes.contextor),

@@ -16,7 +16,7 @@
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  ContextFromResourceArgs, qualify, RememberArgs, seesOrigin, type ActorId, type ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
+  ContextFromResourceArgs, qualify, RememberArgs, seesOrigin, UpdateMemoryArgs, type ContextOptions, type ActorId, type ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
   type ContextOrigin, type ContextQuery, type ContextRecord, type DeclarableRelation, type LinkTarget, type MemoryScope, type Page, type QualifiedName,
   type ResourceUri, type Section, type SectionKey,
 } from '@harness/core';
@@ -143,7 +143,7 @@ export class StoreContextLibrary implements ContextLibrary {
     const title = args.title?.trim() || args.text.trim().split(/\s+/).slice(0, 8).join(' ');
     const name = madeName(MEMORY, title, `${JSON.stringify(scope)}\n${args.text}`);
     const decl = this.#decl(name, {
-      description: title, content: args.text, ...(args.weight === undefined ? {} : { weight: args.weight }),
+      description: title, content: args.text, ...declOptions(args),
       links: (args.about ?? []).map((to) => ({ to, relation: 'about', weight: ABOUT_WEIGHT })),
     });
     const record = this.#record(name, decl, { type: 'memory', scope, author: who.actor, ...(who.run === undefined ? {} : { run: who.run }) });
@@ -153,6 +153,31 @@ export class StoreContextLibrary implements ContextLibrary {
     this.#o.onContext?.(name);
     this.#o.log.info('context.remembered', { name, scope: scope.to, chars: args.text.length });
     return { name };
+  }
+
+  async update(input: UpdateMemoryArgs, who: Asking): Promise<{ name: QualifiedName }> {
+    const args = UpdateMemoryArgs.parse(input);
+    const record = await this.#visible(args.name, who);
+    if (record.origin?.type !== 'memory') { throw reject(403, 'NOT_A_MEMORY', `${args.name} is not a memory; only memories can be edited`); }
+    if (record.origin.author !== who.actor) { throw reject(403, 'NOT_YOUR_MEMORY', 'only the person who wrote a memory can edit it'); }
+    const title = args.title?.trim();
+    const description = title === undefined || title === '' ? record.decl.description : title;
+    const content = args.text ?? record.decl.content;
+    const decl: ContextDecl = {
+      ...record.decl, ...declOptions(args), description, ...(content === undefined ? {} : { content }),
+      // a summary that only repeated the title follows a new one
+      ...(args.summary === undefined && record.decl.summary === record.decl.description ? { summary: description } : {}),
+      ...(args.about === undefined ? {} : { links: args.about.map((to) => ({ to, relation: 'about' as const, weight: ABOUT_WEIGHT })) }),
+    };
+    const updated: ContextRecord = { ...this.#record(args.name, decl, record.origin), ...(record.disabled === undefined ? {} : { disabled: record.disabled }) };
+    await this.#o.store.table('context').put(updated);
+    await this.#o.graph().derive(updated);
+    if (updated.disabled !== true) {
+      await this.#o.indexer().upsert([{ kind: 'context', key: args.name, text: contextText(args.name, decl), system: HUB_SYSTEM }], { vectors: 'background' });
+    }
+    this.#o.onContext?.(args.name);
+    this.#o.log.info('context.memory.updated', { name: args.name, fields: Object.keys(args).filter((key) => key !== 'name').length });
+    return { name: args.name };
   }
 
   async forget(name: QualifiedName, who: Asking): Promise<boolean> {
@@ -245,7 +270,7 @@ export class StoreContextLibrary implements ContextLibrary {
       const next = names[i + 1];
       const decl = this.#decl(name, {
         description: `${title}${pieces.length > 1 ? ` (part ${i + 1} of ${pieces.length})` : ''}, from ${at.name}`, content: piece, parent,
-        ...(next === undefined ? {} : { next }), ...(args.weight === undefined ? {} : { weight: args.weight }), alwaysFor: args.alwaysFor ?? [],
+        ...(next === undefined ? {} : { next }), ...declOptions(sectionOptions(args)),
       });
       return { record: this.#record(name, decl, origin), edges: [{ to: { kind: 'resource', uri: args.uri, section: section.key }, relation: 'about', weight: ABOUT_WEIGHT }] };
     });
@@ -258,8 +283,7 @@ export class StoreContextLibrary implements ContextLibrary {
     const first = at.children[0]?.record.name;
     const decl = this.#decl(parent, {
       description: `${at.name}: what it holds, section by section`, content: `${at.name} (${args.uri})\n\n${outline}`,
-      ...(args.weight === undefined ? {} : { weight: args.weight }), alwaysFor: args.alwaysFor ?? [],
-      ...(args.command === undefined ? {} : { command: { name: args.command, args: [] } }),
+      ...declOptions(args),
       ...(first === undefined ? {} : { next: first }),
     });
     return {
@@ -329,4 +353,27 @@ export class StoreContextLibrary implements ContextLibrary {
     if (record === undefined || !seesOrigin(record.origin, who)) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
     return record;
   }
+}
+
+/** The context options a person gave, as the declaration fields they set (a `/command` takes no arguments). */
+export function declOptions(options: ContextOptions): Partial<ContextDecl> {
+  const { command, ...rest } = options;
+  const fields: Partial<ContextDecl> = {};
+  if (rest.weight !== undefined) { fields.weight = rest.weight; }
+  if (rest.summary !== undefined) { fields.summary = rest.summary; }
+  if (rest.tags !== undefined) { fields.tags = rest.tags; }
+  if (rest.fns !== undefined) { fields.fns = rest.fns; }
+  if (rest.suggestFns !== undefined) { fields.suggestFns = rest.suggestFns; }
+  if (rest.alwaysFor !== undefined) { fields.alwaysFor = rest.alwaysFor; }
+  if (rest.visible !== undefined) { fields.visible = rest.visible; }
+  if (rest.suggest !== undefined) { fields.suggest = rest.suggest; }
+  if (rest.parent !== undefined) { fields.parent = rest.parent; }
+  if (command !== undefined) { fields.command = { name: command, args: [] }; }
+  return fields;
+}
+
+/** The options a resource's section items take from the request: all but the `/command`, which loads the parent. */
+function sectionOptions(args: ContextOptions): ContextOptions {
+  const { command: _command, ...rest } = args;
+  return rest;
 }

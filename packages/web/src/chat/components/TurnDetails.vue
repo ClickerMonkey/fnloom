@@ -17,8 +17,7 @@ const usage = computed(() => turnUsage(props.calls));
     <UiSkeleton v-if="loading && calls.length === 0" shape="lines" :lines="5" />
     <template v-else>
       <dl class="facts">
-        <dt>Models</dt><dd>{{ usage.models.join(', ') || '—' }}</dd>
-        <dt>Providers</dt><dd>{{ usage.providers.join(', ') || '—' }}</dd>
+        <dt>Models</dt><dd>{{ usage.models.join(', ') || '—' }}<span v-if="usage.providers.length > 0" class="dim"> · {{ usage.providers.join(', ') }}</span></dd>
         <dt>Tokens</dt><dd data-testid="turn-tokens">{{ formatTokens(usage.input) }} in · {{ formatTokens(usage.output) }} out</dd>
         <dt>Cost</dt><dd data-testid="turn-cost">{{ formatCost(usage.cost) }}</dd>
         <template v-if="usage.firstToken !== undefined"><dt>First token</dt><dd>{{ formatDuration(usage.firstToken) }}</dd></template>
@@ -44,6 +43,7 @@ const usage = computed(() => turnUsage(props.calls));
 .facts { display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
 dt { color: var(--text-faint); }
 dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.dim { color: var(--text-faint); }
 .heading { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .calls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .call { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; min-height: 40px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius); background: transparent; color: var(--text); text-align: left; }

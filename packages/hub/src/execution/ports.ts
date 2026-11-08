@@ -48,7 +48,7 @@ export interface ExecutionDeps extends ExecutionBase {
   /** Whether a person is active in a session (the global tool timeout only unblocks the agent then). */
   readonly presence: Pick<SessionService, 'active'>;
   /** Where an agent's answer streams, and where a turn is settled. */
-  readonly turns: Pick<TurnService, 'begin' | 'stream' | 'finish' | 'settle' | 'track' | 'followUp'>;
+  readonly turns: Pick<TurnService, 'begin' | 'stream' | 'finish' | 'settle' | 'track' | 'followUp' | 'suggested'>;
   readonly approvers: ApproverDirectory;
   /** Every model call's record (the metrics module). */
   readonly calls: ModelCallLog;

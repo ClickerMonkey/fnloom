@@ -36,7 +36,7 @@ export default feature({
       await settle(page);
       await shot('group-all');
 
-      await open(ctx, '/resources?q=ui-sample&family=image', tid('resource-row'));
+      await open(ctx, '/resources?q=ui-sample%20family%3Aimage', tid('resource-row'));
       const names = await page.$$eval(`${tid('resource-row')} .name`, (els) => els.map((el) => el.textContent.trim()));
       check(names.length > 0 && names.every((n) => /\.(png|svg)$/.test(n)), `the image filter shows only images (got ${names.join(', ')})`);
       await shot('filtered');

@@ -30,6 +30,7 @@ import { logger, type Logger } from '@ayepi/log';
 import { MockAdmin } from './mockAdmin.ts';
 import { declaredStatusLogger } from './mockLog.ts';
 import { EMPTY_ZIP, MOCK_EXPORTS, MockBuild2 } from './mockBuild2.ts';
+import { MockBuild3 } from './mockBuild3.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
 import { MOCK_FILES, MOCK_UPLOADS, MockResources } from './mockResources.ts';
@@ -108,6 +109,7 @@ const LIVE: readonly { reason: NotificationReason; title: string; body: string }
 export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const state = new MockState(options.needsAdmin);
   const owner = (): ActorId => state.account?.user.id ?? IDS.actor.parse('act_admin');
+  const build3 = new MockBuild3(() => NOW, owner);
   const chat = new MockChat(owner);
   const admin = new MockAdmin(chat, Date.now);
   const library = new MockResources(Date.now());
@@ -262,10 +264,17 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       installPackage: ({ data }) => build2.install(library.nameOf(data.zip.hash) ?? 'package.zip', data.zip.hash, data.instance),
       removeInstance: ({ data }) => build2.removeInstance(data),
       exportSystemData: ({ data }) => build2.exportData(data),
+      // build 3: auto pair secrets and the decision model for suggestions
+      autoPairs: ({ data }) => build3.autoPairs(data.system),
+      revokeAutoPair: ({ data }) => build3.revoke(data.id),
+      suggestDecision: () => build3.decision,
+      setSuggestDecision: ({ data }) => build3.setDecision(data),
+      previewSuggestions: () => build3.preview(),
       // the context graph: every item, one item with its links, memory, links drawn by people, context from a resource
       contexts: ({ data }) => graph.list(data),
       contextItem: ({ data }) => graph.item(data.name),
       remember: ({ data }) => { const made = graph.remember(data); announce({ type: 'context', name: made.name }); return made; },
+      updateMemory: ({ data }) => { const done = graph.update(data); announce({ type: 'context', name: done.name }); return done; },
       forget: ({ data }) => { const done = graph.forget(data.name); announce({ type: 'context', name: data.name }); return done; },
       linkContext: ({ data }) => { const made = graph.link(data); announce({ type: 'context', name: data.from }); return made; },
       unlinkContext: ({ data }) => { const done = graph.unlink(data); announce({ type: 'context', name: data.from }); return done; },
@@ -288,7 +297,8 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'upload', 'uploaded', 'browseResources', 'resourceForms', 'readResource', 'convertResource', 'downloadResource', 'importResource', 'renameResource', 'deleteResource', 'contextFromResource',
     'previewSelection', 'modelLimits', 'setModelLimits', 'modelRoles', 'setModelRole', 'clearModelRole', 'modelCalls', 'modelCall', 'fnMetrics', 'fnMetricsDays',
     'mcps', 'mcp', 'createMcp', 'updateMcp', 'rotateMcpSecret', 'deleteMcp', 'previewMcp', 'mcpSessions', 'pairing', 'instances', 'installPackage', 'removeInstance', 'exportSystemData',
-    'contexts', 'contextItem', 'remember', 'forget', 'linkContext', 'unlinkContext',
+    'autoPairs', 'revokeAutoPair', 'suggestDecision', 'setSuggestDecision', 'previewSuggestions',
+    'contexts', 'contextItem', 'remember', 'updateMemory', 'forget', 'linkContext', 'unlinkContext',
   ] as const;
   // system names must match their pattern, which the generator can't read from a regex
   const systemName = (g: { rng: () => number }): string => SYSTEM_NAMES[Math.floor(g.rng() * SYSTEM_NAMES.length)] ?? 'fs';

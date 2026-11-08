@@ -1,12 +1,13 @@
 /**
- * The context pages' pure parts: the `/context` URL's query (`ContextBrowseQuery`) and the hub query made from it;
+ * The context pages' pure parts: the `/context` URL's query (`ContextBrowseQuery`; its `q` is the list's written query)
+ * and the hub query made from it;
  * plain words for an item's origin, a link's relation and where a link came from; links grouped by relation, strongest
  * first; what a link points at, in words; whether a person may remove a link; and the add-link and memory drafts read
  * into the hub's own argument shapes (`LinkTarget`, `RememberArgs`) with one plain problem when they don't parse.
  */
 import {
-  ContextFromResourceArgs, ContextQuery, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, SystemName,
-  type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope,
+  ContextFromResourceArgs, ContextOptions, ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, type ListQuery,
+  type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience,
 } from '@harness/core';
 import { z } from 'zod';
 import type { IconName, Outcome } from '../../ui/index.ts';
@@ -14,11 +15,9 @@ import type { IconName, Outcome } from '../../ui/index.ts';
 /** The origins the list filters by (an origin's type; `system` when a record has none), as the hub's query takes them. */
 export const OriginChoice = ContextQuery.shape.origin.unwrap();
 
-/** The `/context` page's query: words, an origin, a system, and the dialogs open over it. */
+/** The `/context` page's query: the list's written query (`origin:memory tabs`), and the dialogs open over it. */
 export const ContextBrowseQuery = z.object({
   q: z.string(),
-  origin: OriginChoice,
-  system: SystemName,
   /** The "remember something" dialog. */
   remember: z.literal('1'),
   /** The "make context from a resource" dialog. */
@@ -41,22 +40,17 @@ export function readContextQuery(raw: Readonly<Record<string, string>>): Context
 export const ContextItemQuery = z.object({ link: z.literal('1'), edit: z.literal('1') }).partial();
 export type ContextItemQuery = z.infer<typeof ContextItemQuery>;
 
-/** What the list asks the hub for. */
-export type ContextFilter = Pick<ContextQuery, 'search' | 'origin' | 'system'>;
+/** What the list asks the hub for: the list's query (none when it is empty). */
+export type ContextFilter = Pick<ContextQuery, 'query'>;
 
-/** The hub's filter for a `/context` query (blank words left out). */
-export function filterOf(query: ContextBrowseQuery): ContextFilter {
-  const search = query.q?.trim() ?? '';
-  return {
-    ...(search === '' ? {} : { search }),
-    ...(query.origin === undefined ? {} : { origin: query.origin }),
-    ...(query.system === undefined ? {} : { system: query.system }),
-  };
+/** The hub's filter for a list query. */
+export function filterOf(query: ListQuery): ContextFilter {
+  return Object.keys(query).length === 0 ? {} : { query };
 }
 
 /** Whether a filter narrows the list (so an empty list says "nothing matches", not "nothing yet"). */
 export function isFiltered(filter: ContextFilter): boolean {
-  return filter.search !== undefined || filter.origin !== undefined || filter.system !== undefined;
+  return (filter.query?.text ?? '') !== '' || (filter.query?.filters ?? []).length > 0;
 }
 
 /** An item's origin type. */
@@ -206,17 +200,83 @@ export function linkRequest(draft: LinkDraft, from: QualifiedName): LinkRequest 
 export const BrowserScope = z.enum(['user', 'everyone']);
 export type BrowserScope = z.infer<typeof BrowserScope>;
 
-/** The memory form as typed. */
+/** The memory form as typed: the title, the text, who it is for, and the Advanced options. */
 export interface MemoryDraft {
   readonly title: string;
   readonly text: string;
   readonly scope: BrowserScope;
+  readonly options: ContextOptionsDraft;
+}
+
+/** The form's Advanced section as typed: every other context option (`ContextOptions`), tied fns included. */
+export interface ContextOptionsDraft {
+  /** How much it counts when scored, 0 to 2 (1 is plain). */
+  readonly weight: number;
+  readonly summary: string;
+  readonly tags: readonly string[];
+  /** Tied fns: offered whenever the item is loaded. */
+  readonly fns: readonly QualifiedName[];
+  /** Fns suggested alongside it. */
+  readonly suggestFns: readonly QualifiedName[];
+  /** Agent fns whose prompts always carry it. */
+  readonly alwaysFor: readonly QualifiedName[];
+  /** A `/command` that loads it; blank for none. */
+  readonly command: string;
+  readonly visible: Audience;
+  readonly suggest: Audience;
+  /** Its parent in a hierarchy; blank for none. */
+  readonly parent: string;
+}
+
+/** The options a new memory starts with: what the hub gives one when none are said. */
+export const PLAIN_OPTIONS: ContextOptionsDraft = { weight: 1, summary: '', tags: [], fns: [], suggestFns: [], alwaysFor: [], command: '', visible: 'both', suggest: 'both', parent: '' };
+
+/** Who sees an item listed and who it is suggested to, in words. */
+export const AUDIENCE_WORDS: Readonly<Record<Audience, string>> = { both: 'People and agents', user: 'People', llm: 'Agents', none: 'No one' };
+
+/** How many of the Advanced options differ from a plain memory's (for the section's closed label). */
+export function changedOptions(draft: ContextOptionsDraft): number {
+  return OPTION_KEYS.filter((key) => differs(draft, key)).length;
+}
+
+const OPTION_KEYS = ['weight', 'summary', 'tags', 'fns', 'suggestFns', 'alwaysFor', 'command', 'visible', 'suggest', 'parent'] as const satisfies readonly (keyof ContextOptionsDraft)[];
+
+/** Does an option differ from a plain memory's? */
+function differs(draft: ContextOptionsDraft, key: keyof ContextOptionsDraft): boolean {
+  return JSON.stringify(draft[key]) !== JSON.stringify(PLAIN_OPTIONS[key]);
 }
 
 /** A fresh memory form, or one filled from the memory being edited. */
 export function memoryDraft(record?: Pick<ContextRecord, 'origin' | 'decl'>): MemoryDraft {
-  if (record?.origin?.type !== 'memory') { return { title: '', text: '', scope: 'user' }; }
-  return { title: record.decl.description, text: record.decl.content ?? '', scope: record.origin.scope.to === 'everyone' ? 'everyone' : 'user' };
+  if (record?.origin?.type !== 'memory') { return { title: '', text: '', scope: 'user', options: PLAIN_OPTIONS }; }
+  const { decl } = record;
+  const options: ContextOptionsDraft = {
+    weight: decl.weight ?? 1, summary: decl.summary === decl.description ? '' : decl.summary ?? '', tags: decl.tags, fns: decl.fns, suggestFns: decl.suggestFns,
+    alwaysFor: decl.alwaysFor, command: decl.command?.name ?? '', visible: decl.visible, suggest: decl.suggest, parent: decl.parent ?? '',
+  };
+  return { title: decl.description, text: decl.content ?? '', scope: record.origin.scope.to === 'everyone' ? 'everyone' : 'user', options };
+}
+
+/**
+ * The Advanced options read into the hub's `ContextOptions`, or the one problem with them. `every` sends each option
+ * (an edit, so a cleared one is cleared); otherwise only those that differ from a plain memory's.
+ */
+export function optionsRequest(draft: ContextOptionsDraft, every: boolean): Outcome<ContextOptions> {
+  const command = draft.command.trim().replace(/^\//, '');
+  if (command !== '' && !ContextOptions.shape.command.unwrap().safeParse(command).success) { return { ok: false, problem: 'A command is lowercase letters, digits and dashes, starting with a letter.' }; }
+  const parent = draft.parent.trim();
+  if (parent !== '' && !QualifiedName.safeParse(parent).success) { return { ok: false, problem: 'The parent is an item’s full name, like fs/guide.' }; }
+  const summary = draft.summary.trim();
+  const send = (key: keyof ContextOptionsDraft): boolean => every || differs(draft, key);
+  return {
+    ok: true,
+    value: ContextOptions.parse({
+      ...(send('weight') ? { weight: draft.weight } : {}), ...(send('tags') ? { tags: draft.tags } : {}), ...(send('fns') ? { fns: draft.fns } : {}),
+      ...(send('suggestFns') ? { suggestFns: draft.suggestFns } : {}), ...(send('alwaysFor') ? { alwaysFor: draft.alwaysFor } : {}),
+      ...(send('visible') ? { visible: draft.visible } : {}), ...(send('suggest') ? { suggest: draft.suggest } : {}),
+      ...(summary === '' ? {} : { summary }), ...(command === '' ? {} : { command }), ...(parent === '' ? {} : { parent }),
+    }),
+  };
 }
 
 /** What the memory form asks the hub to remember, or the one problem with it. */
@@ -226,8 +286,19 @@ export type MemoryRequest = Outcome<RememberArgs>;
 export function memoryRequest(draft: MemoryDraft, about: readonly LinkTarget[] = []): MemoryRequest {
   const text = draft.text.trim();
   if (text === '') { return { ok: false, problem: 'Write what to remember.' }; }
+  const options = optionsRequest(draft.options, false);
+  if (!options.ok) { return options; }
   const title = draft.title.trim();
-  return { ok: true, value: RememberArgs.parse({ text, scope: draft.scope, ...(title === '' ? {} : { title }), ...(about.length === 0 ? {} : { about }) }) };
+  return { ok: true, value: RememberArgs.parse({ text, scope: draft.scope, ...(title === '' ? {} : { title }), ...(about.length === 0 ? {} : { about }), ...options.value }) };
+}
+
+/** Read the memory form as a change to memory `name` (its scope stays as written), or the one problem with it. */
+export function memoryUpdate(name: QualifiedName, draft: MemoryDraft): Outcome<UpdateMemoryArgs> {
+  const text = draft.text.trim();
+  if (text === '') { return { ok: false, problem: 'Write what to remember.' }; }
+  const options = optionsRequest(draft.options, true);
+  if (!options.ok) { return options; }
+  return { ok: true, value: UpdateMemoryArgs.parse({ name, text, title: draft.title.trim(), ...options.value }) };
 }
 
 /** The make-from-a-resource form as typed. */

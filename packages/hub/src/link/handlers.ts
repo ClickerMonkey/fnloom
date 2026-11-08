@@ -6,14 +6,15 @@
  * slice); boot installs it on the hub link server, which must be made with `{ peers: PeerLinkService.peers }`.
  *
  * The handshake: `hello` whose key matches a paired instance of the system gets a nonce to sign; anything else starts
- * pairing. `prove` checks the signature, makes the socket that instance's connection, and welcomes it with the name
+ * pairing, unless it brings an auto-pair secret (`link/auto-pair.ts`): a good one gets a nonce to sign with the hello's
+ * new key, and proving it re-keys the instance and rotates the secret. `prove` checks the signature, makes the socket that instance's connection, and welcomes it with the name
  * it is known as, its config, why it is starting, an HTTP token, whether to send its manifest, and the link's limits.
  */
 import { reject as refuse, spec, type HandlerFor, type ImplFor, type WsConn } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { telemetry } from '@ayepi/otel/server';
 import { plugin } from '@ayepi/plugin';
-import { hubLinkSpec, linkSession, linkTel, type Hello, type InstanceRecord, type InstanceRef, type LinkLimits, type LinkSession, type Welcome } from '@harness/core';
+import { hubLinkSpec, linkSession, linkTel, type AutoPairGrant, type Hello, type InstanceRef, type LinkLimits, type LinkSession, type Welcome } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { StoreConfigService } from './config.ts';
@@ -21,6 +22,7 @@ import type { PeerLinkService } from './connections.ts';
 import type { ResourceRouter, SystemTokens } from './index.ts';
 import { isPublicKey, randomToken, verifyNonce } from './keys.ts';
 import type { SystemOutput } from './output.ts';
+import { autoPairRefused, type AutoPairMatch, type AutoPairService } from './auto-pair.ts';
 import type { StorePairingService } from './pairing.ts';
 import type { InstanceKeeper } from './status.ts';
 
@@ -51,6 +53,7 @@ export interface LinkHandlerOptions {
   readonly catalog: Catalog;
   readonly links: PeerLinkService;
   readonly pairing: StorePairingService;
+  readonly autoPairs: AutoPairService;
   readonly config: StoreConfigService;
   readonly instances: InstanceKeeper;
   readonly tokens: SystemTokens;
@@ -81,8 +84,8 @@ export function originOf(conn: WsConn): string {
 /** The handshake and the hub link handlers of this module. */
 export class LinkHandshake {
   readonly #options: LinkHandlerOptions;
-  /** Sockets that said hello with a known key and were sent a nonce. */
-  readonly #challenges = new Map<WsConn, { hello: Hello; instance: InstanceRecord; nonce: string }>();
+  /** Sockets that said hello with a known key (or a good auto-pair secret) and were sent a nonce. */
+  readonly #challenges = new Map<WsConn, { hello: Hello; ref: InstanceRef; nonce: string; autoPair?: AutoPairMatch }>();
 
   constructor(options: LinkHandlerOptions) {
     this.#options = options;
@@ -141,26 +144,46 @@ export class LinkHandshake {
     if (conn === undefined || peer === undefined) { throw refuse(400, 'NOT_A_LINK', 'hello must come over the link socket'); }
     if (!isPublicKey(hello.publicKey)) { throw refuse(400, 'BAD_KEY', 'the public key must be Ed25519, SPKI DER in base64'); }
     const known = await this.#options.pairing.known(hello);
-    if (known !== undefined) {
-      const nonce = randomToken();
-      this.#challenges.set(conn, { hello, instance: known.instance, nonce });
-      return { kind: 'challenge', nonce };
+    if (known !== undefined) { return this.#challenge(conn, { hello, ref: known.instance }); }
+    if (hello.autoPair !== undefined) {
+      const match = await this.#options.autoPairs.check(hello.autoPair, hello.name, addressOf(conn));
+      const existing = await this.#options.instances.get(match.secret);
+      // an instance an admin removed stays removed: its secret is refused like any other that can't be used
+      if (existing?.status === 'removed') { throw autoPairRefused(); }
+      return this.#challenge(conn, { hello, ref: { system: match.secret.system, instance: match.secret.instance }, autoPair: match });
     }
     return this.#options.pairing.start(hello, { address: addressOf(conn), origin: originOf(conn), peer });
   }
 
+  /** Send a socket a nonce to sign, remembering what it proves. */
+  #challenge(conn: WsConn, challenge: { hello: Hello; ref: InstanceRef; autoPair?: AutoPairMatch }): { kind: 'challenge'; nonce: string } {
+    const nonce = randomToken();
+    this.#challenges.set(conn, { ...challenge, nonce });
+    return { kind: 'challenge', nonce };
+  }
+
   async #prove(signature: string, conn: WsConn | undefined): Promise<Welcome> {
-    const { links, catalog, instances, config, tokens, limits, clock, log } = this.#options;
+    const { links, catalog, instances, config, tokens, limits, clock, log, autoPairs, pairing } = this.#options;
     const challenge = conn === undefined ? undefined : this.#challenges.get(conn);
     if (conn === undefined || challenge === undefined) { throw refuse(400, 'NO_CHALLENGE', 'say hello first'); }
     this.#challenges.delete(conn);
-    const { hello, nonce } = challenge;
-    const ref: InstanceRef = { system: challenge.instance.system, instance: challenge.instance.instance };
-    const record = await instances.get(ref);
-    if (record === undefined || !verifyNonce(record.publicKey, nonce, signature)) {
+    const { hello, nonce, ref } = challenge;
+    // with an auto-pair secret the hello's own key signs, and becomes the instance's key; else the paired key must
+    const signer = challenge.autoPair === undefined ? (await instances.get(ref))?.publicKey : hello.publicKey;
+    if (signer === undefined || !verifyNonce(signer, nonce, signature)) {
       log.warn('link.prove.refused', { system: hello.name, instance: ref.instance });
       throw refuse(401, 'BAD_SIGNATURE', 'the signature does not match the paired key');
     }
+    let autoPair: AutoPairGrant | undefined;
+    if (challenge.autoPair === undefined) {
+      autoPair = await autoPairs.deliver(ref, hello.autoPair);
+    } else {
+      // rotate first: should re-keying fail, the secret it brought stays good as the previous one
+      autoPair = await autoPairs.rotate(challenge.autoPair);
+      await pairing.autoPaired(ref, hello, addressOf(conn), challenge.autoPair.secret.createdBy);
+    }
+    const record = await instances.get(ref);
+    if (record === undefined) { throw refuse(401, 'BAD_SIGNATURE', 'the signature does not match the paired key'); }
     const first = record.lastSeenAt === undefined;
     const upgradedFrom = !first && record.version !== hello.version ? record.version : undefined;
     const manifest = await catalog.manifest(hello.name);
@@ -177,6 +200,7 @@ export class LinkHandshake {
       token: tokens.issue(session),
       sendManifest,
       limits,
+      ...(autoPair === undefined ? {} : { autoPair }),
     };
   }
 

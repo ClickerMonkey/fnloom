@@ -7,13 +7,14 @@ import { inboxSlice, compact, mintId } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
+import type { HubReads } from '../reads.ts';
 
 /** The inbox plugin. */
-export function inboxPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
+export function inboxPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, reads: HubReads) {
   const { chat, api, store } = hub;
   return plugin({ name: 'web.inbox', spec: inboxSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof inboxSlice> => ({
-      notifications: (io) => chat.notifications.list(io.user.id, compact(io.data)),
+      notifications: (io) => (io.data.query === undefined ? chat.notifications.list(io.user.id, compact(io.data)) : reads.lists.page('notifications', io.data.query, io.user)),
       readNotifications: async ({ data, user }) => {
         await chat.notifications.read(user.id, data.ids);
       },

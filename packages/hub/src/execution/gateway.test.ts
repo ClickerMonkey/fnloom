@@ -30,6 +30,7 @@ async function gateway(limited: number, retryAfter = 40) {
     calls += 1;
     if (calls <= limited) throw new LlmRateLimited('test-model', retryAfter);
     context.call?.record({ interaction: LlmInteractionId.parse('llm_1'), modelCall: ModelCallId.parse('mdl_1'), model: 'test-model', cost: 0.001, usage: { input: 1, output: 1 } });
+    context.receipts?.record({ modelCall: ModelCallId.parse('mdl_3'), model: 'test-model', cost: 0.001 });
     yield { content: 'hello' };
     return { content: 'hello', finishReason: 'stop', model: 'test-model' };
   };
@@ -92,6 +93,12 @@ describe('non-chat model calls', () => {
     await expect(hub.transcribe(audio, { purpose: 'dictation' }, live())).resolves.toMatchObject({ value: { text: 'hello there' }, call: 'mdl_2' });
     expect(heard[0]?.ctx.call).toBeUndefined();
     expect(heard[0]?.ctx.purpose).toBe('dictation');
+  });
+
+  it('make the hub’s own chat call under its purpose and priority, the answer’s text collected', async () => {
+    const { hub } = await gateway(0);
+    const request = { messages: [{ role: 'user' as const, content: 'pick' }] };
+    await expect(hub.chat({ request, priority: 'interactive' }, { purpose: 'suggestions' }, live())).resolves.toEqual({ value: 'hello', call: 'mdl_3', cost: 0.001, model: 'test-model' });
   });
 });
 

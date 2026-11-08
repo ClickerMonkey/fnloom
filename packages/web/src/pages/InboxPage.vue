@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The inbox: every notification (or only the unread ones; the filter is in the URL), newest first, paged. Opening one
+ * The inbox: every notification (or only the unread ones), searched and sorted by the hub (both in the URL), paged. Opening one
  * marks it read and goes where it leads. A push's click lands here with `?open=<id>`, which opens that notification
  * the same way once the list has it.
  */
@@ -12,9 +12,12 @@ import { ROUTES, notificationTarget } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
 import NotificationList from '../components/inbox/NotificationList.vue';
+import ListSearch from '../components/query/ListSearch.vue';
 import { InboxFilter } from '../state/inbox.ts';
+import { hubListQuery, useListQuery } from '../state/query.ts';
 import { useStores } from '../state/stores.ts';
-import { UiButton, UiCard, UiTabs, type TabItem } from '../ui/index.ts';
+import { UiButton, UiCard, UiSegmented } from '../ui/index.ts';
+import type { SegmentOption } from '../ui/types.ts';
 import { useNow } from '../ui/now.ts';
 
 const { inbox, toasts, chat } = useStores();
@@ -22,13 +25,16 @@ const router = useRouter();
 const now = useNow();
 const query = useRouteQuery(ROUTES.inbox);
 const filter = query.choice('filter', InboxFilter, 'all');
+const search = useListQuery('notifications');
+const hubQuery = computed(() => hubListQuery(search.value));
 
-const tabs = computed<readonly TabItem<InboxFilter>[]>(() => [
+const shows = computed<readonly SegmentOption<InboxFilter>[]>(() => [
   { value: 'all', label: 'All' },
-  { value: 'unread', label: 'Unread', count: inbox.unread.value },
+  { value: 'unread', label: inbox.unread.value > 0 ? `Unread ${inbox.unread.value}` : 'Unread' },
 ]);
 
-watch(filter, (value) => { void inbox.load(value); }, { immediate: true });
+// keyed by the written query, so a route change that leaves the search alone (`?open=`) doesn't reload
+watch([filter, () => JSON.stringify(hubQuery.value)], ([value]) => { void inbox.load(value, hubQuery.value); }, { immediate: true });
 
 const opening = query.text(OPEN_KEY);
 watch([opening, inbox.items], ([id, items]) => {
@@ -51,13 +57,15 @@ async function readAll(): Promise<void> {
     <template #actions>
       <UiButton v-if="inbox.unread.value > 0" icon="check" data-testid="read-all" @click="readAll">Mark all read</UiButton>
     </template>
-    <UiTabs v-model="filter" :tabs="tabs" label="Show" />
+    <ListSearch v-model="search" list="notifications" label="notifications" :count="inbox.items.value.length" :more="inbox.hasMore.value">
+      <UiSegmented v-model="filter" :options="shows" label="Show" data-testid="inbox-filter" />
+    </ListSearch>
     <UiCard flush>
       <NotificationList
         :items="inbox.items.value" :now="now" :loading="inbox.loading.value" :loaded="inbox.loaded.value" :problem="inbox.problem.value"
         :has-more="inbox.hasMore.value" :loading-more="inbox.loadingMore.value"
-        :empty-title="filter === 'unread' ? 'Nothing unread' : 'All caught up'"
-        @open="open" @read="inbox.markRead([$event.id])" @more="inbox.loadMore()" @retry="inbox.load(filter)"
+        :empty-title="Object.keys(hubQuery).length > 0 ? 'Nothing matches' : filter === 'unread' ? 'Nothing unread' : 'All caught up'"
+        @open="open" @read="inbox.markRead([$event.id])" @more="inbox.loadMore()" @retry="inbox.load(filter, hubQuery)"
       />
     </UiCard>
   </AppPage>

@@ -43,7 +43,8 @@ import { STATUS_LINE, statusLine, type RunView } from '../logic/runs.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelLabel, whoAnswers, type SuggestionItem } from '../logic/session.ts';
 import { messageText, threadItems, type MentionPart } from '../logic/thread.ts';
 import { sendDraft } from '../state/send.ts';
-import type { BudgetAsk, StopAction } from '../state/thread.ts';
+import type { BudgetAsk } from '../state/thread.ts';
+import type { ControlVerb } from '../logic/controls.ts';
 import type { ChatPanel } from '../url.ts';
 
 const props = withDefaults(defineProps<{
@@ -285,7 +286,8 @@ const replyView = computed(() => {
   return original === undefined ? undefined : { author: nameOf(original.author), excerpt: clamp(messageText(original.parts), 90) };
 });
 const replyMessage = computed(() => thread.messages.value.find((m) => m.id === composer.replyTo.value));
-const answerers = computed(() => (record.value === undefined ? '' : whoAnswers(record.value, replyMessage.value, composer.replyAll.value).text));
+// said under the box only when it isn't the usual answer (the session's agent, which the bar under it shows already)
+const answerers = computed(() => { if (record.value === undefined) { return ''; } const who = whoAnswers(record.value, replyMessage.value, composer.replyAll.value); return who.usual ? '' : who.text; });
 const replyAllShown = computed(() => (record.value?.participants.filter((p) => p.role === 'agent').length ?? 0) > 1 || (record.value?.participants.filter((p) => p.role !== 'agent').length ?? 0) > 1);
 /** The engine the hub's dictation role picked (the model, unless it says the browser). */
 const dictation = computed(() => caps.value.value?.dictation ?? { engine: 'model' as const });
@@ -328,8 +330,8 @@ function recall(): void {
   if (mine !== undefined) { void act('edit', [mine]); }
 }
 
-async function stop(action: StopAction): Promise<void> {
-  if (!(await thread.control(action))) { toasts.error("Couldn't stop", thread.problem.value); }
+async function control(verb: ControlVerb, runs: readonly RunId[] | undefined): Promise<void> {
+  if (!(await thread.control(verb, runs))) { toasts.error(verb === 'resume' ? "Couldn't resume" : "Couldn't stop", thread.problem.value); }
 }
 
 async function invoke(args: Json): Promise<void> {
@@ -510,7 +512,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
           :stopping="thread.stopping.value" :controls="thread.controls.value" :picker="picker" :hint="composer.hint.value" :files="composer.uploads.items.value"
           :reply="replyView" :editing="composer.editing.value !== undefined" :reply-all="{ shown: replyAllShown, on: composer.replyAll.value }" :answerers="answerers"
           :can-attach="caps.can.value.upload" :voice="voiceView" :now="now" :touch="touch" :note="note"
-          @input="onInput" @caret="composer.moveCaret($event)" @send="send()" @stop="stop" @resume="thread.control('resume')"
+          @input="onInput" @caret="composer.moveCaret($event)" @send="send()" @control="control"
           @picker-move="composer.movePicker($event)" @picker-hover="composer.pickerActive.value = $event" @pick="composer.pick($event)" @picker-dismiss="composer.dismissPicker()"
           @attach="composer.uploads.add($event)" @remove-file="composer.uploads.remove($event)" @retry-file="composer.uploads.retry($event)"
           @clear-reply="composer.setReply(undefined)" @cancel-edit="composer.cancelEdit()" @reply-all="composer.replyAll.value = $event"

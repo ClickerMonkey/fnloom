@@ -8,12 +8,14 @@
  * `contextor/fns.ts`); `HubReadName` is every other read fn, so a new one fails to compile until it is answered here.
  */
 import { reject } from '@ayepi/core';
-import { compact, QualifiedName, type ModelCall, type ModelCallId, type Run } from '@harness/core';
+import { compact, QualifiedName, type ModelCall, type ModelCallId, type QueryFnArgs, type QueryFnResult, type Run } from '@harness/core';
 import type { HUB_READ_ENDPOINTS, HubReadFnName } from '@harness/sdk';
 import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
 import { typeDefinitions } from '../catalog/definitions.ts';
 import type { Where } from '../store/index.ts';
+import { HubQuery } from '../query/service.ts';
+import { listSources } from '../query/sources.ts';
 import { knownSystem } from './admin-ops.ts';
 import { collect, PAGE } from './paging.ts';
 import { visibleRun, visibleSession, visibleTurn, type Viewer } from './web/access.ts';
@@ -34,6 +36,10 @@ export type ReadOp<E extends { readonly cfg: { readonly body: z.ZodType } }> = (
 /** Every read answered here, by the name of the hub fn that offers it, and the one model call read (an admin's). */
 export type HubReads = { readonly [N in HubReadName]: ReadOp<(typeof HUB_READ_ENDPOINTS)[N]> } & {
   modelCall(id: ModelCallId): Promise<ModelCall>;
+  /** Any list by the query standard (the `query` endpoint and the hub fn `hub/query`). */
+  query(data: QueryFnArgs, who: Viewer): Promise<QueryFnResult>;
+  /** Every list's query, typed per list, for the list endpoints that take a `query`. */
+  readonly lists: HubQuery;
 };
 
 /** How many rows a page holds when the reader doesn't say. */
@@ -49,9 +55,13 @@ function adminOnly(who: Viewer, what: string): void {
 /** The reads on the hub's services. */
 export function hubReads(hub: HubServices): HubReads {
   const { store, catalog, chat } = hub;
+  const lists = new HubQuery(listSources(hub, hub.settings.queryEnv));
   return {
+    lists,
+    query: (data, who) => lists.query(data, who),
     types_get: (data) => typeDefinitions(catalog, data.names),
     runs_list: async (data, who) => {
+      if (data.query !== undefined) { return lists.page('runs', data.query, who); }
       const fn = data.fn === undefined ? undefined : QualifiedName.safeParse(data.fn);
       if (fn?.success === false) { return { items: [] }; }
       const where: Where<Run> = {
@@ -80,6 +90,7 @@ export function hubReads(hub: HubServices): HubReads {
       return call;
     },
     model_calls: async (data, who) => {
+      if (data.query !== undefined) { return lists.page('modelCalls', data.query, who); }
       if (who.role !== 'admin') {
         // a member reads the model calls of a run or session they can see
         if (data.run !== undefined) { await visibleRun(hub, data.run, who); }
@@ -94,12 +105,13 @@ export function hubReads(hub: HubServices): HubReads {
       return call;
     },
     fn_metrics: (data) => hub.metrics.fns.metrics(compact(data)),
-    sessions_list: (data, who) => chat.sessions.list(who.id, compact(data)),
+    sessions_list: (data, who) => (data.query === undefined ? chat.sessions.list(who.id, compact(data)) : lists.page('sessions', data.query, who)),
     session_messages: async ({ session, ...page }, who) => {
       await visibleSession(hub, session, who);
       return chat.sessions.messages(session, who.id, compact(page));
     },
-    systems_list: async () => {
+    systems_list: async (data, who) => {
+      if (data.query !== undefined) { return (await lists.page('systems', data.query, who)).items; }
       const records = await collect((cursor) => store.table('systems').find({ order: [['name', 'asc']], limit: PAGE, cursor }), MAX_SYSTEMS);
       return Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r)));
     },

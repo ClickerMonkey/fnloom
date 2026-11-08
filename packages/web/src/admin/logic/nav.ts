@@ -16,12 +16,13 @@ export interface AdminNavEntry {
 }
 
 const SECTIONS = {
-  systems: { label: 'Systems', icon: 'server', to: links.systems(), routes: [ROUTES.systems, ROUTES.system, ROUTES.instance, ROUTES.fn] },
+  systems: { label: 'Systems', icon: 'server', to: links.systems(), routes: [ROUTES.systems, ROUTES.system, ROUTES.instance] },
+  fns: { label: 'Fns', icon: 'fn', to: links.fns(), routes: [ROUTES.fns, ROUTES.fn] },
   models: { label: 'Models', icon: 'sparkles', to: links.models(), routes: [ROUTES.models] },
   limits: { label: 'Budgets', icon: 'coins', to: links.limits(), routes: [ROUTES.limits] },
   policies: { label: 'Policies', icon: 'shield', to: links.policies(), routes: [ROUTES.policies] },
   'actor-settings': { label: 'Actor settings', icon: 'users', to: links.actorSettings(), routes: [ROUTES.actorSettings] },
-  runs: { label: 'Runs', icon: 'fn', to: links.runs(), routes: [ROUTES.runs] },
+  runs: { label: 'Runs', icon: 'play', to: links.runs(), routes: [ROUTES.runs] },
   'model-calls': { label: 'Model calls', icon: 'cpu', to: links.modelCalls(), routes: [ROUTES.modelCalls, ROUTES.llmCalls] },
   mcps: { label: 'MCPs', icon: 'link', to: links.mcps(), routes: [ROUTES.mcps, ROUTES.mcp] },
 } as const satisfies Record<AdminSection, { label: string; icon: IconName; to: RouteLocationRaw; routes: readonly RouteName[] }>;

@@ -6,14 +6,14 @@
  * transcribe, convert). Live: `resource` changes refresh the list and groups in the background.
  */
 import {
-  type ContentRef, type FormKind, type QualifiedName, type ResourceFacet, type ResourcePage, type ResourceQuery, type ResourceRecord, type ResourceUri,
+  type ContentRef, type FormKind, type QualifiedName, type ResourceFacet, type ResourcePage, type ResourceRecord, type ResourceUri,
 } from '@harness/core';
 import { computed, shallowRef } from 'vue';
 import type { FileSender } from '../../chat/api.ts';
 import { Loaded, Paged, Task, type Outcome } from '../../state/loaded.ts';
 import { problemText } from '../../state/problems.ts';
 import type { ResourceEvents, ResourcesApi } from '../api/resources.ts';
-import { folderQuery, groupQuery, hubQuery, mergeFacets, PAGE_SIZE, type BrowserQuery } from '../logic/browse.ts';
+import { folderQuery, groupQuery, hubQuery, mergeFacets, PAGE_SIZE, type BrowseQuery, type BrowserQuery } from '../logic/browse.ts';
 import { webAddress } from '../logic/actions.ts';
 import { familyOfStat } from '../logic/formats.ts';
 
@@ -50,7 +50,7 @@ export class ResourceBrowserStore {
   readonly query = shallowRef<BrowserQuery>({});
   /** The facets of the list's query for its grouping (from its first page). */
   readonly facets = shallowRef<readonly ResourceFacet[]>([]);
-  readonly list: Paged<ResourceRecord, ResourceQuery>;
+  readonly list: Paged<ResourceRecord, BrowseQuery>;
   /** Each group's first resources in the groups view, by facet value. */
   readonly groups = shallowRef<ReadonlyMap<string, Loaded<ResourcePage>>>(new Map());
   /** Each opened folder's subfolders, by its `under` ('' for the roots). */
@@ -71,7 +71,7 @@ export class ResourceBrowserStore {
 
   constructor(deps: BrowserDeps) {
     this.#deps = deps;
-    this.list = new Paged<ResourceRecord, ResourceQuery>({
+    this.list = new Paged<ResourceRecord, BrowseQuery>({
       fetch: async (filter, cursor, limit) => {
         const page = await deps.api.browse.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) });
         this.facets.value = cursor === undefined ? page.facets : mergeFacets(this.facets.value, page.facets);

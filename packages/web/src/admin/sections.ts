@@ -5,7 +5,7 @@
 import { z } from 'zod';
 
 /** The admin sections, in the order the admin nav lists them. */
-export const AdminSection = z.enum(['systems', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps']);
+export const AdminSection = z.enum(['systems', 'fns', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps']);
 export type AdminSection = z.infer<typeof AdminSection>;
 
 /** A system's tabs. */

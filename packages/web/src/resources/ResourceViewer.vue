@@ -11,9 +11,11 @@
  * It is provided under `RESOURCE_VIEWER`, so a system's renderer can show any resource with it.
  */
 import type { QualifiedName, ResourceStat, ResourceUri, SectionKey } from '@harness/core';
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import ConfirmDialog from '../admin/components/ConfirmDialog.vue';
 import { useStores } from '../state/stores.ts';
 import { copyText, UiBanner, UiButton, UiDiagram, UiIconButton, UiMarkdown, UiSkeleton, UiTabs, type TabItem } from '../ui/index.ts';
+import { contextConfirm } from './logic/actions.ts';
 import { languageOf, typeWord } from './logic/formats.ts';
 import { delimiterOf, parseDelimited } from './logic/tables.ts';
 import type { ModeRead } from './logic/viewers.ts';
@@ -122,7 +124,11 @@ async function make(): Promise<void> {
   if (kind === undefined) { return; }
   if (await store.make(kind)) { emit('notice', 'Made it.', 'ok'); }
 }
+/** Making context asks first (the button's label says what it does; this says what it makes). */
+const confirming = ref(false);
+const confirmText = computed(() => contextConfirm([opened.value?.stat.name ?? 'this resource']));
 async function makeContext(): Promise<void> {
+  confirming.value = false;
   const made = await store.makeContext();
   if (made === undefined) { emit('notice', store.contexting.problem.value, 'danger'); return; }
   emit('context', [...made.created, ...made.updated]);
@@ -141,7 +147,12 @@ async function makeContext(): Promise<void> {
         <span class="actions">
           <UiIconButton icon="copy" size="sm" label="Copy the address" @click="copyUri" />
           <UiIconButton v-if="opened.from === 'library'" icon="download" size="sm" label="Download" data-testid="viewer-download" @click="download" />
-          <UiIconButton v-if="opened.from === 'library'" icon="sparkles" size="sm" label="Make context from this" :disabled="store.contexting.busy.value" data-testid="viewer-context" @click="makeContext" />
+          <UiButton
+            v-if="opened.from === 'library'" icon="book-open" size="sm" variant="ghost" title="Make context from this" :loading="store.contexting.busy.value"
+            data-testid="viewer-context" @click="confirming = true"
+          >
+            Context
+          </UiButton>
           <UiIconButton icon="refresh" size="sm" label="Reload" @click="store.open(uri, section)" />
         </span>
       </div>
@@ -177,6 +188,10 @@ async function makeContext(): Promise<void> {
       </div>
     </template>
     <UiSkeleton v-else-if="store.opened.loading.value" shape="lines" :lines="compact ? 3 : 8" />
+    <ConfirmDialog
+      v-model:open="confirming" :title="confirmText.title" :body="confirmText.body" :confirm="confirmText.confirm" :danger="false"
+      :busy="store.contexting.busy.value" @confirm="makeContext"
+    />
   </div>
 </template>
 

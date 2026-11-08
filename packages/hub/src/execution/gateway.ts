@@ -11,7 +11,7 @@
  */
 import type { Request } from '@aeye/core';
 import { retry } from '@ayepi/core/retry';
-import { isSettled, type LlmForward, type LlmForwardChunk, type ModelInfo, type Run, type RunId, type TurnId } from '@harness/core';
+import { isSettled, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelChoice, type ModelInfo, type Priority, type Run, type RunId, type TurnId } from '@harness/core';
 import type { ModelSite } from '../models/index.ts';
 import { Channel } from './channel.ts';
 import { BudgetRefused, causeOf, LlmRateLimited, messageOf } from './errors.ts';
@@ -122,6 +122,17 @@ export class HubLlmGateway implements LlmGateway {
     return this.#call(site, signal, (ctx) => this.#deps.llm.speech(input, ctx, signal));
   }
 
+  async chat(input: { request: LlmRequest; model?: ModelChoice; provider?: string; priority?: Priority }, site: ModelSite, signal: AbortSignal): Promise<Recorded<string>> {
+    const request = requestFromWire(input.request);
+    const resolved = await this.#deps.models.resolve(input.model);
+    const metadata = input.provider === undefined ? resolved : { ...resolved, provider: input.provider };
+    return this.#call(site, signal, async (ctx) => {
+      let text = '';
+      for await (const chunk of this.#deps.llm.streamer(request, ctx, metadata, signal)) { text += chunk.content ?? ''; }
+      return text;
+    }, input.priority);
+  }
+
   models(): Promise<ModelInfo[]> {
     return Promise.resolve(this.#deps.llm.models());
   }
@@ -130,7 +141,7 @@ export class HubLlmGateway implements LlmGateway {
    * One non-chat call: paid by its run when it has one (refused when a system names a run that isn't its own, or none),
    * on the LLM queue at the run's priority (the hub's own work waits as background), with its record read back.
    */
-  async #call<T>(site: ModelSite, signal: AbortSignal, call: (ctx: HubCallContext) => Promise<T>): Promise<Recorded<T>> {
+  async #call<T>(site: ModelSite, signal: AbortSignal, call: (ctx: HubCallContext) => Promise<T>, priority?: Priority): Promise<Recorded<T>> {
     const system = 'system' in site ? site.system : undefined;
     const scope = site.run === undefined ? undefined : await this.#scope(site.run, system);
     if (typeof scope === 'string') throw new Error(scope);
@@ -138,7 +149,7 @@ export class HubLlmGateway implements LlmGateway {
     const receipts = new CallReceipts();
     const ctx: HubCallContext = { receipts, ...(scope === undefined ? {} : { call: scope }), ...('purpose' in site ? { purpose: site.purpose } : {}) };
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('stopped');
-    const value = await this.#deps.queues.llm(scope?.priority ?? 'background', () => call(ctx));
+    const value = await this.#deps.queues.llm(scope?.priority ?? priority ?? 'background', () => call(ctx));
     const last = receipts.last;
     if (last === undefined) throw new Error('the call finished without being recorded');
     return { value, call: last.modelCall, cost: receipts.cost, model: last.model };

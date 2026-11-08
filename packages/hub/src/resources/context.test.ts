@@ -142,6 +142,18 @@ describe('memory', () => {
     const [resourceItem] = (await r.context.list({ origin: 'resource', limit: 1 }, who)).items;
     await expect(r.context.forget(resourceItem?.name ?? shared.name, who)).rejects.toMatchObject({ status: 403 });
   });
+
+  it('writes and edits the options of a memory, tied fns included, for its author only', async () => {
+    const r = await rig();
+    const { name } = await r.context.remember({ text: 'Use pnpm.', title: 'Package manager', scope: 'everyone', tags: ['tools'], fns: [QualifiedName.parse('fs/read')], command: 'pnpm' }, who);
+    expect((await r.store.table('context').get(name))?.decl).toMatchObject({ tags: ['tools'], fns: ['fs/read'], command: { name: 'pnpm', args: [] }, summary: 'Package manager' });
+    await r.context.update({ name, text: 'Use pnpm 9.', title: 'Package tool', weight: 1.5, suggestFns: [QualifiedName.parse('fs/write')], visible: 'llm' }, who);
+    const edited = await r.store.table('context').get(name);
+    expect(edited?.decl).toMatchObject({
+      content: 'Use pnpm 9.', description: 'Package tool', summary: 'Package tool', weight: 1.5, tags: ['tools'], fns: ['fs/read'], suggestFns: ['fs/write'], visible: 'llm',
+    });
+    await expect(r.context.update({ name, text: 'mine now' }, { actor: BOB })).rejects.toMatchObject({ status: 403 });
+  });
 });
 
 describe('links people draw', () => {

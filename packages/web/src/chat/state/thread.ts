@@ -23,8 +23,6 @@ import { summaryOf } from './sessions.ts';
 
 /** What the session controls can do, from the `control` endpoint's body. */
 export type ControlAction = BodyOf<'control'>['action'];
-/** The controls that stop work: every control but resuming. */
-export type StopAction = Exclude<ControlAction, 'resume'>;
 
 /** The callers a thread uses. */
 export type ThreadApi = Pick<ChatApi,
@@ -441,11 +439,11 @@ export class ThreadStore {
     }
   }
 
-  /** Pause, resume or cancel the turn. The UI shows it stopping at once; events confirm. */
-  async control(action: ControlAction): Promise<boolean> {
+  /** Pause, resume or cancel the turn's runs: those named, or all. The UI shows it stopping at once; events confirm. */
+  async control(action: ControlAction, runs?: readonly RunId[]): Promise<boolean> {
     this.stopping.value = action !== 'resume';
     try {
-      this.controls.value = await this.#deps.api.control.call({ session: this.id, action });
+      this.controls.value = await this.#deps.api.control.call({ session: this.id, action, ...(runs === undefined || runs.length === 0 ? {} : { runs: [...runs] }) });
       if (action === 'cancel') {
         this.awaiting.value = undefined;
         void this.loadWaiting();

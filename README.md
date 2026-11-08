@@ -127,6 +127,7 @@ npm run build       # web manifest, typecheck, then the web build the hub serves
 npm run e2e         # the whole stack end to end with a free OpenRouter model (boots its own on :4330)
 npm run ui-tests    # puppeteer checks of every UI feature against a running harness (HARNESS_UI_URL)
 npm run ui-tests:mock  # the same features against the web app's mock hub (nothing else running)
+npm run gallery     # ui-tests shots into the screenshot gallery (ui-tests/gallery/index.html), outdated ones flagged
 npm run docs:authoring # regenerate packages/sdk/AUTHORING.md, the system authoring guide (checked in npm run check)
 npm run check       # manifest and .env.example checks, typecheck, lint, coverage, explorer: everything offline
 npm run check:full  # check, then the live tests and the e2e suite (needs OPENROUTER_API_KEY and the embedder)
@@ -157,5 +158,11 @@ in [`docs/architecture.md`](docs/architecture.md).
   `HARNESS_UI_VIEWPORTS=tablet,phone` for some). Every shot is also checked for horizontal scroll, overlapping
   controls and controls off screen. Shots go to `ui-tests/shots/<feature>/`, a summary to
   `ui-tests/shots/report.json`. A full run (about 220 checks) takes about half an hour.
+- `npm run gallery` runs the same features (same `HARNESS_UI_*` settings; `HARNESS_GALLERY_MOCK=true` for the mock hub)
+  and keeps their shots in `ui-tests/gallery/`: the new shots are staged with the gallery's other features and swapped
+  in only when the run completes, a failed feature keeps its previous shots, and `gallery.json` records each feature's
+  commit and shot time. `index.html` flags shots older than their feature's code (its ui-test and the web folders it
+  covers, uncommitted changes included). Run it for the screens a change touched (`HARNESS_UI_ONLY=…`);
+  `HARNESS_GALLERY_INDEX_ONLY=true` only re-flags.
 - `npm run e2e:mock` runs the web app's own puppeteer scenarios against a mock hub, at phone, tablet and desktop in
   light and dark.

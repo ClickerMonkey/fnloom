@@ -82,9 +82,9 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     link: (context) => {
       const { hub } = context;
       const systems = systemsOf(context);
-      const { connections, pairing, config, supervisor, admin, resources, output, packages, router } = systems;
+      const { connections, pairing, config, supervisor, admin, resources, output, packages, router, autoPairs } = systems;
       return {
-        services: { connections, pairing, config, supervisor, admin, resources, output, packages, instances: router, tokens: context.systemTokens },
+        services: { connections, pairing, config, supervisor, admin, resources, output, packages, instances: router, autoPairs, tokens: context.systemTokens },
         hooks: {
           // build 1's single-instance rows move onto instances before any system can connect
           work: { up: async () => { await systems.migrate(); } },
@@ -110,7 +110,7 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
     settings: { chat: settings.chatEnv, queue: settings.queueEnv, model: settings.modelEnv },
     log: hub.log, clock: hub.clock, bus: hub.bus, store: hub.store, catalog: hub.catalog, link: hub.link.connections,
     runs: hub.execution.runs, agents: hub.execution.agents, limits: hub.execution.limits,
-    search: hub.index.search, suggest: hub.index.suggest, push: hub.api.push, hubActor,
+    search: hub.index.search, suggest: hub.index.suggest, llm: hub.execution.llm, push: hub.api.push, hubActor,
   });
   let stop: (() => void) | undefined;
   return {

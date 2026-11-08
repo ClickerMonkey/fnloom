@@ -6,7 +6,7 @@
  * compile time, then parsed. The web tests' fake callers and the mock hub both answer from it.
  */
 import {
-  ContextFromResourceArgs, ContextItemView, ContextLink, ContextQuery, ContextRecord, LinkTarget, linkTargetKey, QualifiedName, RememberArgs,
+  ContextFromResourceArgs, ContextItemView, ContextLink, ContextQuery, ContextRecord, LinkTarget, linkTargetKey, QualifiedName, RememberArgs, UpdateMemoryArgs,
   type ActorId, type ContextFromResourceResult, type DeclarableRelation, type Page,
 } from '@harness/core';
 import { reject } from '@ayepi/core';
@@ -97,10 +97,17 @@ export class ContextGraphDouble {
 
   list(input: z.input<typeof ContextQuery>): Page<ContextRecord> {
     const query = ContextQuery.parse(input);
-    const words = query.search?.toLowerCase();
+    // the list query wins over the old narrow fields, as on the hub; this fake knows `is` filters on origin and system
+    const is = (field: string): string | undefined => {
+      const found = query.query?.filters?.find((f) => f.field === field && f.op === 'is');
+      return found !== undefined && 'value' in found ? String(found.value) : undefined;
+    };
+    const origin = query.query === undefined ? query.origin : is('origin');
+    const system = query.query === undefined ? query.system : is('system');
+    const words = (query.query === undefined ? query.search : query.query.text)?.toLowerCase();
     const shown = this.records
-      .filter((record) => query.origin === undefined || (record.origin?.type ?? 'system') === query.origin)
-      .filter((record) => query.system === undefined || record.system === query.system)
+      .filter((record) => origin === undefined || (record.origin?.type ?? 'system') === origin)
+      .filter((record) => system === undefined || record.system === system)
       .filter((record) => words === undefined || `${record.name}\n${record.decl.description}`.toLowerCase().includes(words));
     const start = Number(query.cursor ?? '0');
     const limit = query.limit ?? 50;
@@ -123,6 +130,25 @@ export class ContextGraphDouble {
     const scope = args.scope === 'everyone' ? { to: 'everyone' as const } : { to: 'user' as const, user: this.#author };
     this.records = [contextRecord(name, { system: 'hub', description: title, content: args.text, origin: { type: 'memory', scope, author: this.#author } }, this.#clock()), ...this.records];
     for (const to of args.about ?? []) { this.links.push(contextLink(name, to, { relation: 'about', weight: 0.8 }, this.#clock())); }
+    return { name };
+  }
+
+  update(input: z.input<typeof UpdateMemoryArgs>): { name: QualifiedName } {
+    const { name, text, title, about, command, ...o } = UpdateMemoryArgs.parse(input);
+    const record = this.#find(name);
+    if (record.origin?.type !== 'memory') { throw reject(403, 'NOT_A_MEMORY', `${name} is not a memory; only memories can be edited`); }
+    const description = title === undefined || title === '' ? record.decl.description : title;
+    const decl = {
+      ...record.decl, description,
+      ...(o.weight === undefined ? {} : { weight: o.weight }), ...(o.summary === undefined ? {} : { summary: o.summary }), ...(o.tags === undefined ? {} : { tags: o.tags }),
+      ...(o.fns === undefined ? {} : { fns: o.fns }), ...(o.suggestFns === undefined ? {} : { suggestFns: o.suggestFns }), ...(o.alwaysFor === undefined ? {} : { alwaysFor: o.alwaysFor }),
+      ...(o.visible === undefined ? {} : { visible: o.visible }), ...(o.suggest === undefined ? {} : { suggest: o.suggest }), ...(o.parent === undefined ? {} : { parent: o.parent }),
+      ...(text === undefined ? {} : { content: text }), ...(command === undefined ? {} : { command: { name: command, args: [] } }),
+    };
+    this.records = this.records.map((r) => (r.name === name ? { ...r, decl, updatedAt: this.#clock() } : r));
+    if (about !== undefined) {
+      this.links = [...this.links.filter((l) => !(l.from === name && l.relation === 'about')), ...about.map((to) => contextLink(name, to, { relation: 'about', weight: 0.8 }, this.#clock()))];
+    }
     return { name };
   }
 

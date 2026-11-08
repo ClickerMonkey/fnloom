@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * A browser's frame: its filters, the list (skeleton, problem, empty, rows), more rows fetched as the end comes into
+ * A browser's frame: its search bar (`ListSearch`), the list (skeleton, problem, empty, rows), more rows fetched as the end comes into
  * view (or with the button), and the opened item beside the list on roomy screens or in a sheet otherwise.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -87,10 +87,8 @@ onBeforeUnmount(() => { observer?.disconnect(); sizer?.disconnect(); });
 }
 /* the pinned filters' fill runs out to the page's left edge only, never over the opened item beside the list */
 .browser.split .filters.pinned { clip-path: inset(0 0 -1px -100vmax); }
-/* beside an opened item the list is narrower: the filters narrow too, to stay on one row */
-.browser.split .filters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 124px), 1fr)); }
 .list-side { display: grid; gap: var(--space-3); min-width: 0; align-content: start; }
-.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--space-2) var(--space-3); align-items: end; }
+.filters { display: grid; min-width: 0; }
 .rows { display: grid; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-sm); list-style: none; overflow: hidden; }
 .rows > :deep(*) { scroll-margin-top: calc(var(--pinned-top, 0px) + var(--filters-height, 0px) + var(--space-2)); }
 .more { display: flex; justify-content: center; }

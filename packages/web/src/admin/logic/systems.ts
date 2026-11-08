@@ -2,7 +2,7 @@
  * How systems read on the admin pages: each status's tone and words, which lifecycle actions apply to a system now,
  * why a fn can't be used in plain words, and the order systems are listed in (what needs the admin first).
  */
-import type { Availability, FnUnavailable, InstalledStatus, PairingRequest, SystemStatus, SystemView } from '@harness/core';
+import type { AutoPairView, Availability, FnUnavailable, InstalledStatus, PairingRequest, SystemStatus, SystemView } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
 
 /** How a status looks: its tone, its word, and whether it is in motion. */
@@ -94,4 +94,27 @@ export function timeLeft(at: number, now: number): string {
 /** A pairing code grouped for reading aloud: "483 912". */
 export function groupedCode(code: string): string {
   return code.replace(/\s+/g, '').replace(/(.{3})(?=.)/g, '$1 ');
+}
+
+/** Where an auto pair secret stands: usable, past its end, or revoked by an admin. */
+export type AutoPairState = 'active' | 'expired' | 'revoked';
+
+/** Where a secret stands now. */
+export function autoPairState(secret: Pick<AutoPairView, 'expiresAt' | 'revokedAt'>, now: number): AutoPairState {
+  if (secret.revokedAt !== undefined) { return 'revoked'; }
+  return secret.expiresAt !== undefined && secret.expiresAt <= now ? 'expired' : 'active';
+}
+
+/** How each state shows. */
+export const AUTO_PAIR_STATE_LOOK = {
+  active: { tone: 'ok', word: 'Active', live: false }, expired: { tone: 'neutral', word: 'Expired', live: false }, revoked: { tone: 'danger', word: 'Revoked', live: false },
+} as const satisfies Record<AutoPairState, StatusLook>;
+
+/** When a secret ends, in words: "never ends", "ends in 78 days", "ended 30 days ago". */
+export function endsText(expiresAt: number | undefined, now: number): string {
+  if (expiresAt === undefined) { return 'never ends'; }
+  const days = Math.round(Math.abs(expiresAt - now) / 86_400_000);
+  const span = days === 0 ? 'today' : `${days} ${days === 1 ? 'day' : 'days'}`;
+  if (expiresAt > now) { return days === 0 ? 'ends today' : `ends in ${span}`; }
+  return days === 0 ? 'ended today' : `ended ${span} ago`;
 }

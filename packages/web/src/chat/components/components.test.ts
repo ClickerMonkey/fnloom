@@ -17,6 +17,7 @@ import LlmCallDetails from './LlmCallDetails.vue';
 import MentionChip from './MentionChip.vue';
 import RendererHost from './RendererHost.vue';
 import RunCard from './RunCard.vue';
+import RunControl from './RunControl.vue';
 import RunProgress from './RunProgress.vue';
 import SessionList from './SessionList.vue';
 import StatusLine from './StatusLine.vue';
@@ -56,6 +57,17 @@ describe('RunCard', () => {
     expect(live.emitted('toggle')?.[0]).toEqual([true]);
     await live.get('[aria-label="Move to background"]').trigger('click');
     expect(live.emitted('background')).toHaveLength(1);
+  });
+
+  it('says each fact once: no repeated args in its words, none on the line beside its renderer, the byline as a tooltip', () => {
+    const bash = run({ fn: 'fs/bash', args: { command: 'ls -la' }, text: { phase: 'active', one: 'Running ls -la', many: 'Running {n}' } });
+    const plain = mount(RunCard, { props: { run: bash, now: T0, collapsed: false, byline: 'You ran this' } });
+    expect(plain.text().split('ls -la')).toHaveLength(2);
+    expect(plain.find('[data-testid=run-status]').exists()).toBe(false);
+    expect(plain.get('.summary').attributes('title')).toBe('You ran this');
+    const View: FunctionalComponent = () => h('p', { class: 'custom' }, '$ ls -la');
+    const drawn = mount(RunCard, { props: { run: bash, now: T0, collapsed: false, view: { component: View, props: fnProps('running') } } });
+    expect(drawn.text().split('ls -la')).toHaveLength(2);
   });
 
   it('draws the fn’s renderer, and a placeholder when it throws', async () => {
@@ -110,9 +122,32 @@ describe('UserMessage', () => {
     expect(view.text()).not.toContain('9:30');
     await view.get('.added-toggle').trigger('click');
     expect(view.text()).toContain('<local-time> 9:30');
-    expect(view.get('[data-testid=suggested-fns]').text()).toContain('1 fn');
+    expect(view.get('[data-testid=suggested-fns]').text()).toBe('1');
+    expect(view.find('[data-testid=suggested-context]').exists()).toBe(false);
     await view.get('[data-action=reply]').trigger('click');
     expect(view.emitted('action')?.[0]).toEqual(['reply']);
+  });
+
+  it('opens a suggestion icon to what was used and what was left out, with the reason', async () => {
+    const m = message({
+      parts: [{ type: 'text', text: 'hi' }],
+      suggestions: { by: 'decision', items: [{ used: true, kind: 'fn', name: 'fs/read_file', score: 0.8 }, { used: false, kind: 'fn', name: 'fs/glob', score: 0.3, reason: 'declined', note: 'not about files' }] },
+    });
+    const view = mount(UserMessage, { props: { message: m, mine: true, authorName: 'Ada', now: T0, commandName: () => '', suggestions: messageSuggestions(m, undefined), actions: [] }, attachTo: document.body });
+    await view.get('[data-testid=suggested-fns]').trigger('click');
+    await nextTick();
+    const skipped = document.body.querySelector('[data-testid=suggestions-skipped]');
+    expect(skipped?.textContent).toContain('The decision model declined it: not about files');
+    expect(document.body.textContent).toContain('Chosen by the decision model');
+    view.unmount();
+  });
+
+  it('shows a message that is only `!` runs as their cards, with no bubble', () => {
+    const r = run({ id: 'run_x', fn: 'fs/bash' });
+    const m = message({ parts: [{ type: 'invocation', fn: 'fs/bash', run: r.id }] });
+    const view = mount(UserMessage, { props: { message: m, mine: true, authorName: 'Ada', now: T0, commandName: () => '', suggestions: { context: [], fns: [] }, actions: [], runs: [r] } });
+    expect(view.find('.bubble').exists()).toBe(false);
+    expect(view.find('[data-testid=run-card]').exists()).toBe(true);
   });
 
   it('shows the quote of what it replies to, and jumps to it', async () => {
@@ -197,6 +232,27 @@ describe('ApprovalTray', () => {
   });
 });
 
+describe('RunControl', () => {
+  it('lets a person pick which running fns to pause, or all', async () => {
+    const runs = [
+      { run: RunId.parse('run_a'), fn: 'fs/bash', status: 'running', pause: true, resume: false, cancel: true },
+      { run: RunId.parse('run_b'), fn: 'fs/glob', status: 'running', pause: false, resume: false, cancel: true },
+    ] as const;
+    const control = mount(RunControl, { props: { controls: { pause: true, cancel: true, uncancellable: [], undoLastTurn: false, runs: [...runs] }, running: true, paused: false, stopping: false }, attachTo: document.body });
+    await control.get('[data-testid=stop]').trigger('click');
+    await nextTick();
+    const box = (id: string): HTMLInputElement | null => document.body.querySelector<HTMLInputElement>(`input[data-run=${id}]`);
+    expect(box('run_a')?.checked).toBe(true);
+    box('run_a')?.click();
+    await nextTick();
+    // only run_b is chosen now, and it can't pause
+    expect(document.body.querySelector<HTMLButtonElement>('[data-verb=pause]')?.disabled).toBe(true);
+    document.body.querySelector<HTMLButtonElement>('[data-verb=cancel]')?.click();
+    expect(control.emitted('control')?.[0]).toEqual(['cancel', ['run_b']]);
+    control.unmount();
+  });
+});
+
 describe('Composer', () => {
   const base = {
     text: '', placeholder: 'Message', tokens: [], canSend: true, sending: false, running: false, paused: false, stopping: false,
@@ -241,9 +297,11 @@ describe('Composer', () => {
     });
     await composer.get('[data-testid=stop]').trigger('click');
     await nextTick();
-    const menu = document.body.querySelectorAll('[role=menuitem]');
-    expect([...menu].map((item) => item.textContent.trim())).toEqual([expect.stringContaining('Cancel')]);
+    const enabled = [...document.body.querySelectorAll<HTMLButtonElement>('[data-testid=run-control] [data-verb]')].filter((b) => !b.disabled).map((b) => b.dataset['verb']);
+    expect(enabled).toEqual(['cancel']);
     expect(document.body.textContent).toContain('1 run will finish');
+    document.body.querySelector<HTMLButtonElement>('[data-verb=cancel]')?.click();
+    expect(composer.emitted('control')?.[0]).toEqual(['cancel', undefined]);
     key(composer.get('textarea').element, 'ArrowUp');
     expect(composer.emitted('recall')).toHaveLength(1);
     expect(composer.get('[data-testid=staged-files]').text()).toContain('40%');
@@ -323,7 +381,7 @@ describe('inspectors', () => {
 
   it('shows what the model saw, with the hub’s additions picked out', async () => {
     const call = mount(LlmCallDetails, { props: { call: llmCall() } });
-    expect(call.get('[data-testid=llm-cost]').text()).toBe('<$0.01');
+    expect(call.get('[data-testid=llm-cost]').text()).toBe('$0.002');
     expect(call.get('[data-testid=llm-messages]').text()).toContain('<local-time> 9:30');
     expect(call.text()).toContain('You are the chat agent.');
   });

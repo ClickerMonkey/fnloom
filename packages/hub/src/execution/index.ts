@@ -13,7 +13,7 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelInfo, ModelCallId, InvalidInput, InstanceName,
+  ModelInfo, ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
@@ -135,6 +135,12 @@ export interface LlmGateway {
   image(input: ImageCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<MadeImage[]>>;
   transcribe(input: TranscribeCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Heard>>;
   speech(input: SpeechCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Spoken>>;
+  /**
+   * One chat call of the hub's own (no tools, the answer's text collected), recorded as a `ModelCall` with its site's
+   * purpose and paid by its run when it names one; `provider` pins the model to one provider. `priority` places it on the LLM queue (the hub's work waits as
+   * background otherwise).
+   */
+  chat(input: { request: LlmRequest; model?: ModelChoice; provider?: string; priority?: Priority }, site: ModelSite, signal: AbortSignal): Promise<Recorded<string>>;
   /** The models configured providers offer. */
   models(): Promise<ModelInfo[]>;
 }

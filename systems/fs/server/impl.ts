@@ -16,6 +16,7 @@ import { FileMentions, PathIndex } from './mentions.ts';
 import { RootGuard } from './paths.ts';
 import { FsProblem } from './problem.ts';
 import { FsResources } from './resources.ts';
+import { DEFAULT_SECRETS, GlobSecrets, type SecretFilter } from './secrets.ts';
 import { compilePattern, globPaths, grepFiles, searchBases, type SearchLimits } from './search.ts';
 import { renderTree } from './tree.ts';
 
@@ -52,6 +53,18 @@ async function attempt<T extends FnTypes>(ctx: Pick<FnCtx<T, FsConfig>, 'fail'>,
   }
 }
 
+/** `make` memoized per config value. */
+function perConfig<T>(make: (config: FsConfig) => T): (config: FsConfig) => T {
+  const made = new WeakMap<FsConfig, T>();
+  return (config) => {
+    const known = made.get(config);
+    if (known !== undefined) { return known; }
+    const value = make(config);
+    made.set(config, value);
+    return value;
+  };
+}
+
 /** Build the fs implementation. */
 export function createFsImpl(deps: FsDeps): FsServer {
   const s = deps.settings;
@@ -62,18 +75,13 @@ export function createFsImpl(deps: FsDeps): FsServer {
   const mentions = new FileMentions({ index, files, documents: deps.documents, limits: { results: s.FS_MENTION_LIMIT, previewLines: s.FS_PREVIEW_LINES } });
   const search: SearchLimits = { scanMax: s.FS_SCAN_MAX, lineMax: s.FS_LINE_MAX, ignore: s.FS_IGNORE };
 
-  // one guard per config value: runs keep the config they started with, so each gets the guard for it
-  const guards = new WeakMap<FsConfig, PathGuard>();
-  const guard = (config: FsConfig): PathGuard => {
-    const known = guards.get(config);
-    if (known !== undefined) { return known; }
-    const made = new RootGuard(config.roots);
-    guards.set(config, made);
-    return made;
-  };
+  // one guard (and secret filter) per config value: runs keep the config they started with, so each gets its own
+  const guard = perConfig<PathGuard>((config) => new RootGuard(config.roots));
+  const secrets = perConfig<SecretFilter>((config) => new GlobSecrets(config.secrets ?? DEFAULT_SECRETS));
   let current: FsConfig = { roots: [] };
   const resources = new FsResources({
     guard: () => guard(current),
+    secrets: () => secrets(current),
     files,
     documents: deps.documents,
     limits: { page: s.FS_RESOURCE_PAGE, textMax: s.FS_RESOURCE_TEXT_MAX, ignore: s.FS_IGNORE, debounce: s.FS_WATCH_DEBOUNCE },

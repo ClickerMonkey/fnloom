@@ -91,4 +91,15 @@ export interface Search {
 /** Suggestions: fns and context that fit a message, from its embedding, limited to what the session allows. */
 export interface Suggester {
   suggest(input: { session: SessionId; text: string; limit: number }): Promise<Suggestion[]>;
+  /**
+   * Every candidate the index finds for a message, best first, up to `pool`: those the session may be offered, and
+   * those a rule hides (another system, unavailable, not to be suggested), so what was left out can be told too.
+   */
+  consider(input: { session: SessionId; text: string; pool: number }): Promise<Considered>;
+}
+
+/** What `Suggester.consider` found: the offerable candidates and the hidden ones, each best first. */
+export interface Considered {
+  readonly offered: Suggestion[];
+  readonly hidden: Array<Pick<Suggestion, 'kind' | 'name' | 'score'>>;
 }

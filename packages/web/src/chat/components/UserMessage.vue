@@ -3,7 +3,7 @@
  * A person's message: on the right in the accent bubble when it is your own, on the left with the author's name and
  * avatar when it is someone else's. A reply shows a small quote that jumps to the original. A long message (a
  * pasted log) collapses after a few lines behind Show more. What the hub and hooks added for the model sits under it
- * as one dimmed, collapsed row, and what the index suggested shows as chips. Runs the person started with `!` show
+ * behind a small icon in the meta row, beside the icons for what the index suggested (with counts, only when any). Runs the person started with `!` show
  * as live run cards under it. The action bar sits in the margin.
  */
 import type { ChatMessage, Link, MessagePart, QualifiedName, RunId } from '@harness/core';
@@ -63,6 +63,9 @@ type Attachment = Extract<MessagePart, { type: 'attachment' }>;
 const outputs = computed(() => props.carried.flatMap((m) => m.parts.flatMap((part, i) => (part.type === 'attachment' || part.type === 'link' ? [{ key: `${m.id}-${i}`, part }] : []))));
 
 const split = computed(() => splitParts(props.message.parts));
+/** A message that is only `!` invocations whose run cards show under it: the cards say it all, so no bubble. */
+const onlyRuns = computed(() => split.value.shown.length > 0
+  && split.value.shown.every((part) => part.type === 'invocation' && props.runs.some((run) => run.id === part.run)));
 const added = computed(() => split.value.added.flatMap((part: MessagePart) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : [])));
 const addedText = computed(() => added.value.map((block) => {
   switch (block.type) {
@@ -99,7 +102,7 @@ onMounted(() => {
         <span class="quote-author">{{ quote.author }}</span>
         <span class="quote-text">{{ quote.excerpt }}</span>
       </button>
-      <div class="bubble" :class="{ clamped: long && !expanded, failed: message.status === 'failed' }" :style="{ '--lines': clampLines }">
+      <div v-if="!onlyRuns" class="bubble" :class="{ clamped: long && !expanded, failed: message.status === 'failed' }" :style="{ '--lines': clampLines }">
         <div ref="body" class="body">
           <PartList
             :parts="split.shown" :command-name="commandName"
@@ -108,14 +111,6 @@ onMounted(() => {
           />
         </div>
         <button v-if="long" type="button" class="more" @click="expanded = !expanded">{{ expanded ? 'Show less' : 'Show more' }}</button>
-      </div>
-      <div v-if="added.length > 0" class="added" data-testid="added-for-model">
-        <button type="button" class="added-toggle" :aria-expanded="showAdded ? 'true' : 'false'" @click="showAdded = !showAdded">
-          <UiIcon :name="showAdded ? 'chevron-down' : 'chevron-right'" :size="12" /> Added for the model
-        </button>
-        <ul v-if="showAdded" class="added-list">
-          <li v-for="(line, i) in addedText" :key="i">{{ line }}</li>
-        </ul>
       </div>
       <div v-if="runs.length > 0" class="runs">
         <RunCard
@@ -129,12 +124,21 @@ onMounted(() => {
           <LinkCard v-else :link="output.part.link" @open="emit('link', $event)" />
         </template>
       </div>
-      <SuggestionChips :suggestions="suggestions" @use="(item, kind) => emit('suggestion', item, kind)" />
       <div class="meta">
         <time class="time" :datetime="new Date(message.createdAt).toISOString()" :title="fullTime(message.createdAt)">{{ relativeTime(message.createdAt, now) }}</time>
+        <SuggestionChips :suggestions="suggestions" @use="(item, kind) => emit('suggestion', item, kind)" />
+        <button
+          v-if="added.length > 0" type="button" class="added-toggle touch-target" data-testid="added-for-model" title="Added for the model"
+          aria-label="Added for the model" :aria-expanded="showAdded ? 'true' : 'false'" @click="showAdded = !showAdded"
+        >
+          <UiIcon name="layers" :size="14" />
+        </button>
         <button type="button" class="more-tap" aria-label="More actions" @click="touchMore = !touchMore"><UiIcon name="more" :size="16" /></button>
         <MessageActions class="actions" :actions="actions" @action="emit('action', $event)" />
       </div>
+      <ul v-if="showAdded && added.length > 0" class="added-list" data-testid="added-list">
+        <li v-for="(line, i) in addedText" :key="i">{{ line }}</li>
+      </ul>
     </div>
   </div>
 </template>
@@ -167,11 +171,11 @@ onMounted(() => {
 .body { min-width: 0; }
 .clamped .body { max-height: calc(var(--lines) * 1lh); overflow: hidden; mask-image: linear-gradient(to bottom, #000 60%, transparent); }
 .more { justify-self: start; margin-top: var(--space-1); padding: 0; border: 0; background: transparent; color: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium); text-decoration: underline; }
-.added { display: grid; justify-items: inherit; gap: 2px; max-width: 100%; }
-.added-toggle { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); font-size: var(--text-xs); }
-.added-toggle:hover { color: var(--text-dim); }
-.added-list { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--surface-2); color: var(--text-faint); font-size: var(--text-xs); list-style: none; overflow-wrap: anywhere; }
-.meta { display: flex; align-items: center; gap: var(--space-1); min-height: 32px; }
+.added-toggle { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-faint); }
+.added-toggle:hover, .added-toggle[aria-expanded='true'] { color: var(--text-dim); background: var(--surface-2); }
+.added-toggle:focus-visible { outline: none; box-shadow: var(--ring); }
+.added-list { max-width: 100%; margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--surface-2); color: var(--text-faint); font-size: var(--text-xs); list-style: none; overflow-wrap: anywhere; }
+.meta { display: flex; align-items: center; gap: 2px; min-height: 28px; }
 .mine .meta { flex-direction: row-reverse; }
 .time { padding: 0 var(--space-1); color: var(--text-faint); font-size: var(--text-xs); }
 .actions { opacity: 0; transition: opacity var(--fast) var(--ease); }

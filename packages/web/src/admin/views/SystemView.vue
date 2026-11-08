@@ -4,7 +4,7 @@
  * fleet's copies, each with its own page; another copy can be installed from a package zip), its config form, its fns
  * (each with its own page of metrics), and its live output. Removing asks first.
  */
-import { SystemName, type InstanceName, type Json, type SystemEnabled } from '@harness/core';
+import { SystemName, type AutoPairId, type InstanceName, type Json, type SystemEnabled } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -14,9 +14,10 @@ import { useParamChoice } from '../../app/url.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiButton, UiIcon, UiTabs, type TabItem } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
-import ConfirmDialog from '../components/ConfirmDialog.vue';
 import FnList from '../components/FnList.vue';
 import InstallDialog from '../components/InstallDialog.vue';
+import AutoPairList from '../components/AutoPairList.vue';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
 import InstanceList from '../components/InstanceList.vue';
 import type { PackageOptions } from '../state/packages.ts';
 import LoadState from '../components/LoadState.vue';
@@ -38,6 +39,18 @@ const view = computed(() => store.view.value.value);
 const problems = ref<readonly string[]>([]);
 const removing = ref(false);
 const installOpen = ref(false);
+const autoPairs = admin.autoPairs;
+const revoking = ref<AutoPairId | undefined>(undefined);
+const revokeOpen = computed({ get: () => revoking.value !== undefined, set: (isOpen) => { if (!isOpen) { revoking.value = undefined; } } });
+watch([tab, name], ([current, system]) => { if (current === 'instances' && system !== undefined) { void autoPairs.load(system); } }, { immediate: true });
+
+async function revoke(): Promise<void> {
+  const id = revoking.value;
+  if (id === undefined) { return; }
+  const result = await autoPairs.revoke(id);
+  revoking.value = undefined;
+  if (result.ok) { toasts.ok('Revoked', 'That instance can no longer pair by itself.'); } else { toasts.error(result.problem); }
+}
 /** An instance's page. */
 const instancePage = (instance: InstanceName): RouteLocationRaw => (name.value === undefined ? links.systems() : links.instance(name.value, instance));
 
@@ -117,6 +130,10 @@ async function act(action: SystemAction, version?: string): Promise<void> {
             <UiButton icon="plus" data-testid="add-instance" @click="installOpen = true">Install another</UiButton>
           </div>
           <InstanceList :instances="view.instances" :now="now" :default-instance="view.defaultInstance" :page-of="instancePage" />
+          <template v-if="(autoPairs.secrets.value.value?.length ?? 0) > 0">
+            <h3 class="sub">Auto pair secrets</h3>
+            <AutoPairList :secrets="autoPairs.secrets.value.value ?? []" :now="now" :busy="autoPairs.revoking.busy.value" @revoke="revoking = $event" />
+          </template>
         </div>
         <SystemConfig
           v-else-if="tab === 'config'" :type="view.configType" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
@@ -126,7 +143,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           v-else-if="tab === 'fns'" :loading="store.fns.loading.value" :problem="store.fns.problem.value" :ready="store.fns.value.value !== undefined"
           :empty="(store.fns.value.value?.length ?? 0) === 0" empty-icon="fn" empty-title="No fns" empty-body="This system doesn't add any fns." @retry="store.loadFns()"
         >
-          <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="(fn) => links.runs({ fn })" :page-of="(fn) => links.fn(fn)" />
+          <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" />
         </LoadState>
         <LoadState v-else :loading="store.logs.loading.value" :problem="store.logs.problem.value" :ready="store.logs.value.value !== undefined" :empty="false" @retry="store.followLogs()">
           <LogView :lines="store.logs.value.value ?? []" />
@@ -141,11 +158,16 @@ async function act(action: SystemAction, version?: string): Promise<void> {
       v-model:open="removing" :title="`Remove ${name ?? 'this system'}?`" :busy="store.acting.value === 'remove'" confirm="Remove"
       :body="`Its ${view?.fns ?? 0} fns stop working until it pairs again. Its runs and messages stay.`" @confirm="act('remove')"
     />
+    <ConfirmDialog
+      v-model:open="revokeOpen" title="Revoke this auto pair secret?" :busy="autoPairs.revoking.busy.value" confirm="Revoke"
+      body="The instance stays paired, but can no longer pair again by itself. Pairing it anew can give it a new secret." @confirm="revoke"
+    />
   </AppPage>
 </template>
 
 <style scoped>
 .instances { display: grid; gap: var(--space-3); }
+.sub { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .bar .dim { flex: 1 1 280px; }
 .status-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }

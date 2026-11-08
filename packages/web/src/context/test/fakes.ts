@@ -32,6 +32,7 @@ export function fakeContextApi(graph = fixtureGraph()) {
       list: fakeCaller<'contexts'>((query) => answer(() => state.list(query ?? {}))),
       item: fakeCaller<'contextItem'>((body) => answer(() => state.item(body.name))),
       remember: fakeCaller<'remember'>((args) => answer(() => state.remember(args))),
+      updateMemory: fakeCaller<'updateMemory'>((args) => answer(() => state.update(args))),
       forget: fakeCaller<'forget'>((body) => answer(() => state.forget(body.name))),
       link: fakeCaller<'linkContext'>((body) => answer(() => state.link(body))),
       unlink: fakeCaller<'unlinkContext'>((body) => answer(() => state.unlink(body))),

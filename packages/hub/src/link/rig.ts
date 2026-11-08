@@ -8,7 +8,7 @@ import { createPluginHost } from '@ayepi/plugin';
 import {
   EXPORT_NOT_READY, LINK_PROTOCOL, MAIN_INSTANCE, SystemName, systemLinkSpec,
   type ContentRef, type InstanceName, type SystemPackageManifest,
-  type ConfigValue, type HelloReply, type KindDescription, type Manifest, type ResourceChange, type ResourceRead, type ResourceRoot, type Section,
+  type AutoPairProof, type ConfigValue, type HelloReply, type KindDescription, type Manifest, type ResourceChange, type ResourceRead, type ResourceRoot, type Section,
   type StopReason, type SystemEvent, type Welcome,
 } from '@harness/core';
 import { ADMIN } from '../catalog/fixtures.ts';
@@ -24,7 +24,7 @@ import { JwtSystemTokens } from './tokens.ts';
 /** The settings the rig builds with: small chunks so content is fetched in several, a minute to pair. */
 export const RIG_SETTINGS: SystemsSettings = {
   hub: { HARNESS_URL: 'http://hub:4300/', HARNESS_SYSTEMS_DIR: '.harness-test/systems' },
-  packaging: { HARNESS_PUBLIC_URL: undefined, HARNESS_PACKAGE_MAX: 10_000_000, HARNESS_NPM: 'npm' },
+  packaging: { HARNESS_PUBLIC_URL: undefined, HARNESS_AUTO_PAIR_LIMIT: 3, HARNESS_AUTO_PAIR_WINDOW: 60_000, HARNESS_PACKAGE_MAX: 10_000_000, HARNESS_NPM: 'npm' },
   link: {
     HARNESS_MAX_FRAME: 262_144, HARNESS_MAX_CHUNK: 1_024, HARNESS_HEARTBEAT: 15_000, HARNESS_PAIRING_TIMEOUT: 60_000, HARNESS_STOP_TIMEOUT: 1_000,
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2,
@@ -91,6 +91,8 @@ export class FakeSystem {
     configure: () => undefined,
   };
   readonly paired: string[] = [];
+  /** An auto-pair secret it brings in every hello. */
+  autoPair: AutoPairProof | undefined;
   readonly configured: Array<ConfigValue & { previous?: unknown }> = [];
   readonly events: SystemEvent[] = [];
   readonly stops: StopReason[] = [];
@@ -169,7 +171,7 @@ export class FakeSystem {
   hello(pairingToken?: string): Promise<HelloReply> {
     return this.sdk.call('hello', {
       protocol: LINK_PROTOCOL, name: this.name, version: this.version, instance: this.instance, boot: this.boot, publicKey: this.keys.publicKey,
-      manifestHash: this.manifest.hash, ...(pairingToken === undefined ? {} : { pairingToken }),
+      manifestHash: this.manifest.hash, ...(pairingToken === undefined ? {} : { pairingToken }), ...(this.autoPair === undefined ? {} : { autoPair: this.autoPair }),
     });
   }
 
@@ -178,7 +180,10 @@ export class FakeSystem {
     if (this.conn === null) { this.open(); }
     const reply = await this.hello(pairingToken);
     if (reply.kind === 'pairing') { return reply; }
-    return this.sdk.call('prove', { signature: signNonce(this.keys.privateKey, reply.nonce) });
+    const welcome = await this.sdk.call('prove', { signature: signNonce(this.keys.privateKey, reply.nonce) });
+    // kept as the SDK keeps it, so the next hello brings it
+    if (welcome.autoPair !== undefined) { this.autoPair = { id: welcome.autoPair.id, secret: welcome.autoPair.secret }; }
+    return welcome;
   }
 
   /** Connect and, when the welcome asks for it, send the manifest. */

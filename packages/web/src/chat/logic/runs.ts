@@ -208,6 +208,14 @@ export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' 
   }
 }
 
+/**
+ * Whether a run's words only repeat what its args summary already says ("Ran ls -la" beside `ls -la`), so a view that
+ * shows the summary leaves the words out. Views show each fact once; they repeat one only when another spot cut it.
+ */
+export function repeatsArgs(text: string, about: string): boolean {
+  return about !== '' && text.includes(about);
+}
+
 /** How long a run has taken: until it ended, or until `now` while it runs. Undefined before it starts. */
 export function runElapsed(run: Pick<RunView, 'startedAt' | 'endedAt'>, now: number): number | undefined {
   if (run.startedAt === undefined) { return undefined; }

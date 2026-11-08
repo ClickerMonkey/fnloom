@@ -3,12 +3,16 @@
  * the chat's inspection callers (runs, LLM calls and resources open with them) and the live channels. `start` follows
  * the user channel while an admin page is open.
  */
+import { AutoPairStore } from './auto-pair.ts';
+import { SuggestionsStore } from './suggestions.ts';
 import type { UserEvents } from '../../api/notifications.ts';
 import type { ChatApi, FileSender } from '../../chat/api.ts';
 import type { McpProbe } from '../probe.ts';
 import type { AdminApi, SystemLogEvents } from '../api.ts';
 import { ActorsDirectory } from './actors.ts';
-import { llmBrowser, modelCallsBrowser, resourcesBrowser, runsBrowser, type LlmBrowser, type ModelCallsBrowser, type ResourcesBrowser, type RunsBrowser } from './browsers.ts';
+import type { FnRecord, ListQuery } from '@harness/core';
+import { Paged } from '../../state/loaded.ts';
+import { BROWSER_PAGE, llmBrowser, modelCallsBrowser, resourcesBrowser, runsBrowser, type LlmBrowser, type ModelCallsBrowser, type ResourcesBrowser, type RunsBrowser } from './browsers.ts';
 import { FnStore } from './fn.ts';
 import { InstanceStore } from './instance.ts';
 import { McpStore, McpsStore } from './mcps.ts';
@@ -54,6 +58,12 @@ export class AdminStore {
   readonly mcp: McpStore;
   readonly pairing: PairingPageStore;
   readonly resources: ResourcesBrowser;
+  /** Every fn of every system with its stats, for the fns catalogue. */
+  readonly fns: Paged<FnRecord, ListQuery>;
+  /** The decision model for suggestions. */
+  readonly suggestions: SuggestionsStore;
+  /** A system's auto pair secrets. */
+  readonly autoPairs: AutoPairStore;
 
   constructor(deps: AdminDeps) {
     const { api } = deps;
@@ -75,6 +85,14 @@ export class AdminStore {
     this.mcp = new McpStore(api, deps.probe);
     this.pairing = new PairingPageStore(api, deps.userEvents);
     this.resources = resourcesBrowser(api, deps.chat);
+    this.suggestions = new SuggestionsStore(api);
+    this.autoPairs = new AutoPairStore(api);
+    this.fns = new Paged({
+      fetch: (query, cursor, limit) => api.fns.call({ ...query, limit, ...(cursor === undefined ? {} : { cursor }) }),
+      key: (fn) => fn.name,
+      failure: "Couldn't load the fns.",
+      limit: BROWSER_PAGE,
+    }, {});
   }
 
   /** Follow live changes and fetch what the nav counts. */

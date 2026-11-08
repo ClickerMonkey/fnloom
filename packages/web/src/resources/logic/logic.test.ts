@@ -1,7 +1,7 @@
 import { FormRecord, ResourceRecord, type FormKind, type ResourceStat } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { actionsFor, bulkActions, isMake, madeBy, webAddress } from './actions.ts';
-import { crumbsOf, folderQuery, groupQuery, hubQuery, mergeFacets, nameOf, patchQuery, readQuery, sortRecords } from './browse.ts';
+import { actionsFor, bulkActions, contextConfirm, isMake, madeBy, webAddress } from './actions.ts';
+import { columnSort, crumbsOf, folderQuery, groupQuery, hubQuery, mergeFacets, nameOf, patchQuery, readQuery, sortFor } from './browse.ts';
 import { familyOfStat, languageOf } from './formats.ts';
 import { matchPaths, parseJson, pathsTo, treeRows, valueAt } from './json-tree.ts';
 import { delimiterOf, nextSort, parseDelimited, viewRows } from './tables.ts';
@@ -81,13 +81,15 @@ describe('the browser URL', () => {
   it('reads the query, dropping keys that are wrong, and writes changes without the defaults', () => {
     expect(readQuery({ view: 'grid', group: 'nope', q: 'readme', uri: 'fs://work/a.md', page: '3', extra: 'x' })).toEqual({ view: 'grid', q: 'readme', uri: 'fs://work/a.md', page: '3' });
     expect(patchQuery({ view: 'grid', q: 'x' }, { view: 'list', in: 'code', q: '' })).toEqual({ in: 'code' });
-    expect(patchQuery({}, { size: 'l', sort: 'seen' })).toEqual({ size: 'l' });
+    expect(patchQuery({}, { size: 'm', view: 'grid' })).toEqual({ view: 'grid' });
   });
 
   it("makes the hub's queries for the list, a group and the folders", () => {
-    expect(hubQuery({ q: 'read', family: 'code', under: 'fs://work/', in: 'code' })).toEqual({ search: 'read', family: 'code', under: 'fs://work/', group: 'type', in: 'code' });
+    expect(hubQuery({ q: 'read family:code', under: 'fs://work/', in: 'code' })).toEqual({
+      query: { text: 'read', filters: [{ field: 'family', op: 'is', value: 'code' }] }, under: 'fs://work/', group: 'type', in: 'code',
+    });
     expect(groupQuery({ view: 'groups', group: 'date' }, { value: 'today', label: 'Today', count: 2 })).toEqual({ group: 'date', in: 'today', limit: 6 });
-    expect(folderQuery({ q: 'x', under: 'fs://work/', in: 'a' }, 'fs://work/docs/')).toEqual({ search: 'x', group: 'path', under: 'fs://work/docs/', limit: 1 });
+    expect(folderQuery({ q: 'x', under: 'fs://work/', in: 'a' }, 'fs://work/docs/')).toEqual({ query: { text: 'x' }, group: 'path', under: 'fs://work/docs/', limit: 1 });
   });
 
   it('makes the folder trail of a folder', () => {
@@ -97,11 +99,10 @@ describe('the browser URL', () => {
     ]);
   });
 
-  it('sorts loaded rows and merges facets', () => {
-    const rows = [record('fs://a/b.md', 'b.md', { size: 10, modifiedAt: 5 }), record('fs://a/a.md', 'a.md', { size: 30, modifiedAt: 1 }), record('fs://a/c.md', 'c.md')];
-    expect(sortRecords(rows, 'name', false).map((r) => r.stat.name)).toEqual(['a.md', 'b.md', 'c.md']);
-    expect(sortRecords(rows, 'size', true).map((r) => r.stat.name)).toEqual(['a.md', 'b.md', 'c.md']);
-    expect(sortRecords(rows, 'seen', false).map((r) => r.stat.name)).toEqual(['b.md', 'a.md', 'c.md']);
+  it('reads the column sort from the query and merges facets', () => {
+    expect(columnSort({})).toEqual({ sort: 'seen', descending: true });
+    expect(columnSort({ q: 'sort:size' })).toEqual({ sort: 'size', descending: false });
+    expect(sortFor('modified', true)).toEqual([{ field: 'modifiedAt', dir: 'desc' }]);
     expect(mergeFacets([{ value: 'a', label: 'A', count: 1 }], [{ value: 'a', label: 'A', count: 3 }, { value: 'b', label: 'B', count: 1 }])).toEqual([{ value: 'a', label: 'A', count: 3 }, { value: 'b', label: 'B', count: 1 }]);
     expect(nameOf(record('fs://a/x/', ''))).toBe('x');
   });
@@ -183,5 +184,12 @@ describe('transcripts', () => {
     expect(clockOf(3723)).toBe('1:02:03');
     expect(clockOf(65)).toBe('1:05');
     expect(lineAt([{ at: 0, text: 'a' }, { at: 5, text: 'b' }], 6)).toBe(1);
+  });
+});
+
+describe('make context confirm', () => {
+  it('says what it makes from which resources', () => {
+    expect(contextConfirm(['notes.md']).body).toContain('adds notes.md to the context library');
+    expect(contextConfirm(['a', 'b']).title).toBe('Make context from 2 resources?');
   });
 });

@@ -1,22 +1,32 @@
 <script setup lang="ts">
 /**
- * Under a user message: what the hub's index surfaced for it by meaning, as two small chips ("4 context", "3 fns")
- * shown only when there is something. Each opens a list, best match first, with the item's friendly name, its system,
- * its match score, why it matched, and how it reached the turn (added, offered, or loaded by the agent). Picking one uses it: a context as its
- * `/` command, a fn as its `!` form.
+ * Under a user message, in its meta row: what the hub surfaced for it, as two small icons with a count (context, fns),
+ * each shown only when something of that kind reached the turn. Opened, it lists what was used, best match first
+ * (friendly name, system, score, why, how it reached the turn; picking one uses it: a context as its `/` command, a fn
+ * as its `!` form), then what was looked at and left out, with the reason.
  */
 import { computed, ref } from 'vue';
 import { UiBadge, UiIcon, UiPopover } from '../../ui/index.ts';
-import { SUGGESTION_STATE, scoreText, type MessageSuggestions, type SuggestionItem } from '../logic/session.ts';
+import { SUGGESTION_DECIDER_LABELS, SUGGESTION_STATE, scoreText, skipText, type MessageSuggestions, type SkippedItem, type SuggestionItem } from '../logic/session.ts';
+
+type Kind = 'context' | 'fn';
 
 const props = defineProps<{ suggestions: MessageSuggestions }>();
-const emit = defineEmits<{ use: [item: SuggestionItem, kind: 'context' | 'fn'] }>();
+const emit = defineEmits<{ use: [item: SuggestionItem, kind: Kind] }>();
 
-const open = ref<'context' | 'fn' | undefined>(undefined);
+const open = ref<Kind | undefined>(undefined);
 const anchor = ref<HTMLElement | null>(null);
-const shown = computed(() => (open.value === 'context' ? props.suggestions.context : open.value === 'fn' ? props.suggestions.fns : []));
+const used = (kind: Kind): readonly SuggestionItem[] => (kind === 'context' ? props.suggestions.context : props.suggestions.fns);
+const skipped = (kind: Kind): readonly SkippedItem[] => (kind === 'context' ? props.suggestions.skippedContext : props.suggestions.skippedFns) ?? [];
+const kinds = computed(() => (['context', 'fn'] as const).filter((kind) => used(kind).length > 0));
+const label = (kind: Kind): string => (kind === 'fn' ? 'Suggested fns' : 'Suggested context');
+const chooser = computed(() => {
+  const { by, threshold } = props.suggestions;
+  if (by === undefined) { return ''; }
+  return threshold === undefined ? SUGGESTION_DECIDER_LABELS[by] : `${SUGGESTION_DECIDER_LABELS[by]} · threshold ${scoreText(threshold)}`;
+});
 
-function toggle(kind: 'context' | 'fn', event: MouseEvent): void {
+function toggle(kind: Kind, event: MouseEvent): void {
   const target = event.currentTarget;
   if (!(target instanceof HTMLElement)) { return; }
   anchor.value = target;
@@ -31,49 +41,69 @@ function use(item: SuggestionItem): void {
 </script>
 
 <template>
-  <div v-if="suggestions.context.length > 0 || suggestions.fns.length > 0" class="chips" data-testid="suggestion-chips">
-    <button v-if="suggestions.context.length > 0" type="button" class="chip touch-target" data-testid="suggested-context" :aria-expanded="open === 'context' ? 'true' : 'false'" @click="toggle('context', $event)">
-      <UiIcon name="sparkles" :size="12" /> {{ suggestions.context.length }} context
+  <span v-if="kinds.length > 0" class="suggestions" data-testid="suggestion-chips">
+    <button
+      v-for="kind in kinds" :key="kind" type="button" class="icon touch-target" :data-testid="kind === 'fn' ? 'suggested-fns' : 'suggested-context'"
+      :aria-label="`${label(kind)}: ${used(kind).length} used${skipped(kind).length > 0 ? `, ${skipped(kind).length} left out` : ''}`" :title="label(kind)"
+      :aria-expanded="open === kind ? 'true' : 'false'" @click="toggle(kind, $event)"
+    >
+      <UiIcon :name="kind === 'fn' ? 'fn' : 'sparkles'" :size="14" /><span class="count">{{ used(kind).length }}</span>
     </button>
-    <button v-if="suggestions.fns.length > 0" type="button" class="chip touch-target" data-testid="suggested-fns" :aria-expanded="open === 'fn' ? 'true' : 'false'" @click="toggle('fn', $event)">
-      <UiIcon name="fn" :size="12" /> {{ suggestions.fns.length }} fn{{ suggestions.fns.length === 1 ? '' : 's' }}
-    </button>
-    <UiPopover :open="open !== undefined" :anchor="anchor" side="bottom" align="end" :label="open === 'fn' ? 'Suggested fns' : 'Suggested context'" @update:open="open = $event ? open : undefined">
-      <ul class="list">
-        <li v-for="item in shown" :key="item.name">
-          <button type="button" class="item" :title="item.name" @click="use(item)">
-            <span class="top">
-              <span class="name">{{ item.label }}</span>
-              <UiBadge :tone="item.state === 'loaded' ? 'ok' : item.state === 'auto' ? 'accent' : 'neutral'">{{ SUGGESTION_STATE[item.state] }}</UiBadge>
-            </span>
-            <span class="meta">
-              <span class="system">{{ item.system }}</span>
-              <span v-if="item.score !== undefined" class="score" data-testid="suggestion-score" :title="`Match score ${item.score.toFixed(3)}`">{{ scoreText(item.score) }} match</span>
-            </span>
-            <span v-if="item.why !== ''" class="why">{{ item.why }}</span>
-          </button>
-        </li>
-      </ul>
+    <UiPopover :open="open !== undefined" :anchor="anchor" side="bottom" align="end" :label="open === undefined ? '' : label(open)" @update:open="open = $event ? open : undefined">
+      <div v-if="open !== undefined" class="pop">
+        <p v-if="chooser !== ''" class="chooser">{{ chooser }}</p>
+        <ul class="list">
+          <li v-for="item in used(open)" :key="item.name">
+            <button type="button" class="item" :title="item.name" @click="use(item)">
+              <span class="top">
+                <span class="name">{{ item.label }}</span>
+                <span class="system">{{ item.system }}</span>
+                <span v-if="item.score !== undefined" class="score" data-testid="suggestion-score" :title="`Match score ${item.score.toFixed(3)}`">{{ scoreText(item.score) }}</span>
+                <UiBadge :tone="item.state === 'loaded' ? 'ok' : item.state === 'auto' ? 'accent' : 'neutral'">{{ SUGGESTION_STATE[item.state] }}</UiBadge>
+              </span>
+              <span v-if="item.why !== ''" class="why">{{ item.why }}</span>
+            </button>
+          </li>
+        </ul>
+        <template v-if="skipped(open).length > 0">
+          <p class="heading">Left out</p>
+          <ul class="list" data-testid="suggestions-skipped">
+            <li v-for="item in skipped(open)" :key="item.name" class="item skipped" :title="item.name">
+              <span class="top">
+                <span class="name">{{ item.label }}</span>
+                <span class="system">{{ item.system }}</span>
+                <span v-if="item.score !== undefined" class="score" :title="`Match score ${item.score.toFixed(3)}`">{{ scoreText(item.score) }}</span>
+              </span>
+              <span class="why">{{ skipText(item) }}</span>
+            </li>
+          </ul>
+        </template>
+      </div>
     </UiPopover>
-  </div>
+  </span>
 </template>
 
 <style scoped>
-.chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1); }
-.chip {
-  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 var(--space-2); border: 1px solid var(--border);
-  border-radius: var(--radius-full); background: transparent; color: var(--text-faint); font-size: var(--text-xs);
+.suggestions { display: inline-flex; align-items: center; gap: 2px; }
+.icon {
+  display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 6px; border: 0; border-radius: var(--radius-full);
+  background: transparent; color: var(--text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums;
   transition: color var(--fast) var(--ease), background-color var(--fast) var(--ease);
 }
-.chip:hover, .chip[aria-expanded='true'] { color: var(--text-dim); background: var(--surface-2); }
-.chip:focus-visible { outline: none; box-shadow: var(--ring); }
-.list { display: grid; gap: 2px; width: min(340px, calc(100vw - 32px)); margin: 0; padding: var(--space-1); list-style: none; }
-.item { display: grid; gap: 2px; width: 100%; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius); background: transparent; text-align: left; color: var(--text); }
-.item:hover, .item:focus-visible { background: var(--surface-2); outline: none; }
-.top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.name { font-weight: var(--weight-medium); min-width: 0; overflow-wrap: anywhere; }
-.meta { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
-.system { color: var(--text-faint); font-size: var(--text-xs); }
-.score { margin-left: auto; color: var(--text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.icon:hover, .icon[aria-expanded='true'] { color: var(--text-dim); background: var(--surface-2); }
+.icon:focus-visible { outline: none; box-shadow: var(--ring); }
+.count { font-weight: var(--weight-medium); }
+.pop { display: grid; gap: 2px; width: min(360px, calc(100vw - 32px)); padding: var(--space-1); }
+.chooser, .heading { margin: 0; padding: var(--space-1) var(--space-3) 0; color: var(--text-faint); font-size: var(--text-xs); }
+.heading { padding-top: var(--space-2); font-weight: var(--weight-medium); }
+.list { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.item { display: grid; gap: 1px; width: 100%; padding: var(--space-1) var(--space-3); border: 0; border-radius: var(--radius); background: transparent; text-align: left; color: var(--text); }
+button.item:hover, button.item:focus-visible { background: var(--surface-2); outline: none; }
+.item.skipped { color: var(--text-dim); }
+.top { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.name { min-width: 0; font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.system { margin-right: auto; color: var(--text-faint); font-size: var(--text-xs); }
+.score { color: var(--text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .why { color: var(--text-dim); font-size: var(--text-sm); }
+.skipped .why { color: var(--text-faint); font-size: var(--text-xs); }
 </style>

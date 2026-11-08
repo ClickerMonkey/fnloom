@@ -2,8 +2,9 @@
 import type { ChatDeps } from './deps.ts';
 import { LinkDeliveryService } from './deliveries.ts';
 import { HubMessageEnricher } from './enrich.ts';
+import { HubSuggestions } from './suggestions.ts';
 import type {
-  ApproverDirectory, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, TurnService,
+  ApproverDirectory, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, SuggestionDecider, TurnService,
   UndoService,
 } from './index.ts';
 import { ChatMentions, HubMentions, LinkedMentions } from './mentions.ts';
@@ -24,6 +25,7 @@ export interface ChatModule {
   readonly turns: TurnService;
   readonly reply: ReplyRule;
   readonly enrich: MessageEnricher;
+  readonly suggestions: SuggestionDecider;
   readonly state: StateService;
   readonly deliveries: DeliveryService;
   readonly undo: UndoService;
@@ -44,7 +46,8 @@ export function createChat(given: ChatDeps): ChatModule {
   const streams = new StreamBuffer();
   const sessions = new StoreSessionService(deps, people, presence, streams);
   const reply = new SessionReplyRule();
-  const enrich = new HubMessageEnricher(deps);
+  const suggestions = new HubSuggestions(deps);
+  const enrich = new HubMessageEnricher(deps, suggestions);
   const mentions = new ChatMentions(deps, people, [new HubMentions(deps), new LinkedMentions(deps)]);
   const notifications = new StoreNotifications(deps, presence);
   const state = new TableStateService(deps);
@@ -52,7 +55,7 @@ export function createChat(given: ChatDeps): ChatModule {
   const turns = new StoreTurnService(deps, { sessions, people, mentions, enricher: enrich, reply, notifications, presence, streams });
   const undo = new RunUndoService(deps, sessions, state);
   return {
-    sessions, turns, reply, enrich, state, deliveries, undo, mentions, notifications, presence, approvers: new StoreApprovers(deps),
+    sessions, turns, reply, enrich, suggestions, state, deliveries, undo, mentions, notifications, presence, approvers: new StoreApprovers(deps),
     start: () => {
       const stops = [deliveries.start(), notifications.start()];
       return () => { for (const stop of stops) { stop(); } };

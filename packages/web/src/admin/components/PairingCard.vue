@@ -2,15 +2,18 @@
 /**
  * A system asking to pair. With a code, the admin checks the code the system printed matches the one shown here;
  * with a token, it brought one the admin made. It says when the name already belongs to another key (approving
- * replaces that system), and shows the time left draining away.
+ * replaces that system), offers auto pair (a secret that lets it pair again by itself), and shows the time left
+ * draining away.
  */
-import type { PairingRequest } from '@harness/core';
-import { computed } from 'vue';
+import type { AutoPairChoice, PairingRequest } from '@harness/core';
+import { computed, ref } from 'vue';
+import AutoPairPicker from './AutoPairPicker.vue';
 import { UiBanner, UiButton, UiIcon } from '../../ui/index.ts';
 import { groupedCode, timeLeft } from '../logic/systems.ts';
 
 const props = withDefaults(defineProps<{ pairing: PairingRequest; now: number; busy?: boolean; highlight?: boolean }>(), { busy: false, highlight: false });
-const emit = defineEmits<{ approve: []; reject: [] }>();
+const emit = defineEmits<{ approve: [autoPair: AutoPairChoice | undefined]; reject: [] }>();
+const autoPair = ref<AutoPairChoice | undefined>(undefined);
 
 const span = computed(() => Math.max(1, props.pairing.expiresAt - props.pairing.createdAt));
 const left = computed(() => Math.max(0, Math.min(1, (props.pairing.expiresAt - props.now) / span.value)));
@@ -33,8 +36,9 @@ const left = computed(() => Math.max(0, Math.min(1, (props.pairing.expiresAt - p
     <p v-else class="hint">It brought a pairing token you made.</p>
     <UiBanner v-if="pairing.replaces" tone="warn">Approving replaces the system already paired as <strong>{{ pairing.replaces }}</strong>.</UiBanner>
     <div class="actions">
+      <AutoPairPicker v-model="autoPair" class="auto" />
       <UiButton variant="ghost" :disabled="busy" data-testid="pairing-reject" @click="emit('reject')">Reject</UiButton>
-      <UiButton variant="primary" icon="check" :loading="busy" data-testid="pairing-approve" @click="emit('approve')">Approve</UiButton>
+      <UiButton variant="primary" icon="check" :loading="busy" data-testid="pairing-approve" @click="emit('approve', autoPair)">Approve</UiButton>
     </div>
     <span class="drain" :style="{ transform: `scaleX(${left})` }" aria-hidden="true" />
   </article>
@@ -60,6 +64,7 @@ const left = computed(() => Math.max(0, Math.min(1, (props.pairing.expiresAt - p
 }
 .hint { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 .code { font-family: var(--mono); font-size: var(--text-xl); font-weight: var(--weight-strong); letter-spacing: 0.08em; }
-.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.actions { display: flex; flex-wrap: wrap; align-items: start; justify-content: flex-end; gap: var(--space-2); }
+.auto { flex: 1 1 16rem; }
 .drain { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: var(--accent); transform-origin: left; transition: transform var(--slow) linear; }
 </style>

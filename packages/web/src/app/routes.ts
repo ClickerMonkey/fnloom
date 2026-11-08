@@ -6,7 +6,7 @@
  * renamed or misspelled key breaks both at compile time.
  */
 import {
-  type HubMcpId, type InstanceName, LlmInteractionId, LlmStatus, Modality, ModelCallId, ModelCallStatus, ModelRole, NotificationId, PairingId, splitName, ResourceUri, RunId, RunStatus, SessionId, TurnId, type MessageId, type NotificationLink, type QualifiedName, type SystemName,
+  type HubMcpId, type InstanceName, LlmInteractionId, ModelCallId, ModelRole, NotificationId, PairingId, splitName, ResourceUri, RunId, SessionId, TurnId, type MessageId, type NotificationLink, type QualifiedName, type SystemName,
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
@@ -16,6 +16,7 @@ import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
 import { InboxFilter } from '../state/inbox.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
+import { queryParam } from '../state/query.ts';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -46,6 +47,7 @@ export const ROUTES = {
   system: 'system',
   instance: 'instance',
   fn: 'fn',
+  fns: 'fns',
   models: 'models',
   limits: 'limits',
   policies: 'policies',
@@ -93,18 +95,17 @@ export const QUERIES = {
   [ROUTES.chat]: CHAT_QUERY,
   [ROUTES.session]: CHAT_QUERY,
   [ROUTES.turnTree]: CHAT_QUERY,
-  [ROUTES.inbox]: z.object({ filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
-  [ROUTES.systems]: z.object({ pairing: PairingId }).partial(),
-  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string() }).partial(),
+  [ROUTES.inbox]: z.object({ q: z.string(), filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
+  [ROUTES.systems]: z.object({ pairing: PairingId, q: z.string() }).partial(),
+  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1') }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
-  [ROUTES.runs]: z.object({ status: RunStatus, fn: z.string(), system: z.string(), session: SessionId, run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
-  [ROUTES.llmCalls]: z.object({ status: LlmStatus, model: z.string(), system: z.string(), session: SessionId, call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
+  [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
+  [ROUTES.llmCalls]: z.object({ q: z.string(), call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.resources]: BrowserQuery,
   [ROUTES.context]: ContextBrowseQuery,
   [ROUTES.contextItem]: ContextItemQuery,
-  [ROUTES.modelCalls]: z.object({
-    modality: Modality, status: ModelCallStatus, model: z.string(), system: z.string(), session: SessionId, run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab,
-  }).partial(),
+  [ROUTES.modelCalls]: z.object({ q: z.string(), run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
+  [ROUTES.fns]: z.object({ q: z.string() }).partial(),
   [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
   [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']) }).partial(),
   [ROUTES.pair]: z.object({ code: z.string() }).partial(),
@@ -150,16 +151,20 @@ export const links = {
     const { system, local } = splitName(fn);
     return { name: ROUTES.fn, params: { name: system, fn: local }, ...queryOf(ROUTES.fn, query) };
   },
-  /** The providers and models page, on a tab; `query` opens a role (`role`) or a model's limits (`model`). */
+  /** Every fn of every system with its stats; `q` narrows and sorts it. */
+  fns: (query: RouteQuery<typeof ROUTES.fns> = {}): RouteLocationRaw => ({ name: ROUTES.fns, ...queryOf(ROUTES.fns, query) }),
+  /** The providers and models page, on a tab; `query` opens a role (`role`), a model's limits (`model`) or the decision model (`decision`). */
   models: (tab: ModelsTab = 'providers', query: RouteQuery<typeof ROUTES.models> = {}): RouteLocationRaw => ({
     name: ROUTES.models, params: tab === 'providers' ? {} : { tab }, ...queryOf(ROUTES.models, query),
   }),
   limits: (tab: LimitsTab = 'budgets'): RouteLocationRaw => ({ name: ROUTES.limits, params: tab === 'budgets' ? {} : { tab } }),
   policies: (): RouteLocationRaw => ({ name: ROUTES.policies }),
   actorSettings: (): RouteLocationRaw => ({ name: ROUTES.actorSettings }),
-  /** The runs browser; `query` narrows it (`status`, `fn`, `system`, `session`) or opens one (`run`). */
+  /** The runs browser; `query` narrows it (`q`, a written query: `queryParam('runs', ...)`) or opens one (`run`). */
   runs: (query: RouteQuery<typeof ROUTES.runs> = {}): RouteLocationRaw => ({ name: ROUTES.runs, ...queryOf(ROUTES.runs, query) }),
-  /** The LLM calls browser; `query` narrows it (`status`, `model`, `system`, `session`) or opens one (`call`). */
+  /** The runs of one fn. */
+  fnRuns: (fn: QualifiedName): RouteLocationRaw => links.runs({ q: queryParam('runs', { filters: [{ field: 'fn', op: 'is', value: fn }] }) }),
+  /** The LLM calls browser; `query` narrows it (`q`) or opens one (`call`). */
   llmCalls: (query: RouteQuery<typeof ROUTES.llmCalls> = {}): RouteLocationRaw => ({ name: ROUTES.llmCalls, ...queryOf(ROUTES.llmCalls, query) }),
   /** The resource browser; `query` lays it out (`view`, `group`), narrows it (`q`, `system`, `family`, `under`, `in`) or opens one (`uri`, `mode`). */
   resources: (query: RouteQuery<typeof ROUTES.resources> = {}): RouteLocationRaw => ({ name: ROUTES.resources, ...queryOf(ROUTES.resources, query) }),
@@ -170,7 +175,7 @@ export const links = {
     const { system, local } = splitName(item);
     return { name: ROUTES.contextItem, params: { system, local }, ...queryOf(ROUTES.contextItem, query) };
   },
-  /** Every model call of every modality; `query` narrows it or opens one (`call`). */
+  /** Every model call of every modality; `query` narrows it (`q`, `run`) or opens one (`call`). */
   modelCalls: (query: RouteQuery<typeof ROUTES.modelCalls> = {}): RouteLocationRaw => ({ name: ROUTES.modelCalls, ...queryOf(ROUTES.modelCalls, query) }),
   /** The hub MCPs; `create: '1'` opens the new MCP dialog. */
   mcps: (query: RouteQuery<typeof ROUTES.mcps> = {}): RouteLocationRaw => ({ name: ROUTES.mcps, ...queryOf(ROUTES.mcps, query) }),
@@ -198,7 +203,7 @@ export async function notificationTarget(link: NotificationLink, sessionOf: Sess
   if ('session' in link) { return links.session(link.session); }
   if ('system' in link) { return links.system(link.system); }
   if ('pairing' in link) { return links.systems({ pairing: link.pairing }); }
-  if ('approval' in link) { return links.runs({ status: 'awaiting-approval' }); }
+  if ('approval' in link) { return links.runs({ q: queryParam('runs', { filters: [{ field: 'status', op: 'is', value: 'awaiting-approval' }] }) }); }
   const session = await sessionOf(link.run).catch(() => undefined);
   return session === undefined ? links.runs({ run: link.run }) : links.session(session);
 }
@@ -226,6 +231,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'systems', name: ROUTES.systems, component: () => import('../admin/views/SystemsView.vue'), meta: { title: 'Systems' } },
       { path: `systems/:name/:tab(${tabs(SystemTab)})?`, name: ROUTES.system, component: () => import('../admin/views/SystemView.vue'), meta: { title: 'System' } },
       { path: `systems/:name/instances/:instance/:tab(${tabs(InstanceTab)})?`, name: ROUTES.instance, component: () => import('../admin/views/InstanceView.vue'), meta: { title: 'Instance' } },
+      { path: 'fns', name: ROUTES.fns, component: () => import('../admin/views/FnsView.vue'), meta: { title: 'Fns' } },
       { path: 'systems/:name/fns/:fn', name: ROUTES.fn, component: () => import('../admin/views/FnView.vue'), meta: { title: 'Fn' } },
       { path: `models/:tab(${tabs(ModelsTab)})?`, name: ROUTES.models, component: () => import('../admin/views/ModelsView.vue'), meta: { title: 'Models' } },
       { path: `limits/:tab(${tabs(LimitsTab)})?`, name: ROUTES.limits, component: () => import('../admin/views/LimitsView.vue'), meta: { title: 'Budgets' } },

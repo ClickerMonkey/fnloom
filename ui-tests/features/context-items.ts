@@ -29,7 +29,7 @@ export default feature({
         check(await page.$$eval(tid('context-row'), (rows) => rows.length) > 1, 'the list shows context items');
         await shot('list');
 
-        await open(ctx, '/context?origin=memory', tid('context-row'));
+        await open(ctx, '/context?q=origin:memory', tid('context-row'));
         const origins = await page.$$eval(tid('context-row'), (rows) => rows.map((row) => row.getAttribute('data-context') ?? ''));
         check(origins.length > 0 && origins.every((name) => name.startsWith('memory/')), `the memory filter shows only memories (got ${origins.join(', ')})`);
         await shot('memories');
@@ -72,6 +72,11 @@ export default feature({
       await page.type(`${tid('memory-text')} textarea`, 'Written through the remember dialog.');
       await settle(page);
       await ctx.shot('remember');
+      // every other context option folds under Advanced, tied fns included
+      await page.click(tid('memory-advanced'));
+      await find(page, 'memory-fns');
+      await settle(page);
+      await ctx.shot('remember-advanced');
       await page.click(tid('memory-save'));
       await page.waitForFunction(() => location.pathname.startsWith('/context/memory/'), { timeout: 15_000 });
       await find(page, 'context-text');

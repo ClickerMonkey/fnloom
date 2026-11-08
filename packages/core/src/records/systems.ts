@@ -6,6 +6,7 @@ import { GinTypeDef } from '../gin.ts';
 import { ActorId, Duration, InstanceName, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp } from '../primitives.ts';
 import { CONTENT_HASH } from '../resources.ts';
 import { FnMetrics, noOutcomes, OutcomeCounts } from '../metrics.ts';
+import { AutoPairChoice } from '../auto-pair.ts';
 
 /**
  * Where an instance is. `needs-config`: connected, but without a valid config, so it can't be used yet. A system's
@@ -146,6 +147,8 @@ export const PairingToken = z.object({
   createdBy: ActorId,
   expiresAt: Timestamp,
   usedAt: Timestamp.optional(),
+  /** The instance it pairs may re-pair by itself (build 3): its secret is granted in the first welcome. */
+  autoPair: AutoPairChoice.optional(),
 });
 export type PairingToken = z.infer<typeof PairingToken>;
 

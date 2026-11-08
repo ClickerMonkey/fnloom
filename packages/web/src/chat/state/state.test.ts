@@ -46,7 +46,7 @@ afterEach(() => { vi.useRealTimers(); });
 describe('SessionListStore', () => {
   it('loads, searches with the search caller (only its newest answer shows), and keeps rows live from the user channel', async () => {
     const api = fakeChatApi();
-    const page = (body: { search?: string | undefined } | undefined) => Promise.resolve({ items: body?.search === 'zzz' ? [] : [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })], cursor: 'next' });
+    const page = (body: { query?: { text?: string | undefined } | undefined } | undefined) => Promise.resolve({ items: body?.query?.text === 'zzz' ? [] : [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })], cursor: 'next' });
     api.sessions = fakeCaller<'sessions'>(page);
     const answers = supersedingAnswers<Awaited<ReturnType<typeof page>>>();
     const search = { ...fakeCaller<'sessions'>(async (body) => answers.next(await page(body))), cancel: answers.cancel };
@@ -67,7 +67,7 @@ describe('SessionListStore', () => {
     expect(list.loading.value).toBe(true);
     await answers.settle();
     await flush();
-    expect(search.calls.at(-1)?.[0]).toMatchObject({ search: 'zzz', archived: false });
+    expect(search.calls.at(-1)?.[0]).toMatchObject({ archived: false, query: { text: 'zzz', filters: [{ field: 'archived', op: 'is', value: false }] } });
     expect(list.items.value).toEqual([]);
     expect(list.loading.value).toBe(false);
     expect(list.problem.value).toBe('');

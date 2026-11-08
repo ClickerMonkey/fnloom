@@ -100,6 +100,7 @@ const READ_EXAMPLES: { readonly [N in (typeof HUB_READ_NAMES)[number]]: ArgsOf<(
   system_fns: { system: 'fs' },
   system_logs: { system: 'fs' },
   model_roles: {},
+  query: { list: 'runs', query: {} },
 };
 
 describe('every read fn', () => {

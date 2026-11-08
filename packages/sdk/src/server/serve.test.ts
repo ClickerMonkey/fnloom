@@ -7,13 +7,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
+import { AutoPairId, qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
 import { action, attachment, context, embedder, hook, kind, mention, sectioner, sectionKeys, setting, type } from '../declare.ts';
 import { fn, handler, linear, steps } from '../fn.ts';
 import { g } from '../gin.ts';
 import { system } from '../system.ts';
 import { createLogger } from '@ayepi/log';
-import { serve, type RunningSystem } from './index.ts';
+import { MemoryKeyStore, serve, type RunningSystem } from './index.ts';
 import type { LinkTransport } from './link.ts';
 import { FakeHub, TEST_USER } from './testing.ts';
 import { Deferred } from './wire.ts';
@@ -213,6 +213,28 @@ describe('connecting', () => {
     await running.ready();
     expect(hub.hellos).toHaveLength(2);
     expect(hub.keys.has('notes')).toBe(true);
+  });
+
+  it('keeps an auto-pair grant from its welcome and brings it in its next hello', async () => {
+    const grant = { id: AutoPairId.parse('apk_1'), secret: 's'.repeat(43), expiresAt: 5 };
+    const keys = new MemoryKeyStore();
+    const hub = new FakeHub({ config: { folder: '/n' }, autoPair: grant });
+    running = await serve(notes, impl(), { hub: 'ws://hub.test/link', state: 'x', version: '1' }, hub.host({ keys: () => keys }));
+    await running.ready();
+    expect(await keys.autoPair()).toEqual(grant);
+    hub.drop(5);
+    await hub.whenConnected();
+    expect(hub.hellos.map((h) => h.autoPair)).toEqual([undefined, { id: grant.id, secret: grant.secret }]);
+  });
+
+  it('forgets an auto-pair secret the hub refuses, and says hello again without it', async () => {
+    const keys = new MemoryKeyStore();
+    await keys.saveAutoPair({ id: AutoPairId.parse('apk_1'), secret: 's'.repeat(43) });
+    const hub = new FakeHub({ config: { folder: '/n' }, refuseAutoPair: true });
+    running = await serve(notes, impl(), { hub: 'ws://hub.test/link', state: 'x', version: '1' }, hub.host({ keys: () => keys }));
+    await running.ready();
+    expect(await keys.autoPair()).toBeUndefined();
+    expect(hub.hellos.map((h) => h.autoPair !== undefined)).toEqual([true, false]);
   });
 
   it('skips the manifest when the hub already has its hash, and sends it again after a change', async () => {

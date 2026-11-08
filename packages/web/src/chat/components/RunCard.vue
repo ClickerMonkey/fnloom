@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /**
- * One run in an answer: its status dot, friendly label, what it is about, and what it is doing now in plain words,
- * with a ticking elapsed time and its cost. Progress shows as a bar or steps. A failed run says why in place of its
+ * One run in an answer: its status dot, friendly label, what it is about, and what it is doing now in plain words
+ * (only when that adds to the line), with a ticking elapsed time and its cost. Each fact shows once: expanded with its
+ * fn's own renderer, the line drops the args summary (the renderer shows them in full), and who started it is the
+ * line's tooltip (the card sits under their message). Progress shows as a bar or steps. A failed run says why in place of its
  * summary; refused input (which the agent retries) says so quietly, as a dashed card. The body is the fn's own renderer when its system has one, otherwise the result in brief. The card
  * collapses to its one line; clicking the line opens the run's details.
  */
@@ -10,7 +12,7 @@ import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
 import { MAIN_INSTANCE, isSettled } from '@harness/core';
-import { argSummary, invalidLine, isBusy, resultBrief, runElapsed, runError, runInvalid, runResult, runText, shownStatus, type RunView } from '../logic/runs.ts';
+import { argSummary, invalidLine, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runResult, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
@@ -29,7 +31,10 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ open: []; toggle: [collapsed: boolean]; background: [] }>();
 
 const label = computed(() => fnLabel(props.run.fn));
-const about = computed(() => argSummary(props.run.args));
+const summary = computed(() => argSummary(props.run.args));
+/** The args summary on the line: left out while the fn's renderer, open below, shows them. */
+const about = computed(() => (props.view !== undefined && !props.collapsed ? '' : summary.value));
+const words = computed(() => runText(props.run));
 const error = computed(() => runError(props.run));
 /** Refused input the agent retries: said softly, never as a failure. */
 const invalid = computed(() => runInvalid(props.run));
@@ -38,7 +43,9 @@ const elapsed = computed(() => runElapsed(props.run, props.now));
 const active = computed(() => isBusy(props.run));
 const status = computed(() => shownStatus(props.run));
 const brief = computed(() => resultBrief(result.value));
-const showStatus = computed(() => !isSettled(props.run.status) || props.run.background || props.byline !== '');
+/** What it is doing now, while it runs, when the words add to the line (a renderer shows its own, but not approvals or questions). */
+const showStatus = computed(() => !isSettled(props.run.status) && !repeatsArgs(words.value, summary.value)
+  && (props.view === undefined || props.run.asking === true || props.run.status === 'awaiting-approval'));
 const showResult = computed(() => props.view === undefined && brief.value !== '' && props.run.status === 'done');
 const hasBody = computed(() => showStatus.value || (props.run.progress !== undefined && !isSettled(props.run.status)) || props.view !== undefined || showResult.value);
 /** The instance it ran on, shown when the system runs as a fleet (anything but its main instance). */
@@ -49,10 +56,10 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 <template>
   <article
     class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true }]" data-testid="run-card" :data-run="run.id" :data-fn="run.fn" :data-status="status"
-    :aria-label="`${label}: ${runText(run)}`"
+    :aria-label="`${label}: ${words}`"
   >
     <header class="line">
-      <button type="button" class="summary" :aria-expanded="collapsed ? 'false' : 'true'" @click="emit('open')">
+      <button type="button" class="summary" :title="byline === '' ? undefined : byline" :aria-expanded="collapsed ? 'false' : 'true'" @click="emit('open')">
         <RunDot :status="status" />
         <span class="label">{{ label }}</span>
         <span v-if="error" class="about error-text" :title="error.message">{{ error.message }}</span>
@@ -60,6 +67,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
         <span v-else-if="about !== ''" class="about" :title="about">{{ about }}</span>
       </button>
       <span class="metrics">
+        <span v-if="run.background" class="tag" data-testid="background-tag" title="Running in the background"><UiIcon name="arrow-right" :size="12" /> background</span>
         <span v-if="instance" class="instance" data-testid="run-instance" :title="`Ran on ${run.system ?? 'its system'}@${instance}`">@{{ instance }}</span>
         <span v-if="run.attempt > 1" class="attempt" :title="`Attempt ${run.attempt}`">×{{ run.attempt }}</span>
         <span v-if="elapsed !== undefined" class="elapsed" :class="{ ticking: active }">{{ formatDuration(elapsed) }}</span>
@@ -70,10 +78,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
       <UiIconButton v-if="hasBody" size="sm" :icon="collapsed ? 'chevron-down' : 'chevron-up'" :label="collapsed ? 'Expand' : 'Collapse'" @click="emit('toggle', !collapsed)" />
     </header>
     <div v-if="!collapsed && hasBody" class="body">
-      <p v-if="showStatus" class="status" data-testid="run-status">
-        <span v-if="byline !== ''" class="byline">{{ byline }} · </span><span :class="{ shimmer: active }">{{ runText(run) }}</span>
-        <span v-if="run.background" class="tag" data-testid="background-tag"><UiIcon name="arrow-right" :size="12" /> background</span>
-      </p>
+      <p v-if="showStatus" class="status" data-testid="run-status"><span :class="{ shimmer: active }">{{ words }}</span></p>
       <RunProgress v-if="run.progress && !isSettled(run.status)" :progress="run.progress" />
       <RendererHost v-if="view" :view="view" :label="label" @inspect="emit('open')" />
       <pre v-else-if="showResult" class="result">{{ brief }}</pre>
@@ -110,9 +115,8 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 .ticking { color: var(--accent); }
 .body { display: grid; gap: var(--space-2); min-width: 0; padding: 0 var(--space-3) var(--space-3); }
 .status { margin: 0; color: var(--text-dim); font-size: var(--text-sm); overflow-wrap: anywhere; }
-.byline { color: var(--text-faint); }
 .tag {
-  display: inline-flex; align-items: center; gap: 2px; margin-left: var(--space-2); padding: 0 6px; border-radius: var(--radius-full);
+  display: inline-flex; align-items: center; gap: 2px; padding: 0 6px; border-radius: var(--radius-full);
   background: var(--surface-2); color: var(--text-dim); font-size: var(--text-xs); vertical-align: 1px;
 }
 .shimmer {

@@ -11,7 +11,7 @@ import { UiBanner, UiButton, UiCodeBlock, UiSkeleton, UiTabs, fullTime, type Tab
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel, humanize } from '../logic/labels.ts';
 import { isSettled } from '@harness/core';
-import { argSummary, INPUT_PROBLEM_WORDS, resultBrief, runElapsed, runError, runInvalid, runResult, runText, STATUS_LOOK, type RunView } from '../logic/runs.ts';
+import { argSummary, INPUT_PROBLEM_WORDS, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runResult, runText, STATUS_LOOK, type RunView } from '../logic/runs.ts';
 import type { RunTab as Tab } from '../logic/inspect.ts';
 import GinValueView from '../../gin/GinValueView.vue';
 import RunDot from './RunDot.vue';
@@ -69,16 +69,16 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
       <div class="status">
         <RunDot :status="run.status" :size="10" />
         <span class="word">{{ STATUS_LOOK[run.status].word }}</span>
-        <span class="text">{{ runText(run) }}</span>
+        <span v-if="!repeatsArgs(runText(run), about)" class="text">{{ runText(run) }}</span>
+        <span v-if="run.background" class="dim">· in the background</span>
       </div>
       <dl class="facts">
-        <dt>Fn</dt><dd><code>{{ run.fn }}</code> · {{ fnLabel(run.fn) }}</dd>
+        <dt>Fn</dt><dd><code :title="fnLabel(run.fn)">{{ run.fn }}</code></dd>
         <template v-if="run.system"><dt>System</dt><dd>{{ run.system }}<span v-if="run.instance" class="dim" data-testid="run-instance">@{{ run.instance }}</span></dd></template>
         <template v-if="elapsed !== undefined"><dt>{{ isSettled(run.status) ? 'Took' : 'Running for' }}</dt><dd data-testid="run-elapsed">{{ formatDuration(elapsed) }}</dd></template>
         <template v-if="run.startedAt"><dt>Started</dt><dd>{{ fullTime(run.startedAt) }}</dd></template>
-        <dt>Cost</dt><dd>{{ formatCost(run.cost) }} <span class="dim">· {{ formatCost(run.totalCost) }} with what it called</span></dd>
+        <dt>Cost</dt><dd>{{ formatCost(run.cost) }}<span v-if="run.totalCost !== run.cost" class="dim"> · {{ formatCost(run.totalCost) }} with what it called</span></dd>
         <template v-if="run.attempt > 1"><dt>Attempt</dt><dd>{{ run.attempt }}</dd></template>
-        <template v-if="run.background"><dt>Background</dt><dd>Yes</dd></template>
       </dl>
       <RunProgress v-if="run.progress && !isSettled(run.status)" :progress="run.progress" />
       <div class="ops">

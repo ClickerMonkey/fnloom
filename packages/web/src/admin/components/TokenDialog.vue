@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
- * Making a one-time pairing token: optionally for one name, and for how long. Once made, the token shows once, with
+ * Making a one-time pairing token: optionally for one name, for how long, and whether the system it pairs gets an
+ * auto pair secret. Once made, the token shows once, with
  * a copy button; the hub keeps only its hash.
  */
-import type { SystemName } from '@harness/core';
+import type { AutoPairChoice, SystemName } from '@harness/core';
+import AutoPairPicker from './AutoPairPicker.vue';
 import { computed, ref, watch } from 'vue';
 import { UiBanner, UiButton, UiCodeBlock, UiDialog, UiInput, UiSegmented, type SegmentOption } from '../../ui/index.ts';
 import { TOKEN_LIFETIMES, tokenBody } from '../logic/forms.ts';
@@ -12,22 +14,23 @@ import { timeLeft } from '../logic/systems.ts';
 
 const props = withDefaults(defineProps<{ busy?: boolean; problem?: string; token?: PairingToken | undefined; now: number }>(), { busy: false, problem: '', token: undefined });
 const open = defineModel<boolean>('open', { required: true });
-const emit = defineEmits<{ create: [name: SystemName | undefined, expiresIn: number] }>();
+const emit = defineEmits<{ create: [name: SystemName | undefined, expiresIn: number, autoPair: AutoPairChoice | undefined] }>();
 
 type Lifetime = (typeof TOKEN_LIFETIMES)[number]['label'];
 const name = ref('');
 const lifetime = ref<Lifetime>(TOKEN_LIFETIMES[1].label);
 const tried = ref(false);
+const autoPair = ref<AutoPairChoice | undefined>(undefined);
 const options = TOKEN_LIFETIMES.map((l): SegmentOption<Lifetime> => ({ value: l.label, label: l.label }));
 const expiresIn = computed(() => TOKEN_LIFETIMES.find((l) => l.label === lifetime.value)?.ms ?? TOKEN_LIFETIMES[1].ms);
 const checked = computed(() => tokenBody(name.value, expiresIn.value));
 const nameError = computed(() => (tried.value && !checked.value.ok ? checked.value.problems.name ?? '' : ''));
 
-watch(open, (isOpen) => { if (isOpen) { name.value = ''; tried.value = false; } });
+watch(open, (isOpen) => { if (isOpen) { name.value = ''; tried.value = false; autoPair.value = undefined; } });
 
 function create(): void {
   tried.value = true;
-  if (checked.value.ok) { emit('create', checked.value.value.name, checked.value.value.expiresIn); }
+  if (checked.value.ok) { emit('create', checked.value.value.name, checked.value.value.expiresIn, autoPair.value); }
 }
 </script>
 
@@ -43,6 +46,7 @@ function create(): void {
         <span class="label">Lasts</span>
         <UiSegmented v-model="lifetime" :options="options" label="Lasts" />
       </div>
+      <AutoPairPicker v-model="autoPair" />
       <UiBanner v-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
     </form>
     <template #footer>

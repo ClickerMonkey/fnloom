@@ -11,7 +11,7 @@
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   mcpsSlice, metricsSlice, MintMcpTokenArgs, modelsSlice, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
-  Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
+  LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn } from './fn.ts';
@@ -48,6 +48,8 @@ export const HUB_READ_ENDPOINTS = {
   system_logs: adminSlice.endpoints.systemLogs,
   model_roles: modelsSlice.endpoints.modelRoles,
   model_limits: contextorSlice.endpoints.modelLimits,
+  /** Any list by the query standard (`LIST_FIELDS`): filters, sort, paging. */
+  query: querySlice.endpoints.query,
 } as const satisfies Record<string, EndpointLike>;
 
 /** A hub read fn's name. */
@@ -172,6 +174,7 @@ const readFns = {
   system_logs: readFn('The end of a system\'s output, oldest first.', HUB_READ_ENDPOINTS.system_logs),
   model_roles: readFn('Which model (and provider) the hub uses for each job: chat, transcription, dictation, speech, describing images, reading text in them.', HUB_READ_ENDPOINTS.model_roles),
   model_limits: readFn('Each model\'s context window, output limit, reasoning reserve and characters per token, with where each came from.', HUB_READ_ENDPOINTS.model_limits),
+  query: readFn(`Any list (${LIST_NAMES.join(', ')}) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging.`, HUB_READ_ENDPOINTS.query),
 } satisfies Record<HubReadFnName, unknown>;
 
 /** The hub's write fns on resources, context and memory (`HUB_WRITE_ENDPOINTS`). */

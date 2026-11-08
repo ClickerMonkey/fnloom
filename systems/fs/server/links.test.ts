@@ -7,6 +7,7 @@ import { AeyeDocuments } from './documents.ts';
 import { FileService } from './files.ts';
 import { RootGuard, fileUri } from './paths.ts';
 import { FsProblem } from './problem.ts';
+import { GlobSecrets } from './secrets.ts';
 import { FsResources } from './resources.ts';
 import { DiskSnapshots } from './snapshots.ts';
 import { FakeShell, tempFolder } from './testing.ts';
@@ -41,6 +42,7 @@ describe('links', () => {
     files = new FileService(new DiskSnapshots(`${tmp.path}/.snapshots`), { readLines: 100, fileMax: 10_000, listLimit: 100, ignore: [] });
     resources = new FsResources({
       guard: () => guard,
+      secrets: () => new GlobSecrets(),
       files,
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
       limits: { page: 50, textMax: 10_000, ignore: [], debounce: 10 },
@@ -85,7 +87,7 @@ describe('links', () => {
     const listed = await resources.list(fileUri(root));
     expect(listed.items.map((item) => [item.name, item.type])).toEqual([['real', 'folder'], ['alias', 'folder']]);
     expect(await resources.stat(fileUri(`${root}/escape/key.txt`))).toBeUndefined();
-    await expect(resources.read(fileUri(`${root}/escape/key.txt`), ['text'])).rejects.toThrow(/isn't under/);
+    await expect(resources.read(fileUri(`${root}/escape/key.txt`), ['text'])).rejects.toThrow(/isn't served/);
     const read = await resources.read(fileUri(`${root}/alias/a.txt`), ['text']);
     expect(read.text).toEqual({ inline: 'inside\n' });
   });

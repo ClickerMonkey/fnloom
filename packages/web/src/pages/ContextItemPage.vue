@@ -18,11 +18,13 @@ import LinkGroups from '../context/components/LinkGroups.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
 import { linkKey, ORIGIN_WORDS, originOf, scopeText, sizeText, type LinkDraft, type MemoryDraft } from '../context/logic/context.ts';
 import { targetRoute } from '../context/logic/targets.ts';
+import { namesOf } from '../state/query.ts';
 import { useStores } from '../state/stores.ts';
 import { fullTime, relativeTime, UiBadge, UiBanner, UiButton, UiCard, UiIcon, UiMarkdown } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { context, session, toasts } = useStores();
+const { context, session, toasts, chat } = useStores();
+const suggestFns = namesOf(chat.listValues, 'fns', 'name');
 const item = context.item;
 const route = useRoute();
 const router = useRouter();
@@ -125,7 +127,7 @@ async function save(draft: MemoryDraft): Promise<void> {
       </div>
     </LoadState>
     <LinkDialog v-if="name" v-model:open="linking" :from="name" :busy="item.linking.busy.value" :problem="item.linking.problem.value" @save="addLink" />
-    <MemoryDialog v-model:open="editing" :memory="record" :busy="item.saving.busy.value" :problem="item.saving.problem.value" @save="save" />
+    <MemoryDialog v-model:open="editing" :suggest-fns="suggestFns" :memory="record" :busy="item.saving.busy.value" :problem="item.saving.problem.value" @save="save" />
     <ConfirmDialog
       v-model:open="forgetting" title="Forget this memory?" body="It is turned off and left out of every selection and search. Its record stays, so the runs that used it still say so."
       confirm="Forget" :busy="item.forgetting.busy.value" @confirm="forget"

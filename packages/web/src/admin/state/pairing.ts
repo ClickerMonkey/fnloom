@@ -4,11 +4,12 @@
  * system live until it is connected. The code in the URL must match the one the system shows, so a stale or
  * forwarded link can't pair the wrong system.
  */
-import type { InstanceName, Json, PairingId, PairingRequest, SystemName, SystemStatus, UserEvent } from '@harness/core';
+import type { AutoPairChoice, InstanceName, Json, PairingId, PairingRequest, SystemName, SystemStatus, UserEvent } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import type { ResponseOf } from '../../api/client.ts';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
+import { autoPairPart } from '../logic/forms.ts';
 import type { AdminApi } from '../api.ts';
 
 type PairingApi = Pick<AdminApi, 'pairing' | 'approvePairing'>;
@@ -75,12 +76,12 @@ export class PairingPageStore {
     return request.code === undefined || request.code === code.trim();
   }
 
-  /** Pair it as `instance` with `config` (the hub checks the config against the system's type). */
-  async approve(instance: InstanceName | undefined, config: Json | undefined): Promise<Outcome<ResponseOf<'approvePairing'>>> {
+  /** Pair it as `instance` with `config` (the hub checks the config against the system's type), with auto pair if chosen. */
+  async approve(instance: InstanceName | undefined, config: Json | undefined, autoPair?: AutoPairChoice): Promise<Outcome<ResponseOf<'approvePairing'>>> {
     const request = this.request.value.value;
     if (request === undefined) { return { ok: false, problem: 'No pairing request is open.' }; }
     const result = await this.answer.run(() => this.#api.approvePairing.call({
-      pairing: request.id, approve: true, ...(instance === undefined ? {} : { instance }), ...(config === undefined ? {} : { config }),
+      pairing: request.id, approve: true, ...(instance === undefined ? {} : { instance }), ...(config === undefined ? {} : { config }), ...autoPairPart(autoPair),
     }), "Couldn't pair it.");
     if (result.ok) {
       this.#answered.value = 'approved';

@@ -352,6 +352,17 @@ describe('budgets in the loop', () => {
     });
   }
 
+  it('records a graph session\'s first selection as the user message\'s suggestions, once per turn', async () => {
+    const { r } = await started();
+    await r.session({ agent: 'tools/graph', tools: ['fs/read'] });
+    r.provider.script(calls([['fs__read', { path: 'a' }]]), says('Done.'));
+    await answer(r, 'tools/graph', 'Read a for me');
+    expect(r.chat.suggested).toHaveLength(1);
+    const record = r.chat.suggested[0]?.record;
+    expect(record?.by).toBe('graph');
+    expect(record?.items).toContainEqual(expect.objectContaining({ used: true, kind: 'fn', name: 'fs/read' }));
+  });
+
   it('fails a message larger than the window with a plain message, not a provider error', async () => {
     const { r } = await started();
     await r.store.table('modelLimits').put({ model: 'test-model', limits: LIMITS, setBy: ActorId.parse('act_admin'), updatedAt: 0 });

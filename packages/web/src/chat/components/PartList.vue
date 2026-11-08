@@ -1,14 +1,14 @@
 <script setup lang="ts" generic="P extends MessagePart | OutgoingPart">
 /**
  * The parts a person wrote, in order: their words (line breaks kept, long tokens wrapping), mention chips, command
- * chips, invocation cards and files. What the hub and hooks added for the model is not here: the message shows it
+ * chips, invocation chips (`!bash`, as typed; the run's card under the message shows its args and status) and files. What the hub and hooks added for the model is not here: the message shows it
  * as one dimmed "Added for the model" row. It draws a stored message's parts or a message still on its way (the
  * composer's parts); its mention events carry the part as it was given.
  */
 import type { MessagePart, OutgoingPart, QualifiedName, RunId } from '@harness/core';
 import { UiIcon } from '../../ui/index.ts';
 import { formatBytes } from '../logic/format.ts';
-import { fnLabel } from '../logic/labels.ts';
+import { fnLabel, localName } from '../logic/labels.ts';
 import MentionChip from './MentionChip.vue';
 
 /** A mention among the parts given. */
@@ -33,8 +33,11 @@ const emit = defineEmits<{ hover: [part: Mention, anchor: HTMLElement]; leave: [
       <span v-else-if="part.type === 'command'" class="command" data-testid="command-chip" :title="part.context">
         /{{ commandName(part.context) }}<span v-for="(value, name) in part.args" :key="name" class="arg">{{ value }}</span>
       </span>
-      <button v-else-if="part.type === 'invocation'" type="button" class="invocation touch-target" data-testid="invocation-chip" @click="emit('run', part.run)">
-        <UiIcon name="fn" :size="13" /> {{ fnLabel(part.fn) }}
+      <button
+        v-else-if="part.type === 'invocation'" type="button" class="invocation touch-target" data-testid="invocation-chip" :title="`${fnLabel(part.fn)}: open the run`"
+        @click="emit('run', part.run)"
+      >
+        !{{ localName(part.fn) }}
       </button>
       <span v-else-if="part.type === 'file'" class="file" data-testid="file-chip" :title="`${part.name} · ${part.ref.mime}`">
         <UiIcon :name="part.ref.mime.startsWith('image/') ? 'image' : 'file'" :size="13" />
@@ -53,7 +56,7 @@ const emit = defineEmits<{ hover: [part: Mention, anchor: HTMLElement]; leave: [
 }
 .command { background: color-mix(in oklch, currentColor 12%, transparent); font-family: var(--mono); }
 .arg { margin-left: 6px; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; }
-.invocation { border: 1px solid color-mix(in oklch, currentColor 30%, transparent); background: transparent; color: inherit; font: inherit; font-size: 0.92em; }
+.invocation { border: 0; background: color-mix(in oklch, currentColor 12%, transparent); color: inherit; font-family: var(--mono); font-size: 0.92em; text-decoration: underline dotted color-mix(in oklch, currentColor 40%, transparent); }
 .invocation:focus-visible { outline: none; box-shadow: var(--ring); }
 .file { background: color-mix(in oklch, currentColor 10%, transparent); }
 .file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

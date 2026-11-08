@@ -4,7 +4,7 @@
  * embedding index suggested for a message.
  * Pure, so they are tested alone.
  */
-import type { ActorId, ChatCapabilities, ChatMessage, LimitScope, ModelChoice, QualifiedName, ResolvedLimits, Session } from '@harness/core';
+import { SKIP_REASON_LABELS, type ActorId, type ChatCapabilities, type ChatMessage, type LimitScope, type ModelChoice, type QualifiedName, type ResolvedLimits, type Session, type SkipReason, type SuggestionDecider } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
 import { formatCost } from './format.ts';
 import { agentName, fnLabel, humanize, localName, systemOf } from './labels.ts';
@@ -13,6 +13,8 @@ import { agentName, fnLabel, humanize, localName, systemOf } from './labels.ts';
 export interface Answerers {
   readonly agents: readonly ActorId[];
   readonly text: string;
+  /** Only the session's own agent, as always with one person: the agent shown beside the box already says so. */
+  readonly usual: boolean;
 }
 
 /**
@@ -23,10 +25,10 @@ export function whoAnswers(session: Pick<Session, 'agent' | 'participants'>, rep
   const people = session.participants.filter((p) => p.role !== 'agent');
   const agents = session.participants.filter((p) => p.role === 'agent').map((p) => p.actor);
   const name = agentName(session.agent);
-  if (people.length <= 1) { return { agents: agents.slice(0, 1), text: `${name} will answer` }; }
-  if (replyAll) { return { agents, text: agents.length === 1 ? `${name} will answer` : `${agents.length} agents will answer` }; }
-  if (replyTo !== undefined && agents.includes(replyTo.author)) { return { agents: [replyTo.author], text: 'The agent you reply to will answer' }; }
-  return { agents: [], text: 'No agent will answer; reply to one or use Reply all' };
+  if (people.length <= 1) { return { agents: agents.slice(0, 1), text: `${name} will answer`, usual: true }; }
+  if (replyAll) { return { agents, text: agents.length === 1 ? `${name} will answer` : `${agents.length} agents will answer`, usual: false }; }
+  if (replyTo !== undefined && agents.includes(replyTo.author)) { return { agents: [replyTo.author], text: 'The agent you reply to will answer', usual: false }; }
+  return { agents: [], text: 'No agent will answer; reply to one or use Reply all', usual: false };
 }
 
 /** A budget's scope for people: "Session", "Your budget", "Group", "Hub". */
@@ -98,17 +100,45 @@ export interface SuggestionItem {
   readonly score: number | undefined;
 }
 
-/** What the index suggested for a message, from its `extra` and `hook` parts. */
+/** A fn or context the hub looked at for a message and left out, with why. */
+export interface SkippedItem {
+  readonly name: QualifiedName;
+  readonly label: string;
+  readonly system: string;
+  readonly reason: SkipReason;
+  /** The decision model's words, or `''`. */
+  readonly note: string;
+  readonly score: number | undefined;
+}
+
+/**
+ * What the index suggested for a message (its `extra` and `hook` parts plus the hub's suggestion record) and what it
+ * left out (from the record). `by` and `threshold` say who chose, when the hub recorded it.
+ */
 export interface MessageSuggestions {
   readonly context: readonly SuggestionItem[];
   readonly fns: readonly SuggestionItem[];
+  readonly skippedContext?: readonly SkippedItem[];
+  readonly skippedFns?: readonly SkippedItem[];
+  readonly by?: SuggestionDecider;
+  readonly threshold?: number;
+}
+
+/** Who chose a message's suggestions, as people read it. */
+export const SUGGESTION_DECIDER_LABELS = {
+  score: 'Chosen by score', decision: 'Chosen by the decision model', graph: 'Chosen by the context graph',
+} as const satisfies Record<SuggestionDecider, string>;
+
+/** A skip reason with the decision model's note when it gave one: "The decision model declined it: off topic". */
+export function skipText(skipped: Pick<SkippedItem, 'reason' | 'note'>): string {
+  return skipped.note === '' ? SKIP_REASON_LABELS[skipped.reason] : `${SKIP_REASON_LABELS[skipped.reason]}: ${skipped.note}`;
 }
 
 const item = (name: QualifiedName, why: string | undefined, state: SuggestionState, label: string, score?: number): SuggestionItem =>
   ({ name, label, system: systemOf(name), why: why ?? '', state, score });
 
 /** Best match first; items without a score after the scored ones, in the order they came. */
-function byScore(items: Iterable<SuggestionItem>): SuggestionItem[] {
+function byScore<T extends { readonly score: number | undefined }>(items: Iterable<T>): T[] {
   return [...items].sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
 }
 
@@ -118,7 +148,7 @@ export function scoreText(score: number): string {
 }
 
 /** The suggestions of a message; marked loaded when the session's agent has them now. */
-export function messageSuggestions(message: Pick<ChatMessage, 'parts'>, session: Pick<Session, 'tools' | 'context'> | undefined): MessageSuggestions {
+export function messageSuggestions(message: Pick<ChatMessage, 'parts' | 'suggestions'>, session: Pick<Session, 'tools' | 'context'> | undefined): MessageSuggestions {
   const context = new Map<QualifiedName, SuggestionItem>();
   const fns = new Map<QualifiedName, SuggestionItem>();
   const loadedFns = new Set(session?.tools ?? []);
@@ -136,7 +166,27 @@ export function messageSuggestions(message: Pick<ChatMessage, 'parts'>, session:
       }
     }
   }
-  return { context: byScore(context.values()), fns: byScore(fns.values()) };
+  const record = message.suggestions;
+  if (record === undefined) { return { context: byScore(context.values()), fns: byScore(fns.values()) }; }
+  const skippedContext: SkippedItem[] = [];
+  const skippedFns: SkippedItem[] = [];
+  for (const outcome of record.items) {
+    const label = outcome.kind === 'fn' ? fnLabel(outcome.name) : humanize(localName(outcome.name));
+    if (!outcome.used) {
+      (outcome.kind === 'fn' ? skippedFns : skippedContext).push({ name: outcome.name, label, system: systemOf(outcome.name), reason: outcome.reason, note: outcome.note ?? '', score: outcome.score });
+      continue;
+    }
+    const into = outcome.kind === 'fn' ? fns : context;
+    const known = into.get(outcome.name);
+    const loaded = (outcome.kind === 'fn' ? loadedFns : loadedContext).has(outcome.name);
+    into.set(outcome.name, known === undefined
+      ? item(outcome.name, outcome.note, loaded ? 'loaded' : 'offered', label, outcome.score)
+      : { ...known, why: known.why === '' ? outcome.note ?? '' : known.why, score: known.score ?? outcome.score });
+  }
+  return {
+    context: byScore(context.values()), fns: byScore(fns.values()), skippedContext: byScore(skippedContext), skippedFns: byScore(skippedFns), by: record.by,
+    ...(record.threshold === undefined ? {} : { threshold: record.threshold }),
+  };
 }
 
 /** The words for a suggestion's state. */

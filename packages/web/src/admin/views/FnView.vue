@@ -2,7 +2,8 @@
 /**
  * One fn's page (`/admin/systems/:name/fns/:fn`): what it is and whether it can be used now, its metrics over a period
  * in the URL (`?days=7|30|90`) as a strip (runs, retried input apart from failures, typical and p95 time, waiting,
- * cost, tokens), its runs and its typical time per day, and a link to its runs. Live: a settled run updates it.
+ * cost, tokens), its runs and its typical time per day, and its latest runs (each opens in the runs browser, with a
+ * link to all of them). Live: a settled run updates it.
  */
 import { QualifiedName } from '@harness/core';
 import { computed, onBeforeUnmount, watch } from 'vue';
@@ -11,11 +12,14 @@ import { z } from 'zod';
 import AppPage from '../../app/AppPage.vue';
 import { links, ROUTES } from '../../app/routes.ts';
 import { useRouteQuery } from '../../app/url.ts';
-import { formatDuration } from '../../chat/logic/format.ts';
+import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
+import { argSummary, runElapsed, STATUS_LOOK } from '../../chat/logic/runs.ts';
+import RunDot from '../../chat/components/RunDot.vue';
 import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiButton, UiCard, UiEmpty, UiIcon, UiSegmented, type SegmentOption } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
+import BrowserRow from '../components/BrowserRow.vue';
 import DayBars from '../components/DayBars.vue';
 import LoadState from '../components/LoadState.vue';
 import { dayBars, figures } from '../logic/metrics.ts';
@@ -39,7 +43,8 @@ const name = computed(() => {
 const record = computed(() => store.record.value.value);
 const metrics = computed(() => store.metrics.value.value);
 const strip = computed(() => (metrics.value === undefined ? [] : figures(metrics.value)));
-const now = useNow(60_000);
+const now = useNow(30_000);
+const recent = computed(() => store.recent.value.value ?? []);
 const dayWindow = computed(() => ({ period: period.value, now: now.value }));
 const runBars = computed(() => dayBars(store.daily.value.value ?? [], 'runs', dayWindow.value));
 const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time', dayWindow.value));
@@ -82,9 +87,27 @@ onBeforeUnmount(() => { store.close(); });
             <UiCard><DayBars title="Typical time per day" :bars="timeBars" :format="formatDuration" testid="fn-time-chart" /></UiCard>
           </div>
         </LoadState>
-        <div class="actions">
-          <UiButton icon="fn" variant="secondary" data-testid="fn-runs" @click="router.push(links.runs({ fn: name }))">Its runs</UiButton>
-        </div>
+        <UiCard class="runs" title="Latest runs" flush compact data-testid="fn-recent">
+          <template #actions><UiButton size="sm" variant="ghost" icon="arrow-right" data-testid="fn-runs" @click="router.push(links.fnRuns(name))">All its runs</UiButton></template>
+          <p v-if="store.recent.problem.value !== ''" class="problem" role="alert">{{ store.recent.problem.value }}</p>
+          <p v-else-if="recent.length === 0" class="none">{{ store.recent.loading.value ? 'Loading…' : 'No runs yet.' }}</p>
+          <ul v-else class="list">
+            <BrowserRow
+              v-for="run in recent" :key="run.id" :title="argSummary(run.args) || fnLabel(run.fn)" :at="run.createdAt" :now="now" :testid="`fn-run-${run.id}`"
+              @open="router.push(links.runs({ run: run.id }))"
+            >
+              <template #mark><RunDot :status="run.status" :size="10" /></template>
+              <template #badges>
+                <UiBadge v-if="run.status === 'failed' || run.status === 'awaiting-approval'" :tone="STATUS_LOOK[run.status].tone">{{ STATUS_LOOK[run.status].word }}</UiBadge>
+                <UiBadge v-if="run.attempt > 1" tone="warn">Try {{ run.attempt }}</UiBadge>
+              </template>
+              <template #figures>
+                <span>{{ formatCost(run.totalCost) }}</span>
+                <span v-if="runElapsed(run, now) !== undefined">{{ formatDuration(runElapsed(run, now) ?? 0) }}</span>
+              </template>
+            </BrowserRow>
+          </ul>
+        </UiCard>
       </template>
     </LoadState>
   </AppPage>
@@ -100,7 +123,9 @@ onBeforeUnmount(() => { store.close(); });
 .value { font-size: var(--text-lg); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
 .detail { color: var(--text-faint); font-size: var(--text-xs); }
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--space-4); }
-.actions { display: flex; gap: var(--space-2); }
+.list { margin: 0; padding: 0; list-style: none; }
+.none, .problem { margin: 0; padding: var(--space-3) var(--space-4); color: var(--text-faint); font-size: var(--text-sm); }
+.problem { color: var(--danger); }
 .crumb { display: inline-flex; align-items: center; gap: 2px; margin-left: -2px; color: var(--text-dim); font-weight: var(--weight-medium); text-decoration: none; }
 .crumb:hover { color: var(--accent); }
 </style>

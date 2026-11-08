@@ -145,7 +145,33 @@ describe('session controls', () => {
 
   it('offer pause and cancel only as far as the running runs allow', async () => {
     const w = await busy();
-    expect(await w.chat.sessions.controls(w.session.id)).toEqual({ pause: true, cancel: true, uncancellable: ['run_b'], undoLastTurn: false });
+    const controls = await w.chat.sessions.controls(w.session.id);
+    expect(controls).toMatchObject({ pause: true, cancel: true, uncancellable: ['run_b'], undoLastTurn: false });
+    expect(controls.runs?.toSorted((a, b) => a.run.localeCompare(b.run))).toEqual([
+      { run: 'run_a', fn: 'fs/write', status: 'running', pause: true, resume: false, cancel: true },
+      { run: 'run_b', fn: 'fs/write', status: 'running', pause: false, resume: false, cancel: false },
+      { run: 'run_c', fn: 'fs/write', status: 'paused', pause: false, resume: true, cancel: true },
+    ]);
+  });
+
+  it('control only the runs named, when some are', async () => {
+    const w = await busy();
+    await w.chat.sessions.control(w.session.id, 'cancel', w.admin.id, [IDS.run.parse('run_c'), IDS.run.parse('run_d'), IDS.run.parse('run_x')]);
+    expect(w.runs.controlled).toEqual([{ action: 'cancel', run: 'run_c' }]);
+    w.runs.controlled.length = 0;
+    await w.chat.sessions.control(w.session.id, 'pause', w.admin.id, [IDS.run.parse('run_c')]);
+    expect(w.runs.controlled).toEqual([]);
+  });
+
+  it('leave the session running when one of several runs that can pause is paused', async () => {
+    const w = await busy();
+    await w.store.table('runs').insert(makeRun({
+      id: IDS.run.parse('run_e'), fn: 'fs/read', turn: IDS.turn.parse('trn_busy'), actor: w.admin.id, session: w.session.id, status: 'running',
+      allowed: { cancel: true, pause: true, background: true },
+    }));
+    await w.chat.sessions.control(w.session.id, 'pause', w.admin.id, [IDS.run.parse('run_a')]);
+    expect(w.runs.controlled).toEqual([{ action: 'pause', run: 'run_a' }]);
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('running');
   });
 
   it('pause what can pause, resume what is paused, cancel what can cancel', async () => {

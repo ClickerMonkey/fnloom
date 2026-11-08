@@ -12,7 +12,7 @@
  */
 import type { Peer } from '@ayepi/core';
 import type {
-  ActorId, ConfigValue, ContentRef, ImportReport, InstallSource, InstalledSystem, InstanceName, InstanceRecord, InstanceRef, InvalidInput, Json, LinkSession,
+  ActorId, AutoPairChoice, ConfigValue, ContentRef, ImportReport, InstallSource, InstalledSystem, InstanceName, InstanceRecord, InstanceRef, InvalidInput, Json, LinkSession,
   Page, PairingId, PairingRequest, QualifiedName, ReadWant, ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section,
   SessionId, StopReason, SystemEnabled, SystemLinkSpec, SystemName, Timestamp,
 } from '@harness/core';
@@ -63,6 +63,8 @@ export interface PairingChoice {
   readonly instance?: InstanceName | undefined;
   /** The config to set, checked against the system's config type before anything is paired. */
   readonly config?: Json | undefined;
+  /** Let the instance re-pair by itself (see `link/auto-pair.ts`): its secret goes out in its first welcome. */
+  readonly autoPair?: AutoPairChoice | undefined;
 }
 
 /** Pairing: new instances wait for an admin (code or token); known instances prove their key. */
@@ -74,7 +76,7 @@ export interface PairingService {
   approve(pairing: PairingId, by: ActorId, choice?: PairingChoice): Promise<InstanceRecord>;
   reject(pairing: PairingId, by: ActorId): Promise<void>;
   /** A one-time token so a system can pair without a code. The token is shown once; only its hash is stored. */
-  createToken(input: { name?: SystemName; expiresIn: number; by: ActorId }): Promise<{ token: string; expiresAt: Timestamp }>;
+  createToken(input: { name?: SystemName; expiresIn: number; autoPair?: AutoPairChoice; by: ActorId }): Promise<{ token: string; expiresAt: Timestamp }>;
   /** The key an installed instance gets, paired at install time. */
   pairInstalled(ref: InstanceRef, publicKey: string, version: string, by: ActorId): Promise<InstanceRecord>;
 }

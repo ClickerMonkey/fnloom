@@ -232,7 +232,7 @@ export class HubPromptPlanner implements PromptPlanner {
     if (planning.keep && session !== undefined && planning.turn !== undefined && choice.contextor.type === 'graph') await this.#keep(session.id, planning.turn.id, report);
     return {
       model, context: assembled.context, messages: assembled.messages, tools: rendered.tools, maxTokens: plan.output + plan.reasoning, contextWindow: view.limits.contextWindow,
-      estimate: assembled.estimate, rendered, report, mode, ctx, session,
+      estimate: assembled.estimate, rendered, report, mode, ctx, session, ...(selection.considered === undefined ? {} : { considered: selection.considered }),
     };
   }
 

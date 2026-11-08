@@ -14,13 +14,14 @@ import type { Authenticator, ContentStore, EventRelay, PushService, SecretVault 
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type {
-  ApproverDirectory, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, TurnService, UndoService,
+  ApproverDirectory, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, SuggestionDecider, TurnService, UndoService,
 } from '../chat/index.ts';
 import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, ProviderService, RunService } from '../execution/index.ts';
 import type { Embedders, Indexer, Search, Suggester } from '../index/index.ts';
 import type {
   ConfigService, InstanceRouter, LinkService, Packages, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens,
 } from '../link/index.ts';
+import type { AutoPairService } from '../link/auto-pair.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
 import type { ContextorServices } from '../contextor/index.ts';
 import type { McpServices } from '../mcp/index.ts';
@@ -49,7 +50,7 @@ export interface HubServices {
   readonly link: {
     readonly connections: LinkService; readonly pairing: PairingService; readonly config: ConfigService; readonly supervisor: Supervisor;
     readonly admin: SystemAdmin; readonly resources: ResourceRouter; readonly tokens: SystemTokens; readonly output: SystemOutput;
-    readonly packages: Packages; readonly instances: InstanceRouter;
+    readonly packages: Packages; readonly instances: InstanceRouter; readonly autoPairs: AutoPairService;
   };
   readonly execution: {
     readonly runs: RunService; readonly agents: AgentLoop; readonly llm: LlmGateway; readonly limits: LimitResolver; readonly ledger: Ledger;
@@ -59,6 +60,7 @@ export interface HubServices {
     readonly sessions: SessionService; readonly turns: TurnService; readonly reply: ReplyRule; readonly enrich: MessageEnricher;
     readonly state: StateService; readonly deliveries: DeliveryService; readonly undo: UndoService; readonly mentions: MentionService;
     readonly presence: PresenceTracker; readonly notifications: NotificationService; readonly approvers: ApproverDirectory;
+    readonly suggestions: SuggestionDecider;
   };
   readonly index: { readonly embedders: Embedders; readonly indexer: Indexer; readonly search: Search; readonly suggest: Suggester };
   readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault };

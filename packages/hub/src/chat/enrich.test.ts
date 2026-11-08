@@ -15,7 +15,7 @@ async function world(systems: SystemName[] | 'all' = 'all') {
 describe('what the hub adds to a message', () => {
   it('always adds the person\'s local time', async () => {
     const w = await world();
-    const parts = await w.chat.enrich.enrich({ session: w.session, turn, text: '', user: w.user });
+    const { parts } = await w.chat.enrich.enrich({ session: w.session, turn, text: '', user: w.user });
     expect(parts).toEqual([{ type: 'extra', extra: 'local-time', blocks: [{ type: 'text', tag: 'now', text: 'Saturday 2026-11-07T09:30:00-05:00 (America/New_York)' }] }]);
   });
 
@@ -26,7 +26,7 @@ describe('what the hub adds to a message', () => {
       { kind: 'context', name: 'fs/guide', description: 'How files work.', score: 0.8 },
       { kind: 'fn', name: 'fs/read', description: 'Read a file.', score: 0.9 },
     ];
-    const parts = await w.chat.enrich.enrich({ session: w.session, turn, text: 'read the readme', user: w.user });
+    const { parts } = await w.chat.enrich.enrich({ session: w.session, turn, text: 'read the readme', user: w.user });
     expect(parts.slice(1)).toEqual([
       { type: 'extra', extra: 'suggested-context', blocks: [{ type: 'suggest-context', items: [{ context: 'fs/guide', why: 'How files work.', score: 0.8 }] }] },
       { type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: [{ fn: 'fs/read', why: 'Read a file.', score: 0.9 }, { fn: 'fs/write', why: 'Write a file.', score: 0.7 }] }] },
@@ -37,16 +37,16 @@ describe('what the hub adds to a message', () => {
     const w = await world();
     w.index.suggestions = [{ kind: 'fn', name: 'fs/read', description: 'Read a file.', score: 0.9 }];
     const graph = { ...w.session, contextor: { type: 'graph' as const, metrics: {}, spread: { damping: 0.5, hops: 2 }, floorExchanges: 1, shares: { history: 0.45, context: 0.35, fns: 0.2 }, threshold: 0.15, evaluate: 'perMessage' as const } };
-    const parts = await w.chat.enrich.enrich({ session: graph, turn, text: 'read the readme', user: w.user });
+    const { parts } = await w.chat.enrich.enrich({ session: graph, turn, text: 'read the readme', user: w.user });
     expect(parts.map((p) => p.type === 'extra' ? p.extra : p.type)).toEqual(['local-time']);
-    const plain = await w.chat.enrich.enrich({ session: { ...w.session, contextor: { type: 'plain' } }, turn, text: 'read the readme', user: w.user });
+    const { parts: plain } = await w.chat.enrich.enrich({ session: { ...w.session, contextor: { type: 'plain' } }, turn, text: 'read the readme', user: w.user });
     expect(plain.map((p) => p.type === 'extra' ? p.extra : p.type)).toEqual(['local-time', 'suggested-fns']);
   });
 
   it('skips suggestions when the index fails, and says so in the log', async () => {
     const w = await world();
     w.index.suggestions = new Error('embedder down');
-    const parts = await w.chat.enrich.enrich({ session: w.session, turn, text: 'hello', user: w.user });
+    const { parts } = await w.chat.enrich.enrich({ session: w.session, turn, text: 'hello', user: w.user });
     expect(parts.map((p) => p.type)).toEqual(['extra']);
     expect(w.logs.some((l) => l.msg === 'chat.suggest.failed')).toBe(true);
   });
@@ -59,7 +59,7 @@ describe('what the hub adds to a message', () => {
     const git = w.link.connect('git', { hook: async ({ hook, message }) => Promise.resolve([{ type: 'text', tag: 'branch', text: `${hook} on main for "${message.text}" at ${message.time.local}` }]) });
     w.link.connect('crm', { hook: async () => Promise.resolve([{ type: 'load', fns: ['crm/find'] }]) });
     w.link.connect('web', { hook: async () => Promise.resolve([{ type: 'text', tag: 'news', text: 'not allowed here' }]) });
-    const parts = await w.chat.enrich.enrich({ session: w.session, turn, text: 'ship it', user: w.user });
+    const { parts } = await w.chat.enrich.enrich({ session: w.session, turn, text: 'ship it', user: w.user });
     expect(parts.slice(1)).toEqual([
       { type: 'hook', hook: 'crm/ticket', blocks: [{ type: 'load', fns: ['crm/find'] }] },
       { type: 'hook', hook: 'git/branch', blocks: [{ type: 'text', tag: 'branch', text: 'branch on main for "ship it" at 2026-11-07T09:30:00-05:00' }] },
@@ -77,7 +77,7 @@ describe('what the hub adds to a message', () => {
     w.link.connect('c', { hook: async () => Promise.resolve([{ type: 'text', tag: 'x', text: 'y' }]) });
     w.catalog.unavailable.set('c/off', { unavailable: 'disabled', detail: 'switched off' });
     w.link.connect('e', { hook: async (_, signal) => new Promise((_resolve, reject) => { signal?.addEventListener('abort', () => { reject(new Error('timed out')); }); }) });
-    const parts = await w.chat.enrich.enrich({ session: w.session, turn, text: 'x', user: w.user });
+    const { parts } = await w.chat.enrich.enrich({ session: w.session, turn, text: 'x', user: w.user });
     expect(parts.map((p) => p.type)).toEqual(['extra']);
     expect(w.logs.filter((l) => l.msg === 'chat.hook.failed').map((l) => String(l['hook'])).sort()).toEqual(['a/fails', 'd/away', 'e/slow']);
   });

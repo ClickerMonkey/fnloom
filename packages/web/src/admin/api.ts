@@ -44,6 +44,8 @@ export function adminApi(hub: Hub) {
     actorSettings: hub.caller('actorSettings', { dedupe: true }),
     setActorSetting: hub.caller('setActorSetting'),
     runs: hub.caller('runs', { lastOnly: true }),
+    /** Every fn of every system with its stats (the fns catalogue). */
+    fns: hub.caller('fns', { lastOnly: true }),
     llmCalls: hub.caller('llmCalls', { lastOnly: true }),
     resources: hub.caller('resources', { lastOnly: true }),
     // model roles and limits
@@ -73,6 +75,13 @@ export function adminApi(hub: Hub) {
     installPackage: hub.caller('installPackage'),
     removeInstance: hub.caller('removeInstance'),
     exportSystemData: hub.caller('exportSystemData'),
+    // auto pair: the secrets that let instances re-pair, and revoking one
+    autoPairs: hub.caller('autoPairs', { dedupe: true }),
+    revokeAutoPair: hub.caller('revokeAutoPair'),
+    // the decision model for suggestions
+    suggestDecision: hub.caller('suggestDecision', { dedupe: true }),
+    setSuggestDecision: hub.caller('setSuggestDecision'),
+    previewSuggestions: hub.caller('previewSuggestions', { lastOnly: true }),
     upload: hub.caller('upload'),
     uploaded: hub.caller('uploaded'),
     search: hub.caller('search', { lastOnly: true }),

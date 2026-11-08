@@ -29,6 +29,8 @@ export function chatApi(hub: Hub) {
     /** The list's search as it is typed: asked once typing pauses, only the latest answer counts. */
     searchSessions: hub.caller('sessions', { debounce: SEARCH_PAUSE, lastOnly: true }),
     session: hub.caller('session', { dedupe: true }),
+    /** A list field's values in the data, for the search boxes' suggestions (every list, not only the chat's). */
+    listValues: hub.caller('listValues', { cache: { ttl: 10_000 }, dedupe: true }),
     createSession: hub.caller('createSession', { invalidates: [SESSIONS_TAG] }),
     updateSession: hub.caller('updateSession', { invalidates: [SESSIONS_TAG] }),
     deleteSession: hub.caller('deleteSession', { invalidates: [SESSIONS_TAG] }),

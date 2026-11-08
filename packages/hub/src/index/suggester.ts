@@ -6,7 +6,7 @@ import { QualifiedName, splitName, type SessionId, type Suggestion } from '@harn
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { HubStore } from '../store/index.ts';
-import type { Search, Suggester } from './index.ts';
+import type { Considered, Search, Suggester } from './index.ts';
 
 /** Suggests fns and context from the index. */
 export class IndexSuggester implements Suggester {
@@ -21,21 +21,26 @@ export class IndexSuggester implements Suggester {
   }
 
   async suggest(input: { session: SessionId; text: string; limit: number }): Promise<Suggestion[]> {
-    if (input.limit < 1 || input.text.trim() === '') { return []; }
+    if (input.limit < 1) { return []; }
+    return (await this.consider({ session: input.session, text: input.text, pool: input.limit * 2 })).offered.slice(0, input.limit);
+  }
+
+  async consider(input: { session: SessionId; text: string; pool: number }): Promise<Considered> {
+    const out: Considered = { offered: [], hidden: [] };
+    if (input.pool < 1 || input.text.trim() === '') { return out; }
     const session = await this.#store.table('sessions').get(input.session);
-    if (session === undefined) { return []; }
+    if (session === undefined) { return out; }
     const allowed = (name: QualifiedName): boolean => {
       const { system } = splitName(name);
       return system === HUB_SYSTEM || session.systems === 'all' || session.systems.some((s) => s === system);
     };
-    const hits = await this.#search.search({ text: input.text, kinds: ['fn', 'context'], limit: input.limit * 2 });
-    const out: Suggestion[] = [];
+    const hits = await this.#search.search({ text: input.text, kinds: ['fn', 'context'], limit: input.pool });
     for (const hit of hits) {
       const name = QualifiedName.safeParse(hit.key);
-      if (!name.success || !allowed(name.data)) { continue; }
-      const suggestion = hit.kind === 'fn' ? await this.#fn(name.data, hit.score) : await this.#context(name.data, hit.score);
-      if (suggestion !== undefined) { out.push(suggestion); }
-      if (out.length >= input.limit) { break; }
+      if (!name.success || (hit.kind !== 'fn' && hit.kind !== 'context')) { continue; }
+      const suggestion = !allowed(name.data) ? undefined : hit.kind === 'fn' ? await this.#fn(name.data, hit.score) : await this.#context(name.data, hit.score);
+      if (suggestion === undefined) { out.hidden.push({ kind: hit.kind, name: name.data, score: hit.score }); }
+      else { out.offered.push(suggestion); }
     }
     return out;
   }

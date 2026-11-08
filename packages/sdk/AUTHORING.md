@@ -3979,7 +3979,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/resource_list`: List resources (files, pages, uploads) from every system and the hub, filtered, grouped and paged. Tags: `read`.
 
   ```text
-  (obj{ cursor?, limit?, search?, system?, family?, source?, under?, form?, missing?, group?, in? … }) => obj{ items, cursor?, facets … }
+  (obj{ cursor?, limit?, search?, system?, family?, source?, under?, form?, missing?, group?, in?, query? … }) => obj{ items, cursor?, facets … }
   ```
 - `hub/resource_read`: Read a resource as text: its primary form (markdown for pages, tables for spreadsheets) or a chosen form, whole or by sections. Tags: `read`.
 
@@ -4024,25 +4024,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/runs_list`: Runs, newest first, filtered by fn, status, session or system. A member sees their own runs. Tags: `read`.
 
   ```text
-  (obj{
-    cursor?: text,
-    limit?: num{whole=true, min=1, max=200},
-    status?: enum<text>{
-      "awaiting-approval",
-      queued,
-      running,
-      waiting,
-      paused,
-      done,
-      "invalid-input",
-      failed,
-      cancelled,
-      undone
-    },
-    fn?: text,
-    system?: text,
-    session?: text
-  }) => obj{ items, cursor? … }
+  (obj{ cursor?, limit?, status?, fn?, system?, session?, query? … }) => obj{ items, cursor? … }
   ```
 - `hub/run_get`: One run: its fn, args, status, result or error, cost and timings. Tags: `read`.
 
@@ -4062,16 +4044,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/model_calls`: Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings. Tags: `read`.
 
   ```text
-  (obj{
-    cursor?: text,
-    limit?: num{whole=true, min=1, max=200},
-    modality?: enum<text>{chat, embed, image, transcribe, speech},
-    model?: text,
-    system?: text,
-    run?: text,
-    session?: text,
-    status?: enum<text>{running, done, failed, aborted}
-  }) => obj{ items, cursor? … }
+  (obj{ cursor?, limit?, modality?, model?, system?, run?, session?, status?, query? … }) => obj{ items, cursor? … }
   ```
 - `hub/fn_metrics`: How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens. Tags: `read`.
 
@@ -4085,12 +4058,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/sessions_list`: Chat sessions, most recent first. Tags: `read`.
 
   ```text
-  (obj{
-    cursor?: text,
-    limit?: num{whole=true, min=1, max=200},
-    search?: text,
-    archived?: bool
-  }) => obj{
+  (obj{ cursor?, limit?, search?, archived?, query? … }) => obj{
     items: list<obj{
       /* session id */ id: text,
       title: text,
@@ -4116,7 +4084,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
@@ -4149,6 +4117,16 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{model?: text}) => list<obj{ model, limits, sources, ratio … }>
+  ```
+- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
+
+  ```text
+  (obj{ list, query? … }) => obj{
+    items: list<any>,
+    cursor?: text,
+    sort: list<obj{field: text{minLength=1}, dir: enum<text>{asc, desc}}>,
+    total?: num{whole=true, min=0}
+  }
   ```
 - `hub/resource_convert`: Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.
 
@@ -4203,14 +4181,19 @@ This is the hub contract as the SDK declares it now:
     sections?: list<text{minLength=1}>,
     copy?: enum<text>{live, snapshot},
     weight?: num{min=0, max=2},
+    tags?: list<text{minLength=1}>,
+    fns?: list<text>,
+    suggestFns?: list<text>,
     alwaysFor?: list<text>,
-    command?: text
+    command?: text,
+    visible?: enum<text>{user, llm, both, none},
+    suggest?: enum<text>{user, llm, both, none}
   }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
   ```
 - `hub/remember`: Remember something for later as a memory: for this session, the person, or everyone.
 
   ```text
-  (obj{ text, title?, scope?, about?, weight? … }) => obj{name: text}
+  (obj{ text, title?, scope?, about?, weight?, summary?, tags?, fns?, suggestFns?, alwaysFor?, command?, visible?, suggest?, parent? … }) => obj{name: text}
   ```
 - `hub/forget`: Forget a memory.
 
@@ -4288,14 +4271,25 @@ This is the hub contract as the SDK declares it now:
 - `hub/approve_pairing`: Approve or refuse a system that asked to pair with the hub, optionally naming its instance and setting its config. Tags: `admin`.
 
   ```text
-  (obj{/* pairing id */ pairing: text, approve: bool, instance?: text, config?: any}) => obj{system?: text}
+  (obj{
+    /* pairing id */ pairing: text,
+    approve: bool,
+    instance?: text,
+    config?: any,
+    autoPair?: obj{
+      expiresIn: nullable<num{whole=true, min=0}>
+    }
+  }) => obj{system?: text}
   ```
 - `hub/create_pairing_token`: Make a one-time pairing token a new system can pair with, optionally for one system name. Tags: `admin`.
 
   ```text
   (obj{
     name?: text,
-    expiresIn: num{whole=true, min=0}
+    expiresIn: num{whole=true, min=0},
+    autoPair?: obj{
+      expiresIn: nullable<num{whole=true, min=0}>
+    }
   }) => obj{token: text, expiresAt: num{whole=true}}
   ```
 - `hub/configure_system`: Set a system's config; refused unless it fits the system's config type. Tags: `admin`.
@@ -4601,6 +4595,8 @@ const HUB_READ_ENDPOINTS = {
   system_logs: adminSlice.endpoints.systemLogs,
   model_roles: modelsSlice.endpoints.modelRoles,
   model_limits: contextorSlice.endpoints.modelLimits,
+  /** Any list by the query standard (`LIST_FIELDS`): filters, sort, paging. */
+  query: querySlice.endpoints.query,
 } as const satisfies Record<string, EndpointLike>;
 ```
 
@@ -5156,6 +5152,8 @@ class LinkHost implements SystemHost {
 #### `LinkHostDeps`
 
 interface · `import { LinkHostDeps } from '@harness/sdk/server'`
+
+The seams `LinkHost` runs on. Every one has a real default; tests replace them.
 
 ```ts
 interface LinkHostDeps {
@@ -7100,7 +7098,7 @@ class FakeHub {
   readonly systems: Peers<SystemLinkSpec>;
   readonly app: Server<HubLinkSpec>;
   readonly process: FakeProcess;
-  readonly hellos: Array<{ name: string; instance: InstanceName; boot: string; manifestHash: string; pairingToken?: string | undefined }>;
+  readonly hellos: Array<{ name: string; instance: InstanceName; boot: string; manifestHash: string; pairingToken?: string | undefined; autoPair?: AutoPairProof | undefined }>;
   readonly manifests: Manifest[];
   readonly patches: ManifestPatch[];
   readonly calls: Array<HubBody<'call'>>;
@@ -7177,7 +7175,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`ConfigValue`](#core-configvalue), [`ContentRef`](#core-contentref), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ContentRef`](#core-contentref), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -7201,10 +7199,14 @@ interface FakeHubOptions {
   maxChunk?: number;
   /** The instance name the welcome gives (an admin renamed it at approval); default: the one the system asked for. */
   instance?: InstanceName;
+  /** An auto-pair grant every welcome carries. */
+  autoPair?: AutoPairGrant;
+  /** Refuse every hello that brings an auto-pair secret, as the hub does for an expired or revoked one. */
+  refuseAutoPair?: boolean;
 }
 ```
 
-Refers to: [`InstanceName`](#core-instancename).
+Refers to: [`AutoPairGrant`](#core-autopairgrant), [`InstanceName`](#core-instancename).
 
 #### `FakeProcess`
 
@@ -7324,8 +7326,12 @@ Keys held in memory, made on first use. For tests and throwaway systems.
 class MemoryKeyStore implements KeyStore {
   publicKey(): Promise<string>;
   sign(nonce: string): Promise<string>;
+  autoPair(): Promise<AutoPairGrant | undefined>;
+  saveAutoPair(grant: AutoPairGrant | undefined): Promise<void>;
 }
 ```
+
+Refers to: [`AutoPairGrant`](#core-autopairgrant).
 
 #### `MemoryJournal`
 
@@ -8920,6 +8926,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       roots: g.list(Root),
       // its own source folder, so it can change itself and restart
       self: g.optional(g.text()),
+      // globs of files never served as resources (a name, or a path from the root with `/`; `!` serves one again);
+      // left out: env files but .env.example, keys, credentials (see server/secrets.ts); [] serves everything
+      secrets: g.optional(g.list(g.text())),
     }),
     types: { Entry },
     settings: {
@@ -9211,8 +9220,14 @@ interface KeyStore {
   publicKey(): Promise<string>;
   /** Sign a challenge nonce. */
   sign(nonce: string): Promise<string>;
+  /** The auto-pair secret the hub granted, if any, to re-pair with when the hub doesn't know this key. */
+  autoPair(): Promise<AutoPairGrant | undefined>;
+  /** Keep the newest grant (each welcome may rotate it), or forget it (`undefined`) once the hub refused it. */
+  saveAutoPair(grant: AutoPairGrant | undefined): Promise<void>;
 }
 ```
+
+Refers to: [`AutoPairGrant`](#core-autopairgrant).
 
 #### `FileKeyStore`
 
@@ -9225,8 +9240,12 @@ class FileKeyStore implements KeyStore {
   constructor(stateFolder: string);
   publicKey(): Promise<string>;
   sign(nonce: string): Promise<string>;
+  autoPair(): Promise<AutoPairGrant | undefined>;
+  saveAutoPair(grant: AutoPairGrant | undefined): Promise<void>;
 }
 ```
+
+Refers to: [`AutoPairGrant`](#core-autopairgrant).
 
 #### `StoredKeyPair`
 
@@ -9249,6 +9268,16 @@ The file in a system's state folder that holds its key pair.
 
 ```ts
 const KEY_FILE: "key.json";
+```
+
+#### `AUTO_PAIR_FILE`
+
+const · `import { AUTO_PAIR_FILE } from '@harness/sdk/server'`
+
+The file beside it that holds the auto-pair secret.
+
+```ts
+const AUTO_PAIR_FILE: "auto-pair.json";
 ```
 
 #### `makeKeyPair`
@@ -10016,6 +10045,33 @@ Who can see a thing: people in the UI, the LLM, both, or neither.
 type Audience = "none" | "user" | "llm" | "both";
 ```
 
+#### <a id="core-autopairgrant"></a>`AutoPairGrant`
+
+const, type · declared in `packages/core/src/auto-pair.ts`
+
+What the hub gives the system (in `Welcome`): keep it, private, in the state dir; replace it each time.
+
+```ts
+type AutoPairGrant = {
+  id: string;
+  secret: string;
+  expiresAt?: number | undefined;
+};
+```
+
+#### <a id="core-autopairproof"></a>`AutoPairProof`
+
+const, type · declared in `packages/core/src/auto-pair.ts`
+
+What the system brings in `hello` to re-pair without a token or code.
+
+```ts
+type AutoPairProof = {
+  id: string;
+  secret: string;
+};
+```
+
 #### <a id="core-chatmodeconfig"></a>`ChatModeConfig`
 
 const, type · declared in `packages/core/src/modes.ts`
@@ -10099,7 +10155,7 @@ type ContextorConfig = {
 const, type · declared in `packages/core/src/context-graph.ts`
 
 ```ts
-type DeclarableRelation = "about" | "imports" | "parent" | "next" | "brings" | "suggests" | "related";
+type DeclarableRelation = "about" | "parent" | "imports" | "next" | "brings" | "suggests" | "related";
 ```
 
 #### <a id="core-deliveryid"></a>`DeliveryId`
@@ -10810,7 +10866,7 @@ type Manifest = {
         uri: `${string}://${string}`;
         section?: (string & z.core.$brand<"SectionKey">) | undefined;
       };
-      relation: "about" | "imports" | "parent" | "next" | "brings" | "suggests" | "related";
+      relation: "about" | "parent" | "imports" | "next" | "brings" | "suggests" | "related";
       weight: number;
     }[] | undefined;
   }[];
@@ -11031,7 +11087,7 @@ type ManifestPatch = {
           uri: `${string}://${string}`;
           section?: (string & z.core.$brand<"SectionKey">) | undefined;
         };
-        relation: "about" | "imports" | "parent" | "next" | "brings" | "suggests" | "related";
+        relation: "about" | "parent" | "imports" | "next" | "brings" | "suggests" | "related";
         weight: number;
       }[] | undefined;
     }[] | undefined;

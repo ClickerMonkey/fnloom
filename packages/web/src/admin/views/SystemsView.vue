@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
  * The systems page: pairing requests waiting for an answer at the top (a notification's `?pairing=` lights one up),
- * then every system, those needing the admin first. Pairing tokens and installing a system open as dialogs.
+ * then every system (searched, filtered and sorted by the hub, the query in the URL), those needing the admin first. Pairing tokens and installing a system open as dialogs.
  */
-import type { InstallSource, PairingRequest, SystemName } from '@harness/core';
+import type { AutoPairChoice, InstallSource, PairingRequest, SystemName } from '@harness/core';
 import type { PackageOptions } from '../state/packages.ts';
-import { computed, onMounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, ref, shallowRef, watch } from 'vue';
+import ListSearch from '../../components/query/ListSearch.vue';
+import { hubListQuery, useListQuery } from '../../state/query.ts';
 import { useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
 import { ROUTES, links } from '../../app/routes.ts';
@@ -32,10 +34,14 @@ const tokenOpen = ref(false);
 const installOpen = ref(false);
 const token = shallowRef<PairingToken | undefined>(undefined);
 
-onMounted(() => { void systems.load(systems.list.value.value !== undefined); });
+const search = useListQuery('systems');
+const filter = computed(() => hubListQuery(search.value));
+const narrowed = computed(() => Object.keys(filter.value).some((key) => key !== 'sort'));
+watch(filter, (value) => { void systems.search(value); });
+onMounted(() => { systems.query.value = filter.value; void systems.load(systems.list.value.value !== undefined); });
 
-async function answer(pairing: PairingRequest, approve: boolean): Promise<void> {
-  const result = await systems.answerPairing(pairing.id, approve);
+async function answer(pairing: PairingRequest, approve: boolean, autoPair?: AutoPairChoice): Promise<void> {
+  const result = await systems.answerPairing(pairing.id, approve, autoPair);
   if (!result.ok) { toasts.error(result.problem); return; }
   toasts.ok(approve ? `${pairing.name} is paired` : `Rejected ${pairing.name}`);
   if (highlight.value === pairing.id) { highlight.value = ''; }
@@ -46,8 +52,8 @@ function openToken(): void {
   tokenOpen.value = true;
 }
 
-async function createToken(name: SystemName | undefined, expiresIn: number): Promise<void> {
-  const result = await systems.createToken(name, expiresIn);
+async function createToken(name: SystemName | undefined, expiresIn: number, autoPair: AutoPairChoice | undefined): Promise<void> {
+  const result = await systems.createToken(name, expiresIn, autoPair);
   if (result.ok) { token.value = result.value; }
 }
 
@@ -80,17 +86,19 @@ async function install(source: InstallSource, autoStart: boolean): Promise<void>
       <div class="pairing-grid">
         <PairingCard
           v-for="pairing in pending" :key="pairing.id" :pairing="pairing" :now="now" :busy="systems.answering.value.has(pairing.id)"
-          :highlight="highlight === pairing.id" @approve="answer(pairing, true)" @reject="answer(pairing, false)"
+          :highlight="highlight === pairing.id" @approve="answer(pairing, true, $event)" @reject="answer(pairing, false)"
         />
       </div>
     </section>
 
+    <ListSearch v-model="search" list="systems" label="systems" :count="systems.sorted.value.length" />
     <LoadState
       :loading="systems.list.loading.value" :problem="systems.list.problem.value" :ready="systems.list.value.value !== undefined"
       :empty="systems.sorted.value.length === 0" :lines="6" @retry="systems.load()"
     >
       <template #empty>
-        <UiEmpty icon="server" title="No systems yet" body="Start a system and approve its pairing here, or install one for the hub to run.">
+        <UiEmpty v-if="narrowed" icon="search" title="No systems match" body="Try a wider filter." />
+        <UiEmpty v-else icon="server" title="No systems yet" body="Start a system and approve its pairing here, or install one for the hub to run.">
           <template #actions><UiButton variant="primary" icon="plus" @click="installOpen = true">Install a system</UiButton></template>
         </UiEmpty>
       </template>

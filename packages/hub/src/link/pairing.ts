@@ -9,18 +9,22 @@
  *
  * An instance is known by its key: a hello whose key matches an instance of the system proves it as that instance,
  * whatever name it asked for (the admin may have renamed it), and its welcome says the name it was paired as.
+ *
+ * Either way of pairing may grant auto pair (`link/auto-pair.ts`); an instance that later brings its secret with a new
+ * key is re-keyed by `autoPaired` once it signs the challenge with that key.
  */
 import { reject as refuse, type Peer } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
   MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceRecord,
   type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
-  type SystemRecord, type Timestamp,
+  type SystemRecord, type Timestamp, type AutoPairChoice,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { allRows } from '../catalog/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
+import type { AutoPairService } from './auto-pair.ts';
 import type { PairingChoice, PairingService } from './index.ts';
 import { fingerprint, pairingCode, randomToken, sha256Hex } from './keys.ts';
 import type { InstanceKeeper } from './status.ts';
@@ -32,6 +36,8 @@ export interface PairingOptions {
   readonly log: Logger;
   readonly clock: () => number;
   readonly instances: InstanceKeeper;
+  /** Auto-pair secrets, granted when an admin chose auto pair. */
+  readonly autoPairs: AutoPairService;
   /** Checks a config value against a config type (the catalog's `check`); the problems, none when it fits. */
   readonly check: (system: SystemName, type: GinTypeDef, value: Json) => Promise<string[]>;
   /** The config type of a system whose contract the hub has (it wins over what a waiting system said). */
@@ -100,7 +106,8 @@ export class StorePairingService implements PairingService {
     if (hello.pairingToken !== undefined) {
       const token = await this.#redeem(hello.pairingToken, hello.name, rekeys);
       const request = await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'token', status: 'approved' });
-      await this.#pair(request, token.createdBy, {});
+      const record = await this.#pair(request, token.createdBy, {});
+      if (token.autoPair !== undefined) { await this.#options.autoPairs.grant(record, token.autoPair, token.createdBy); }
       this.#options.bus.publish('pairing', { pairing: request });
       await this.#supersede(request);
       this.#tellPaired(request.id, asker.peer);
@@ -163,6 +170,7 @@ export class StorePairingService implements PairingService {
   async approve(pairing: PairingId, by: ActorId, choice: PairingChoice = {}): Promise<InstanceRecord> {
     const request = await this.#open(pairing);
     const record = await this.#pair(request, by, choice);
+    if (choice.autoPair !== undefined) { await this.#options.autoPairs.grant(record, choice.autoPair, by); }
     const approved = await this.#options.store.table('pairings').update(pairing, { status: 'approved', instance: record.instance });
     this.#options.bus.publish('pairing', { pairing: approved });
     await this.#supersede(approved);
@@ -180,20 +188,30 @@ export class StorePairingService implements PairingService {
     this.#options.log.info('pairing.rejected', { pairing, system: rejected.name, by });
   }
 
-  async createToken(input: { name?: SystemName; expiresIn: number; by: ActorId }): Promise<{ token: string; expiresAt: Timestamp }> {
+  async createToken(input: { name?: SystemName; expiresIn: number; autoPair?: AutoPairChoice; by: ActorId }): Promise<{ token: string; expiresAt: Timestamp }> {
     const token = randomToken();
     const expiresAt = this.#options.clock() + input.expiresIn;
     const row: PairingToken = {
       id: mintId('pairingToken'), tokenHash: sha256Hex(token), createdBy: input.by, expiresAt, ...(input.name === undefined ? {} : { name: input.name }),
+      ...(input.autoPair === undefined ? {} : { autoPair: input.autoPair }),
     };
     await this.#options.store.table('pairingTokens').insert(row);
-    this.#options.log.info('pairing.token.created', { token: row.id, name: input.name, by: input.by, expiresAt });
+    this.#options.log.info('pairing.token.created', { token: row.id, name: input.name, by: input.by, expiresAt, autoPair: input.autoPair !== undefined });
     return { token, expiresAt };
   }
 
   async pairInstalled(ref: InstanceRef, publicKey: string, version: string, by: ActorId): Promise<InstanceRecord> {
     // an admin installing an instance chose its name, so a key it had before is replaced
     return this.#pair({ name: ref.system, instance: ref.instance, publicKey, keyFingerprint: fingerprint(publicKey), version, address: 'installed', replaces: ref.system }, by, {});
+  }
+
+  /**
+   * An instance brought a good auto-pair secret and signed the challenge with the key from its hello: that key becomes
+   * its key (the instance is made again if the hub forgot it), as the admin who granted the secret.
+   */
+  async autoPaired(ref: InstanceRef, hello: Hello, address: string, by: ActorId): Promise<InstanceRecord> {
+    const keyFingerprint = fingerprint(hello.publicKey);
+    return this.#pair({ name: ref.system, instance: ref.instance, publicKey: hello.publicKey, keyFingerprint, version: hello.version, address, replaces: ref.system }, by, {});
   }
 
   /** Whether pairing `keyFingerprint` as `ref` would replace the key of an instance paired there now. */

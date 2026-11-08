@@ -71,6 +71,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
       runs: ({ data, user }) => reads.runs_list(data, user),
       llmCalls: async (io) => {
         const data = io.data;
+        if (data.query !== undefined) { return reads.lists.page('llmCalls', data.query, io.user); }
         const page = await store.table('llmInteractions').find({
           where: {
             ...(data.status === undefined ? {} : { status: data.status }), ...(data.model === undefined ? {} : { model: data.model }),
@@ -82,6 +83,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
       },
       resources: async (io) => {
         const data = io.data;
+        if (data.query !== undefined) { return reads.lists.page('resources', data.query, io.user); }
         const limit = data.limit ?? PAGE_SIZE;
         const search = data.search?.trim().toLowerCase() ?? '';
         const matches = (r: ResourceRecord): boolean => search === '' || r.uri.toLowerCase().includes(search);

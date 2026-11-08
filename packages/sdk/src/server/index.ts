@@ -6,7 +6,7 @@
  * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
-import type { Duration, QualifiedName } from '@harness/core';
+import type { AutoPairGrant, Duration, QualifiedName } from '@harness/core';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
@@ -82,6 +82,10 @@ export interface KeyStore {
   publicKey(): Promise<string>;
   /** Sign a challenge nonce. */
   sign(nonce: string): Promise<string>;
+  /** The auto-pair secret the hub granted, if any, to re-pair with when the hub doesn't know this key. */
+  autoPair(): Promise<AutoPairGrant | undefined>;
+  /** Keep the newest grant (each welcome may rotate it), or forget it (`undefined`) once the hub refused it. */
+  saveAutoPair(grant: AutoPairGrant | undefined): Promise<void>;
 }
 
 /**
@@ -100,7 +104,7 @@ export async function serve<N extends string, C extends ContractShape>(contract:
 export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
 export { placeFolders, RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, systemState, defaultStateFolder, type SdkEnv } from './env.ts';
 export { contentHash, contentHasher, type ContentHasher } from './content.ts';
-export { FileKeyStore, isPublicKey, KEY_FILE, makeKeyPair, MemoryKeyStore, signNonce, StoredKeyPair, verifyNonce } from './keys.ts';
+export { AUTO_PAIR_FILE, FileKeyStore, isPublicKey, KEY_FILE, makeKeyPair, MemoryKeyStore, signNonce, StoredKeyPair, verifyNonce } from './keys.ts';
 export { FileJournal, MemoryJournal, type OutcomeJournal } from './journal.ts';
 export { WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
 export {

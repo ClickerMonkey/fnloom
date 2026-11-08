@@ -14,6 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { ApiError } from '@ayepi/core';
 import { updown, type UpDown } from '@ayepi/updown';
 import type { Logger } from '@ayepi/log';
 import {
@@ -50,10 +51,12 @@ export class SystemStopped extends Error {
   override readonly name = 'SystemStopped';
 }
 
-/** The seams `LinkHost` runs on. Every one has a real default; tests replace them. */
 /** How long after a pairing request runs out the system asks for a new one (so the hub has marked it expired). */
 const PAIRING_RENEW_AFTER = 1_000;
+/** How long the system waits to say hello again when the hub is limiting its auto-pair attempts. */
+const AUTO_PAIR_RETRY = 60_000;
 
+/** The seams `LinkHost` runs on. Every one has a real default; tests replace them. */
 export interface LinkHostDeps {
   /** Opens the socket to the hub. Default: a real WebSocket with backoff and heartbeat. */
   readonly transport?: LinkTransport;
@@ -366,6 +369,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     if (hub === undefined || connection !== this.#connection) { return; }
     try {
       this.#setStatus('connecting');
+      const autoPair = await this.#keys.autoPair();
       const reply = await hub.call('hello', {
         protocol: LINK_PROTOCOL,
         name: this.#contract.name,
@@ -375,6 +379,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
         publicKey: await this.#keys.publicKey(),
         manifestHash: await this.#manifestState().hash(),
         ...(this.#pairingToken === undefined ? {} : { pairingToken: this.#pairingToken }),
+        // the hub uses it only when it doesn't know this key (lost, or forgotten there)
+        ...(autoPair === undefined ? {} : { autoPair: { id: autoPair.id, secret: autoPair.secret } }),
       });
       if (connection !== this.#connection) { return; }
       if (reply.kind === 'pairing') {
@@ -393,14 +399,29 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
       this.#pairingToken = undefined;
       await this.#welcome(hub, welcome);
     } catch (error) {
-      if (connection === this.#connection && !this.#stop.signal.aborted) {
-        this.#log.error('system.handshake-failed', { error: messageOf(error) });
+      if (connection !== this.#connection || this.#stop.signal.aborted) { return; }
+      if (error instanceof ApiError && error.code === 'AUTO_PAIR_REFUSED') {
+        // expired or revoked: forget it and pair the usual way
+        this.#log.warn('system.auto-pair.refused', { instance: this.#instance });
+        await this.#keys.saveAutoPair(undefined);
+        void this.#handshake(connection);
+        return;
       }
+      if (error instanceof ApiError && error.code === 'AUTO_PAIR_LIMITED') {
+        this.#log.warn('system.auto-pair.limited', { instance: this.#instance, retryIn: AUTO_PAIR_RETRY });
+        setTimeout(() => { if (connection === this.#connection && !this.#stop.signal.aborted) { void this.#handshake(connection); } }, AUTO_PAIR_RETRY).unref();
+        return;
+      }
+      this.#log.error('system.handshake-failed', { error: messageOf(error) });
     }
   }
 
   async #welcome(hub: HubLink, welcome: Welcome): Promise<void> {
     this.#limits = welcome.limits;
+    if (welcome.autoPair !== undefined) {
+      await this.#keys.saveAutoPair(welcome.autoPair);
+      this.#log.info('system.auto-pair.saved', { expiresAt: welcome.autoPair.expiresAt ?? null });
+    }
     if (welcome.instance !== this.#instance) {
       this.#log.info('system.instance', { asked: this.#instance, instance: welcome.instance });
       this.#instance = welcome.instance;

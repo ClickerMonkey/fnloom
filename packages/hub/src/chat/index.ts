@@ -11,7 +11,7 @@
 import type {
   ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
   MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
-  Session, SessionControls, SessionId, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
+  Session, SessionControls, SessionId, Suggestion, SuggestDecision, SuggestDecisionView, SuggestionRecord, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
   Compact, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
 } from '@harness/core';
 
@@ -34,7 +34,8 @@ export interface SessionService {
   /** Messages, newest first. A message still streaming carries the text streamed so far. */
   messages(session: SessionId, viewer: ActorId, query: Compact<Omit<MessageListQuery, 'session'>>): Promise<Page<ChatMessage>>;
   controls(session: SessionId): Promise<SessionControls>;
-  control(session: SessionId, action: SessionControlAction, by: ActorId): Promise<SessionControls>;
+  /** Pause, resume or cancel the session's active runs: those named in `runs` (others of the session are ignored), else all. */
+  control(session: SessionId, action: SessionControlAction, by: ActorId, runs?: readonly RunId[]): Promise<SessionControls>;
   presence(presence: Omit<Presence, 'lastActiveAt'>): Promise<void>;
   /** Whether a person is active in a session now (for the tool-timeout rule). */
   active(session: SessionId): Promise<boolean>;
@@ -70,6 +71,8 @@ export interface TurnService {
   attach(run: RunId, part: AttachedPart): Promise<ChatMessage>;
   /** Record runs an assistant message's tool calls started, so the chat shows their cards under it (from the agent loop). */
   track(message: MessageId, runs: readonly RunId[]): Promise<void>;
+  /** Record what a graph prompt chose for a user message as its suggestions (its first cycle only; a message that has them keeps them). */
+  suggested(message: MessageId, record: SuggestionRecord): Promise<void>;
   /** A turn ended (the agent answered without tool calls, failed, or was cancelled): record it and tell people who are away. */
   settle(turn: TurnId, status: TurnEnd): Promise<void>;
   /**
@@ -86,9 +89,27 @@ export interface ReplyRule {
   answerers(input: { session: Session; message: ChatMessage; repliedTo?: ChatMessage }): readonly ActorId[];
 }
 
+/** What a message is offered, and the record of every candidate (used or not, with why). */
+export interface DecidedSuggestions {
+  readonly suggestions: Suggestion[];
+  readonly record?: SuggestionRecord;
+}
+
+/**
+ * Which fns and context a sent message is offered: by score over a threshold, or by the admin's decision model
+ * (`hubOptions['suggestDecision']`) when it is on. Its picks and refusals, with reasons, become the message's record.
+ */
+export interface SuggestionDecider {
+  decide(input: { session: SessionId; text: string }): Promise<DecidedSuggestions>;
+  /** The decision model setting (off by default). */
+  setting(): Promise<SuggestDecisionView>;
+  set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView>;
+}
+
 /** What is added to a user message before the LLM sees it: local time and suggestions (the hub's), then system hooks. */
 export interface MessageEnricher {
-  enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<MessagePart[]>;
+  /** The parts to add, and the record of what was suggested and what was not (none when nothing was a candidate). */
+  enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord }>;
   /** The text the LLM gets for a message: mentions as `<mention …>` blocks, extras and hooks as tagged blocks. */
   render(message: ChatMessage): string;
   /** Hook blocks as the LLM text block they become. */

@@ -9,7 +9,8 @@
  * rather than saving another, and the list leaves blanks out unless one is open, so trying the button leaves nothing
  * behind.
  */
-import { SessionSummary, type QualifiedName, type Session, type SessionId, type UserEvent } from '@harness/core';
+import { SessionSummary, type Filter, type ListQuery, type QualifiedName, type Session, type SessionId, type UserEvent } from '@harness/core';
+import { hubListQuery, readListQuery } from '../../state/query.ts';
 import { computed, ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { isSuperseded, problemText } from '../../state/problems.ts';
@@ -18,11 +19,11 @@ import type { ChatApi } from '../api.ts';
 /** Sessions per page. */
 export const SESSIONS_PAGE = 40;
 
-/** What the list asks the hub for: a page of the active or archived chats, maybe searched. */
-interface ListQuery {
+/** What the list asks the hub for: a page of the active or archived chats, maybe with the list's query. */
+interface SessionsQuery {
   readonly limit: number;
   readonly archived: boolean;
-  readonly search?: string;
+  readonly query?: ListQuery;
 }
 
 const newestFirst = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt;
@@ -78,7 +79,7 @@ export class SessionListStore {
   }
 
   /** Fetch the first page with one of the list's callers; a page superseded by a newer one changes nothing. */
-  async #firstPage(fetch: (query: ListQuery) => ReturnType<ChatApi['sessions']['call']>): Promise<void> {
+  async #firstPage(fetch: (query: SessionsQuery) => ReturnType<ChatApi['sessions']['call']>): Promise<void> {
     this.loading.value = true;
     this.problem.value = '';
     try {
@@ -200,9 +201,17 @@ export class SessionListStore {
     }
   }
 
-  #query(): ListQuery {
-    const search = this.search.value.trim();
-    return { limit: SESSIONS_PAGE, archived: this.archived.value, ...(search === '' ? {} : { search }) };
+  /**
+   * The page asked for. `search` is the list's written query (`agent:x deploy`); when it has one the hub takes it over
+   * the old narrow fields, so the archive choice goes in as a filter too (unless the query names its own).
+   */
+  #query(): SessionsQuery {
+    const list = hubListQuery(readListQuery('sessions', this.search.value));
+    const base = { limit: SESSIONS_PAGE, archived: this.archived.value };
+    if (Object.keys(list).length === 0) { return base; }
+    const filters = list.filters ?? [];
+    const archived: Filter = { field: 'archived', op: 'is', value: this.archived.value };
+    return { ...base, query: filters.some((f) => f.field === 'archived') ? list : { ...list, filters: [...filters, archived] } };
   }
 
   #upsert(summary: SessionSummary): void {
@@ -212,7 +221,7 @@ export class SessionListStore {
   }
 
   #matches(summary: SessionSummary): boolean {
-    const search = this.search.value.trim().toLowerCase();
+    const search = (readListQuery('sessions', this.search.value).text ?? '').toLowerCase();
     return search === '' || summary.title.toLowerCase().includes(search);
   }
 

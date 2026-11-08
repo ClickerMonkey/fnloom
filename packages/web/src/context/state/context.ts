@@ -8,16 +8,16 @@ import type { ContextFromResourceArgs, ContextFromResourceResult, ContextItemVie
 import { getCurrentScope, onScopeDispose, ref } from 'vue';
 import { Loaded, Paged, Task, type Outcome } from '../../state/loaded.ts';
 import type { ContextApi, ContextEvents } from '../api/context.ts';
-import { linkRequest, memoryRequest, type ContextFilter, type LinkDraft, type MemoryDraft } from '../logic/context.ts';
+import { linkRequest, memoryRequest, memoryUpdate, type ContextFilter, type LinkDraft, type MemoryDraft } from '../logic/context.ts';
 
 /** How many items a page of the list holds. */
 export const CONTEXT_PAGE = 50;
 
-type ItemApi = Pick<ContextApi, 'item' | 'link' | 'unlink' | 'forget' | 'remember'>;
+type ItemApi = Pick<ContextApi, 'item' | 'link' | 'unlink' | 'forget' | 'updateMemory'>;
 
 /** What the context pages need. */
 export interface ContextDeps {
-  readonly api: Pick<ContextApi, 'list' | 'item' | 'link' | 'unlink' | 'forget' | 'remember' | 'fromResource'>;
+  readonly api: Pick<ContextApi, 'list' | 'item' | 'link' | 'unlink' | 'forget' | 'remember' | 'updateMemory' | 'fromResource'>;
   readonly events: ContextEvents;
 }
 
@@ -88,22 +88,13 @@ export class ContextItemStore {
     return result;
   }
 
-  /**
-   * Change the open memory: a memory's name comes from its text, so the change is written as a new memory (about
-   * what the old one was about) and the old one is forgotten. Answers the new memory's name.
-   */
+  /** Change the open memory in place (its words and options; its scope stays as written). Answers its name. */
   async edit(draft: MemoryDraft): Promise<Outcome<QualifiedName>> {
     const view = this.view.value.value;
     if (view?.record.origin?.type !== 'memory') { return { ok: false, problem: 'Only a memory can be edited.' }; }
-    const about = view.links.filter((link) => link.relation === 'about').map((link) => link.to);
-    const request = memoryRequest(draft, about);
+    const request = memoryUpdate(view.record.name, draft);
     if (!request.ok) { this.saving.problem.value = request.problem; return request; }
-    const old = view.record.name;
-    const result = await this.saving.run(async () => {
-      const { name } = await this.#api.remember.call(request.value);
-      if (name !== old) { await this.#api.forget.call({ name: old }); }
-      return name;
-    }, "Couldn't save this memory.");
+    const result = await this.saving.run(async () => (await this.#api.updateMemory.call(request.value)).name, "Couldn't save this memory.");
     if (result.ok) { await this.open(result.value); }
     return result;
   }
