@@ -4,7 +4,7 @@
  * file manager, the restarter, the watcher and the clock), so tests run it against a temp folder with fakes.
  */
 import type { FnCtx, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
-import { fs, type FsContract } from '../shared/index.ts';
+import { COMMAND_TIMEOUT_MIN, fs, type FsContract } from '../shared/index.ts';
 import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';
 import { perPart } from '../shared/authoring.gen.ts';
 import { authoringPart, authoringStart, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
@@ -156,6 +156,9 @@ export function createFsImpl(deps: FsDeps): FsServer {
       },
       bash: {
         run: (args, ctx) => attempt(ctx, async () => {
+          if (args.timeout !== undefined && args.timeout < COMMAND_TIMEOUT_MIN) {
+            return ctx.invalid([{ path: 'timeout', message: `The timeout is in milliseconds and must be at least ${String(COMMAND_TIMEOUT_MIN)} (30000 is 30 seconds); ${String(args.timeout)} was given.` }]);
+          }
           const state = await ctx.state.get();
           const run = await commands.run({ command: args.command, cwd: args.cwd, timeout: args.timeout }, {
             guard: guard(ctx.config),

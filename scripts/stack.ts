@@ -113,9 +113,27 @@ export async function halt(child: Child, grace: number): Promise<void> {
   clearTimeout(timer);
 }
 
+/** Whether an error is the hub shedding load (503), which passes once its startup work (indexing catch-up) settles. */
+function isBusy(error: unknown): boolean {
+  return error instanceof Error && 'status' in error && error.status === 503;
+}
+
+/** Run a hub call, retrying while the hub is busy, for up to `timeout`. */
+async function whileBusy<T>(call: () => Promise<T>, timeout: number): Promise<T> {
+  const until = Date.now() + timeout;
+  for (;;) {
+    try {
+      return await call();
+    } catch (error) {
+      if (!isBusy(error) || Date.now() > until) { throw error; }
+      await new Promise((done) => setTimeout(done, 1_000));
+    }
+  }
+}
+
 /** The system named `name` as the hub sees it, or undefined. */
-async function systemOf(admin: SignedIn, name: SystemName): Promise<SystemView | undefined> {
-  return (await admin.hub.call('systems')).find((s) => s.name === name);
+async function systemOf(admin: SignedIn, name: SystemName, timeout: number): Promise<SystemView | undefined> {
+  return (await whileBusy(() => admin.hub.call('systems'), timeout)).find((s) => s.name === name);
 }
 
 /** Boot the stack. */
@@ -161,10 +179,10 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       const component = SYSTEM_COMPONENTS[system.name];
       if (!options.only.has(component)) { continue; }
       const name = SystemName.parse(system.name);
-      const known = await systemOf(admin, name);
+      const known = await systemOf(admin, name, timeout);
       // a system the hub already knows reconnects with its key; a new one pairs with a one-time token made for its name
       const token = known === undefined || known.status === 'removed'
-        ? (await admin.hub.call('createPairingToken', { name, expiresIn: 600_000 })).token
+        ? (await whileBusy(() => admin.hub.call('createPairingToken', { name, expiresIn: 600_000 }), timeout)).token
         : undefined;
       children.push(runComponent(component, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
         cwd: ROOT, output: options.output,
@@ -174,14 +192,14 @@ export async function startStack(options: StackOptions): Promise<Stack> {
         },
       }));
       const seen = await waitFor(`${system.name} to connect`, async () => {
-        const view = await systemOf(admin, name);
+        const view = await systemOf(admin, name, timeout);
         // needs-config only counts once its contract (and so its config type) has arrived
         return view?.status === 'connected' || (view?.status === 'needs-config' && view.configType !== undefined) ? view : undefined;
       }, { timeout });
       if (seen.needsConfig) {
-        const result = await admin.hub.call('configureSystem', { system: name, config: system.config });
+        const result = await whileBusy(() => admin.hub.call('configureSystem', { system: name, config: system.config }), timeout);
         if ('problems' in result) { throw new Error(`${system.name} config refused: ${result.problems.join('; ')}`); }
-        await waitFor(`${system.name} to be configured`, async () => ((await systemOf(admin, name))?.status === 'connected' ? true : undefined), { timeout });
+        await waitFor(`${system.name} to be configured`, async () => ((await systemOf(admin, name, timeout))?.status === 'connected' ? true : undefined), { timeout });
       }
     }
     return { url, lanUrls, admin, stop: async () => { admin.close(); await stop(); } };

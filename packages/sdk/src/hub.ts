@@ -359,7 +359,7 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       }),
       run_wait: fn({
         description: 'Wait for a run (for example one moved to the background) to finish.',
-        args: g.obj({ run: g.text(), timeout: g.optional(g.duration()) }),
+        args: g.obj({ run: g.text(), timeout: g.field(g.optional(g.duration()), { docs: 'How long to wait, in milliseconds (30000 is 30 seconds). Leave empty to wait as long as this call may run.' }) }),
         returns: g.obj({ status: RunStatusType, result: g.optional(json()), error: g.optional(FnErrorType) }),
         tags: [READ_TAG],
         display: 'hidden',

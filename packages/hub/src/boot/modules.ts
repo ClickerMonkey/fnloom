@@ -7,6 +7,7 @@
  * The catalog, link and index modules are one build (`buildSystems`): each of their factories returns its part of it.
  */
 import type { Logger } from '@ayepi/log';
+import type { ActorId } from '@harness/core';
 import { hub, manifestOf } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { createChat } from '../chat/chat.ts';
@@ -18,6 +19,7 @@ import { openSqliteStore } from '../store/sqlite.ts';
 import { adminOperations, type AdminOperations } from '../api/admin-ops.ts';
 import { hubReads, type HubReads } from '../api/reads.ts';
 import { registerMcpFns } from '../mcp/fns.ts';
+import type { McpScope } from '../mcp/index.ts';
 import { registerAdminFns } from './admin-fns.ts';
 import { registerReadFns } from './read-fns.ts';
 import { registerHubFns } from './hub-fns.ts';
@@ -131,14 +133,15 @@ export function registerHubContract(module: { readonly hubFns: ExecutionModule['
   let reads: HubReads | undefined;
   registerReadFns(module.hubFns, () => (reads ??= hubReads(hub)));
   registerMcpFns(module.hubFns, { tokens: () => hub.mcp.tokens, settings: hub.settings.mcpEnv });
-  registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm });
+  // what the hub MCP a run's caller acts as exposes, so fns that reach resources and context keep to its rules
+  const mcpScope = async (caller: ActorId): Promise<McpScope | undefined> => {
+    const mcp = (await hub.store.table('mcps').find({ where: { actor: caller }, limit: 1 })).items[0];
+    return mcp === undefined ? undefined : hub.mcp.scopes.scope(mcp.id);
+  };
+  registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm, mcpScope });
   registerContextorFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions,
-    contextor: () => hub.contextor, views: () => hub.contextor.views,
-    mcpScope: async (caller) => {
-      const mcp = (await hub.store.table('mcps').find({ where: { actor: caller }, limit: 1 })).items[0];
-      return mcp === undefined ? undefined : hub.mcp.scopes.scope(mcp.id);
-    },
+    contextor: () => hub.contextor, views: () => hub.contextor.views, mcpScope,
   });
 }
 

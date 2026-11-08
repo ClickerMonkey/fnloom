@@ -5,21 +5,29 @@
  * `hub/context_from_resource`, `hub/remember`, `hub/forget`). The fns that mirror a web endpoint read their args with
  * that endpoint's body schema (`HUB_READ_ENDPOINTS`, `HUB_WRITE_ENDPOINTS`, through `toolArgsOf`, which unwraps a
  * body that isn't an object, such as an import's URL-or-content union) and run the same operation as its
- * handler, as the run's person, so the chat LLM sees and does what the browser does. Services are read when a fn
- * runs, never while registering.
+ * handler, as the run's person, so the chat LLM sees and does what the browser does. Called through a hub MCP, each
+ * fn also keeps to that MCP's rules: a resource outside them, or a context item it doesn't expose, is answered as if
+ * it weren't there, and a listing leaves them out. Services are read when a fn runs, never while registering.
  */
-import { ResourceOutlineArgs, ResourceSendArgs } from '@harness/core';
+import { reject } from '@ayepi/core';
+import { ResourceOutlineArgs, ResourceSendArgs, type ActorId, type QualifiedName } from '@harness/core';
 import { hub, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, toolArgsOf } from '@harness/sdk';
 import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 import type { LlmGateway } from '../execution/index.ts';
+import type { McpScope } from '../mcp/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { Asking, ContentModel, ResourceServices } from './index.ts';
+
+/** What the hub MCP a caller acts as exposes, as far as resources and context go. */
+export type ReachScope = Pick<McpScope, 'context' | 'allowsResource'>;
 
 /** What the resource fns read, each looked up when a fn runs. */
 export interface ResourceFnDeps {
   readonly resources: () => ResourceServices;
   readonly store: () => HubStore;
   readonly llm: () => Pick<LlmGateway, 'models'>;
+  /** What the hub MCP a run's caller acts as exposes; none when the caller is no MCP's actor. */
+  readonly mcpScope: (caller: ActorId) => Promise<ReachScope | undefined>;
 }
 
 /** A model that takes only text, for a send made outside any LLM call. */
@@ -29,6 +37,33 @@ const TEXT_ONLY: ContentModel = { id: 'text', capabilities: ['chat'] };
 function askingOf(ctx: HubFnCtx): Asking {
   const run = ctx.request.run;
   return { actor: run.user.id, run: run.id, ...(run.session === undefined ? {} : { session: run.session }) };
+}
+
+/** What a run's caller may reach: everything outside an MCP, else what its hub MCP's rules expose. */
+interface Reach {
+  /** Whether a resource is in reach. */
+  readonly resource: (uri: string) => boolean;
+  /** The resource's URI, or a refusal that reads as if it weren't there. */
+  readonly needResource: <U extends string>(uri: U) => U;
+  /** The context item's name, or a refusal that reads as if it weren't there. */
+  readonly needContext: (name: QualifiedName) => QualifiedName;
+}
+
+/** What the caller of a run may reach. */
+async function reachOf(deps: ResourceFnDeps, ctx: HubFnCtx): Promise<Reach> {
+  const scope = await deps.mcpScope(ctx.request.run.caller);
+  const resource = (uri: string): boolean => scope === undefined || scope.allowsResource(uri);
+  return {
+    resource,
+    needResource: (uri) => {
+      if (!resource(uri)) { throw reject(404, 'NO_RESOURCE', `there is no resource ${uri}`); }
+      return uri;
+    },
+    needContext: (name) => {
+      if (scope !== undefined && !scope.context.has(name)) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
+      return name;
+    },
+  };
 }
 
 /** The model the run's LLM call used, so a send fits what that model takes (text only when it can't be told). */
@@ -57,28 +92,43 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
     forget: toolArgsOf(HUB_WRITE_ENDPOINTS.forget.cfg.body).read,
   };
 
-  fns.register(refs.resource_list, async (args, ctx) => deps.resources().library.browse(read.list(args), askingOf(ctx)));
-  fns.register(refs.resource_read, async (args, ctx) => deps.resources().reader.read(read.read(args), askingOf(ctx)));
-  fns.register(refs.context_get, async (args, ctx) => deps.resources().context.item(read.context(args).name, askingOf(ctx)));
+  fns.register(refs.resource_list, async (args, ctx) => {
+    const reach = await reachOf(deps, ctx);
+    const page = await deps.resources().library.browse(read.list(args), askingOf(ctx));
+    const items = page.items.filter((item) => reach.resource(item.uri));
+    // through an MCP, the facets' counts would tell of resources it can't reach
+    return items.length === page.items.length ? page : { ...page, items, facets: [] };
+  });
+  fns.register(refs.resource_read, async (args, ctx) => {
+    const body = read.read(args);
+    (await reachOf(deps, ctx)).needResource(body.uri);
+    return deps.resources().reader.read(body, askingOf(ctx));
+  });
+  fns.register(refs.context_get, async (args, ctx) => deps.resources().context.item((await reachOf(deps, ctx)).needContext(read.context(args).name), askingOf(ctx)));
   // args arrive checked against the contract's gin types, made from these schemas; parsing adds the brands
-  fns.register(refs.resource_outline, async (args, ctx) => deps.resources().reader.outline(ResourceOutlineArgs.parse(args).uri, askingOf(ctx)));
+  fns.register(refs.resource_outline, async (args, ctx) => deps.resources().reader.outline((await reachOf(deps, ctx)).needResource(ResourceOutlineArgs.parse(args).uri), askingOf(ctx)));
   fns.register(refs.resource_send, async (args, ctx) => {
     const { uri, section } = ResourceSendArgs.parse(args);
+    (await reachOf(deps, ctx)).needResource(uri);
     const parts = await deps.resources().content.parts(uri, await modelOf(deps, ctx), askingOf(ctx), section === undefined ? {} : { section });
     return { parts: parts.map((part) => ({ type: part.type, chars: part.content.length, ...(part.name === undefined ? {} : { name: part.name }) })) };
   });
 
   fns.register(refs.resource_convert, async (args, ctx) => {
     const body = write.convert(args);
-    return deps.resources().forms.ensure(body.uri, body.kind, askingOf(ctx));
+    return deps.resources().forms.ensure((await reachOf(deps, ctx)).needResource(body.uri), body.kind, askingOf(ctx));
   });
   fns.register(refs.resource_import, async (args, ctx) => deps.resources().library.import(write.import(args), askingOf(ctx)));
   fns.register(refs.resource_rename, async (args, ctx) => {
     const body = write.rename(args);
-    return deps.resources().library.rename(body.uri, body.name, askingOf(ctx));
+    return deps.resources().library.rename((await reachOf(deps, ctx)).needResource(body.uri), body.name, askingOf(ctx));
   });
-  fns.register(refs.resource_delete, async (args, ctx) => deps.resources().library.remove(write.delete(args).uri, askingOf(ctx)));
-  fns.register(refs.context_from_resource, async (args, ctx) => deps.resources().context.fromResource(write.fromResource(args), askingOf(ctx)));
+  fns.register(refs.resource_delete, async (args, ctx) => deps.resources().library.remove((await reachOf(deps, ctx)).needResource(write.delete(args).uri), askingOf(ctx)));
+  fns.register(refs.context_from_resource, async (args, ctx) => {
+    const body = write.fromResource(args);
+    (await reachOf(deps, ctx)).needResource(body.uri);
+    return deps.resources().context.fromResource(body, askingOf(ctx));
+  });
   fns.register(refs.remember, async (args, ctx) => deps.resources().context.remember(write.remember(args), askingOf(ctx)));
-  fns.register(refs.forget, async (args, ctx) => ({ ok: await deps.resources().context.forget(write.forget(args).name, askingOf(ctx)) }));
+  fns.register(refs.forget, async (args, ctx) => ({ ok: await deps.resources().context.forget((await reachOf(deps, ctx)).needContext(write.forget(args).name), askingOf(ctx)) }));
 }

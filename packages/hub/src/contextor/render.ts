@@ -90,6 +90,7 @@ export function textProtocolInstructions(): string {
     `To use a tool, write a block on its own lines, then stop and wait for its result:`,
     callText('fs/read', '{"path": "README.md"}', 'text'),
     `find, inspect, load and unload are tools too: ${callText('find', '{"query": "git status"}', 'text')}`,
+    `When a system has several machines connected, say which one runs it with on: <${RUN_TAG} fn="fs/read" on="laptop">{"path": "README.md"}</${RUN_TAG}>`,
     `Each result comes back as <${RESULT_TAG} fn="…" status="…">…</${RESULT_TAG}>. Write no block when you are ready to answer.`,
   ].join('\n');
 }
@@ -108,6 +109,8 @@ export function resultText(fn: string, status: string, body: string): string {
 export interface RunBlock {
   /** The `fn` attribute; absent when the block had none. */
   readonly fn: string | undefined;
+  /** The `on` attribute: which machine runs it, for a system with several connected; absent when the block had none. */
+  readonly on?: string;
   /** The block's body, which should be the args as JSON. */
   readonly json: string;
 }
@@ -120,7 +123,18 @@ export interface ParsedRuns {
 }
 
 const BLOCK = /<run(\s[^>]*)?>([\s\S]*?)(?:<\/run>|$)/g;
-const FN_ATTRIBUTE = /\bfn\s*=\s*(?:"([^"]*)"|'([^']*)')/;
+/** The attributes a `<run>` block's opening tag may carry, each `name="…"` or `name='…'`. */
+const ATTRIBUTES = {
+  fn: /\bfn\s*=\s*(?:"([^"]*)"|'([^']*)')/,
+  on: /\bon\s*=\s*(?:"([^"]*)"|'([^']*)')/,
+} as const;
+
+/** An attribute's value in a block's opening tag; absent when it has none or it is blank. */
+function attribute(attributes: string, name: keyof typeof ATTRIBUTES): string | undefined {
+  const match = ATTRIBUTES[name].exec(attributes);
+  const value = (match?.[1] ?? match?.[2])?.trim();
+  return value === '' ? undefined : value;
+}
 
 /** A reasoning model's thinking written into its answer (`<think>…</think>`, as some local models do). */
 const THINKING = /<think>[\s\S]*?(?:<\/think>|$)/g;
@@ -132,9 +146,8 @@ const THINKING = /<think>[\s\S]*?(?:<\/think>|$)/g;
 export function parseRunBlocks(text: string): ParsedRuns {
   const calls: RunBlock[] = [];
   const prose = text.replace(THINKING, '').replace(BLOCK, (_whole, attributes: string | undefined, body: string) => {
-    const match = FN_ATTRIBUTE.exec(attributes ?? '');
-    const fn = match?.[1] ?? match?.[2];
-    calls.push({ fn: fn === undefined || fn.trim() === '' ? undefined : fn.trim(), json: body.trim() });
+    const on = attribute(attributes ?? '', 'on');
+    calls.push({ fn: attribute(attributes ?? '', 'fn'), json: body.trim(), ...(on === undefined ? {} : { on }) });
     return '';
   });
   return { calls, prose: prose.replace(/\n{3,}/g, '\n\n').trim() };

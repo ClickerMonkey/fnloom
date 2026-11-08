@@ -32,6 +32,7 @@ import type { Search } from '../index/index.ts';
 import type { InstanceRouter } from '../link/index.ts';
 import type { ContextorEnv } from './env.ts';
 import type { Exchange } from './history.ts';
+import type { RunBlock } from './render.ts';
 
 // ─── Tokens and budgets ───────────────────────────────────────────────────────
 
@@ -158,7 +159,7 @@ export interface RenderedIteration {
 /** A call the model made: a native tool call, or a `<run fn="…">{…}</run>` block from its text. */
 export type ModelCallOut =
   | { readonly type: 'tool'; readonly id: string; readonly name: string; readonly args: Json }
-  | { readonly type: 'block'; readonly id: string; readonly fn: string | undefined; readonly json: string };
+  | ({ readonly type: 'block'; readonly id: string } & RunBlock);
 
 /**
  * What the loop does with one model call: run a fn (a queued run of the named fn, never a wrapper), or answer at once

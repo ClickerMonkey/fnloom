@@ -145,4 +145,20 @@ describe('approving with config and an instance name', () => {
     expect((await r.instances.get({ system: SHOP, instance: MAIN_INSTANCE }))?.keyFingerprint).toBe(main.keyFingerprint);
     expect((await r.pairing.get(second.pairing)).status).toBe('pending');
   });
+
+  it('says a waiting machine that renames itself onto a paired instance replaces it, and clears that when it renames away', async () => {
+    const { rig: r, system, manifest } = await start();
+    waiting(await system.connect());
+    const [first] = await r.pairing.pending();
+    if (first === undefined) { throw new Error('no pairing'); }
+    await r.pairing.approve(first.id, ADMIN);
+    const laptop = new FakeSystem(r.app, 'shop', manifest);
+    laptop.instance = InstanceName.parse('laptop2');
+    const second = waiting(await laptop.connect());
+    expect((await r.pairing.get(second.pairing)).replaces).toBeUndefined();
+    await laptop.sdk.call('pairingInfo', { pairing: second.pairing, description: 'laptop', instance: MAIN_INSTANCE });
+    expect((await r.pairing.get(second.pairing)).replaces).toBe(SHOP);
+    await laptop.sdk.call('pairingInfo', { pairing: second.pairing, description: 'laptop', instance: InstanceName.parse('laptop2') });
+    expect((await r.pairing.get(second.pairing)).replaces).toBeUndefined();
+  });
 });

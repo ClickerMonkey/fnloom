@@ -3867,7 +3867,10 @@ This is the hub contract as the SDK declares it now:
 - `hub/run_wait`: Wait for a run (for example one moved to the background) to finish. Tags: `read`.
 
   ```text
-  (obj{run: text, timeout?: duration}) => obj{
+  (obj{
+    run: text,
+    /* How long to wait, in milliseconds (30000 is 30 seconds). Leave empty to wait as long as this call may run. */ timeout?: duration
+  }) => obj{
     status: enum<text>{
       "awaiting-approval",
       queued,
@@ -8905,6 +8908,9 @@ export const FileTarget = g.obj({ root: g.text(), path: g.text() });
 const PATH_DOCS = 'Absolute, or relative to a root: `docs/a.md` is in the first root, `<root name>/docs/a.md` in the named one.';
 const path = () => g.field(g.text({ minLength: 1 }), { docs: PATH_DOCS });
 
+/** The shortest timeout `bash` accepts, in milliseconds; a shorter one is refused as invalid input. */
+export const COMMAND_TIMEOUT_MIN = 1_000;
+
 /** The fs system's contract. */
 export const fs = system('fs', { description: 'Files and a shell over chosen folders, served as resources. Can restart itself.' })
   .with({
@@ -9013,7 +9019,7 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       bash: fn({
         description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
-        args: g.obj({ command: g.text(), cwd: g.optional(g.text()), timeout: g.optional(g.duration()) }),
+        args: g.obj({ command: g.text(), cwd: g.optional(g.text()), timeout: g.field(g.optional(g.duration()), { docs: `How long the command may run, in milliseconds (30000 is 30 seconds); at least ${String(COMMAND_TIMEOUT_MIN)}. Leave empty for the default.` }) }),
         returns: CommandResult,
         state: Shell,
         progress: linear,

@@ -240,7 +240,10 @@ export class StaticChatMode implements ChatMode {
       const message = error instanceof Error ? error.message : String(error);
       return invalid(QualifiedName.safeParse(call.fn).data, 'json', [{ path: '', message }], `The args of that ${call.fn} block are not JSON (${message}). Write them as one JSON object.`, { raw: call.json });
     }
-    return this.#run(call.fn, args, rendered, scope);
+    if (call.on === undefined) return this.#run(call.fn, args, rendered, scope);
+    const on = InstanceName.safeParse(call.on);
+    if (!on.success) return invalid(QualifiedName.safeParse(call.fn).data, 'schema', [{ path: 'on', message: 'on must name a machine, like laptop' }], `on="${call.on}" names no machine: write a machine's name, like on="laptop".`, { raw: call.json });
+    return this.#run(call.fn, args, rendered, scope, on.data);
   }
 
   exposed(views: readonly ChosenFn[], ctx: ModeContext): string {

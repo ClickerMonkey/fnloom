@@ -13,7 +13,7 @@
 import { reject as refuse, type Peer } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceName, type InstanceRecord,
+  MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceRecord,
   type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
   type SystemRecord, type Timestamp,
 } from '@harness/core';
@@ -91,8 +91,7 @@ export class StorePairingService implements PairingService {
     const { store, clock, timeout } = this.#options;
     const now = clock();
     const keyFingerprint = fingerprint(hello.publicKey);
-    const existing = await this.#options.instances.get({ system: hello.name, instance: hello.instance });
-    const rekeys = existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== keyFingerprint;
+    const rekeys = await this.#rekeys({ system: hello.name, instance: hello.instance }, keyFingerprint);
     const base = {
       name: hello.name, instance: hello.instance, keyFingerprint, publicKey: hello.publicKey, version: hello.version, address: asker.address,
       createdAt: now, expiresAt: now + timeout, ...(rekeys ? { replaces: hello.name } : {}),
@@ -124,14 +123,17 @@ export class StorePairingService implements PairingService {
 
   /**
    * What a waiting system says about itself, kept on its request for the pairing page. Only the socket that started
-   * the pairing may say it, and only while the request waits.
+   * the pairing may say it, and only while the request waits. The instance it names may differ from its hello's, so
+   * whether approving replaces a paired instance's key (`replaces`) is worked out again for that name.
    */
   async info(info: PairingInfo, peer: Peer<SystemLinkSpec>): Promise<PairingRequest> {
     const waiting = this.#waiting.get(info.pairing);
     if (waiting?.peer !== peer) { throw refuse(403, 'NOT_YOUR_PAIRING', 'only the socket that started a pairing may describe it'); }
-    const request = await this.#open(info.pairing);
-    const updated = await this.#options.store.table('pairings').update(request.id, {
-      description: info.description, instance: info.instance, ...(info.configType === undefined ? {} : { configType: info.configType }),
+    const { replaces: _before, ...request } = await this.#open(info.pairing);
+    const rekeys = await this.#rekeys({ system: request.name, instance: info.instance }, request.keyFingerprint);
+    const updated = await this.#options.store.table('pairings').put({
+      ...request, description: info.description, instance: info.instance, ...(info.configType === undefined ? {} : { configType: info.configType }),
+      ...(rekeys ? { replaces: request.name } : {}),
     });
     this.#options.bus.publish('pairing', { pairing: updated });
     return updated;
@@ -190,7 +192,14 @@ export class StorePairingService implements PairingService {
   }
 
   async pairInstalled(ref: InstanceRef, publicKey: string, version: string, by: ActorId): Promise<InstanceRecord> {
-    return this.#pair({ name: ref.system, instance: ref.instance, publicKey, keyFingerprint: fingerprint(publicKey), version, address: 'installed' }, by, {});
+    // an admin installing an instance chose its name, so a key it had before is replaced
+    return this.#pair({ name: ref.system, instance: ref.instance, publicKey, keyFingerprint: fingerprint(publicKey), version, address: 'installed', replaces: ref.system }, by, {});
+  }
+
+  /** Whether pairing `keyFingerprint` as `ref` would replace the key of an instance paired there now. */
+  async #rekeys(ref: InstanceRef, keyFingerprint: string): Promise<boolean> {
+    const existing = await this.#options.instances.get(ref);
+    return existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== keyFingerprint;
   }
 
   /** A pending, unexpired request, or a refusal. */
@@ -240,7 +249,7 @@ export class StorePairingService implements PairingService {
    * carries it.
    */
   async #pair(
-    request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'> & { instance?: InstanceName | undefined; configType?: GinTypeDef | undefined },
+    request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'> & Partial<Pick<PairingRequest, 'instance' | 'configType' | 'replaces'>>,
     by: ActorId,
     choice: PairingChoice,
   ): Promise<InstanceRecord> {
@@ -248,9 +257,10 @@ export class StorePairingService implements PairingService {
     const ref: InstanceRef = { system: request.name, instance: choice.instance ?? request.instance ?? MAIN_INSTANCE };
     const now = clock();
     const existing = await instances.get(ref);
-    // renaming onto another paired instance would hand it this key: only the name asked for (shown as `replaces`) re-keys
+    // handing a paired instance this key needs the admin to have been shown it (`replaces`) for that very name
     const renamedOnto = choice.instance !== undefined && choice.instance !== (request.instance ?? MAIN_INSTANCE);
-    if (renamedOnto && existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== request.keyFingerprint) {
+    const shown = request.replaces !== undefined && !renamedOnto;
+    if (!shown && existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== request.keyFingerprint) {
       throw refuse(409, 'INSTANCE_TAKEN', `${instanceLabel(ref)} is another machine's instance: pick a name of its own`);
     }
     const config = choice.config === undefined ? undefined : await this.#checked(ref, choice.config, request.configType);

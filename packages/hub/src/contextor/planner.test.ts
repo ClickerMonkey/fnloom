@@ -1,6 +1,6 @@
 import { agent, fn, g, hub } from '@harness/sdk';
 import { mintId, type ChatModeConfig, type LlmMessage, type Session, type Turn } from '@harness/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ALICE, ALICE_INFO, OPEN_LIMITS } from '../execution/testing.ts';
 import type { ChatModeFactories, ContextorFactories } from './index.ts';
 import { CHAT_MODES } from './modes.ts';
@@ -177,6 +177,25 @@ describe('the graph contextor', () => {
     expect(refused instanceof PromptTooLarge ? refused.report : undefined).toMatchObject({ window: 2_048, output: 512, reasoning: 0, margin: 123 });
   });
 
+  it('keeps choosing with less room while the whole prompt comes out over budget, and fits', async () => {
+    const graph = CONTEXTORS.graph;
+    // a contextor whose parts always come to about 300 tokens more than the room it is given
+    const spy = vi.spyOn(CONTEXTORS, 'graph').mockImplementation((config, deps) => {
+      const real = graph(config, deps);
+      return { type: real.type, select: (input) => real.select({ ...input, plan: { ...input.plan, flexible: input.plan.flexible + 300 } }) };
+    });
+    try {
+      const { r, plan } = await planning(talk(20));
+      for (let i = 0; i < 12; i++) r.catalog.addContext(contextRecord(`fs/item-${i}`, { content: 'c'.repeat(600) }));
+      r.search.hits = Array.from({ length: 12 }, (_, i) => ({ kind: 'context' as const, key: `fs/item-${i}`, score: 1 - i / 20, text: '' }));
+      const planned = await plan('item details please');
+      expect(planned.estimate).toBeLessThanOrEqual(2_048 - 512 - Math.ceil(0.06 * 2_048));
+      expect(planned.report.context.length).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('stays within budget for random sessions (seeded)', async () => {
     const random = seeded(3);
     for (let round = 0; round < 12; round++) {
@@ -205,6 +224,9 @@ describe('static mode calls', () => {
     expect(bad).toMatchObject({ type: 'invalid', fn: 'fs/read', invalid: { source: 'schema', problems: [{ path: 'path' }] } });
     const good = await r.planner.interpret({ type: 'block', id: 'b2', fn: 'fs/read', json: '{"path": "a"}' }, planned);
     expect(good).toEqual({ type: 'run', fn: 'fs/read', args: { path: 'a' } });
+    // a block names the machine with on, as run's on does
+    expect(await r.planner.interpret({ type: 'block', id: 'b4', fn: 'fs/read', on: 'laptop', json: '{"path": "a"}' }, planned)).toEqual({ type: 'run', fn: 'fs/read', args: { path: 'a' }, on: 'laptop' });
+    expect(await r.planner.interpret({ type: 'block', id: 'b5', fn: 'fs/read', on: 'Not A Machine!', json: '{"path": "a"}' }, planned)).toMatchObject({ type: 'invalid', invalid: { problems: [{ path: 'on' }] } });
     expect(await r.planner.interpret({ type: 'tool', id: '2', name: 'find', args: { query: 'x' } }, planned)).toEqual({ type: 'run', fn: 'hub/find', args: { query: 'x' } });
     expect(await r.planner.interpret({ type: 'block', id: 'b3', fn: undefined, json: '{}' }, planned)).toMatchObject({ type: 'invalid', invalid: { source: 'schema' } });
   });

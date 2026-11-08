@@ -123,7 +123,11 @@ export function buildSystems(options: SystemsOptions) {
     concurrency: { interactive: settings.index.HARNESS_EMBED_INTERACTIVE, background: settings.index.HARNESS_EMBED_BACKGROUND },
   });
   const sectioning = new Sectioning({ store, catalog, router: resources });
-  const indexer = new StoreIndexer({ store, bus, log, clock, catalog, embedders, batcher, router: resources, sectioning, document, maxText: settings.index.HARNESS_INDEX_MAX_TEXT, maxCrawl: settings.index.HARNESS_INDEX_CRAWL_MAX });
+  const indexer = new StoreIndexer({ store, bus, log, clock, catalog, embedders, batcher, router: resources, sectioning, document, maxText: settings.index.HARNESS_INDEX_MAX_TEXT, maxCrawl: settings.index.HARNESS_INDEX_CRAWL_MAX,
+    // a chunk fills every background batch running at once
+    chunk: settings.model.HARNESS_EMBED_BATCH * settings.index.HARNESS_EMBED_BACKGROUND,
+    retry: { first: settings.index.HARNESS_INDEX_RETRY, most: settings.index.HARNESS_INDEX_RETRY_MOST },
+  });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, settings.search);
   const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document, overfetch: settings.index.HARNESS_SEARCH_OVERFETCH, embedWait: settings.index.HARNESS_SEARCH_EMBED_WAIT });
   const suggest = new IndexSuggester({ store, catalog, search });

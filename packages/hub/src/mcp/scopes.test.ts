@@ -85,6 +85,12 @@ describe('what an MCP exposes', () => {
     expect(selectsResource({ resources: [{ uri: 'file://', system: WEB }] }, 'file://x', { system: FS })).toBe(false);
   });
 
+  it('warns that resource rules do not limit the exposed fns of a system serving resources', async () => {
+    const limited = await resolveRules(rules({ systems: [FS] }, { resources: [{ uri: 'file://main/private/' }] }), world());
+    expect(limited.warnings).toContain('fs\'s exposed fns read its files by path: resource rules don\'t limit them, only what is listed and what the hub\'s resource fns read.');
+    expect((await resolveRules(rules({ systems: [FS] }), world())).warnings).toEqual([]);
+  });
+
   it('select a prefix on one instance only when that instance serves it', () => {
     const laptop = { resources: [{ uri: 'file://', system: FS, instance: InstanceName.parse('laptop') }] };
     expect(selectsResource(laptop, 'file://x', { system: FS, instance: InstanceName.parse('laptop') })).toBe(true);

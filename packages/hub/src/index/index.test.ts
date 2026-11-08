@@ -36,6 +36,8 @@ class WordEmbedder implements Embedder {
   failing = false;
   /** Never answer (an embedder busy with something else). */
   stuck = false;
+  /** Fail only this call (counting from 1). */
+  failOn: number | undefined;
   readonly name: QualifiedName;
   readonly dimensions: number;
   constructor(name: QualifiedName, dimensions = 3) { this.name = name; this.dimensions = dimensions; }
@@ -43,7 +45,7 @@ class WordEmbedder implements Embedder {
     this.calls += 1;
     const sized = (text: string): number[] => [...wordVector(text), ...Array<number>(this.dimensions - 3).fill(0)];
     if (this.stuck) { return new Promise(() => undefined); }
-    return this.failing ? Promise.reject(new Error('embedder down')) : Promise.resolve(texts.map(sized));
+    return this.failing || this.calls === this.failOn ? Promise.reject(new Error('embedder down')) : Promise.resolve(texts.map(sized));
   }
 }
 
@@ -109,7 +111,7 @@ async function setup() {
   const batcher = new EmbedBatcher({ embedders, log, size: 8, wait: 1, poll: 2, concurrency: { interactive: 2, background: 1 } });
   const router = new FakeRouter();
   const sectioning = new Sectioning({ store, catalog, router });
-  const indexer = new StoreIndexer({ store, bus, log, clock: () => 5, catalog, embedders, batcher, router, sectioning, document: DOCUMENT, maxText: 500, maxCrawl: 100 });
+  const indexer = new StoreIndexer({ store, bus, log, clock: () => 5, catalog, embedders, batcher, router, sectioning, document: DOCUMENT, maxText: 500, maxCrawl: 100, chunk: 4, retry: { first: 20, most: 80 } });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 });
   const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document: DOCUMENT, overfetch: 3, embedWait: 200 });
   const suggester = new IndexSuggester({ store, catalog, search });
@@ -183,6 +185,29 @@ describe('indexing', () => {
     embedders.document.failing = false;
     await indexer.backfill();
     expect(await vectorKeys()).toEqual(['fn:shop/list']);
+  });
+
+  it('saves each chunk of a backfill as it is embedded, keeps them when a later chunk fails, and tries again on its own', async () => {
+    const { indexer, embedders, records } = ctx;
+    const items = Array.from({ length: 10 }, (_, i) => ({ kind: 'fn' as const, key: `shop/fn${i}`, text: `Fn ${i} lists products` }));
+    await indexer.upsert(items);
+    // the second chunk (of 4) fails once, while the indexer follows the embedders
+    embedders.document.failOn = 2;
+    const stop = indexer.start();
+    embedders.connect();
+    await expect.poll(() => records.find((r) => r.msg === 'index.embed.failed')).toMatchObject({ saved: 4, items: 6 });
+    // the retry, a short wait later, embeds the rest
+    await expect.poll(() => vectorKeys(), { timeout: 2_000 }).toHaveLength(10);
+    stop();
+  });
+
+  it('gives way to the event loop while it stores thousands of items', async () => {
+    const { indexer } = ctx;
+    let ticks = 0;
+    const timer = setInterval(() => { ticks += 1; }, 1);
+    await indexer.upsert(Array.from({ length: 3_000 }, (_, i) => ({ kind: 'fn' as const, key: `shop/fn${i}`, text: `Fn ${i}` })));
+    clearInterval(timer);
+    expect(ticks).toBeGreaterThan(0);
   });
 
   it('re-indexes what a system contributes when the catalog changes, dropping what is gone', async () => {

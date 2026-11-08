@@ -3,7 +3,8 @@ import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { mintId, type HookInput } from '@harness/core';
 import type { TypesOf } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { fs } from '../shared/index.ts';
+import { z } from 'zod';
+import { COMMAND_TIMEOUT_MIN, fs } from '../shared/index.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
 import { createFsImpl, type FsServer } from './impl.ts';
@@ -140,6 +141,19 @@ describe('the fs implementation', () => {
       expect(shell.calls[0]?.cwd).toBe(root);
       await server.impl.fns.bash.run({ command: 'ls', cwd: 'src', timeout: 99_999 }, bashCtx(memoryState<Cwd>()).ctx);
       expect(shell.calls[1]).toMatchObject({ cwd: `${root}/src`, timeout: 5_000 });
+    });
+
+    it('refuses a timeout under the minimum as invalid input without running, and tells the LLM the unit', async () => {
+      const refused = await server.impl.fns.bash.run({ command: 'ls', timeout: 30 }, bashCtx(memoryState<Cwd>()).ctx);
+      expect(refused.status).toBe('invalid-input');
+      const problems = refused.status === 'invalid-input' ? refused.invalid.problems : [];
+      expect(problems.map((problem) => problem.path)).toEqual(['timeout']);
+      expect(problems[0]?.message).toContain('milliseconds');
+      expect(shell.calls).toHaveLength(0);
+      await server.impl.fns.bash.run({ command: 'ls', timeout: COMMAND_TIMEOUT_MIN }, bashCtx(memoryState<Cwd>()).ctx);
+      expect(shell.calls[0]).toMatchObject({ timeout: COMMAND_TIMEOUT_MIN });
+      const schema = JSON.stringify(z.toJSONSchema(fs.fns.bash.args.toValueSchema({ includeDocs: 'all' })));
+      expect(schema).toContain('in milliseconds');
     });
 
     it('asks before a command outside the safe list, and needs someone to ask', async () => {

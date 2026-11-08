@@ -32,6 +32,8 @@ import { usable } from './views.ts';
 const MIN_RESULT_CHARS = 200;
 /** The characters older tool results of the current exchange are shortened to when it doesn't fit. */
 const OLD_RESULT_CHARS = 400;
+/** How many times the planner chooses again with less room when the whole prompt comes out over budget. */
+const MAX_RESELECTS = 8;
 
 /** A prompt that cannot be made small enough for its model. Its message says both numbers in plain words. */
 export class PromptTooLarge extends Error implements Overflow {
@@ -209,13 +211,17 @@ export class HubPromptPlanner implements PromptPlanner {
     let selection = await contextor.select(input);
     let rendered = await mode.render(selection, ctx);
     let assembled = this.#assemble(planning.instructions, guide, selection, rendered, estimator);
-    if (assembled.estimate > plan.available) {
-      // estimates of the parts add up to a little more than the whole, so this is rare: choose again with the overshoot taken off
-      const tighter: BudgetPlan = { ...plan, flexible: plan.flexible - (assembled.estimate - plan.available) };
+    // the parts' estimates can add up to less than the whole's: choose again with less room for the optional parts
+    // (the overshoot taken off, at least doubling each time) until it fits; refused only once no optional room is left
+    const room = Math.max(0, plan.flexible);
+    let taken = 0;
+    for (let tries = 0; assembled.estimate > plan.available; tries++) {
+      if (tries >= MAX_RESELECTS || taken >= room) throw this.#tooLarge(model, assembled.estimate, plan, selection);
+      taken = Math.min(room, Math.max(taken * 2, taken + assembled.estimate - plan.available));
+      const tighter: BudgetPlan = { ...plan, flexible: plan.flexible - taken };
       selection = await contextor.select({ ...input, plan: tighter });
       rendered = await mode.render(selection, ctx);
       assembled = this.#assemble(planning.instructions, guide, selection, rendered, estimator);
-      if (assembled.estimate > plan.available) throw this.#tooLarge(model, assembled.estimate, plan, selection);
     }
     const report: SelectionReport = {
       ...selection.report, mode: choice.mode.type, contextor: choice.contextor.type,

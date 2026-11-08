@@ -67,6 +67,10 @@ describe('run blocks', () => {
     ]);
     expect(parsed.prose).toBe('Let me look.\n\nand');
     expect(parseRunBlocks('No tools here; <running> is not a block.').calls).toEqual([]);
+    expect(parseRunBlocks(`<run fn="fs/read" on='laptop'>{}</run><run on="" fn="fs/read">{}</run>`).calls).toEqual([
+      { fn: 'fs/read', on: 'laptop', json: '{}' },
+      { fn: 'fs/read', json: '{}' },
+    ]);
     expect(parseRunBlocks('<think>maybe <run fn="fs/bash">{}</run>?</think>Answer: 3.')).toEqual({ calls: [], prose: 'Answer: 3.' });
   });
 

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { RunInput } from '../execution/index.ts';
 import { ALICE, executionRig, SESSION, type ExecutionRig } from '../execution/testing.ts';
-import { registerResourceFns } from './fns.ts';
+import { registerResourceFns, type ReachScope } from './fns.ts';
 import type { ResourceServices } from './index.ts';
 import { bytes, resourcesRig, statOf } from './testing.ts';
 
@@ -22,7 +22,8 @@ function addHubFn(r: ExecutionRig, ref: AnyFnRef): void {
   r.catalog.add('hub', ref.name.slice('hub/'.length), fn({ description: ref.name, args: ref.args, returns: ref.returns, tags: ['read'] }));
 }
 
-async function started() {
+/** The rig, its fns registered; while `scope` gives one, every run's caller acts as a hub MCP with that scope. */
+async function started(scope: () => ReachScope | undefined = () => undefined) {
   const r = await executionRig();
   rig = r;
   const resources = await resourcesRig();
@@ -31,7 +32,7 @@ async function started() {
     content: { parts: () => Promise.resolve([{ type: 'text', content: 'the text', name: 'a.md' }]) },
   };
   for (const name of NAMES) { addHubFn(r, hub.fns[name]); }
-  registerResourceFns(r.module.hubFns, { resources: () => services, store: () => r.store, llm: () => ({ models: () => Promise.resolve([]) }) });
+  registerResourceFns(r.module.hubFns, { resources: () => services, store: () => r.store, llm: () => ({ models: () => Promise.resolve([]) }), mcpScope: () => Promise.resolve(scope()) });
   await r.session({});
   await r.module.start();
   return { r, resources, turn: await r.turn({ session: SESSION, text: 'hello' }) };
@@ -78,6 +79,32 @@ describe('the resource hub fns', () => {
     const { r, turn } = await started();
     const settled = await call(r, turn, 'resource_read', { uri: 'not a uri' });
     expect(settled.status).not.toBe('done');
+  });
+});
+
+describe('through a hub MCP', () => {
+  it('keeps to its rules: a resource outside them or context it does not expose reads as missing, and listings leave them out', async () => {
+    const open = ResourceUri.parse('file://main/guide.md');
+    const hidden = ResourceUri.parse('file://main/private/keys.md');
+    const mcp: { scope?: ReachScope } = {};
+    const { r, resources, turn } = await started(() => mcp.scope);
+    resources.raw.serve({ stat: statOf(open, { format: 'markdown' }), bytes: bytes('# Open\n') });
+    resources.raw.serve({ stat: statOf(hidden, { format: 'markdown' }), bytes: bytes('# Secret\n') });
+    // the person reads both outside the MCP, so the library knows them
+    expect(await call(r, turn, 'resource_read', { uri: open })).toMatchObject({ status: 'done' });
+    expect(await call(r, turn, 'resource_read', { uri: hidden })).toMatchObject({ status: 'done' });
+    mcp.scope = { context: new Set(), allowsResource: (uri) => !uri.startsWith('file://main/private') };
+    for (const name of ['resource_read', 'resource_outline', 'resource_send', 'context_from_resource'] as const) {
+      const settled = await call(r, turn, name, { uri: hidden });
+      expect(settled.status, name).not.toBe('done');
+      expect(JSON.stringify(settled), name).not.toContain('Secret');
+    }
+    const listed = await call(r, turn, 'resource_list', {});
+    expect(listed).toMatchObject({ status: 'done', result: { items: [{ uri: open }], facets: [] } });
+    expect(JSON.stringify(listed)).not.toContain(hidden);
+    const remembered = await call(r, turn, 'remember', { text: 'Use tabs here.' });
+    const { name } = z.object({ name: QualifiedName }).parse(remembered.status === 'done' ? remembered.result : {});
+    expect((await call(r, turn, 'context_get', { name })).status).not.toBe('done');
   });
 });
 

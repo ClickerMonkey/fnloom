@@ -7,7 +7,13 @@
  * Resources are read through the router (their raw text) until the resources module gives an `IndexReader`
  * (`readWith`): then the hub's own resources are indexed too, every resource is cut in its primary form (markdown for
  * a web page, tables for a spreadsheet), and the reader hears each section diff (snapshot context goes stale).
+ *
+ * Store calls are synchronous SQLite work, so long loops (a backfill of thousands of items at startup) give way to
+ * the event loop every `ROWS_PER_TURN` rows, and requests keep being answered meanwhile. Embedding goes a chunk at a
+ * time, each chunk's vectors saved as it finishes: a failure keeps what was done, and a backfill is tried again
+ * later (the wait doubling up to a most).
  */
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import type { Logger } from '@ayepi/log';
 import {
   SystemName, compositeKey, splitName, type ContextDecl, type FnDecl, type IndexEntry, type IndexedKind, type QualifiedName, type ResourceUri, type SectionDiff,
@@ -42,6 +48,18 @@ export interface IndexerOptions {
   readonly maxText: number;
   /** The most resources one crawl of a root looks at. */
   readonly maxCrawl: number;
+  /** Rows embedded and saved together (enough to keep the background lane's batches busy). */
+  readonly chunk: number;
+  /** How long after a failed embedding a backfill is tried again, at first and at most (it doubles between). */
+  readonly retry: { readonly first: number; readonly most: number };
+}
+
+/** How many rows a loop of store calls handles before it gives way to the event loop. */
+const ROWS_PER_TURN = 100;
+
+/** Give way to the event loop after every `ROWS_PER_TURN`th row (`index` counts from 0). */
+async function breathe(index: number): Promise<void> {
+  if (index % ROWS_PER_TURN === ROWS_PER_TURN - 1) { await nextTurn(); }
 }
 
 /** The kinds a system's contract contributes. */
@@ -83,14 +101,20 @@ export class StoreIndexer implements Indexer {
   readonly #options: IndexerOptions;
   readonly #serial = new Serial();
   #reader: IndexReader | undefined;
+  /** The backfill waiting to try again after a failed embedding, and how long the next wait is. */
+  #retry: { timer: NodeJS.Timeout | undefined; wait: number };
+  /** Whether the indexer follows the bus (only then are failed embeddings tried again on their own). */
+  #following = false;
 
   constructor(options: IndexerOptions) {
     this.#options = options;
+    this.#retry = { timer: undefined, wait: options.retry.first };
   }
 
   /** Follow the bus and the embedders. Returns the function that stops following. */
   start(): () => void {
     const { bus, embedders, log } = this.#options;
+    this.#following = true;
     const stops = [
       bus.subscribe('catalog.changed', ({ added, removed, fns }) => {
         const systems = new Set<string>([...added, ...removed].map((name) => splitName(name).system));
@@ -110,7 +134,12 @@ export class StoreIndexer implements Indexer {
     // embedders that connected before the indexer started are caught up too
     if (embedders.active() !== undefined) { this.#queue('index.backfill', () => this.backfill()); }
     log.debug('index.started', {});
-    return () => { for (const stop of stops) { stop(); } };
+    return () => {
+      for (const stop of stops) { stop(); }
+      this.#following = false;
+      clearTimeout(this.#retry.timer);
+      this.#retry.timer = undefined;
+    };
   }
 
   readWith(reader: IndexReader): () => void {
@@ -139,7 +168,8 @@ export class StoreIndexer implements Indexer {
   async upsert(items: readonly IndexItem[], options: { readonly vectors?: VectorTiming } = {}): Promise<void> {
     const { store, clock, document, maxText } = this.#options;
     const rows: IndexEntry[] = [];
-    for (const item of items) {
+    for (const [index, item] of items.entries()) {
+      await breathe(index);
       const text = item.text.slice(0, maxText);
       const hash = sha256Hex(text);
       const existing = await store.table('index').get({ embedder: document, kind: item.kind, key: item.key });
@@ -161,7 +191,10 @@ export class StoreIndexer implements Indexer {
   async remove(kind: IndexedKind, keys: readonly string[]): Promise<void> {
     if (keys.length === 0) { return; }
     const { store, document } = this.#options;
-    for (const key of keys) { await store.table('index').remove({ embedder: document, kind, key }); }
+    for (const [index, key] of keys.entries()) {
+      await breathe(index);
+      await store.table('index').remove({ embedder: document, kind, key });
+    }
     await store.text.remove(kind, keys);
     await store.vectors.remove(document, kind, keys);
   }
@@ -236,30 +269,56 @@ export class StoreIndexer implements Indexer {
     const { store, document, log } = this.#options;
     if (!(await store.vectors.ensure(document, dimensions))) { return; }
     log.warn('index.vectors.resized', { embedder: document, dimensions });
-    for (const row of await allRows(store.table('index'), { embedder: document })) {
+    for (const [index, row] of (await allRows(store.table('index'), { embedder: document })).entries()) {
+      await breathe(index);
       if (row.vectorHash !== undefined) { await store.table('index').put(withoutVector(row)); }
     }
     this.#queue('index.backfill', () => this.backfill());
   }
 
-  /** Embed rows with the document embedder, if it is connected; a failure leaves them for the next backfill. */
+  /**
+   * Embed rows with the document embedder, if it is connected, a chunk at a time: each chunk's vectors are saved
+   * (and its rows marked embedded) as it finishes. A row given a vector of the wrong size is left out. A failure keeps
+   * the chunks already saved, leaves the rest, and tries a backfill again later.
+   */
   async #embed(rows: readonly IndexEntry[]): Promise<void> {
-    const { store, embedders, batcher, document, log } = this.#options;
+    const { store, embedders, batcher, document, log, chunk } = this.#options;
     const active = embedders.active();
     if (active === undefined || rows.length === 0) { return; }
+    const { name, dimensions } = active.document;
+    let done = 0;
     try {
-      await this.#sized(active.document.dimensions);
-      const vectors = await batcher.embed(active.document.name, rows.map((r) => r.text), 'background');
-      const entries = rows.map((r, i) => {
-        const vector = vectors[i];
-        if (vector?.length !== active.document.dimensions) { throw new Error(`${active.document.name} gave no ${active.document.dimensions}-number vector for ${r.kind} ${r.key}`); }
-        return { kind: r.kind, key: r.key, vector };
-      });
-      await store.vectors.upsert(document, entries);
-      for (const row of rows) { await store.table('index').update(row, { vectorHash: row.hash }); }
+      await this.#sized(dimensions);
+      for (; done < rows.length; done += chunk) {
+        const part = rows.slice(done, done + chunk);
+        const vectors = await batcher.embed(name, part.map((r) => r.text), 'background');
+        const good = part.flatMap((row, i) => {
+          const vector = vectors[i];
+          if (vector?.length === dimensions) { return [{ row, vector }]; }
+          log.warn('index.embed.bad-vector', { embedder: name, kind: row.kind, key: row.key, dimensions, got: vector?.length ?? 0 });
+          return [];
+        });
+        await store.vectors.upsert(document, good.map(({ row, vector }) => ({ kind: row.kind, key: row.key, vector })));
+        await store.tx(async (tx) => { for (const { row } of good) { await tx.table('index').update(row, { vectorHash: row.hash }); } });
+        await nextTurn();
+      }
+      this.#retry.wait = this.#options.retry.first;
     } catch (error) {
-      log.warn('index.embed.failed', { items: rows.length, error: messageOf(error) });
+      log.warn('index.embed.failed', { items: rows.length - done, saved: done, error: messageOf(error) });
+      this.#tryAgainLater();
     }
+  }
+
+  /** Backfill again after a wait, once (a wait already set stands); each failure doubles the next wait, up to the most. */
+  #tryAgainLater(): void {
+    if (!this.#following || this.#retry.timer !== undefined) { return; }
+    const { wait } = this.#retry;
+    this.#retry.wait = Math.min(this.#options.retry.most, wait * 2);
+    this.#retry.timer = setTimeout(() => {
+      this.#retry.timer = undefined;
+      this.#queue('index.backfill', () => this.backfill());
+    }, wait);
+    this.#retry.timer.unref();
   }
 
   /**

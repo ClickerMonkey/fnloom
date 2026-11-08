@@ -108,6 +108,13 @@ export async function resolveRules(rules: McpRules, world: ScopeWorld): Promise<
     ...(include.resources ?? []),
     ...world.roots.filter((root) => root.system !== undefined && include.systems?.includes(root.system) === true),
   ].filter((r) => !selectsResource(exclude, r.uri, serverOf(r)));
+  // resource rules bound what the MCP lists and what the hub's resource fns read, not a system's own fns
+  if ((include.resources ?? []).length > 0 || (exclude.resources ?? []).length > 0) {
+    const serving = new Set(world.roots.flatMap((root) => (root.system === undefined ? [] : [root.system])));
+    for (const system of [...new Set(fns.map((fn) => fn.system))].filter((s) => serving.has(s)).sort()) {
+      warnings.push(`${system}'s exposed fns read its files by path: resource rules don't limit them, only what is listed and what the hub's resource fns read.`);
+    }
+  }
 
   const byName = new Map(world.fns.map((fn) => [fn.name, fn]));
   const reach = new Set<QualifiedName>();

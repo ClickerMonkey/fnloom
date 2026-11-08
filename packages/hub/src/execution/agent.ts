@@ -550,7 +550,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       index,
       calls: found.map((block, i) => {
         const id = `block_${iteration}_${i + 1}`;
-        return { toolCallId: id, block: true, out: { type: 'block', id, fn: block.fn, json: block.json } };
+        return { toolCallId: id, block: true, out: { type: 'block', id, ...block } };
       }),
     };
   }
