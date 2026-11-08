@@ -238,6 +238,9 @@ Settled in the libraries, on their `harness` branches (harness carries no workar
   and the hub's `TypeRecord.references` and `Catalog.typeClosure` use, so a system can load every type it needs
   from the hub.
 - **@ayepi/core:** a handler's `data` is always there when its endpoint declares input, even an empty `{}`.
+- **@ayepi/core (build 3):** the client's `unauthorized` hook (a refused call waits for it, then is sent once more over
+  HTTP or the socket) and `wsTransport.reconnect()`; the web client passes `unauthorized` and reconnects after a token
+  refresh, so `api/client.ts` no longer reads the wire format.
 - **@ayepi/log:** `consoleTransport` binds the console's methods when it is made, and a string `error` field
   becomes `{ name: 'Error', message }`.
 - **@ayepi/work:** `stop()` wakes its poll loop.

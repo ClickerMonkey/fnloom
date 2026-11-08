@@ -23,8 +23,8 @@ export const e2eEnv = env({
   HARNESS_E2E_OLLAMA: z.string().default('http://127.0.0.1:11434'),
   /** The Ollama models the graph suite tries, first one present wins: a small tool-capable one first. */
   HARNESS_E2E_OLLAMA_MODELS: z.string().default('qwen2.5:3b,llama3.2:3b,deepseek-r1:7b'),
-  /** How long one local-model turn may take. */
-  HARNESS_E2E_LOCAL_TURN_TIMEOUT: z.number().int().min(10_000).default(420_000),
+  /** How long one local-model turn may take (deepseek-r1:7b, the only local model here, can reason for over 7 minutes on a two-step turn). */
+  HARNESS_E2E_LOCAL_TURN_TIMEOUT: z.number().int().min(10_000).default(900_000),
 });
 
 /** The parsed e2e settings. */

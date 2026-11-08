@@ -110,17 +110,22 @@ function pushed(query: ListQuery): { system?: SystemName | { in: readonly System
 export function bound(filters: readonly Filter[] | undefined, field: string): ColumnFilter<number> | undefined {
   for (const filter of filters ?? []) {
     if (filter.field !== field) { continue; }
-    const value = filter.op === 'between' ? numberOf(filter.from)
-      : filter.op === 'gt' || filter.op === 'gte' || filter.op === 'lt' || filter.op === 'lte' ? numberOf(filter.value) : undefined;
-    if (value === undefined) { continue; }
-    switch (filter.op) {
-      case 'gt': return { gt: value };
-      case 'lt': return { lt: value };
-      case 'lte': return { lte: value };
-      default: return { gte: value };
-    }
+    const found = boundOf(filter);
+    if (found !== undefined) { return found; }
   }
   return undefined;
+}
+
+/** One filter as a column bound, or nothing when its op is not a bound or its value is not a number. */
+function boundOf(filter: Filter): ColumnFilter<number> | undefined {
+  switch (filter.op) {
+    case 'between': { const value = numberOf(filter.from); return value === undefined ? undefined : { gte: value }; }
+    case 'gt': { const value = numberOf(filter.value); return value === undefined ? undefined : { gt: value }; }
+    case 'gte': { const value = numberOf(filter.value); return value === undefined ? undefined : { gte: value }; }
+    case 'lt': { const value = numberOf(filter.value); return value === undefined ? undefined : { lt: value }; }
+    case 'lte': { const value = numberOf(filter.value); return value === undefined ? undefined : { lte: value }; }
+    case 'is': case 'isNot': case 'contains': case 'in': case 'notIn': case 'empty': case 'notEmpty': return undefined;
+  }
 }
 
 /** One column filter to spread into a where, or nothing when there is no filter. */

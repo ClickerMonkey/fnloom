@@ -149,7 +149,9 @@ in [`docs/architecture.md`](docs/architecture.md).
   Ollama, every request inside the window), `runs` (invalid input versus errors, fn metrics, embedding model calls),
   `resources` (raw and converted forms of a page, a workbook and a pdf; context from a resource), `web` (search, a page
   read into a markdown resource), `mcp` (a hub MCP answering an MCP client), `pairing` (QR pairing a second fs
-  instance; two at once), `package` (a packed fs fleet installed on a hub of its own, 4421). Set `HARNESS_E2E_URL`
+  instance; two at once), `package` (a packed fs fleet installed on a hub of its own, 4421). Build 3's `build3` suite:
+  list queries (filters and sorts on the hub, `hub/query`, a bad field refused), suggestion records and the decision
+  model, stopping one run by id, and auto pair (pairing with a secret, re-pairing after the key is lost, rotation). Set `HARNESS_E2E_URL`
   to test a stack that is already running instead.
 - `npm run ui-tests` boots nothing. Start a stack (a fresh one is best: `HARNESS_DATA=.harness/ui npm run dev`), then
   point it there: `HARNESS_UI_URL=http://127.0.0.1:4300 HARNESS_UI_EMAIL=… HARNESS_UI_PASSWORD=… npm run ui-tests`

@@ -97,3 +97,24 @@ run only for changed screens).
 
 Unit/component/API only, except: expression viewer layout, search box pills and menu, chat density at phone and
 desktop (one shot each). Core query tests are in `core/src/build3.test.ts`.
+
+## Status (end of build 3)
+
+| Item | Status |
+|---|---|
+| 1 Exact cost | done (`formatCost`) |
+| 2 Suggestions below the user message | done: `ChatMessage.suggestions` with `SkipReason`, icon row and popover in `UserMessage.vue` |
+| 3 Stop / pause / resume per fn | done: `SessionControls.runs`, `control.runs`, `RunControl.vue` menu |
+| 4 Decision model | done: `chat/suggestions.ts`, `suggestionsSlice`, `DecisionDialog.vue` under Models |
+| 5 Expression editor / viewer | done: code layout in `gin/logic/layout.ts`, docs behind an info icon |
+| 6 Model calls dense | done |
+| 7 Fns catalogue and fn page | done: `/admin/fns` (`FnsView.vue`), fn page with stats and runs |
+| 8 Density pass | done for the named components |
+| 9 Query standard | done: hub `query/`, `hub/query` fn, `ListSearch.vue` (`UiSearch` + `UiSort`) on resources, fns, runs, model calls, LLM calls, sessions, context, inbox, systems. Legacy narrow list filters still accepted (build 4 removes them) |
+| 10 Auto pair | done: hub `link/auto-pair.ts`, SDK key store and hello, web switch, expiry and revoke |
+| 11 Resource → context on mobile | done: label and `ConfirmDialog` in `ResourceViewer.vue` |
+| 12 Context page | done: "Context", Advanced section, `updateMemory` |
+| Carry-overs | done: ayepi `unauthorized` hook and `wsTransport.reconnect()` (committed on ayepi's `harness` branch), web passes `unauthorized`; fs secret exclusion (`systems/fs/server/secrets.ts`); `scripts/gallery.ts` |
+
+Not finished: the three browser shots in §Tests (expression viewer layout, search box pills and menu, chat density at
+phone and desktop) have no dedicated scenario; those layouts are covered by unit and component tests only.

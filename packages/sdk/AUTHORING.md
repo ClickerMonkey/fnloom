@@ -4125,7 +4125,8 @@ This is the hub contract as the SDK declares it now:
     items: list<any>,
     cursor?: text,
     sort: list<obj{field: text{minLength=1}, dir: enum<text>{asc, desc}}>,
-    total?: num{whole=true, min=0}
+    total?: num{whole=true, min=0},
+    /* More rows than the hub reads at once: more may match; narrow the filters for a full answer. */ partial?: literal<bool>{value=true}
   }
   ```
 - `hub/resource_convert`: Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.
