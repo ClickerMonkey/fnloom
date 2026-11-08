@@ -72,7 +72,7 @@ export default feature({
       // the hub keeps an answered request: its link says so, and an unknown one is not found (never "the hub had a problem")
       await inEachScheme(ctx, async (shot) => {
         await open(ctx, link);
-        await page.waitForFunction(() => document.querySelector('main')?.textContent?.includes('Already answered') === true, { timeout: 10_000 });
+        await page.waitForFunction(() => document.querySelector('main')?.textContent.includes('Already answered') === true, { timeout: 10_000 });
         check((await page.$eval('main', (el) => el.textContent)).includes('This request was approved'), 'a paired link says it was approved');
         await shot('answered');
         await open(ctx, '/pair/par_unknown0', tid('retry'));

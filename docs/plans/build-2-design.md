@@ -817,3 +817,46 @@ What the build did differently from the sections above, accepted at integration:
 - **Table rows past `HARNESS_TABLE_ROWS`** (§3.6, §3.9): the hub keeps the first rows of each table (the library
   converts a workbook whole, with no row window) and refuses a range that starts past them (`ROWS_NOT_KEPT`) instead of
   answering empty. A row-window option for the library's table converters is a library ask (§8).
+
+---
+
+## 11. Status at the end of build 2 (2026-11-08)
+
+Checked at the end of the build: `npm run typecheck`, `npm run lint`, `npm test` (207 files, 2180 tests), `npm run
+build`, the staleness checks (`docs:authoring`, `web:manifest`, `env:example`, all `--check`) and `npm run e2e` (all ten
+files, 50 tests; `authoring` now puts back the root `tsconfig.json` and `package.json` if the agent edits them, which
+had broken the later suites' transform). The
+`ui-tests` suite was not run in the final round (see "Which tests run in a browser" in
+[architecture.md](../architecture.md)).
+
+| Item | Status | Proven by |
+|---|---|---|
+| 3.1 Template system and generated docs | built | `scripts/docs/*.test.ts`, `docs:authoring --check`, `authoring.e2e` (the agent makes a system from the guide; it packs, installs and runs) |
+| 3.2 Transcription and dictation models | built | hub `models/` tests, web admin store tests, `ui-tests/features/model-roles.ts` |
+| 3.3 Chat modes: tools and static | built | contextor tests, `contextor.e2e` (static toolset on a free model) |
+| 3.4 Graph contextor and budgets | built | contextor tests, `contextor.e2e` (graph on the local Ollama, every request inside the served window; skipped without Ollama) |
+| 3.5 Context links | built | contextor and resources tests, `resources.e2e` (context from a resource linked back to it) |
+| 3.6 Raw and converted storage, forms, resource to context | built; folder listings stay fs's own (§10) | resources tests, `resources.e2e` (page, workbook, pdf) |
+| 3.7 The web system | built (Tavily over REST, §10) | `systems/web` tests, `web.e2e` (runs only with `TAVILY_API_KEY`) |
+| 3.8 Resource browser | built | web component and store tests, `resources.e2e` (grouped by type), `ui-tests` `resource-browser` |
+| 3.9 Viewers for every common type | built | web viewer tests, `ui-tests` `viewers` |
+| 3.10 QR pairing | built | sdk pairing tests, `pairing.e2e` |
+| 3.11 Hub MCPs | built | hub `mcp/` tests, `mcp.e2e` (an MCP client, secret rotation), CLI `mcp.test.ts` (stdio bridge) |
+| 3.12 Packages, data, CLI | built | `link/package` and CLI tests, `package.e2e`, `authoring.e2e`, `restart.e2e` |
+| 3.13 Invalid input versus errors | built | hub, sdk and web tests, `runs.e2e`, `pairing.e2e` (the ambiguous call) |
+| 3.14 Fleets | built | `FleetRouter` tests, `pairing.e2e`, `package.e2e` |
+| 3.15 Gin editors and viewers | built | web component tests, `ui-tests` `gin-editors` |
+| 3.16 Every model call tracked | built | hub `metrics/` tests, sdk forwarding provider tests, `runs.e2e` (embedding model calls) |
+| 3.17 Systems add resource views | built | sdk client and web renderer tests, `ui-tests` `renderers` |
+| 3.18 Fn metrics | built | hub `metrics/` tests, `runs.e2e` |
+| 3.19 Systems add type inputs | built | sdk client and web form tests |
+| 3.20 Hub fns for everything | built | hub fn tests (`boot/hub-fns`), the e2e suites' agent turns |
+| C1 Auto-load named fns | built | `namedIn` tests (`contextor/render.test.ts`) and the contextor planner tests |
+| C2 Retry catch-up after reconnect | built | connection store tests, `ui-tests` `reconnect` |
+| C3 Mock fixtures checked against schemas | built | `npm run typecheck` |
+| C4 Mock hub sign-in status | built | `packages/web/src/test/mock-hub.test.ts` (401 and 200) |
+| C5 Library asks | binary ws frames still open; web push on `@ayepi/push`; folder resolver unused (§10) | §8 |
+
+Open after build 2: the library asks in §8 and in [architecture.md](../architecture.md) "Library asks"; moving fs's
+folder listings onto `@aeye/resources`' folder resolver; moving the `ui-tests` checks that need no browser into
+component and API tests (the table in architecture.md).

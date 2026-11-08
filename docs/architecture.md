@@ -172,12 +172,38 @@ why).
 | `npm run docs:authoring` | regenerate `packages/sdk/AUTHORING.md` from the SDK's sources (`scripts/docs/`); a new SDK export needs a place in `scripts/docs/outline.ts` first |
 | `npm run e2e:mock` | the web lane's puppeteer scenarios against its mock hub at phone, tablet and desktop in light and dark; shots in `packages/web/e2e/shots/` |
 | `npm run build` | manifest, typecheck, then the web build (`packages/web/dist`, served by the hub) |
-| `npm run check` | manifest check, typecheck, lint, tests, explorer build |
+| `npm run check` | the web manifest, `.env.example` and authoring guide staleness checks (`--check`), typecheck, lint, tests with coverage, explorer build |
 | `npm run check:full` | `check`, then `test:live` and `e2e`: the gate before a phase commit (needs `OPENROUTER_API_KEY` and the embedder) |
 
 Tests sit beside the code as `*.test.ts`. Type-level tests use `expectType<Equal<A, B>>(true)` from `@harness/sdk`
 and `@ts-expect-error` for mistakes that must not compile. Ports for anything started while testing: the given port,
 or a free one above 4300, bound to `0.0.0.0`, stopped before finishing.
+
+### Which tests run in a browser
+
+A browser test (puppeteer: `ui-tests/`, `packages/web/e2e/`, the e2e suite's page checks) is only for behaviour that
+can only be checked by rendering: layout and overlap at a screen size, focus and keyboard order, scrolling and
+following, motion, and the real rendering of components (highlighting, diagrams, pdf pages, a system's renderer in the
+built bundle). Everything else is a unit test, a component test (`@vue/test-utils` in the `web` project's happy-dom)
+or an API-level test (a hub over its web API, as the e2e suite's API checks do). A browser check costs seconds per
+screen size; the same fact checked in a component test costs milliseconds.
+
+`ui-tests` checks that need no browser, to move in a later build (not converted yet):
+
+| Feature scripts | What they check | Move to |
+|---|---|---|
+| `admin-runs`, `admin-llm`, `admin-models`, `admin-limits`, `admin-policies`, `admin-actor-settings`, `admin-resources`, `admin-system`, `admin-systems` | lists in order, a record's fields, a setting saved and read back | component tests over a fake caller; API tests for the saves |
+| `url-state`, `url-reload` | each page and panel comes back from its address | router unit tests (`createMemoryHistory`) |
+| `chat-manage`, `chat-modes`, `model-picker`, `model-roles`, `session-settings`, `settings` | a pick (model, mode, contextor, role) is saved and still shown after a reload | store tests plus an API round trip |
+| `context-items`, `context-graph`, `fn-metrics`, `model-calls`, `hub-mcps`, `instances` | links and backlinks, the budget's parts, metric numbers, kind filters, a secret shown once, a fleet's instances | component tests over fixtures; API tests for the hub's answers |
+| `invalid-input`, `fn-display`, `run-cards`, `turn-tree`, `message-details`, `timestamps`, `people`, `suggestions` | a run's status and words, whether a finished run keeps a card, tree nodes, date separators, participants, chip counts | component tests over fixture records |
+| `mentions`, `undo`, `attachments`, `uploads`, `approvals`, `budget`, `commands`, `inbox`, `qr-pairing` (its answered and unknown pages) | search finds a file, an undo reverts a write, an upload becomes a resource, an approval or budget stop, a pairing's state | API tests, plus a component test for each view |
+| `reconnect` | a run missed while the socket was down shows after it comes back | a connection-store test with a fake socket |
+
+The rest stay in the browser: `responsive`, `scrolling`, `accessibility`, `motion`, `themes`, `shortcuts`, `header`,
+`chat-shell`, `composer`, `streaming`, `live-runs`, `drawer-live`, `run-drawer`, `turn-controls`, `invoke`,
+`markdown`, `viewers`, `renderers`, `resource-browser` (grid and thumbnails), `gin-editors`, `message-actions`,
+`reasoning`, `states`, `sign-in`, `pairing`.
 
 ## Library asks
 
@@ -191,13 +217,14 @@ Still open (build 2's list is in [plans/build-2-design.md](plans/build-2-design.
   config without its secrets.
 - **@aeye/resources:** `CODE_TYPES` from a browser-safe subpath (core lists the code formats itself and the hub checks
   them against the library's at compile time); versioned converter ids (`htmlConverter@2`); `basenameFromLocation`
-  for non-local `file://` URLs on Windows; `inferType` letting a name's extension beat a generic `text/*` mime
-  (`text/typescript` is `typescript`, not `text`; the hub's `RegistryConverters.typeOf` does this until then).
+  for non-local `file://` URLs on Windows.
 - **@ayepi/mcp:** a stdio-to-HTTP proxy helper (the CLI's `harness mcp` bridges by hand).
 
 Done for build 2: `@ayepi/mcp` caller info, annotations, `McpRouter`, `BearerAuth`, views and `McpToolSet`;
 `@ayepi/push` (web push, which the hub sends with); `@aeye/resources` converted versions and converters, the url
-loader with page renderers, the folder resolver, sections of a version.
+loader with page renderers, the folder resolver, sections of a version, `inferType` letting a name's extension beat a generic
+`text/*` mime (which the hub's `RegistryConverters.typeOf` calls), and a Node ESM dist; `@ayepi/mcp` HTTP session
+lifecycle (`idleTimeout`, `onSessionOpened`, `onSessionEnded`).
 
 Settled in the libraries, on their `harness` branches (harness carries no workaround):
 

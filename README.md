@@ -65,6 +65,57 @@ Every other setting is in `.env.example`, generated from the settings schemas (`
 Ports: 4300 the hub (`npm run dev`), 4310 Vite (`npm run dev:web`), 4330 and 4331 the e2e suite's own hubs, 4421 the
 package suite's, 4480 and 4481 `npm run ui-tests:mock`, 8760 the embedder service, 11434 Ollama.
 
+## Systems
+
+| System | Folder | What it adds |
+|---|---|---|
+| fs | `systems/fs` | files and folders as resources, read/write/search fns, `fs/bash` with approval, the system authoring guide as context (`/new-system`); many instances can attach (`fs@laptop`) |
+| embedder | `systems/embedder` | embeddings from the EmbeddingGemma service, for search and suggestions |
+| web | `systems/web` | Tavily search and page reading (pages that need it are rendered with puppeteer); pages become hub resources with a markdown form |
+| template | `systems/template` | what `harness system new` copies: `system.json`, `shared/`, `server/`, `client/`, placeholder comments only |
+
+Every installed system gets its own data and cache folders (`ctx.dataDir`, `ctx.cacheDir`) that survive upgrades; its
+config lives in the hub's database.
+
+## Chat modes and contextors
+
+A chat's settings (or its agent's) pick a **chat mode** and a **contextor**:
+
+- **tools** (the default): fns are real tool definitions the model calls.
+- **static**: a fixed small toolset; loaded fns show to the model as cards (instructions, examples, signature) and
+  it runs one with `run` and its args. Cheaper than strict tools, and it works on models without native tool calls.
+- Contextors: **plain** (the whole conversation), **suggest** (plain, plus fns and context suggested from the
+  embedded message) and **graph** (each message starts a fresh prompt from the relevant history and the context graph's
+  weighted links, sized to the model's window and its output tokens; meant for small local models).
+
+A chat's settings also answer "what would a message get?" with the context and the budget a prompt would use.
+
+## Hub MCPs
+
+An admin makes hub MCPs under Admin → MCPs: each is an MCP endpoint at `<hub>/mcp/<slug>` with its own secret
+(shown once) and include/exclude rules over systems, fns, types, context and resources. Point an MCP client at the
+URL with the secret as its bearer token, or, for clients that speak stdio only, run
+`harness mcp <slug> --secret <secret>`.
+
+## The CLI
+
+`npx harness` (the `@harness/cli` workspace) makes, builds, packs and installs systems:
+
+```sh
+harness system new <name>            # a system folder from the template
+harness system build [dir]           # typecheck, then bundle server and client into dist/
+harness system pack [dir]            # zip dist/ with every file hashed: a package the hub installs
+harness system install <zip|folder|npm-spec> [--instance <name>] [--config <file.json>]
+harness system list | start | stop | upgrade | uninstall <system>
+harness system export-data <system>  # an instance's data folder as a zip
+harness mcp <slug> --secret <secret> # bridge a hub MCP to stdio
+```
+
+Commands that talk to a hub take `--hub <url>` and `--token <token>` (or `HARNESS_URL`, `HARNESS_TOKEN`, or the
+admin account in `.env`). A system started without a token asks to pair: on a terminal it prints a QR code of the
+hub's pairing link (`HARNESS_PAIRING_QR`: `auto`, always or never) that opens the `/pair` page on a phone, where an
+admin compares the code, fills its config and pairs it.
+
 ## Checks
 
 ```sh
@@ -80,6 +131,10 @@ npm run docs:authoring # regenerate packages/sdk/AUTHORING.md, the system author
 npm run check       # manifest and .env.example checks, typecheck, lint, coverage, explorer: everything offline
 npm run check:full  # check, then the live tests and the e2e suite (needs OPENROUTER_API_KEY and the embedder)
 ```
+
+Only behaviour that can only be checked by rendering (layout, focus, scrolling, real rendering of components) gets a
+browser test; everything else is a unit, component (happy-dom) or API-level test. See "Which tests run in a browser"
+in [`docs/architecture.md`](docs/architecture.md).
 
 ## Tests that drive the whole thing
 

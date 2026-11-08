@@ -5,7 +5,7 @@
  * hub installs the zip and runs it beside itself, and its fn runs. A failed build is told to the agent, which may fix
  * it twice. The made folder (`systems/<name>`, where the template's paths work) and the install are removed after.
  */
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { nodeIo, runCli } from '@harness/cli';
 import { QualifiedName, SystemName, type SessionId } from '@harness/core';
@@ -21,6 +21,12 @@ const ZIP = resolve(ROOT, settings.HARNESS_E2E_DATA, `${NAME}.zip`);
 const TRIES = 3;
 /** A packed system starts quickly, but the first start pairs and imports its contract. */
 const START = 180_000;
+/**
+ * Root files the CLI's `next:` hint tells a person to edit (workspaces, project references). The agent may follow it;
+ * a reference to the removed folder would break every later suite's transform, so they are put back as they were.
+ */
+const ROOT_FILES = ['tsconfig.json', 'package.json'].map((file) => join(ROOT, file));
+const kept = new Map(ROOT_FILES.map((file) => [file, readFileSync(file, 'utf8')]));
 
 let me: SignedIn;
 let session: SessionId;
@@ -36,9 +42,10 @@ async function cli(...argv: string[]): Promise<{ code: number; printed: string }
   return { code, printed: lines.join('\n') };
 }
 
-/** Remove what an earlier run left: the made folder and its install. */
+/** Remove what an earlier run left: the made folder, its install, and any change to the root files. */
 async function clean(): Promise<void> {
   rmSync(FOLDER, { recursive: true, force: true });
+  for (const [file, text] of kept) { if (readFileSync(file, 'utf8') !== text) { writeFileSync(file, text); } }
   if ((await me.hub.call('systems')).some((s) => s.name === NAME && s.status !== 'removed')) { await cli('system', 'uninstall', NAME); }
 }
 
@@ -64,7 +71,7 @@ describe('the chat agent writes a system from the guide', () => {
         `/new-system Make a new harness system named ${NAME}. First copy the template with fs/bash: \`npx harness system new ${NAME}\` (it goes to systems/${NAME}).`,
         `Then give it exactly one fn named \`reverse\`: its args are an object with one text field \`text\`, it returns text, and it returns the text reversed (\`abc\` → \`cba\`).`,
         'Declare it in shared/index.ts and implement it in server/impl.ts with fs/write or fs/edit, following the guide. Keep the TODO comments for the parts you leave out, or delete them.',
-        'Do not build, pack, install or test it: I will. Tell me when the files are written.',
+        'Change nothing outside its folder (not the root package.json or tsconfig.json). Do not build, pack, install or test it: I will. Tell me when the files are written.',
       ].join(' '),
     ];
     let packed = { code: 1, printed: '' };

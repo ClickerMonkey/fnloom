@@ -15,11 +15,11 @@ This document is the plain-language picture. The same picture as TypeScript is i
   refuse. It is checked by the compiler, so the SDK can't drift from what this guide promises.
 
 The explorer (`explorer/explorer.html`) shows all of it and lets you leave notes on any section, type or
-member. The first milestone is built (see [Build order](#g/build-order)); build 2 is designed in
-[plans/build-2-design.md](plans/build-2-design.md), its contracts are in `@harness/core`, and its types are in the
-explorer under the "Build 2" groups.
+member. The first milestone and build 2 are built (see [Build order](#g/build-order)); build 2's design and the
+status of each of its items are in [plans/build-2-design.md](plans/build-2-design.md), its contracts are in
+`@harness/core`, and its types are in the explorer under the "Build 2" groups.
 
-**Status:** build 1 running; build 2 designed. What was decided is under [Decided](#g/decided).
+**Status:** builds 1 and 2 running together (`npm run dev`). What was decided is under [Decided](#g/decided).
 
 ## What carries over from product, and what doesn't
 
@@ -986,7 +986,7 @@ Status (2026-11-07): steps 1 to 3 are built and run together (`npm run dev`).
   local embedder (`npm run test:live`), the end-to-end suite over the real stack (`npm run e2e`), and a puppeteer
   script per UI feature at every screen size (`npm run ui-tests`).
 
-Build 2 (designed 2026-11-07, see [plans/build-2-design.md](plans/build-2-design.md)): the template system and
+Build 2 (designed 2026-11-07, built 2026-11-08; each item's status is in [plans/build-2-design.md](plans/build-2-design.md) §11): the template system and
 generated authoring docs, model roles for transcription and dictation, chat modes and the graph contextor with
 token budgets, context links, raw content and forms, the web system, resource viewers and the browser, QR pairing,
 hub MCPs, system packages and the CLI, invalid input, fleets, gin editors and viewers, every model call recorded,
