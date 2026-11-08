@@ -5,7 +5,7 @@
  */
 import type { Json } from '@harness/core';
 import { UiBanner, UiCard, UiEmpty, fullTime, relativeTime } from '../../ui/index.ts';
-import GinForm from '../../chat/forms/GinForm.vue';
+import GinForm from '../../gin/GinForm.vue';
 
 withDefaults(defineProps<{
   /** The system's config type (a gin type definition); absent when it declares none. */

@@ -12,6 +12,8 @@ export type MdInline =
   | { readonly type: 'code'; readonly text: string }
   | { readonly type: 'link'; readonly href: string; readonly children: readonly MdInline[] }
   | { readonly type: 'image'; readonly src: string; readonly alt: string }
+  /** TeX math in a line: `$x^2$`. */
+  | { readonly type: 'math'; readonly tex: string }
   | { readonly type: 'break' };
 
 /** How a table column lines up. */
@@ -32,4 +34,6 @@ export type MdBlock =
   | { readonly type: 'quote'; readonly children: readonly MdBlock[] }
   | { readonly type: 'list'; readonly ordered: boolean; readonly start: number; readonly items: readonly MdListItem[] }
   | { readonly type: 'table'; readonly align: readonly MdAlign[]; readonly head: readonly (readonly MdInline[])[]; readonly rows: readonly (readonly (readonly MdInline[])[])[] }
-  | { readonly type: 'rule' };
+  | { readonly type: 'rule' }
+  /** A display formula: `$$ … $$`, or a `math` fence. */
+  | { readonly type: 'math'; readonly tex: string };

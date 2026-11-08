@@ -12,7 +12,7 @@ import { ModelForward, ModelForwardResult } from './model-calls.ts';
 import { PairingInfo } from './package.ts';
 import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
-  ActorId, DeliveryId, Duration, HandlerCallId, Json, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
+  ActorId, DeliveryId, Duration, HandlerCallId, InstanceName, Json, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
 import { TypeDefinitions } from './records/systems.ts';
 import { SystemEvent } from './system-events.ts';
@@ -31,8 +31,10 @@ export const Hello = z.object({
   protocol: z.literal(LINK_PROTOCOL),
   name: SystemName,
   version: z.string(),
+  /** Which copy of the system this is (`HARNESS_INSTANCE`); a system that runs one copy is `main`. */
+  instance: InstanceName.default(MAIN_INSTANCE),
   /** New per process start, to tell a restart from a reconnect. */
-  instance: z.string(),
+  boot: z.string(),
   /** The system's public key (Ed25519, SPKI DER as base64). */
   publicKey: z.string(),
   manifestHash: z.string(),
@@ -74,6 +76,11 @@ export type ConfigValue = z.infer<typeof ConfigValue>;
 
 /** The hub accepts the system. */
 export const Welcome = z.object({
+  /**
+   * The instance the hub knows this key as. An admin may rename an instance as they approve its pairing, so a system
+   * takes its name from here rather than from what it asked for.
+   */
+  instance: InstanceName,
   /** The system's config, if a valid one is set. Without one the system waits, unusable. */
   config: ConfigValue.optional(),
   /** Why it is starting, so the SDK runs the right lifecycle events. */
@@ -86,8 +93,8 @@ export const Welcome = z.object({
 });
 export type Welcome = z.infer<typeof Welcome>;
 
-/** Who is on the other end of a link connection, once the handshake is done. */
-export const LinkSession = z.object({ system: SystemName, instance: z.string() });
+/** Who is on the other end of a link connection, once the handshake is done: the system, its instance and this process start. */
+export const LinkSession = z.object({ system: SystemName, instance: InstanceName, boot: z.string() });
 export type LinkSession = z.infer<typeof LinkSession>;
 
 /**
@@ -301,6 +308,11 @@ export const systemLinkSpec = spec({
     stop: endpoint({ body: z.object({ reason: StopReason, timeout: Duration }), ws: 'sp' }),
     /** The config changed (or was set for the first time). The system runs `lifecycle.configured`. */
     configure: endpoint({ body: ConfigValue.extend({ previous: Json.optional() }), ws: 'cf' }),
+    /**
+     * The hub is about to copy the instance's data folder for an export: the system runs `lifecycle.exporting` (flush,
+     * checkpoint) within `timeout`, then answers with where its data folder is, so the hub copies the folder it uses.
+     */
+    export: endpoint({ body: z.object({ timeout: Duration }), response: z.object({ data: z.string() }), ws: 'ex' }),
   },
 });
 export type SystemLinkSpec = typeof systemLinkSpec;

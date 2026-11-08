@@ -1,0 +1,25 @@
+{
+  "name": "@harness/system-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The web system: Tavily search, and web pages read into hub resources (script-built pages rendered with puppeteer).",
+  "harness": {
+    "name": "web",
+    "main": "server/main.ts"
+  },
+  "exports": {
+    ".": "./shared/index.ts",
+    "./server": "./server/index.ts",
+    "./client": "./client/index.ts"
+  },
+  "dependencies": {
+    "@aeye/resources": "file:../../../aits/packages/resources",
+    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@harness/core": "*",
+    "@harness/sdk": "*",
+    "puppeteer": "^25.16.0",
+    "vue": "^3.5.22",
+    "zod": "^4.6.7"
+  }
+}

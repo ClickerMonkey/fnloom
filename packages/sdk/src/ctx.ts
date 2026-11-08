@@ -3,23 +3,53 @@
  * hook, mention, action and lifecycle event gets. These are interfaces; the serve runtime provides them.
  */
 import type {
-  ActorId, AllowedOperations, ContentRef, DeliveryId, ErrorClass, FnError, Json, Link, ModelChoice, Operations, QualifiedName,
+  ActorId, AllowedOperations, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
   Duration, TypeDefinitions, UserInfo,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
-import type { AttachmentRef, FnRef, SettingRef } from './refs.ts';
+import type { AnyFnRef, AttachmentRef, FnRef, SettingRef } from './refs.ts';
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
-/** LLM calls. They always go through the hub, which picks the model, enforces budgets and records them. */
+/** The modalities that go through the hub's `model` endpoint (chat has its own, `llm`). */
+export type ForwardModality = ModelForward['modality'];
+/** What a non-chat model call takes, by modality: core's `ModelForward`, without what the runtime fills in. */
+export type ModelInput<M extends ForwardModality> = Omit<Extract<ModelForward, { modality: M }>, 'modality' | 'run'>;
+/** What a non-chat model call gives back, by modality: core's `ModelForwardResult`, with its `ModelCall` id and cost. */
+export type ModelOutput<M extends ForwardModality> = Omit<Extract<ModelForwardResult, { modality: M }>, 'modality'>;
+
+/**
+ * Model calls. They always go through the hub, which picks the model, enforces budgets and records every call, of
+ * every modality, as a `ModelCall` attributed to the run.
+ */
 export interface Llm {
   text(input: { prompt: string; system?: string; model?: ModelChoice }): Promise<string>;
   /** An answer checked against a gin type. */
   object<T>(input: { prompt: string; output: GinType<T>; system?: string; model?: ModelChoice }): Promise<T>;
   stream(input: { prompt: string; system?: string; model?: ModelChoice }): AsyncIterable<string>;
+  /** One vector per text, in order. */
   embed(texts: string[]): Promise<number[][]>;
+  /** Images made from a prompt, stored with the hub: pass the refs on, or read them with `ctx.resources`. */
+  image(input: ModelInput<'image'>): Promise<ModelOutput<'image'>>;
+  /** The words spoken in stored audio, with timed segments when the model gives them. */
+  transcribe(input: ModelInput<'transcribe'>): Promise<ModelOutput<'transcribe'>>;
+  /** Spoken audio of a text, stored with the hub. */
+  speak(input: ModelInput<'speech'>): Promise<ModelOutput<'speech'>>;
+}
+
+/**
+ * Which instance of its system this process is, and the folders it keeps things in. An installed system's folders
+ * are outside its package, so upgrades and rollbacks keep them; `dataDir` is exported with the instance's data.
+ */
+export interface SystemPlace {
+  /** This instance's name: `main`, or its name in a fleet (`laptop`). */
+  readonly instance: InstanceName;
+  /** The system's own data (files, a SQLite database): what it stores there and how is its own business. */
+  readonly dataDir: string;
+  /** What can be made again (client builds, indexes): never exported, and may be cleared. */
+  readonly cacheDir: string;
 }
 
 /** File operations, limited to what the system allows. */
@@ -60,7 +90,7 @@ export interface Log {
 }
 
 /** What every run, undo and action gets from the hub. */
-export interface Services {
+export interface Services extends SystemPlace {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
@@ -80,7 +110,7 @@ export interface Services {
 }
 
 /** What hooks, mentions, actions, dynamic context, events and lifecycle events get. */
-export interface SystemCtx<Cfg = unknown> {
+export interface SystemCtx<Cfg = unknown> extends SystemPlace {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -234,6 +264,17 @@ export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
   /** Record an undo payload before finishing (after the first irreversible step). The last one wins. */
   undoWith(payload: T['undo']): void;
   done(result: T['result'], extra?: { undo?: T['undo']; cost?: Usd }): Outcome<T>;
+  /**
+   * The args were wrong in a way the fn's types can't say (a path outside the root, an end before the start): the
+   * caller's mistake, not a failure. An agent gets the problems back and tries again; the chat shows the run softly as
+   * "Retried". Give a message, or problems by path (a dotted path into the args, `''` for the whole).
+   */
+  invalid(problems: string | readonly InputProblem[], extra?: { cost?: Usd }): Outcome<T>;
+  /**
+   * Show the agent another fn with this result (`fs/search` showing `fs/read`): its card at `detail` (default
+   * `signature`) follows the tool reply, and it stays near the top of the next selection. Applies when the run is done.
+   */
+  expose(fn: AnyFnRef, detail?: Detail): void;
   fail(cls: ErrorClass, message: string, extra?: { code?: string; data?: Json; undo?: T['undo']; cost?: Usd }): Outcome<T>;
   pause(state: T['resume'], extra?: { cost?: Usd }): Outcome<T>;
   cancelled(extra?: { partial?: T['result']; undo?: T['undo']; cost?: Usd }): Outcome<T>;

@@ -7,7 +7,7 @@ import type { LlmInteraction, LlmInteractionId, LlmMessage, RunId, TreeNode } fr
 import { z } from 'zod';
 
 /** The tabs of an LLM call's details. */
-export const LlmCallTab = z.enum(['saw', 'tools', 'answer', 'json']);
+export const LlmCallTab = z.enum(['saw', 'context', 'tools', 'answer', 'json']);
 export type LlmCallTab = z.infer<typeof LlmCallTab>;
 
 /** The tabs of a run's details. */

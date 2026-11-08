@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * The input for an `fs/Entry` in forms and handler prompts: what it is (file, folder or link) and its path, with
- * the size and modified time shown when the value came from the system. Works with `v-model`.
+ * the size and modified time shown when the value came from the system. Works with `v-model`; with `readonly` it is
+ * the Entry's viewer (run cards' args and results), showing only what the entry is.
  */
 import type { InputViewOf } from '@harness/sdk';
 import { computed, useId } from 'vue';
@@ -35,11 +36,11 @@ function onPath(event: Event): void {
 </script>
 
 <template>
-  <div class="entry" :class="{ invalid: props.problems.length > 0 }">
-    <div class="types" role="radiogroup" aria-label="What it is">
+  <div class="entry" :class="{ invalid: props.problems.length > 0, readonly: props.readonly }">
+    <div class="types" role="radiogroup" aria-label="What it is" :aria-readonly="props.readonly">
       <button
         v-for="option in TYPES" :key="option.value" type="button" role="radio" class="type"
-        :aria-checked="current.type === option.value" @click="change({ type: option.value })"
+        :aria-checked="current.type === option.value" :disabled="props.readonly" @click="change({ type: option.value })"
       >
         {{ option.label }}
       </button>
@@ -51,7 +52,7 @@ function onPath(event: Event): void {
       </svg>
       <input
         :id="`${id}-path`" class="path" type="text" spellcheck="false" autocomplete="off" placeholder="docs/notes.md"
-        :value="current.path" :aria-invalid="props.problems.length > 0" :aria-describedby="`${id}-help`" @input="onPath"
+        :value="current.path" :readonly="props.readonly" :aria-invalid="props.problems.length > 0" :aria-describedby="`${id}-help`" @input="onPath"
       >
     </label>
     <p :id="`${id}-help`" class="help">
@@ -59,13 +60,15 @@ function onPath(event: Event): void {
         <span v-for="problem in props.problems" :key="problem" class="problem">{{ problem }}</span>
       </template>
       <template v-else-if="known">{{ details }}</template>
-      <template v-else>Absolute, or relative to a root.</template>
+      <template v-else-if="!props.readonly">Absolute, or relative to a root.</template>
     </p>
   </div>
 </template>
 
 <style scoped>
 .entry { display: grid; gap: var(--space-2); min-width: 0; }
+.entry.readonly .type:not([aria-checked="true"]) { display: none; }
+.entry.readonly .type { cursor: default; }
 .types { display: inline-flex; justify-self: start; padding: 2px; border-radius: var(--radius-sm); background: var(--surface-2); }
 .type {
   min-height: 28px;

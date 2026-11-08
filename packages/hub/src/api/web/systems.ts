@@ -8,21 +8,34 @@ import { plugin } from '@ayepi/plugin';
 import { systemsSlice, adminOnly, SystemView, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { knownSystem, type AdminOperations } from '../admin-ops.ts';
-import { collect, PAGE } from '../paging.ts';
 import { type FullHandlers } from './access.ts';
+import { allRows } from '../../catalog/rows.ts';
+import { defaultInstanceOf } from '../../link/status.ts';
+
+/** How many pairing requests the admin list shows at most. */
+const MAX_PAIRINGS = 500;
 import type { authPlugin } from './auth.ts';
+import type { HubReads } from '../reads.ts';
 
-/** How many systems the admin list shows at most. */
-const MAX_SYSTEMS = 500;
-
-/** A system as the admin pages show it: without its key, with its fn count and config type. */
-export async function systemView(hub: Pick<HubServices, 'catalog'>, record: SystemRecord): Promise<SystemView> {
-  const [fns, manifest] = await Promise.all([hub.catalog.fns({ system: record.name }), hub.catalog.manifest(record.name)]);
-  return SystemView.parse({ ...record, fns: fns.length, needsConfig: record.status === 'needs-config', configType: manifest?.config });
+/**
+ * A system as the admin pages show it: without keys, with its fn count, config type and instances, and its default
+ * instance's key, config, process and last sighting for the pages that show one copy.
+ */
+export async function systemView(hub: Pick<HubServices, 'catalog' | 'store'>, record: SystemRecord): Promise<SystemView> {
+  const [fns, manifest, rows] = await Promise.all([
+    hub.catalog.fns({ system: record.name }), hub.catalog.manifest(record.name), allRows(hub.store.table('instances'), { system: record.name }),
+  ]);
+  const instances = rows.sort((a, b) => a.instance.localeCompare(b.instance));
+  const main = instances.find((i) => i.instance === defaultInstanceOf(record, instances));
+  return SystemView.parse({
+    ...record, keyFingerprint: main?.keyFingerprint ?? '', config: main?.config, installed: main?.installed, pairedAt: main?.pairedAt, pairedBy: main?.pairedBy,
+    lastSeenAt: main?.lastSeenAt, address: main?.address,
+    fns: fns.length, needsConfig: record.status === 'needs-config', configType: manifest?.config, instances,
+  });
 }
 
 /** The systems plugin. */
-export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, ops: AdminOperations) {
+export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, ops: AdminOperations, reads: HubReads) {
   const { link, store } = hub;
   return plugin({ name: 'web.systems', spec: systemsSlice, requires: [auth] })
     .middleware(adminOnly, () => async (io) => {
@@ -30,14 +43,11 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
       return io.next();
     })
     .handlers((): FullHandlers<typeof systemsSlice> => ({
-      systems: async () => {
-        const records = await collect((cursor) => store.table('systems').find({ order: [['name', 'asc']], limit: PAGE, cursor }), MAX_SYSTEMS);
-        return Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r)));
-      },
-      system: async ({ data }) => systemView(hub, await knownSystem(hub, data.system)),
+      systems: ({ data, user }) => reads.systems_list(data, user),
+      system: ({ data, user }) => reads.system_get(data, user),
       pairings: async (io) => {
         const { status } = io.data;
-        return (await store.table('pairings').find({ ...(status === undefined ? {} : { where: { status } }), order: [['createdAt', 'desc']], limit: MAX_SYSTEMS })).items;
+        return (await store.table('pairings').find({ ...(status === undefined ? {} : { where: { status } }), order: [['createdAt', 'desc']], limit: MAX_PAIRINGS })).items;
       },
       approvePairing: ({ data, user }) => ops.approve_pairing(data, user.id),
       createPairingToken: ({ data, user }) => ops.create_pairing_token(data, user.id),

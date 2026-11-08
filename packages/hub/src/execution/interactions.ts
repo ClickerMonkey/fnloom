@@ -3,7 +3,7 @@
  * streaming and closed when it ends, so the fn tree shows calls live and an aborted call keeps what it streamed.
  */
 import {
-  mintId, type LlmInteraction, type LlmInteractionId, type LlmRequest, type LlmResponse, type LlmStatus, type LlmUsage, type Usd,
+  mintId, type LlmInteraction, type LlmInteractionId, type LlmRequest, type LlmResponse, type LlmStatus, type LlmUsage, type ModelCallId, type Usd,
 } from '@harness/core';
 import type { ExecutionBase } from './ports.ts';
 import type { LlmCallScope } from './scope.ts';
@@ -15,6 +15,8 @@ export interface InteractionEnd {
   usage: LlmUsage;
   cost: Usd;
   error?: string | undefined;
+  /** Its `ModelCall`. */
+  modelCall?: ModelCallId | undefined;
 }
 
 /** Opens and closes `LlmInteraction` rows. */
@@ -57,6 +59,7 @@ export class InteractionRecorder {
       ...(end.response === undefined ? {} : { response: end.response }),
       ...(end.error === undefined ? {} : { error: end.error }),
       ...(firstTokenAt === undefined ? {} : { firstTokenAt }),
+      ...(end.modelCall === undefined ? {} : { modelCall: end.modelCall }),
     });
   }
 }

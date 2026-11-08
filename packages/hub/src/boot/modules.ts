@@ -10,21 +10,26 @@ import type { Logger } from '@ayepi/log';
 import { hub, manifestOf } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { createChat } from '../chat/chat.ts';
-import { executionModule, type LlmSource } from '../execution/create.ts';
+import { executionModule, type ExecutionModule, type LlmSource } from '../execution/create.ts';
 import { buildSystems, type HubSystems } from '../link/build.ts';
 import { linkServicesPlugin, serviceCatalog } from '../link/services.ts';
-import { NodeInstaller, NodeLauncher, type Installer, type ProcessLauncher } from '../link/process.ts';
+import { NodeLauncher, type Installer, type ProcessLauncher } from '../link/process.ts';
 import { openSqliteStore } from '../store/sqlite.ts';
 import { adminOperations, type AdminOperations } from '../api/admin-ops.ts';
+import { hubReads, type HubReads } from '../api/reads.ts';
+import { registerMcpFns } from '../mcp/fns.ts';
 import { registerAdminFns } from './admin-fns.ts';
+import { registerReadFns } from './read-fns.ts';
 import { registerHubFns } from './hub-fns.ts';
 import { HUB_INFO } from './info.ts';
 import type { HubModules, HubServices, ModuleContext, ModuleFactory } from './index.ts';
 import { contextorModule } from '../contextor/create.ts';
+import { registerContextorFns } from '../contextor/fns.ts';
 import { mcpModule } from '../mcp/create.ts';
 import { metricsModule } from '../metrics/create.ts';
 import { modelsModule } from '../models/create.ts';
 import { resourcesModule } from '../resources/create.ts';
+import { registerResourceFns } from '../resources/fns.ts';
 
 /** What the production modules can be given instead of their defaults (tests, the e2e hub). */
 export interface ModuleSeams {
@@ -54,9 +59,13 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     const { hub } = context;
     const built = buildSystems({
       store: hub.store, bus: hub.bus, log: hub.log, clock: hub.clock, peers: context.peers, tokens: context.systemTokens,
-      settings: { hub: hub.settings.hubEnv, link: hub.settings.linkEnv, model: hub.settings.modelEnv, index: hub.settings.indexEnv, search: hub.settings.storeEnv },
+      settings: {
+        hub: hub.settings.hubEnv, link: hub.settings.linkEnv, packaging: hub.settings.packagingEnv, model: hub.settings.modelEnv, index: hub.settings.indexEnv,
+        search: hub.settings.storeEnv,
+      },
       launcher: seams.launcher ?? new NodeLauncher({ baseEnv: process.env, nodeArgs: process.execArgv }),
-      installer: seams.installer ?? new NodeInstaller(),
+      ...(seams.installer === undefined ? {} : { installer: seams.installer }),
+      content: () => hub.api.content,
     });
     builds.set(context, built);
     return built;
@@ -70,10 +79,14 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     link: (context) => {
       const { hub } = context;
       const systems = systemsOf(context);
-      const { connections, pairing, config, supervisor, admin, resources, output } = systems;
+      const { connections, pairing, config, supervisor, admin, resources, output, packages, router } = systems;
       return {
-        services: { connections, pairing, config, supervisor, admin, resources, output, tokens: context.systemTokens },
-        hooks: { links: { up: () => { systems.start(); return Promise.resolve(); }, pre: () => systems.stop() } },
+        services: { connections, pairing, config, supervisor, admin, resources, output, packages, instances: router, tokens: context.systemTokens },
+        hooks: {
+          // build 1's single-instance rows move onto instances before any system can connect
+          work: { up: async () => { await systems.migrate(); } },
+          links: { up: () => { systems.start(); return Promise.resolve(); }, pre: () => systems.stop() },
+        },
         linkPlugins: [systems.plugin, linkServicesPlugin({
           store: () => hub.store, catalog: () => serviceCatalog(hub.catalog), content: () => hub.api.content, state: () => hub.chat.state, turns: () => hub.chat.turns,
           maxUpload: hub.settings.httpEnv.HARNESS_MAX_UPLOAD, uploadTtl: hub.settings.httpEnv.HARNESS_PRESIGN_TTL, clock: hub.clock,
@@ -103,6 +116,27 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
   };
 };
 
+/**
+ * Implement the hub contract on execution's `HubFns`: the hub's own fns, the admin and read fns, and each module's
+ * (mcp, resources, contextor). Every native fn the contract declares is implemented here (a boot test checks it);
+ * services are read when a fn runs, never while registering.
+ */
+export function registerHubContract(module: { readonly hubFns: ExecutionModule['hubFns']; readonly handlers: Pick<ExecutionModule['handlers'], 'askPerson'> }, hub: HubServices): void {
+  registerHubFns(module.hubFns, {
+    store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
+  });
+  let ops: AdminOperations | undefined;
+  registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));
+  let reads: HubReads | undefined;
+  registerReadFns(module.hubFns, () => (reads ??= hubReads(hub)));
+  registerMcpFns(module.hubFns, { tokens: () => hub.mcp.tokens, settings: hub.settings.mcpEnv });
+  registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm });
+  registerContextorFns(module.hubFns, {
+    store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions,
+    contextor: () => hub.contextor, views: () => hub.contextor.views,
+  });
+}
+
 /** The hub's production modules. */
 export function hubModules(seams: ModuleSeams = {}): HubModules {
   return {
@@ -110,13 +144,7 @@ export function hubModules(seams: ModuleSeams = {}): HubModules {
     ...systemsModules(seams),
     execution: executionModule({
       ...(seams.llm === undefined ? {} : { llm: seams.llm }),
-      hubFns: (module, hub) => {
-        registerHubFns(module.hubFns, {
-          store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
-        });
-        let ops: AdminOperations | undefined;
-        registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));
-      },
+      hubFns: registerHubContract,
     }),
     chat: chatModule,
     ...BUILD_2_MODULES,

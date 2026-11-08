@@ -1,7 +1,7 @@
 /** Runs on the wire: who a run is for, how it reports progress, and how it ends. */
 import { z } from 'zod';
 import {
-  ActorId, Duration, Json, Priority, QualifiedName, RunId, SessionId, Timestamp, TurnId, Usd,
+  ActorId, Duration, InstanceName, Json, Priority, QualifiedName, RunId, SessionId, Timestamp, TurnId, Usd,
 } from './primitives.ts';
 import { RunText } from './status.ts';
 import { Exposure } from './modes.ts';
@@ -33,8 +33,10 @@ export type TimeInfo = z.infer<typeof TimeInfo>;
 /** Which system something is running in, and which system asked for it. */
 export const SystemInfo = z.object({
   name: z.string(),
-  /** This process (new on every start). */
-  instance: z.string(),
+  /** Which copy of the system runs it (`main` for a system that runs one copy). */
+  instance: InstanceName,
+  /** This process start (new on every start). */
+  boot: z.string(),
   /** When another system's fn made the call: that system, fn and run. */
   from: z.object({ system: z.string(), fn: QualifiedName, run: RunId }).optional(),
 });
@@ -152,6 +154,11 @@ export type InputProblemSource = z.infer<typeof InputProblemSource>;
 /** One thing wrong with a run's input: where (a dotted path into the args, empty for the whole) and what. */
 export const InputProblem = z.object({ path: z.string(), message: z.string() });
 export type InputProblem = z.infer<typeof InputProblem>;
+
+/** One problem as a reader sees it: `path: message`, or the message alone for the whole input. */
+export function problemLine(problem: InputProblem): string {
+  return problem.path === '' ? problem.message : `${problem.path}: ${problem.message}`;
+}
 
 /**
  * A run's input was refused before (or by) its fn. This is retryable and often expected from a model: the hub feeds the

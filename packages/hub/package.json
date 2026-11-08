@@ -5,7 +5,8 @@
   "type": "module",
   "description": "The hub: store, catalog, system links, execution, chat, index and the web API.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./package": "./src/link/package/index.ts"
   },
   "bin": {
     "harness-hub": "./src/main.ts"

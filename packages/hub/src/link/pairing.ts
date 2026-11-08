@@ -1,21 +1,29 @@
 /**
- * Pairing: a name the hub has never seen (or a known name with a different key) waits for an admin. With a code, the
- * system prints a short code and a link and the admin confirms the code matches; with a one-time token made by an
- * admin, the pairing is approved at once. Either way the hub then tells the waiting socket `paired`, and the system
- * says hello again to get a challenge. Installed systems are paired at install with a key the hub made.
+ * Pairing: an instance the hub has never seen (or a known instance name with a different key) waits for an admin.
+ * With a code, the system shows a short code, a link and a QR code of the link (`/pair/:pairing?code=`), and the
+ * admin confirms the code matches; with a one-time token made by an admin, the pairing is approved at once. While it
+ * waits, the system says what it is (`pairingInfo`: description, instance, config type), so the pairing page can ask
+ * for config and the admin can rename the instance as they approve. Either way the hub then tells the waiting socket
+ * `paired`, and the system says hello again to get a challenge. Installed instances are paired at install with a key
+ * the hub made.
+ *
+ * An instance is known by its key: a hello whose key matches an instance of the system proves it as that instance,
+ * whatever name it asked for (the admin may have renamed it), and its welcome says the name it was paired as.
  */
 import { reject as refuse, type Peer } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  mintId, type ActorId, type Hello, type HelloReply, type PairingId, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
+  MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceName, type InstanceRecord,
+  type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
   type SystemRecord, type Timestamp,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { allRows } from '../catalog/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
-import type { PairingService } from './index.ts';
+import type { PairingChoice, PairingService } from './index.ts';
 import { fingerprint, pairingCode, randomToken, sha256Hex } from './keys.ts';
+import type { InstanceKeeper } from './status.ts';
 
 /** What pairing needs. */
 export interface PairingOptions {
@@ -23,8 +31,13 @@ export interface PairingOptions {
   readonly bus: EventBus;
   readonly log: Logger;
   readonly clock: () => number;
-  /** The hub's public URL; the approval link is under it. */
-  readonly url: string;
+  readonly instances: InstanceKeeper;
+  /** Checks a config value against a config type (the catalog's `check`); the problems, none when it fits. */
+  readonly check: (system: SystemName, type: GinTypeDef, value: Json) => Promise<string[]>;
+  /** The config type of a system whose contract the hub has (it wins over what a waiting system said). */
+  readonly configType: (system: SystemName) => Promise<GinTypeDef | undefined>;
+  /** The hub as phones reach it (`HARNESS_PUBLIC_URL`); unset, links use the address the system dialed. */
+  readonly publicUrl?: string | undefined;
   /** How long a pairing request waits for an admin. */
   readonly timeout: number;
 }
@@ -32,59 +45,96 @@ export interface PairingOptions {
 /** Where a socket asking to pair came from. */
 export interface PairingAsker {
   readonly address: string;
+  /** The origin the system reached the hub at (`http://192.168.50.112:4300`), for the pairing link. */
+  readonly origin: string;
   /** The socket's peer, told `paired` once the request is approved. */
   readonly peer: Peer<SystemLinkSpec>;
+}
+
+/** A known instance a hello's key matches, so it gets a challenge rather than a pairing. */
+export interface KnownKey {
+  readonly instance: InstanceRecord;
 }
 
 /** Pairing requests and tokens, kept in the hub store. */
 export class StorePairingService implements PairingService {
   readonly #options: PairingOptions;
-  readonly #waiting = new Map<PairingId, Peer<SystemLinkSpec>>();
+  /** Sockets waiting on a request, with the origin they dialed (for links made later). */
+  readonly #waiting = new Map<PairingId, { peer: Peer<SystemLinkSpec>; origin: string }>();
 
   constructor(options: PairingOptions) {
     this.#options = options;
   }
 
-  /** Where an admin approves a pairing. */
-  approvalUrl(pairing: PairingId): string {
-    return `${this.#options.url.replace(/\/$/, '')}/admin/systems?pairing=${encodeURIComponent(pairing)}`;
+  /** Where an admin approves a pairing: the pairing page, with the code when there is one (so a scan carries it). */
+  approvalUrl(request: Pick<PairingRequest, 'id' | 'code'>, origin: string): string {
+    const base = (this.#options.publicUrl ?? origin).replace(/\/$/, '');
+    return `${base}/pair/${encodeURIComponent(request.id)}${request.code === undefined ? '' : `?code=${encodeURIComponent(request.code)}`}`;
+  }
+
+  /** The instance of a system whose paired key a hello carries, if any (an instance is known by its key). */
+  async known(hello: Hello): Promise<KnownKey | undefined> {
+    const keyFingerprint = fingerprint(hello.publicKey);
+    const matching = (await this.#options.instances.of(hello.name)).filter((i) => i.status !== 'removed' && i.keyFingerprint === keyFingerprint);
+    const instance = matching.find((i) => i.instance === hello.instance) ?? matching[0];
+    return instance === undefined ? undefined : { instance };
   }
 
   /**
    * Start pairing for a hello the hub can't accept with a challenge. With a valid pairing token it is approved at
-   * once; otherwise it waits for an admin with a code (an unexpired request for the same name and key is reused).
-   * A token replaces the key of a system already paired only when it was made for that system's name, so a token
-   * meant for a new system can't take over an existing one.
+   * once; otherwise it waits for an admin with a code (an unexpired request for the same instance and key is reused).
+   * A token replaces the key of an instance already paired only when it was made for that system's name, so a token
+   * meant for a new system can't take over an existing one. Names the hub keeps for itself are refused.
    */
   async start(hello: Hello, asker: PairingAsker): Promise<HelloReply> {
+    if (isReservedSystemName(hello.name)) { throw refuse(403, 'RESERVED_NAME', `${hello.name} is a name the hub keeps for itself`); }
     const { store, clock, timeout } = this.#options;
     const now = clock();
     const keyFingerprint = fingerprint(hello.publicKey);
-    const existing = await store.table('systems').get(hello.name);
-    const replaces = existing !== undefined && existing.keyFingerprint !== keyFingerprint ? { replaces: existing.name } : {};
+    const existing = await this.#options.instances.get({ system: hello.name, instance: hello.instance });
+    const rekeys = existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== keyFingerprint;
     const base = {
-      name: hello.name, keyFingerprint, publicKey: hello.publicKey, version: hello.version, address: asker.address, createdAt: now, expiresAt: now + timeout, ...replaces,
+      name: hello.name, instance: hello.instance, keyFingerprint, publicKey: hello.publicKey, version: hello.version, address: asker.address,
+      createdAt: now, expiresAt: now + timeout, ...(rekeys ? { replaces: hello.name } : {}),
     };
 
     if (hello.pairingToken !== undefined) {
-      const token = await this.#redeem(hello.pairingToken, hello.name, existing !== undefined);
+      const token = await this.#redeem(hello.pairingToken, hello.name, rekeys);
       const request = await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'token', status: 'approved' });
-      await this.#pair(request, token.createdBy);
+      await this.#pair(request, token.createdBy, {});
       this.#options.bus.publish('pairing', { pairing: request });
       await this.#supersede(request);
       this.#tellPaired(request.id, asker.peer);
-      return { kind: 'pairing', pairing: request.id, url: this.approvalUrl(request.id), expiresAt: request.expiresAt };
+      return { kind: 'pairing', pairing: request.id, url: this.approvalUrl(request, asker.origin), expiresAt: request.expiresAt };
     }
 
     const open = (await allRows(store.table('pairings'), { name: hello.name, status: 'pending' }))
-      .find((r) => r.keyFingerprint === keyFingerprint && r.expiresAt > now);
+      .find((r) => r.keyFingerprint === keyFingerprint && (r.instance ?? MAIN_INSTANCE) === hello.instance && r.expiresAt > now);
     const request = open ?? await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'code', code: pairingCode(), status: 'pending' });
-    this.#waiting.set(request.id, asker.peer);
+    this.#waiting.set(request.id, { peer: asker.peer, origin: asker.origin });
     if (open === undefined) {
       this.#options.bus.publish('pairing', { pairing: request });
-      this.#options.log.info('pairing.requested', { pairing: request.id, system: request.name, method: 'code', replaces: request.replaces });
+      this.#options.log.info('pairing.requested', { pairing: request.id, system: request.name, instance: hello.instance, method: 'code', replaces: request.replaces });
     }
-    return { kind: 'pairing', pairing: request.id, ...(request.code === undefined ? {} : { code: request.code }), url: this.approvalUrl(request.id), expiresAt: request.expiresAt };
+    return {
+      kind: 'pairing', pairing: request.id, ...(request.code === undefined ? {} : { code: request.code }),
+      url: this.approvalUrl(request, asker.origin), expiresAt: request.expiresAt,
+    };
+  }
+
+  /**
+   * What a waiting system says about itself, kept on its request for the pairing page. Only the socket that started
+   * the pairing may say it, and only while the request waits.
+   */
+  async info(info: PairingInfo, peer: Peer<SystemLinkSpec>): Promise<PairingRequest> {
+    const waiting = this.#waiting.get(info.pairing);
+    if (waiting?.peer !== peer) { throw refuse(403, 'NOT_YOUR_PAIRING', 'only the socket that started a pairing may describe it'); }
+    const request = await this.#open(info.pairing);
+    const updated = await this.#options.store.table('pairings').update(request.id, {
+      description: info.description, instance: info.instance, ...(info.configType === undefined ? {} : { configType: info.configType }),
+    });
+    this.#options.bus.publish('pairing', { pairing: updated });
+    return updated;
   }
 
   async pending(): Promise<PairingRequest[]> {
@@ -98,15 +148,25 @@ export class StorePairingService implements PairingService {
     return out;
   }
 
-  async approve(pairing: PairingId, by: ActorId): Promise<SystemRecord> {
+  async get(pairing: PairingId): Promise<PairingRequest> {
+    const request = await this.#options.store.table('pairings').get(pairing);
+    if (request === undefined) { throw refuse(404, 'NO_PAIRING', `no pairing ${pairing}`); }
+    if (request.status === 'pending' && request.expiresAt <= this.#options.clock()) {
+      this.#waiting.delete(pairing);
+      return this.#options.store.table('pairings').update(pairing, { status: 'expired' });
+    }
+    return request;
+  }
+
+  async approve(pairing: PairingId, by: ActorId, choice: PairingChoice = {}): Promise<InstanceRecord> {
     const request = await this.#open(pairing);
-    const record = await this.#pair(request, by);
-    const approved = await this.#options.store.table('pairings').update(pairing, { status: 'approved' });
+    const record = await this.#pair(request, by, choice);
+    const approved = await this.#options.store.table('pairings').update(pairing, { status: 'approved', instance: record.instance });
     this.#options.bus.publish('pairing', { pairing: approved });
     await this.#supersede(approved);
-    const peer = this.#waiting.get(pairing);
+    const waiting = this.#waiting.get(pairing);
     this.#waiting.delete(pairing);
-    if (peer !== undefined) { this.#tellPaired(pairing, peer); }
+    if (waiting !== undefined) { this.#tellPaired(pairing, waiting.peer); }
     return record;
   }
 
@@ -129,9 +189,8 @@ export class StorePairingService implements PairingService {
     return { token, expiresAt };
   }
 
-  async pairInstalled(system: SystemName, publicKey: string, by: ActorId): Promise<SystemRecord> {
-    const existing = await this.#options.store.table('systems').get(system);
-    return this.#pair({ name: system, publicKey, keyFingerprint: fingerprint(publicKey), version: existing?.version ?? '0.0.0', address: 'installed' }, by);
+  async pairInstalled(ref: InstanceRef, publicKey: string, version: string, by: ActorId): Promise<InstanceRecord> {
+    return this.#pair({ name: ref.system, instance: ref.instance, publicKey, keyFingerprint: fingerprint(publicKey), version, address: 'installed' }, by, {});
   }
 
   /** A pending, unexpired request, or a refusal. */
@@ -146,20 +205,21 @@ export class StorePairingService implements PairingService {
   }
 
   /**
-   * A system is paired: its other requests still waiting (an earlier code it never used, say) can't be approved any
+   * An instance is paired: its other requests still waiting (an earlier code it never used, say) can't be approved any
    * more, so they end as expired and are announced, and nobody is left asked to approve them.
    */
   async #supersede(paired: PairingRequest): Promise<void> {
     const { store, bus } = this.#options;
+    const instance = paired.instance ?? MAIN_INSTANCE;
     for (const request of await allRows(store.table('pairings'), { name: paired.name, status: 'pending' })) {
-      if (request.id === paired.id) { continue; }
+      if (request.id === paired.id || (request.instance ?? MAIN_INSTANCE) !== instance) { continue; }
       this.#waiting.delete(request.id);
       bus.publish('pairing', { pairing: await store.table('pairings').update(request.id, { status: 'expired' }) });
     }
   }
 
-  /** Check and use up a one-time token. Re-keying a paired system needs a token made for its name. */
-  async #redeem(token: string, name: SystemName, paired: boolean): Promise<PairingToken> {
+  /** Check and use up a one-time token. Re-keying a paired instance needs a token made for its system's name. */
+  async #redeem(token: string, name: SystemName, rekeys: boolean): Promise<PairingToken> {
     const tokens = this.#options.store.table('pairingTokens');
     const page = await tokens.find({ where: { tokenHash: sha256Hex(token) }, limit: 1 });
     const found = page.items[0];
@@ -167,27 +227,63 @@ export class StorePairingService implements PairingService {
     if (found === undefined || found.usedAt !== undefined || found.expiresAt <= now || (found.name !== undefined && found.name !== name)) {
       throw refuse(401, 'BAD_PAIRING_TOKEN', 'the pairing token is unknown, used, expired or for another name');
     }
-    if (paired && found.name === undefined) {
+    if (rekeys && found.name === undefined) {
       throw refuse(403, 'TOKEN_NOT_FOR_SYSTEM', `${name} is already paired: replacing its key needs a token made for ${name}`);
     }
     return tokens.update(found.id, { usedAt: now });
   }
 
-  /** Make or re-key a system's row. A re-keyed system keeps its config, switches and actor. */
-  async #pair(request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'>, by: ActorId): Promise<SystemRecord> {
-    const { store, clock, log } = this.#options;
+  /**
+   * Make or re-key an instance (and its system's row the first time). A re-keyed instance keeps its config and folders;
+   * a system keeps its switches and actor. A config chosen at approval is checked against the system's config type
+   * (the contract's when the hub has it, else what the waiting system said) and set as version 1, so the welcome
+   * carries it.
+   */
+  async #pair(
+    request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'> & { instance?: InstanceName | undefined; configType?: GinTypeDef | undefined },
+    by: ActorId,
+    choice: PairingChoice,
+  ): Promise<InstanceRecord> {
+    const { clock, log, instances } = this.#options;
+    const ref: InstanceRef = { system: request.name, instance: choice.instance ?? request.instance ?? MAIN_INSTANCE };
     const now = clock();
-    const existing = await store.table('systems').get(request.name);
-    const actor = existing?.actor ?? (await store.table('actors').insert({
-      id: mintId('actor'), kind: 'system', system: request.name, name: request.name, about: `The ${request.name} system.`, createdAt: now, disabled: false,
-    })).id;
+    const existing = await instances.get(ref);
+    // renaming onto another paired instance would hand it this key: only the name asked for (shown as `replaces`) re-keys
+    const renamedOnto = choice.instance !== undefined && choice.instance !== (request.instance ?? MAIN_INSTANCE);
+    if (renamedOnto && existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== request.keyFingerprint) {
+      throw refuse(409, 'INSTANCE_TAKEN', `${instanceLabel(ref)} is another machine's instance: pick a name of its own`);
+    }
+    const config = choice.config === undefined ? undefined : await this.#checked(ref, choice.config, request.configType);
+    await this.#system(request.name, request.version, now);
     const keyed = { keyFingerprint: request.keyFingerprint, publicKey: request.publicKey, pairedAt: now, pairedBy: by, address: request.address };
-    const record: SystemRecord = existing === undefined
-      ? { name: request.name, description: '', status: 'disconnected', enabled: { functions: true, renderers: true }, version: request.version, manifestHash: '', actor, ...keyed }
-      : { ...existing, ...keyed, status: existing.status === 'removed' ? 'disconnected' : existing.status };
-    const saved = await store.table('systems').put(record);
-    log.info('pairing.paired', { system: request.name, by, replaced: existing !== undefined });
+    const fresh: InstanceRecord = { ...ref, description: '', status: 'disconnected', version: request.version, manifestHash: '', ...keyed };
+    const configured = config === undefined ? {} : { config: { value: config, version: (existing?.config?.version ?? 0) + 1, setBy: by, setAt: now } };
+    const saved = await instances.sync(ref, (current) => ({
+      ...current, ...keyed, ...configured, status: current.status === 'removed' ? 'disconnected' : current.status,
+    }), fresh);
+    log.info('pairing.paired', { system: ref.system, instance: ref.instance, by, replaced: existing !== undefined, configured: config !== undefined });
     return saved;
+  }
+
+  /** A config value checked against the system's config type, or a refusal listing the problems. */
+  async #checked(ref: InstanceRef, value: Json, waitingType: GinTypeDef | undefined): Promise<Json> {
+    const type = await this.#options.configType(ref.system) ?? waitingType;
+    const problems = type === undefined
+      ? [`${ref.system} hasn't said what its config is yet, so none can be set as it pairs`]
+      : await this.#options.check(ref.system, type, value);
+    if (problems.length > 0) { throw refuse(422, 'BAD_CONFIG', `the config for ${instanceLabel(ref)} doesn't fit: ${problems.join('; ')}`); }
+    return value;
+  }
+
+  /** The system's row, made (with its actor) the first time an instance of it is paired. */
+  async #system(name: SystemName, version: string, now: number): Promise<SystemRecord> {
+    const { store } = this.#options;
+    const existing = await store.table('systems').get(name);
+    if (existing !== undefined) { return existing; }
+    const actor = (await store.table('actors').insert({
+      id: mintId('actor'), kind: 'system', system: name, name, about: `The ${name} system.`, createdAt: now, disabled: false,
+    })).id;
+    return store.table('systems').put({ name, description: '', status: 'disconnected', enabled: { functions: true, renderers: true }, version, manifestHash: '', actor });
   }
 
   /** Tell a waiting socket its pairing went through, once the hello reply has gone out. */

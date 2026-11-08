@@ -1,0 +1,48 @@
+### Config
+
+A system declares what it needs before it can be used as `config: g.obj({ … })` (folders to serve, a database URL, an
+API key). An admin sets the value in the hub (or a person does by asking in chat), checked against the type; until a
+valid value is set the system shows as needing config and its fns, mentions and hooks are unavailable. The current
+value is `ctx.config` in every context, typed; a run keeps the value it started with. Config lives in the hub's
+database, never in a file of the system. Mark secrets plainly in the field docs; never log them.
+
+### Events
+
+`events` handles hub events by type, and the system is subscribed to exactly the types it handles: `message` (a chat
+message), `run` (a run's status, progress, operations or cost changed), `resources` (resources changed), `system` (a
+system connected, disconnected or was removed) and `fns` (fns were added or removed). Each handler is
+`async (event, ctx) => void`, with the event typed by its `type`.
+
+### Lifecycle
+
+`lifecycle` handles moments in the system's life, each `async (ctx) => void` with the system context:
+
+- `installed`: the first connect after being paired or installed, with a valid config;
+- `started`: every connect with a valid config, once the contract is imported;
+- `configured`: the config changed; `ctx.previous` is the value it replaced (or `undefined`). React if it matters
+  (watch new folders, reconnect to a new database); runs already going keep their value;
+- `stopping`: before it stops, with `ctx.reason` (`restart`, `upgrade`, `shutdown`, `removed`) and `ctx.timeout`;
+- `upgraded`: the first start of a new version, with `ctx.from`;
+- `uninstalled`: an admin removed it; clean up anything kept outside the hub.
+
+<!-- include: scripts/docs/example/server/impl.ts#impl-lifecycle -->
+
+### Data, cache and instances
+
+The hub gives each installed instance its own folders, outside the package, so upgrades and rollbacks keep them:
+`<hub data>/systems/<name>/instances/<instance>/{state,data,cache}`. Code reaches them through every context:
+
+- `ctx.dataDir`: the system's own data (files, a SQLite database). What it stores there and how is its own business;
+  the hub exports this folder with the instance's config (`harness system export-data`) and installs it back.
+- `ctx.cacheDir`: what can be made again (client builds, indexes). Never exported; may be cleared.
+- `ctx.instance`: this instance's name, `main` for a system that runs one copy. Several copies of one system can be
+  attached at once (a fleet: `fs@laptop`, `fs@desk`); fn names and refs stay the same, and the hub picks the instance
+  for each call. Set `"instances": "many"` in `system.json` for a system meant to run as a fleet.
+
+Open stores lazily from `ctx.dataDir` (one per folder) rather than at import time; the notes system opens its store
+from each context:
+
+<!-- include: scripts/docs/example/server/index.ts#store -->
+
+Outside the hub (a system started by hand) the folders default to `.harness/systems/<name>/<instance>/…`. Never write
+into the system's own source folder at runtime.

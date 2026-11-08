@@ -10,15 +10,18 @@
  * agent keeps its conversation on its run. The run's `resume` holds the loop's state (`AgentState`), so a pause, a
  * cancel or a restart picks up exactly where it was.
  */
-import { Prompt } from '@aeye/core';
-import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
+import { Prompt, type Context, type Message, type PromptInput, type Request, type Usage } from '@aeye/core';
+import { LlmPayloadType, parseValue } from '@harness/sdk';
 import {
-  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, type ActorId, type FnError, type FnRecord, type OutcomeWire, type Run, type RunSettled, type Session, type RunControlAction,
+  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, SelectionReport, type ActorId, type FnError, type InvalidInput, type OutcomeWire, type Run,
+  type RunSettled, type Session, type RunControlAction,
 } from '@harness/core';
 import { z } from 'zod';
-import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { FnSignature } from '../catalog/index.ts';
 import type { MessageEnricher } from '../chat/index.ts';
+import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
+import { AUTO_MODEL } from '../contextor/limits.ts';
+import { parseRunBlocks, problemLines, resultText, RunBlockFilter } from '../contextor/render.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
 import { rows } from './pages.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type RunInput } from './index.ts';
@@ -27,15 +30,20 @@ import type { ControlAnswer, Conversation, ExecutionDeps, ExecutionJob, LlmEngin
 import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { settledOf, type HubRunService } from './runs.ts';
 import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
-import { PendingCalls, toolset } from './tools.ts';
+import { agentTools, PendingCalls } from './tools.ts';
 import { isObjectSchema, messageFromWire, messageToWire, replyText } from './wire.ts';
 
-/** One tool call of the last iteration, and the run it became (or why it couldn't). */
+/** One call of the last iteration (a native tool call, or a `<run>` block), and the run it became (or why it didn't). */
 export const PendingCall = z.object({
   toolCallId: z.string(),
-  fn: QualifiedName,
+  /** The fn it runs; for a call refused before it ran, the name the model gave. */
+  fn: z.string(),
   run: RunId.optional(),
   error: z.string().optional(),
+  /** Refused before it ran (invalid input): the reply the model reads, with what was wrong. */
+  invalid: z.string().optional(),
+  /** It came as a `<run>` block in the model's text, so its reply goes back as a `<result>` message. */
+  block: z.boolean().optional(),
 });
 export type PendingCall = z.infer<typeof PendingCall>;
 
@@ -55,6 +63,8 @@ export const AgentState = z.object({
   message: MessageId.optional(),
   /** Whether a session's agent has put its turn's user message into the transcript. */
   seeded: z.boolean().optional(),
+  /** What the contextor chose for this message, so later and retried iterations keep it (`perMessage`). */
+  selection: SelectionReport.optional(),
 });
 export type AgentState = z.infer<typeof AgentState>;
 
@@ -151,6 +161,24 @@ export interface AgentLoopDeps extends ExecutionDeps {
   readonly models: Pick<ModelResolver, 'resolve'>;
   /** How a chat message reads to the LLM (mentions, extras and hooks as tagged blocks). */
   readonly enrich: Pick<MessageEnricher, 'render'>;
+  /** What each prompt holds, within the model's limits, and what the model's calls mean. */
+  readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled'>;
+}
+
+/** An agent's prompt; it logs when aeye's `forget` drops messages, which the planner's budget should never let happen. */
+class AgentPrompt extends Prompt<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, [], AgentOutput> {
+  readonly #forgot: (dropped: number) => void;
+
+  constructor(input: PromptInput<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, [], AgentOutput>, forgot: (dropped: number) => void) {
+    super(input);
+    this.#forgot = forgot;
+  }
+
+  protected override forget(request: Request, ctx: Context<HubCallContext, HubCallMetadata>, usage?: Usage): Message[] {
+    const kept = super.forget(request, ctx, usage);
+    if (kept.length < request.messages.length) this.#forgot(request.messages.length - kept.length);
+    return kept;
+  }
 }
 
 /** The input an agent's instructions are rendered with. */
@@ -251,9 +279,12 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       state = { ...state, seeded: true };
       await store.table('runs').update(run.id, { resume: Json.parse(state) });
     }
+    // a chat's own model choice wins over the one its agent fn makes
+    const metadata = await this.#deps.models.resolve(session?.model ?? ModelChoice.optional().parse(payload.model));
+    const model = metadata.model ?? AUTO_MODEL;
     if (state.pending.length > 0) {
       // Answered and saved at once, so a job that runs again (after a rate limit) never answers twice.
-      const replies = await this.#replies(state.pending);
+      const replies = await this.#replies(state.pending, { session, agent: fn, model });
       await conversation.answer(state.anchor, replies.messages);
       state = { ...state, pending: [], failures: replies.allFailed ? state.failures + 1 : 0, ...this.#saved(conversation) };
       await store.table('runs').update(run.id, { resume: Json.parse(state) });
@@ -263,8 +294,16 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
         return { failed };
       }
     }
+    const planned = await this.#deps.planner.plan({
+      session, turn, agent: fn, model, instructions: payload.instructions, transcript: await conversation.messages(), cached: state.selection,
+    });
+    if (state.selection === undefined) {
+      state = { ...state, selection: planned.report };
+      await store.table('runs').update(run.id, { resume: Json.parse(state) });
+    }
     const calls = new PendingCalls();
-    const tools = toolset(await this.#tools(payload, session), calls);
+    const tools = agentTools(planned.tools, calls);
+    const blocks = planned.rendered.protocol === 'text' ? new RunBlockFilter() : undefined;
     const signature = await catalog.signature(fn.name);
     const output = outputOf(signature);
     const message = session === undefined ? undefined : await this.#message(run, state, turn.message);
@@ -275,29 +314,31 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const scope = new LlmCallScope({
       run: run.id, turn: run.turn, session: run.session, fn: run.fn, actor: run.actor, iteration: state.iteration, priority: run.priority, limits: turn.limits, queuedAt: clock(),
     });
-    // a chat's own model choice wins over the one its agent fn makes
-    const metadata = await this.#deps.models.resolve(session?.model ?? ModelChoice.optional().parse(payload.model));
-    const prompt = new Prompt<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, [], AgentOutput>({
+    const prompt = new AgentPrompt({
       name: 'agent',
       description: fn.decl.description,
       content: `${payload.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
       input: (input) => ({ args: input?.args ?? null, context: input?.context ?? '' }),
       schema: output.schema,
-      retool: () => tools.tools,
+      config: { maxTokens: planned.maxTokens },
+      retool: () => tools,
       toolExecution: payload.toolExecution,
       metadata,
-    });
+    }, (dropped) => { this.#deps.log.warn('agent.forget', { run: run.id, iteration: state.iteration, model, dropped, estimate: planned.estimate }); });
 
     const collected: LlmMessage[] = [];
     let answer: AgentOutput | undefined;
     let suspended = false;
     let reasoning = '';
-    const ctx = { call: scope, messages: (await conversation.messages()).map(messageFromWire), signal, stream: this.#deps.llm.streamer };
-    for await (const event of prompt.get('stream', { args: run.args, context: await this.#context(payload, session) }, ctx)) {
+    const stream = (text: string): void => { if (message !== undefined && text !== '') this.#deps.turns.stream(message, { text }); };
+    const ctx = {
+      call: scope, messages: planned.messages.map(messageFromWire), signal, stream: this.#deps.llm.streamer, contextWindow: planned.contextWindow, maxOutputTokens: planned.maxTokens,
+    };
+    for await (const event of prompt.get('stream', { args: run.args, context: planned.context }, ctx)) {
       switch (event.type) {
         case 'textPartial':
           scope.markFirstToken(clock());
-          if (message !== undefined) this.#deps.turns.stream(message, { text: event.content });
+          stream(blocks === undefined ? event.content : blocks.push(event.content));
           break;
         case 'reasonPartial': {
           scope.markFirstToken(clock());
@@ -327,19 +368,23 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       }
     }
     if (signal.aborted) return 'done';
+    if (blocks !== undefined) stream(blocks.end());
     const at = await conversation.append(collected);
+    const last = scope.last;
+    if (last !== undefined) await store.table('llmInteractions').update(last.interaction, { selection: planned.report });
 
-    if (suspended) {
-      const index = lastToolCallsIndex(collected);
-      const assistant = collected[index];
-      const ids = assistant?.toolCalls?.map((c) => c.id) ?? [];
-      const pending = await this.#startCalls(run, state.iteration, calls.inOrder(ids), scope.last?.interaction);
+    const made = suspended ? this.#toolCalls(collected, calls) : this.#blockCalls(collected, answer, state.iteration);
+    if (made !== undefined) {
+      const interpreted = await Promise.all(made.calls.map(async (call) => ({ ...call, plan: await this.#deps.planner.interpret(call.out, planned) })));
+      const pending = await this.#startCalls(run, state.iteration, interpreted, last?.interaction);
+      await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used: pending.flatMap((call) => (call.run === undefined ? [] : [QualifiedName.parse(call.fn)])) });
       if (message !== undefined) await this.#deps.turns.track(message, pending.flatMap((call) => (call.run === undefined ? [] : [call.run])));
-      const next: AgentState = { ...state, iteration: state.iteration + 1, pending, anchor: at + index, ...this.#saved(conversation) };
+      const next: AgentState = { ...state, iteration: state.iteration + 1, pending, anchor: at + made.index, ...this.#saved(conversation) };
       await store.table('runs').update(run.id, { status: 'waiting', resume: Json.parse(next) });
       void this.#await(run, next);
       return 'waiting-for-tools';
     }
+    await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used: [] });
 
     if (answer === undefined) throw new Error(`${run.fn} ended without an answer`);
     const result = output.result(answer);
@@ -365,7 +410,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     await this.#backgroundCalls(state);
     if (state.pending.length > 0) {
       const conversation = this.#conversation(await this.#session(run), state);
-      await conversation.answer(state.anchor, (await this.#replies(state.pending)).messages);
+      await conversation.answer(state.anchor, (await this.#replies(state.pending, undefined)).messages);
       await this.#deps.store.table('runs').update(id, { resume: Json.parse({ ...state, pending: [], ...this.#saved(conversation) }) });
     }
     if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: INTERRUPTED }], 'done');
@@ -480,77 +525,83 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     }));
   }
 
-  /** Start a run for each tool call; a call that can't start is answered with why. */
+  /** The native tool calls of an iteration that suspended, in the order the model made them, with the message holding them. */
+  #toolCalls(collected: readonly LlmMessage[], calls: PendingCalls): { calls: ModelCalls; index: number } {
+    const index = lastToolCallsIndex(collected);
+    const ids = collected[index]?.toolCalls?.map((c) => c.id) ?? [];
+    return { index, calls: calls.inOrder(ids).map((call) => ({ toolCallId: call.toolCallId, block: false, out: { type: 'tool', id: call.toolCallId, name: call.name, args: call.args } })) };
+  }
+
+  /** The `<run>` blocks of a text-protocol answer (none for native tools or an answer without blocks), each with a made-up call id. */
+  #blockCalls(collected: readonly LlmMessage[], answer: AgentOutput | undefined, iteration: number): { calls: ModelCalls; index: number } | undefined {
+    if (typeof answer !== 'string') return undefined;
+    const found = parseRunBlocks(answer).calls;
+    if (found.length === 0) return undefined;
+    const index = collected.findLastIndex((m) => m.role === 'assistant');
+    return {
+      index,
+      calls: found.map((block, i) => {
+        const id = `block_${iteration}_${i + 1}`;
+        return { toolCallId: id, block: true, out: { type: 'block', id, fn: block.fn, json: block.json } };
+      }),
+    };
+  }
+
   /**
-   * Start an iteration's tool calls as child runs. Each is keyed by its iteration and tool call id: a job that runs the
-   * iteration again gets the same runs back, while a model that reuses ids across iterations (some do) still gets new
-   * runs for its new calls.
+   * Start an iteration's calls as child runs: each planned run of a fn (never a wrapper: a static `run` starts the fn
+   * it names), keyed by its iteration and call id, so a job that runs the iteration again gets the same runs back while
+   * a model that reuses ids across iterations (some do) still gets new runs. A call refused before it ran (invalid
+   * input) is answered with its reply; a run that can't start is answered with why.
    */
-  async #startCalls(run: Run, iteration: number, calls: ReturnType<PendingCalls['inOrder']>, llmCall: Run['llmCall']): Promise<PendingCall[]> {
+  async #startCalls(run: Run, iteration: number, calls: ReadonlyArray<ModelCalls[number] & { plan: CallPlan }>, llmCall: Run['llmCall']): Promise<PendingCall[]> {
     const caller = await this.#agentActor(run);
     const pending: PendingCall[] = [];
-    for (const call of calls) {
+    for (const { toolCallId, block, plan, out } of calls) {
+      const marker = block ? { block: true } : {};
+      if (plan.type === 'invalid') {
+        pending.push({ toolCallId, fn: plan.fn ?? (out.type === 'tool' ? out.name : out.fn ?? 'run'), invalid: plan.reply, ...marker });
+        this.#deps.log.info('agent.invalid-input', { run: run.id, iteration, fn: plan.fn ?? null, source: plan.invalid.source });
+        continue;
+      }
       try {
         const started = await this.#deps.runs.start({
-          fn: call.fn, args: call.args, turn: run.turn, parent: run.id, key: toolCallKey(iteration, call.toolCallId), actor: run.actor, caller, priority: run.priority,
-          background: false, handlers: [], toolCallId: call.toolCallId, ...(run.session === undefined ? {} : { session: run.session }), ...(llmCall === undefined ? {} : { llmCall }),
+          fn: plan.fn, args: plan.args, turn: run.turn, parent: run.id, key: toolCallKey(iteration, toolCallId), actor: run.actor, caller, priority: run.priority,
+          background: false, handlers: [], toolCallId, ...(run.session === undefined ? {} : { session: run.session }), ...(llmCall === undefined ? {} : { llmCall }),
         });
-        pending.push({ toolCallId: call.toolCallId, fn: call.fn, run: started.run });
+        pending.push({ toolCallId, fn: plan.fn, run: started.run, ...marker });
       } catch (error) {
-        pending.push({ toolCallId: call.toolCallId, fn: call.fn, error: causeOf(error, RunRefused)?.error.message ?? messageOf(error) });
+        pending.push({ toolCallId, fn: plan.fn, error: causeOf(error, RunRefused)?.error.message ?? messageOf(error), ...marker });
       }
     }
     return pending;
   }
 
-  /** The tool replies for an iteration's calls, in call order. */
-  async #replies(pending: readonly PendingCall[]): Promise<{ messages: LlmMessage[]; allFailed: boolean }> {
+  /**
+   * The replies for an iteration's calls, in call order: a tool message for a native call, a `<result>` user message
+   * for a block. Refused input is answered with what was wrong and doesn't count as a failure; a run's exposed fns
+   * follow its result. `allFailed` says whether every call failed.
+   */
+  async #replies(pending: readonly PendingCall[], prompt: ExposedTo | undefined): Promise<{ messages: LlmMessage[]; allFailed: boolean }> {
     let failed = 0;
     const messages = await Promise.all(pending.map(async (call): Promise<LlmMessage> => {
+      const reply = (status: string, content: string): LlmMessage => (call.block === true
+        ? { role: 'user', content: resultText(call.fn, status, content) }
+        : { role: 'tool', toolCallId: call.toolCallId, content });
+      if (call.invalid !== undefined) return reply('invalid-input', call.invalid);
       if (call.run === undefined) {
         failed += 1;
-        return { role: 'tool', toolCallId: call.toolCallId, content: `Error: ${call.error ?? 'the call could not start'}` };
+        return reply('failed', `Error: ${call.error ?? 'the call could not start'}`);
       }
       const child = await this.#deps.runs.get(call.run);
+      const outcome = child?.outcome;
+      if (outcome?.status === 'invalid-input') return reply('invalid-input', invalidReply(outcome.invalid));
       const settled: RunSettled = child === undefined ? { status: 'failed', error: fnError('fatal', 'the run is gone') }
-        : isSettled(child.status) ? settledOf(child.outcome, child.id) : { status: 'background', run: child.id };
+        : isSettled(child.status) ? settledOf(outcome, child.id) : { status: 'background', run: child.id };
       if (settled.status === 'failed') failed += 1;
-      return { role: 'tool', toolCallId: call.toolCallId, content: settledReply(settled) };
+      const exposed = outcome?.status === 'done' && outcome.expose !== undefined && prompt !== undefined ? await this.#deps.planner.exposed(outcome.expose, prompt) : '';
+      return reply(settled.status, exposed === '' ? settledReply(settled) : `${settledReply(settled)}\n\n${exposed}`);
     }));
     return { messages, allFailed: pending.length > 0 && failed === pending.length };
-  }
-
-  /**
-   * The fns an agent may call now: its own tools first, then, for a session's agent, the session's loaded fns, in
-   * that order up to `maxTools`. Fns that are switched off or unavailable, and fns of systems the session doesn't use,
-   * are left out.
-   */
-  async #tools(payload: LlmPayload, session: Session | undefined): Promise<Array<{ fn: FnRecord; signature: FnSignature }>> {
-    const { catalog } = this.#deps;
-    const names = unique([...payload.tools, ...(session?.tools ?? [])].flatMap((name) => {
-      const parsed = QualifiedName.safeParse(name);
-      return parsed.success ? [parsed.data] : [];
-    }));
-    const allowed = session?.systems ?? 'all';
-    const usable = new Map((await catalog.fns({ names, available: true }))
-      .filter((fn) => !fn.disabled && (allowed === 'all' || fn.system === HUB_SYSTEM || allowed.includes(fn.system)))
-      .map((fn) => [fn.name, fn]));
-    const fns = names.flatMap((name) => { const fn = usable.get(name); return fn === undefined ? [] : [fn]; }).slice(0, payload.maxTools);
-    return Promise.all(fns.map(async (fn) => ({ fn, signature: await catalog.signature(fn.name) })));
-  }
-
-  /** The context an agent always has: its own and, for a session's agent, the session's loaded context. */
-  async #context(payload: LlmPayload, session: Session | undefined): Promise<string> {
-    const names = unique([...payload.context, ...(session?.context ?? [])]);
-    const blocks: string[] = [];
-    for (const name of names) {
-      const parsed = QualifiedName.safeParse(name);
-      if (!parsed.success) continue;
-      const context = await this.#deps.catalog.context(parsed.data);
-      if (context?.decl.content === undefined) continue;
-      blocks.push(`<context name="${parsed.data}">\n${context.decl.content}\n</context>`);
-    }
-    return blocks.join('\n\n');
   }
 
   /** The assistant message a session's agent answers into, opened on its first iteration. */
@@ -605,6 +656,14 @@ export function stateOf(run: Run): AgentState {
   return parsed.success ? parsed.data : START;
 }
 
+/** The calls of one iteration before they are interpreted: their id, whether they came as a `<run>` block, and what the model wrote. */
+type ModelCalls = Array<{ readonly toolCallId: string; readonly block: boolean; readonly out: ModelCallOut }>;
+
+/** What the model reads for input the hub refused: each problem, by where it was. */
+export function invalidReply(invalid: InvalidInput): string {
+  return `The input was not accepted; fix it and try again:\n${problemLines(invalid.problems)}`;
+}
+
 /** The index of the last assistant message with tool calls. */
 function lastToolCallsIndex(messages: readonly LlmMessage[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -627,9 +686,6 @@ export function toolCallKey(iteration: number, toolCallId: string): string {
   return `${iteration}:${toolCallId}`;
 }
 
-function unique<T>(items: readonly T[]): T[] {
-  return [...new Set(items)];
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms).unref());

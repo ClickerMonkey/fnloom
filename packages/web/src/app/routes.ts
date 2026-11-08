@@ -6,12 +6,14 @@
  * renamed or misspelled key breaks both at compile time.
  */
 import {
-  LlmInteractionId, LlmStatus, NotificationId, PairingId, ResourceUri, RunId, RunStatus, SessionId, TurnId, type MessageId, type NotificationLink, type SystemName,
+  type HubMcpId, type InstanceName, LlmInteractionId, LlmStatus, Modality, ModelCallId, ModelCallStatus, ModelRole, NotificationId, PairingId, splitName, ResourceUri, RunId, RunStatus, SessionId, TurnId, type MessageId, type NotificationLink, type QualifiedName, type SystemName,
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
-import { LimitsTab, ModelsTab, SystemTab } from '../admin/sections.ts';
+import { InstanceTab, LimitsTab, McpTab, ModelsTab, SystemTab } from '../admin/sections.ts';
 import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
+import { BrowserQuery } from '../resources/logic/browse.ts';
+import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
 import { InboxFilter } from '../state/inbox.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
 
@@ -42,13 +44,21 @@ export const ROUTES = {
   admin: 'admin',
   systems: 'systems',
   system: 'system',
+  instance: 'instance',
+  fn: 'fn',
   models: 'models',
   limits: 'limits',
   policies: 'policies',
   actorSettings: 'actor-settings',
   runs: 'runs',
   llmCalls: 'llm-calls',
+  modelCalls: 'model-calls',
+  mcps: 'mcps',
+  mcp: 'mcp',
+  pair: 'pair',
   resources: 'resources',
+  context: 'context',
+  contextItem: 'context-item',
   settings: 'settings',
   design: 'design',
   notFound: 'not-found',
@@ -85,11 +95,19 @@ export const QUERIES = {
   [ROUTES.turnTree]: CHAT_QUERY,
   [ROUTES.inbox]: z.object({ filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
   [ROUTES.systems]: z.object({ pairing: PairingId }).partial(),
-  [ROUTES.models]: z.object({ q: z.string() }).partial(),
+  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string() }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
   [ROUTES.runs]: z.object({ status: RunStatus, fn: z.string(), system: z.string(), session: SessionId, run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
   [ROUTES.llmCalls]: z.object({ status: LlmStatus, model: z.string(), system: z.string(), session: SessionId, call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
-  [ROUTES.resources]: z.object({ q: z.string(), system: z.string(), uri: ResourceUri }).partial(),
+  [ROUTES.resources]: BrowserQuery,
+  [ROUTES.context]: ContextBrowseQuery,
+  [ROUTES.contextItem]: ContextItemQuery,
+  [ROUTES.modelCalls]: z.object({
+    modality: Modality, status: ModelCallStatus, model: z.string(), system: z.string(), session: SessionId, run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab,
+  }).partial(),
+  [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
+  [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']) }).partial(),
+  [ROUTES.pair]: z.object({ code: z.string() }).partial(),
 } as const satisfies Partial<Record<RouteName, z.ZodObject>>;
 
 /** The pages that take a query. */
@@ -106,7 +124,7 @@ function queryOf<R extends QueryRoute>(route: R, query: RouteQuery<R>): { readon
 }
 
 /** The design gallery's sections. */
-export const DesignSection = z.enum(['actions', 'inputs', 'overlays', 'feedback', 'content']);
+export const DesignSection = z.enum(['actions', 'inputs', 'overlays', 'feedback', 'content', 'gin', 'viewers']);
 export type DesignSection = z.infer<typeof DesignSection>;
 
 /** Links to every page. */
@@ -123,7 +141,19 @@ export const links = {
   systems: (query: RouteQuery<typeof ROUTES.systems> = {}): RouteLocationRaw => ({ name: ROUTES.systems, ...queryOf(ROUTES.systems, query) }),
   /** A system's page, on one of its tabs (the overview's URL has no tab). */
   system: (name: SystemName, tab: SystemTab = 'overview'): RouteLocationRaw => ({ name: ROUTES.system, params: tab === 'overview' ? { name } : { name, tab } }),
-  models: (tab: ModelsTab = 'providers'): RouteLocationRaw => ({ name: ROUTES.models, params: tab === 'providers' ? {} : { tab } }),
+  /** One instance of a system (a fleet's copy), on one of its tabs. */
+  instance: (name: SystemName, instance: InstanceName, tab: InstanceTab = 'overview'): RouteLocationRaw => ({
+    name: ROUTES.instance, params: tab === 'overview' ? { name, instance } : { name, instance, tab },
+  }),
+  /** One fn of a system with its metrics (`fs/read` is `/admin/systems/fs/fns/read`). */
+  fn: (fn: QualifiedName, query: RouteQuery<typeof ROUTES.fn> = {}): RouteLocationRaw => {
+    const { system, local } = splitName(fn);
+    return { name: ROUTES.fn, params: { name: system, fn: local }, ...queryOf(ROUTES.fn, query) };
+  },
+  /** The providers and models page, on a tab; `query` opens a role (`role`) or a model's limits (`model`). */
+  models: (tab: ModelsTab = 'providers', query: RouteQuery<typeof ROUTES.models> = {}): RouteLocationRaw => ({
+    name: ROUTES.models, params: tab === 'providers' ? {} : { tab }, ...queryOf(ROUTES.models, query),
+  }),
   limits: (tab: LimitsTab = 'budgets'): RouteLocationRaw => ({ name: ROUTES.limits, params: tab === 'budgets' ? {} : { tab } }),
   policies: (): RouteLocationRaw => ({ name: ROUTES.policies }),
   actorSettings: (): RouteLocationRaw => ({ name: ROUTES.actorSettings }),
@@ -131,8 +161,23 @@ export const links = {
   runs: (query: RouteQuery<typeof ROUTES.runs> = {}): RouteLocationRaw => ({ name: ROUTES.runs, ...queryOf(ROUTES.runs, query) }),
   /** The LLM calls browser; `query` narrows it (`status`, `model`, `system`, `session`) or opens one (`call`). */
   llmCalls: (query: RouteQuery<typeof ROUTES.llmCalls> = {}): RouteLocationRaw => ({ name: ROUTES.llmCalls, ...queryOf(ROUTES.llmCalls, query) }),
-  /** The resources browser; `query` narrows it (`q`, `system`) or opens one (`uri`). */
+  /** The resource browser; `query` lays it out (`view`, `group`), narrows it (`q`, `system`, `family`, `under`, `in`) or opens one (`uri`, `mode`). */
   resources: (query: RouteQuery<typeof ROUTES.resources> = {}): RouteLocationRaw => ({ name: ROUTES.resources, ...queryOf(ROUTES.resources, query) }),
+  /** Every context item, filtered; `query` may open the remember or make-from-a-resource dialog. */
+  context: (query: RouteQuery<typeof ROUTES.context> = {}): RouteLocationRaw => ({ name: ROUTES.context, ...queryOf(ROUTES.context, query) }),
+  /** One context item with its links both ways (`fs/guide` is `/context/fs/guide`). */
+  contextItem: (item: QualifiedName, query: RouteQuery<typeof ROUTES.contextItem> = {}): RouteLocationRaw => {
+    const { system, local } = splitName(item);
+    return { name: ROUTES.contextItem, params: { system, local }, ...queryOf(ROUTES.contextItem, query) };
+  },
+  /** Every model call of every modality; `query` narrows it or opens one (`call`). */
+  modelCalls: (query: RouteQuery<typeof ROUTES.modelCalls> = {}): RouteLocationRaw => ({ name: ROUTES.modelCalls, ...queryOf(ROUTES.modelCalls, query) }),
+  /** The hub MCPs; `create: '1'` opens the new MCP dialog. */
+  mcps: (query: RouteQuery<typeof ROUTES.mcps> = {}): RouteLocationRaw => ({ name: ROUTES.mcps, ...queryOf(ROUTES.mcps, query) }),
+  /** One hub MCP, on one of its tabs. */
+  mcp: (id: HubMcpId, tab: McpTab = 'rules'): RouteLocationRaw => ({ name: ROUTES.mcp, params: tab === 'rules' ? { id } : { id, tab } }),
+  /** The page a system's pairing QR code opens: approve it with its instance and config. */
+  pair: (pairing: PairingId, code?: string): RouteLocationRaw => ({ name: ROUTES.pair, params: { pairing }, ...queryOf(ROUTES.pair, { code }) }),
   settings: (section: SettingsSection = 'appearance'): RouteLocationRaw => ({ name: ROUTES.settings, params: { section } }),
   design: (section: DesignSection = 'actions'): RouteLocationRaw => ({ name: ROUTES.design, params: { section } }),
 } as const;
@@ -168,6 +213,11 @@ export const routes: RouteRecordRaw[] = [
   { path: '/chat', name: ROUTES.chat, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Chat', group: 'chat' } },
   { path: '/chat/:session', name: ROUTES.session, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Chat', group: 'chat', ownHeader: true } },
   { path: '/chat/:session/turn/:turn/tree', name: ROUTES.turnTree, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Run tree', group: 'chat', ownHeader: true } },
+  { path: '/resources', name: ROUTES.resources, component: () => import('../pages/ResourcesPage.vue'), meta: { title: 'Resources' } },
+  // a system's pairing QR code opens this (admins; a signed-out visitor signs in first and comes back)
+  { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
+  { path: '/context/:system/:local(.+)', name: ROUTES.contextItem, component: () => import('../pages/ContextItemPage.vue'), meta: { title: 'Context' } },
+  { path: '/pair/:pairing', name: ROUTES.pair, component: () => import('../pages/PairPage.vue'), meta: { title: 'Pair a system', admin: true } },
   { path: '/inbox', name: ROUTES.inbox, component: () => import('../pages/InboxPage.vue'), meta: { title: 'Inbox' } },
   {
     path: '/admin', component: () => import('../admin/views/AdminLayout.vue'), meta: { admin: true },
@@ -175,13 +225,21 @@ export const routes: RouteRecordRaw[] = [
       { path: '', name: ROUTES.admin, redirect: { name: ROUTES.systems } },
       { path: 'systems', name: ROUTES.systems, component: () => import('../admin/views/SystemsView.vue'), meta: { title: 'Systems' } },
       { path: `systems/:name/:tab(${tabs(SystemTab)})?`, name: ROUTES.system, component: () => import('../admin/views/SystemView.vue'), meta: { title: 'System' } },
+      { path: `systems/:name/instances/:instance/:tab(${tabs(InstanceTab)})?`, name: ROUTES.instance, component: () => import('../admin/views/InstanceView.vue'), meta: { title: 'Instance' } },
+      { path: 'systems/:name/fns/:fn', name: ROUTES.fn, component: () => import('../admin/views/FnView.vue'), meta: { title: 'Fn' } },
       { path: `models/:tab(${tabs(ModelsTab)})?`, name: ROUTES.models, component: () => import('../admin/views/ModelsView.vue'), meta: { title: 'Models' } },
       { path: `limits/:tab(${tabs(LimitsTab)})?`, name: ROUTES.limits, component: () => import('../admin/views/LimitsView.vue'), meta: { title: 'Limits' } },
       { path: 'policies', name: ROUTES.policies, component: () => import('../admin/views/PoliciesView.vue'), meta: { title: 'Policies' } },
       { path: 'actor-settings', name: ROUTES.actorSettings, component: () => import('../admin/views/ActorSettingsView.vue'), meta: { title: 'Actor settings' } },
       { path: 'runs', name: ROUTES.runs, component: () => import('../admin/views/RunsView.vue'), meta: { title: 'Runs' } },
       { path: 'llm', name: ROUTES.llmCalls, component: () => import('../admin/views/LlmCallsView.vue'), meta: { title: 'LLM calls' } },
-      { path: 'resources', name: ROUTES.resources, component: () => import('../admin/views/ResourcesView.vue'), meta: { title: 'Resources' } },
+      { path: 'model-calls', name: ROUTES.modelCalls, component: () => import('../admin/views/ModelCallsView.vue'), meta: { title: 'Model calls' } },
+      // one call by its address: the list with that call open
+      { path: 'model-calls/:id', redirect: (to) => ({ name: ROUTES.modelCalls, query: { ...to.query, call: to.params['id'] } }) },
+      { path: 'mcps', name: ROUTES.mcps, component: () => import('../admin/views/McpsView.vue'), meta: { title: 'MCPs' } },
+      { path: `mcps/:id/:tab(${tabs(McpTab)})?`, name: ROUTES.mcp, component: () => import('../admin/views/McpView.vue'), meta: { title: 'MCP' } },
+      // the resource browser moved to the top level
+      { path: 'resources', redirect: (to) => ({ name: ROUTES.resources, query: to.query }) },
     ],
   },
   { path: '/settings', redirect: links.settings() },

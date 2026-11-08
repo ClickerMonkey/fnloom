@@ -78,8 +78,10 @@ describe('a session agent', () => {
     expect(r.chat.finished).toEqual([{ message: r.chat.begun[0]?.id, parts: [{ type: 'text', text: 'It says hello.' }], status: 'done' }]);
     expect(r.chat.settled).toEqual([{ turn: turn.id, status: 'done' }]);
 
-    const interactions = (await r.store.table('llmInteractions').find({ where: { run }, limit: 10 })).items;
+    const interactions = (await r.store.table('llmInteractions').find({ where: { run }, order: [['iteration', 'asc']], limit: 10 })).items;
     expect(interactions.map((i) => [i.iteration, i.status, i.model])).toEqual([[0, 'done', 'test-model'], [1, 'done', 'test-model']]);
+    // each call keeps what its prompt held: build 1's prompt (plain), within the model's window
+    expect(interactions.map((i) => [i.selection?.contextor, i.selection?.mode])).toEqual([['plain', 'tools'], ['plain', 'tools']]);
     expect(interactions[0]?.response?.toolCalls?.[0]).toMatchObject({ name: 'fs__read' });
     expect(interactions[1]?.response?.content).toBe('It says hello.');
     expect(row.cost).toBeCloseTo(0.003);

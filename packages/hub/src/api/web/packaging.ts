@@ -1,21 +1,30 @@
 /**
- * The packaging slice (packaging lane, admins): one pairing request for the `/pair/:pairing` page, a fleet's
- * instances, installing an uploaded package, removing an instance and exporting an instance's data, through
- * `hub.link` (`link/index.ts`).
+ * The packaging slice (packaging lane, admins): one pairing request for the `/pair/:pairing` page, a system's
+ * instances, and the admin writes (installing an uploaded package zip, removing an instance, exporting an instance's
+ * data), which run the same admin operations as the hub fns `hub/install_package`, `hub/remove_instance` and
+ * `hub/export_system_data`.
  */
 import { plugin } from '@ayepi/plugin';
-import { packagingSlice } from '@harness/core';
-import { notBuilt, type FullHandlers } from './access.ts';
+import { InstanceView, packagingSlice } from '@harness/core';
+import type { HubServices } from '../../boot/index.ts';
+import { allRows } from '../../catalog/rows.ts';
+import { knownSystem, type AdminOperations } from '../admin-ops.ts';
+import { type FullHandlers } from './access.ts';
 import type { systemsPlugin } from './systems.ts';
 
 /** The packaging plugin. Requires the systems plugin, which binds `adminOnly`. */
-export function packagingPlugin(systems: ReturnType<typeof systemsPlugin>) {
+export function packagingPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>, ops: AdminOperations) {
+  const { link, store } = hub;
   return plugin({ name: 'web.packaging', spec: packagingSlice, requires: [systems] })
     .handlers((): FullHandlers<typeof packagingSlice> => ({
-      pairing: notBuilt('Pairing pages'),
-      instances: notBuilt('Instances'),
-      installPackage: notBuilt('Installing packages'),
-      removeInstance: notBuilt('Removing instances'),
-      exportSystemData: notBuilt('Data exports'),
+      pairing: ({ data }) => link.pairing.get(data.pairing),
+      instances: async ({ data }) => {
+        await knownSystem(hub, data.system);
+        const rows = await allRows(store.table('instances'), { system: data.system });
+        return rows.sort((a, b) => a.instance.localeCompare(b.instance)).map((row) => InstanceView.parse(row));
+      },
+      installPackage: ({ data, user }) => ops.install_package(data, user.id),
+      removeInstance: ({ data, user }) => ops.remove_instance(data, user.id),
+      exportSystemData: ({ data, user }) => ops.export_system_data(data, user.id),
     }));
 }

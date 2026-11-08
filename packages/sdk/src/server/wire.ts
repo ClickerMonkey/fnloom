@@ -4,7 +4,7 @@
  * value that does not fit becomes a `FnError` the hub and the LLM can act on, never a crash.
  */
 import { ApiError, DISCONNECTED_STATUS } from '@ayepi/core';
-import { FnError, messageOf, type Json, type ErrorClass, type RunSettled } from '@harness/core';
+import { FnError, InvalidInput, messageOf, type ErrorClass, type InputProblem, type Json, type RunSettled } from '@harness/core';
 import { CallFailed, HandlerFailed, Suspended, type Settled } from '../ctx.ts';
 import { encodeValue, parseValue, type GinType } from '../gin.ts';
 
@@ -35,6 +35,36 @@ export function encode<T>(type: GinType<T>, value: T, what: string): Checked<Jso
   } catch (error) {
     return { ok: false, error: fnError('fatal', `${what} does not fit its declared type: ${messageOf(error)}`, { code: 'bad-value' }) };
   }
+}
+
+/**
+ * What is wrong with a value that does not fit its gin type, by path (dotted, `''` for the whole), so a model can fix
+ * just those fields. The value schema's issues give the paths; when it finds none, gin's own message is the problem.
+ */
+export function inputProblems(type: GinType, value: unknown, fallback: string): InputProblem[] {
+  const checked = type.toValueSchema().safeParse(value);
+  if (checked.success || checked.error.issues.length === 0) { return [{ path: '', message: fallback }]; }
+  return checked.error.issues.map((issue) => ({ path: issue.path.map(String).join('.'), message: issue.message }));
+}
+
+/** A fn's args, checked against its args type: the plain value, or why the caller's input was refused. */
+export function decodeArgs<T>(type: GinType<T>, value: unknown): { ok: true; value: T } | { ok: false; invalid: InvalidInput } {
+  try {
+    return { ok: true, value: parseValue(type, value) };
+  } catch (error) {
+    return { ok: false, invalid: { source: 'schema', problems: inputProblems(type, value, messageOf(error)) } };
+  }
+}
+
+/** The args as given (problems by path), refused by the fn's own checks (`ctx.invalid`). */
+export function invalidInput(problems: string | readonly InputProblem[]): InvalidInput {
+  const list = typeof problems === 'string' ? [{ path: '', message: problems }] : [...problems];
+  return InvalidInput.parse({ source: 'validation', problems: list.length === 0 ? [{ path: '', message: 'The input was refused.' }] : list });
+}
+
+/** Refused input in one line, each problem after its path: `path: must be relative; span.to: too small`. */
+export function problemsText(invalid: InvalidInput): string {
+  return invalid.problems.map((problem) => (problem.path === '' ? problem.message : `${problem.path}: ${problem.message}`)).join('; ');
 }
 
 /** `decode`, throwing the `FnError` as an `InvalidValue` when the value does not fit. */
@@ -128,4 +158,13 @@ export class Deferred<T> {
     this.#settled = true;
     this.#reject(error);
   }
+}
+
+/** Wait for `work`, but no longer than `timeout`; whether it finished in time. */
+export async function withTimeout(work: Promise<void> | undefined, timeout: number): Promise<boolean> {
+  if (work === undefined) { return true; }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const finished = await Promise.race([work.then(() => true), new Promise<false>((resolve) => { timer = setTimeout(() => { resolve(false); }, timeout); })]);
+  clearTimeout(timer);
+  return finished;
 }

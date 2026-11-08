@@ -21,11 +21,17 @@ function literalOf(value: unknown): GinType {
   throw new Error(`zod-gin: a ${typeof value} literal has no gin type`);
 }
 
+/** A schema without its outer optional or default (what `.required()` makes of a field). */
+function required(schema: z.core.$ZodType): z.core.$ZodType {
+  return schema instanceof z.ZodOptional || schema instanceof z.ZodDefault || schema instanceof z.ZodPrefault ? schema.unwrap() : schema;
+}
+
 /** The input-side gin type of a zod schema; throws for a schema with no gin counterpart (a function, a promise). */
 export function ginOf(schema: z.core.$ZodType): GinType {
   if (schema instanceof z.ZodOptional) return g.optional(ginOf(schema.unwrap()));
   if (schema instanceof z.ZodDefault || schema instanceof z.ZodPrefault) return g.optional(ginOf(schema.unwrap()));
   if (schema instanceof z.ZodReadonly || schema instanceof z.ZodCatch) return ginOf(schema.unwrap());
+  if (schema instanceof z.ZodNonOptional) return ginOf(required(schema._zod.def.innerType));
   if (schema instanceof z.ZodNullable) return g.nullable(ginOf(schema.unwrap()));
   if (schema instanceof z.ZodPipe) return ginOf(schema.in);
   if (schema instanceof z.ZodObject) return g.obj(fieldsOf(schema));
@@ -64,12 +70,31 @@ export function ginOf(schema: z.core.$ZodType): GinType {
 }
 
 /**
+ * `ginOf`, typed by the schema's input: the gin type is built from the schema's input side, so authors write
+ * `z.input<S>` values into it. Records, `unknown` and lazy parts are any JSON in gin, so a reader parses the value with
+ * the schema itself before trusting it (which also fills in defaults). Use it where a gin field must carry a core
+ * schema's type, pinned with an `Equal` test.
+ */
+export function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>> {
+  return typedAs<z.input<S>>(ginOf(schema));
+}
+
+/**
  * A fn's args read off a zod schema. Tool args are always an object, so a schema that isn't one (a union of shapes)
  * is taken as the field `input`; `read` turns args back into a value for the schema, checked by it.
  */
-export function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType; readonly read: (args: unknown) => z.output<S> } {
-  if (schema instanceof z.ZodObject) return { args: ginOf(schema), read: (args) => schema.parse(args) };
-  return { args: g.obj({ input: ginOf(schema) }), read: (args) => schema.parse(Wrapped.parse(args).input) };
+export function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType<ToolArgs<S>>; readonly read: (args: unknown) => z.output<S> } {
+  if (schema instanceof z.ZodObject) return { args: typedAs<ToolArgs<S>>(ginOf(schema)), read: (args) => schema.parse(args) };
+  return { args: typedAs<ToolArgs<S>>(g.obj({ input: ginOf(schema) })), read: (args) => schema.parse(Wrapped.parse(args).input) };
+}
+
+/** The args a tool for a zod schema takes: the schema's input when it is an object, else that input as `input`. */
+export type ToolArgs<S extends z.ZodType> = S extends z.ZodObject ? z.input<S> : { input: z.input<S> };
+
+/** A gin type built by `ginOf` from a schema whose input is `T`, given that type. */
+function typedAs<T>(type: GinType): GinType<T> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- callers pass what ginOf built from a schema whose input is T
+  return type as GinType<T>;
 }
 
 /** Args that carry a non-object value as `input`. */

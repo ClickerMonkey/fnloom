@@ -1,17 +1,15 @@
 /**
  * The connected systems, on ayepi peers. Every `/link` socket gets a `Peer<SystemLinkSpec>` (the hub's typed caller
- * of what the system serves) from the `Peers` registry handed to the hub link server. A socket becomes a system's
+ * of what the system serves) from the `Peers` registry handed to the hub link server. A socket becomes an instance's
  * connection once the handshake proves its key; until then it has no session and the `linkSession` guard refuses
- * everything but `hello` and `prove`. A newer connection of the same system replaces the older one.
+ * everything but the handshake. A system may have many instances connected at once (a fleet); a newer connection of
+ * the same instance replaces the older one, and leaves the other instances alone.
  */
 import { peers, type Peer, type Peers, type WsConn } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
-import { systemLinkSpec, type LinkSession, type StopReason, type SystemLinkSpec, type SystemName } from '@harness/core';
-import type { LinkService, SystemConnection } from './index.ts';
+import { MAIN_INSTANCE, instanceLabel, systemLinkSpec, type InstanceName, type InstanceRef, type LinkSession, type StopReason, type SystemLinkSpec, type SystemName } from '@harness/core';
+import type { ConnectionChange, LinkService, SystemConnection } from './index.ts';
 import { messageOf } from '../catalog/scope.ts';
-
-/** A change in who is connected. */
-type Change = { system: SystemName; connected: boolean };
 
 /** The link service over a `Peers` registry. */
 export class PeerLinkService implements LinkService {
@@ -20,8 +18,9 @@ export class PeerLinkService implements LinkService {
   readonly #log: Logger;
   readonly #clock: () => number;
   readonly #sessions = new Map<WsConn, LinkSession>();
-  readonly #connections = new Map<SystemName, SystemConnection>();
-  readonly #listeners = new Set<(change: Change) => void>();
+  /** Connections by `system@instance`. */
+  readonly #connections = new Map<string, SystemConnection>();
+  readonly #listeners = new Set<(change: ConnectionChange) => void>();
 
   constructor(options: { log: Logger; clock: () => number; peers?: Peers<SystemLinkSpec> }) {
     this.#log = options.log;
@@ -40,35 +39,43 @@ export class PeerLinkService implements LinkService {
     return this.peers.get(conn);
   }
 
-  /** The handshake proved who is on `conn`: it is now that system's connection. */
+  /** The handshake proved who is on `conn`: it is now that instance's connection. */
   establish(conn: WsConn, session: LinkSession): SystemConnection {
     const peer = this.peers.of(conn);
-    const previous = this.#connections.get(session.system);
+    const key = instanceLabel(session);
+    const previous = this.#connections.get(key);
+    const fields = { system: session.system, instance: session.instance, boot: session.boot };
     if (previous !== undefined && previous.peer.conn !== conn) {
       this.#sessions.delete(previous.peer.conn);
-      this.#log.info('link.replaced', { system: session.system, instance: previous.instance, by: session.instance });
+      this.#log.info('link.replaced', { ...fields, previous: previous.boot });
     }
-    const connection: SystemConnection = { system: session.system, instance: session.instance, connectedAt: this.#clock(), peer, signal: peer.signal };
+    const connection: SystemConnection = { ...fields, connectedAt: this.#clock(), peer, signal: peer.signal };
     this.#sessions.set(conn, session);
-    this.#connections.set(session.system, connection);
-    this.#log.info('link.connected', { system: session.system, instance: session.instance });
-    this.#emit({ system: session.system, connected: true });
+    this.#connections.set(key, connection);
+    this.#log.info('link.connected', fields);
+    this.#emit({ system: session.system, instance: session.instance, connected: true });
     return connection;
   }
 
-  connection(system: SystemName): SystemConnection | undefined {
-    const connection = this.#connections.get(system);
-    return connection?.peer.open === true ? connection : undefined;
+  connection(system: SystemName, instance?: InstanceName): SystemConnection | undefined {
+    if (instance !== undefined) { return this.#open(this.#connections.get(instanceLabel({ system, instance }))); }
+    const all = this.connections(system);
+    return all.find((c) => c.instance === MAIN_INSTANCE) ?? all[0];
+  }
+
+  connections(system: SystemName): readonly SystemConnection[] {
+    return this.connected().filter((c) => c.system === system).sort((a, b) => a.connectedAt - b.connectedAt);
   }
 
   connected(): readonly SystemConnection[] {
     return [...this.#connections.values()].filter((c) => c.peer.open);
   }
 
-  whenConnected(system: SystemName, signal?: AbortSignal): Promise<SystemConnection> {
-    const now = this.connection(system);
+  whenConnected(system: SystemName, signal?: AbortSignal, instance?: InstanceName): Promise<SystemConnection> {
+    const now = this.connection(system, instance);
     if (now !== undefined) { return Promise.resolve(now); }
-    const stopped = (): Error => (signal?.reason instanceof Error ? signal.reason : new Error(`stopped waiting for ${system}`));
+    const label = instance === undefined ? system : instanceLabel({ system, instance });
+    const stopped = (): Error => (signal?.reason instanceof Error ? signal.reason : new Error(`stopped waiting for ${label}`));
     if (signal?.aborted === true) { return Promise.reject(stopped()); }
     return new Promise((resolve, reject) => {
       const aborted = (): void => {
@@ -76,7 +83,7 @@ export class PeerLinkService implements LinkService {
         reject(stopped());
       };
       const stop = this.onChange((change) => {
-        const connection = change.connected && change.system === system ? this.connection(system) : undefined;
+        const connection = change.connected && change.system === system ? this.connection(system, instance) : undefined;
         if (connection === undefined) { return; }
         stop();
         signal?.removeEventListener('abort', aborted);
@@ -91,32 +98,42 @@ export class PeerLinkService implements LinkService {
       try {
         await connection.peer.call('stop', { reason, timeout }, { signal: AbortSignal.timeout(timeout) });
       } catch (error) {
-        this.#log.warn('link.stop.failed', { system: connection.system, reason, error: messageOf(error) });
+        this.#log.warn('link.stop.failed', { system: connection.system, instance: connection.instance, reason, error: messageOf(error) });
       }
     }));
   }
 
-  onChange(listener: (change: Change) => void): () => void {
+  onChange(listener: (change: ConnectionChange) => void): () => void {
     this.#listeners.add(listener);
     return () => void this.#listeners.delete(listener);
+  }
+
+  #open(connection: SystemConnection | undefined): SystemConnection | undefined {
+    return connection?.peer.open === true ? connection : undefined;
   }
 
   #closed(conn: WsConn): void {
     const session = this.#sessions.get(conn);
     this.#sessions.delete(conn);
-    if (session === undefined || this.#connections.get(session.system)?.peer.conn !== conn) { return; }
-    this.#connections.delete(session.system);
-    this.#log.info('link.disconnected', { system: session.system, instance: session.instance });
-    this.#emit({ system: session.system, connected: false });
+    const key = session === undefined ? undefined : instanceLabel(session);
+    if (session === undefined || key === undefined || this.#connections.get(key)?.peer.conn !== conn) { return; }
+    this.#connections.delete(key);
+    this.#log.info('link.disconnected', { system: session.system, instance: session.instance, boot: session.boot });
+    this.#emit({ system: session.system, instance: session.instance, connected: false });
   }
 
-  #emit(change: Change): void {
+  #emit(change: ConnectionChange): void {
     for (const listener of [...this.#listeners]) {
       try {
         listener(change);
       } catch (error) {
-        this.#log.error('link.listener.failed', { system: change.system, error: messageOf(error) });
+        this.#log.error('link.listener.failed', { system: change.system, instance: change.instance, error: messageOf(error) });
       }
     }
   }
+}
+
+/** The instance ref of a connection. */
+export function refOf(connection: Pick<SystemConnection, 'system' | 'instance'>): InstanceRef {
+  return { system: connection.system, instance: connection.instance };
 }

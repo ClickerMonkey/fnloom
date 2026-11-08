@@ -36,6 +36,17 @@
   /* Text on a danger fill: white on the deep light-theme red, near-black on the lighter dark-theme red (as --on-accent). */
   --on-danger: light-dark(#ffffff, oklch(0.18 0.03 22));
 
+  /*
+   * Chart series, in fixed order (never cycled): the first four of the validated categorical palette, each mode its own
+   * steps (checked with the dataviz validator against --surface). Identity also has a label beside every mark.
+   * --series-reserve is the neutral for parts of a whole that are held back rather than used.
+   */
+  --series-1: light-dark(#2a78d6, #3987e5);
+  --series-2: light-dark(#eb6834, #d95926);
+  --series-3: light-dark(#1baf7a, #199e70);
+  --series-4: light-dark(#eda100, #c98500);
+  --series-reserve: light-dark(oklch(0.8 0.006 270), oklch(0.42 0.01 270));
+
   --code-bg: light-dark(oklch(0.97 0.004 270), oklch(0.18 0.007 270));
   --selection: var(--accent-soft-strong);
 

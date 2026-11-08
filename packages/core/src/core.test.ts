@@ -38,7 +38,7 @@ describe('ids', () => {
 
 describe('providers', () => {
   it('reads the provider kinds off the one provider table, and both unions agree on them', () => {
-    expect(ProviderKind.options).toEqual(['openai', 'openrouter']);
+    expect(ProviderKind.options).toEqual(['openai', 'openrouter', 'ollama']);
     expect(ProviderInput.options.map((o) => o.shape.provider.value)).toEqual(ProviderKind.options);
     expect(Object.keys(ProviderInput.options[0].shape)).toEqual(Object.keys(ProviderConfig.options[0].shape));
   });
@@ -49,6 +49,8 @@ describe('providers', () => {
     expect(ProviderInput.safeParse({ provider: 'openrouter', apiKey: 'sk-or-1' }).success).toBe(true);
     expect(ProviderInput.safeParse({ provider: 'openrouter', apiKey: '' }).success).toBe(false);
     expect(ProviderInput.safeParse({ provider: 'aws', region: 'us-east-1' }).success).toBe(false);
+    // a local Ollama takes no key, and listens where Ollama does by default
+    expect(ProviderConfig.parse({ provider: 'ollama' })).toEqual({ provider: 'ollama', baseURL: 'http://127.0.0.1:11434' });
   });
 });
 

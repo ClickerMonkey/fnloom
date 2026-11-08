@@ -27,7 +27,6 @@ import type { ProviderService } from './index.ts';
 import type { ExecutionDeps, LlmEngine } from './ports.ts';
 import { ExecutionQueues, type QueuePorts } from './queues.ts';
 import { HubRunService } from './runs.ts';
-import { FnStatsRecorder } from './stats.ts';
 import { LedgerSpend } from './spend.ts';
 import { messageOf } from './errors.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -51,7 +50,7 @@ function engineOf(source: LlmSource, hooks: HubAiHooks, log: ExecutionInput['log
 }
 
 /** What the module is built from. */
-export interface ExecutionInput extends ExecutionDeps, Pick<AgentLoopDeps, 'enrich'> {
+export interface ExecutionInput extends ExecutionDeps, Pick<AgentLoopDeps, 'enrich' | 'planner'> {
   /** The ayepi ports the queues and rate limits run on (the store's, in production). */
   readonly ports: QueuePorts;
   readonly llm: LlmSource;
@@ -71,7 +70,8 @@ export interface ExecutionModule extends ExecutionServices {
   readonly linkHandlers: { [K in ExecutionLinkEndpoints]: LinkHandler<K> };
   /**
    * Start the queues, pick up agents that were waiting for tools and hub fn runs a stop cut short, relay child runs
-   * to their callers, post background tool runs' results to their sessions as they finish, and send a system its unsettled runs again each time it is connected.
+   * to their callers, fold each settled run into its fn's metrics, post background tool runs' results to their
+   * sessions as they finish, and send a system its unsettled runs again each time it is connected.
    */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -90,7 +90,7 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
   });
   const runs: HubRunService = new HubRunService({ ...input, policies, ledger, queues });
   policies.decideWith(new RunDeciders({ store: input.store, runs, ledger }));
-  const hooks = new HubAiHooks({ ...input, ledger, recorder, costs: runs, modelLimit: modelLimiter(input.settings, input.ports.rate) });
+  const hooks = new HubAiHooks({ ...input, ledger, recorder, costs: runs, calls: input.calls, modelLimit: modelLimiter(input.settings, input.ports.rate) });
   const { engine, providers } = engineOf(input.llm, hooks, input.log);
   const models = new ModelResolver(input);
   const agents: HubAgentLoop = new HubAgentLoop({ ...input, runs, queues, llm: engine, models });
@@ -102,7 +102,6 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
   const llm = new HubLlmGateway({ ...input, runs, queues, llm: engine, models });
   const handlers = new HandlerRelay({ ...input, runs });
   const relay = new ChildRelay(input);
-  const stats = new FnStatsRecorder(input);
   const stops: Array<() => void> = [];
 
   return {
@@ -112,7 +111,7 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
       await providers.reload();
       queues.start();
       stops.push(runs.onSettled((run) => {
-        void stats.record(run).catch((error: unknown) => { input.log.error('fn.stats.failed', { run: run.id, fn: run.fn, error: messageOf(error) }); });
+        void input.metrics.settled(run).catch((error: unknown) => { input.log.error('fn.metrics.failed', { run: run.id, fn: run.fn, error: messageOf(error) }); });
       }), runs.onSettled((run, settled) => {
         void agents.reportBack(run, settled).catch((error: unknown) => { input.log.error('agent.report-back-failed', { run: run.id, error: messageOf(error) }); });
       }));
@@ -160,6 +159,18 @@ function storedProviders(hub: HubServices, owner: ActorId): StoredProviders {
   });
 }
 
+/** The prompt planner the agent loop calls, as a delegate that looks the contextor module up on each call. */
+export function contextorPorts(hub: Pick<HubServices, 'contextor'>): Pick<ExecutionInput, 'planner'> {
+  return {
+    planner: {
+      plan: (input) => hub.contextor.planner.plan(input),
+      interpret: (call, prompt) => hub.contextor.planner.interpret(call, prompt),
+      exposed: (exposures, to) => hub.contextor.planner.exposed(exposures, to),
+      settled: (input) => hub.contextor.planner.settled(input),
+    },
+  };
+}
+
 /** The chat services execution uses. */
 export type ChatPorts = Pick<ExecutionInput, 'presence' | 'turns' | 'enrich' | 'approvers'>;
 
@@ -183,6 +194,14 @@ export function chatPorts(hub: Pick<HubServices, 'chat'>): ChatPorts {
   };
 }
 
+/** The metrics services execution feeds, as delegates that look the metrics module up on each call. */
+export function metricsPorts(hub: Pick<HubServices, 'metrics'>): Pick<ExecutionInput, 'calls' | 'metrics'> {
+  return {
+    calls: { begin: (site, queuedAt) => hub.metrics.calls.begin(site, queuedAt), get: (id) => hub.metrics.calls.get(id), list: (query) => hub.metrics.calls.list(query) },
+    metrics: { settled: (run) => hub.metrics.fns.settled(run) },
+  };
+}
+
 /** The execution module as a boot module factory. Other modules are reached lazily (`chatPorts`). */
 export function executionModule(options: {
   /** Where models come from; defaults to OpenRouter with the key in the model env slice. */
@@ -200,8 +219,11 @@ export function executionModule(options: {
       bus: hub.bus,
       catalog: hub.catalog,
       link: hub.link.connections,
+      instances: hub.link.instances,
       config: hub.link.config,
       ...chatPorts(hub),
+      ...contextorPorts(hub),
+      ...metricsPorts(hub),
       ports: hub.store.ports,
       llm: options.llm?.(hub) ?? { stored: storedProviders(hub, hubActor) },
     });

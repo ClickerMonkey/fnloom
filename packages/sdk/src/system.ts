@@ -225,6 +225,11 @@ export interface Lifecycle<Cfg> {
   upgraded?(ctx: SystemCtx<Cfg> & { readonly from: string }): Promise<void>;
   /** An admin removed it; clean up anything it keeps outside the hub. */
   uninstalled?(ctx: SystemCtx<Cfg>): Promise<void>;
+  /**
+   * The hub is about to copy `ctx.dataDir` for a data export: flush what is buffered and checkpoint an open database
+   * so the copy is whole. The hub waits up to `timeout`; runs keep going.
+   */
+  exporting?(ctx: SystemCtx<Cfg> & { readonly timeout: Duration }): Promise<void>;
 }
 
 /**

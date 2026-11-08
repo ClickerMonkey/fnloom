@@ -215,6 +215,13 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         description: 'The folder tree of a root, as it is now.',
         command: { name: 'tree', args: { root: arg('Which root (default: all)', { required: false }) } },
       }),
+      // the SDK's authoring guide and the template, so the chat can write a system with these fns
+      'system-authoring': context({
+        description: 'How to write a harness system: the complete SDK guide, where the template system is, and how to copy it.',
+        command: { name: 'new-system' },
+        fns: [fns.write, fns.edit, fns.bash, fns.read],
+        alwaysFor: [],
+      }),
     },
   }))
   .with(({ fns, context: ctx }) => ({

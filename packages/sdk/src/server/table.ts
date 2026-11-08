@@ -5,7 +5,7 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ErrorClass, HookInput, Json, KindDescription, MentionHover, RunInfo, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, RunInfo, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, FnCall, FnCtx, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
@@ -14,6 +14,7 @@ import type {
 } from '../declare.ts';
 import type { AnyFnDef, FnTypes, Handlers, Outcome, ProgressDef, UntypedFn } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
+import type { AnyFnRef } from '../refs.ts';
 import type { ResourceProvider } from '../resources.ts';
 import type { AnyContract, ContractShape, EventHandlers, Lifecycle, SystemImpl } from '../system.ts';
 import { expectType, type Equal } from '../util.ts';
@@ -34,6 +35,7 @@ export type RuntimeCaller = (args: unknown, options?: CallOptions<Handlers>) => 
 /** The outcome helpers every run context has. */
 export interface OutcomeHelpers {
   done(result: unknown, extra?: { undo?: unknown; cost?: Usd }): AnyOutcome;
+  invalid(problems: string | readonly InputProblem[], extra?: { cost?: Usd }): AnyOutcome;
   fail(cls: ErrorClass, message: string, extra?: { code?: string; data?: Json; undo?: unknown; cost?: Usd }): AnyOutcome;
   pause(state: unknown, extra?: { cost?: Usd }): AnyOutcome;
   cancelled(extra?: { partial?: unknown; undo?: unknown; cost?: Usd }): AnyOutcome;
@@ -51,6 +53,7 @@ export interface RuntimeRunBase extends Services, OutcomeHelpers {
   onPause(hook: () => unknown): void;
   allow(operations: Partial<AllowedOperations>): void;
   undoWith(payload: unknown): void;
+  expose(fn: AnyFnRef, detail?: Detail): void;
 }
 
 /** A native fn's (or method's) run context as the runtime builds it from the fn's declaration. */
@@ -100,6 +103,7 @@ export interface RuntimeLifecycle {
   stopping?(ctx: SystemCtx & { readonly reason: StopReason; readonly timeout: number }): Promise<void>;
   upgraded?(ctx: SystemCtx & { readonly from: string }): Promise<void>;
   uninstalled?(ctx: SystemCtx): Promise<void>;
+  exporting?(ctx: SystemCtx & { readonly timeout: number }): Promise<void>;
 }
 
 /** A system's implementation by section and local name. */

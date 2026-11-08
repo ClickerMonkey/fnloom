@@ -2,11 +2,12 @@
  * The composition root: the one hub client, its callers and every store, built for a browser window. Nothing else
  * makes a client; stores get only the callers they use.
  */
+import { HttpMcpProbe } from '../admin/probe.ts';
 import { AdminStore } from '../admin/state/admin.ts';
 import { createApi } from '../api/index.ts';
 import { XhrFileSender } from '../chat/api.ts';
 import { browserClient, ChatStore } from '../chat/state/chat.ts';
-import { MediaRecorderSource } from '../chat/state/voice.ts';
+import { browserSpeech, MediaRecorderSource } from '../chat/state/voice.ts';
 import { createHub } from '../api/client.ts';
 import { BrowserLock, SessionKeeper, SignInForm } from '../state/auth.ts';
 import { ConnectionStore } from '../state/connection.ts';
@@ -15,6 +16,8 @@ import { LayoutStore } from '../state/layout.ts';
 import { BrowserPush, PushStore, SERVICE_WORKERS } from '../state/push.ts';
 import { windowStorageChanges } from '../state/persisted.ts';
 import { SessionStore } from '../state/session.ts';
+import { ResourcesStore } from '../resources/state/resources.ts';
+import { ContextStore } from '../context/state/context.ts';
 import type { Stores } from '../state/stores.ts';
 
 /** The stores that fetch again after a reconnect. */
@@ -48,9 +51,19 @@ export function createStores(win: Window): Stores {
     api: api.chat, userEvents: api.userEvents, sessionEvents: api.sessionEvents, store: win.localStorage, sender: new XhrFileSender(),
     clock: Date.now, client: () => browserClient(), me: () => session.user.value?.id,
     recorder: () => (MediaRecorderSource.available() ? new MediaRecorderSource() : undefined),
+    speech: () => browserSpeech(win),
     renderers: { share: async () => { (await import('../chat/shared.ts')).shareChatModules(); } },
   });
-  const admin = new AdminStore({ api: api.admin, chat: api.chat, userEvents: api.userEvents, systemLogs: api.systemLogs });
+  const admin = new AdminStore({
+    api: api.admin, chat: api.chat, userEvents: api.userEvents, systemLogs: api.systemLogs, sender: new XhrFileSender(),
+    probe: new HttpMcpProbe((url, init) => win.fetch(url, init)),
+  });
+  const runtime = chat.renderers.runtime;
+  const resources = new ResourcesStore({
+    api: api.resources, events: api.resourceEvents, sender: new XhrFileSender(), fetch: (url, init) => win.fetch(url, init),
+    systems: { viewers: (format) => runtime.resourceViewers(format), client: (system) => runtime.systemClient(system), version: chat.renderers.version },
+    prepare: () => chat.prepareRenderers(),
+  });
   resyncOnReconnect({ session, connection, inbox, chat, admin });
   return {
     session,
@@ -63,6 +76,8 @@ export function createStores(win: Window): Stores {
     chat,
     admin,
     signInForm: () => new SignInForm(api.auth, session),
+    resources,
+    context: new ContextStore({ api: api.context, events: api.contextEvents }),
     push: new PushStore(api.notifications, new BrowserPush(win, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built), () => win.navigator.userAgent),
   };
 }

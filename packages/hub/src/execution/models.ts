@@ -3,14 +3,19 @@
  * selection as aeye's selection weights. Without a choice the hub's default model is used.
  */
 import type { ModelChoice } from '@harness/core';
-import type { ExecutionBase } from './ports.ts';
+import type { ExecutionBase, ExecutionSettings } from './ports.ts';
 import type { HubCallMetadata } from './scope.ts';
+
+/** What the resolver reads: model categories, and the default model. */
+export interface ModelResolverDeps extends Pick<ExecutionBase, 'store'> {
+  readonly settings: { readonly model: Pick<ExecutionSettings['model'], 'HARNESS_DEFAULT_MODEL'> };
+}
 
 /** Turns model choices into aeye metadata. */
 export class ModelResolver {
-  readonly #deps: Pick<ExecutionBase, 'store' | 'settings'>;
+  readonly #deps: ModelResolverDeps;
 
-  constructor(deps: Pick<ExecutionBase, 'store' | 'settings'>) {
+  constructor(deps: ModelResolverDeps) {
     this.#deps = deps;
   }
 

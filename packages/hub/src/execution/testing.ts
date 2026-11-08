@@ -11,7 +11,7 @@ import { memoryStore as rateMemory } from '@ayepi/rate';
 import { memoryBackend } from '@ayepi/work';
 import { fnDecl, type AnyFnDef } from '@harness/sdk';
 import {
-  ActorId, MessageId, SystemName, mintId, systemLinkSpec,
+  ActorId, MAIN_INSTANCE, MessageId, SystemName, mintId, splitName, systemLinkSpec,
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction,
@@ -20,9 +20,14 @@ import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { Catalog, FnSignature } from '../catalog/index.ts';
 import type { SystemConnection } from '../link/index.ts';
+import { StoreModelCallLog } from '../metrics/calls.ts';
+import { StoreFnMetrics } from '../metrics/fn-metrics.ts';
+import { createContextor } from '../contextor/create.ts';
+import type { Search } from '../index/index.ts';
+import { contextorEnv } from '../contextor/env.ts';
 import { createExecution, type ExecutionModule, type LlmSource } from './create.ts';
 import { executionEnv } from './env.ts';
-import type { ExecutionSettings } from './ports.ts';
+import type { ExecutionDeps, ExecutionSettings } from './ports.ts';
 
 export { settle };
 
@@ -188,12 +193,14 @@ export class TestCatalog implements Catalog {
   refreshAvailability(): never { throw new Error('not in execution tests'); }
   /** No kind records here: runs of kind fns are worded by their fn's status templates or the defaults. */
   kind(): ReturnType<Catalog['kind']> { return Promise.resolve(undefined); }
-  type(): never { throw new Error('not in execution tests'); }
-  typeClosure(): never { throw new Error('not in execution tests'); }
+  /** No named types here: test fns use plain gin types. */
+  type(): ReturnType<Catalog['type']> { return Promise.resolve(undefined); }
+  typeClosure(names: readonly QualifiedName[]): ReturnType<Catalog['typeClosure']> { return Promise.resolve({ order: [], missing: [...names] }); }
   declare(): never { throw new Error('not in execution tests'); }
   reimport(): never { throw new Error('not in execution tests'); }
   manifest(): never { throw new Error('not in execution tests'); }
-  entries(): never { throw new Error('not in execution tests'); }
+  /** No manifest entries here (no context names an agent in `alwaysFor`). */
+  entries(): Promise<never[]> { return Promise.resolve([]); }
 }
 
 /** What a fake system does with the hub's requests, set per test. */
@@ -229,7 +236,7 @@ export class TestSystem {
       child: ({ data }) => { this.children.push(data); },
       paired: notHere, check: notHere, context: notHere, roots: notHere, list: notHere, stat: notHere, read: notHere, sections: notHere, watch: notHere,
       content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
-      form: notHere, restart: notHere, stop: notHere, configure: notHere,
+      form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere,
     })]);
     let deliver: (frame: string) => void = () => undefined;
     const states = new Set<(state: 'closed' | 'connecting' | 'open') => void>();
@@ -246,7 +253,7 @@ export class TestSystem {
   /** The hub's view of this system's connection. */
   connection(hub: ReturnType<typeof linkServer>): SystemConnection {
     if (this.conn === undefined) throw new Error(`${this.name} is not connected`);
-    return { system: this.name, instance: 'test-1', connectedAt: 0, peer: hub.peers.of(this.conn), signal: this.#controller.signal };
+    return { system: this.name, instance: MAIN_INSTANCE, boot: 'test-1', connectedAt: 0, peer: hub.peers.of(this.conn), signal: this.#controller.signal };
   }
 }
 
@@ -273,7 +280,11 @@ export interface ChatRecord {
 export const OPEN_LIMITS: ResolvedLimits = { priority: 'interactive', priorityFrom: { default: 'hub' }, turn: { cost: 1, time: 600_000 }, budgets: [] };
 
 /** Build the execution module over fakes. */
-export async function executionRig(options: { settings?: ExecutionSettings; active?: boolean; llm?: LlmSource } = {}) {
+export async function executionRig(options: {
+  settings?: ExecutionSettings; active?: boolean; llm?: LlmSource; search?: Pick<Search, 'search'>;
+  /** How runs pick a fleet instance (default: the system's `main`, as with one connected instance). */
+  instances?: ExecutionDeps['instances'];
+} = {}) {
   const store = await testStore();
   const bus = new RecordingBus();
   const { log, records } = memoryLog();
@@ -289,11 +300,19 @@ export async function executionRig(options: { settings?: ExecutionSettings; acti
   const presence = { active: options.active ?? false };
   const configs = new Map<string, ConfigValue>();
   const approverSets = new Map<ApprovalId, ActorId[]>();
+  const calls = new StoreModelCallLog({ store, clock, log, random });
+  const metrics = new StoreFnMetrics({ store, bus, clock, log });
+  // the real contextor over the rig's store and catalog, with an index that finds nothing
+  const contextor = createContextor({
+    store, catalog, search: options.search ?? { search: () => Promise.resolve([]) }, settings: contextorEnv.parse(), modelSettings: { HARNESS_DEFAULT_MODEL: 'test-model' },
+    models: () => module.llm.models(), log, clock, probes: () => undefined,
+  });
 
   const module: ExecutionModule = createExecution({
     settings: options.settings ?? testSettings(),
     log, clock, random, store, bus, catalog,
     link: { connection: (system) => { const found = systems.get(system); return found === undefined ? undefined : found.connection(hub); } },
+    instances: options.instances ?? { route: ({ fn }) => Promise.resolve({ instance: { system: SystemName.parse(splitName(fn).system), instance: MAIN_INSTANCE } }) },
     config: { current: (system) => Promise.resolve(configs.get(system)) },
     presence: { active: () => Promise.resolve(presence.active) },
     turns: {
@@ -319,6 +338,7 @@ export async function executionRig(options: { settings?: ExecutionSettings; acti
     enrich: { render: (message) => message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') },
     approvers: { approvers: (approver: Approver, turnUser: ActorId) => Promise.resolve(approver.by === 'turn-user' ? [turnUser] : approver.by === 'actor' ? [approver.actor] : []) },
     ports: { work: memoryBackend(), rate: rateMemory() },
+    calls, metrics, planner: contextor.planner,
     llm: options.llm ?? { providers: { [SCRIPTED_AS]: provider }, models: [TEST_MODEL] },
   });
 
@@ -351,7 +371,7 @@ export async function executionRig(options: { settings?: ExecutionSettings; acti
     });
   };
 
-  return { module, store, bus, log, records, time, catalog, provider, chat, presence, configs, approverSets, connect, session, turn, hub };
+  return { module, store, bus, log, records, time, catalog, provider, chat, presence, configs, approverSets, connect, session, turn, hub, calls, metrics };
 }
 
 export type ExecutionRig = Awaited<ReturnType<typeof executionRig>>;

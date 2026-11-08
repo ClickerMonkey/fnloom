@@ -5,6 +5,7 @@
  * browsers read the mock chat's own runs and calls, so what the chat does shows up there. Built from the same
  * fixtures as the unit tests.
  */
+import { fixture } from './fixture.ts';
 import {
   ImportReport, SystemName, mintId, type ActorKind, type QualifiedName, type ActorId, type BudgetId, type InstallSource, type Json, type LlmInteraction, type ModelCategory, type PairingId, type PairingRequest,
   type Policy, type PriorityRule, type ProviderId, type ProviderKind, type ResolvedLimits, type ResourceRead, type ResourceRecord, type ResourceUri, type Run, type SystemStatus, type SystemView,
@@ -168,7 +169,7 @@ export class MockAdmin {
   }
 
   reimport(): ImportReport {
-    return ImportReport.parse({ added: ['fs/stat'], updated: ['fs/read_file'], removed: [], refused: [] });
+    return fixture(ImportReport, { added: ['fs/stat'], updated: ['fs/read_file'], removed: [], refused: [] });
   }
 
   remove(name: SystemName): { fnsUnavailable: number } {
@@ -178,7 +179,8 @@ export class MockAdmin {
   }
 
   install(source: InstallSource, autoStart: boolean): { name: SystemName } {
-    const raw = 'package' in source ? source.package.split('/').pop() ?? 'system' : 'git' in source ? source.git.split('/').pop()?.replace(/\.git$/, '') ?? 'system' : source.path.split(/[\\/]/).pop() ?? 'system';
+    const raw = 'package' in source ? source.package.split('/').pop() ?? 'system' : 'git' in source ? source.git.split('/').pop()?.replace(/\.git$/, '') ?? 'system'
+      : 'zip' in source ? source.file.replace(/(-\d[\w.]*)?\.zip$/, '') : source.path.split(/[\\/]/).pop() ?? 'system';
     const made = systemView({
       name: raw.replace(/^system-/, '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^[^a-z]+/, '') || 'system', description: 'Installed by the hub.', status: 'pairing', fns: 0,
       installed: installed({ source, status: 'installing', autoStart }), configType: undefined, config: undefined,

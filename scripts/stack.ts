@@ -1,6 +1,6 @@
 /**
  * Boots the whole harness on this machine: builds the web app, starts the hub (which serves the build), signs in as
- * the single admin account, pairs the fs and embedder systems with one-time pairing tokens the first time, starts
+ * the single admin account, pairs the fs, embedder and web systems with one-time pairing tokens the first time, starts
  * them, and configures fs with its root folder. `npm run dev` and the e2e tests both use it; `stop()` stops every
  * process it started.
  */
@@ -14,6 +14,7 @@ import { encodeValue, type ConfigOf } from '@harness/sdk';
 import { SYSTEM_ENV } from '@harness/sdk/server';
 import { embedderSystem, type EmbedderContract } from '../systems/embedder/shared/index.ts';
 import { fs } from '../systems/fs/shared/index.ts';
+import { web, type WebContract } from '../systems/web/shared/index.ts';
 import { signIn, waitFor, type Credentials, type SignedIn } from './hub-client.ts';
 
 /** The repository root. */
@@ -25,10 +26,15 @@ const VITE = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 export interface StackSystems {
   readonly fs: ConfigOf<(typeof fs)['defs']>;
   readonly embedder: ConfigOf<EmbedderContract['defs']>;
+  /** The web system's config; absent, its defaults (it reads `TAVILY_API_KEY` from the environment). */
+  readonly web?: ConfigOf<WebContract['defs']>;
 }
 
+/** The process each system runs as: its own name, but `web-system` for the web system (`web` is the app's build). */
+export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system' } as const satisfies Record<keyof StackSystems, string>;
+
 /** A process the stack runs. */
-export type ComponentName = 'web' | 'hub' | keyof StackSystems;
+export type ComponentName = 'web' | 'hub' | (typeof SYSTEM_COMPONENTS)[keyof StackSystems];
 
 /** How to boot the stack. */
 export interface StackOptions {
@@ -41,7 +47,7 @@ export interface StackOptions {
   readonly build: boolean;
   /** Restart the hub and systems when their source changes (`tsx watch`). */
   readonly watch: boolean;
-  /** Which of hub, fs and embedder to run (`web` is the build step). */
+  /** Which of hub, fs, embedder and web-system to run (`web` is the build step). */
   readonly only: ReadonlySet<ComponentName>;
   readonly systems: StackSystems;
   /** Extra environment for the hub (models, tunables). */
@@ -149,16 +155,18 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     const systems = [
       { name: 'fs', entry: join(ROOT, 'systems', 'fs', 'server', 'main.ts'), config: encodeValue(fs.defs.config, options.systems.fs) },
       { name: 'embedder', entry: join(ROOT, 'systems', 'embedder', 'server', 'main.ts'), config: encodeValue(embedderSystem.defs.config, options.systems.embedder) },
+      { name: 'web', entry: join(ROOT, 'systems', 'web', 'server', 'main.ts'), config: encodeValue(web.defs.config, options.systems.web ?? {}) },
     ] as const satisfies ReadonlyArray<{ name: keyof StackSystems; entry: string; config: Json }>;
     for (const system of systems) {
-      if (!options.only.has(system.name)) { continue; }
+      const component = SYSTEM_COMPONENTS[system.name];
+      if (!options.only.has(component)) { continue; }
       const name = SystemName.parse(system.name);
       const known = await systemOf(admin, name);
       // a system the hub already knows reconnects with its key; a new one pairs with a one-time token made for its name
       const token = known === undefined || known.status === 'removed'
         ? (await admin.hub.call('createPairingToken', { name, expiresIn: 600_000 })).token
         : undefined;
-      children.push(run(system.name, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
+      children.push(run(component, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
         cwd: ROOT, output: options.output,
         env: {
           [SYSTEM_ENV.hub]: link, [SYSTEM_ENV.state]: join(data, 'dev-systems', system.name), ...(token === undefined ? {} : { [SYSTEM_ENV.pairingToken]: token }),

@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "embedder",
+  "version": "0.2.0",
+  "description": "The EmbeddingGemma service (768 dimensions) as a harness embedder.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "instances": "one"
+}

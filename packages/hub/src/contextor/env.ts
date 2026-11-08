@@ -9,7 +9,7 @@ import { z } from 'zod';
 export const contextorEnv = env({
   HARNESS_DEFAULT_CONTEXT_WINDOW: z.number().int().min(256).default(4_096).describe('The context window assumed for a model nothing else describes (logged once per model as `model.limits.guessed`).'),
   HARNESS_DEFAULT_MAX_OUTPUT: z.number().int().min(16).default(1_024).describe('The reply length assumed for a model nothing else describes.'),
-  HARNESS_OLLAMA_DEFAULT_CTX: z.number().int().min(256).default(4_096).describe('The window an Ollama model is served with when its Modelfile sets no num_ctx (never its trained length).'),
+  HARNESS_OLLAMA_DEFAULT_CTX: z.number().int().min(256).default(4_096).describe('The most window assumed for an Ollama model when neither its Modelfile (num_ctx) nor its provider record sets one; Ollama\'s own default for its version (2048 before 0.6, else 4096) wins when smaller. Never its trained length.'),
   HARNESS_MODEL_PROBE_TTL: z.number().int().min(1_000).default(600_000).describe('How long a provider probe of a model\'s served limits is kept.'),
   HARNESS_GRAPH_POOL: z.number().int().min(4).max(500).default(48).describe('Context and fns the graph contextor retrieves per message before scoring (messages get half).'),
   HARNESS_LOADED_TURNS: z.number().int().min(0).default(3).describe('Turns an item the agent or person loaded stays forced into the prompt after its last use.'),

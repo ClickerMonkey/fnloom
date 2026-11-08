@@ -4,15 +4,24 @@
  * forwarded `ModelChoice`, enforces budgets and records the interaction, then streams chunks back, with the schema
  * descriptors it chose (so strict tool arguments and outputs decode here) and the real cost.
  *
- * `HubLlm` is `ctx.llm`: text, structured objects checked against a gin type, streams and embeddings, all through an
- * aeye `AI` built on that provider. System authors who want aeye prompts and tools use `harnessAi()` directly.
+ * Every other modality (embeddings, images, transcription, speech) goes over the link's `model` endpoint through
+ * `HubModels`, which the provider's aeye methods and `ctx.llm` share: the hub records each call as one `ModelCall`
+ * attributed to the run, so nothing a system does reaches a provider any other way.
+ *
+ * `HubLlm` is `ctx.llm`: text, structured objects checked against a gin type and streams through an aeye `AI` built on
+ * that provider, and the other modalities in core's shapes. System authors who want aeye prompts, tools, images or
+ * speech in aeye's shapes use `harnessAi()` directly.
  */
-import { AI, type EmbeddingRequest, type EmbeddingResponse, type ModelInfo, type Provider } from '@aeye/ai';
-import { getResponseFromChunks, type Chunk, type Message, type Request, type Response } from '@aeye/core';
-import { ModelChoice, type LlmForwardChunk, type LlmRequest, type RunId } from '@harness/core';
+import {
+  AI, type AIContextAny, type EmbeddingRequest, type EmbeddingResponse, type ImageGenerationRequest, type ImageGenerationResponse, type ModelInfo, type Provider,
+  type SpeechRequest, type SpeechResponse, type TranscriptionRequest, type TranscriptionResponse,
+} from '@aeye/ai';
+import { getResponseFromChunks, toFile, type AudioFormat, type Chunk, type Message, type Request, type Response } from '@aeye/core';
+import { ModelChoice, type LlmForwardChunk, type LlmRequest, type ModelForward, type ModelForwardResult, type RunId } from '@harness/core';
 import { z } from 'zod';
-import type { Llm } from '../ctx.ts';
+import type { ForwardModality, Llm, ModelInput, ModelOutput } from '../ctx.ts';
 import type { GinType } from '../gin.ts';
+import { HubContent, type ContentTransfer } from './content.ts';
 import type { HubAccess } from './link.ts';
 import { applyDescriptors, chunkFromWire, LlmWire, usageFromWire } from './llm-wire.ts';
 import { decodeOrThrow } from './wire.ts';
@@ -30,10 +39,10 @@ export const HUB_MODEL: ModelInfo = {
   id: HUB_MODEL_ID,
   provider: HUB_PROVIDER,
   name: 'Chosen by the hub',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'toolsStrict', 'structured', 'json', 'vision', 'files', 'reasoning', 'embedding']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'toolsStrict', 'structured', 'json', 'vision', 'files', 'reasoning', 'embedding', 'image', 'hearing', 'audio']),
   supportedParameters: new Set([
     'maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'responseFormat', 'structuredOutput', 'tools',
-    'toolChoice', 'toolsStrict', 'reason', 'verbosity',
+    'toolChoice', 'toolsStrict', 'reason', 'verbosity', 'imageMultiple',
   ]),
   tier: 'flagship',
   pricing: {},
@@ -45,9 +54,11 @@ export interface HarnessMetadata {
   harness?: { model?: ModelChoice };
 }
 
-/** What a forwarding provider acts for: the hub, and the run whose budget pays (absent outside runs). */
+/** What a forwarding provider acts for: the hub, how content moves to it, and the run whose budget pays (absent outside runs). */
 export interface HarnessProviderConfig {
   readonly hub: HubAccess;
+  /** How audio goes up and images and speech come down by content ref. Default: over `hub`. */
+  readonly content?: ContentTransfer;
   readonly run?: RunId;
 }
 
@@ -84,9 +95,13 @@ export function wireRequest(request: Request): LlmRequest {
 export class HarnessProvider implements Provider<HarnessProviderConfig> {
   readonly name = HUB_PROVIDER;
   readonly config: HarnessProviderConfig;
+  readonly #content: ContentTransfer;
+  readonly #models: HubModels;
 
   constructor(config: HarnessProviderConfig) {
     this.config = config;
+    this.#content = config.content ?? new HubContent(config.hub);
+    this.#models = new HubModels(config);
   }
 
   listModels(): Promise<ModelInfo[]> {
@@ -145,10 +160,105 @@ export class HarnessProvider implements Provider<HarnessProviderConfig> {
     };
   }
 
-  async embed(request: EmbeddingRequest): Promise<EmbeddingResponse> {
-    const hub = await this.config.hub.ready();
-    const { vectors, cost } = await hub.call('embed', { texts: request.texts, ...(this.config.run === undefined ? {} : { run: this.config.run }) });
-    return { embeddings: vectors.map((embedding, index) => ({ embedding, index })), model: `${HUB_PROVIDER}/${HUB_MODEL_ID}`, usage: { cost } };
+  async embed(request: EmbeddingRequest, ctx?: AIContextAny): Promise<EmbeddingResponse> {
+    const model = modelChoiceOf(ctx?.metadata);
+    const { vectors, cost, model: served } = await this.#models.embed({ texts: request.texts, ...(model === undefined ? {} : { model }) }, ctx?.signal);
+    return { embeddings: vectors.map((embedding, index) => ({ embedding, index })), model: served, usage: { cost } };
+  }
+
+  async generateImage(request: ImageGenerationRequest, ctx: AIContextAny): Promise<ImageGenerationResponse> {
+    const model = modelChoiceOf(ctx.metadata);
+    const made = await this.#models.image({
+      prompt: request.prompt,
+      ...(model === undefined ? {} : { model }),
+      ...(request.size === undefined ? {} : { size: request.size }),
+      ...(request.n === undefined ? {} : { count: request.n }),
+    }, ctx.signal);
+    const images = await Promise.all(made.images.map(async (ref) => ({ b64_json: Buffer.from(await this.#content.download(ref, ctx.signal)).toString('base64') })));
+    return { images, model: made.model, usage: { cost: made.cost } };
+  }
+
+  async transcribe(request: TranscriptionRequest, ctx: AIContextAny): Promise<TranscriptionResponse> {
+    const model = modelChoiceOf(ctx.metadata);
+    const file = await toFile(request.audio);
+    const audio = await this.#content.upload(new Uint8Array(await file.arrayBuffer()), file.type === '' ? 'application/octet-stream' : file.type, ctx.signal);
+    const heard = await this.#models.transcribe({
+      audio,
+      ...(model === undefined ? {} : { model }),
+      ...(request.language === undefined ? {} : { language: request.language }),
+    }, ctx.signal);
+    return {
+      text: heard.text,
+      ...(heard.segments === undefined ? {} : { segments: heard.segments.map((segment, index) => ({ id: String(index), ...segment })) }),
+      model: heard.model,
+      usage: { cost: heard.cost },
+    };
+  }
+
+  async speech(request: SpeechRequest, ctx: AIContextAny): Promise<SpeechResponse> {
+    const model = modelChoiceOf(ctx.metadata);
+    const format = request.responseFormat === undefined ? undefined : SPEECH_FORMATS[request.responseFormat];
+    if (format === null) { throw new Error(`The hub speaks mp3, wav or ogg (opus), not ${request.responseFormat ?? ''}.`); }
+    const spoken = await this.#models.speak({
+      text: request.text,
+      ...(model === undefined ? {} : { model }),
+      ...(request.voice === undefined ? {} : { voice: request.voice }),
+      ...(format === undefined ? {} : { format }),
+    }, ctx.signal);
+    const bytes = await this.#content.download(spoken.audio, ctx.signal);
+    return {
+      audio: new ReadableStream<Uint8Array>({ start: (controller) => { controller.enqueue(bytes); controller.close(); } }),
+      ...(request.responseFormat === undefined ? {} : { responseFormat: request.responseFormat }),
+      model: spoken.model,
+      usage: { cost: spoken.cost },
+    };
+  }
+}
+
+/** The audio formats the hub's `model` endpoint speaks, by aeye's format name; `null` for one it doesn't. */
+const SPEECH_FORMATS = { mp3: 'mp3', wav: 'wav', opus: 'ogg', aac: null, flac: null, pcm: null } as const satisfies Record<AudioFormat, SpeechFormat | null>;
+
+/** A speech format the `model` endpoint takes. */
+type SpeechFormat = NonNullable<ModelInput<'speech'>['format']>;
+
+/** Whether a forwarded call's result is of the modality asked for. */
+function isModality<M extends ForwardModality>(result: ModelForwardResult, modality: M): result is Extract<ModelForwardResult, { modality: M }> {
+  return result.modality === modality;
+}
+
+/**
+ * Non-chat model calls over the link's `model` endpoint, on the run's budget: embeddings, images, transcription and
+ * speech. The hub records each as one `ModelCall` and answers with its id and cost; large outputs come by content ref.
+ */
+export class HubModels {
+  readonly #config: HarnessProviderConfig;
+
+  constructor(config: HarnessProviderConfig) {
+    this.#config = config;
+  }
+
+  embed(input: ModelInput<'embed'>, signal?: AbortSignal): Promise<ModelOutput<'embed'>> {
+    return this.#send({ modality: 'embed', ...input }, signal);
+  }
+
+  image(input: ModelInput<'image'>, signal?: AbortSignal): Promise<ModelOutput<'image'>> {
+    return this.#send({ modality: 'image', ...input }, signal);
+  }
+
+  transcribe(input: ModelInput<'transcribe'>, signal?: AbortSignal): Promise<ModelOutput<'transcribe'>> {
+    return this.#send({ modality: 'transcribe', ...input }, signal);
+  }
+
+  speak(input: ModelInput<'speech'>, signal?: AbortSignal): Promise<ModelOutput<'speech'>> {
+    return this.#send({ modality: 'speech', ...input }, signal);
+  }
+
+  async #send<M extends ForwardModality>(body: Extract<ModelForward, { modality: M }>, signal: AbortSignal | undefined): Promise<Extract<ModelForwardResult, { modality: M }>> {
+    const hub = await this.#config.hub.ready(signal);
+    const run = this.#config.run;
+    const result = await hub.call('model', { ...body, ...(run === undefined ? {} : { run }) }, signal === undefined ? {} : { signal });
+    if (!isModality(result, body.modality)) { throw new Error(`The hub answered a ${body.modality} call with ${result.modality}.`); }
+    return result;
   }
 }
 
@@ -181,10 +291,12 @@ export function harnessAiOf(llm: Llm): HarnessAi {
 /** `ctx.llm`: LLM calls through the hub, counted against the run's budget. */
 export class HubLlm implements Llm {
   readonly #ai: HarnessAi;
+  readonly #models: HubModels;
   readonly #signal: AbortSignal | undefined;
 
   constructor(config: HarnessProviderConfig, signal?: AbortSignal) {
     this.#ai = harnessAi(config);
+    this.#models = new HubModels(config);
     this.#signal = signal;
   }
 
@@ -214,8 +326,20 @@ export class HubLlm implements Llm {
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    const response = await this.#ai.embed.get({ texts });
-    return response.embeddings.sort((a, b) => a.index - b.index).map((e) => e.embedding);
+    if (texts.length === 0) { return []; }
+    return (await this.#models.embed({ texts }, this.#signal)).vectors;
+  }
+
+  image(input: ModelInput<'image'>): Promise<ModelOutput<'image'>> {
+    return this.#models.image(input, this.#signal);
+  }
+
+  transcribe(input: ModelInput<'transcribe'>): Promise<ModelOutput<'transcribe'>> {
+    return this.#models.transcribe(input, this.#signal);
+  }
+
+  speak(input: ModelInput<'speech'>): Promise<ModelOutput<'speech'>> {
+    return this.#models.speak(input, this.#signal);
   }
 
   #signalOption(): { signal: AbortSignal } | {} {

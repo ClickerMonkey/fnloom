@@ -2,10 +2,12 @@
  * Declaring fns: `fn()` for native fns, handlers, progress, and the types the rest of the SDK computes from a fn's
  * declaration (its ref, its run context, its outcome helpers and its renderer's props), so they can't disagree.
  */
-import type {
-  Audience, Display, FnError, FnLimits, Json, Operations, ProgressDecl, ProgressWire, StatusTemplates, StepStatus, Usd,
+import {
+  messageOf,
+  type Audience, type Display, type FnError, type FnLimits, type InvalidInput, type Json, type Operations, type ProgressDecl, type ProgressWire,
+  type StatusTemplates, type StepStatus, type Usd,
 } from '@harness/core';
-import { json, type GinType } from './gin.ts';
+import { encodeValue, json, type GinType } from './gin.ts';
 import type { AnyFnRef, AnyKindRef, KindRef } from './refs.ts';
 import type { StatusInput } from './status.ts';
 import { orDefault, type Simplify } from './util.ts';
@@ -112,6 +114,27 @@ export interface FnTypes {
   form: unknown;
 }
 
+/**
+ * One example call of a fn, shown on its card at `full` detail and in its invalid-input replies: args of the fn's own
+ * args type (a wrong example does not compile), and what the example shows.
+ */
+export interface FnExampleOf<A> {
+  readonly args: A;
+  readonly note?: string;
+}
+
+/** Check each example against the args type now, so a contract with a wrong example fails as it is built. */
+function checkedExamples<A>(what: string, args: GinType<A>, examples: readonly FnExampleOf<A>[] | undefined): readonly FnExampleOf<A>[] {
+  return (examples ?? []).map((example, index) => {
+    try {
+      encodeValue(args, example.args);
+    } catch (error) {
+      throw new Error(`${what}: example ${index + 1} does not fit the args type: ${messageOf(error)}`, { cause: error });
+    }
+    return { args: example.args, ...(example.note === undefined ? {} : { note: example.note }) };
+  });
+}
+
 /** A fn's deps by local name: `{ stat: fs.fns.stat }`. */
 export type Deps = Record<string, AnyFnRef>;
 
@@ -138,6 +161,8 @@ export interface FnDef<T extends FnTypes> {
   readonly limits: FnLimits;
   readonly visibility: Audience;
   readonly tags: readonly string[];
+  /** Example calls, checked against its args type. */
+  readonly examples: readonly FnExampleOf<T['args']>[];
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -183,6 +208,8 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   /** Default `both`. */
   visibility?: Audience;
   tags?: string[];
+  /** Example calls (args of its own args type), shown to agents on its card and when they get its args wrong. */
+  examples?: FnExampleOf<NoInfer<A>>[];
 }
 
 /** The types of a native fn. */
@@ -222,6 +249,7 @@ export function fn<
     limits: def.limits ?? {},
     visibility: def.visibility ?? 'both',
     tags: def.tags ?? [],
+    examples: checkedExamples(def.description, def.args, def.examples),
   };
 }
 
@@ -242,6 +270,8 @@ export interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplate
   status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
   visibility?: Audience;
   tags?: string[];
+  /** Example calls, of the `args` type when given (JSON otherwise). */
+  examples?: FnExampleOf<NoInfer<A>>[];
 }
 
 /** The types of a fn of some kind. Its deps, handlers and progress come from the kind at runtime. */
@@ -278,17 +308,20 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     limits: {},
     visibility: def.visibility ?? 'both',
     tags: def.tags ?? [],
+    examples: def.args === undefined ? (def.examples ?? []) : checkedExamples(def.description, def.args, def.examples),
   };
 }
 
 // ─── Outcomes ─────────────────────────────────────────────────────────────────
 
 /**
- * How a run ended. Build it with the ctx helpers (`ctx.done(result)`, `ctx.fail(...)`, `ctx.pause(state)`,
- * `ctx.cancelled()`), which are typed to the fn. Its wire form is core's `OutcomeWire`.
+ * How a run ended. Build it with the ctx helpers (`ctx.done(result)`, `ctx.invalid(problems)`, `ctx.fail(...)`,
+ * `ctx.pause(state)`, `ctx.cancelled()`), which are typed to the fn. Its wire form is core's `OutcomeWire`.
+ * `invalid-input` is the caller's mistake (an agent retries it, the chat shows it softly); `failed` is a real error.
  */
 export type Outcome<T extends FnTypes> =
   | { status: 'done'; result: T['result']; undo?: T['undo']; cost?: Usd }
+  | { status: 'invalid-input'; invalid: InvalidInput; cost?: Usd }
   | { status: 'paused'; resume: T['resume']; cost?: Usd }
   | { status: 'failed'; error: FnError; undo?: T['undo']; cost?: Usd }
   | { status: 'cancelled'; partial?: T['result']; undo?: T['undo']; cost?: Usd };

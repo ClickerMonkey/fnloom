@@ -28,8 +28,8 @@ export interface CallSiteInfo {
 /** A model call in progress: finish it once, with what it used. */
 export interface OpenModelCall {
   readonly id: ModelCallId;
-  /** The provider started answering (its first byte or chunk). */
-  firstByte(): void;
+  /** The provider started answering (its first byte or chunk), now or at `at`. Only the first call counts. */
+  firstByte(at?: number): void;
   done(input: { units: ModelUnits; cost: Usd; sent: number; received: number; interaction?: ModelCall['interaction'] }): Promise<ModelCall>;
   failed(error: string, aborted: boolean): Promise<ModelCall>;
 }

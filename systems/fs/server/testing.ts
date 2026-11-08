@@ -5,12 +5,13 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RunInfo, UserInfo, mintId, type FnError, type Json, type QualifiedName, type TimeInfo } from '@harness/core';
+import { MAIN_INSTANCE, RunInfo, UserInfo, mintId, type FnError, type Json, type QualifiedName, type TimeInfo } from '@harness/core';
 import {
   parseValue, type AttachmentRef, type Callers, type FnCtx, type FnTypes, type HandlersInRun, type Log, type Outcome,
   type ProgressReporter, type SessionState, type SettingRef, type SystemCtx, type UndoCtx,
 } from '@harness/sdk';
 import { HubLlm, type HubAccess } from '@harness/sdk/server';
+import { TEST_PLACE } from '@harness/sdk/server/testing';
 import type { CommandRun, FsConfig, Git, GitStatus, Opener, Restarter, Shell } from './index.ts';
 import { normalize } from './paths.ts';
 
@@ -84,6 +85,7 @@ export interface FakeOptions {
 /** The services every fake run, undo and action gets. */
 function services(options: FakeOptions, recorded: Recorded) {
   return {
+    ...TEST_PLACE,
     llm: new HubLlm({ hub: unreachable }),
     files: { read: unused('files'), readText: unused('files'), write: unused('files'), list: unused('files'), remove: unused('files'), share: unused('files') },
     fetch: unused('fetch'),
@@ -115,7 +117,7 @@ export interface FnParts<T extends FnTypes> {
 function runInfo(): RunInfo {
   return RunInfo.parse({
     id: mintId('run'), fn: 'fs/test', turn: mintId('turn'), user, time,
-    system: { name: 'fs', instance: 'test' }, caller: user.id, attempt: 1, priority: 'interactive',
+    system: { name: 'fs', instance: MAIN_INSTANCE, boot: 'test' }, caller: user.id, attempt: 1, priority: 'interactive',
   });
 }
 
@@ -134,7 +136,9 @@ export function fnCtx<T extends FnTypes>(parts: FnParts<T>, options: FakeOptions
     onPause: () => undefined,
     allow: () => undefined,
     undoWith: () => undefined,
+    expose: () => undefined,
     done: (result, extra) => ({ status: 'done', result, ...extra }),
+    invalid: (problems) => ({ status: 'invalid-input', invalid: { source: 'validation', problems: typeof problems === 'string' ? [{ path: '', message: problems }] : [...problems] } }),
     fail: (cls, message, extra) => {
       const error: FnError = { class: cls, message, ...(extra?.code === undefined ? {} : { code: extra.code }), ...(extra?.data === undefined ? {} : { data: extra.data }) };
       return { status: 'failed', error, ...(extra?.undo === undefined ? {} : { undo: extra.undo }) };
@@ -155,7 +159,7 @@ export function undoCtx(options: FakeOptions): { ctx: UndoCtx<FsConfig> } & Reco
 export function systemCtx(options: FakeOptions): SystemCtx<FsConfig> & { session: ReturnType<typeof mintId<'session'>>; user: typeof user; time: TimeInfo } & Recorded {
   const recorded = record();
   const all = services(options, recorded);
-  return { ...recorded, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
+  return { ...recorded, ...TEST_PLACE, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
 }
 
 /** The outcome of a run, narrowed to `done`, failing the test otherwise. */

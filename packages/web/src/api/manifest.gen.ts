@@ -1004,7 +1004,8 @@ export const manifest = {
       "q": [],
       "b": [
         "system",
-        "config"
+        "config",
+        "instance"
       ],
       "f": [],
       "hasBody": true,
@@ -2415,6 +2416,7 @@ export const manifest = {
         "zip",
         "instance",
         "config",
+        "data",
         "autoStart"
       ],
       "f": [],

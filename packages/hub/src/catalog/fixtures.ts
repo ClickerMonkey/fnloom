@@ -3,7 +3,7 @@
  * the tests import are exactly what systems send. Tests only.
  */
 import {
-  ActorId, SystemName, type FnDecl, type Manifest, type SystemRecord, type SystemStatus,
+  ActorId, MAIN_INSTANCE, SystemName, type FnDecl, type InstanceRecord, type Manifest, type SystemRecord, type SystemStatus,
 } from '@harness/core';
 import { context, embedder, fn, g, kind, manifestOf, mention, sectioner, system, type, type AnyContract } from '@harness/sdk';
 
@@ -59,6 +59,14 @@ export function declOf(manifest: Manifest, name: string): FnDecl {
   return decl;
 }
 
+/** An instance row of a system in a given status (`main` unless named). */
+export function instanceRow(system: string, status: SystemStatus, extra: Partial<InstanceRecord> = {}): InstanceRecord {
+  return {
+    system: SystemName.parse(system), instance: MAIN_INSTANCE, description: '', status, keyFingerprint: `fp-${system}`, publicKey: `pk-${system}`,
+    version: '1.0.0', manifestHash: '', ...extra,
+  };
+}
+
 /** A system row in a given status. */
 export function systemRow(name: string, status: SystemStatus, extra: Partial<SystemRecord> = {}): SystemRecord {
   return {
@@ -66,8 +74,6 @@ export function systemRow(name: string, status: SystemStatus, extra: Partial<Sys
     description: `${name} system`,
     status,
     enabled: { functions: true, renderers: true },
-    keyFingerprint: `fp-${name}`,
-    publicKey: `pk-${name}`,
     version: '1.0.0',
     manifestHash: '',
     actor: ActorId.parse(`act_${name}`),

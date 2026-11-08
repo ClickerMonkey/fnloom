@@ -1,14 +1,16 @@
 /**
  * `npm run dev`: builds the web app, then runs the hub (serving that build), the fs system (with this repository as
- * its root) and the embedder system, all bound to the LAN and restarting when their source changes. Output is
- * prefixed and coloured per process; Ctrl+C stops them all. Settings come from the environment or `.env`:
+ * its root), the embedder system and, when `TAVILY_API_KEY` is set, the web system, all bound to the LAN and
+ * restarting when their source changes. Output is prefixed and coloured per process; Ctrl+C stops them all. Settings
+ * come from the environment or `.env`:
  *
  *   HARNESS_ADMIN_EMAIL / HARNESS_ADMIN_PASSWORD   the single admin account (required; made on first start)
  *   HARNESS_PORT       hub and web app port (default 4300)
  *   HARNESS_DATA       data folder (default .harness)
- *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder (default all)
+ *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder, web-system (default all)
  *   HARNESS_DEV_ROOT   the folder fs serves (default this repository)
  *   HARNESS_EMBEDDER_URL  the EmbeddingGemma service (default http://127.0.0.1:8760)
+ *   TAVILY_API_KEY     the web system's search key; without it the web system doesn't run
  *
  * For the web app with hot reload instead of a build, run `npm run dev:web` beside it (Vite on HARNESS_WEB_PORT).
  */
@@ -30,8 +32,12 @@ const devSettings = mergeEnvs(stackEnv, devEnv);
 devSettings.set({ ...loadEnv({ files: ['.env'] }), ...process.env });
 const settings = devSettings.parse();
 
-const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32 } as const satisfies Record<ComponentName, number>;
+const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34 } as const satisfies Record<ComponentName, number>;
 const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
+
+const only = new Set(settings.HARNESS_DEV_ONLY.split(',').map((s) => s.trim()).filter(isComponent));
+// the web system searches with Tavily; without a key every search would fail, so it isn't started
+if (settings.TAVILY_API_KEY === undefined && only.delete('web-system')) { console.info('dev.web-system.skipped', { reason: 'TAVILY_API_KEY is not set' }); }
 
 const stack = await startStack({
   port: settings.HARNESS_PORT,
@@ -39,7 +45,7 @@ const stack = await startStack({
   admin: { email: settings.HARNESS_ADMIN_EMAIL, password: settings.HARNESS_ADMIN_PASSWORD },
   build: true,
   watch: true,
-  only: new Set(settings.HARNESS_DEV_ONLY.split(',').map((s) => s.trim()).filter(isComponent)),
+  only,
   systems: { fs: fsConfig(settings.HARNESS_DEV_ROOT ?? ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL } },
   output: (component, line, stream) => {
     (stream === 'err' ? process.stderr : process.stdout).write(`\u001b[${COLOURS[component]}m${component.padEnd(9)}\u001b[0m ${line}\n`);

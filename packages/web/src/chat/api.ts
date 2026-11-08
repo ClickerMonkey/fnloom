@@ -61,6 +61,8 @@ export function chatApi(hub: Hub) {
     act: hub.caller('act'),
     submit: hub.caller('submit'),
     state: hub.caller('state', { dedupe: true }),
+    /** What the session's contextor would put in the prompt for a draft, without calling the model; only the latest counts. */
+    previewSelection: hub.caller('previewSelection', { lastOnly: true }),
   };
 }
 

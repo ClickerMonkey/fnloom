@@ -107,7 +107,7 @@ describe('DiffView', () => {
 
 describe('EntryInput', () => {
   it('emits a whole Entry as the path and type change, and shows problems', async () => {
-    const input = mount(EntryInput, { props: { modelValue: undefined, problems: [], system: fakeSystem().system } });
+    const input = mount(EntryInput, { props: { modelValue: undefined, problems: [], readonly: false, system: fakeSystem().system } });
     await input.find('input').setValue('docs/a.md');
     const first = input.emitted('update:modelValue')?.[0]?.[0];
     expect(first).toMatchObject({ path: 'docs/a.md', type: 'file', size: 0 });
@@ -120,8 +120,18 @@ describe('EntryInput', () => {
 
   it('shows the size and time of an entry from the system', () => {
     const value = { path: 'C:/w/a.md', type: 'file' as const, size: 2048, modifiedAt: new Date(0) };
-    const input = mount(EntryInput, { props: { modelValue: value, problems: [], system: fakeSystem().system } });
+    const input = mount(EntryInput, { props: { modelValue: value, problems: [], readonly: false, system: fakeSystem().system } });
     expect(input.find('.help').text()).toContain('2.0 KB');
     expect(input.find('[aria-checked="true"]').text()).toBe('File');
+  });
+
+  it('is the viewer too: read-only, nothing can change and nothing is emitted', async () => {
+    const value = { path: 'C:/w/a.md', type: 'file' as const, size: 2048, modifiedAt: new Date(0) };
+    const input = mount(EntryInput, { props: { modelValue: value, problems: [], readonly: true, system: fakeSystem().system } });
+    expect(input.find('input').attributes('readonly')).toBeDefined();
+    expect(input.findAll('.type').every((button) => button.attributes('disabled') !== undefined)).toBe(true);
+    await input.findAll('.type')[1]?.trigger('click');
+    expect(input.emitted('update:modelValue')).toBeUndefined();
+    expect(input.find('.help').text()).toContain('2.0 KB');
   });
 });

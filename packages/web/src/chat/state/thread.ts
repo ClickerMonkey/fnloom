@@ -18,6 +18,7 @@ import type { BodyOf } from '../../api/client.ts';
 import type { ChatApi, SessionEvents } from '../api.ts';
 import { applyRunUpdate, emptyRun, isActive, mergeRecord, type RunView } from '../logic/runs.ts';
 import { appendToken, messageTextLength, prependPage, resendParts, storedReasoning, undoneTurns, upsertMessage } from '../logic/thread.ts';
+import { RETRY, retryUntil, type RetryPolicy } from '../../state/retry.ts';
 import { summaryOf } from './sessions.ts';
 
 /** What the session controls can do, from the `control` endpoint's body. */
@@ -47,6 +48,8 @@ export interface ThreadDeps {
   readonly changed: (summary: SessionSummary) => void;
   /** Whether the person can see the page (default the browser's page visibility). */
   readonly looking?: PageLooking;
+  /** How a catch-up after a reconnect is retried until it works (default `RETRY`). */
+  readonly retry?: RetryPolicy;
 }
 
 /**
@@ -176,6 +179,12 @@ export class ThreadStore {
   readonly limits = shallowRef<ResolvedLimits | undefined>(undefined);
   readonly status = ref<ThreadStatus>('loading');
   readonly problem = ref('');
+  /**
+   * What is shown may be behind: a reconnect's catch-up hasn't worked yet (it is retried until it does), so live
+   * events may have been missed.
+   */
+  readonly stale = ref(false);
+  #catchUps = 0;
   readonly loadingOlder = ref(false);
   readonly sending = ref(false);
   /** The message being sent, shown until the hub has it. */
@@ -236,18 +245,7 @@ export class ThreadStore {
     this.status.value = this.messages.value.length > 0 ? 'ready' : 'loading';
     this.problem.value = '';
     try {
-      const [session, page] = await Promise.all([
-        this.#deps.api.session.call({ session: this.id }),
-        this.#deps.api.messages.call({ session: this.id, limit: this.#settings.page }),
-      ]);
-      this.session.value = session;
-      this.#deps.changed(summaryOf(session));
-      let merged = [...page.items].reverse();
-      for (const live of this.messages.value) { merged = upsertMessage(merged, live); }
-      this.messages.value = merged;
-      this.#cursor = page.cursor;
-      this.#hasOlder.value = page.cursor !== undefined;
-      this.status.value = 'ready';
+      const merged = await this.#load();
       void this.loadLimits();
       void this.loadWaiting();
       void this.#fetchRuns(merged.flatMap((m) => m.runs).slice(-this.#settings.runsOnOpen));
@@ -257,6 +255,23 @@ export class ThreadStore {
       this.status.value = loaded ? 'ready' : 'error';
       this.problem.value = problemText(error, loaded ? "Couldn't catch up with this chat." : "Couldn't open this chat.");
     }
+  }
+
+  /** Read the record and the latest page, merged with what live events already brought; throws when either fails. */
+  async #load(): Promise<readonly ChatMessage[]> {
+    const [session, page] = await Promise.all([
+      this.#deps.api.session.call({ session: this.id }),
+      this.#deps.api.messages.call({ session: this.id, limit: this.#settings.page }),
+    ]);
+    this.session.value = session;
+    this.#deps.changed(summaryOf(session));
+    let merged = [...page.items].reverse();
+    for (const live of this.messages.value) { merged = upsertMessage(merged, live); }
+    this.messages.value = merged;
+    this.#cursor = page.cursor;
+    this.#hasOlder.value = page.cursor !== undefined;
+    this.status.value = 'ready';
+    return merged;
   }
 
   /** Stop listening (the thread is no longer shown). */
@@ -270,11 +285,40 @@ export class ThreadStore {
     if (this.#typing || this.#focused) { this.#sendPresence(false, false); }
   }
 
-  /** Fetch what may have changed while offline: the session, the latest page, controls, unsettled runs and state. */
+  /**
+   * Fetch what may have changed while offline: the session, the latest page, what waits on the person, the runs those
+   * messages made and the unsettled ones, and state. Until every one of those reads works the thread is `stale`, and
+   * the catch-up is tried again with growing waits (a hub that is back but still busy), while the thread is open. A
+   * newer catch-up takes over from an older one.
+   */
   async refresh(): Promise<void> {
-    await this.open();
+    const mine = ++this.#catchUps;
+    this.stale.value = true;
+    this.#stopEvents ??= this.#deps.events(this.id, (event) => { this.#onEvent(event); });
+    const wanted = (): boolean => mine === this.#catchUps && this.#stopEvents !== undefined;
+    const caught = await retryUntil(() => this.#catchUp(), this.#deps.retry ?? RETRY, wanted, (error) => {
+      // the chat stays on screen, saying why it may be behind, while the catch-up is tried again
+      this.problem.value = problemText(error, "Couldn't catch up with this chat.");
+      if (this.session.value === undefined) { this.status.value = 'error'; }
+    });
+    if (caught && mine === this.#catchUps) {
+      this.stale.value = false;
+      this.problem.value = '';
+      if (this.status.value === 'error') { this.status.value = 'ready'; }
+      void this.loadLimits();
+    }
+  }
+
+  /** One catch-up: every read it makes must work, or it throws (and is tried again). */
+  async #catchUp(): Promise<void> {
+    const merged = await this.#load();
     const unsettled = [...this.runs.value.values()].filter((run) => !isSettled(run.status)).map((run) => run.id);
-    await Promise.all([this.#fetchRuns(unsettled, true), ...[...this.#declared.value.keys()].map((run) => this.loadState(run))]);
+    await Promise.all([
+      this.#readWaiting(),
+      this.#fetchRuns(merged.flatMap((m) => m.runs).slice(-this.#settings.runsOnOpen), false, true),
+      this.#fetchRuns(unsettled, true, true),
+      ...[...this.#declared.value.keys()].map((run) => this.loadState(run)),
+    ]);
   }
 
   /**
@@ -333,14 +377,18 @@ export class ThreadStore {
    */
   async loadWaiting(): Promise<void> {
     try {
-      const waiting = await this.#deps.api.waiting.call({ session: this.id });
-      this.approvals.value = [...waiting.approvals].sort((a, b) => a.createdAt - b.createdAt);
-      const me = this.#deps.me();
-      this.handlers.value = waiting.handlers.filter((h) => 'user' in h.answerer && h.answerer.user === me);
-      void this.#fetchRuns([...waiting.approvals.map((a) => a.run), ...waiting.handlers.map((h) => h.run)]);
+      await this.#readWaiting();
     } catch {
       // the lists keep what events said
     }
+  }
+
+  async #readWaiting(): Promise<void> {
+    const waiting = await this.#deps.api.waiting.call({ session: this.id });
+    this.approvals.value = [...waiting.approvals].sort((a, b) => a.createdAt - b.createdAt);
+    const me = this.#deps.me();
+    this.handlers.value = waiting.handlers.filter((h) => 'user' in h.answerer && h.answerer.user === me);
+    void this.#fetchRuns([...waiting.approvals.map((a) => a.run), ...waiting.handlers.map((h) => h.run)]);
   }
 
   /** Read the budgets the next turn would get. */
@@ -628,19 +676,22 @@ export class ThreadStore {
     }
   }
 
-  async #fetchRuns(ids: readonly RunId[], again = false): Promise<void> {
+  /** Read runs' records. `strict` throws when one can't be read (a catch-up tries again); otherwise it keeps what its events said. */
+  async #fetchRuns(ids: readonly RunId[], again = false, strict = false): Promise<void> {
     const wanted = [...new Set(ids)].filter((id) => !this.#fetching.has(id) && (again || this.runs.value.get(id)?.createdAt === undefined));
+    const failures: unknown[] = [];
     await Promise.all(wanted.map(async (id) => {
       this.#fetching.add(id);
       try {
         const record = await this.#deps.api.run.call({ run: id });
         this.#upsertRun(mergeRecord(this.runs.value.get(id), record));
-      } catch {
-        // a run that can't be read keeps what its events said
+      } catch (error) {
+        failures.push(error);
       } finally {
         this.#fetching.delete(id);
       }
     }));
+    if (strict && failures.length > 0) { throw failures[0]; }
   }
 
   #upsertRun(run: RunView): void {

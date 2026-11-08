@@ -1,0 +1,239 @@
+/**
+ * The context pages' pure parts: the `/context` URL's query (`ContextBrowseQuery`) and the hub query made from it;
+ * plain words for an item's origin, a link's relation and where a link came from; links grouped by relation, strongest
+ * first; what a link points at, in words; whether a person may remove a link; and the add-link and memory drafts read
+ * into the hub's own argument shapes (`LinkTarget`, `RememberArgs`) with one plain problem when they don't parse.
+ */
+import {
+  ContextFromResourceArgs, ContextQuery, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, SystemName,
+  type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope,
+} from '@harness/core';
+import { z } from 'zod';
+import type { IconName } from '../../ui/index.ts';
+
+/** The origins the list filters by (an origin's type; `system` when a record has none), as the hub's query takes them. */
+export const OriginChoice = ContextQuery.shape.origin.unwrap();
+
+/** The `/context` page's query: words, an origin, a system, and the dialogs open over it. */
+export const ContextBrowseQuery = z.object({
+  q: z.string(),
+  origin: OriginChoice,
+  system: SystemName,
+  /** The "remember something" dialog. */
+  remember: z.literal('1'),
+  /** The "make context from a resource" dialog. */
+  from: z.literal('1'),
+}).partial();
+export type ContextBrowseQuery = z.infer<typeof ContextBrowseQuery>;
+
+/** The `/context` query read from the URL's values: each key kept only when it parses, blanks left out. */
+export function readContextQuery(raw: Readonly<Record<string, string>>): ContextBrowseQuery {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === '') { continue; }
+    const one = ContextBrowseQuery.safeParse({ [key]: value });
+    if (one.success && key in one.data) { out[key] = value; }
+  }
+  return ContextBrowseQuery.parse(out);
+}
+
+/** The item page's query: the dialogs open over it. */
+export const ContextItemQuery = z.object({ link: z.literal('1'), edit: z.literal('1') }).partial();
+export type ContextItemQuery = z.infer<typeof ContextItemQuery>;
+
+/** What the list asks the hub for. */
+export type ContextFilter = Pick<ContextQuery, 'search' | 'origin' | 'system'>;
+
+/** The hub's filter for a `/context` query (blank words left out). */
+export function filterOf(query: ContextBrowseQuery): ContextFilter {
+  const search = query.q?.trim() ?? '';
+  return {
+    ...(search === '' ? {} : { search }),
+    ...(query.origin === undefined ? {} : { origin: query.origin }),
+    ...(query.system === undefined ? {} : { system: query.system }),
+  };
+}
+
+/** Whether a filter narrows the list (so an empty list says "nothing matches", not "nothing yet"). */
+export function isFiltered(filter: ContextFilter): boolean {
+  return filter.search !== undefined || filter.origin !== undefined || filter.system !== undefined;
+}
+
+/** An item's origin type. */
+export function originOf(record: Pick<ContextRecord, 'origin'>): ContextOriginType {
+  return record.origin?.type ?? 'system';
+}
+
+/** Each origin in words, with its icon. */
+export const ORIGIN_WORDS = {
+  system: { label: 'From a system', short: 'System', icon: 'server' },
+  memory: { label: 'Memory', short: 'Memory', icon: 'sparkles' },
+  resource: { label: 'From a resource', short: 'Resource', icon: 'file' },
+} as const satisfies Record<ContextOriginType, { readonly label: string; readonly short: string; readonly icon: IconName }>;
+
+/** Who a memory is for, in words. */
+export function scopeText(scope: MemoryScope): string {
+  switch (scope.to) {
+    case 'session': return 'One chat';
+    case 'user': return 'Only its author';
+    case 'everyone': return 'Everyone';
+  }
+}
+
+/** Each relation in words: a label, what it means, and its direction read from the other end. */
+export const RELATION_WORDS = {
+  imports: { label: 'Imports', back: 'Imported by', about: 'Loaded along with this item.' },
+  brings: { label: 'Brings', back: 'Brought by', about: 'A fn added to the tools when this item loads.' },
+  suggests: { label: 'Suggests', back: 'Suggested by', about: 'A fn worth offering when this item comes up.' },
+  parent: { label: 'Parent', back: 'Child', about: 'The item above this one.' },
+  next: { label: 'Next', back: 'Comes after', about: 'The next piece of the same long text.' },
+  related: { label: 'Related', back: 'Related', about: 'Worth looking at together.' },
+  mentions: { label: 'Mentions', back: 'Mentioned by', about: 'Named in the text.' },
+  about: { label: 'About', back: 'Has notes', about: 'What a memory or a resource item is about.' },
+  learned: { label: 'Used with', back: 'Used with', about: 'Used together in one turn; fades over time.' },
+} as const satisfies Record<LinkRelation, { readonly label: string; readonly back: string; readonly about: string }>;
+
+/** Where each link came from, in words. */
+export const SOURCE_WORDS = {
+  declared: 'Declared by the item',
+  mentioned: 'Found in the text',
+  resource: 'Made from a resource',
+  learned: 'Learned from use',
+  authored: 'Drawn by a person',
+} as const satisfies Record<LinkSource, string>;
+
+/** What each kind of link target is called. */
+export const TARGET_WORDS = {
+  context: { label: 'Context', icon: 'layers' },
+  fn: { label: 'Fn', icon: 'fn' },
+  type: { label: 'Type', icon: 'braces' },
+  resource: { label: 'Resource', icon: 'file' },
+} as const satisfies Record<LinkTargetKind, { readonly label: string; readonly icon: IconName }>;
+
+/** What a link target is, in words: its name, or a resource's URI with its section. */
+export function targetText(target: LinkTarget): string {
+  switch (target.kind) {
+    case 'context': case 'fn': case 'type': return target.name;
+    case 'resource': return target.section === undefined ? target.uri : `${target.uri} § ${target.section}`;
+  }
+}
+
+/** A link's identity, as the hub keys it (its start, its target's key and its relation). */
+export function linkKey(link: Pick<ContextLink, 'from' | 'toKey' | 'relation'>): string {
+  return `${link.from}|${link.toKey}|${link.relation}`;
+}
+
+/** Whether a person may remove a link: only links people drew; the rest are the item's own or the hub's. */
+export function removable(link: Pick<ContextLink, 'source'>): boolean {
+  return link.source === 'authored';
+}
+
+/** Links of one relation. */
+export interface LinkGroup {
+  readonly relation: LinkRelation;
+  readonly links: readonly ContextLink[];
+}
+
+/** Links grouped by relation in the order `RELATION_WORDS` lists them, each group strongest first. */
+export function groupLinks(links: readonly ContextLink[]): LinkGroup[] {
+  const order = Object.keys(RELATION_WORDS);
+  const groups = new Map<LinkRelation, ContextLink[]>();
+  for (const link of links) { groups.set(link.relation, [...(groups.get(link.relation) ?? []), link]); }
+  return [...groups.entries()]
+    .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+    .map(([relation, list]) => ({ relation, links: [...list].sort((a, b) => b.weight - a.weight || a.toKey.localeCompare(b.toKey)) }));
+}
+
+/** A weight as a percentage for a bar (0 to 100). */
+export function weightPercent(weight: number): number {
+  return Math.round(Math.min(1, Math.max(0, weight)) * 100);
+}
+
+// ─── Drafts ───────────────────────────────────────────────────────────────
+
+/** The add-link form as typed. */
+export interface LinkDraft {
+  readonly kind: LinkTargetKind;
+  /** A name (context, fn, type) or a resource URI. */
+  readonly target: string;
+  /** A resource's section, optional. */
+  readonly section: string;
+  readonly relation: DeclarableRelation;
+  readonly weight: number;
+}
+
+/** A fresh add-link form. */
+export function emptyLinkDraft(): LinkDraft {
+  return { kind: 'context', target: '', section: '', relation: 'related', weight: 0.5 };
+}
+
+/** What the add-link form asks the hub for, or the one problem with it. */
+export type LinkRequest = { readonly ok: true; readonly to: LinkTarget; readonly relation: DeclarableRelation; readonly weight: number } | { readonly ok: false; readonly problem: string };
+
+/** Read the add-link form; `from` is the item it starts at (an item can't link to itself). */
+export function linkRequest(draft: LinkDraft, from: QualifiedName): LinkRequest {
+  const target = draft.target.trim();
+  if (target === '') { return { ok: false, problem: draft.kind === 'resource' ? 'Give the resource\'s address.' : 'Give a name.' }; }
+  const weight = Math.min(1, Math.max(0, draft.weight));
+  if (draft.kind === 'resource') {
+    const uri = ResourceUri.safeParse(target);
+    if (!uri.success) { return { ok: false, problem: 'A resource address looks like fs://work/README.md.' }; }
+    const section = draft.section.trim();
+    const key = section === '' ? undefined : SectionKey.safeParse(section);
+    if (key !== undefined && !key.success) { return { ok: false, problem: 'That section name is not valid.' }; }
+    return { ok: true, to: LinkTarget.parse({ kind: 'resource', uri: uri.data, ...(key === undefined ? {} : { section: key.data }) }), relation: draft.relation, weight };
+  }
+  const name = QualifiedName.safeParse(target);
+  if (!name.success) { return { ok: false, problem: 'A name looks like system/name, as in fs/read.' }; }
+  if (draft.kind === 'context' && name.data === from) { return { ok: false, problem: 'An item can\'t link to itself.' }; }
+  return { ok: true, to: LinkTarget.parse({ kind: draft.kind, name: name.data }), relation: draft.relation, weight };
+}
+
+/** Who a memory written from the browser is for (the browser has no chat, so a memory is the person's or everyone's). */
+export const BrowserScope = z.enum(['user', 'everyone']);
+export type BrowserScope = z.infer<typeof BrowserScope>;
+
+/** The memory form as typed. */
+export interface MemoryDraft {
+  readonly title: string;
+  readonly text: string;
+  readonly scope: BrowserScope;
+}
+
+/** A fresh memory form, or one filled from the memory being edited. */
+export function memoryDraft(record?: Pick<ContextRecord, 'origin' | 'decl'>): MemoryDraft {
+  if (record?.origin?.type !== 'memory') { return { title: '', text: '', scope: 'user' }; }
+  return { title: record.decl.description, text: record.decl.content ?? '', scope: record.origin.scope.to === 'everyone' ? 'everyone' : 'user' };
+}
+
+/** What the memory form asks the hub to remember, or the one problem with it. */
+export type MemoryRequest = { readonly ok: true; readonly args: RememberArgs } | { readonly ok: false; readonly problem: string };
+
+/** Read the memory form; `about` is what the memory is about (the item it is written from). */
+export function memoryRequest(draft: MemoryDraft, about: readonly LinkTarget[] = []): MemoryRequest {
+  const text = draft.text.trim();
+  if (text === '') { return { ok: false, problem: 'Write what to remember.' }; }
+  const title = draft.title.trim();
+  return { ok: true, args: RememberArgs.parse({ text, scope: draft.scope, ...(title === '' ? {} : { title }), ...(about.length === 0 ? {} : { about }) }) };
+}
+
+/** The make-from-a-resource form as typed. */
+export interface FromResourceDraft {
+  readonly uri: string;
+  readonly copy: ContextCopy;
+  /** A `/command` that loads the resource's item; blank for none. */
+  readonly command: string;
+}
+
+/** What the make-from-a-resource form asks the hub for, or the one problem with it. */
+export type FromResourceRequest = { readonly ok: true; readonly args: ContextFromResourceArgs } | { readonly ok: false; readonly problem: string };
+
+/** Read the make-from-a-resource form. */
+export function fromResourceRequest(draft: FromResourceDraft): FromResourceRequest {
+  const uri = ResourceUri.safeParse(draft.uri.trim());
+  if (!uri.success) { return { ok: false, problem: 'A resource address looks like fs://work/README.md.' }; }
+  const command = draft.command.trim().replace(/^\//, '');
+  const args = ContextFromResourceArgs.safeParse({ uri: uri.data, copy: draft.copy, ...(command === '' ? {} : { command }) });
+  if (!args.success) { return { ok: false, problem: 'A command is lower-case letters, digits and dashes, starting with a letter.' }; }
+  return { ok: true, args: args.data };
+}

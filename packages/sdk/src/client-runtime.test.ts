@@ -63,6 +63,28 @@ describe('ClientRuntime', () => {
     expect(runtime.inputRenderer('shop/Nothing')).toBeUndefined();
   });
 
+  it('offers resource viewers that replace the hub\'s preview or add a tab, by format across systems', () => {
+    const runtime = new ClientRuntime(fakeBridge().bridge);
+    const outline = system('outline', { description: 'Outlines.' });
+    const OutlineTab = (view: ResourceView) => h('ol', view.forms.join(','));
+    const MarkdownView = (view: ResourceView) => h('article', view.stat.name);
+    runtime.register(module);
+    runtime.register(client(outline, { resources: { csv: { component: OutlineTab, mode: 'tab', label: 'Outline' }, markdown: { component: MarkdownView, mode: 'replace' } } }));
+    expect(runtime.resourceViewers('csv')).toEqual([
+      { component: CsvView, system: 'shop', mode: 'replace', label: 'shop' },
+      { component: OutlineTab, system: 'outline', mode: 'tab', label: 'Outline' },
+    ]);
+    // a tab never replaces the preview; the label defaults to the system's name
+    expect(runtime.resourceViewers('markdown')).toEqual([{ component: MarkdownView, system: 'outline', mode: 'replace', label: 'outline' }]);
+    expect(runtime.resourceViewer('csv')).toBe(CsvView);
+    expect(runtime.resourceViewers('pdf')).toEqual([]);
+    // a newer build of a system replaces its viewers, and leaves the others'
+    runtime.register(client(outline, { resources: { csv: { component: OutlineTab, mode: 'tab', label: 'Tree' } } }));
+    expect(runtime.resourceViewers('csv').map((v) => `${v.system}:${v.label}`)).toEqual(['shop:shop', 'outline:Tree']);
+    expect(runtime.resourceViewers('markdown')).toEqual([]);
+    expect(runtime.resourceViewer('markdown')).toBeUndefined();
+  });
+
   it('sends actions with checked input, follows the delivery live, and decodes the result', async () => {
     const fake = fakeBridge();
     const runtime = new ClientRuntime(fake.bridge);

@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "name": "template",
+  "version": "0.1.0",
+  "description": "TODO: what this system offers, in one sentence.",
+  "protocol": 1,
+  "server": {
+    "entry": "server/main.ts",
+    "external": {}
+  },
+  "client": {
+    "entry": "client/index.ts"
+  },
+  "instances": "one"
+}

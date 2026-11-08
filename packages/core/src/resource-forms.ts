@@ -57,7 +57,8 @@ export type FormOffer = z.infer<typeof FormOffer>;
  * the hub's content store.
  */
 export const ResourceSource = z.discriminatedUnion('from', [
-  z.object({ from: z.literal('system'), system: SystemName }),
+  /** `served: text` when the system sent its own text and no bytes: that text is the raw content and is not converted again. */
+  z.object({ from: z.literal('system'), system: SystemName, served: z.enum(['bytes', 'text']).optional() }),
   z.object({ from: z.literal('upload'), by: ActorId }),
   z.object({ from: z.literal('web'), url: z.url(), finalUrl: z.url().optional(), fetchedAt: Timestamp, rendered: z.boolean() }),
   z.object({ from: z.literal('run'), run: RunId, fn: QualifiedName }),

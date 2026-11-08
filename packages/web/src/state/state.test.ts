@@ -437,6 +437,10 @@ async function flush(): Promise<void> {
 describe('problems', () => {
   it('turns failures into sentences', () => {
     expect(problemText(new ApiError(429, 'RATE'))).toBe('Too many tries. Wait a moment and try again.');
+    expect(problemText(new ApiError(403, 'FORBIDDEN'))).toBe("You don't have access to that.");
+    expect(problemText(new ApiError(403, 'NOT_A_MEMORY', 'fs/guide is not a memory; only memories can be forgotten'))).toBe('fs/guide is not a memory; only memories can be forgotten.');
+    expect(problemText(new ApiError(404, 'GONE', 'That run ended.'))).toBe('That run ended.');
+    expect(problemText(new ApiError(400, 'BAD', 'body.name: expected string'), 'Fallback.')).toBe('Fallback.');
     expect(problemText(new ApiError(418, 'TEAPOT'), 'Fallback.')).toBe('Fallback.');
     expect(problemText(new DOMException('x', 'AbortError'))).toBe('Cancelled.');
     expect(problemText(new Error('raw'))).toBe('Something went wrong. Try again.');

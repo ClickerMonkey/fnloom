@@ -11,6 +11,8 @@ import type { CatalogEntry } from '../catalog/index.ts';
 import type { MessageEnricher } from './index.ts';
 import { allowsSystem, callSystem, escapeAttribute, escapeBody } from './support.ts';
 import { timeInfo, weekday } from '../execution/time.ts';
+import { modeChoice } from '../contextor/planner.ts';
+import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 
 /** The tags the hub's own extras carry for the LLM. */
 export const EXTRA_TAGS = { 'local-time': 'local_time', 'suggested-context': 'suggested_context', 'suggested-fns': 'suggested_fns' } as const;
@@ -24,8 +26,29 @@ export class HubMessageEnricher implements MessageEnricher {
   }
 
   async enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<MessagePart[]> {
-    const [suggested, hooks] = await Promise.all([this.#suggestions(input.session, input.text), this.#hooks(input)]);
+    // the graph contextor chooses context and fns for each prompt itself, so its sessions get no suggestion blocks
+    const suggest = !(await this.#graph(input.session));
+    const [suggested, hooks] = await Promise.all([suggest ? this.#suggestions(input.session, input.text) : [], this.#hooks(input)]);
     return [this.#localTime(input.user), ...suggested, ...hooks];
+  }
+
+  /** Whether a session's prompts are chosen by the graph contextor (its own choice, else its agent's). */
+  async #graph(session: Session): Promise<boolean> {
+    // the agent's payload only matters when the session makes no choice of its own
+    const payload = session.contextor === undefined ? await this.#agentChoice(session) : {};
+    return modeChoice(session, payload).contextor.type === 'graph';
+  }
+
+  /** The mode and contextor a session's agent fn asks for (none when it is gone or its payload doesn't parse, logged). */
+  async #agentChoice(session: Session): Promise<Pick<LlmPayload, 'mode' | 'contextor'>> {
+    const agent = await this.#deps.catalog.fn(session.agent);
+    if (agent === undefined) return {};
+    try {
+      return parseValue(LlmPayloadType, agent.decl.payload);
+    } catch (error) {
+      this.#deps.log.warn('chat.agent.payload-unreadable', { session: session.id, agent: session.agent, error: messageOf(error) });
+      return {};
+    }
   }
 
   render(message: ChatMessage): string {

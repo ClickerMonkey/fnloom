@@ -11,9 +11,10 @@ import { DEFAULT_AGENT } from '../../chat/sessions.ts';
 import { AGENT_KIND } from '../../execution/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { CLIENTS_PATH } from '../serve.ts';
-import { typeDefinitions } from '../../catalog/definitions.ts';
 import { userInfo, visibleSession, type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
+import { dictationOf } from '../../models/roles.ts';
+import type { HubReads } from '../reads.ts';
 
 /** Whether a session lets a system's contributions in. */
 const allows = (systems: readonly SystemName[] | 'all', system: SystemName): boolean => systems === 'all' || systems.includes(system);
@@ -25,21 +26,24 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     .filter((s) => s.status !== 'removed');
   const usable = new Set(systems.filter((s) => s.status === 'connected' && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
   const rendering = systems.filter((s) => s.enabled.renderers && allows(scope, s.name));
-  const [mentions, contexts, fns, models, manifests, types] = await Promise.all([
+  const [mentions, contexts, fns, models, manifests, types, dictate] = await Promise.all([
     hub.catalog.entries('mentions'),
     hub.catalog.entries('context'),
     hub.catalog.fns({ available: true }),
     hub.execution.llm.models(),
     Promise.all(rendering.map(async (s) => ({ system: s.name, manifest: await hub.catalog.manifest(s.name) }))),
     hub.catalog.entries('types'),
+    hub.models.roles.get('dictate'),
   ]);
+  const dictation = dictationOf(dictate);
   // a type's methods run on a value, from its mention's hover card, so they aren't offered as free `!` fns
   const methods = new Set(types.flatMap((t) => t.decl.methods.map((method) => `${t.name}.${method}`)));
   const byName = new Map(fns.map((f) => [f.name, f]));
   /** Whether a person may run a fn by hand: its system is usable here and its visibility lets people see it. */
   const byHand = (f: (typeof fns)[number]): boolean => usable.has(f.system) && f.decl.visibility !== 'llm' && f.decl.visibility !== 'none';
   return {
-    voiceInput: hub.execution.llm.canTranscribe(),
+    voiceInput: dictation !== undefined,
+    ...(dictation === undefined ? {} : { dictation }),
     voiceOutput: false,
     uploads: true,
     mentions: mentions.filter((m) => usable.has(m.system)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
@@ -68,13 +72,13 @@ export function clientUrl(system: SystemName, hash: string, path: string): strin
 }
 
 /** The chat plugin. */
-export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
+export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, reads: HubReads) {
   const { chat, execution } = hub;
   return plugin({ name: 'web.chat', spec: chatSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof chatSlice> => ({
       capabilities: (io) => capabilities(hub, io.user, io.data.session),
-      types: (io) => typeDefinitions(hub.catalog, io.data.names),
-      sessions: (io) => chat.sessions.list(io.user.id, compact(io.data)),
+      types: ({ data, user }) => reads.types_get(data, user),
+      sessions: ({ data, user }) => reads.sessions_list(data, user),
       session: ({ data, user }) => visibleSession(hub, data.session, user),
       createSession: async (io) => {
         const { user } = io;
@@ -95,10 +99,7 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         await visibleSession(hub, data.session, user);
         return execution.limits.resolve({ user: await userInfo(hub, user), session: data.session });
       },
-      messages: async ({ data: { session, ...page }, user }) => {
-        await visibleSession(hub, session, user);
-        return chat.sessions.messages(session, user.id, compact(page));
-      },
+      messages: ({ data, user }) => reads.session_messages(data, user),
       send: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
         return chat.turns.send({ ...compact(data), author: user.id });

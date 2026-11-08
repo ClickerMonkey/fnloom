@@ -1,9 +1,10 @@
 import { fn, g, handler, hub, system } from '@harness/sdk';
-import { ApprovalId, PolicyId, RunId, type Json, type QualifiedName, type Turn } from '@harness/core';
+import { ApprovalId, InstanceName, INVALID_INPUT_CODE, PolicyId, RunId, SystemName, type InvalidInput, type Json, type QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunRefused } from './errors.ts';
 import type { RunInput } from './index.ts';
-import { mergeProgress, settledOf } from './runs.ts';
+import { invalidArgs, mergeProgress, settledOf } from './runs.ts';
+import { z } from 'zod';
 import { AGENT, ALICE, executionRig, settle, until, type ExecutionRig } from './testing.ts';
 
 const read = fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] });
@@ -34,8 +35,8 @@ const sweep = fn({ description: 'Sweep.', args: g.obj({}), returns: g.text(), ta
 let rig: ExecutionRig;
 afterEach(async () => { await rig.module.stop(); });
 
-async function started(): Promise<ExecutionRig> {
-  rig = await executionRig();
+async function started(options: Parameters<typeof executionRig>[0] = {}): Promise<ExecutionRig> {
+  rig = await executionRig(options);
   rig.catalog.add('fs', 'read', read);
   rig.catalog.add('fs', 'write', write);
   rig.catalog.add('fs', 'remove', confirmable);
@@ -91,12 +92,11 @@ describe('runs on a system', () => {
     ]);
   });
 
-  it('refuses unknown fns, bad args and calls outside the deps', async () => {
+  it('refuses unknown fns and calls outside the deps', async () => {
     const r = await started();
     r.connect('fs');
     const turn = await r.turn();
     await expect(r.module.runs.start(input(turn, 'fs/nope', {}))).rejects.toBeInstanceOf(RunRefused);
-    await expect(r.module.runs.start(input(turn, 'fs/read', { path: 3 }))).rejects.toMatchObject({ error: { code: 'bad-args', class: 'caller' } });
     const parent = await r.module.runs.start(input(turn, 'fs/copy', { from: 'x' }));
     await parent.settled;
     await expect(r.module.runs.start({ ...input(turn, 'fs/write', { path: 'a', text: 'b' }), parent: parent.run })).rejects.toMatchObject({ error: { code: 'not-a-dep' } });
@@ -125,6 +125,19 @@ describe('runs on a system', () => {
     expect(r.bus.of('approval')[0]?.approvers).toEqual([ALICE]);
     await r.module.policies.answer(approval?.id ?? NO_APPROVAL, { by: ALICE, approve: true, remember: 'once' });
     expect(await settled).toMatchObject({ status: 'done' });
+  });
+
+  it('notes when a person approved, apart from when it was made', async () => {
+    const r = await started();
+    r.connect('fs');
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start({ ...input(turn, 'fs/write', { path: 'a', text: 'b' }), caller: AGENT });
+    r.time.now += 5_000;
+    const approval = r.bus.of('approval')[0]?.approval;
+    await r.module.policies.answer(approval?.id ?? NO_APPROVAL, { by: ALICE, approve: true, remember: 'once' });
+    await settled;
+    const row = await r.module.runs.get(run);
+    expect(row?.approvedAt).toBe(row === undefined ? -1 : row.createdAt + 5_000);
   });
 
   it('fails a run the person refuses', async () => {
@@ -426,5 +439,85 @@ describe('controlling runs', () => {
     await read.settled;
     expect(await r.module.runs.undo(read.run, ALICE)).toEqual({ status: 'failed', error: { class: 'caller', message: 'fs/read can\'t be undone.', code: 'not-undoable' } });
     expect(await r.module.runs.undo(RunId.parse('run_none'), ALICE)).toMatchObject({ status: 'failed', error: { code: 'not-found' } });
+  });
+});
+
+describe('fleets', () => {
+  const LAPTOP = InstanceName.parse('laptop');
+  const FS = SystemName.parse('fs');
+  const SEVERAL: InvalidInput = { source: 'validation', problems: [{ path: 'on', message: 'fs has several machines: say on=laptop or on=desk' }] };
+
+  it('asks the router once which instance a system’s run goes to, with the caller’s pick, args and session, and keeps it on the run', async () => {
+    const asked: unknown[] = [];
+    const r = await started({ instances: { route: (q) => { asked.push(q); return Promise.resolve({ instance: { system: FS, instance: LAPTOP } }); } } });
+    const fs = r.connect('fs');
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'a' }), on: LAPTOP });
+    await settled;
+    expect(fs.requests.map((request) => request.run.system.instance)).toEqual([LAPTOP]);
+    expect(asked).toEqual([{ fn: 'fs/read', args: { path: 'a' }, on: LAPTOP, session: undefined }]);
+    expect((await r.module.runs.get(run))?.instance).toBe(LAPTOP);
+  });
+
+  it('settles a call the router can’t place as invalid input naming the choices, never running it', async () => {
+    const r = await started({ instances: { route: () => Promise.resolve({ invalid: SEVERAL }) } });
+    const fs = r.connect('fs');
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start(input(turn, 'fs/read', { path: 'a' }));
+    expect(await settled).toMatchObject({ status: 'failed', error: { code: INVALID_INPUT_CODE, message: 'on: fs has several machines: say on=laptop or on=desk' } });
+    expect((await r.module.runs.get(run))?.outcome).toEqual({ status: 'invalid-input', invalid: SEVERAL });
+    expect(fs.requests).toEqual([]);
+  });
+
+  it('never routes args that are already refused', async () => {
+    const asked: unknown[] = [];
+    const r = await started({ instances: { route: (q) => { asked.push(q); return Promise.resolve({ invalid: SEVERAL }); } } });
+    r.connect('fs');
+    const turn = await r.turn();
+    const { run } = await r.module.runs.start(input(turn, 'fs/write', { path: 3 }));
+    expect((await r.module.runs.get(run))?.outcome).toMatchObject({ status: 'invalid-input', invalid: { source: 'schema' } });
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('refused input', () => {
+  it('settles args that don’t fit as invalid input at once, with the problems by path, and never runs the fn', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start({ ...input(turn, 'fs/write', { path: 3 }), caller: AGENT });
+    expect(await settled).toMatchObject({ status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE } });
+    const row = await r.module.runs.get(run);
+    expect(row?.status).toBe('invalid-input');
+    expect(row?.outcome).toMatchObject({ status: 'invalid-input', invalid: { source: 'schema' } });
+    const problems = row?.outcome?.status === 'invalid-input' ? row.outcome.invalid.problems.map((p) => p.path) : [];
+    expect(problems).toEqual(expect.arrayContaining(['path', 'text']));
+    expect(fs.requests).toEqual([]);
+    // no approval was asked for input that was refused anyway
+    expect(r.bus.of('approval')).toEqual([]);
+  });
+
+  it('settles input its caller couldn’t read as invalid input, keeping what the model wrote', async () => {
+    const r = await started();
+    r.connect('fs');
+    const turn = await r.turn();
+    const invalid = { source: 'json' as const, problems: [{ path: '', message: 'Unexpected end of JSON input' }], raw: '{"path": "a' };
+    const { run } = await r.module.runs.start({ ...input(turn, 'fs/read', {}), invalid });
+    expect((await r.module.runs.get(run))?.outcome).toEqual({ status: 'invalid-input', invalid });
+  });
+
+  it('settles a fn’s own refusal (`ctx.invalid`) as invalid input', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    fs.behaviour.run = () => Promise.resolve({ status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: 'path', message: 'outside the root' }] } });
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start(input(turn, 'fs/read', { path: '/etc' }));
+    expect(await settled).toMatchObject({ status: 'failed', error: { code: INVALID_INPUT_CODE, message: 'path: outside the root' } });
+    expect((await r.module.runs.get(run))?.status).toBe('invalid-input');
+  });
+
+  it('reads problems off a schema check', () => {
+    expect(invalidArgs(z.object({ a: z.string() }).safeParse({ a: 'x' }))).toBeUndefined();
+    expect(invalidArgs(z.object({ a: z.object({ b: z.number() }) }).safeParse({ a: { b: 'x' } }))).toMatchObject({ source: 'schema', problems: [{ path: 'a.b' }] });
   });
 });

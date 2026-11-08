@@ -1,23 +1,34 @@
 <script setup lang="ts">
 /**
  * One run in full, in a side panel: its status and timing, cost (its own and with everything it called), progress,
- * args and result (readable, and as JSON), the error of every failed attempt, where it came from (the LLM call that
+ * args (by their gin type when it is known, so system components draw named types) and result (readable, and as JSON), why its input was refused (softly: the agent retries), the error of every failed attempt, where it came from (the LLM call that
  * asked for it, its parent) and what may be done with it now (move to the background, open the turn's tree, undo
- * the turn). Live while the run is going.
+ * the turn; for admins, its model calls). Live while the run is going.
  */
-import type { Json, LlmInteractionId, Run, RunId } from '@harness/core';
+import type { GinTypeDef, Json, LlmInteractionId, Run, RunId } from '@harness/core';
 import { computed } from 'vue';
 import { UiBanner, UiButton, UiCodeBlock, UiSkeleton, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel, humanize } from '../logic/labels.ts';
 import { isSettled } from '@harness/core';
-import { argSummary, resultBrief, runElapsed, runError, runResult, runText, STATUS_LOOK, type RunView } from '../logic/runs.ts';
+import { argSummary, INPUT_PROBLEM_WORDS, resultBrief, runElapsed, runError, runInvalid, runResult, runText, STATUS_LOOK, type RunView } from '../logic/runs.ts';
 import type { RunTab as Tab } from '../logic/inspect.ts';
+import GinValueView from '../../gin/GinValueView.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
 
-const props = withDefaults(defineProps<{ run: RunView | undefined; record?: Run | undefined; loading: boolean; problem?: string; now: number }>(), { record: undefined, problem: '' });
-const emit = defineEmits<{ background: []; tree: []; undo: []; llm: [id: LlmInteractionId]; run: [id: RunId]; retry: [] }>();
+const props = withDefaults(defineProps<{
+  run: RunView | undefined;
+  record?: Run | undefined;
+  loading: boolean;
+  problem?: string;
+  now: number;
+  /** Whether the person may see the run's model calls (admins: the model calls page is theirs). */
+  canSeeCalls?: boolean;
+  /** The gin type of the fn's args (`GinTypeDef`), when the browser knows it: the args then draw by their type, with system components for named types. */
+  argsType?: GinTypeDef | undefined;
+}>(), { record: undefined, problem: '', canSeeCalls: false, argsType: undefined });
+const emit = defineEmits<{ background: []; tree: []; undo: []; llm: [id: LlmInteractionId]; run: [id: RunId]; retry: []; calls: [id: RunId] }>();
 
 /** The tab shown; a parent binds it to the URL so a refresh keeps it. */
 const tab = defineModel<Tab>('tab', { default: 'overview' });
@@ -30,6 +41,7 @@ const tabs = computed<TabItem<Tab>[]>(() => [
 ]);
 
 const error = computed(() => (props.run === undefined ? undefined : runError(props.run)));
+const invalid = computed(() => (props.run === undefined ? undefined : runInvalid(props.run)));
 const result = computed(() => (props.run === undefined ? undefined : runResult(props.run)));
 const elapsed = computed(() => (props.run === undefined ? undefined : runElapsed(props.run, props.now)));
 /** The args and result in brief, for the overview. */
@@ -61,7 +73,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
       </div>
       <dl class="facts">
         <dt>Fn</dt><dd><code>{{ run.fn }}</code> · {{ fnLabel(run.fn) }}</dd>
-        <template v-if="run.system"><dt>System</dt><dd>{{ run.system }}</dd></template>
+        <template v-if="run.system"><dt>System</dt><dd>{{ run.system }}<span v-if="run.instance" class="dim" data-testid="run-instance">@{{ run.instance }}</span></dd></template>
         <template v-if="elapsed !== undefined"><dt>{{ isSettled(run.status) ? 'Took' : 'Running for' }}</dt><dd data-testid="run-elapsed">{{ formatDuration(elapsed) }}</dd></template>
         <template v-if="run.startedAt"><dt>Started</dt><dd>{{ fullTime(run.startedAt) }}</dd></template>
         <dt>Cost</dt><dd>{{ formatCost(run.cost) }} <span class="dim">· {{ formatCost(run.totalCost) }} with what it called</span></dd>
@@ -73,12 +85,20 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
         <UiButton v-if="run.allowed?.background && !run.background && !isSettled(run.status)" size="sm" icon="arrow-right" @click="emit('background')">Move to background</UiButton>
         <UiButton v-if="run.turn" size="sm" variant="ghost" icon="tree" @click="emit('tree')">Turn tree</UiButton>
         <UiButton v-if="run.llmCall" size="sm" variant="ghost" icon="sparkles" @click="run.llmCall && emit('llm', run.llmCall)">LLM call that asked</UiButton>
+        <UiButton v-if="canSeeCalls" size="sm" variant="ghost" icon="cpu" data-testid="run-model-calls" @click="run && emit('calls', run.id)">Model calls</UiButton>
         <UiButton v-if="run.parent" size="sm" variant="ghost" icon="chevron-left" @click="run.parent && emit('run', run.parent)">Called by</UiButton>
         <UiButton v-if="run.turn && isSettled(run.status)" size="sm" variant="ghost" icon="undo" @click="emit('undo')">Undo the turn</UiButton>
       </div>
       <UiTabs v-model="tab" :tabs="tabs" label="Run details">
         <template #default="{ value }">
           <div v-if="value === 'overview'" class="pane">
+            <section v-if="invalid" class="invalid" data-testid="run-invalid">
+              <p class="invalid-title">{{ INPUT_PROBLEM_WORDS[invalid.source] }}. The agent was told why and can try again; this is not a failure.</p>
+              <ul class="problems">
+                <li v-for="(issue, i) in invalid.problems" :key="i"><code v-if="issue.path !== ''" class="path">{{ issue.path }}</code> {{ issue.message }}</li>
+              </ul>
+              <UiCodeBlock v-if="invalid.raw" :code="invalid.raw" language="text" :max-height="200" />
+            </section>
             <p v-if="error" class="error" data-testid="run-error">{{ error.message }}<span v-if="error.code" class="dim"> ({{ error.code }})</span></p>
             <dl class="fields">
               <template v-if="about !== ''"><dt>Asked</dt><dd><code class="value">{{ about }}</code></dd></template>
@@ -88,6 +108,9 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
                 <span v-else class="dim">{{ isSettled(run.status) ? 'Nothing.' : 'Still going.' }}</span>
               </dd>
             </dl>
+          </div>
+          <div v-else-if="value === 'args' && argsType !== undefined && run.args !== undefined" class="pane" data-testid="run-args-typed">
+            <GinValueView :type="argsType" :model-value="run.args" readonly label="Args" />
           </div>
           <dl v-else-if="value === 'args' || value === 'result'" class="fields pane">
             <template v-for="field in readable(value === 'args' ? run.args : result)" :key="field.key">
@@ -124,5 +147,9 @@ dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .pane { padding-top: var(--space-3); }
 .value { margin: 0; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .error { margin: var(--space-1) 0 0; color: var(--danger); overflow-wrap: anywhere; }
+.invalid { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+.invalid-title { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.problems { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); }
+.path { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); }
 .errors { display: grid; gap: var(--space-3); margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); }
 </style>

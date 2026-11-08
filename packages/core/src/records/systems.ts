@@ -4,8 +4,12 @@ import { ContextDecl, FnDecl, KindDecl, Manifest, TypeDecl } from '../manifest.t
 import { ContextOrigin, ContextTokens } from '../context-graph.ts';
 import { GinTypeDef } from '../gin.ts';
 import { ActorId, Duration, InstanceName, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp, Usd } from '../primitives.ts';
+import { CONTENT_HASH } from '../resources.ts';
 
-/** Where a system is. `needs-config`: connected, but without a valid config, so it can't be used yet. */
+/**
+ * Where an instance is. `needs-config`: connected, but without a valid config, so it can't be used yet. A system's
+ * status is worked out from its instances (`systemStatus` in the hub's link module).
+ */
 export const SystemStatus = z.enum(['pairing', 'needs-config', 'connected', 'disconnected', 'removed']);
 export type SystemStatus = z.infer<typeof SystemStatus>;
 
@@ -14,6 +18,8 @@ export const InstallSource = z.union([
   z.object({ path: z.string() }),
   z.object({ package: z.string(), version: z.string() }),
   z.object({ git: z.string(), ref: z.string() }),
+  /** An uploaded package zip (`harness system pack`): its content hash and the file name it came as. */
+  z.object({ zip: z.string().regex(CONTENT_HASH), file: z.string() }),
 ]);
 export type InstallSource = z.infer<typeof InstallSource>;
 
@@ -31,13 +37,14 @@ export const InstalledStatus = z.enum(['installing', 'stopped', 'starting', 'run
 export type InstalledStatus = z.infer<typeof InstalledStatus>;
 
 /**
- * A system the hub installs, keeps on disk and starts itself. It is paired at install time (the hub makes its key),
- * starts when the hub starts, and is restarted if it crashes. Systems running elsewhere don't have one.
+ * An instance the hub installs, keeps on disk and starts itself. It is paired at install time (the hub makes its key),
+ * starts when the hub starts, and is restarted if it crashes. Instances running elsewhere don't have one.
  */
 export const InstalledSystem = z.object({
   name: SystemName,
+  instance: InstanceName,
   source: InstallSource,
-  /** Its folder under the hub's data folder. */
+  /** The system's folder under the hub's data folder (`versions/` shared by its instances, `instances/` each). */
   dir: z.string(),
   command: z.object({ run: z.string(), args: z.array(z.string()), env: z.record(z.string(), z.string()), cwd: z.string().optional() }),
   version: z.string(),
@@ -58,26 +65,50 @@ export type InstalledSystem = z.infer<typeof InstalledSystem>;
 export const SystemEnabled = z.object({ functions: z.boolean(), renderers: z.boolean() });
 export type SystemEnabled = z.infer<typeof SystemEnabled>;
 
-/** The hub's row for a system. */
+/** An instance's config, checked against the contract's config type. */
+export const InstanceConfig = z.object({ value: Json, version: z.number().int().min(1), setBy: ActorId, setAt: Timestamp });
+export type InstanceConfig = z.infer<typeof InstanceConfig>;
+
+/**
+ * Build 1 kept one instance's facts on the system's row. They are read once, by the migration that moves them onto
+ * the system's `main` instance (`InstanceRecord`), and cleared; nothing else reads or writes them.
+ */
+export const LegacyInstanceFields = z.object({
+  /** @deprecated moved to `InstanceRecord.keyFingerprint`. */
+  keyFingerprint: z.string().optional(),
+  /** @deprecated moved to `InstanceRecord.publicKey`. */
+  publicKey: z.string().optional(),
+  /** @deprecated moved to `InstanceRecord.config`. */
+  config: InstanceConfig.optional(),
+  /** @deprecated moved to `InstanceRecord.pairedAt`. */
+  pairedAt: Timestamp.optional(),
+  /** @deprecated moved to `InstanceRecord.pairedBy`. */
+  pairedBy: ActorId.optional(),
+  /** @deprecated moved to `InstanceRecord.lastSeenAt`. */
+  lastSeenAt: Timestamp.optional(),
+  /** @deprecated moved to `InstanceRecord.address`. */
+  address: z.string().optional(),
+});
+export type LegacyInstanceFields = z.infer<typeof LegacyInstanceFields>;
+
+/**
+ * The hub's row for a system: what is true of the system whatever copy runs it. Each attached copy is an instance with
+ * its own key, config, status and folders (`InstanceRecord`, table `instances`).
+ */
 export const SystemRecord = z.object({
   name: SystemName,
   description: z.string(),
+  /** Worked out from its instances: connected when one is, else needs config, else disconnected; removed when all are. */
   status: SystemStatus,
   enabled: SystemEnabled,
-  /** Its config, checked against the contract's config type. Absent until a valid value is set. */
-  config: z.object({ value: Json, version: z.number().int().min(1), setBy: ActorId, setAt: Timestamp }).optional(),
-  installed: InstalledSystem.optional(),
-  /** A known name must prove it holds the key with this fingerprint. */
-  keyFingerprint: z.string(),
-  publicKey: z.string(),
+  /** The newest version an instance said it runs. */
   version: z.string(),
+  /** The hash of the manifest the catalog accepted (blank when something was refused, so it is sent again). */
   manifestHash: z.string(),
-  pairedAt: Timestamp.optional(),
-  pairedBy: ActorId.optional(),
-  lastSeenAt: Timestamp.optional(),
-  address: z.string().optional(),
+  /** Where a run goes when neither its args nor its session pick an instance (fleets). */
+  defaultInstance: InstanceName.optional(),
   actor: ActorId,
-});
+}).extend(LegacyInstanceFields.shape);
 export type SystemRecord = z.infer<typeof SystemRecord>;
 
 /** A pairing waiting for an admin. */
@@ -91,11 +122,11 @@ export const PairingRequest = z.object({
   /** `code`: the admin compares the code the system printed. `token`: the system brought a one-time token. */
   method: z.enum(['code', 'token']),
   code: z.string().optional(),
-  /** The name is paired to a different key; approving replaces that system. */
+  /** The instance is paired to a different key; approving replaces that instance's key. */
   replaces: SystemName.optional(),
   /** What the system said about itself while waiting (`pairingInfo`): shown on the pairing page. */
   description: z.string().optional(),
-  /** The instance it asks to be; the admin may rename it when approving. */
+  /** The instance it asks to be (from its hello); the admin may rename it when approving. */
   instance: InstanceName.optional(),
   /** Its config type, so the pairing page asks for config at approval. */
   configType: GinTypeDef.optional(),

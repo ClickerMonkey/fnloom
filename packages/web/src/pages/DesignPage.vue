@@ -9,6 +9,8 @@ import { DesignSection } from '../app/routes.ts';
 import { useParamChoice } from '../app/url.ts';
 import { useStores } from '../state/stores.ts';
 import ThemePicker from '../components/ThemePicker.vue';
+import DesignGin from './design/DesignGin.vue';
+import DesignViewers from './design/DesignViewers.vue';
 import {
   TONES, UiAvatar, UiBadge, UiBanner, UiButton, UiCard, UiCodeBlock, UiDialog, UiEmpty, UiIconButton, UiInput, UiKbd, UiMarkdown, UiMenu,
   UiPopover, UiSegmented, UiSkeleton, UiSpinner, UiSwitch, UiTabs, UiTextarea, type MenuItem, type TabItem,
@@ -23,6 +25,8 @@ const SECTIONS: readonly TabItem<DesignSection>[] = [
   { value: 'overlays', label: 'Overlays' },
   { value: 'feedback', label: 'Feedback' },
   { value: 'content', label: 'Content' },
+  { value: 'gin', label: 'Gin' },
+  { value: 'viewers', label: 'Viewers' },
 ];
 
 const text = ref('');
@@ -183,6 +187,9 @@ function openPopover(event: MouseEvent): void {
             <UiEmpty icon="inbox" title="All caught up" body="Approvals, replies and finished work show up here." />
           </UiCard>
         </div>
+
+        <DesignGin v-else-if="value === 'gin'" />
+        <DesignViewers v-else-if="value === 'viewers'" />
 
         <div v-else class="grid" data-testid="design-content">
           <UiCard title="Avatars">

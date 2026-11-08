@@ -4,6 +4,8 @@ import { chatApi, sessionEvents } from '../chat/api.ts';
 import { authApi } from './auth.ts';
 import type { Hub } from './client.ts';
 import { notificationsApi, userEvents } from './notifications.ts';
+import { resourceEvents, resourcesApi } from '../resources/api/resources.ts';
+import { contextApi, contextEvents } from '../context/api/context.ts';
 
 /** Make the app's callers. */
 export function createApi(hub: Hub) {
@@ -15,6 +17,10 @@ export function createApi(hub: Hub) {
     sessionEvents: sessionEvents(hub),
     admin: adminApi(hub),
     systemLogs: systemLogEvents(hub),
+    resources: resourcesApi(hub),
+    resourceEvents: resourceEvents(userEvents(hub)),
+    context: contextApi(hub),
+    contextEvents: contextEvents(userEvents(hub)),
     connection: hub.connection,
   };
 }

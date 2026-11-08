@@ -4,7 +4,7 @@
  * words. Pure, so it is tested alone.
  */
 import {
-  argSummary, countedText, isSettled, type Display, phaseOf as runPhase, resolveStatus, RUN_PHASES, RUN_STATUS_WORDS, type FnError, type Json, type PhasedRunStatus, type QualifiedName, type Run, type RunId,
+  argSummary, countedText, isSettled, problemLine, type Display, phaseOf as runPhase, resolveStatus, RUN_PHASES, RUN_STATUS_WORDS, type FnError, type InputProblemSource, type InvalidInput, type Json, type PhasedRunStatus, type QualifiedName, type Run, type RunId,
   type RunPhase, type RunStatus, type RunText, type RunUpdate,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
@@ -18,7 +18,7 @@ import { fnLabel, lowerFirst } from './labels.ts';
  * so instead of looking busy.
  */
 export type RunView = Pick<Run, 'id' | 'fn' | 'status' | 'cost' | 'totalCost' | 'attempt' | 'background' | 'errors'>
-  & Partial<Pick<Run, 'args' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'llmCall' | 'createdAt' | 'text'>>
+  & Partial<Pick<Run, 'args' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'instance' | 'llmCall' | 'createdAt' | 'text'>>
   & { readonly asking?: boolean };
 
 /** The words of a run waiting on the person's answer. */
@@ -114,6 +114,25 @@ export { argSummary };
 export function runError(run: RunView): FnError | undefined {
   if (run.outcome?.status === 'failed') { return run.outcome.error; }
   return run.status === 'failed' ? run.errors.at(-1)?.error : undefined;
+}
+
+/** Why a run's input was refused, when it was: the agent retries it, so it is never shown as a failure. */
+export function runInvalid(run: Pick<RunView, 'outcome'>): InvalidInput | undefined {
+  return run.outcome?.status === 'invalid-input' ? run.outcome.invalid : undefined;
+}
+
+/** What each kind of refused input was, in plain words. */
+export const INPUT_PROBLEM_WORDS = {
+  json: 'The input wasn’t valid JSON',
+  schema: 'The input didn’t fit the fn’s args',
+  validation: 'The fn’s own checks refused the input',
+} as const satisfies Record<InputProblemSource, string>;
+
+/** A refused input in one line: what was wrong and its first problem ("The input didn’t fit the fn’s args: path: required"). */
+export function invalidLine(invalid: InvalidInput): string {
+  const [first, ...rest] = invalid.problems;
+  if (first === undefined) { return INPUT_PROBLEM_WORDS[invalid.source]; }
+  return `${INPUT_PROBLEM_WORDS[invalid.source]}: ${problemLine(first)}${rest.length > 0 ? ` (+${rest.length} more)` : ''}`;
 }
 
 /**

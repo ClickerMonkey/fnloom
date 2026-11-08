@@ -7,16 +7,15 @@
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  adminSlice, QualifiedName, UserView, type BudgetView, type LlmSummary, type ResourceRecord, type SettingView, type TableName,
+  adminSlice, UserView, type BudgetView, type LlmSummary, type ResourceRecord, type SettingView, type TableName,
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { userInfo, type FullHandlers } from './access.ts';
 import type { AdminOperations } from '../admin-ops.ts';
+import type { HubReads } from '../reads.ts';
 import type { systemsPlugin } from './systems.ts';
 
-/** How many output lines `systemLogs` returns when not asked. */
-const LOG_LINES = 500;
 /** How many rows a page holds when not asked. */
 const PAGE_SIZE = 50;
 
@@ -26,7 +25,7 @@ function all<T extends TableName>(hub: Pick<HubServices, 'store'>, table: T) {
 }
 
 /** The admin reads plugin. */
-export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>, ops: AdminOperations) {
+export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>, ops: AdminOperations, reads: HubReads) {
   const { store, catalog } = hub;
   return plugin({ name: 'web.admin', spec: adminSlice, requires: [systems] })
     .lifecycle((ctx) => {
@@ -37,8 +36,8 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
       };
     })
     .handlers((): FullHandlers<typeof adminSlice> => ({
-      systemFns: ({ data }) => catalog.fns({ system: data.system }),
-      systemLogs: ({ data }) => hub.link.output.tail(data.system, data.limit ?? LOG_LINES),
+      systemFns: ({ data, user }) => reads.system_fns(data, user),
+      systemLogs: ({ data, user }) => reads.system_logs(data, user),
       models: async (io) => {
         const data = io.data;
         const models = await hub.execution.llm.models();
@@ -69,18 +68,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
         }));
         return { declared, values: await all(hub, 'actorSettings') };
       },
-      runs: async (io) => {
-        const data = io.data;
-        const fn = data.fn === undefined ? undefined : QualifiedName.safeParse(data.fn);
-        if (fn?.success === false) { return { items: [] }; }
-        return store.table('runs').find({
-          where: {
-            ...(data.status === undefined ? {} : { status: data.status }), ...(fn === undefined ? {} : { fn: fn.data }),
-            ...(data.system === undefined ? {} : { system: data.system }), ...(data.session === undefined ? {} : { session: data.session }),
-          },
-          order: [['createdAt', 'desc']], limit: data.limit ?? PAGE_SIZE, ...(data.cursor === undefined ? {} : { cursor: data.cursor }),
-        });
-      },
+      runs: ({ data, user }) => reads.runs_list(data, user),
       llmCalls: async (io) => {
         const data = io.data;
         const page = await store.table('llmInteractions').find({

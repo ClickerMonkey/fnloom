@@ -33,6 +33,16 @@ describe('what the hub adds to a message', () => {
     ]);
   });
 
+  it('adds no suggestions in a session whose prompts the graph contextor chooses', async () => {
+    const w = await world();
+    w.index.suggestions = [{ kind: 'fn', name: 'fs/read', description: 'Read a file.', score: 0.9 }];
+    const graph = { ...w.session, contextor: { type: 'graph' as const, metrics: {}, spread: { damping: 0.5, hops: 2 }, floorExchanges: 1, shares: { history: 0.45, context: 0.35, fns: 0.2 }, threshold: 0.15, evaluate: 'perMessage' as const } };
+    const parts = await w.chat.enrich.enrich({ session: graph, turn, text: 'read the readme', user: w.user });
+    expect(parts.map((p) => p.type === 'extra' ? p.extra : p.type)).toEqual(['local-time']);
+    const plain = await w.chat.enrich.enrich({ session: { ...w.session, contextor: { type: 'plain' } }, turn, text: 'read the readme', user: w.user });
+    expect(plain.map((p) => p.type === 'extra' ? p.extra : p.type)).toEqual(['local-time', 'suggested-fns']);
+  });
+
   it('skips suggestions when the index fails, and says so in the log', async () => {
     const w = await world();
     w.index.suggestions = new Error('embedder down');

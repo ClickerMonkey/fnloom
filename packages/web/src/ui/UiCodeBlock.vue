@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /**
  * A block of code: its language or file name, a copy button that confirms with a check, a wrap toggle, optional line
- * numbers, and syntax colours for the languages `highlight` knows (drawn as text spans, never HTML). Long lines scroll inside the block (or wrap), never widening the page; tall code scrolls past `maxHeight`.
+ * numbers, and syntax colours from the app's highlighter (`HIGHLIGHTER`; drawn as text spans, never HTML). Long lines
+ * scroll inside the block (or wrap), never widening the page; tall code scrolls past `maxHeight`. A marked line
+ * (`mark`, with line numbers) is lit and scrolled into view.
  */
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 import UiIconButton from './UiIconButton.vue';
 import { copyText } from './clipboard.ts';
-import { highlight, type Token } from './markdown/highlight.ts';
+import { tokenLines, useTokens, type Token } from './code/highlighter.ts';
 
 const props = withDefaults(defineProps<{
   code: string;
@@ -16,14 +18,21 @@ const props = withDefaults(defineProps<{
   wrap?: boolean;
   /** Px; 0 for no limit. */
   maxHeight?: number;
-}>(), { language: '', filename: '', lineNumbers: false, wrap: false, maxHeight: 480 });
+  /** A line to light and scroll to (1-based, with line numbers); 0 for none. */
+  mark?: number;
+}>(), { language: '', filename: '', lineNumbers: false, wrap: false, maxHeight: 480, mark: 0 });
 
 const emit = defineEmits<{ copied: [ok: boolean] }>();
 const wrapped = ref(props.wrap);
 const copied = ref(false);
-const lines = computed(() => props.code.replace(/\n$/, '').split('\n'));
-const tokens = computed(() => highlight(props.code, props.language));
-const lineTokens = computed(() => lines.value.map((line) => highlight(line, props.language)));
+const tokens = useTokens(() => props.code.replace(/\n$/, ''), () => props.language);
+const lineTokens = computed(() => tokenLines(tokens.value));
+const pre = useTemplateRef<HTMLElement>('pre');
+watch(() => [props.mark, lineTokens.value.length] as const, async ([mark]) => {
+  if (mark <= 0 || !props.lineNumbers) { return; }
+  await nextTick();
+  pre.value?.querySelector('.line.marked')?.scrollIntoView({ block: 'center', behavior: 'instant' });
+}, { immediate: true });
 const tokenClass = (token: Token): string | undefined => (token.kind === 'plain' ? undefined : `tok-${token.kind}`);
 const caption = computed(() => props.filename || props.language || 'text');
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -48,7 +57,7 @@ onBeforeUnmount(() => { clearTimeout(timer); });
         <UiIconButton :icon="copied ? 'check' : 'copy'" :label="copied ? 'Copied' : 'Copy code'" size="sm" class="copy" :class="{ copied }" @click="copy" />
       </span>
     </figcaption>
-    <pre class="pre" :style="maxHeight > 0 ? { maxHeight: `${maxHeight}px` } : undefined" tabindex="0"><code :class="language === '' ? undefined : `language-${language}`"><template v-if="lineNumbers"><span v-for="(line, index) in lineTokens" :key="index" class="line"><span class="number" aria-hidden="true">{{ index + 1 }}</span><span v-for="(token, t) in line" :key="t" :class="tokenClass(token)">{{ token.text }}</span>
+    <pre ref="pre" class="pre" :style="maxHeight > 0 ? { maxHeight: `${maxHeight}px` } : undefined" tabindex="0"><code :class="language === '' ? undefined : `language-${language}`"><template v-if="lineNumbers"><span v-for="(line, index) in lineTokens" :key="index" class="line" :class="{ marked: index + 1 === mark }"><span class="number" aria-hidden="true">{{ index + 1 }}</span><span v-for="(token, t) in line" :key="t" :class="tokenClass(token)">{{ token.text }}</span>
 </span></template><template v-else><span v-for="(token, t) in tokens" :key="t" :class="tokenClass(token)">{{ token.text }}</span></template></code></pre>
   </figure>
 </template>
@@ -63,6 +72,7 @@ onBeforeUnmount(() => { clearTimeout(timer); });
 .pre:focus-visible { outline: none; box-shadow: inset var(--ring); }
 .wrapped .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .line { display: block; }
+.line.marked { margin: 0 calc(-1 * var(--space-4)); padding: 0 var(--space-4); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 .tok-comment { color: var(--text-faint); font-style: italic; }
 .tok-string { color: light-dark(oklch(0.5 0.13 150), oklch(0.78 0.12 150)); }
 .tok-number, .tok-literal { color: light-dark(oklch(0.55 0.15 50), oklch(0.8 0.12 60)); }

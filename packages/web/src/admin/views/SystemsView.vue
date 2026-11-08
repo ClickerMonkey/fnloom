@@ -4,6 +4,7 @@
  * then every system, those needing the admin first. Pairing tokens and installing a system open as dialogs.
  */
 import type { InstallSource, PairingRequest, SystemName } from '@harness/core';
+import type { PackageOptions } from '../state/packages.ts';
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
@@ -50,6 +51,14 @@ async function createToken(name: SystemName | undefined, expiresIn: number): Pro
   if (result.ok) { token.value = result.value; }
 }
 
+async function installZip(zip: File, options: PackageOptions): Promise<void> {
+  const result = await admin.packages.installZip(zip, options);
+  if (!result.ok) { return; }
+  installOpen.value = false;
+  toasts.ok(`Installing ${result.value.system}@${result.value.instance}`, 'It pairs and starts by itself.');
+  void systems.load(true);
+}
+
 async function install(source: InstallSource, autoStart: boolean): Promise<void> {
   const result = await systems.installSystem(source, autoStart);
   if (!result.ok) { return; }
@@ -93,7 +102,10 @@ async function install(source: InstallSource, autoStart: boolean): Promise<void>
     </LoadState>
 
     <TokenDialog v-model:open="tokenOpen" :busy="systems.token.busy.value" :problem="systems.token.problem.value" :token="token" :now="now" @create="createToken" />
-    <InstallDialog v-model:open="installOpen" :busy="systems.install.busy.value" :problem="systems.install.problem.value" @install="install" />
+    <InstallDialog
+      v-model:open="installOpen" :busy="systems.install.busy.value || admin.packages.install.busy.value" :problem="systems.install.problem.value || admin.packages.install.problem.value"
+      :progress="admin.packages.progress.value" @install="install" @install-zip="installZip"
+    />
   </AppPage>
 </template>
 

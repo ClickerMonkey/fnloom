@@ -6,13 +6,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hub as hubContract } from '@harness/sdk';
-import { mintId, SystemName } from '@harness/core';
+import { mintId, QualifiedName, SystemName } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordingPush, testSettings } from '../api/testing/rig.ts';
 import { memoryLog } from '../testing.ts';
 import { SCRIPTED_AS, ScriptedProvider, TEST_MODEL } from '../execution/testing.ts';
 import type { RunningHub } from './index.ts';
-import { hubModules } from './modules.ts';
+import { HubFns } from '../execution/executors.ts';
+import { registerRunFns } from '../execution/hub-fns.ts';
+import { hubModules, registerHubContract } from './modules.ts';
 import { startHub } from './start.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'harness-modules-'));
@@ -43,6 +45,15 @@ describe('the hub with its real modules', () => {
     expect((await catalog.fn(hubContract.fns.chat.name))?.decl.kind).toBe('hub/llm');
     const names = (await catalog.fns({ system: SystemName.parse('hub') })).map((f) => f.name);
     expect(names).toEqual(expect.arrayContaining(Object.values(hubContract.fns).map((f) => f.name)));
+  });
+
+  it('implements every native fn the hub contract declares', () => {
+    const fns = new HubFns();
+    registerRunFns(fns, { get: () => Promise.resolve(undefined), wait: () => Promise.reject(new Error('not waited on while registering')) });
+    registerHubContract({ hubFns: fns, handlers: { askPerson: () => Promise.reject(new Error('not asked while registering')) } }, running.services);
+    const native = Object.entries(hubContract.defs.fns).filter(([, decl]) => decl.kind === 'native').map(([local]) => QualifiedName.parse(`hub/${local}`));
+    expect(native.length).toBeGreaterThan(0);
+    expect(native.filter((name) => !fns.has(name))).toEqual([]);
   });
 
   it('offers the models of the providers it was given', async () => {

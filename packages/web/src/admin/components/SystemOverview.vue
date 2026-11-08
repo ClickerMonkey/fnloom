@@ -27,6 +27,7 @@ const source = computed(() => {
   if (from === undefined) { return ''; }
   if ('package' in from) { return `${from.package}@${from.version}`; }
   if ('git' in from) { return `${from.git}#${from.ref}`; }
+  if ('zip' in from) { return `${from.file} (uploaded package)`; }
   return from.path;
 });
 

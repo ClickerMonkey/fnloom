@@ -91,6 +91,26 @@ function closeDelimiter(text: string, from: number, delimiter: string): number {
   return -1;
 }
 
+/**
+ * Inline math at `open` (a `$`): the TeX up to the closing `$` and where it ends, or undefined when this `$` isn't
+ * math. Like pandoc: the opener is followed by something other than a space, the closer is preceded by something
+ * other than a space and not followed by a digit, so prices ("$5 and $10") stay text.
+ */
+function inlineMath(text: string, open: number): { tex: string; end: number } | undefined {
+  const first = text[open + 1];
+  if (first === undefined || /\s|\$/.test(first)) { return undefined; }
+  for (let i = open + 1; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\') { i++; continue; }
+    if (ch === '\n' && text[i + 1] === '\n') { return undefined; }
+    if (ch === '$') {
+      if (/\s/.test(text[i - 1] ?? ' ') || /\d/.test(text[i + 1] ?? '')) { return undefined; }
+      return { tex: text.slice(open + 1, i), end: i + 1 };
+    }
+  }
+  return undefined;
+}
+
 /** Merge neighbouring text nodes. */
 function pushText(out: MdInline[], text: string): void {
   if (text === '') { return; }
@@ -193,6 +213,11 @@ export function parseInline(text: string): MdInline[] {
       }
     }
 
+    if (ch === '$') {
+      const math = inlineMath(text, i);
+      if (math !== undefined) { out.push({ type: 'math', tex: math.tex }); i = math.end; continue; }
+    }
+
     const emphasis = EMPHASIS.find((e) => rest.startsWith(e.delimiter));
     if (emphasis && !/\s/.test(text[i + emphasis.delimiter.length] ?? ' ') && !(emphasis.delimiter.startsWith('_') && isWordChar(text[i - 1]))) {
       const start = i + emphasis.delimiter.length;
@@ -204,7 +229,7 @@ export function parseInline(text: string): MdInline[] {
       }
     }
 
-    const plain = /^[^\\\n`![<*_~hHfF]+/.exec(rest)?.[0];
+    const plain = /^[^\\\n`![<*_~hHfF$]+/.exec(rest)?.[0];
     if (plain !== undefined) { pushText(out, plain); i += plain.length; continue; }
     pushText(out, ch);
     i++;

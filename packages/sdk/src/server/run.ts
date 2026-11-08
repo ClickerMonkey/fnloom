@@ -9,10 +9,10 @@
  * - Progress, attachments and links go to the hub as they happen and are flushed before the outcome is sent.
  */
 import {
-  OutcomeWire, type AllowedOperations, type ControlReply, type FnError, type Json, type Link, type QualifiedName, type RunId,
+  OutcomeWire, type AllowedOperations, type ControlReply, type Detail, type FnError, type InvalidInput, type Json, type Link, type QualifiedName, type RunId,
   type RunRequest, type StepStatus, type Usd, type RunControlAction,
 } from '@harness/core';
-import { Suspended, type BudgetInfo, type CallOptions, type Resume, type Services, type Settled } from '../ctx.ts';
+import { Suspended, type BudgetInfo, type CallOptions, type Resume, type Services, type Settled, type SystemPlace } from '../ctx.ts';
 import type { Deps, Handlers, ProgressDef } from '../fn.ts';
 import { json, type GinType } from '../gin.ts';
 import type { AttachmentRef, SettingRef } from '../refs.ts';
@@ -26,7 +26,7 @@ import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { AnyOutcome, OutcomeHelpers, RunTarget, RuntimeFnCtx, RuntimeKindCtx, RuntimeProgress, RuntimeRunBase } from './table.ts';
-import { decodeOrThrow, encode, encodeOrThrow, fnError, InvalidValue, messageOf, settledOf, thrownError } from './wire.ts';
+import { decodeArgs, decodeOrThrow, encode, encodeOrThrow, fnError, invalidInput, InvalidValue, messageOf, settledOf, thrownError } from './wire.ts';
 
 /** What every run gets from the runtime. */
 export interface RunEnvironment {
@@ -36,6 +36,8 @@ export interface RunEnvironment {
   readonly files: FilesFactory;
   readonly fetch: typeof fetch;
   readonly log: ScopedLog;
+  /** Which instance this is and where it keeps its data and cache. */
+  readonly place: SystemPlace;
   readonly stateRetries: number;
   readonly now: () => number;
   /** The config value of a version, or `undefined` when it isn't known (any more). */
@@ -99,7 +101,8 @@ export type Track = (send: (hub: HubLink) => Promise<unknown>) => void;
  */
 export function servicesFor(env: RunEnvironment, run: RunId, signal: AbortSignal, log: ScopedLog, track: Track): Services {
   return {
-    llm: new HubLlm({ hub: env.hub, run }, signal),
+    ...env.place,
+    llm: new HubLlm({ hub: env.hub, content: env.content, run }, signal),
     files: env.files({ content: env.content, signal }),
     fetch: env.fetch,
     resources: new HubResources(env.hub, env.content, { run, signal }),
@@ -129,6 +132,7 @@ export function runReporting(env: RunEnvironment, run: RunId, signal: AbortSigna
 function outcomeHelpers(): OutcomeHelpers {
   return {
     done: (result, extra) => ({ status: 'done', result, ...(extra?.undo === undefined ? {} : { undo: extra.undo }), ...(extra?.cost === undefined ? {} : { cost: extra.cost }) }),
+    invalid: (problems, extra) => ({ status: 'invalid-input', invalid: invalidInput(problems), ...(extra?.cost === undefined ? {} : { cost: extra.cost }) }),
     fail: (cls, message, extra) => ({
       status: 'failed',
       error: fnError(cls, message, { ...(extra?.code === undefined ? {} : { code: extra.code }), ...(extra?.data === undefined ? {} : { data: extra.data }) }),
@@ -164,6 +168,8 @@ export class ActiveRun {
   #pausedWith: { state: unknown } | undefined;
   #onPaused: ((state: unknown) => void) | undefined;
   #undo: unknown;
+  /** The fns the result shows the agent (`ctx.expose`), by name: the last detail asked for wins. */
+  readonly #exposed = new Map<QualifiedName, Detail>();
   #spent = 0;
   #outcome: Promise<OutcomeWire> | undefined;
 
@@ -258,19 +264,31 @@ export class ActiveRun {
   async #execute(): Promise<AnyOutcome> {
     const target = this.#target;
     switch (target.kind) {
-      case 'native': return target.impl.run(decodeOrThrow(this.#shape.args, this.#request.args, 'The args'), this.#fnCtx());
+      case 'native': {
+        const args = decodeArgs(this.#shape.args, this.#request.args);
+        return args.ok ? target.impl.run(args.value, this.#fnCtx()) : this.#refused(args.invalid);
+      }
       case 'method': {
-        const { self, args } = splitSelf(decodeOrThrow(this.#shape.args, this.#request.args, 'The args'));
-        return target.impl.run(self, args, this.#fnCtx());
+        const args = decodeArgs(this.#shape.args, this.#request.args);
+        if (!args.ok) { return this.#refused(args.invalid); }
+        const { self, rest } = splitSelf(args.value);
+        return target.impl.run(self, rest, this.#fnCtx());
       }
       case 'kind': return target.impl.run(decodeOrThrow(target.def.payload, this.#request.payload, 'The payload'), this.#request.args, this.#kindCtx());
     }
+  }
+
+  /** Args that don't fit the fn's type: the caller's mistake, which an agent retries. */
+  #refused(invalid: InvalidInput): AnyOutcome {
+    this.#log.info('run.invalid-input', { source: invalid.source, problems: invalid.problems.length });
+    return { status: 'invalid-input', invalid };
   }
 
   /** The outcome on the wire: values encoded with the fn's types, the undo payload it registered, costs it reported. */
   #wire(outcome: AnyOutcome): OutcomeWire {
     const cost = this.#spent + (outcome.cost ?? 0);
     const costed = outcome.cost === undefined && this.#spent === 0 ? {} : { cost };
+    if (outcome.status === 'invalid-input') { return OutcomeWire.parse({ status: 'invalid-input', invalid: outcome.invalid, ...costed }); }
     if (outcome.status === 'paused') {
       const resume = this.#encode(this.#shape.resume, outcome.resume, 'The resume state');
       return resume.ok ? OutcomeWire.parse({ status: 'paused', resume: resume.value, ...costed }) : this.#failed(resume.error, costed);
@@ -282,7 +300,10 @@ export class ActiveRun {
     switch (outcome.status) {
       case 'done': {
         const result = encode(this.#shape.returns, outcome.result, 'The result');
-        return result.ok ? OutcomeWire.parse({ status: 'done', result: result.value, ...undoPart, ...costed }) : this.#failed(result.error, costed);
+        const expose = [...this.#exposed].map(([fn, detail]) => ({ fn, detail }));
+        return result.ok
+          ? OutcomeWire.parse({ status: 'done', result: result.value, ...undoPart, ...costed, ...(expose.length === 0 ? {} : { expose }) })
+          : this.#failed(result.error, costed);
       }
       case 'failed': return OutcomeWire.parse({ status: 'failed', error: outcome.error, ...undoPart, ...costed });
       case 'cancelled': {
@@ -326,6 +347,7 @@ export class ActiveRun {
         this.#allowed = { ...this.#allowed, ...operations };
         this.#track((hub) => hub.call('allow', { run: this.id, operations }));
       },
+      expose: (fn, detail) => { this.#exposed.set(fn.name, detail ?? 'signature'); },
       undoWith: (payload) => {
         this.#undo = payload;
         this.#track((hub) => hub.call('undoWith', { run: this.id, undo: encodeOrThrow(this.#required(this.#shape.undo, 'undo'), payload, 'The undo payload') }));
@@ -429,10 +451,10 @@ function timedOut(detail: string): AnyOutcome {
 }
 
 /** A method's args hold the value it is called on as `self`, beside its own args. */
-function splitSelf(value: unknown): { self: unknown; args: Record<string, unknown> } {
-  if (typeof value !== 'object' || value === null) { return { self: undefined, args: {} }; }
-  const { self, ...args } = Object.fromEntries(Object.entries(value));
-  return { self, args };
+function splitSelf(value: unknown): { self: unknown; rest: Record<string, unknown> } {
+  if (typeof value !== 'object' || value === null) { return { self: undefined, rest: {} }; }
+  const { self, ...rest } = Object.fromEntries(Object.entries(value));
+  return { self, rest };
 }
 
 /** A call target known only by name (a kind's calls): JSON in and out, the hub checks the rest. */

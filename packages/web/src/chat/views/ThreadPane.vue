@@ -35,7 +35,7 @@ import type { ApprovalView, ComposerHandle, HeaderAction, MessageAction, RenderV
 import UserMessage from '../components/UserMessage.vue';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import { isTouch } from '../dom.ts';
-import { FORM_INPUTS } from '../forms/inputs.ts';
+import { GIN_INPUTS } from '../../gin/registry.ts';
 import { mentionToken, methodArgs, methodsOf, placeholderFor, type DraftMention, type MethodOffer } from '../logic/composer.ts';
 import { clamp } from '../logic/format.ts';
 import { agentName, fnLabel, humanize, localName } from '../logic/labels.ts';
@@ -112,7 +112,7 @@ function attachmentView(part: Extract<MessagePart, { type: 'attachment' }>): Ren
   return chat.renderers.attachmentView(part);
 }
 
-provide(FORM_INPUTS, (type) => chat.renderers.inputView(type));
+provide(GIN_INPUTS, (type) => chat.renderers.inputView(type));
 
 /** A budget raise is being saved. */
 const raisingBudget = ref(false);
@@ -287,7 +287,9 @@ const replyView = computed(() => {
 const replyMessage = computed(() => thread.messages.value.find((m) => m.id === composer.replyTo.value));
 const answerers = computed(() => (record.value === undefined ? '' : whoAnswers(record.value, replyMessage.value, composer.replyAll.value).text));
 const replyAllShown = computed(() => (record.value?.participants.filter((p) => p.role === 'agent').length ?? 0) > 1 || (record.value?.participants.filter((p) => p.role !== 'agent').length ?? 0) > 1);
-const voiceView = computed(() => ({ available: voice !== undefined && caps.can.value.voice, state: voice?.state.value ?? 'idle', startedAt: voice?.startedAt.value ?? 0, problem: voice?.problem.value ?? '' }));
+/** The engine the hub's dictation role picked (the model, unless it says the browser). */
+const dictation = computed(() => caps.value.value?.dictation ?? { engine: 'model' as const });
+const voiceView = computed(() => ({ available: voice !== undefined && caps.can.value.voice && voice.can(dictation.value.engine), state: voice?.state.value ?? 'idle', startedAt: voice?.startedAt.value ?? 0, problem: voice?.problem.value ?? '' }));
 const tokens = computed(() => composer.mentions.value.map(mentionToken));
 
 function flashNote(text: string): void {
@@ -339,7 +341,7 @@ async function invoke(args: Json): Promise<void> {
 }
 
 async function startVoice(): Promise<void> {
-  await voice?.start();
+  await voice?.start(dictation.value.engine, dictation.value.language);
 }
 async function stopVoice(): Promise<void> {
   const text = await voice?.stop();
@@ -443,7 +445,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
   <div class="pane" :class="{ dropping }" data-testid="thread-pane" @dragover.prevent="dropping = caps.can.value.upload" @dragleave.self="dropping = false" @drop.prevent="onDrop">
     <ChatHeader
       :title="record?.title ?? ''" :status="record?.status" :people="people" :compact="compact" :can-undo="thread.canUndo.value" :has-turn="thread.lastTurn.value !== undefined"
-      :archived="record?.archived ?? false" :waiting="waiting" :nav="nav" @sessions="emit('sessions')" @nav="emit('nav')" @rename="rename" @action="header"
+      :archived="record?.archived ?? false" :waiting="waiting" :nav="nav" :stale="thread.stale.value" @sessions="emit('sessions')" @nav="emit('nav')" @rename="rename" @action="header"
     />
 
     <div v-if="thread.status.value === 'loading' && thread.messages.value.length === 0" class="loading" data-testid="thread-loading" aria-busy="true">

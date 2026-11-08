@@ -4,7 +4,8 @@
  * typed refs.
  */
 import type {
-  ActorKind, Audience, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat, Section, SectionKey,
+  ActorKind, Audience, DeclarableRelation, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat,
+  ResourceUri, Section, SectionKey,
   SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
 } from '@harness/core';
 import { sectionKeys as structuralKeys } from '@aeye/resources/section-keys';
@@ -12,7 +13,7 @@ import { SectionKey as SectionKeySchema } from '@harness/core';
 import type { ActionCtx, AskerCtx, FnCall, FnCtx, SystemCtx, UndoCtx } from './ctx.ts';
 import type { FnTypes, Outcome, UntypedFn } from './fn.ts';
 import { g, type GinType } from './gin.ts';
-import type { AnyContextRef, AnyFnRef, Methods, TypeRef } from './refs.ts';
+import type { AnyContextRef, AnyFnRef, AnyTypeRef, Methods, TypeRef } from './refs.ts';
 import { orDefault, type Simplify } from './util.ts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -141,6 +142,20 @@ export function arg<const Req extends boolean = true>(hint: string, options?: { 
 export type ArgsOf<A extends Record<string, ArgDef<boolean>>> =
   Simplify<{ -readonly [K in keyof A as A[K]['required'] extends true ? K : never]: string } & { -readonly [K in keyof A as A[K]['required'] extends true ? never : K]?: string }>;
 
+/** What a context link points at: another context item, a fn, a named type, or a resource (or one of its sections). */
+export type ContextLinkTarget = AnyContextRef | AnyFnRef | AnyTypeRef | { readonly uri: ResourceUri; readonly section?: string };
+
+/**
+ * A weighted edge from a context item to something it relates to, which the graph contextor follows: `imports` and
+ * `brings` travel together; `suggests`, `related`, `about`, `parent` and `next` pass on some of an item's score.
+ */
+export interface ContextLinkDef {
+  readonly to: ContextLinkTarget;
+  readonly relation: DeclarableRelation;
+  /** How strongly, from 0 to 1. Default 0.5. */
+  readonly weight?: number;
+}
+
 /** Content for the LLM. Static content is written in the contract; dynamic content is produced by the system. */
 export interface ContextDef<A, Dynamic extends boolean> {
   readonly description: string;
@@ -157,6 +172,15 @@ export interface ContextDef<A, Dynamic extends boolean> {
   /** Always loaded for these agents. */
   readonly alwaysFor: readonly AnyFnRef[];
   readonly tags: readonly string[];
+  /** How much it counts when the graph contextor scores it: 0 leaves it out, 2 doubles it. Default 1. */
+  readonly weight: number | undefined;
+  /** A short form shown when the budget allows only a little of it; its description otherwise. */
+  readonly summary: string | undefined;
+  /** Its parent in a hierarchy (a guide over its chapters). */
+  readonly parent: AnyContextRef | undefined;
+  /** The next piece of a chain (a long text in ordered pieces). */
+  readonly next: AnyContextRef | undefined;
+  readonly links: readonly ContextLinkDef[];
   /** Phantom: the command's args. Never set at runtime. */
   readonly argsType?: A;
 }
@@ -174,6 +198,14 @@ export interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
   visible?: Audience;
   alwaysFor?: AnyFnRef[];
   tags?: string[];
+  /** How much it counts when scored, from 0 (left out) to 2. Default 1. */
+  weight?: number;
+  /** A short form shown when the budget allows only a little of it. */
+  summary?: string;
+  parent?: AnyContextRef;
+  next?: AnyContextRef;
+  /** Weighted links to other context, fns, types and resources. */
+  links?: ContextLinkDef[];
 }
 
 /** Declare static context. */
@@ -193,6 +225,11 @@ export function context<const Args extends Record<string, ArgDef<boolean>>>(def:
     visible: def.visible ?? 'both',
     alwaysFor: [...(def.alwaysFor ?? [])],
     tags: [...(def.tags ?? [])],
+    weight: def.weight,
+    summary: def.summary,
+    parent: def.parent,
+    next: def.next,
+    links: [...(def.links ?? [])],
   };
 }
 

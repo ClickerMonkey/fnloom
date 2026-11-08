@@ -56,8 +56,9 @@ const input = show('input');
     </section>
     <section v-if="input" class="group" aria-label="Entry input">
       <h2>Entry input</h2>
-      <EntryInput v-model="entry" :problems="[]" :system="online.system" />
-      <EntryInput v-model="blank" :problems="['path: must not be empty']" :system="online.system" />
+      <EntryInput v-model="entry" :problems="[]" :readonly="false" :system="online.system" />
+      <EntryInput v-model="blank" :problems="['path: must not be empty']" :readonly="false" :system="online.system" />
+      <EntryInput :model-value="entry" :problems="[]" readonly :system="online.system" />
     </section>
   </main>
 </template>

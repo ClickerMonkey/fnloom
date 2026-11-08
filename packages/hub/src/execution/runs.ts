@@ -1,7 +1,8 @@
 /**
  * Runs: every call of a fn, from an agent's tool call, a person's `!`, or a run's child call. A run is checked (the fn
- * exists, is available, is a declared dep of its caller, and its args fit), recorded, put through the policies (it
- * may wait for approval), queued at its priority, executed by the right executor (the system that owns its kind, the
+ * exists, is available and is a declared dep of its caller) and recorded; when its args don't fit (or its caller found
+ * them unusable, as JSON that didn't parse) it settles at once as `invalid-input`, which the caller hears and may
+ * retry. Otherwise it is put through the policies (it may wait for approval), queued at its priority, executed by the right executor (the system that owns its kind, the
  * hub's own fns, or the agent loop), and settled exactly once. Everything about it is in the store, so the fn tree of
  * a turn is a query away, and every change is published on the bus as a `run.update`.
  *
@@ -10,9 +11,9 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  compact, INVALID_INPUT_CODE, isSettled, mintId, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  compact, INVALID_INPUT_CODE, isSettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
-  type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError,
+  type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -45,6 +46,16 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
+/**
+ * The problems of args that don't fit a fn's args schema, as refused input (`schema`), each at its dotted path; none
+ * when they fit.
+ */
+export function invalidArgs(checked: z.ZodSafeParseResult<unknown>): InvalidInput | undefined {
+  if (checked.success) return undefined;
+  const [first, ...rest] = checked.error.issues.map((issue): InputProblem => ({ path: issue.path.map(String).join('.'), message: issue.message }));
+  return first === undefined ? { source: 'schema', problems: [{ path: '', message: z.prettifyError(checked.error) }] } : { source: 'schema', problems: [first, ...rest] };
+}
+
 /** Which executor runs a run. */
 export type ExecutorKind = 'system' | 'hub' | 'agent';
 
@@ -59,7 +70,7 @@ export function settledOf(outcome: OutcomeWire | undefined, run: RunId): RunSett
   switch (outcome.status) {
     case 'done': return { status: 'done', result: outcome.result };
     // a code caller hears refused input as a caller error carrying the problems; agents read the run's own status
-    case 'invalid-input': return { status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE, message: outcome.invalid.problems.map((p) => p.path === '' ? p.message : `${p.path}: ${p.message}`).join('; '), data: compact(outcome.invalid) } };
+    case 'invalid-input': return { status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE, message: outcome.invalid.problems.map(problemLine).join('; '), data: compact(outcome.invalid) } };
     case 'failed': return { status: 'failed', error: outcome.error };
     case 'cancelled': return { status: 'cancelled' };
     case 'paused': return { status: 'background', run };
@@ -163,8 +174,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const missing = Object.entries(fn.decl.handlers).filter(([name, decl]) => decl.required && !handlers.includes(name)).map(([name]) => name);
     if (missing.length > 0) throw new RunRefused(fnError('fatal', `${fn.name} needs its caller to answer ${missing.join(', ')}, which this caller can't.`, 'needs-handlers'));
     const signature = await catalog.signature(fn.name);
-    const checked = signature.argsSchema.safeParse(input.args);
-    if (!checked.success) throw new RunRefused(fnError('caller', `The args for ${fn.name} don't fit: ${z.prettifyError(checked.error)}`, 'bad-args'));
+    const checked = input.invalid ?? invalidArgs(signature.argsSchema.safeParse(input.args));
+    const system = SystemName.parse(executingSystem(fn));
+    // the one place a system's run is given its instance: a fleet with no clear pick is refused input the caller can fix
+    const routed = checked === undefined && executorKind(fn) === 'system'
+      ? await this.#deps.instances.route({ fn: fn.name, args: input.args, on: input.on, session: input.session })
+      : undefined;
+    const invalid = checked ?? (routed !== undefined && 'invalid' in routed ? routed.invalid : undefined);
+    const instance = routed !== undefined && 'instance' in routed && routed.instance.system === system ? routed.instance.instance : undefined;
     const turn = await store.table('turns').get(input.turn);
     if (turn === undefined) throw new RunRefused(fnError('fatal', `There is no turn ${input.turn}.`, 'not-found'));
 
@@ -175,7 +192,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       fn: fn.name,
       fnVersion: fn.version,
       kind: fn.decl.kind,
-      system: SystemName.parse(executingSystem(fn)),
+      system,
+      ...(instance === undefined ? {} : { instance }),
       root: parent?.root ?? id,
       turn: input.turn,
       ...(input.session === undefined ? {} : { session: input.session }),
@@ -204,6 +222,12 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     this.#publish(run, statusUpdate('queued', text));
     this.#deps.log.info('run.created', { run: id, fn: fn.name, turn: input.turn, parent: input.parent ?? null, key: input.key });
 
+    if (invalid !== undefined) {
+      // refused input never reaches the policies or the fn: the caller hears the problems and may try again
+      this.#deps.log.info('run.invalid-input', { run: id, fn: fn.name, source: invalid.source, problems: invalid.problems.length });
+      await this.settle(id, { status: 'invalid-input', invalid });
+      return { run: id, settled };
+    }
     const decision = await this.#deps.policies.decide({
       fn: fn.name, actor: input.actor, turnUser: turn.user.id, args: input.args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
     });
@@ -533,6 +557,12 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     await this.#addToAncestors(run, cost);
   }
 
+  async addTokens(id: RunId, tokens: number): Promise<void> {
+    const run = await this.get(id);
+    if (run === undefined || tokens <= 0) return;
+    await this.#deps.store.table('runs').update(id, { tokens: (run.tokens ?? 0) + tokens });
+  }
+
   /**
    * The run request an executor gets: who and when, the args, the budget left (money, and the turn's time), the
    * deadline the hub enforces, and what to resume from.
@@ -565,7 +595,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   async #info(run: Run, known?: Turn): Promise<RunInfo> {
     const turn = known ?? (await this.#turn(run));
     const parent = run.parent === undefined ? undefined : await this.get(run.parent);
-    const connection = this.#deps.link.connection(run.system);
+    const connection = this.#deps.link.connection(run.system, run.instance);
     return {
       id: run.id,
       fn: run.fn,
@@ -576,7 +606,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       time: timeInfo(this.#deps.clock(), turn.user.timeZone),
       system: {
         name: run.system,
-        instance: connection?.instance ?? 'hub',
+        instance: run.instance ?? connection?.instance ?? MAIN_INSTANCE,
+        boot: connection?.boot ?? HUB_SYSTEM,
         ...(parent === undefined ? {} : { from: { system: parent.system, fn: parent.fn, run: parent.id } }),
       },
       caller: run.caller,
@@ -642,7 +673,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const run = await this.get(id);
     if (run?.status !== 'awaiting-approval') return;
     if (approved) {
-      this.#enqueue(await this.#moveTo(run, { status: 'queued' }));
+      this.#enqueue(await this.#moveTo(run, { status: 'queued', approvedAt: this.#deps.clock() }));
     } else {
       await this.settle(id, { status: 'failed', error: fnError('caller', reason === undefined ? 'The person refused this.' : `The person refused this: ${reason}`, 'denied') });
     }

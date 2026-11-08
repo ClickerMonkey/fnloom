@@ -4,7 +4,7 @@
  * event channel a test pushes into, a file sender, a recorder, and the chat store built on them.
  */
 import {
-  ActorId, Approval, ChatCapabilities, ChatMessage, DeliveryId, HandlerCall, LlmInteraction, Run, RunId, Session, SessionSummary, SystemName, TreeNode, TurnId, UndoReport,
+  ActorId, Approval, ChatCapabilities, SelectionReport, ChatMessage, DeliveryId, HandlerCall, LlmInteraction, Run, RunId, Session, SessionSummary, SystemName, TreeNode, TurnId, UndoReport,
   type SessionEvent, type SessionId,
 } from '@harness/core';
 import { fakeCaller, memoryStore } from '../../test/fakes.ts';
@@ -23,6 +23,28 @@ type Loose<T> = Partial<Record<keyof T, unknown>>;
 
 let counter = 1;
 const next = (): number => counter++;
+
+/** What the graph contextor chose for a small model's prompt: a 4,096 window, two context items and three fns. */
+export function selectionReport(overrides: Loose<SelectionReport> = {}): SelectionReport {
+  return SelectionReport.parse({
+    contextor: 'graph', mode: 'static', linear: 3, earlier: [0, 2],
+    context: [
+      { name: 'fs/docs', detail: 'full', activation: 0.82 },
+      { name: 'memory/likes-short-answers', detail: 'signature', activation: 0.41 },
+    ],
+    fns: [
+      { name: 'fs/read', detail: 'full', activation: 0.9 },
+      { name: 'fs/bash', detail: 'signature', activation: 0.55 },
+      { name: 'fs/search', detail: 'listed', activation: 0.2 },
+    ],
+    budget: {
+      window: 4_096, output: 512, reasoning: 0, margin: 246, fixed: 612,
+      pools: { history: { asked: 1_900, got: 1_230 }, context: { asked: 640, got: 640 }, fns: { asked: 344, got: 344 } },
+      estimate: 2_826, cut: [{ what: '2 older exchanges', why: 'History asked 1,900 tokens; 1,230 were left.' }],
+    },
+    ...overrides,
+  });
+}
 
 /** A session. */
 export function session(overrides: Loose<Session> = {}): Session {
@@ -153,6 +175,7 @@ export function fakeChatApi() {
     submit: fakeCaller<'submit'>(() => Promise.resolve(({ delivery: DeliveryId.parse('dlv_form') }))),
     deleteSession: fakeCaller<'deleteSession'>(() => Promise.resolve({ deleted: true })),
     state: fakeCaller<'state'>(() => Promise.resolve({ system: SystemName.parse('fs'), fields: [] })),
+    previewSelection: fakeCaller<'previewSelection'>(() => Promise.resolve(selectionReport())),
   };
 }
 
@@ -216,6 +239,8 @@ export function fakeChat(options: { api?: FakeChatApi; recorder?: Recorder | und
     userEvents: (listener) => { userListeners.add(listener); return () => { userListeners.delete(listener); }; },
     clock: () => T0, client: () => ({ timeZone: 'UTC', locale: 'en', now: T0 }), me: (): ActorId | undefined => ActorId.parse(ME),
     recorder: () => options.recorder, previews: fakePreviews,
+    // a catch-up that fails tries again on the next task, so a test can change what the hub answers meanwhile
+    retry: { delays: [0], sleep: () => new Promise((resolve) => { setTimeout(resolve, 0); }) },
     renderers: { load: () => Promise.resolve(), share: () => Promise.resolve() },
   };
   const chat = new ChatStore(deps);

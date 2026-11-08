@@ -7,7 +7,8 @@
  * (`?q=`) and its active or archived view (`?chats=archived`) are in the URL too, and kept moving between chats. A
  * side panel takes the list's column unless the screen is very wide, so the thread keeps a readable width.
  */
-import { isSettled, type LlmInteraction, type MessageId, type SessionId } from '@harness/core';
+import { isSettled, ResourceUri, type LlmInteraction, type MessageId, type QualifiedName, type SessionId } from '@harness/core';
+import { useRouter } from 'vue-router';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useStores } from '../../state/stores.ts';
 import { UiButton, UiEmpty, UiModal, useMediaQuery } from '../../ui/index.ts';
@@ -17,7 +18,7 @@ import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import LlmCallDetails from '../components/LlmCallDetails.vue';
 import PanelFrame from '../components/PanelFrame.vue';
 import PanelHost from '../components/PanelHost.vue';
-import ResourceView from '../components/ResourceView.vue';
+import ResourceViewer from '../../resources/ResourceViewer.vue';
 import RunDetails from '../components/RunDetails.vue';
 import SessionList from '../components/SessionList.vue';
 import SessionSettings from '../components/SessionSettings.vue';
@@ -25,11 +26,11 @@ import ShortcutsDialog from '../components/ShortcutsDialog.vue';
 import TurnDetails from '../components/TurnDetails.vue';
 import TurnTree from '../components/TurnTree.vue';
 import type { SessionListHandle } from '../components/types.ts';
-import { resourceRenderView } from '../state/renderers.ts';
 import { LlmCallTab, RunTab, TAB_KEYS } from '../logic/inspect.ts';
 import { isTyping, shortcutFor } from '../logic/keys.ts';
 import { useRouteQuery } from '../../app/url.ts';
-import { ROUTES } from '../../app/routes.ts';
+import { links, ROUTES } from '../../app/routes.ts';
+import { toastContextMade } from '../../context/made.ts';
 import { agentName, fnLabel } from '../logic/labels.ts';
 import { drawerRun, recordIsBehind } from '../logic/runs.ts';
 import { useChatUrl } from '../url.ts';
@@ -43,6 +44,9 @@ import type { ChatPanel } from '../url.ts';
 const PANEL_TITLE = { settings: 'Chat settings', people: 'People', model: 'Model' } as const satisfies Record<ChatPanel, string>;
 
 const { chat, toasts, session: auth, layout } = useStores();
+const router = useRouter();
+/** Context was made from the resource in the panel: say so, with a way to open it. */
+const contextMade = (made: readonly QualifiedName[]): void => { toastContextMade(toasts, made, (name) => { void router.push(links.contextItem(name)); }); };
 /** The shell's top bar is hidden on a chat when the screen is compact: the chat's header takes its place. */
 const shellCompact = useMediaQuery(COMPACT_QUERY);
 const url = useChatUrl();
@@ -75,6 +79,11 @@ function showArchived(archived: boolean): void {
 
 const thread = computed(() => (url.session.value === undefined ? undefined : chat.thread(url.session.value)));
 const record = computed(() => thread.value?.session.value);
+/** The open chat's dry run of its contextor, for its settings. */
+const preview = computed(() => (url.session.value === undefined ? undefined : chat.preview(url.session.value)));
+const previewView = computed(() => ({
+  report: preview.value?.report.value.value, loading: preview.value?.report.loading.value ?? false, problem: preview.value?.report.problem.value ?? '',
+}));
 
 // ── the list ─────────────────────────────────────────────────────────────────
 
@@ -156,7 +165,6 @@ const now = useTicker(() => runView.value !== undefined && !isSettled(runView.va
 const llmCall = computed(() => (url.llm.value === undefined ? undefined : chat.inspector.calls.value.get(url.llm.value)));
 const turnCalls = shallowRef<readonly LlmInteraction[]>([]);
 const turnLoading = ref(false);
-const resourceView = computed(() => resourceRenderView(chat.renderers, chat.inspector.resource.value.value));
 
 const panelTitle = computed(() => {
   switch (url.top.value) {
@@ -203,6 +211,12 @@ async function pickModel(pick: ModelPick): Promise<void> {
   if (thread.value === undefined) { return; }
   await thread.value.update({ model: modelChoiceOf(pick) });
   url.close();
+}
+
+/** A link inside the opened resource that points at another resource opens it in the panel. */
+function openLinked(uri: string): void {
+  const parsed = ResourceUri.safeParse(uri);
+  if (parsed.success) { url.open('resource', parsed.data); }
 }
 
 async function backgroundRun(): Promise<void> {
@@ -281,8 +295,9 @@ onBeforeUnmount(() => {
       <PanelFrame :title="panelTitle" :subtitle="panelSubtitle" @close="url.close()">
         <RunDetails
           v-if="url.top.value === 'run'" v-model:tab="runTab" :run="runView" :record="chat.inspector.run.value.value" :loading="chat.inspector.run.loading.value"
-          :problem="chat.inspector.run.problem.value" :now="now" @background="backgroundRun" @tree="runView?.turn && url.openTree(runView.turn)" @undo="undoRunTurn"
-          @llm="url.open('llm', $event)" @run="url.open('run', $event)" @retry="url.run.value && chat.inspector.openRun(url.run.value)"
+          :problem="chat.inspector.run.problem.value" :now="now" :args-type="runView && chat.capabilities.invocation(runView.fn)?.args" :can-see-calls="auth.user.value?.role === 'admin'" @background="backgroundRun"
+          @tree="runView?.turn && url.openTree(runView.turn)" @undo="undoRunTurn" @llm="url.open('llm', $event)"
+          @run="url.open('run', $event)" @retry="url.run.value && chat.inspector.openRun(url.run.value)" @calls="router.push(links.modelCalls({ run: $event }))"
         />
         <TurnTree
           v-else-if="url.top.value === 'tree'" :tree="chat.inspector.tree.value.value" :loading="chat.inspector.tree.loading.value" :problem="chat.inspector.tree.problem.value"
@@ -293,9 +308,10 @@ onBeforeUnmount(() => {
           <p v-else class="dim">{{ (url.llm.value && chat.inspector.callProblems.value.get(url.llm.value)) || 'Loading…' }}</p>
         </template>
         <TurnDetails v-else-if="url.top.value === 'details'" :calls="turnCalls" :loading="turnLoading" :problem="chat.inspector.tree.problem.value" @llm="url.open('llm', $event)" />
-        <ResourceView
-          v-else-if="url.top.value === 'resource'" :read="chat.inspector.resource.value.value" :loading="chat.inspector.resource.loading.value"
-          :problem="chat.inspector.resource.problem.value" :custom="resourceView" @retry="url.resource.value && chat.inspector.openResource(url.resource.value)"
+        <ResourceViewer
+          v-else-if="url.top.value === 'resource' && url.resource.value" :uri="url.resource.value" @navigate="openLinked"
+          @notice="(text, tone) => (tone === 'ok' ? toasts.ok(text) : toasts.error(text))"
+          @context="contextMade"
         />
         <SessionPeople v-else-if="url.top.value === 'panel' && url.panel.value === 'people' && record" :participants="record.participants" :name-of="nameOf" />
         <ModelPicker
@@ -305,8 +321,9 @@ onBeforeUnmount(() => {
         <SessionSettings
           v-else-if="url.top.value === 'panel' && record && thread" :session="record" :systems="chat.capabilities.value.value?.systems ?? []" :notify="thread.notify.value"
           :agent="agentName(record.agent)" :agents="chat.capabilities.value.value?.agents ?? []" :models="chat.capabilities.value.value?.models ?? []"
-          :priority="thread.limits.value?.priority" :name-of="nameOf" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
+          :priority="thread.limits.value?.priority" :name-of="nameOf" :preview="previewView" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
           @priority="thread.update({ priority: $event })" @agent="thread.update({ agent: $event })" @pick-model="url.open('panel', 'model')"
+          @mode="thread.update({ mode: $event })" @contextor="thread.update({ contextor: $event })" @preview="preview?.preview($event)"
         />
       </PanelFrame>
     </PanelHost>

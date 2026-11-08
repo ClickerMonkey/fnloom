@@ -23,7 +23,7 @@ import { runReporting, servicesFor, type RunEnvironment, type Track } from './ru
 import type { RunRegistry } from './runs.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { SystemTable } from './table.ts';
-import { decode, decodeOrThrow, encodeOrThrow, messageOf, thrownError } from './wire.ts';
+import { decode, decodeOrThrow, encodeOrThrow, messageOf, thrownError, withTimeout } from './wire.ts';
 
 /** The system's config: every version the hub sent that is still kept, so a run keeps the value it started with. */
 export class ConfigStore<Cfg> {
@@ -123,9 +123,10 @@ export class SystemRuntime<C extends ContractShape> {
     const current = this.#parts.config.current;
     if (current === undefined) { throw reject(409, 'NEEDS_CONFIG', `${env.system} has no valid config yet.`); }
     return {
+      ...env.place,
       system: env.system,
       config: current.value,
-      llm: new HubLlm({ hub: env.hub }, signal),
+      llm: new HubLlm({ hub: env.hub, content: env.content }, signal),
       resources: new HubResources(env.hub, env.content, { signal }),
       types: new HubTypes(env.hub, signal),
       log: this.#log,
@@ -203,6 +204,7 @@ export class SystemRuntime<C extends ContractShape> {
         const before = data.previous === undefined ? previous?.value : this.#parts.config.check(data.previous) ?? previous?.value;
         await host.configured(before);
       },
+      export: ({ data }) => this.#export(data.timeout),
     })]);
   }
 
@@ -220,6 +222,29 @@ export class SystemRuntime<C extends ContractShape> {
   }
 
   // ─── Endpoints ──────────────────────────────────────────────────────────────
+
+  /**
+   * Get ready for the hub to copy the data folder: `lifecycle.exporting` within the timeout, then where the folder is.
+   * A failure or a timeout refuses the export (`EXPORT_NOT_READY`), since a copy made meanwhile might not be whole.
+   */
+  async #export(timeout: number): Promise<{ data: string }> {
+    const env = this.#parts.env;
+    const lifecycle = this.#parts.table.impl.lifecycle;
+    if (lifecycle?.exporting !== undefined) {
+      let finished: boolean;
+      try {
+        finished = await withTimeout(lifecycle.exporting({ ...this.systemCtx(), timeout }), timeout);
+      } catch (error) {
+        env.log.error('system.exporting-failed', {}, error);
+        throw reject(500, 'EXPORT_NOT_READY', `${env.system} could not get its data ready: ${messageOf(error)}`);
+      }
+      if (!finished) {
+        env.log.warn('system.exporting-slow', { timeout });
+        throw reject(500, 'EXPORT_NOT_READY', `${env.system} did not get its data ready within ${timeout} ms.`);
+      }
+    }
+    return { data: env.place.dataDir };
+  }
 
   async #undo(data: { run: RunInfo; fn: string; kind: string; fnPayload?: Json | undefined; payload: Json }): Promise<UndoOutcome> {
     const { table, env } = this.#parts;

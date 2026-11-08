@@ -263,11 +263,13 @@ describe('running fns', () => {
     expect(hub.progress).toContainEqual(expect.objectContaining({ progress: { fraction: 0.5, message: 'half' } }));
   });
 
-  it('refuses args that do not fit, as a caller error the LLM can fix', async () => {
+  it('refuses args that do not fit as invalid input, with the problems by path, without running the fn', async () => {
     const hub = new FakeHub({ config: { folder: '/n' } });
     await start(hub);
     const outcome = await hub.run('notes/echo', { text: 3 });
-    expect(outcome).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'bad-value' } });
+    expect(outcome).toMatchObject({ status: 'invalid-input', invalid: { source: 'schema' } });
+    expect(outcome.status === 'invalid-input' ? outcome.invalid.problems.map((p) => p.path) : []).toContain('text');
+    expect(hub.progress).toEqual([]);
   });
 
   it('reports a result that does not fit its declared type as fatal, and a thrown error as fatal', async () => {

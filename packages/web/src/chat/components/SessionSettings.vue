@@ -1,14 +1,20 @@
 <script setup lang="ts">
 /**
- * A chat's settings: who answers and with which model (the agent's own choice, or one model for this chat), how urgent its turns are (its priority, as the hub resolved it), how you hear
+ * A chat's settings: who answers and with which model, how its prompt is made (the chat mode and the contextor,
+ * each the agent's or this chat's own, and a dry run of what a message would get), (the agent's own choice, or one model for this chat), how urgent its turns are (its priority, as the hub resolved it), how you hear
  * about it (every message, replies to you, nothing), which systems it uses (each with its status, names, switches
  * and badges in fixed columns), and who is in it. Changes save as they are made.
  */
-import { PRIORITIES, type ChatCapabilities, type NotifyChoice, type Priority, type QualifiedName, type Session, type SystemName } from '@harness/core';
+import {
+  PRIORITIES, type ChatCapabilities, type ChatModeConfig, type ContextorConfig, type NotifyChoice, type Priority, type QualifiedName, type SelectionReport, type Session, type SystemName,
+} from '@harness/core';
 import { computed } from 'vue';
 import { UiBadge, UiButton, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { humanize } from '../logic/labels.ts';
 import { agentOptions, modelLabel } from '../logic/session.ts';
+import { CONTEXTOR_CHOICES, contextorFrom, defaultContextor, defaultMode, MODE_CHOICES, modeFrom } from '../logic/modes.ts';
+import ChatModeSettings from './ChatModeSettings.vue';
+import SelectionPreview from './SelectionPreview.vue';
 import SessionPeople from './SessionPeople.vue';
 
 const props = withDefaults(defineProps<{
@@ -24,11 +30,20 @@ const props = withDefaults(defineProps<{
   priority?: Priority | undefined;
   /** A person's or agent's name. */
   nameOf: (actor: Session['participants'][number]) => string;
-}>(), { priority: undefined, agents: () => [], models: () => [] });
+  /** The dry run of this chat's contextor for a message, once one was asked for. */
+  preview?: { readonly report: SelectionReport | undefined; readonly loading: boolean; readonly problem: string };
+  /** A change of the session is on its way to the hub. */
+  saving?: boolean;
+}>(), { priority: undefined, agents: () => [], models: () => [], preview: () => ({ report: undefined, loading: false, problem: '' }), saving: false });
 const emit = defineEmits<{
   notify: [choice: NotifyChoice]; systems: [systems: SystemName[] | 'all']; priority: [priority: Priority]; agent: [fn: QualifiedName];
   /** The person wants to change the model: the chat opens the model picker. */
   pickModel: [];
+  /** This chat's chat mode or contextor; `null` goes back to the agent's. */
+  mode: [mode: ChatModeConfig | null];
+  contextor: [contextor: ContextorConfig | null];
+  /** Ask what a message would get from the contextor now. */
+  preview: [text: string];
 }>();
 
 const agentChoices = computed<SelectOption<QualifiedName>[]>(() => agentOptions(props.agents, props.session.agent).map((a) => ({ value: a.fn, label: a.name })));
@@ -64,6 +79,24 @@ function toggle(name: SystemName, on: boolean): void {
         <UiButton size="sm" icon="cpu" data-testid="change-model" @click="emit('pickModel')">Change</UiButton>
       </div>
       <p class="dim">The agent answers with this model here. Budgets and an admin's rules still apply.</p>
+    </section>
+    <section class="section" data-testid="session-prompt">
+      <h3 class="heading">Chat mode</h3>
+      <ChatModeSettings
+        label="Chat mode" :value="session.mode" :choices="MODE_CHOICES" :defaults="defaultMode" :read="modeFrom" :busy="saving" testid="session-mode"
+        @change="emit('mode', $event)"
+      />
+    </section>
+    <section class="section">
+      <h3 class="heading">Context</h3>
+      <ChatModeSettings
+        label="Contextor" :value="session.contextor" :choices="CONTEXTOR_CHOICES" :defaults="defaultContextor" :read="contextorFrom" :busy="saving" testid="session-contextor"
+        @change="emit('contextor', $event)"
+      />
+      <details class="try" data-testid="preview-details">
+        <summary>What would a message get?</summary>
+        <SelectionPreview :report="preview.report" :loading="preview.loading" :problem="preview.problem" @preview="emit('preview', $event)" />
+      </details>
     </section>
     <section v-if="priority" class="section">
       <h3 class="heading">Priority</h3>
@@ -104,4 +137,7 @@ function toggle(name: SystemName, on: boolean): void {
 .system { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); min-height: 40px; }
 .system-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fill { width: 100%; }
+.try { display: grid; gap: var(--space-3); }
+.try > summary { color: var(--accent); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer; }
+.try[open] > summary { margin-bottom: var(--space-3); }
 </style>

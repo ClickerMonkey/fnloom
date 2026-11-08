@@ -19,11 +19,25 @@ export function isSuperseded(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-/** One sentence for a failed call. A declared error's `reason` wins over the status's default. */
+/** The refusals whose message the hub writes for people (`reject(403, 'NOT_A_MEMORY', '… only memories can be forgotten')`). */
+const SAYS_WHY = new Set([403, 404, 409]);
+
+/** A message as a sentence: a plain first word capitalised (a name such as `fs/guide` kept as it is), a full stop at the end. */
+function sentence(message: string): string {
+  const text = message.trim();
+  const capital = /^[a-z]+(\s|$)/.test(text) ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
+  return /[.!?]$/.test(capital) ? capital : `${capital}.`;
+}
+
+/**
+ * One sentence for a failed call. A declared error's `reason` wins over the status's default, and so does the hub's
+ * own message on a refusal (403, 404, 409) that has one besides its code.
+ */
 export function problemText(error: unknown, fallback = 'Something went wrong. Try again.'): string {
   if (error instanceof ApiError) {
     const reason = z.object({ reason: z.string() }).safeParse(error.data);
     if (reason.success) { return reason.data.reason; }
+    if (SAYS_WHY.has(error.status) && error.message.trim() !== '' && error.message !== error.code) { return sentence(error.message); }
     return BY_STATUS[error.status] ?? (error.status >= 500 ? 'The hub had a problem. Try again in a moment.' : fallback);
   }
   if (isSuperseded(error)) { return 'Cancelled.'; }

@@ -1,20 +1,21 @@
 /**
- * Resource routing. Systems that serve resources offer roots (folders at absolute URIs); a URI belongs to the
- * connected system whose root holds it, the longest root winning. Reads, lists and sections go to that system over
+ * Resource routing. Instances that serve resources offer roots (folders at absolute URIs); a URI belongs to the
+ * connected instance whose root holds it, the longest root winning (in a fleet each instance's URIs carry its name as
+ * their authority, `file://laptop/…`, so its roots are its own). Reads, lists and sections go to that instance over
  * its link. Large text comes back as a content ref, fetched in chunks of the link's largest chunk.
- * Roots are asked for on connect, when its contract arrives and after it applies a config. Changes a system
+ * Roots are asked for on connect, when its contract arrives and after it applies a config. Changes an instance
  * reports are kept only for URIs under its own roots and announced on the bus as `resources.changed`.
  */
 import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  splitName, type ContentRef, type Page, type QualifiedName, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceRoot, type ResourceStat,
-  type ResourceUri, type Section, type SystemName,
+  SystemName, instanceLabel, splitName, type ContentRef, type InstanceName, type InstanceRef, type Page, type QualifiedName, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceStat,
+  type ResourceUri, type Section,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
-import type { LinkService, ResourceRouter, SystemConnection } from './index.ts';
+import type { LinkService, ResourceRouter, RoutedRoot, SystemConnection } from './index.ts';
 
 /** What the router needs. */
 export interface ResourceRouterOptions {
@@ -34,18 +35,19 @@ export function underRoot(uri: string, root: string): boolean {
 /** Routes resource calls to the systems that serve them. */
 export class PeerResourceRouter implements ResourceRouter {
   readonly #options: ResourceRouterOptions;
-  readonly #roots = new Map<SystemName, ResourceRoot[]>();
-  /** The roots each connected system was asked to watch. */
-  readonly #watched = new Map<SystemName, Set<string>>();
-  /** Each system's latest refresh, so an older answer that arrives late doesn't replace a newer one. */
-  readonly #asked = new Map<SystemName, number>();
+  /** Each connected instance's roots, by `system@instance`. */
+  readonly #roots = new Map<string, RoutedRoot[]>();
+  /** The roots each connected instance was asked to watch. */
+  readonly #watched = new Map<string, Set<string>>();
+  /** Each instance's latest refresh, so an older answer that arrives late doesn't replace a newer one. */
+  readonly #asked = new Map<string, number>();
 
   constructor(options: ResourceRouterOptions) {
     this.#options = options;
     options.links.onChange((change) => {
-      if (change.connected) { void this.refresh(change.system); return; }
-      this.#roots.delete(change.system);
-      this.#watched.delete(change.system);
+      if (change.connected) { void this.refresh(change.system, change.instance); return; }
+      this.#roots.delete(instanceLabel(change));
+      this.#watched.delete(instanceLabel(change));
     });
     // a system that connected before it was configured serves its roots once its config arrives
     options.bus.subscribe('system.status', ({ system, status }) => { if (status === 'connected') { void this.refresh(system); } });
@@ -53,41 +55,50 @@ export class PeerResourceRouter implements ResourceRouter {
     options.bus.subscribe('system.configured', ({ system }) => { void this.refresh(system); });
   }
 
-  roots(): ReadonlyArray<{ system: SystemName; root: ResourceRoot }> {
-    return [...this.#roots].flatMap(([system, roots]) => roots.map((root) => ({ system, root })));
+  roots(): readonly RoutedRoot[] {
+    return [...this.#roots.values()].flat();
   }
 
-  route(uri: ResourceUri): { system: SystemName; root: ResourceRoot } | undefined {
-    let best: { system: SystemName; root: ResourceRoot } | undefined;
+  route(uri: ResourceUri): RoutedRoot | undefined {
+    let best: RoutedRoot | undefined;
     for (const entry of this.roots()) {
       if (underRoot(uri, entry.root.uri) && (best === undefined || entry.root.uri.length > best.root.uri.length)) { best = entry; }
     }
     return best;
   }
 
-  async refresh(system: SystemName): Promise<void> {
-    const { links, catalog, log } = this.#options;
-    const connection = links.connection(system);
-    const manifest = await catalog.manifest(system);
+  async refresh(system: SystemName, instance?: InstanceName): Promise<void> {
+    const { links } = this.#options;
+    const connections = instance === undefined ? links.connections(system) : [links.connection(system, instance)];
+    if (instance !== undefined && connections[0] === undefined) { this.#roots.delete(instanceLabel({ system, instance })); }
+    await Promise.all(connections.map((connection) => (connection === undefined ? Promise.resolve() : this.#refreshOne(connection))));
+  }
+
+  /** Ask one instance for its roots and watch the new ones. */
+  async #refreshOne(connection: SystemConnection): Promise<void> {
+    const { catalog, log } = this.#options;
+    const ref: InstanceRef = { system: connection.system, instance: connection.instance };
+    const key = instanceLabel(ref);
+    const manifest = await catalog.manifest(ref.system);
     // before its first manifest nothing is known; importing the manifest refreshes again when it serves resources
-    if (connection === undefined || manifest?.resources !== true) { this.#roots.delete(system); return; }
-    const asked = (this.#asked.get(system) ?? 0) + 1;
-    this.#asked.set(system, asked);
+    if (manifest?.resources !== true) { this.#roots.delete(key); return; }
+    const asked = (this.#asked.get(key) ?? 0) + 1;
+    this.#asked.set(key, asked);
     try {
       const roots = await connection.peer.call('roots');
-      if (this.#asked.get(system) !== asked) { return; }
-      this.#roots.set(system, roots);
-      const watched = this.#watched.get(system) ?? new Set<string>();
-      this.#watched.set(system, watched);
+      if (this.#asked.get(key) !== asked) { return; }
+      this.#roots.set(key, roots.map((root) => ({ ...ref, root })));
+      const watched = this.#watched.get(key) ?? new Set<string>();
+      this.#watched.set(key, watched);
       const fresh = roots.filter((root) => root.watch && !watched.has(root.uri)).map((root) => root.uri);
       for (const uri of fresh) { watched.add(uri); }
       if (fresh.length > 0) { await connection.peer.call('watch', { uris: fresh, on: true }); }
-      log.info('resources.roots', { system, roots: roots.length });
-      this.#options.bus.publish('resources.roots', { system, roots });
+      log.info('resources.roots', { system: ref.system, instance: ref.instance, roots: roots.length });
+      this.#options.bus.publish('resources.roots', { system: ref.system, roots });
     } catch (error) {
-      if (this.#asked.get(system) !== asked) { return; }
-      this.#roots.delete(system);
-      log.warn('resources.roots.failed', { system, error: messageOf(error) });
+      if (this.#asked.get(key) !== asked) { return; }
+      this.#roots.delete(key);
+      log.warn('resources.roots.failed', { system: ref.system, instance: ref.instance, error: messageOf(error) });
     }
   }
 
@@ -113,22 +124,27 @@ export class PeerResourceRouter implements ResourceRouter {
   }
 
   async sections(sectioner: QualifiedName, uri: ResourceUri, version: string): Promise<Section[]> {
-    const { system, local } = splitName(sectioner);
-    const connection = this.#options.links.connected().find((c) => c.system === system);
+    const { local } = splitName(sectioner);
+    const system = SystemName.parse(splitName(sectioner).system);
+    const route = this.route(uri);
+    const connection = this.#options.links.connection(system, route?.system === system ? route.instance : undefined);
     if (connection === undefined) { throw refuse(503, 'SECTIONER_AWAY', `${system} is not connected, so ${sectioner} can't cut ${uri}`); }
     return connection.peer.call('sections', { sectioner: local, uri, version });
   }
 
-  changed(system: SystemName, changes: readonly ResourceChange[]): void {
-    const own = changes.filter((change) => this.route(change.uri)?.system === system);
-    if (own.length < changes.length) { this.#options.log.warn('resources.changed.foreign', { system, ignored: changes.length - own.length }); }
-    if (own.length > 0) { this.#options.bus.publish('resources.changed', { system, changes: own }); }
+  changed(link: InstanceRef, changes: readonly ResourceChange[]): void {
+    const own = changes.filter((change) => {
+      const route = this.route(change.uri);
+      return route?.system === link.system && route.instance === link.instance;
+    });
+    if (own.length < changes.length) { this.#options.log.warn('resources.changed.foreign', { system: link.system, instance: link.instance, ignored: changes.length - own.length }); }
+    if (own.length > 0) { this.#options.bus.publish('resources.changed', { system: link.system, changes: own }); }
   }
 
-  /** The connection of the system serving a URI, or a 404. */
+  /** The connection of the instance serving a URI, or a 404. */
   #serving(uri: ResourceUri): SystemConnection {
     const route = this.route(uri);
-    const connection = route === undefined ? undefined : this.#options.links.connection(route.system);
+    const connection = route === undefined ? undefined : this.#options.links.connection(route.system, route.instance);
     if (connection === undefined) { throw refuse(404, 'NO_RESOURCE', `no connected system serves ${uri}`); }
     return connection;
   }

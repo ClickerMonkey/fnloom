@@ -9,10 +9,12 @@ import {
 } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { fakeCaller } from '../../test/fakes.ts';
-import { llmCall, run, T0 } from '../../chat/test/fakes.ts';
+import { fakeSender, llmCall, run, T0 } from '../../chat/test/fakes.ts';
+import type { McpProbe, ProbeResult } from '../probe.ts';
 import type { SystemLogEvents } from '../api.ts';
 import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView } from '@harness/core';
 import { AdminStore } from '../state/admin.ts';
+import { fakeBuild2Api } from './build2.ts';
 
 export { T0 };
 
@@ -32,14 +34,14 @@ export function systemView(overrides: Loose<SystemView> = {}): SystemView {
     name: 'fs', description: 'Files, folders and a shell on this computer.', status: 'connected', enabled: { functions: true, renderers: true },
     config: { value: { roots: [{ path: '/work', name: 'work', writable: true }] }, version: 2, setBy: 'act_ada', setAt: T0 - 3_600_000 },
     keyFingerprint: 'SHA256:9f2c41a0b7', version: '0.4.0', manifestHash: 'a1b2c3d4', pairedAt: T0 - 86_400_000, pairedBy: 'act_ada', lastSeenAt: T0 - 5_000,
-    address: '127.0.0.1', actor: 'act_fs', fns: 12, needsConfig: false, configType: FS_CONFIG, ...overrides,
+    address: '127.0.0.1', actor: 'act_fs', fns: 12, needsConfig: false, configType: FS_CONFIG, instances: [], ...overrides,
   });
 }
 
 /** An installed system's record part. */
 export function installed(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    name: 'fs', source: { package: '@harness/system-fs', version: '0.4.0' }, dir: 'systems/fs', command: { run: 'node', args: ['server.js'], env: {} },
+    name: 'fs', instance: 'main', source: { package: '@harness/system-fs', version: '0.4.0' }, dir: 'systems/fs', command: { run: 'node', args: ['server.js'], env: {} },
     version: '0.4.0', goodVersion: '0.4.0', autoStart: true, restart: { policy: 'on-failure', backoff: 1_000, maxPerHour: 5 }, status: 'running', pid: 4242,
     installedBy: 'act_ada', installedAt: T0 - 86_400_000, ...overrides,
   };
@@ -173,6 +175,8 @@ export function fakeAdminApi() {
     runs: fakeCaller<'runs'>(() => Promise.resolve({ items: [run({ id: 'run_a' }), run({ id: 'run_b', status: 'failed' })] })),
     llmCalls: fakeCaller<'llmCalls'>(() => Promise.resolve({ items: [llmSummary({ id: 'llm_a' })] })),
     resources: fakeCaller<'resources'>(() => Promise.resolve({ items: [resourceRecord()] })),
+    pairing: fakeCaller<'pairing'>(({ pairing: id }) => Promise.resolve(pairing({ id, description: 'Files on Phil’s laptop', instance: 'laptop', configType: FS_CONFIG }))),
+    ...fakeBuild2Api(),
   };
 }
 
@@ -193,6 +197,19 @@ function channel<E>(): { subscribe: (listener: (event: E) => void) => () => void
   };
 }
 
+/** A probe that finds two tools, or refuses a secret that isn't `hmcp_good`; it keeps what it was asked. */
+export function fakeProbe(): McpProbe & { readonly asked: { url: string; secret: string }[] } {
+  const asked: { url: string; secret: string }[] = [];
+  return {
+    asked,
+    tools: (url, secret) => {
+      asked.push({ url, secret });
+      const found: ProbeResult = { server: { name: 'harness', version: '0.0.0' }, tools: [{ name: 'fs_read', description: 'Read a file' }, { name: 'fs_search', description: 'Search the files' }] };
+      return secret.startsWith('hmcp_') ? Promise.resolve(found) : Promise.reject(new Error('The MCP refused that secret.'));
+    },
+  };
+}
+
 /** The admin store on fakes, with its channels. */
 export function fakeAdmin(options: { api?: FakeAdminApi } = {}) {
   const api = options.api ?? fakeAdminApi();
@@ -206,6 +223,8 @@ export function fakeAdmin(options: { api?: FakeAdminApi } = {}) {
   const user = channel<UserEvent>();
   const logs = channel<{ system: SystemName; line: OutputLine }>();
   const systemLogs: SystemLogEvents = (system, listener) => logs.subscribe((event) => { if (event.system === system) { listener(event.line); } });
-  const admin = new AdminStore({ api, chat: chatApi, userEvents: user.subscribe, systemLogs });
-  return { admin, api, chatApi, user, logs };
+  const sender = fakeSender();
+  const probe = fakeProbe();
+  const admin = new AdminStore({ api, chat: chatApi, userEvents: user.subscribe, systemLogs, sender, probe });
+  return { admin, api, chatApi, user, logs, sender, probe };
 }

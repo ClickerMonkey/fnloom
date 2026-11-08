@@ -228,10 +228,11 @@ export type ProviderField = Exclude<KeysOfUnion<ProviderInput>, 'provider'>;
 export const PROVIDER_FIELDS = {
   apiKey: { label: 'API key', secret: true },
   baseURL: { label: 'Base URL', secret: false },
+  contextWindow: { label: 'Context window (tokens)', secret: false },
 } as const satisfies Record<ProviderField, { readonly label: string; readonly secret: boolean }>;
 
 /** Every provider kind's name. */
-export const PROVIDER_NAME = { openai: 'OpenAI', openrouter: 'OpenRouter' } as const satisfies Record<ProviderKindInput, string>;
+export const PROVIDER_NAME = { openai: 'OpenAI', openrouter: 'OpenRouter', ollama: 'Ollama' } as const satisfies Record<ProviderKindInput, string>;
 
 const isProviderField = (key: string): key is ProviderField => key in PROVIDER_FIELDS;
 
@@ -287,7 +288,7 @@ export function installFields(kind: InstallKind): readonly InstallField[] {
 }
 
 /** Every install field, so a field added to `InstallSource` breaks this until it is named. */
-const INSTALL_FIELD_NAMES = { package: true, version: true, path: true, git: true, ref: true } as const satisfies Record<InstallField, true>;
+const INSTALL_FIELD_NAMES = { package: true, version: true, path: true, git: true, ref: true, zip: true, file: true } as const satisfies Record<InstallField, true>;
 const isInstallField = (key: string): key is InstallField => Object.hasOwn(INSTALL_FIELD_NAMES, key);
 
 /** An install draft to the `source` `installSystem` takes. Every field of a source is needed, so none may be blank. */

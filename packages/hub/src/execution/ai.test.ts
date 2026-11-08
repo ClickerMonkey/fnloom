@@ -1,16 +1,18 @@
 import type { Request, Response } from '@aeye/core';
+import type { EmbeddingRequest, EmbeddingResponse, SpeechRequest, SpeechResponse, TranscriptionRequest } from '@aeye/ai';
 import { limiter } from '@ayepi/rate';
 import { WorkDelayError } from '@ayepi/work';
 import { BudgetId, ModelCategoryId, RunId, SystemName, TurnId, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { RecordingBus, testStore, memoryLog } from '../testing.ts';
-import { HubAiHooks } from './ai.ts';
+import { HUB_PURPOSE, HubAiHooks } from './ai.ts';
+import { StoreModelCallLog } from '../metrics/calls.ts';
 import { BudgetRefused, causeOf, LlmRateLimited } from './errors.ts';
 import { InteractionRecorder } from './interactions.ts';
 import { HubLedger } from './ledger.ts';
 import { ModelResolver } from './models.ts';
 import { transientDelay } from './queues.ts';
-import { LlmCallScope } from './scope.ts';
+import { CallReceipts, LlmCallScope } from './scope.ts';
 import { LedgerSpend } from './spend.ts';
 import { openRouterProviders } from './providers.ts';
 import { ALICE, ALICE_INFO, executionRig, OPEN_LIMITS, testSettings } from './testing.ts';
@@ -38,19 +40,71 @@ async function seeded(turnCost = 1) {
   await store.table('runs').insert(run);
   const ledger = new HubLedger(base, new LedgerSpend(store));
   const added: number[] = [];
+  const tokens: number[] = [];
+  const calls = new StoreModelCallLog({ store, clock: base.clock, log, random: base.random });
   const scope = new LlmCallScope({ run: RUN, turn: turn.id, fn: run.fn, actor: ALICE, iteration: 2, priority: 'interactive', limits, queuedAt: 500 });
   const hooks = (limit = 10) => new HubAiHooks({
-    ...base, ledger, recorder: new InteractionRecorder(base), costs: { addCost: (_run, cost) => { added.push(cost); return Promise.resolve(); } },
+    ...base, ledger, recorder: new InteractionRecorder(base), calls,
+    costs: { addCost: (_run, cost) => { added.push(cost); return Promise.resolve(); }, addTokens: (_run, used) => { tokens.push(used); return Promise.resolve(); } },
     modelLimit: limiter({ limit, window: 60_000 }),
   });
-  return { store, ledger, scope, hooks, added };
+  return { store, ledger, scope, hooks, added, tokens };
 }
 
 describe('the hub AI hooks', () => {
-  it('do nothing for calls outside a scope', async () => {
+  it('record a call outside a scope as the hub’s own work, with no budget or interaction', async () => {
+    const { hooks, store } = await seeded();
+    const h = hooks();
+    const ctx = { purpose: 'index' };
+    const request: EmbeddingRequest = { texts: ['a', 'bcd'] };
+    const response: EmbeddingResponse = { embeddings: [{ embedding: [1, 2, 3], index: 0 }, { embedding: [4, 5, 6], index: 1 }], model: 'embed-1' };
+    await h.before(ctx, request, { id: 'embed-1', provider: 'openai' }, 1);
+    await h.after(ctx, response, true, false, { text: { input: 4 } }, 0.0001);
+    expect(await store.table('llmInteractions').count()).toBe(0);
+    expect(await store.table('reservations').count()).toBe(0);
+    expect((await store.table('modelCalls').find({ limit: 5 })).items).toMatchObject([{
+      modality: 'embed', model: 'embed-1', provider: 'openai', purpose: 'index', status: 'done', cost: 0.0001,
+      units: { modality: 'embed', texts: 2, characters: 4, tokens: 4, dimensions: 3 }, sent: 4, received: 48,
+    }]);
+  });
+
+  it('name a call no one gave a purpose the hub’s', async () => {
     const { hooks, store } = await seeded();
     await hooks().before({}, emptyRequest, { id: 'm', provider: 'p' }, 1);
-    expect(await store.table('llmInteractions').count()).toBe(0);
+    expect((await store.table('modelCalls').find({ limit: 5 })).items).toMatchObject([{ modality: 'chat', purpose: HUB_PURPOSE, status: 'running' }]);
+  });
+
+  it('point a chat call’s model call, interaction and ledger line at each other, and add its tokens to the run', async () => {
+    const { hooks, store, scope, tokens } = await seeded();
+    const h = hooks();
+    const receipts = new CallReceipts();
+    const ctx = { call: scope, receipts };
+    await h.before(ctx, hiRequest, { id: 'm1', provider: 'openrouter' }, 0.01);
+    await h.after(ctx, reply('hello', 'm1'), true, false, { text: { input: 3, output: 2 } }, 0.004);
+    const call = (await store.table('modelCalls').find({ limit: 5 })).items[0];
+    const interaction = (await store.table('llmInteractions').find({ limit: 5 })).items[0];
+    expect(call).toMatchObject({ modality: 'chat', run: RUN, fn: 'tools/helper', interaction: interaction?.id, units: { input: 3, output: 2 }, cost: 0.004, queued: 500 });
+    expect(interaction?.modelCall).toBe(call?.id);
+    expect((await store.table('ledger').find({ limit: 5 })).items[0]?.modelCall).toBe(call?.id);
+    expect(scope.last?.modelCall).toBe(call?.id);
+    expect(receipts.last).toEqual({ modelCall: call?.id, model: 'm1', cost: 0.004 });
+    expect(tokens).toEqual([5]);
+  });
+
+  it('close a failed or stopped call’s record with why', async () => {
+    const { hooks, store, scope } = await seeded();
+    const h = hooks();
+    const a = { call: scope };
+    const heard: TranscriptionRequest = { audio: new Uint8Array(10) };
+    const said: SpeechRequest = { text: 'hi there' };
+    const spoken: SpeechResponse = { audio: new ReadableStream(), model: 'tts-1' };
+    await h.before(a, heard, { id: 'whisper-1', provider: 'openai' }, 0);
+    await h.failed(a, new Error('no hearing'));
+    const b = { call: scope };
+    await h.before(b, said, { id: 'tts-1', provider: 'openai' }, 0);
+    await h.after(b, spoken, false, true, {}, 0);
+    const rows = (await store.table('modelCalls').find({ order: [['startedAt', 'asc']], limit: 5 })).items;
+    expect(rows.map((r) => [r.modality, r.status, r.error])).toEqual([['transcribe', 'failed', 'no hearing'], ['speech', 'aborted', 'stopped by its caller']]);
   });
 
   it('reserve, save the interaction as streaming, then settle it with the real cost', async () => {

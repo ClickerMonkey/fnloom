@@ -1,0 +1,24 @@
+{
+  "name": "@harness/cli",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The harness CLI: make, build, pack and install systems, export their data, and bridge a hub MCP to stdio.",
+  "bin": {
+    "harness": "./src/main.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./hub-client": "./src/hub-client.ts"
+  },
+  "dependencies": {
+    "@ayepi/core": "file:../../../ayepi/packages/core",
+    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
+    "@harness/core": "*",
+    "@harness/hub": "*",
+    "@harness/sdk": "*",
+    "vite": "^8.3.6",
+    "zod": "^4.6.7"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "name": "notes",
+  "version": "0.1.0",
+  "description": "Notes: write, find and tidy titled notes with tags.",
+  "protocol": 1,
+  "server": {
+    "entry": "server/main.ts",
+    "external": {}
+  },
+  "client": {
+    "entry": "client/index.ts"
+  },
+  "instances": "one"
+}

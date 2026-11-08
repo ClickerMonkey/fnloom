@@ -10,6 +10,8 @@ import type { ConnectionStore } from './connection.ts';
 import type { InboxStore } from './inbox.ts';
 import type { LayoutStore } from './layout.ts';
 import type { PushStore } from './push.ts';
+import type { ResourcesStore } from '../resources/state/resources.ts';
+import type { ContextStore } from '../context/state/context.ts';
 import type { SessionStore } from './session.ts';
 import type { ThemeStore } from './theme.ts';
 import type { Toasts } from './toasts.ts';
@@ -31,6 +33,10 @@ export interface Stores {
   readonly signInForm: () => SignInForm;
   /** Web push on this device. */
   readonly push: PushStore;
+  /** The resource browser and the resource viewers. */
+  readonly resources: ResourcesStore;
+  /** Every context item, one item with its links, memory and links drawn by people. */
+  readonly context: ContextStore;
 }
 
 export const STORES: InjectionKey<Stores> = Symbol('stores');

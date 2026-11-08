@@ -61,6 +61,16 @@ describe('importing a manifest', () => {
     expect((await catalog.context(q('shop/guide')))?.mentions).toEqual({ fns: ['shop/get'], context: ['shop/guide'] });
   });
 
+  it('writes a context item\'s graph edges and sizes with it, and removes the edges with it', async () => {
+    const { catalog, store } = await setup();
+    await catalog.importManifest(shopManifest);
+    const edges = await store.table('contextLinks').find({ where: { from: q('shop/guide') }, limit: 10 });
+    expect(edges.items.map((e) => [e.relation, e.toKey, e.source])).toEqual([['mentions', 'fn:shop/get', 'mentioned']]);
+    expect((await catalog.context(q('shop/guide')))?.tokens?.full).toBeGreaterThan(0);
+    await catalog.importManifest({ ...shopManifest, context: [] });
+    expect((await store.table('contextLinks').find({ where: { from: q('shop/guide') }, limit: 10 })).items).toEqual([]);
+  });
+
   it('changes nothing when the same manifest comes again', async () => {
     const { catalog } = await setup();
     await catalog.importManifest(shopManifest);

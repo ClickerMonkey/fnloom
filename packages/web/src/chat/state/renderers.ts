@@ -8,9 +8,9 @@
  * A build that fails to load is marked failed, and its fns fall back to the default card.
  */
 import {
-  QualifiedName, SystemName, type ChatCapabilities, type DeliveryId, type Json, type MentionHover, type MessagePart, type ResourceRead,
+  QualifiedName, SystemName, type ChatCapabilities, type DeliveryId, type Json, type MentionHover, type MessagePart,
 } from '@harness/core';
-import type { AnyViews, InputMount } from '@harness/sdk';
+import type { InputMount } from '@harness/sdk';
 import { ClientRuntime, type ClientBridge } from '@harness/sdk/client';
 import { shallowRef } from 'vue';
 import type { RenderView } from '../components/types.ts';
@@ -21,14 +21,6 @@ import type { ThreadStore } from './thread.ts';
 type AttachmentPart = Extract<MessagePart, { type: 'attachment' }>;
 /** A mention part of a message. */
 type MentionPart = Extract<MessagePart, { type: 'mention' }>;
-
-/**
- * A system's viewer for a resource, mounted with the resource's stat and its text (inline text only; bytes are not
- * fetched here). Undefined when no system registered a viewer for its format, so the default viewer draws it.
- */
-export function resourceRenderView(renderers: Pick<RendererHub, 'resourceView'>, read: ResourceRead | undefined): RenderView<'resource'> | undefined {
-  return read === undefined ? undefined : renderers.resourceView(read);
-}
 
 /** Where a system's client build is. */
 export type ClientStatus = 'loading' | 'ready' | 'failed';
@@ -130,20 +122,6 @@ export class RendererHub {
   mentionView(part: MentionPart, hover: MentionHover | undefined): RenderView<'mention'> | undefined {
     this.#track();
     return this.runtime.mentionView({ provider: part.provider, label: part.label, target: part.target, hover });
-  }
-
-  /** A system's viewer for a read resource's format, with its stat and inline text. */
-  resourceView(read: ResourceRead): RenderView<'resource'> | undefined {
-    this.#track();
-    const format = read.stat.format;
-    const component = format === undefined ? undefined : this.runtime.resourceViewer(format);
-    const system = format === undefined ? undefined : this.runtime.viewerSystem(format);
-    if (component === undefined || system === undefined) { return undefined; }
-    const text = read.text !== undefined && 'inline' in read.text ? read.text.inline : '';
-    const props: AnyViews['resource'] = {
-      stat: read.stat, text: () => Promise.resolve(text), bytes: () => Promise.resolve(new Uint8Array()), system: this.runtime.systemClient(system),
-    };
-    return { component, props };
   }
 
   /** Read the version, so a lookup inside a computed or render runs again when a build loads. */

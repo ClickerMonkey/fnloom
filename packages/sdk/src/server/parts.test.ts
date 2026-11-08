@@ -2,14 +2,14 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLogger, type LogRecord } from '@ayepi/log';
-import { LinkLimits, mintId, type OutcomeWire } from '@harness/core';
+import { InstanceName, LinkLimits, mintId, ResourceUri, type OutcomeWire } from '@harness/core';
 import { afterAll, describe, expect, it } from 'vitest';
 import { fn } from '../fn.ts';
 import { g } from '../gin.ts';
 import { system } from '../system.ts';
 import { readClientBundle, uploadClientBundle } from './assets.ts';
 import { HubContent, LocalContent, rawChunkSize } from './content.ts';
-import { fileUri, mimeOf, NodeFiles } from './files.ts';
+import { fileUri, mimeOf, NodeFiles, uriInstance } from './files.ts';
 import { FileJournal, MemoryJournal } from './journal.ts';
 import { contentHash, contentHasher } from './content.ts';
 import { FileKeyStore, MemoryKeyStore, verifyNonce } from './keys.ts';
@@ -242,6 +242,17 @@ describe('files', () => {
     await expect(files.list('a')).rejects.toThrow();
     expect(mimeOf('x.unknown')).toBe('application/octet-stream');
     expect(fileUri(join(base, 'x')).startsWith('file:///')).toBe(true);
+  });
+
+  it('names a fleet instance as the host of a file URI, and reads it back', () => {
+    const laptop = InstanceName.parse('laptop');
+    const uri = fileUri('/docs/a b.md', laptop);
+    expect(uri.startsWith('file://laptop/')).toBe(true);
+    expect(uri.endsWith('docs/a%20b.md')).toBe(true);
+    expect(uriInstance(uri)).toBe('laptop');
+    expect(uriInstance(fileUri('/docs/a.md'))).toBeUndefined();
+    expect(uriInstance(ResourceUri.parse('https://example.com/a'))).toBeUndefined();
+    expect(uriInstance(ResourceUri.parse('file://Not_A_Name/a'))).toBeUndefined();
   });
 });
 

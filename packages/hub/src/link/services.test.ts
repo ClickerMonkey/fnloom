@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ApiError } from '@ayepi/core';
-import { ActorId, ContentRef, IDS, QualifiedName, SessionId, SystemName, type DeliveryRecord, type Json, type LinkSession, type TypeRecord } from '@harness/core';
+import { ActorId, ContentRef, IDS, MAIN_INSTANCE, QualifiedName, SessionId, SystemName, type DeliveryRecord, type Json, type LinkSession, type TypeRecord } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeRun } from '../chat/testing.ts';
 import { openTestStore } from '../store/fixtures.ts';
@@ -8,8 +8,8 @@ import type { SqliteStore } from '../store/sqlite.ts';
 import { linkPayload } from '../testing.ts';
 import { ChunkedUploads, LinkServices, linkServiceHandlers, type LinkServiceDeps } from './services.ts';
 
-const FS: LinkSession = { system: SystemName.parse('fs'), instance: 'i1' };
-const SHOP: LinkSession = { system: SystemName.parse('shop'), instance: 'i2' };
+const FS: LinkSession = { system: SystemName.parse('fs'), instance: MAIN_INSTANCE, boot: 'i1' };
+const SHOP: LinkSession = { system: SystemName.parse('shop'), instance: MAIN_INSTANCE, boot: 'i2' };
 const ADA = ActorId.parse('act_ada');
 const RUN = IDS.run.parse('run_one');
 const ref = (hash: string, size: number): ContentRef => ContentRef.parse({ hash: hash.padEnd(64, '0'), size, mime: 'text/plain' });

@@ -13,12 +13,14 @@
 import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
-  ContentRef, Json, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
+  ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
+  type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
   type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
+import type { SystemPlace } from '../ctx.ts';
 import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
 import { MemoryJournal } from './journal.ts';
@@ -29,6 +31,12 @@ import type { ProcessControl } from './process.ts';
 
 /** What a system sent to a hub endpoint, as the hub parsed it. Derived from `hubLinkSpec`, so it can't drift. */
 export type HubBody<K extends keyof HubLinkSpec['endpoints']> = z.output<NonNullable<HubLinkSpec['endpoints'][K]['cfg']['body']>>;
+
+/**
+ * Where a fake context says its system keeps things: the `main` instance and folders nothing creates. A test that
+ * writes data makes its own temporary folder and spreads it over this.
+ */
+export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.harness-test/data', cacheDir: '.harness-test/cache' };
 
 /** The person fake runs are for. */
 export const TEST_USER: UserInfo = {
@@ -163,6 +171,8 @@ export interface FakeHubOptions {
   /** The welcome's start info. */
   start?: { first: boolean; upgradedFrom?: string };
   maxChunk?: number;
+  /** The instance name the welcome gives (an admin renamed it at approval); default: the one the system asked for. */
+  instance?: InstanceName;
 }
 
 /** A hub in memory for testing systems. */
@@ -172,7 +182,7 @@ export class FakeHub {
   readonly process = new FakeProcess();
 
   // ─── What systems sent ──────────────────────────────────────────────────────
-  readonly hellos: Array<{ name: string; instance: string; manifestHash: string; pairingToken?: string | undefined }> = [];
+  readonly hellos: Array<{ name: string; instance: InstanceName; boot: string; manifestHash: string; pairingToken?: string | undefined }> = [];
   readonly manifests: Manifest[] = [];
   readonly patches: ManifestPatch[] = [];
   readonly calls: Array<HubBody<'call'>> = [];
@@ -188,6 +198,10 @@ export class FakeHub {
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]> = [];
   readonly forwards: LlmForward[] = [];
   readonly embeds: string[][] = [];
+  /** Every non-chat model call forwarded (`model`). */
+  readonly models: ModelForward[] = [];
+  /** What waiting systems said for the pairing page (`pairingInfo`). */
+  readonly pairingInfos: PairingInfo[] = [];
 
   // ─── What the hub holds ─────────────────────────────────────────────────────
   /** Paired keys by system name. */
@@ -214,12 +228,17 @@ export class FakeHub {
   ]);
   /** Reads a resource for `ctx.resources` (the real hub routes to the system that serves it). Default: not found. */
   onResource: (read: HubBody<'resource'>) => Promise<ResourceRead> = () => Promise.reject(reject(404, 'NOT_FOUND', 'The fake hub serves no resources.'));
+  /**
+   * Answers a non-chat model call: embeddings by text length, images and speech as stored content, a fixed
+   * transcript. Each answer has a fresh `ModelCall` id and a small cost.
+   */
+  onModel: (forward: ModelForward) => Promise<ModelForwardResult> = (forward) => Promise.resolve(this.#modelAnswer(forward));
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }> = () => Promise.resolve({ accepted: true });
 
   readonly #options: FakeHubOptions;
   readonly #sessions = new WeakMap<WsConn, LinkSession>();
-  readonly #nonces = new WeakMap<WsConn, { name: string; nonce: string; publicKey: string; instance: string }>();
+  readonly #nonces = new WeakMap<WsConn, { name: string; nonce: string; publicKey: string; instance: InstanceName; boot: string }>();
   readonly #pending = new Map<string, { pairing: PairingId; conn: WsConn; publicKey: string }>();
   readonly #uploads = new Map<string, Uint8Array[]>();
   readonly #sockets: MemorySocket[] = [];
@@ -255,6 +274,8 @@ export class FakeHub {
       process: this.process,
       signals: false,
       logger: (sink) => systemLogger({ level: 'debug', json: false, sink, console: 'none' }),
+      // the place's folders are named but never made: a test that writes data makes its own
+      folders: () => Promise.resolve(),
       ...deps,
     });
   }
@@ -316,7 +337,7 @@ export class FakeHub {
       session: mintId('session'),
       user: TEST_USER,
       time: { now, timeZone: 'UTC', local: new Date(now).toISOString() },
-      system: { name: fn.slice(0, fn.indexOf('/')), instance: 'test' },
+      system: { name: fn.slice(0, fn.indexOf('/')), instance: MAIN_INSTANCE, boot: 'test' },
       caller: TEST_USER.id,
       attempt: 1,
       priority: 'interactive',
@@ -340,6 +361,11 @@ export class FakeHub {
     };
   }
 
+  /** Ask the connected system to get ready for a data export; resolves with where its data folder is. */
+  exportData(timeout = 1_000): Promise<{ data: string }> {
+    return this.peer().call('export', { timeout });
+  }
+
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra: Partial<Omit<RunRequest, 'fn' | 'args'>> = {}): Promise<OutcomeWire> {
     return this.peer().call('run', this.request(fn, args, extra));
@@ -353,6 +379,16 @@ export class FakeHub {
   }
 
   // ─── The hub's side of the link ─────────────────────────────────────────────
+
+  #modelAnswer(forward: ModelForward): ModelForwardResult {
+    const record = { call: mintId('modelCall'), cost: 0.001, model: `test/${forward.modality}` };
+    switch (forward.modality) {
+      case 'embed': return { modality: 'embed', vectors: forward.texts.map((t) => [t.length, 1]), ...record };
+      case 'image': return { modality: 'image', images: Array.from({ length: forward.count ?? 1 }, () => this.put(new Uint8Array([137, 80, 78, 71]), 'image/png')), ...record };
+      case 'transcribe': return { modality: 'transcribe', text: `heard ${forward.audio.size} bytes`, ...record };
+      case 'speech': return { modality: 'speech', audio: this.put(new TextEncoder().encode(forward.text), `audio/${forward.format ?? 'mp3'}`), ...record };
+    }
+  }
 
   #session(conn: WsConn | undefined): LinkSession {
     const session = conn === undefined ? undefined : this.#sessions.get(conn);
@@ -372,7 +408,7 @@ export class FakeHub {
       .handlers({
         hello: ({ data, conn }) => {
           if (conn === undefined) { throw reject(400, 'WS_ONLY', 'The link is WebSocket only.'); }
-          this.hellos.push({ name: data.name, instance: data.instance, manifestHash: data.manifestHash, pairingToken: data.pairingToken });
+          this.hellos.push({ name: data.name, instance: data.instance, boot: data.boot, manifestHash: data.manifestHash, pairingToken: data.pairingToken });
           const known = this.keys.get(data.name);
           if (known === undefined && this.#options.pairing === true && data.pairingToken === undefined) {
             const pairing = mintId('pairing');
@@ -381,7 +417,7 @@ export class FakeHub {
           }
           if (known !== undefined && known !== data.publicKey) { throw reject(403, 'KEY_MISMATCH', 'A different key is paired with this name.'); }
           const nonce = randomUUID();
-          this.#nonces.set(conn, { name: data.name, nonce, publicKey: data.publicKey, instance: data.instance });
+          this.#nonces.set(conn, { name: data.name, nonce, publicKey: data.publicKey, instance: data.instance, boot: data.boot });
           return { kind: 'challenge', nonce };
         },
         prove: ({ data, conn }) => {
@@ -390,12 +426,13 @@ export class FakeHub {
             throw reject(401, 'BAD_SIGNATURE', 'The signature does not match.');
           }
           this.keys.set(asked.name, asked.publicKey);
-          const session: LinkSession = { system: SystemName.parse(asked.name), instance: asked.instance };
+          const session: LinkSession = { system: SystemName.parse(asked.name), instance: asked.instance, boot: asked.boot };
           this.#sessions.set(conn, session);
           const manifest = this.manifests.at(-1);
           const sendManifest = manifest === undefined || manifest.hash !== this.hellos.at(-1)?.manifestHash;
           queueMicrotask(() => { this.#connected = { session, peer: this.systems.of(conn) }; });
           return {
+            instance: this.#options.instance ?? asked.instance,
             ...(this.#config === undefined ? {} : { config: this.#config }),
             start: this.#options.start ?? { first: this.manifests.length === 0 },
             token: 'test-token',
@@ -477,9 +514,11 @@ export class FakeHub {
           return { version: next.version };
         },
         log: ({ data }) => { this.logs.push(data); },
-        // build 2 endpoints the SDK lane fills in (the forwarding provider's other modalities, QR pairing)
-        model: () => { throw reject(501, 'NOT_IMPLEMENTED', 'The fake hub forwards no model calls yet.'); },
-        pairingInfo: () => { throw reject(501, 'NOT_IMPLEMENTED', 'The fake hub keeps no pairing info yet.'); },
+        model: async ({ data }) => {
+          this.models.push(data);
+          return this.onModel(data);
+        },
+        pairingInfo: ({ data }) => { this.pairingInfos.push(data); },
       });
   }
 }

@@ -5,7 +5,7 @@
  */
 import type { ActorId, Json } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import GinForm from '../../chat/forms/GinForm.vue';
+import GinForm from '../../gin/GinForm.vue';
 import { UiBanner, UiDialog, UiSelect, type SelectOption } from '../../ui/index.ts';
 import type { ActorOption } from '../state/actors.ts';
 import type { SettingEntry } from '../state/settings.ts';

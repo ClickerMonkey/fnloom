@@ -11,6 +11,9 @@
       "path": "packages/hub"
     },
     {
+      "path": "packages/cli"
+    },
+    {
       "path": "packages/web"
     },
     {
@@ -23,7 +26,13 @@
       "path": "systems/embedder"
     },
     {
+      "path": "systems/template"
+    },
+    {
       "path": "scripts"
+    },
+    {
+      "path": "scripts/docs/example"
     },
     {
       "path": "types"

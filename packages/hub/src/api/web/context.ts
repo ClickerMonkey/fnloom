@@ -1,22 +1,27 @@
 /**
  * The context slice (resources lane): every context item and its links both ways, memory written and forgotten, and
- * links drawn and removed by people, through `hub.resources.context` (`ContextLibrary`) and the contextor's
- * `ContextGraph`.
+ * links drawn and removed by people, through `hub.resources.context` (`ContextLibrary`, over the contextor's
+ * `ContextGraph`), as the signed-in person. A memory written here has no session, so it is for the person or everyone.
  */
 import { plugin } from '@ayepi/plugin';
 import { contextSlice } from '@harness/core';
-import { notBuilt, type FullHandlers } from './access.ts';
+import type { HubServices } from '../../boot/index.ts';
+import type { FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
 
 /** The context plugin. */
-export function contextPlugin(auth: ReturnType<typeof authPlugin>) {
+export function contextPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
   return plugin({ name: 'web.context', spec: contextSlice, requires: [auth] })
-    .handlers((): FullHandlers<typeof contextSlice> => ({
-      contexts: notBuilt('Listing context'),
-      contextItem: notBuilt('Context items'),
-      remember: notBuilt('Memory'),
-      forget: notBuilt('Forgetting memory'),
-      linkContext: notBuilt('Linking context'),
-      unlinkContext: notBuilt('Unlinking context'),
-    }));
+    .handlers((): FullHandlers<typeof contextSlice> => {
+      const { context } = hub.resources;
+      return {
+        contexts: ({ data, user }) => context.list(data, { actor: user.id }),
+        contextItem: ({ data, user }) => context.item(data.name, { actor: user.id }),
+        // the browser has no chat session, so a session memory (the schema's default) is the person's own
+        remember: ({ data, user }) => context.remember({ ...data, scope: data.scope === 'session' ? 'user' : data.scope }, { actor: user.id }),
+        forget: async ({ data, user }) => ({ ok: await context.forget(data.name, { actor: user.id }) }),
+        linkContext: ({ data, user }) => context.link(data, { actor: user.id }),
+        unlinkContext: async ({ data, user }) => ({ ok: await context.unlink(data, { actor: user.id }) }),
+      };
+    });
 }

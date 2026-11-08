@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The bar over the thread: the chats button (phones), the editable title, what the chat is doing, the people and
- * agents in it, and its tools: the last turn's run tree, Undo, settings and an overflow menu (rename, archive,
+ * agents in it, whether it is still catching up after a reconnect, and its tools: the last turn's run tree, Undo, settings and an overflow menu (rename, archive,
  * shortcuts). On a phone it stays one row: the less-used tools move into the overflow menu instead of shrinking.
  */
 import type { SessionStatus } from '@harness/core';
@@ -22,7 +22,9 @@ const props = withDefaults(defineProps<{
   waiting?: number;
   /** The app's own top bar is hidden (a phone): this header carries the navigation button. */
   nav?: boolean;
-}>(), { waiting: 0, nav: false });
+  /** What is shown may be behind (a reconnect's catch-up is still being retried). */
+  stale?: boolean;
+}>(), { waiting: 0, nav: false, stale: false });
 
 const emit = defineEmits<{ sessions: []; nav: []; rename: [title: string]; action: [action: HeaderAction] }>();
 const titleBox = ref<TitleHandle | null>(null);
@@ -56,6 +58,7 @@ function choose(action: HeaderAction): void {
       <UiBadge v-if="status === 'running'" tone="accent" live data-testid="session-status">Working</UiBadge>
       <UiBadge v-else-if="status === 'paused'" tone="warn" data-testid="session-status">Paused</UiBadge>
       <UiBadge v-if="waiting > 0" tone="warn" data-testid="needs-you">{{ waiting }} waiting</UiBadge>
+      <UiBadge v-if="stale" live data-testid="catching-up" title="Some updates may have been missed while offline; fetching them again.">Catching up…</UiBadge>
     </div>
     <div class="tools">
       <button v-if="!compact && people.length > 0" type="button" class="people" :aria-label="`${people.length} in this chat`" data-testid="participants" @click="emit('action', 'people')">

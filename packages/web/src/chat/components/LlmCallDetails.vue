@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * One LLM call, whole: model and provider, tokens, cost, time to first token and duration; what the model saw (the
- * system prompt, each message with the hub's tagged additions picked out, and the tools offered); what it answered
+ * system prompt, each message with the hub's tagged additions picked out, and the tools offered); what the contextor
+ * chose for it and how the window was split (the context inspector); what it answered
  * (text, reasoning, tool calls); and the raw JSON. Read-only and copyable.
  */
 import type { LlmInteraction } from '@harness/core';
@@ -10,6 +11,7 @@ import { UiBadge, UiCodeBlock, UiTabs, fullTime, type TabItem } from '../../ui/i
 import { formatCost, formatDuration, formatTokens } from '../logic/format.ts';
 import { humanize } from '../logic/labels.ts';
 import { messageContent, taggedBlocks, type LlmCallTab as Tab } from '../logic/inspect.ts';
+import SelectionReportView from './SelectionReportView.vue';
 
 const props = defineProps<{ call: LlmInteraction }>();
 
@@ -17,6 +19,8 @@ const props = defineProps<{ call: LlmInteraction }>();
 const tab = defineModel<Tab>('tab', { default: 'saw' });
 const tabs = computed<TabItem<Tab>[]>(() => [
   { value: 'saw', label: 'What it saw', count: props.call.request.messages.length },
+  // what the contextor chose and how the window was split, when the hub saved it
+  ...(props.call.selection === undefined ? [] : [{ value: 'context' as const, label: 'Context' }]),
   { value: 'tools', label: 'Tools', count: props.call.request.tools?.length ?? 0 },
   { value: 'answer', label: 'Answer' },
   { value: 'json', label: 'JSON' },
@@ -54,6 +58,7 @@ const json = computed(() => JSON.stringify(props.call, null, 2));
             <pre v-for="tool in m.toolCalls" :key="tool.id" class="tool-call">{{ tool.name }}({{ tool.arguments }})</pre>
           </li>
         </ol>
+        <div v-else-if="value === 'context' && call.selection" class="pane"><SelectionReportView :report="call.selection" /></div>
         <ul v-else-if="value === 'tools'" class="tools">
           <li v-for="tool in call.request.tools ?? []" :key="tool.name">
             <strong>{{ tool.name }}</strong>
@@ -94,6 +99,7 @@ dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .text, .tool-call { margin: 0; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow-y: auto; }
 .tool-call { color: var(--warn); }
 .reasoning { margin: 0; color: var(--text-dim); font-size: var(--text-sm); white-space: pre-wrap; }
+.pane { padding-top: var(--space-3); }
 .answer { display: grid; gap: var(--space-2); padding-top: var(--space-3); }
 .dim { margin: 0; color: var(--text-faint); font-size: var(--text-sm); }
 </style>

@@ -3,10 +3,11 @@
  * disagree, and checked against core's `Manifest` schema before it leaves.
  */
 import {
-  Json, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
-  type ActionDecl, type ClientAssets, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType, type TypeDecl,
+  DeclaredLink, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
+  type ActionDecl, type ClientAssets, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
+  type TypeDecl,
 } from '@harness/core';
-import type { AnyContextDef, AnyTypeDef } from './declare.ts';
+import type { AnyContextDef, AnyTypeDef, ContextLinkTarget } from './declare.ts';
 import { progressDecl, type AnyFnDef, type Handlers } from './fn.ts';
 import { encodeValue, referencesOf, wireType } from './gin.ts';
 import type { AnyContract, ContractShape } from './system.ts';
@@ -53,7 +54,20 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     limits: { ...def.limits },
     visibility: def.visibility,
     tags: [...def.tags],
+    ...(def.examples.length === 0 ? {} : {
+      examples: def.examples.map((example) => ({ args: encodeValue(def.args, example.args), ...(example.note === undefined ? {} : { note: example.note }) })),
+    }),
   };
+}
+
+/** What a context link points at, on the wire. */
+function linkTarget(to: ContextLinkTarget): LinkTarget {
+  if (!('ref' in to)) { return LinkTarget.parse({ kind: 'resource', uri: to.uri, ...(to.section === undefined ? {} : { section: to.section }) }); }
+  switch (to.ref) {
+    case 'context': return { kind: 'context', name: to.name };
+    case 'fn': return { kind: 'fn', name: to.name };
+    case 'type': return { kind: 'type', name: to.name };
+  }
 }
 
 function typeDecl(name: string, def: AnyTypeDef): TypeDecl {
@@ -81,6 +95,13 @@ function contextDecl(name: string, def: AnyContextDef): ContextDecl {
     visible: def.visible,
     alwaysFor: def.alwaysFor.map((f) => f.name),
     tags: [...def.tags],
+    ...(def.weight === undefined ? {} : { weight: def.weight }),
+    ...(def.summary === undefined ? {} : { summary: def.summary }),
+    ...(def.parent === undefined ? {} : { parent: def.parent.name }),
+    ...(def.next === undefined ? {} : { next: def.next.name }),
+    ...(def.links.length === 0 ? {} : {
+      links: def.links.map((link) => DeclaredLink.parse({ to: linkTarget(link.to), relation: link.relation, ...(link.weight === undefined ? {} : { weight: link.weight }) })),
+    }),
   };
 }
 
@@ -93,6 +114,8 @@ function referencedSystems(system: string, defs: ContractShape): string[] {
   }
   for (const def of Object.values(defs.context)) {
     for (const ref of [...def.imports, ...def.fns, ...def.suggestFns, ...def.alwaysFor]) { names.add(ref.name); }
+    for (const ref of [def.parent, def.next]) { if (ref !== undefined) { names.add(ref.name); } }
+    for (const link of def.links) { if ('ref' in link.to) { names.add(link.to.name); } }
   }
   for (const def of Object.values(defs.mentions)) {
     if (def.of !== undefined) { names.add(def.of.name); }

@@ -1,6 +1,7 @@
 /**
  * The admin pages' callers, made once from the one hub client: systems and pairing, providers and models, budgets and
- * priorities, policies, actors and their settings, and the runs, LLM calls and resources browsers. Stores receive
+ * priorities, policies, actors and their settings, the runs, LLM calls and resources browsers, model roles and limits,
+ * every model call, fn metrics, hub MCPs, and pairing pages, a fleet's instances, packages and data exports. Stores receive
  * only the callers they use (`Pick<AdminApi, …>`), so tests hand them fakes. Admin lists are read fresh (no cache):
  * an admin page should show what is true now. Live system output comes through `SystemLogEvents`.
  */
@@ -45,6 +46,36 @@ export function adminApi(hub: Hub) {
     runs: hub.caller('runs', { lastOnly: true }),
     llmCalls: hub.caller('llmCalls', { lastOnly: true }),
     resources: hub.caller('resources', { lastOnly: true }),
+    // model roles and limits
+    modelRoles: hub.caller('modelRoles', { dedupe: true }),
+    setModelRole: hub.caller('setModelRole'),
+    clearModelRole: hub.caller('clearModelRole'),
+    modelLimits: hub.caller('modelLimits', { dedupe: true }),
+    setModelLimits: hub.caller('setModelLimits'),
+    // every model call, and fn metrics
+    modelCalls: hub.caller('modelCalls', { lastOnly: true }),
+    modelCall: hub.caller('modelCall', { dedupe: true }),
+    fnMetrics: hub.caller('fnMetrics', { dedupe: true }),
+    fnMetricsDays: hub.caller('fnMetricsDays', { dedupe: true }),
+    // hub MCPs
+    mcps: hub.caller('mcps', { dedupe: true }),
+    mcp: hub.caller('mcp', { dedupe: true }),
+    createMcp: hub.caller('createMcp'),
+    updateMcp: hub.caller('updateMcp'),
+    rotateMcpSecret: hub.caller('rotateMcpSecret'),
+    deleteMcp: hub.caller('deleteMcp'),
+    /** The live preview of draft rules: only the latest draft's answer counts. */
+    previewMcp: hub.caller('previewMcp', { lastOnly: true }),
+    mcpSessions: hub.caller('mcpSessions', { dedupe: true }),
+    // pairing pages, fleets, packages and data
+    pairing: hub.caller('pairing', { dedupe: true }),
+    instances: hub.caller('instances', { dedupe: true }),
+    installPackage: hub.caller('installPackage'),
+    removeInstance: hub.caller('removeInstance'),
+    exportSystemData: hub.caller('exportSystemData'),
+    upload: hub.caller('upload'),
+    uploaded: hub.caller('uploaded'),
+    search: hub.caller('search', { lastOnly: true }),
   };
 }
 

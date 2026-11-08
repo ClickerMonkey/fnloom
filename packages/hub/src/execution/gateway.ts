@@ -4,17 +4,23 @@
  * priority, through the hub AI's hooks (rate limits, budget reservation and settlement, the saved interaction), and
  * against the model the hub picks. What streams back is the schema descriptors the provider chose (so the system's
  * aeye decodes strict-mode output with its own schemas), the chunks, and the real cost.
+ *
+ * The other modalities (embeddings, images, transcription, speech) go through the same AI as calls, for a system's
+ * run or the hub's own work, each answered with its `ModelCall` and cost (the models module's `ModelGateway` is the
+ * one caller: it picks the model and turns bytes into content refs).
  */
 import type { Request } from '@aeye/core';
 import { retry } from '@ayepi/core/retry';
-import { isSettled, type LlmForward, type LlmForwardChunk, type ModelInfo, type Run, type RunId, type TurnId, type Usd } from '@harness/core';
+import { isSettled, type LlmForward, type LlmForwardChunk, type ModelInfo, type Run, type RunId, type TurnId } from '@harness/core';
+import type { ModelSite } from '../models/index.ts';
 import { Channel } from './channel.ts';
 import { BudgetRefused, causeOf, LlmRateLimited, messageOf } from './errors.ts';
-import type { LlmGateway } from './index.ts';
+import type { LlmGateway, Recorded } from './index.ts';
+import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { ModelResolver } from './models.ts';
 import type { ExecutionDeps, LlmEngine } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
-import { LlmCallScope } from './scope.ts';
+import { CallReceipts, LlmCallScope, type HubCallContext } from './scope.ts';
 import { chunkToWire, descriptorsOf, requestFromWire } from './wire.ts';
 
 /** How many times a forwarded request waits out a rate limit before it gives up. */
@@ -100,24 +106,42 @@ export class HubLlmGateway implements LlmGateway {
     await task;
   }
 
-  async embed(texts: readonly string[], run?: RunId): Promise<{ vectors: number[][]; cost: Usd }> {
-    const scope = run === undefined ? undefined : await this.#scope(run, undefined);
-    if (typeof scope === 'string') throw new Error(scope);
-    return this.#deps.llm.embed(texts, scope);
+  embed(input: EmbedCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<number[][]>> {
+    return this.#call(site, signal, (ctx) => this.#deps.llm.embed(input, ctx, signal));
+  }
+
+  image(input: ImageCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<MadeImage[]>> {
+    return this.#call(site, signal, (ctx) => this.#deps.llm.image(input, ctx, signal));
+  }
+
+  transcribe(input: TranscribeCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Heard>> {
+    return this.#call(site, signal, (ctx) => this.#deps.llm.transcribe(input, ctx, signal));
+  }
+
+  speech(input: SpeechCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Spoken>> {
+    return this.#call(site, signal, (ctx) => this.#deps.llm.speech(input, ctx, signal));
   }
 
   models(): Promise<ModelInfo[]> {
     return Promise.resolve(this.#deps.llm.models());
   }
 
-  canTranscribe(): boolean {
-    return this.#deps.settings.model.HARNESS_TRANSCRIBE_MODEL !== '';
-  }
-
-  async transcribe(audio: Uint8Array): Promise<string> {
-    const model = this.#deps.settings.model.HARNESS_TRANSCRIBE_MODEL;
-    if (model === '') throw new Error('no transcription model is set (HARNESS_TRANSCRIBE_MODEL)');
-    return this.#deps.llm.transcribe(audio, model);
+  /**
+   * One non-chat call: paid by its run when it has one (refused when a system names a run that isn't its own, or none),
+   * on the LLM queue at the run's priority (the hub's own work waits as background), with its record read back.
+   */
+  async #call<T>(site: ModelSite, signal: AbortSignal, call: (ctx: HubCallContext) => Promise<T>): Promise<Recorded<T>> {
+    const system = 'system' in site ? site.system : undefined;
+    const scope = site.run === undefined ? undefined : await this.#scope(site.run, system);
+    if (typeof scope === 'string') throw new Error(scope);
+    if (system !== undefined && scope === undefined) throw new Error('Model calls from a system must be made inside a run.');
+    const receipts = new CallReceipts();
+    const ctx: HubCallContext = { receipts, ...(scope === undefined ? {} : { call: scope }), ...('purpose' in site ? { purpose: site.purpose } : {}) };
+    if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('stopped');
+    const value = await this.#deps.queues.llm(scope?.priority ?? 'background', () => call(ctx));
+    const last = receipts.last;
+    if (last === undefined) throw new Error('the call finished without being recorded');
+    return { value, call: last.modelCall, cost: receipts.cost, model: last.model };
   }
 
   /** The scope that pays for a call made inside a run (by its system, when one forwarded it); a reason when there is none. */

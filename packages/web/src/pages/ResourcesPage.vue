@@ -1,0 +1,310 @@
+<script setup lang="ts">
+/**
+ * The resource browser (`/resources`), every part of it in the URL: a list (sortable), a grid of thumbnails (three
+ * card sizes), or groups made by the hub by type, source, folder or date ("Show all" narrows to one); a folder tree
+ * beside them on wide screens; words, family and form filters; the folder trail; bulk select with the actions every
+ * selected resource allows; the uploader (files, a pasted image, a web address); and the opened resource in the
+ * viewer beside the list on roomy screens or in a sheet, with its mode, page and line in the URL too. Live: resource
+ * changes refresh what is shown.
+ */
+import { FormKind, ResourceUri, type FormatFamily, type QualifiedName, type ResourceRecord } from '@harness/core';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import AppPage from '../app/AppPage.vue';
+import { links } from '../app/routes.ts';
+import { toastContextMade } from '../context/made.ts';
+import ConfirmDialog from '../admin/components/ConfirmDialog.vue';
+import LoadState from '../admin/components/LoadState.vue';
+import PanelFrame from '../chat/components/PanelFrame.vue';
+import PanelHost from '../chat/components/PanelHost.vue';
+import { COMPACT_QUERY } from '../state/layout.ts';
+import { useStores } from '../state/stores.ts';
+import {
+  copyText, optionsOf, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, useMediaQuery, type SegmentOption, type SelectOption,
+} from '../ui/index.ts';
+import { useNow } from '../ui/now.ts';
+import ResourceViewer from '../resources/ResourceViewer.vue';
+import FolderTree from '../resources/browser/FolderTree.vue';
+import ResourceGrid from '../resources/browser/ResourceGrid.vue';
+import ResourceGroups from '../resources/browser/ResourceGroups.vue';
+import ResourceList from '../resources/browser/ResourceList.vue';
+import ResourceUploader from '../resources/browser/ResourceUploader.vue';
+import { bulkActions, isMake, madeBy, type ResourceAction } from '../resources/logic/actions.ts';
+import { crumbsOf, DEFAULTS, isFiltered, isHubResource, nameOf, sortRecords, type BrowserSort, type BrowserView, type CardSize } from '../resources/logic/browse.ts';
+import { FAMILY_LABEL, FORM_LABEL } from '../resources/logic/formats.ts';
+import { useBrowserUrl } from '../resources/state/url.ts';
+
+const { resources, toasts } = useStores();
+const router = useRouter();
+const browser = resources.browser;
+const url = useBrowserUrl();
+const query = url.query;
+const now = useNow();
+const roomy = useMediaQuery('(min-width: 1360px)');
+const wide = useMediaQuery('(min-width: 1100px)');
+const spacious = useMediaQuery('(min-width: 1720px)');
+const phone = useMediaQuery(COMPACT_QUERY);
+
+const VIEWS: readonly SegmentOption<BrowserView>[] = [{ value: 'list', label: 'List', icon: 'list' }, { value: 'grid', label: 'Grid', icon: 'grid' }, { value: 'groups', label: 'Groups', icon: 'layers' }];
+const GROUPS = [{ value: 'type', label: 'By type' }, { value: 'source', label: 'By source' }, { value: 'path', label: 'By folder' }, { value: 'date', label: 'By date' }] as const satisfies readonly SelectOption<string>[];
+const SIZES: readonly SegmentOption<CardSize>[] = [{ value: 's', label: 'S' }, { value: 'm', label: 'M' }, { value: 'l', label: 'L' }];
+const ANY = 'any';
+const FAMILIES: readonly SelectOption<FormatFamily | typeof ANY>[] = [{ value: ANY, label: 'Any type' }, ...optionsOf<FormatFamily>(FAMILY_LABEL)];
+/** The forms the filter offers, as present or missing. */
+const FILTER_FORMS = ['markdown', 'table', 'description', 'transcript'] as const satisfies readonly FormKind[];
+type FormFilter = `has:${FormKind}` | `lacks:${FormKind}` | typeof ANY;
+const FORM_FILTERS: readonly SelectOption<FormFilter>[] = [
+  { value: ANY, label: 'Any forms' },
+  ...FILTER_FORMS.flatMap((kind): SelectOption<FormFilter>[] => [
+    { value: `has:${kind}`, label: `Has ${FORM_LABEL[kind].toLowerCase()}` }, { value: `lacks:${kind}`, label: `No ${FORM_LABEL[kind].toLowerCase()} yet` },
+  ]),
+];
+
+const view = computed({ get: () => query.value.view ?? DEFAULTS.view, set: (next: BrowserView) => { url.set({ view: next, in: '' }); } });
+const group = computed({ get: () => query.value.group ?? DEFAULTS.group, set: (next: string) => { const parsed = GROUPS.find((g) => g.value === next); if (parsed) { url.set({ group: parsed.value, in: '' }); } } });
+const size = computed({ get: () => query.value.size ?? DEFAULTS.size, set: (next: CardSize) => { url.set({ size: next }); } });
+const family = computed({ get: (): FormatFamily | typeof ANY => query.value.family ?? ANY, set: (next: FormatFamily | typeof ANY) => { url.set({ family: next === ANY ? '' : next }); } });
+/** The form filter's choice, from the URL's `form` (present) or `missing`. */
+function formChoice(): FormFilter {
+  if (query.value.form !== undefined) { return `has:${query.value.form}`; }
+  return query.value.missing === undefined ? ANY : `lacks:${query.value.missing}`;
+}
+const formFilter = computed({
+  get: formChoice,
+  set: (next: FormFilter) => {
+    const [how, kind] = next.split(':');
+    const form = FormKind.safeParse(kind);
+    if (!form.success) { url.set({ form: '', missing: '' }); return; }
+    url.set(how === 'has' ? { form: form.data, missing: '' } : { missing: form.data, form: '' });
+  },
+});
+
+/** The search box: typed at once, in the URL once typing pauses. */
+const search = ref(query.value.q ?? '');
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(search, (text) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { url.set({ q: text.trim() }); }, 300); });
+watch(() => query.value.q, (q) => { if ((q ?? '') !== search.value.trim()) { search.value = q ?? ''; } });
+
+/** What the list shows: everything but the opened resource's mode, page and line. */
+const listKey = computed(() => JSON.stringify({ ...query.value, uri: undefined, mode: undefined, page: undefined, section: undefined, sort: undefined, desc: undefined, size: undefined }));
+watch(listKey, () => { void browser.show(query.value); }, { immediate: true });
+watch(() => [query.value.group, query.value.q, query.value.family, query.value.system] as const, () => { void browser.openFolder('', true); }, { immediate: true });
+onMounted(() => { browser.start(); });
+onBeforeUnmount(() => { browser.stop(); clearTimeout(searchTimer); });
+
+const sort = computed<BrowserSort>(() => query.value.sort ?? DEFAULTS.sort);
+const descending = computed(() => query.value.desc === '1');
+const records = computed(() => sortRecords(browser.list.items.value, sort.value, descending.value));
+function sortBy(next: BrowserSort): void {
+  url.set(next === sort.value ? { desc: descending.value ? '' : '1' } : { sort: next, desc: '' });
+}
+const showGroups = computed(() => view.value === 'groups' && query.value.in === undefined);
+const inLabel = computed(() => browser.facets.value.find((f) => f.value === query.value.in)?.label ?? query.value.in ?? '');
+const crumbs = computed(() => crumbsOf(query.value.under ?? ''));
+const peek = (record: ResourceRecord) => browser.peek(record).value.value;
+
+// ─── The opened resource ──────────────────────────────────────────────────
+const opened = computed(() => query.value.uri ?? '');
+const openedRecord = computed(() => browser.list.items.value.find((r) => r.uri === opened.value));
+const panel = computed({ get: () => opened.value !== '', set: (open: boolean) => { if (!open) { url.set({ uri: '', mode: '', page: '', section: '' }); } } });
+/** The folder tree shows on wide screens, and beside an open resource only where there is room for all three. */
+const rail = computed(() => wide.value && (!panel.value || !roomy.value || spacious.value));
+function open(uri: string): void {
+  const parsed = ResourceUri.safeParse(uri);
+  if (parsed.success) { url.set({ uri: parsed.data, mode: '', page: '', section: '' }, { push: true }); }
+}
+const mode = computed({ get: () => query.value.mode ?? '', set: (next: string) => { url.set({ mode: next, page: '' }); } });
+const page = computed({ get: () => Number(query.value.page ?? '1'), set: (next: number) => { url.set({ page: next <= 1 ? '' : String(next) }); } });
+const line = ref(0);
+watch(opened, () => { line.value = 0; });
+
+// ─── Actions ──────────────────────────────────────────────────────────────
+const uploading = ref(false);
+const renaming = shallowRef<ResourceRecord | undefined>(undefined);
+const newName = ref('');
+const renameOpen = computed({ get: () => renaming.value !== undefined, set: (show: boolean) => { if (!show) { renaming.value = undefined; } } });
+const deleting = shallowRef<readonly ResourceRecord[]>([]);
+const deleteOpen = computed({ get: () => deleting.value.length > 0, set: (show: boolean) => { if (!show) { deleting.value = []; } } });
+const deleteTitle = computed(() => { const [only] = deleting.value; return deleting.value.length === 1 && only !== undefined ? `Delete ${nameOf(only)}?` : `Delete ${deleting.value.length} resources?`; });
+const selectedRecords = computed(() => browser.list.items.value.filter((r) => browser.selected.value.has(r.uri)));
+const bulk = computed(() => bulkActions(selectedRecords.value));
+
+async function act(action: ResourceAction, targets: readonly ResourceRecord[]): Promise<void> {
+  const first = targets[0];
+  if (first === undefined) { return; }
+  if (isMake(action)) {
+    const made = madeBy(action);
+    if (made === undefined) { return; }
+    const what = targets.length === 1 ? nameOf(first) : `${targets.length} resources`;
+    if (await browser.make(targets.map((r) => r.uri), made)) { toasts.ok(`Making ${FORM_LABEL[made].toLowerCase()}`, `for ${what}`); } else { toasts.error("Couldn't make that", browser.acting.problem.value); }
+    return;
+  }
+  switch (action) {
+    case 'open': open(first.uri); return;
+    case 'copy': if (await copyText(first.uri)) { toasts.ok('Address copied'); } return;
+    case 'download': {
+      const got = await browser.downloadUrl(first.uri);
+      if (got === undefined) { toasts.error("Couldn't start the download", browser.acting.problem.value); return; }
+      const link = document.createElement('a');
+      link.href = got;
+      link.download = nameOf(first);
+      link.rel = 'noopener';
+      link.click();
+      return;
+    }
+    case 'context': {
+      const made = await browser.makeContext(targets.map((r) => r.uri));
+      if (made === undefined) { toasts.error("Couldn't make context", browser.acting.problem.value); return; }
+      toastContextMade(toasts, made, openContext);
+      return;
+    }
+    case 'refetch': {
+      const fetched = await browser.refetch(targets);
+      if (fetched === undefined) { toasts.error("Couldn't fetch that again", browser.acting.problem.value); return; }
+      toasts.ok(fetched === 1 ? 'Fetched again' : `Fetched ${fetched} pages again`);
+      return;
+    }
+    case 'rename': renaming.value = first; newName.value = nameOf(first); return;
+    case 'delete': deleting.value = targets.filter((r) => isHubResource(r.uri)); return;
+  }
+}
+async function rename(): Promise<void> {
+  const target = renaming.value;
+  if (target === undefined || newName.value.trim() === '') { return; }
+  if (await browser.rename(target.uri, newName.value.trim())) { renaming.value = undefined; toasts.ok('Renamed'); } else { toasts.error("Couldn't rename it", browser.acting.problem.value); }
+}
+async function remove(): Promise<void> {
+  const done = await browser.remove(deleting.value.map((r) => r.uri));
+  deleting.value = [];
+  if (done === undefined) { toasts.error("Couldn't delete that", browser.acting.problem.value); return; }
+  if (done.deleted > 0 && opened.value !== '' && !browser.list.items.value.some((r) => r.uri === opened.value)) { panel.value = false; }
+  toasts.ok(`Deleted ${done.deleted}`, done.kept > 0 ? `${done.kept} are still used and were kept.` : undefined);
+}
+async function importUrl(address: string): Promise<void> {
+  const done = await browser.importUrl(address);
+  if (done.ok) { toasts.ok('Imported', nameOf(done.value)); }
+}
+/** Go to a context item's page. */
+function openContext(name: QualifiedName): void {
+  void router.push(links.contextItem(name));
+}
+
+function notice(text: string, tone: 'ok' | 'danger'): void {
+  if (tone === 'ok') { toasts.ok(text); } else { toasts.error(text); }
+}
+</script>
+
+<template>
+  <AppPage title="Resources" description="Files, pages and uploads, as the hub keeps them: open any to see it, its converted forms, and what is known about it.">
+    <template #actions>
+      <UiButton variant="primary" icon="upload" data-testid="open-uploader" @click="uploading = true">Add</UiButton>
+    </template>
+
+    <div class="resources" :class="{ split: roomy && panel, rail }" data-testid="resources-page">
+      <aside v-if="rail" class="rail">
+        <FolderTree :folders="browser.folders.value" :under="query.under ?? ''" @open="browser.openFolder($event)" @choose="url.set({ under: $event, in: '' })" />
+      </aside>
+
+      <section class="main" aria-label="Resources">
+        <div class="toolbar" role="search" aria-label="Filter resources">
+          <UiInput v-model="search" class="search" type="search" icon="search" label="Search" hide-label placeholder="Search names, addresses and contents" clearable data-testid="resource-search" />
+          <UiSegmented v-model="view" :options="VIEWS" label="Layout" data-testid="resource-view" />
+          <UiSelect v-if="view === 'groups'" v-model="group" class="pick" :options="GROUPS" label="Group" hide-label size="sm" data-testid="resource-grouping" />
+          <UiSelect v-model="family" class="pick" :options="FAMILIES" label="Type" hide-label size="sm" data-testid="resource-family" />
+          <UiSelect v-model="formFilter" class="pick" :options="FORM_FILTERS" label="Forms" hide-label size="sm" />
+          <UiSegmented v-if="view === 'grid'" v-model="size" :options="SIZES" label="Card size" />
+          <UiButton v-if="isFiltered(query)" size="sm" variant="ghost" icon="x" @click="url.set({ q: '', family: '', form: '', missing: '', under: '', in: '', system: '' })">Clear</UiButton>
+        </div>
+
+        <nav v-if="crumbs.length > 1 || query.in" class="crumbs" aria-label="Where">
+          <template v-for="(crumb, i) in crumbs" :key="crumb.under">
+            <span v-if="i > 0" class="sep" aria-hidden="true">/</span>
+            <button type="button" class="crumb" :aria-current="i === crumbs.length - 1 ? 'page' : undefined" @click="url.set({ under: crumb.under })">{{ crumb.label }}</button>
+          </template>
+          <template v-if="query.in">
+            <span class="sep" aria-hidden="true">›</span>
+            <span class="crumb current">{{ inLabel }}</span>
+            <UiButton size="sm" variant="ghost" icon="x" @click="url.set({ in: '' })">{{ view === 'groups' ? 'Back to groups' : 'Every group' }}</UiButton>
+          </template>
+        </nav>
+
+        <div v-if="browser.selectedCount.value > 0" class="bulk" role="toolbar" aria-label="Selected resources" data-testid="bulk-bar">
+          <span class="bulk-count">{{ browser.selectedCount.value }} selected</span>
+          <UiButton v-for="action in bulk" :key="action.value" size="sm" :variant="action.danger ? 'danger' : 'secondary'" :icon="action.icon" @click="act(action.value, selectedRecords)">{{ action.label }}</UiButton>
+          <UiButton size="sm" variant="ghost" @click="browser.clearSelection()">Clear</UiButton>
+        </div>
+
+        <ResourceGroups
+          v-if="showGroups" :facets="browser.facets.value" :groups="browser.groups.value" :selected="browser.selected.value" :opened="opened" :peek="peek"
+          @open="open" @toggle="browser.toggle($event)" @action="(action, record) => act(action, [record])" @all="url.set({ in: $event })"
+        />
+        <LoadState
+          v-else :loading="browser.list.loading.value" :problem="browser.list.problem.value" :ready="browser.list.loaded.value" :empty="records.length === 0"
+          empty-icon="layers" :empty-title="isFiltered(query) ? 'No resources match' : 'No resources yet'"
+          :empty-body="isFiltered(query) ? 'Try other words or filters.' : 'Resources show here as systems serve them, or add files and pages.'" :lines="8" @retry="browser.list.load()"
+        >
+          <ResourceGrid
+            v-if="view === 'grid' || view === 'groups'" :records="records" :selected="browser.selected.value" :opened="opened" :size="size" :peek="peek"
+            @open="open" @toggle="browser.toggle($event)" @action="(action, record) => act(action, [record])"
+          />
+          <ResourceList
+            v-else :records="records" :selected="browser.selected.value" :opened="opened" :sort="sort" :descending="descending" :now="now"
+            @open="open" @toggle="browser.toggle($event)" @toggle-all="browser.toggleAll()" @sort="sortBy" @action="(action, record) => act(action, [record])"
+          />
+          <div v-if="browser.list.hasMore.value" class="more">
+            <UiButton variant="ghost" :loading="browser.list.loadingMore.value" data-testid="more" @click="browser.list.more()">Show more</UiButton>
+          </div>
+        </LoadState>
+      </section>
+
+      <PanelHost v-model:open="panel" :inline="roomy" :phone="phone" label="Resource">
+        <PanelFrame :title="openedRecord ? nameOf(openedRecord) : 'Resource'" :subtitle="opened" @close="panel = false">
+          <ResourceViewer
+            v-if="opened !== '' && query.uri" v-model:mode="mode" v-model:page="page" v-model:line="line" :uri="query.uri" v-bind="query.section === undefined ? {} : { section: query.section }"
+            @navigate="open" @notice="notice" @context="(made) => toastContextMade(toasts, made, openContext)"
+          />
+        </PanelFrame>
+      </PanelHost>
+    </div>
+
+    <ResourceUploader
+      v-model:open="uploading" :uploads="browser.uploads.value" :importing="browser.importing.busy.value" :problem="browser.importing.problem.value"
+      @files="browser.upload($event)" @url="importUrl" @dismiss="browser.dismissUpload($event)"
+    />
+    <UiDialog v-model:open="renameOpen" title="Rename" description="Only the name changes; the address stays the same.">
+      <form class="rename" @submit.prevent="rename">
+        <UiInput v-model="newName" label="Name" autofocus @enter="rename" />
+      </form>
+      <template #footer>
+        <UiButton variant="ghost" @click="renameOpen = false">Cancel</UiButton>
+        <UiButton variant="primary" :loading="browser.acting.busy.value" :disabled="newName.trim() === ''" @click="rename">Rename</UiButton>
+      </template>
+    </UiDialog>
+    <ConfirmDialog
+      v-model:open="deleteOpen" :title="deleteTitle"
+      body="Its content and forms are removed from the hub. Context made from it stays until it is forgotten." confirm="Delete" :busy="browser.acting.busy.value" @confirm="remove"
+    />
+  </AppPage>
+</template>
+
+<style scoped>
+.resources { display: grid; gap: var(--space-4); min-width: 0; }
+.resources.rail { grid-template-columns: 220px minmax(0, 1fr); }
+.resources.rail.split { grid-template-columns: 220px minmax(0, 1fr) 460px; }
+.resources.split:not(.rail) { grid-template-columns: minmax(0, 1fr) 460px; }
+.resources.split :deep([data-testid='chat-panel']) { position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto; align-self: start; }
+.rail { position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); align-self: start; max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto; }
+.main { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.search { flex: 1 1 240px; min-width: 0; }
+.pick { width: auto; min-width: 140px; flex: 0 1 180px; }
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); font-size: var(--text-sm); }
+.crumb { padding: 2px 6px; border: 0; border-radius: 6px; background: none; color: var(--accent); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.crumb[aria-current], .crumb.current { color: var(--text); font-weight: var(--weight-medium); cursor: default; }
+.crumb:focus-visible { outline: none; box-shadow: var(--ring); }
+.sep { color: var(--text-faint); }
+.bulk { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in oklab, var(--accent) 40%, var(--border)); border-radius: var(--radius); background: color-mix(in oklab, var(--accent) 6%, var(--surface)); }
+.bulk-count { font-size: var(--text-sm); font-weight: var(--weight-medium); margin-right: auto; }
+.more { display: grid; place-items: center; padding: var(--space-3); }
+.rename { display: grid; }
+</style>

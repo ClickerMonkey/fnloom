@@ -7,7 +7,10 @@ import type { SystemTokens } from './index.ts';
 export interface SystemTokenClaims {
   readonly sub: string;
   readonly kind: 'system';
+  /** The instance the token was issued to. */
   readonly instance: string;
+  /** The process start it was issued to. */
+  readonly boot: string;
 }
 
 /** Signs system tokens as HS256 JWTs. `ttl` is in milliseconds. */
@@ -21,7 +24,7 @@ export class JwtSystemTokens implements SystemTokens {
   }
 
   issue(session: LinkSession): string {
-    const claims: SystemTokenClaims = { sub: session.system, kind: 'system', instance: session.instance };
+    const claims: SystemTokenClaims = { sub: session.system, kind: 'system', instance: session.instance, boot: session.boot };
     return signJwt(claims, { secret: this.#secret, expiresIn: Math.max(1, Math.round(this.#ttl / 1000)), audience: 'harness-system' }).token;
   }
 }

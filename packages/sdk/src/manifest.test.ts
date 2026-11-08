@@ -88,3 +88,51 @@ describe('canonicalJson and sha256', () => {
     expect(await sha256('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
 });
+
+describe('fn examples', () => {
+  it('are checked against the args type as the fn is declared', () => {
+    const args = g.obj({ q: g.text() });
+    expect(fn({ description: 'Find.', args, returns: g.text(), examples: [{ args: { q: 'x' }, note: 'One word.' }] }).examples).toEqual([{ args: { q: 'x' }, note: 'One word.' }]);
+    // a wrong example that got past the types (built from JSON) still does not build
+    const wrong = { q: 'x' };
+    Reflect.set(wrong, 'q', 3);
+    expect(() => fn({ description: 'Find.', args, returns: g.text(), examples: [{ args: wrong }] })).toThrow(/Find\.: example 1 does not fit the args type/);
+  });
+});
+
+describe('context links', () => {
+  const linked = system('links', { description: 'Linked context.' })
+    .with({ fns: { open: fn({ description: 'Open.', args: g.obj({}), returns: g.text() }) }, types: { Page: type({ description: 'A page.', shape: g.obj({ title: g.text() }), display: { label: 'Page', title: 'title' } }) } })
+    .with(({ fns, types }) => ({
+      context: {
+        guide: context({
+          description: 'The guide.',
+          content: 'Start here.',
+          weight: 1.5,
+          summary: 'Start.',
+          links: [
+            { to: fns.open, relation: 'brings' },
+            { to: types.Page, relation: 'related', weight: 0.2 },
+            { to: hub.fns.search_resources, relation: 'suggests' },
+            { to: { uri: 'file:///docs/guide.md', section: 'Usage' }, relation: 'about', weight: 1 },
+          ],
+        }),
+      },
+    }))
+    .with(({ context: items }) => ({ context: { part: context({ description: 'Part one.', content: '…', parent: items.guide, next: items.guide }) } }));
+
+  it('travel in the manifest as declared links, weights defaulted, with the systems they reach required', async () => {
+    const manifest = await manifestOf(linked, { version: '1.0.0' });
+    const guide = manifest.context.find((c) => c.name === 'guide');
+    expect(guide).toMatchObject({ weight: 1.5, summary: 'Start.' });
+    expect(guide?.links).toEqual([
+      { to: { kind: 'fn', name: 'links/open' }, relation: 'brings', weight: 0.5 },
+      { to: { kind: 'type', name: 'links/Page' }, relation: 'related', weight: 0.2 },
+      { to: { kind: 'fn', name: 'hub/search_resources' }, relation: 'suggests', weight: 0.5 },
+      { to: { kind: 'resource', uri: 'file:///docs/guide.md', section: 'Usage' }, relation: 'about', weight: 1 },
+    ]);
+    expect(manifest.context.find((c) => c.name === 'part')).toMatchObject({ parent: 'links/guide', next: 'links/guide' });
+    expect(manifest.context.find((c) => c.name === 'part')).not.toHaveProperty('links');
+    expect(manifest.requires).toEqual(['hub']);
+  });
+});

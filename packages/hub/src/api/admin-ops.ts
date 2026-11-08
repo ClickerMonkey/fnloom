@@ -1,13 +1,14 @@
 /**
  * The admin operations: everything an admin configures (providers, model categories, budgets, priorities, policies,
- * actor settings, people and groups, removing a rule, pairing, and a system's config, switches and process). Each is
+ * actor settings, people and groups, removing a rule, pairing, a system's config, switches and process, model roles
+ * and limits, hub MCPs, packages and instances). Each is
  * the operation behind one web admin endpoint, given its parsed body and who asks, keyed by the hub fn that offers
  * the same operation in chat (`ADMIN_ENDPOINTS`). The web handlers and the hub's admin fns both call these, so the
  * two can never do different things.
  */
 import { reject } from '@ayepi/core';
 import {
-  compact, mintId, splitName, SystemName, type ActorId, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
+  compact, dataExportFileName, mintId, splitName, SystemName, type ActorId, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
   type ProviderRecord, type SecretId, type SystemRecord, type UserActor,
 } from '@harness/core';
 import type { ADMIN_ENDPOINTS, AdminFnName } from '@harness/sdk';
@@ -29,6 +30,7 @@ export type AdminOperations = { readonly [N in AdminFnName]: AdminOp<(typeof ADM
 export function secretsOf(config: ProviderConfig): SecretId[] {
   switch (config.provider) {
     case 'openai': case 'openrouter': return [config.apiKey];
+    case 'ollama': return [];
   }
 }
 
@@ -48,6 +50,7 @@ async function sealProvider(hub: Pick<HubServices, 'api'>, input: ProviderInput,
   switch (input.provider) {
     case 'openai': return { provider: 'openai', apiKey: await seal(input.apiKey), ...(input.baseURL === undefined ? {} : { baseURL: input.baseURL }) };
     case 'openrouter': return { provider: 'openrouter', apiKey: await seal(input.apiKey) };
+    case 'ollama': return input;
   }
 }
 
@@ -161,15 +164,15 @@ export function adminOperations(hub: HubServices): AdminOperations {
         hub.log.info('pairing.rejected', { pairing: data.pairing, user: by });
         return {};
       }
-      const record = await link.pairing.approve(data.pairing, by);
-      hub.log.info('pairing.approved', { pairing: data.pairing, system: record.name, user: by });
-      return { system: record.name };
+      const record = await link.pairing.approve(data.pairing, by, compact({ instance: data.instance, config: data.config }));
+      hub.log.info('pairing.approved', { pairing: data.pairing, system: record.system, instance: record.instance, user: by });
+      return { system: record.system };
     },
     create_pairing_token: (data, by) => link.pairing.createToken({ ...compact(data), by }),
     configure_system: async (data, by) => {
       await knownSystem(hub, data.system);
-      const result = await link.config.set(data.system, data.config, by);
-      hub.log.info('system.configured', { system: data.system, user: by, ok: 'version' in result });
+      const result = await link.config.set(data.system, data.config, by, data.instance);
+      hub.log.info('system.configured', { system: data.system, instance: data.instance, user: by, ok: 'version' in result });
       return result;
     },
     enable_system: async ({ system: name, ...change }, by) => {
@@ -199,5 +202,31 @@ export function adminOperations(hub: HubServices): AdminOperations {
       return { ok: true };
     },
     upgrade_system: (data) => link.supervisor.upgrade(data.system, data.version),
+    set_model_role: async (data, by) => {
+      const view = await hub.models.roles.set(data, by);
+      hub.log.info('model.role.chosen', { role: data.role, user: by, usable: view.resolved !== undefined && 'model' in view.resolved });
+      return view;
+    },
+    clear_model_role: (data, by) => hub.models.roles.clear(data.role, by),
+    set_model_limits: (data, by) => hub.contextor.limits.set(data.model, data.limits, by),
+    create_mcp: (data, by) => hub.mcp.registry.create(data, by),
+    update_mcp: async ({ mcp, ...change }, by) => hub.mcp.registry.update(mcp, compact(change), by),
+    rotate_mcp_secret: (data, by) => hub.mcp.registry.rotate(data.mcp, by),
+    delete_mcp: async (data, by) => ({ ok: await hub.mcp.registry.remove(data.mcp, by) }),
+    preview_mcp: (data) => hub.mcp.scopes.preview(data.rules),
+    install_package: async (data, by) => {
+      const ref = await link.packages.installZip({ ...compact({ instance: data.instance, config: data.config, data: data.data, autoStart: data.autoStart }), zip: data.zip, by });
+      hub.log.info('package.installed', { system: ref.system, instance: ref.instance, user: by });
+      return ref;
+    },
+    remove_instance: async (data, by) => {
+      await link.packages.removeInstance(data, by);
+      return { ok: true };
+    },
+    export_system_data: async (data, by) => {
+      const ref = await link.packages.exportData({ ref: { system: data.system, instance: data.instance }, withSecrets: data.withSecrets ?? false, by });
+      return { ...ref, url: await hub.api.content.presignDownload(ref, dataExportFileName(data)) };
+    },
+
   };
 }

@@ -1,7 +1,8 @@
 /**
  * The hub's one port. HTTP: `/api/*` is the web API (its ayepi server, with the prefix taken off), `/_files` the
- * presigned files, `/docs/*` the API docs when on, `/healthz` and `/readyz` the health checks, `/clients/*` systems'
- * client builds, and everything else the built web app. WebSocket: `/ws` for browsers and `/link` for systems, each
+ * presigned files, `/docs/*` the API docs when on, `/healthz` and `/readyz` the health checks, `/mcp/*` the hub MCPs
+ * (Streamable HTTP, JSON or SSE from one path), `/clients/*` systems' client builds, and everything else the built
+ * web app. WebSocket: `/ws` for browsers and `/link` for systems, each
  * on its own ayepi server, routed by `@ayepi/node`'s `routeUpgrades`. A browser socket is closed shortly before its
  * access token expires (`closeAt`), so the browser reconnects with the fresh token it holds by then.
  */
@@ -19,6 +20,8 @@ export const WS_PATH = '/ws';
 export const LINK_PATH = '/link';
 /** The presigned file transfers (`@ayepi/files` mounted on the web API's server). */
 export const FILES_PATH = '/_files';
+/** Where hub MCPs are served (`/mcp/<slug>`). */
+export const MCP_PATH = '/mcp';
 /** The API docs' prefix, when docs are on. */
 const DOCS_PREFIX = '/docs/';
 
@@ -35,6 +38,8 @@ export interface Health {
 export interface HttpFrontOptions {
   readonly web: Server<AnySpec>;
   readonly link: Server<AnySpec>;
+  /** The hub MCPs' web-standard handler (`McpEndpoints.handle`). */
+  readonly mcp: { fetch(request: Request): Promise<Response> };
   /** File routes tried in order for requests no server takes. */
   readonly files: readonly FileRoute[];
   readonly health: Health;
@@ -53,11 +58,13 @@ export class HttpFront {
   readonly #o: HttpFrontOptions;
   readonly #server: HttpServer;
   readonly #web: (req: IncomingMessage, res: ServerResponse) => void;
+  readonly #mcp: (req: IncomingMessage, res: ServerResponse) => void;
   readonly #sockets: readonly UpgradeHandler[];
 
   constructor(options: HttpFrontOptions) {
     this.#o = options;
     this.#web = createRequestListener(options.web);
+    this.#mcp = createRequestListener(options.mcp);
     const browser = upgradeHandler(options.web, { heartbeat: options.heartbeat, clock: options.clock, closeAt: (req) => this.#closeAt(req) });
     const systems = upgradeHandler(options.link, { heartbeat: options.heartbeat });
     this.#sockets = [browser, systems];
@@ -107,6 +114,10 @@ export class HttpFront {
       if (path === API_PREFIX || path.startsWith(`${API_PREFIX}/`)) {
         req.url = `${path.slice(API_PREFIX.length) || '/'}${url.search}`;
         this.#web(req, res);
+        return;
+      }
+      if (path === MCP_PATH || path.startsWith(`${MCP_PATH}/`)) {
+        this.#mcp(req, res);
         return;
       }
       if (passesThrough(path)) {

@@ -5,11 +5,13 @@
  * `HARNESS_MOCK_NOTIFY_EVERY`) a new notification pushed on the `user` channel every so often. The chat is a scripted
  * stand-in (`mockChat.ts`): sessions, history, streamed answers with live runs, approvals and the inspectors. The admin
  * pages are backed by `mockAdmin.ts` (systems, pairing, output, models, limits, policies, settings and the browsers,
- * with `HARNESS_MOCK_LOG_EVERY` writing an output line every so often). Every other endpoint answers with
- * `@ayepi/mock`'s generated, schema-valid data.
+ * with `HARNESS_MOCK_LOG_EVERY` writing an output line every so often), and build 2's by `mockBuild2.ts` (model roles
+ * and limits, model calls, fn metrics, hub MCPs, fleets, packages, data exports and the pairing page). Every other
+ * endpoint answers with `@ayepi/mock`'s generated, schema-valid data.
  *
  * Run: npm run mock-hub -w @harness/web   (then `npm run dev -w @harness/web` with HARNESS_PORT set to its port)
  */
+import { fixture } from './fixture.ts';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { implement, server } from '@ayepi/core';
@@ -19,12 +21,19 @@ import { mockHandlers } from '@ayepi/mock';
 import { createRequestListener, handleUpgrade } from '@ayepi/node';
 import { telemetry } from '@ayepi/otel/server';
 import {
-  AccessClaims, DEFAULT_PORTS, IDS, Port, Notification, UserView, adminOnly, hubAuth, mintId, tel, type ActorId, type NotificationReason, type Tokens,
+  AccessClaims, DEFAULT_PORTS, IDS, Port, Notification, ResourceQuery, ResourceReadArgs, UserView, adminOnly, hubAuth, mintId, tel,
+  type ActorId, type NotificationReason, type Tokens, type UserEvent,
 } from '@harness/core';
 import { z } from 'zod';
 import { hubWebSpec } from '@harness/core';
+import { logger, type Logger } from '@ayepi/log';
 import { MockAdmin } from './mockAdmin.ts';
+import { declaredStatusLogger } from './mockLog.ts';
+import { EMPTY_ZIP, MOCK_EXPORTS, MockBuild2 } from './mockBuild2.ts';
+import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
+import { MOCK_FILES, MOCK_UPLOADS, MockResources } from './mockResources.ts';
+import { ContextGraphDouble } from '../src/context/test/graph.ts';
 
 /** The mock hub's settings. */
 export const mockHubEnv = env({
@@ -55,7 +64,7 @@ class MockState {
   constructor(needsAdmin: boolean) {
     this.account = needsAdmin ? undefined : { user: this.#user(MOCK_ADMIN.name, MOCK_ADMIN.email), password: MOCK_ADMIN.password };
     const owner = this.account?.user.id ?? IDS.actor.parse('act_admin');
-    this.notifications = SAMPLE.map((sample, i) => Notification.parse({
+    this.notifications = SAMPLE.map((sample, i) => fixture(Notification, {
       id: `ntf_sample_${i}`, user: owner, read: i >= 3, pushed: false, createdAt: NOW - (i * 47 + 3) * 60_000, ...sample,
     }));
   }
@@ -68,17 +77,17 @@ class MockState {
   tokensFor(user: UserView): Tokens {
     const refresh = mintId('authSession');
     this.refreshTokens.set(refresh, user.id);
-    const claims = AccessClaims.parse({ actor: user.id, session: refresh, version: 1 });
+    const claims = fixture(AccessClaims, { actor: user.id, session: refresh, version: 1 });
     const { token } = signJwt(claims, { secret: SECRET, expiresIn: ACCESS_FOR / 1_000 });
     return { access: token, refresh, expiresIn: ACCESS_FOR, user };
   }
 
   #user(name: string, email: string): UserView {
-    return UserView.parse({ id: 'act_admin', kind: 'user', name, email, role: 'admin' });
+    return fixture(UserView, { id: 'act_admin', kind: 'user', name, email, role: 'admin' });
   }
 }
 
-const SAMPLE: readonly { reason: NotificationReason; title: string; body: string; link: Record<string, string> }[] = [
+const SAMPLE: readonly Pick<z.input<typeof Notification>, 'reason' | 'title' | 'body' | 'link'>[] = [
   { reason: 'approval-needed', title: 'Approve writing 3 files', body: 'fs/write wants to change src/app.ts, src/main.ts and README.md.', link: { approval: 'apr_1' } },
   { reason: 'turn-finished', title: 'Your refactor is done', body: 'Renamed 14 symbols across 6 files. All tests pass.', link: { session: 'ses_refactor' } },
   { reason: 'pairing-requested', title: 'A system wants to pair', body: 'notes (v0.3.1) on ws://192.168.50.20 asked to connect.', link: { pairing: 'par_notes' } },
@@ -96,14 +105,21 @@ const LIVE: readonly { reason: NotificationReason; title: string; body: string }
 ];
 
 /** Build the mock hub app. */
-export function mockHub(options: { needsAdmin: boolean }) {
+export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const state = new MockState(options.needsAdmin);
   const owner = (): ActorId => state.account?.user.id ?? IDS.actor.parse('act_admin');
   const chat = new MockChat(owner);
   const admin = new MockAdmin(chat, Date.now);
+  const library = new MockResources(Date.now());
+  const build2 = new MockBuild2(admin, chat, Date.now);
+  const graph = new ContextGraphDouble(owner(), Date.now);
+  /** A system as the admin pages get it, with its instances. */
+  const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name) });
+  /** Tell every signed-in browser about a change (set once the app exists). */
+  let announce: (event: UserEvent) => void = () => undefined;
 
   const real = implement(hubWebSpec)
-    .middleware(telemetry.server(tel, { level: 'debug' }))
+    .middleware(telemetry.server(tel, { level: 'debug', response: { status: true, duration: true, error: true }, logger: declaredStatusLogger(options.logger ?? logger) }))
     .middleware(bearerAuth.server(hubAuth, {
       secret: SECRET, claims: AccessClaims,
       toUser: (claims) => (state.account !== undefined && claims.actor === state.account.user.id ? state.account.user : null),
@@ -135,13 +151,16 @@ export function mockHub(options: { needsAdmin: boolean }) {
         const ids = new Set(data.ids);
         state.notifications = state.notifications.map((n) => (ids.has(n.id) ? { ...n, read: true } : n));
       },
-      capabilities: () => chat.capabilities(),
+      capabilities: () => ({ ...chat.capabilities(), ...build2.voice() }),
       sessions: ({ data }) => ({ items: chat.list(data.search, data.archived ?? false) }),
       session: ({ data }) => chat.session(data.session),
       createSession: ({ data }) => chat.create(data.title),
       updateSession: ({ data }) => {
-        const { session, title, archived, notify, systems } = data;
-        return chat.update(session, { ...(title === undefined ? {} : { title }), ...(archived === undefined ? {} : { archived }), ...(notify === undefined ? {} : { notify }), ...(systems === undefined ? {} : { systems }) });
+        const { session, title, archived, notify, systems, mode, contextor } = data;
+        return chat.update(session, {
+          ...(title === undefined ? {} : { title }), ...(archived === undefined ? {} : { archived }), ...(notify === undefined ? {} : { notify }), ...(systems === undefined ? {} : { systems }),
+          ...(mode === undefined ? {} : { mode }), ...(contextor === undefined ? {} : { contextor }),
+        });
       },
       limits: ({ data }) => chat.limits(data.session),
       messages: ({ data }) => chat.page(data.session, data.cursor, data.limit ?? 50),
@@ -162,10 +181,15 @@ export function mockHub(options: { needsAdmin: boolean }) {
       waiting: ({ data }) => chat.waiting(data.session),
       approve: ({ data }) => chat.approve(data.approval, data.approve),
       presence: () => undefined,
-      systems: () => admin.list(),
-      system: ({ data }) => admin.system(data.system),
+      systems: () => admin.list().map(withInstances),
+      system: ({ data }) => withInstances(admin.system(data.system)),
       pairings: () => admin.pairings,
-      approvePairing: ({ data }) => admin.answerPairing(data.pairing, data.approve),
+      approvePairing: ({ data }) => {
+        // the pairing page names the instance and sets the config in the same step
+        const answered = admin.answerPairing(data.pairing, data.approve);
+        if (answered.system !== undefined && data.config !== undefined) { admin.configure(answered.system, data.config); }
+        return answered;
+      },
       createPairingToken: ({ data }) => ({ token: mintId('pairingToken'), expiresAt: Date.now() + data.expiresIn }),
       configureSystem: ({ data }) => admin.configure(data.system, data.config),
       enableSystem: ({ data }) => admin.enable(data.system, data),
@@ -197,6 +221,59 @@ export function mockHub(options: { needsAdmin: boolean }) {
       llmCalls: ({ data }) => { const { cursor, limit, ...filter } = data; return admin.llmCalls(filter, cursor, limit); },
       resources: ({ data }) => { const { cursor, limit, ...filter } = data; return admin.resourceList(filter, cursor, limit); },
       resource: ({ data }) => admin.read(data.uri),
+      browseResources: ({ data }) => library.browse(ResourceQuery.parse(data)),
+      resourceForms: ({ data }) => library.forms(data.uri),
+      readResource: ({ data }) => library.read(ResourceReadArgs.parse(data)),
+      convertResource: ({ data }) => {
+        const made = library.convert(data.uri, data.kind);
+        announce({ type: 'resource', uri: data.uri, forms: library.forms(data.uri).record.forms ?? [] });
+        return made;
+      },
+      downloadResource: ({ data }) => library.download(data.uri, data.form, '/api'),
+      importResource: ({ data }) => ('url' in data ? library.importUrl(data.url) : library.importUpload(data.name, data.content.hash)),
+      upload: ({ data }) => library.presign(data.name, data.mime),
+      uploaded: ({ data }) => library.uploaded(data.upload),
+      renameResource: ({ data }) => library.rename(data.uri, data.name),
+      deleteResource: ({ data }) => library.remove(data.uri),
+      // build 2: chat modes, model roles and limits, model calls, fn metrics, hub MCPs, fleets, packages and pairing pages
+      previewSelection: ({ data }) => {
+        const session = chat.session(data.session);
+        return selectionReport({ mode: session.mode?.type ?? 'tools', contextor: session.contextor?.type ?? 'graph', linear: Math.min(6, Math.ceil(data.text.length / 40)) });
+      },
+      modelLimits: ({ data }) => build2.limitsOf(data.model),
+      setModelLimits: ({ data }) => build2.setLimits(data.model, data.limits),
+      modelRoles: () => build2.roles,
+      setModelRole: ({ data }) => { const view = build2.setRole(data); announce({ type: 'capabilities' }); return view; },
+      clearModelRole: ({ data }) => { const view = build2.clearRole(data.role); announce({ type: 'capabilities' }); return view; },
+      modelCalls: ({ data }) => build2.modelCalls(data),
+      modelCall: ({ data }) => build2.modelCall(data.id),
+      fnMetrics: ({ data }) => build2.fnMetrics(data),
+      fnMetricsDays: ({ data }) => build2.fnDays(data.fn, data.days),
+      mcps: () => build2.mcpList(),
+      mcp: ({ data }) => build2.mcp(data.mcp),
+      createMcp: ({ data }) => build2.createMcp(data, owner()),
+      updateMcp: ({ data }) => { const { mcp, ...change } = data; return build2.updateMcp(mcp, change); },
+      rotateMcpSecret: ({ data }) => build2.rotate(data.mcp),
+      deleteMcp: ({ data }) => build2.deleteMcp(data.mcp),
+      previewMcp: ({ data }) => build2.preview(data.rules),
+      mcpSessions: ({ data }) => build2.sessions(data.mcp),
+      pairing: ({ data }) => build2.pairing(data.pairing),
+      instances: ({ data }) => build2.instancesOf(data.system),
+      installPackage: ({ data }) => build2.install(library.nameOf(data.zip.hash) ?? 'package.zip', data.zip.hash, data.instance),
+      removeInstance: ({ data }) => build2.removeInstance(data),
+      exportSystemData: ({ data }) => build2.exportData(data),
+      // the context graph: every item, one item with its links, memory, links drawn by people, context from a resource
+      contexts: ({ data }) => graph.list(data),
+      contextItem: ({ data }) => graph.item(data.name),
+      remember: ({ data }) => { const made = graph.remember(data); announce({ type: 'context', name: made.name }); return made; },
+      forget: ({ data }) => { const done = graph.forget(data.name); announce({ type: 'context', name: data.name }); return done; },
+      linkContext: ({ data }) => { const made = graph.link(data); announce({ type: 'context', name: data.from }); return made; },
+      unlinkContext: ({ data }) => { const done = graph.unlink(data); announce({ type: 'context', name: data.from }); return done; },
+      contextFromResource: ({ data }) => {
+        const made = graph.fromResource(data);
+        for (const name of [...made.created, ...made.updated]) { announce({ type: 'context', name }); }
+        return made;
+      },
     });
 
   // the endpoints `real` answers; server() fails to compile unless these and the generated rest cover every endpoint once
@@ -208,6 +285,10 @@ export function mockHub(options: { needsAdmin: boolean }) {
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',
     'runs', 'llmCalls', 'resources', 'resource',
+    'upload', 'uploaded', 'browseResources', 'resourceForms', 'readResource', 'convertResource', 'downloadResource', 'importResource', 'renameResource', 'deleteResource', 'contextFromResource',
+    'previewSelection', 'modelLimits', 'setModelLimits', 'modelRoles', 'setModelRole', 'clearModelRole', 'modelCalls', 'modelCall', 'fnMetrics', 'fnMetricsDays',
+    'mcps', 'mcp', 'createMcp', 'updateMcp', 'rotateMcpSecret', 'deleteMcp', 'previewMcp', 'mcpSessions', 'pairing', 'instances', 'installPackage', 'removeInstance', 'exportSystemData',
+    'contexts', 'contextItem', 'remember', 'forget', 'linkContext', 'unlinkContext',
   ] as const;
   // system names must match their pattern, which the generator can't read from a regex
   const systemName = (g: { rng: () => number }): string => SYSTEM_NAMES[Math.floor(g.rng() * SYSTEM_NAMES.length)] ?? 'fs';
@@ -222,7 +303,7 @@ export function mockHub(options: { needsAdmin: boolean }) {
   const notify = (): void => {
     const sample = LIVE[live++ % LIVE.length];
     if (sample === undefined) { return; }
-    const notification = Notification.parse({
+    const notification = fixture(Notification, {
       id: mintId('notification'), user: owner(), reason: sample.reason, title: sample.title, body: sample.body,
       link: { session: 'ses_live' }, read: false, pushed: false, createdAt: Date.now(),
     });
@@ -230,15 +311,37 @@ export function mockHub(options: { needsAdmin: boolean }) {
     app.emit('user', { type: 'notification', notification });
   };
 
-  return { app, notify, tick: () => { admin.tick(); } };
+  announce = (event) => { app.emit('user', event); };
+  return { app, notify, tick: () => { admin.tick(); }, library };
 }
 
 /** Serve the mock hub on `port`: the API under `/api` (as the real hub serves it) and the socket at `/ws`. */
-export function serveMockHub(port: number, options: { needsAdmin: boolean; notifyEvery: number; logEvery?: number }): { stop: () => Promise<void>; notify: () => void } {
-  const { app, notify, tick } = mockHub(options);
+export function serveMockHub(port: number, options: { needsAdmin: boolean; notifyEvery: number; logEvery?: number; logger?: Logger }): { stop: () => Promise<void>; notify: () => void } {
+  const { app, notify, tick, library } = mockHub(options);
   const listener = createRequestListener(app);
   const httpServer = http.createServer((req, res) => {
     req.url = (req.url ?? '/').replace(/^\/api(?=\/|$)/, '') || '/';
+    if (req.url.startsWith(MOCK_UPLOADS) && req.method === 'PUT') {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+      req.on('end', () => {
+        const ok = library.receive(req.url?.slice(MOCK_UPLOADS.length) ?? '', new Uint8Array(Buffer.concat(chunks)));
+        res.writeHead(ok ? 200 : 404);
+        res.end();
+      });
+      return;
+    }
+    if (req.url.startsWith(MOCK_EXPORTS)) {
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': 'attachment' });
+      res.end(Buffer.from(EMPTY_ZIP));
+      return;
+    }
+    if (req.url.startsWith(MOCK_FILES)) {
+      const file = library.file(req.url.slice(MOCK_FILES.length));
+      res.writeHead(file === undefined ? 404 : 200, { 'content-type': file?.mime ?? 'text/plain', 'accept-ranges': 'bytes' });
+      res.end(file === undefined ? 'not found' : Buffer.from(file.bytes));
+      return;
+    }
     listener(req, res);
   });
   const sockets = handleUpgrade(app, httpServer, { path: '/ws' });

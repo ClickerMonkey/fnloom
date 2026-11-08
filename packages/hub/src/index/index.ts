@@ -8,7 +8,9 @@
  * batches embeds, `Sectioning` (`sectioning.ts`) picks and runs sectioners (the hub's own are in `sectioners.ts`),
  * and `IndexEmbedding` (`embedding.ts`) answers systems that ask the hub to embed.
  */
-import type { IndexedKind, QualifiedName, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName } from '@harness/core';
+import type {
+  ConvertedVersion, FormKind, IndexedKind, QualifiedName, ResourceLink, ResourceRoot, ResourceStat, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName,
+} from '@harness/core';
 import type { Suggestion } from '@harness/core';
 
 /** An embed function: one vector per text, in order. */
@@ -46,6 +48,32 @@ export interface Indexer {
   reindexSystem(system: SystemName): Promise<void>;
   /** Re-section a resource; returns what changed by section key. */
   resource(uri: ResourceUri): Promise<SectionDiff | undefined>;
+  /**
+   * Read resources through `reader` from now on (the resources module's forms: the hub's own resources, and each
+   * resource's primary form instead of its raw text). Returns the stop, after which the router's raw text is read again.
+   */
+  readWith(reader: IndexReader): () => void;
+}
+
+/** A resource's text in the form sectioning and the index read. */
+export interface PrimaryText {
+  readonly stat: ResourceStat;
+  readonly links: ResourceLink[];
+  readonly text: string;
+  /** The form the text is of; the raw text when absent. */
+  readonly form?: FormKind;
+  /** The converted version the text is of, for sectioners that cut by structure (`hub/tables`). */
+  readonly version?: ConvertedVersion;
+}
+
+/** Where the indexer reads resources from, when not straight from the router. */
+export interface IndexReader {
+  /** The system that serves a URI and its root's index policy, or undefined when nothing serves it. */
+  route(uri: ResourceUri): { system: SystemName; index: ResourceRoot['index'] } | undefined;
+  /** A resource's text in its primary form. Never spends on a model unless the hub is set to (`HARNESS_DESCRIBE_ON_INDEX`). */
+  primary(uri: ResourceUri, signal?: AbortSignal): Promise<PrimaryText>;
+  /** A resource indexed before was cut again and some of its sections changed or went away. */
+  sectioned(diff: SectionDiff): Promise<void>;
 }
 
 /** Hybrid search. Falls back to words alone while no embedder is connected. */

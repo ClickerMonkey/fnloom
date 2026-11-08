@@ -21,7 +21,7 @@
 import { ObjType } from '@aeye/gin';
 import { DeliveryStatus, qualify, type DeliveryId, type Json, type QualifiedName, type RunId } from '@harness/core';
 import { reactive, type Component } from 'vue';
-import type { AnyViews, ClientModule, Delivery, InputMount, Mount, SystemClient, WireViews } from './client.ts';
+import type { AnyViews, ClientModule, Delivery, InputMount, Mount, ResourceViewerEntry, ResourceViewerMode, SystemClient, WireViews } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
 import type { ContractShape } from './system.ts';
 
@@ -62,6 +62,21 @@ export function isClientModule(value: unknown): value is ClientModule {
 
 /** Any renderer, as the chat mounts it. Its props were checked against the contract when the system was built. */
 export type AnyRenderer = Component;
+
+/** A system's viewer for one resource format, as the chat offers it beside (or instead of) its own. */
+export interface SystemResourceViewer {
+  readonly component: AnyRenderer;
+  /** The system whose viewer it is; its client is the viewer's `system`. */
+  readonly system: string;
+  readonly mode: ResourceViewerMode;
+  /** The mode's name in the viewer's switch. */
+  readonly label: string;
+}
+
+/** Whether a resource viewer registration came with its mode (`{ component, mode }`) rather than as a bare component. */
+function isViewerEntry(value: AnyRenderer | ResourceViewerEntry<AnyRenderer>): value is ResourceViewerEntry<AnyRenderer> {
+  return typeof value === 'object' && 'component' in value && 'mode' in value;
+}
 
 /** The renderer sections looked up by qualified name. */
 type Section = 'fns' | 'kinds' | 'attachments' | 'inputs' | 'mentions';
@@ -127,7 +142,7 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
 export class ClientRuntime {
   readonly #bridge: ClientBridge;
   readonly #modules = new Map<string, Registered>();
-  readonly #viewers = new Map<string, { readonly viewer: AnyRenderer; readonly system: string }>();
+  readonly #viewers = new Map<string, readonly SystemResourceViewer[]>();
   readonly #clients = new Map<string, SystemClient<ContractShape>>();
 
   constructor(bridge: ClientBridge) {
@@ -138,8 +153,14 @@ export class ClientRuntime {
   register<C extends ContractShape>(module: ClientModule<C>): void {
     this.#modules.set(module.system, erase(module));
     for (const key of this.#clients.keys()) { if (key === module.system || key.startsWith(`${module.system} `)) { this.#clients.delete(key); } }
-    const viewers: Readonly<Record<string, AnyRenderer>> = module.renderers.resources ?? {};
-    for (const [format, viewer] of Object.entries(viewers)) { this.#viewers.set(format, { viewer, system: module.system }); }
+    for (const [format, list] of this.#viewers) { this.#viewers.set(format, list.filter((viewer) => viewer.system !== module.system)); }
+    const viewers: Readonly<Record<string, AnyRenderer | ResourceViewerEntry<AnyRenderer>>> = module.renderers.resources ?? {};
+    for (const [format, registered] of Object.entries(viewers)) {
+      const viewer: SystemResourceViewer = isViewerEntry(registered)
+        ? { component: registered.component, system: module.system, mode: registered.mode, label: registered.label ?? module.system }
+        : { component: registered, system: module.system, mode: 'replace', label: module.system };
+      this.#viewers.set(format, [...(this.#viewers.get(format) ?? []), viewer]);
+    }
   }
 
   /** Import a system's built module from its URL and register it. */
@@ -176,14 +197,26 @@ export class ClientRuntime {
     return this.#lookup(provider, 'mentions');
   }
 
-  /** The viewer for a resource format, from whichever system registered one. */
-  resourceViewer(format: string): AnyRenderer | undefined {
-    return this.#viewers.get(format)?.viewer;
+  /**
+   * Every system viewer for a resource format, in the order their systems loaded: the `replace` ones draw instead of
+   * the hub's preview (the first wins), the `tab` ones are modes beside it.
+   */
+  resourceViewers(format: string): readonly SystemResourceViewer[] {
+    return this.#viewers.get(format) ?? [];
   }
 
-  /** The system whose viewer draws a resource format; its client is the viewer's `system`. */
+  /** The viewer that replaces the hub's preview for a resource format, if a system registered one. */
+  resourceViewer(format: string): AnyRenderer | undefined {
+    return this.#replacing(format)?.component;
+  }
+
+  /** The system whose viewer replaces the hub's preview for a resource format; its client is the viewer's `system`. */
   viewerSystem(format: string): string | undefined {
-    return this.#viewers.get(format)?.system;
+    return this.#replacing(format)?.system;
+  }
+
+  #replacing(format: string): SystemResourceViewer | undefined {
+    return this.resourceViewers(format).find((viewer) => viewer.mode === 'replace');
   }
 
   /**

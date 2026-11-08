@@ -2,15 +2,15 @@
 /**
  * One run in an answer: its status dot, friendly label, what it is about, and what it is doing now in plain words,
  * with a ticking elapsed time and its cost. Progress shows as a bar or steps. A failed run says why in place of its
- * summary. The body is the fn's own renderer when its system has one, otherwise the result in brief. The card
+ * summary; refused input (which the agent retries) says so quietly, as a dashed card. The body is the fn's own renderer when its system has one, otherwise the result in brief. The card
  * collapses to its one line; clicking the line opens the run's details.
  */
 import { computed } from 'vue';
 import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
-import { isSettled } from '@harness/core';
-import { argSummary, isBusy, resultBrief, runElapsed, runError, runResult, runText, shownStatus, type RunView } from '../logic/runs.ts';
+import { MAIN_INSTANCE, isSettled } from '@harness/core';
+import { argSummary, invalidLine, isBusy, resultBrief, runElapsed, runError, runInvalid, runResult, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
@@ -31,6 +31,8 @@ const emit = defineEmits<{ open: []; toggle: [collapsed: boolean]; background: [
 const label = computed(() => fnLabel(props.run.fn));
 const about = computed(() => argSummary(props.run.args));
 const error = computed(() => runError(props.run));
+/** Refused input the agent retries: said softly, never as a failure. */
+const invalid = computed(() => runInvalid(props.run));
 const result = computed(() => runResult(props.run));
 const elapsed = computed(() => runElapsed(props.run, props.now));
 const active = computed(() => isBusy(props.run));
@@ -39,6 +41,8 @@ const brief = computed(() => resultBrief(result.value));
 const showStatus = computed(() => !isSettled(props.run.status) || props.run.background || props.byline !== '');
 const showResult = computed(() => props.view === undefined && brief.value !== '' && props.run.status === 'done');
 const hasBody = computed(() => showStatus.value || (props.run.progress !== undefined && !isSettled(props.run.status)) || props.view !== undefined || showResult.value);
+/** The instance it ran on, shown when the system runs as a fleet (anything but its main instance). */
+const instance = computed(() => (props.run.instance === undefined || props.run.instance === MAIN_INSTANCE ? undefined : props.run.instance));
 const canBackground = computed(() => props.run.allowed?.background === true && !props.run.background && !isSettled(props.run.status));
 </script>
 
@@ -52,9 +56,11 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
         <RunDot :status="status" />
         <span class="label">{{ label }}</span>
         <span v-if="error" class="about error-text" :title="error.message">{{ error.message }}</span>
+        <span v-else-if="invalid" class="about retried-text" data-testid="run-retried" :title="invalidLine(invalid)">Retried · {{ invalidLine(invalid) }}</span>
         <span v-else-if="about !== ''" class="about" :title="about">{{ about }}</span>
       </button>
       <span class="metrics">
+        <span v-if="instance" class="instance" data-testid="run-instance" :title="`Ran on ${run.system ?? 'its system'}@${instance}`">@{{ instance }}</span>
         <span v-if="run.attempt > 1" class="attempt" :title="`Attempt ${run.attempt}`">×{{ run.attempt }}</span>
         <span v-if="elapsed !== undefined" class="elapsed" :class="{ ticking: active }">{{ formatDuration(elapsed) }}</span>
         <span v-if="run.totalCost > 0" class="cost" :title="`This run ${formatCost(run.cost)}, with everything it called ${formatCost(run.totalCost)}`">{{ formatCost(run.totalCost) }}</span>
@@ -81,6 +87,9 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 }
 .run-card.active { border-color: var(--accent-soft-strong); box-shadow: 0 0 0 3px var(--accent-soft); animation: ui-rise-in var(--medium) var(--ease), card-glow 2.4s var(--ease-in-out) infinite; }
 .run-card.status-failed { border-color: var(--danger-soft); }
+/* refused input the agent retries: quiet, dashed, never red */
+.run-card.status-invalid-input { border-style: dashed; background: transparent; }
+.run-card.status-invalid-input .label { color: var(--text-dim); }
 .run-card.status-awaiting-approval, .run-card.asking { border-color: var(--warn-soft); }
 .run-card.status-done { animation: ui-rise-in var(--medium) var(--ease); }
 @keyframes card-glow { 0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); } 50% { box-shadow: 0 0 0 1px var(--accent-soft); } }
@@ -93,8 +102,10 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 .label { flex: none; font-weight: var(--weight-medium); font-size: var(--text-sm); }
 .about { flex: 1; min-width: 0; color: var(--text-dim); font-size: var(--text-sm); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .error-text { color: var(--danger); font-family: var(--font); }
+.retried-text { color: var(--text-faint); font-family: var(--font); font-style: italic; }
 .metrics { display: flex; align-items: center; gap: var(--space-2); flex: none; color: var(--text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .attempt { color: var(--warn); }
+.instance { padding: 0 6px; border-radius: var(--radius-full); background: var(--surface-2); color: var(--text-dim); font-family: var(--mono); max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticking { color: var(--accent); }
 .body { display: grid; gap: var(--space-2); min-width: 0; padding: 0 var(--space-3) var(--space-3); }
 .status { margin: 0; color: var(--text-dim); font-size: var(--text-sm); overflow-wrap: anywhere; }

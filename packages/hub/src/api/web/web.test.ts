@@ -5,17 +5,25 @@
 import { ApiError, manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, hubWebSpec, mintId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelInfo, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
+  ActorId, hubWebSpec, mintId, ModelCallId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelForward, type ModelInfo, type ModelRoleView, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
 import { fn, g, wireType } from '@harness/sdk';
 import { TestCatalog } from '../../execution/testing.ts';
 import { ScryptHasher } from '../hash.ts';
 import { settle } from '../../testing.ts';
+import { instanceRow } from '../../catalog/fixtures.ts';
 import { entriesFrom, rig, testManifest, webRig, type Fakes } from '../testing/rig.ts';
 import { clientUrl } from './chat.ts';
 
 const sessionId = SessionId.parse('ses_1');
 const client = { timeZone: 'Europe/Paris', locale: 'fr', now: 1 };
+/** The dictation role while it is off (no transcription model, no browser engine). */
+const DICTATION_OFF: ModelRoleView = { role: 'dictate', from: 'none' };
+/** Dictation through a transcription model that resolves. */
+const DICTATION_MODEL: ModelRoleView = {
+  role: 'dictate', from: 'setting', choice: { role: 'dictate', engine: { engine: 'model', model: { model: 'whisper-1' } }, language: 'en' },
+  resolved: { model: 'whisper-1', provider: 'openai' },
+};
 
 function session(owner: ActorId, fields: Partial<Session> = {}): Session {
   return {
@@ -35,8 +43,7 @@ function runRow(id: string, fields: Partial<Run> = {}): Run {
 
 function systemRow(name: string, fields: Partial<SystemRecord> = {}): SystemRecord {
   return {
-    name: SystemName.parse(name), description: `${name} system`, status: 'connected', enabled: { functions: true, renderers: true }, keyFingerprint: 'fp',
-    publicKey: 'secret-key-material', version: '1.0.0', manifestHash: 'h', actor: ActorId.parse(`act_${name}`), ...fields,
+    name: SystemName.parse(name), description: `${name} system`, status: 'connected', enabled: { functions: true, renderers: true }, version: '1.0.0', manifestHash: 'h', actor: ActorId.parse(`act_${name}`), ...fields,
   };
 }
 
@@ -180,7 +187,8 @@ describe('chat', () => {
         fns: () => Promise.resolve([]),
         manifest: () => Promise.resolve(undefined),
       },
-      execution: { llm: { canTranscribe: () => false, models: () => Promise.resolve([
+      models: { roles: { get: () => Promise.resolve(DICTATION_OFF) } },
+      execution: { llm: { models: () => Promise.resolve([
         { id: 'openrouter/auto', provider: 'openrouter', name: 'Auto', capabilities: ['chat'] },
         { id: 'amazon/titan-embed', provider: 'openrouter', name: 'Titan Embeddings', capabilities: ['chat', 'embedding'] },
       ]) } },
@@ -208,7 +216,8 @@ describe('chat', () => {
         fns: () => Promise.resolve([]),
         manifest: (system) => { asked.push(system); return Promise.resolve(testManifest(system, { client: built(system) })); },
       },
-      execution: { llm: { canTranscribe: () => false, models: () => Promise.resolve([]) } },
+      models: { roles: { get: () => Promise.resolve(DICTATION_OFF) } },
+      execution: { llm: { models: () => Promise.resolve([]) } },
     });
     await r.store.table('systems').insert(systemRow('fs'));
     // fns off, renderers on: old cards keep rendering with its client
@@ -247,7 +256,8 @@ describe('chat', () => {
         fns: () => Promise.resolve([read, reveal]),
         manifest: () => Promise.resolve(undefined),
       },
-      execution: { llm: { canTranscribe: () => false, models: () => Promise.resolve([]) } },
+      models: { roles: { get: () => Promise.resolve(DICTATION_OFF) } },
+      execution: { llm: { models: () => Promise.resolve([]) } },
     });
     await r.store.table('systems').insert(systemRow('fs'));
     const caps = await web.client.call('capabilities', { session: sessionId }, as);
@@ -363,25 +373,47 @@ describe('inbox and content', () => {
   });
 
   it('presigns uploads, and refuses to transcribe without a transcription model', async () => {
-    const { web, as } = await signedIn({ execution: { llm: { canTranscribe: () => false } } });
+    const { web, as } = await signedIn({ models: { roles: { get: () => Promise.resolve(DICTATION_OFF) } } });
     const presigned = await web.client.call('upload', { name: 'a.png', mime: 'image/png', size: 3 }, as);
     expect(presigned.url).toContain('/_files');
     await expect(web.client.call('transcribe', { audio: { hash: 'a'.repeat(64), size: 1, mime: 'audio/webm' } }, as)).rejects.toMatchObject({ status: 501 });
   });
 
-  it('transcribes an uploaded recording through the transcription model, and offers voice input', async () => {
-    const heard: number[] = [];
+  it('transcribes an uploaded recording through the dictation role’s model, and offers voice input', async () => {
+    const heard: Array<{ request: ModelForward; site: unknown }> = [];
     const { r, web, as } = await signedIn({
-      execution: { llm: { canTranscribe: () => true, transcribe: (audio) => { heard.push(audio.length); return Promise.resolve('book a table for two'); }, models: () => Promise.resolve([]) } },
+      models: {
+        roles: { get: () => Promise.resolve(DICTATION_MODEL) },
+        gateway: {
+          forward: (request, site) => {
+            heard.push({ request, site });
+            return Promise.resolve({ modality: 'transcribe', text: 'book a table for two', call: ModelCallId.parse('mdl_1'), cost: 0.001, model: 'whisper-1' });
+          },
+        },
+      },
+      execution: { llm: { models: () => Promise.resolve([]) } },
       chat: { sessions: { get: (_id, viewer) => Promise.resolve(session(viewer)) } },
       catalog: { entries: entriesFrom({}), fns: () => Promise.resolve([]), manifest: () => Promise.resolve(undefined) },
     });
     const audio = await r.api.content.put(new Uint8Array([1, 2, 3, 4, 5]), 'audio/webm');
     await expect(web.client.call('transcribe', { audio }, as)).resolves.toEqual({ text: 'book a table for two' });
-    expect(heard).toEqual([5]);
+    expect(heard).toEqual([{ request: { modality: 'transcribe', audio, model: { model: 'openai/whisper-1' }, language: 'en' }, site: { purpose: 'dictation' } }]);
     const picture = await r.api.content.put(new Uint8Array([9]), 'image/png');
     await expect(web.client.call('transcribe', { audio: picture }, as)).rejects.toMatchObject({ status: 422 });
-    expect((await web.client.call('capabilities', { session: sessionId }, as)).voiceInput).toBe(true);
+    const caps = await web.client.call('capabilities', { session: sessionId }, as);
+    expect(caps).toMatchObject({ voiceInput: true, dictation: { engine: 'model', language: 'en' } });
+  });
+
+  it('offers browser dictation without any model', async () => {
+    const { web, as } = await signedIn({
+      models: { roles: { get: () => Promise.resolve({ role: 'dictate', from: 'setting', choice: { role: 'dictate', engine: { engine: 'browser' } } }) } },
+      execution: { llm: { models: () => Promise.resolve([]) } },
+      chat: { sessions: { get: (_id, viewer) => Promise.resolve(session(viewer)) } },
+      catalog: { entries: entriesFrom({}), fns: () => Promise.resolve([]), manifest: () => Promise.resolve(undefined) },
+    });
+    const caps = await web.client.call('capabilities', { session: sessionId }, as);
+    expect(caps).toMatchObject({ voiceInput: true, dictation: { engine: 'browser' } });
+    await expect(web.client.call('transcribe', { audio: { hash: 'a'.repeat(64), size: 1, mime: 'audio/webm' } }, as)).rejects.toMatchObject({ status: 501 });
   });
 });
 
@@ -418,7 +450,7 @@ describe('admin', () => {
     const { web, as } = await signedIn({
       link: {
         pairing: {
-          approve: (pairing) => { calls.push(`approve ${pairing}`); return Promise.resolve(systemRow('fs')); },
+          approve: (pairing) => { calls.push(`approve ${pairing}`); return Promise.resolve(instanceRow('fs', 'connected')); },
           reject: (pairing) => { calls.push(`reject ${pairing}`); return Promise.resolve(); },
         },
       },

@@ -29,11 +29,15 @@ import { LinkKindDescriber } from './describer.ts';
 import { SystemEventRelay } from './events.ts';
 import { LinkHandshake, linkPlugin, type LinkEmbedding } from './handlers.ts';
 import type { SystemTokens } from './index.ts';
+import type { PackagingEnv } from './env.ts';
+import { migrateLegacyInstances } from './migrate.ts';
+import { contentBytes, HubPackages, type PackageContent } from './packages.ts';
 import { StorePairingService } from './pairing.ts';
-import type { Installer, ProcessLauncher } from './process.ts';
+import { NodeInstaller, type Installer, type ProcessLauncher } from './process.ts';
+import { FleetRouter } from './router.ts';
 import { MemorySystemOutput } from './output.ts';
 import { PeerResourceRouter } from './resources.ts';
-import { SystemStatusKeeper } from './status.ts';
+import { InstanceKeeper } from './status.ts';
 import { ProcessSupervisor } from './supervisor.ts';
 import { StoreSystemAdmin } from './systems.ts';
 
@@ -41,6 +45,7 @@ import { StoreSystemAdmin } from './systems.ts';
 export interface SystemsSettings {
   readonly hub: Pick<HubSettings['hubEnv'], 'HARNESS_URL' | 'HARNESS_SYSTEMS_DIR'>;
   readonly link: HubSettings['linkEnv'];
+  readonly packaging: PackagingEnv;
   readonly model: Pick<HubSettings['modelEnv'], 'HARNESS_EMBEDDER_DOCUMENT' | 'HARNESS_EMBEDDER_QUERY' | 'HARNESS_EMBED_BATCH'>;
   readonly index: IndexTuning;
   readonly search: Pick<StoreTuning, 'HARNESS_SEARCH_RRF_K' | 'HARNESS_SEARCH_DEPTH'>;
@@ -56,7 +61,10 @@ export interface SystemsOptions {
   /** Signs the HTTP tokens systems get in their welcome. */
   readonly tokens: SystemTokens;
   readonly launcher: ProcessLauncher;
-  readonly installer: Installer;
+  /** How systems are fetched (default: npm, git and package zips from `content`). */
+  readonly installer?: Installer;
+  /** The hub's content store, where uploaded package zips and data exports live (looked up when used). */
+  readonly content: () => PackageContent;
   /** The typed callers of connected systems, shared with the hub link server (default a new registry). */
   readonly peers?: Peers<SystemLinkSpec>;
   /** Replace how systems' embed requests are answered (tests); default the index's document embedder. */
@@ -81,15 +89,23 @@ export function buildSystems(options: SystemsOptions) {
   const connections = new PeerLinkService({ log, clock, ...(options.peers === undefined ? {} : { peers: options.peers }) });
   const describer = new LinkKindDescriber(connections);
   const catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
-  const status = new SystemStatusKeeper({ store, bus, catalog, links: connections });
-  const pairing = new StorePairingService({ store, bus, log, clock, url: settings.hub.HARNESS_URL, timeout: settings.link.HARNESS_PAIRING_TIMEOUT });
-  const config = new StoreConfigService({ store, bus, log, clock, catalog, links: connections, status });
+  const instances = new InstanceKeeper({ store, bus, catalog, links: connections });
+  const pairing = new StorePairingService({
+    store, bus, log, clock, instances, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,
+    check: (system, type, value) => catalog.check(system, type, value),
+    configType: async (system) => (await catalog.manifest(system))?.config,
+  });
+  const config = new StoreConfigService({ log, clock, catalog, bus, links: connections, instances });
   const resources = new PeerResourceRouter({ links: connections, catalog, bus, log, maxChunk: settings.link.HARNESS_MAX_CHUNK });
-  const admin = new StoreSystemAdmin({ store, log, catalog, links: connections, status, stopTimeout: settings.link.HARNESS_STOP_TIMEOUT });
+  const admin = new StoreSystemAdmin({ store, log, catalog, links: connections, instances, stopTimeout: settings.link.HARNESS_STOP_TIMEOUT });
+  const router = new FleetRouter({ links: connections, resources, store, instances });
+  const installer = options.installer ?? new NodeInstaller({
+    npm: settings.packaging.HARNESS_NPM, maxBytes: settings.packaging.HARNESS_PACKAGE_MAX, zips: { bytes: (hash) => contentBytes(options.content(), hash) },
+  });
   const relay = new SystemEventRelay({ bus, links: connections, catalog, log });
   const output = new MemorySystemOutput({ bus, clock });
   const supervisor = new ProcessSupervisor({
-    store, log, clock, links: connections, pairing, config, status, launcher: options.launcher, installer: options.installer,
+    store, log, clock, links: connections, pairing, config, instances, launcher: options.launcher, installer,
     settings: {
       systemsDir: settings.hub.HARNESS_SYSTEMS_DIR, hubLink: linkUrl(settings.hub.HARNESS_URL), stopTimeout: settings.link.HARNESS_STOP_TIMEOUT,
       backoff: settings.link.HARNESS_RESTART_BACKOFF, perHour: settings.link.HARNESS_RESTARTS_PER_HOUR,
@@ -107,8 +123,13 @@ export function buildSystems(options: SystemsOptions) {
   const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document, overfetch: settings.index.HARNESS_SEARCH_OVERFETCH });
   const suggest = new IndexSuggester({ store, catalog, search });
 
+  const packages = new HubPackages({
+    content: options.content, supervisor, admin, instances, links: connections, exportTimeout: settings.link.HARNESS_STOP_TIMEOUT, log, clock,
+    maxBytes: settings.packaging.HARNESS_PACKAGE_MAX,
+  });
+
   const handshake = new LinkHandshake({
-    store, log, clock, catalog, links: connections, pairing, config, status, tokens, resources, output,
+    log, clock, catalog, links: connections, pairing, config, instances, tokens, resources, output,
     embedding: options.embedding ?? new IndexEmbedding({ embedders, batcher, catalog }),
     limits: { maxFrame: settings.link.HARNESS_MAX_FRAME, maxChunk: settings.link.HARNESS_MAX_CHUNK, heartbeat: settings.link.HARNESS_HEARTBEAT },
   });
@@ -116,10 +137,14 @@ export function buildSystems(options: SystemsOptions) {
   let stopIndexer: (() => void) | undefined;
   let stopOutput: (() => void) | undefined;
   return {
-    catalog, connections, pairing, config, status, resources, admin, relay, supervisor, handshake, output,
+    catalog, connections, pairing, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output,
     index: { embedders, indexer, search, suggest, sectioning, batcher },
     /** The link plugin to install on the hub link server. */
     plugin: linkPlugin(handshake, { log, clock }),
+    /** Move build 1's single-instance system rows onto instances (before systems connect). */
+    migrate(): Promise<number> {
+      return migrateLegacyInstances(store, log);
+    },
     /** Start following the bus (indexing) and the embedders. */
     start(): void {
       stopIndexer ??= indexer.start();

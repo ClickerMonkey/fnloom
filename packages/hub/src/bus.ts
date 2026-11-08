@@ -6,8 +6,8 @@
  * Owner: the api lane implements `EventBus` (`bus/memory.ts`); every module publishes and subscribes through it.
  */
 import type {
-  ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
-  OutputLine, ResourceRoot, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
+  ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, HubMcpId, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
+  FormKind, OutputLine, ResourceRoot, ResourceUri, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
 } from '@harness/core';
 
 /** Every internal event, by name. */
@@ -37,7 +37,13 @@ export interface HubEvents {
   'resources.changed': { system: SystemName; changes: ResourceChange[] };
   /** A system's roots, as it offered them on connect or after it said they changed. */
   'resources.roots': { system: SystemName; roots: readonly ResourceRoot[] };
+  /** A resource's forms or primary form changed (a form was made), so browsers refresh its badges and open viewer. */
+  'resource.forms': { uri: ResourceUri; forms: FormKind[] };
+  /** A context item was written, linked or forgotten. */
+  'context.changed': { name: QualifiedName };
   'capabilities.changed': Record<string, never>;
+  /** A hub MCP was made, changed, given a new secret or removed: its endpoint is rebuilt (or taken down). */
+  'mcp.changed': { mcp: HubMcpId; removed: boolean };
   /** A budget whose rule says `ask` is used up: a call is waiting for someone to raise it. */
   'budget.reached': { budget: BudgetRule; run: RunId; reason: string; session?: SessionId | undefined };
 }

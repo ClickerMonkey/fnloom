@@ -5,6 +5,9 @@ import {
   ReservationId, RunId, SecretId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 
+/** Where a local Ollama listens by default. */
+export const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+
 /**
  * The one table of model providers harness can configure (one per aeye provider package the hub builds, in
  * `execution/providers.ts`) and the fields each takes. A provider joins here only once the hub can build it.
@@ -15,6 +18,11 @@ export function providerVariants<S extends z.ZodType<string>>(secret: S) {
   return z.discriminatedUnion('provider', [
     z.object({ provider: z.literal('openai'), apiKey: secret, baseURL: z.url().optional() }),
     z.object({ provider: z.literal('openrouter'), apiKey: secret }),
+    /**
+     * A local Ollama, no key: chat through its OpenAI-compatible `/v1`, limits and abilities read from `/api/show`.
+     * `contextWindow` is the window its models are served with when their Modelfiles set no `num_ctx`.
+     */
+    z.object({ provider: z.literal('ollama'), baseURL: z.url().default(OLLAMA_BASE_URL), contextWindow: z.number().int().min(256).optional() }),
   ]);
 }
 

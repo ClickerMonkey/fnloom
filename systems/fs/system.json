@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "fs",
+  "version": "0.2.0",
+  "description": "Files and a shell over chosen folders, served as resources. Run one instance per machine to reach a fleet of them.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "client": { "entry": "client/index.ts" },
+  "instances": "many"
+}

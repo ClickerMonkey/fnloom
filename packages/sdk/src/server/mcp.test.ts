@@ -68,7 +68,10 @@ describe('the MCP face', () => {
       result: { tools: [{ name: 'calc_add', description: 'Add two numbers.', inputSchema: { type: 'object', properties: { a: { type: 'number', description: 'The first number.' } } } }] },
     });
     expect(await client.rpc('tools/call', { name: 'calc_add', arguments: { a: 2, b: 3 } })).toMatchObject({ result: { content: [{ type: 'text', text: '5' }] } });
-    expect(await client.rpc('tools/call', { name: 'calc_add', arguments: { a: 'x' } })).toMatchObject({ result: { isError: true } });
+    const refused = await client.rpc('tools/call', { name: 'calc_add', arguments: { a: 'x' } });
+    expect(refused).toMatchObject({ result: { isError: true } });
+    // refused input says what was wrong, by field, so the client's model can fix it
+    expect(JSON.stringify(refused)).toMatch(/The input was refused: a: /);
     expect(await client.rpc('tools/call', { name: 'calc_secret', arguments: {} })).toMatchObject({ error: { code: -32602 } });
     expect(await client.rpc('nope')).toMatchObject({ error: { code: -32601 } });
   });

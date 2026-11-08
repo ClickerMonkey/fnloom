@@ -10,17 +10,19 @@ import type { UserEvents } from '../../api/notifications.ts';
 import type { KeyValueStore } from '../../state/persisted.ts';
 import type { ChatApi, FileSender, SessionEvents } from '../api.ts';
 import { CapabilitiesStore } from './capabilities.ts';
-import { TypeLibrary } from '../forms/types.ts';
+import { TypeLibrary } from '../../gin/types.ts';
 import { CollapseStore } from './collapse.ts';
 import { ComposerStore } from './composer.ts';
 import { Inspector } from './inspect.ts';
 import { MentionCards } from './mentions.ts';
 import { RendererHub, type RendererDeps } from './renderers.ts';
 import { SessionListStore } from './sessions.ts';
+import type { RetryPolicy } from '../../state/retry.ts';
+import { SelectionPreview } from './preview.ts';
 import { DraftSuggestions } from './suggest.ts';
 import { THREAD_SETTINGS, ThreadStore, type ThreadSettings } from './thread.ts';
 import { sendFile, UploadQueue, type Previews } from './uploads.ts';
-import { VoiceStore, type Recorder } from './voice.ts';
+import { RecordedDictation, SpeechDictation, VoiceStore, type DictationEngines, type Recorder, type SpeechRecognizerFactory } from './voice.ts';
 
 /** What the chat is built from. */
 export interface ChatDeps {
@@ -32,11 +34,15 @@ export interface ChatDeps {
   readonly clock: () => number;
   readonly client: () => ClientInfo;
   readonly me: () => ActorId | undefined;
-  /** A microphone, when this browser can record. */
+  /** A microphone, when this browser can record (the `model` dictation engine). */
   readonly recorder: () => Recorder | undefined;
+  /** The browser's speech recognition, when it has one (the `browser` dictation engine). */
+  readonly speech?: () => SpeechRecognizerFactory | undefined;
   readonly previews?: Previews;
   readonly renderers?: Pick<RendererDeps, 'load' | 'share'>;
   readonly thread?: ThreadSettings;
+  /** How a thread retries its catch-up after a reconnect (default `RETRY`). */
+  readonly retry?: RetryPolicy;
 }
 
 /** How many sessions keep their thread in memory. */
@@ -64,6 +70,7 @@ export class ChatStore {
   readonly #threads = new Map<SessionId, ThreadStore>();
   readonly #composers = new Map<SessionId, ComposerStore>();
   readonly #suggestions = new Map<SessionId, DraftSuggestions>();
+  readonly #previews = new Map<SessionId, SelectionPreview>();
   #voice: VoiceStore | null | undefined;
 
   constructor(deps: ChatDeps) {
@@ -104,6 +111,7 @@ export class ChatStore {
     const thread = new ThreadStore(id, {
       api: this.#deps.api, events: this.#deps.sessionEvents, clock: this.#deps.clock, client: this.#deps.client, me: this.#deps.me,
       changed: (summary) => { this.sessions.remember(summary); },
+      ...(this.#deps.retry === undefined ? {} : { retry: this.#deps.retry }),
     }, this.#deps.thread ?? THREAD_SETTINGS);
     this.#threads.set(id, thread);
     for (const [old, stale] of this.#threads) {
@@ -142,11 +150,25 @@ export class ChatStore {
     return made;
   }
 
-  /** Dictation, when this browser can record. */
+  /** A session's dry run of its contextor ("what would this message get?"). */
+  preview(id: SessionId): SelectionPreview {
+    const known = this.#previews.get(id);
+    if (known !== undefined) { return known; }
+    const made = new SelectionPreview(this.#deps.api, id);
+    this.#previews.set(id, made);
+    return made;
+  }
+
+  /** Dictation, when this browser can record or recognise speech. */
   voice(): VoiceStore | undefined {
     if (this.#voice === undefined) {
       const recorder = this.#deps.recorder();
-      this.#voice = recorder === undefined ? null : new VoiceStore(recorder, (clip) => this.#uploadClip(clip), this.#deps.api, this.#deps.clock);
+      const speech = this.#deps.speech?.();
+      const engines: DictationEngines = {
+        ...(recorder === undefined ? {} : { model: new RecordedDictation(recorder, (clip) => this.#uploadClip(clip), this.#deps.api) }),
+        ...(speech === undefined ? {} : { browser: new SpeechDictation(speech) }),
+      };
+      this.#voice = Object.keys(engines).length === 0 ? null : new VoiceStore(engines, this.#deps.clock);
     }
     return this.#voice ?? undefined;
   }

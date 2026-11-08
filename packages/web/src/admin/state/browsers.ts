@@ -1,8 +1,8 @@
 /**
- * The browsers: runs, LLM calls and resources. Each is a list paged for a filter (taken from the URL by its page)
- * and the one item opened beside it, fetched whole. One class, three sources.
+ * The browsers: runs, LLM calls, model calls and resources. Each is a list paged for a filter (taken from the URL by
+ * its page) and the one item opened beside it, fetched whole. One class, four sources.
  */
-import type { LlmInteraction, LlmInteractionId, ResourceRead, ResourceRecord, ResourceUri, Run, RunId, TurnId, UndoReport } from '@harness/core';
+import type { LlmInteraction, LlmInteractionId, ModelCall, ModelCallFilter, ModelCallId, ResourceRead, ResourceRecord, ResourceUri, Run, RunId, TurnId, UndoReport } from '@harness/core';
 import { shallowRef } from 'vue';
 import { Loaded, Paged, Task, type PagedSource, type TaskResult } from '../../state/loaded.ts';
 import type { ChatApi } from '../../chat/api.ts';
@@ -71,6 +71,13 @@ export class RunsBrowser extends Browser<Run, RunFilter, RunId, Run> {
 }
 
 export type LlmBrowser = Browser<LlmSummary, LlmFilter, LlmInteractionId, LlmInteraction>;
+
+/** A model call opened: its record and, for a chat call, the whole request and response. */
+export interface OpenedModelCall {
+  readonly call: ModelCall;
+  readonly interaction?: LlmInteraction;
+}
+export type ModelCallsBrowser = Browser<ModelCall, ModelCallFilter, ModelCallId, OpenedModelCall>;
 export type ResourcesBrowser = Browser<ResourceRecord, ResourceFilter, ResourceUri, ResourceRead>;
 
 /** Runs, newest first; a run opens with its full record. */
@@ -94,6 +101,21 @@ export function llmBrowser(api: Pick<AdminApi, 'llmCalls'>, chat: Pick<ChatApi, 
     limit: BROWSER_PAGE,
     one: (id) => chat.llmCall.call({ id }),
     oneFailure: "Couldn't load this LLM call.",
+  }, {});
+}
+
+/** Every model call of every modality, newest first; a chat call opens with its interaction (what the model saw and said). */
+export function modelCallsBrowser(api: Pick<AdminApi, 'modelCalls' | 'modelCall'>, chat: Pick<ChatApi, 'llmCall'>): ModelCallsBrowser {
+  return new Browser({
+    fetch: (filter, cursor, limit) => api.modelCalls.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) }),
+    key: (call) => call.id,
+    failure: "Couldn't load model calls.",
+    limit: BROWSER_PAGE,
+    one: async (id) => {
+      const call = await api.modelCall.call({ id });
+      return call.interaction === undefined ? { call } : { call, interaction: await chat.llmCall.call({ id: call.interaction }) };
+    },
+    oneFailure: "Couldn't load this model call.",
   }, {});
 }
 

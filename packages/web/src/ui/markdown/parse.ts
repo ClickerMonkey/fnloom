@@ -14,6 +14,10 @@ const LIST = /^( {0,3})([-*+]|\d{1,9}[.)])(\s+|$)(.*)$/;
 const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const TASK = /^\[([ xX])\]\s+/;
 const LEVELS = [1, 2, 3, 4, 5, 6] as const;
+/** A display formula's opening line: `$$`, maybe with the formula (and its closing `$$`) on the same line. */
+const MATH = /^ {0,3}\$\$(.*)$/;
+/** Where a display formula closes. */
+const MATH_CLOSE = '$$';
 
 const isBlank = (line: string): boolean => line.trim() === '';
 const indentOf = (line: string): number => /^ */.exec(line)?.[0].length ?? 0;
@@ -32,7 +36,7 @@ function alignOf(cell: string): MdAlign {
 
 /** Whether a line starts a block other than a paragraph (so it ends a paragraph above it). */
 function startsBlock(line: string, next: string | undefined): boolean {
-  return FENCE.test(line) || HEADING.test(line) || RULE.test(line) || QUOTE.test(line) || LIST.test(line)
+  return FENCE.test(line) || MATH.test(line) || HEADING.test(line) || RULE.test(line) || QUOTE.test(line) || LIST.test(line)
     || (line.includes('|') && next !== undefined && TABLE_DELIMITER.test(next) && next.includes('-'));
 }
 
@@ -56,7 +60,12 @@ class BlockReader {
 
   #block(line: string): MdBlock {
     const fence = FENCE.exec(line);
-    if (fence) { return this.#code(fence[1] ?? '```', fence[2] ?? ''); }
+    if (fence) {
+      const code = this.#code(fence[1] ?? '```', fence[2] ?? '');
+      return code.type === 'code' && code.lang === 'math' && !code.open ? { type: 'math', tex: code.text } : code;
+    }
+    const math = MATH.exec(line);
+    if (math) { return this.#math(math[1] ?? ''); }
     const heading = HEADING.exec(line);
     if (heading) {
       this.#at++;
@@ -82,6 +91,22 @@ class BlockReader {
       body.push(line);
     }
     return { type: 'code', lang, text: body.join('\n'), open: true };
+  }
+
+  /** A display formula, to the closing `$$` (to the end while it hasn't closed yet, as text streams in). */
+  #math(first: string): MdBlock {
+    this.#at++;
+    const closed = first.indexOf(MATH_CLOSE);
+    if (closed >= 0) { return { type: 'math', tex: first.slice(0, closed).trim() }; }
+    const body = [first];
+    while (this.#at < this.#lines.length) {
+      const line = this.#lines[this.#at] ?? '';
+      this.#at++;
+      const end = line.indexOf(MATH_CLOSE);
+      if (end >= 0) { body.push(line.slice(0, end)); break; }
+      body.push(line);
+    }
+    return { type: 'math', tex: body.join('\n').trim() };
   }
 
   #quote(): MdBlock {

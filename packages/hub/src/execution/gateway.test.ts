@@ -1,5 +1,5 @@
 import type { Chunk, Response, Streamer } from '@aeye/core';
-import { LlmInteractionId, RunId, SystemName, TurnId, type LlmForward, type LlmForwardChunk, type Run } from '@harness/core';
+import { LlmInteractionId, ModelCallId, RunId, SystemName, TurnId, type LlmForward, type LlmForwardChunk, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { testStore, memoryLog } from '../testing.ts';
 import { LlmRateLimited } from './errors.ts';
@@ -13,7 +13,7 @@ const FS = SystemName.parse('fs');
 const forward: LlmForward & { system: string } = { run: RUN, request: { messages: [{ role: 'user', content: 'hi' }] }, stream: true, system: FS };
 
 /** A gateway over a stored run, a streamer that is rate limited `limited` times first, and a recording LLM doer. */
-async function gateway(limited: number, retryAfter = 40, transcribe = '') {
+async function gateway(limited: number, retryAfter = 40) {
   const store = await testStore();
   await store.table('turns').insert({
     id: TURN, actor: ALICE, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running', limits: OPEN_LIMITS, cost: 0, errors: 'feed-back', createdAt: 0,
@@ -29,13 +29,18 @@ async function gateway(limited: number, retryAfter = 40, transcribe = '') {
   const streamer: Streamer<HubCallContext, HubCallMetadata> = async function* (_request, context): AsyncGenerator<Chunk, Response> {
     calls += 1;
     if (calls <= limited) throw new LlmRateLimited('test-model', retryAfter);
-    context.call?.record({ interaction: LlmInteractionId.parse('llm_1'), model: 'test-model', cost: 0.001, usage: { input: 1, output: 1 } });
+    context.call?.record({ interaction: LlmInteractionId.parse('llm_1'), modelCall: ModelCallId.parse('mdl_1'), model: 'test-model', cost: 0.001, usage: { input: 1, output: 1 } });
     yield { content: 'hello' };
     return { content: 'hello', finishReason: 'stop', model: 'test-model' };
   };
-  const heard: Array<{ bytes: number; model: string }> = [];
+  const heard: Array<{ bytes: number; ctx: HubCallContext }> = [];
+  /** A non-chat engine call: heard, and its record reported the way the hub AI's hooks do. */
+  const answer = <T>(ctx: HubCallContext, value: T): Promise<T> => {
+    ctx.receipts?.record({ modelCall: ModelCallId.parse('mdl_2'), model: 'whisper-1', cost: 0.002 });
+    return Promise.resolve(value);
+  };
   const hub = new HubLlmGateway({
-    store, clock: () => 0, log: memoryLog().log, settings: testSettings({}, {}, 'test-model', transcribe),
+    store, clock: () => 0, log: memoryLog().log, settings: testSettings({}, {}, 'test-model'),
     runs: { get: (id) => store.table('runs').get(id) },
     queues: {
       llm: async (_priority, task) => {
@@ -45,8 +50,11 @@ async function gateway(limited: number, retryAfter = 40, transcribe = '') {
       },
     },
     llm: {
-      streamer, embed: () => Promise.reject(new Error('no embeddings here')), models: () => [],
-      transcribe: (audio, model) => { heard.push({ bytes: audio.length, model }); return Promise.resolve('hello there'); },
+      streamer, models: () => [],
+      embed: (input, ctx) => answer(ctx, input.texts.map(() => [1, 0])),
+      image: () => Promise.reject(new Error('no images here')),
+      speech: () => Promise.reject(new Error('no speech here')),
+      transcribe: (input, ctx) => { heard.push({ bytes: input.audio.length, ctx }); return answer(ctx, { text: 'hello there' }); },
     },
     models: { resolve: () => Promise.resolve({}) },
     sleep: (ms, signal) => { events.push(`sleep ${ms} holding ${held}`); return abortableSleep(ms, signal); },
@@ -60,19 +68,30 @@ async function collect(stream: AsyncIterable<LlmForwardChunk>): Promise<LlmForwa
   return out;
 }
 
-describe('transcription', () => {
-  it('is off without a transcription model, and refuses to transcribe', async () => {
+describe('non-chat model calls', () => {
+  const audio = { audio: new Uint8Array(12), mime: 'audio/webm', metadata: { model: 'whisper-1' } };
+  const live = () => new AbortController().signal;
+
+  it('are paid by a system’s own run and answer with their record', async () => {
     const { hub, heard } = await gateway(0);
-    expect(hub.canTranscribe()).toBe(false);
-    await expect(hub.transcribe(new Uint8Array(4))).rejects.toThrow(/no transcription model/);
+    const out = await hub.transcribe(audio, { system: FS, run: RUN }, live());
+    expect(out).toEqual({ value: { text: 'hello there' }, call: 'mdl_2', cost: 0.002, model: 'whisper-1' });
+    expect(heard[0]?.bytes).toBe(12);
+    expect(heard[0]?.ctx.call).toMatchObject({ run: RUN, system: FS, fn: 'fs/summarize' });
+  });
+
+  it('refuse a run that isn’t the system’s, and a system call outside a run', async () => {
+    const { hub, heard } = await gateway(0);
+    await expect(hub.transcribe(audio, { system: SystemName.parse('web'), run: RUN }, live())).rejects.toThrow(/not web's/);
+    await expect(hub.embed({ texts: ['a'], metadata: {} }, { system: FS }, live())).rejects.toThrow(/inside a run/);
     expect(heard).toEqual([]);
   });
 
-  it('hears a recording through the transcription model', async () => {
-    const { hub, heard } = await gateway(0, 40, 'whisper-1');
-    expect(hub.canTranscribe()).toBe(true);
-    expect(await hub.transcribe(new Uint8Array(12))).toBe('hello there');
-    expect(heard).toEqual([{ bytes: 12, model: 'whisper-1' }]);
+  it('do the hub’s own work under its purpose, paid by no turn', async () => {
+    const { hub, heard } = await gateway(0);
+    await expect(hub.transcribe(audio, { purpose: 'dictation' }, live())).resolves.toMatchObject({ value: { text: 'hello there' }, call: 'mdl_2' });
+    expect(heard[0]?.ctx.call).toBeUndefined();
+    expect(heard[0]?.ctx.purpose).toBe('dictation');
   });
 });
 

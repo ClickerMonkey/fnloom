@@ -53,3 +53,12 @@ describe('gin types read off zod schemas', () => {
     expect(plain.read({ a: 'x' })).toEqual({ a: 'x' });
   });
 });
+
+describe('required fields', () => {
+  it('reads `.required()` objects as fields that must be there', () => {
+    const Limits = z.object({ window: z.number().int().optional(), output: z.number().int().default(256) }).required();
+    const type = ginOf(Limits);
+    expect(parseValue(type, { window: 4096, output: 512 })).toEqual({ window: 4096, output: 512 });
+    expect(() => parseValue(type, { window: 4096 })).toThrow();
+  });
+});

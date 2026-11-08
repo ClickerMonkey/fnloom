@@ -6,8 +6,21 @@
  */
 import { h, type VNode, type VNodeArrayChildren } from 'vue';
 import UiCodeBlock from '../UiCodeBlock.vue';
+import UiDiagram from '../UiDiagram.vue';
 import type { MdBlock, MdInline } from './ast.ts';
+import { DIAGRAM_LANGUAGES } from './diagram.ts';
 import { RESOURCE_LINK } from './inline.ts';
+import { mathAttrs, texToMath, type MathNode } from './math.ts';
+
+/** A MathML tree as elements (Vue puts children of `math` in the MathML namespace). */
+function mathNodes(nodes: readonly MathNode[]): VNode[] {
+  return nodes.map((node) => ('text' in node ? h(node.tag, mathAttrs(node), node.text) : h(node.tag, mathAttrs(node), mathNodes(node.children))));
+}
+
+/** A TeX formula as a `math` element; its source is its accessible label and what copying it gives. */
+function math(tex: string, display: boolean): VNode {
+  return h('math', { class: display ? 'md-math-block' : 'md-math', display: display ? 'block' : 'inline', 'aria-label': tex, 'data-tex': tex }, mathNodes(texToMath(tex, display)));
+}
 
 /** What rendering needs from its host. */
 export interface RenderHooks {
@@ -41,6 +54,7 @@ function inline(nodes: readonly MdInline[], hooks: RenderHooks): VNodeArrayChild
         ? h('a', { href: node.text, class: 'md-resource', onClick: handled(hooks.navigate, node.text) }, [h('code', { class: 'md-code' }, node.text)])
         : h('code', { class: 'md-code' }, node.text);
       case 'break': return h('br');
+      case 'math': return math(node.tex, false);
       case 'image': {
         const img = h('img', { src: node.src, alt: node.alt, loading: 'lazy', class: 'md-image' });
         const view = hooks.view;
@@ -64,7 +78,10 @@ function block(node: MdBlock, hooks: RenderHooks): VNode {
     case 'heading': return h(`h${node.level}`, inline(node.children, hooks));
     case 'rule': return h('hr');
     case 'quote': return h('blockquote', renderBlocks(node.children, hooks));
-    case 'code': return h(UiCodeBlock, { code: node.text, language: node.lang, class: 'md-block', onCopied: hooks.copied });
+    case 'code': return DIAGRAM_LANGUAGES.includes(node.lang) && !node.open
+      ? h(UiDiagram, { source: node.text, language: node.lang, class: 'md-block' })
+      : h(UiCodeBlock, { code: node.text, language: node.lang, class: 'md-block', onCopied: hooks.copied });
+    case 'math': return h('div', { class: 'md-block md-math-wrap', tabindex: 0, role: 'region', 'aria-label': 'Formula' }, [math(node.tex, true)]);
     case 'list': return h(node.ordered ? 'ol' : 'ul', {
       ...(node.ordered && node.start !== 1 ? { start: node.start } : {}),
       class: node.items.every((item) => item.checked !== undefined) ? 'md-tasks' : undefined,

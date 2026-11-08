@@ -15,7 +15,8 @@ afterEach(async () => { for (const front of fronts.splice(0)) { await front.clos
 async function start(options: { expiry?: number; ready?: boolean } = {}) {
   const web = server(ping, [implement(ping).handlers({ ping: () => ({ pong: true }) })]);
   const front = new HttpFront({
-    web, link: server(spec({ endpoints: {} }), []), files: [], heartbeat: 60_000, tokenMargin: 0, clock: Date.now, log: memoryLog().log,
+    web, link: server(spec({ endpoints: {} }), []), files: [], heartbeat: 60_000,
+    mcp: { fetch: (request) => Promise.resolve(Response.json({ path: new URL(request.url).pathname, auth: request.headers.get('authorization') })) }, tokenMargin: 0, clock: Date.now, log: memoryLog().log,
     health: { live: () => true, ready: () => options.ready ?? true },
     tokenExpiry: (token) => (token === 'good' && options.expiry !== undefined ? Date.now() + options.expiry : undefined),
   });
@@ -29,6 +30,13 @@ describe('HttpFront', () => {
     const { http } = await start();
     await expect((await fetch(`${http}/api/ping`)).json()).resolves.toEqual({ pong: true });
     expect((await fetch(`${http}/ping`)).status).toBe(404);
+  });
+
+  it('hands /mcp and everything under it to the hub MCPs, headers and all', async () => {
+    const { http } = await start();
+    await expect((await fetch(`${http}/mcp/claude`, { method: 'POST', headers: { authorization: 'Bearer hmcp_x' } })).json()).resolves.toEqual({ path: '/mcp/claude', auth: 'Bearer hmcp_x' });
+    await expect((await fetch(`${http}/mcp`)).json()).resolves.toMatchObject({ path: '/mcp' });
+    expect((await fetch(`${http}/mcpx`)).status).toBe(404);
   });
 
   it('answers health checks from the lifecycle', async () => {

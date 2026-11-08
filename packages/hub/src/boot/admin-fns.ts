@@ -49,6 +49,17 @@ export function registerAdminFns(fns: HubFns, ops: () => AdminOperations): void 
     start_system: run(ADMIN_ENDPOINTS.start_system, (o) => o.start_system),
     stop_system: run(ADMIN_ENDPOINTS.stop_system, (o) => o.stop_system),
     upgrade_system: run(ADMIN_ENDPOINTS.upgrade_system, (o) => o.upgrade_system),
+    set_model_role: run(ADMIN_ENDPOINTS.set_model_role, (o) => o.set_model_role),
+    clear_model_role: run(ADMIN_ENDPOINTS.clear_model_role, (o) => o.clear_model_role),
+    set_model_limits: run(ADMIN_ENDPOINTS.set_model_limits, (o) => o.set_model_limits),
+    create_mcp: run(ADMIN_ENDPOINTS.create_mcp, (o) => o.create_mcp),
+    update_mcp: run(ADMIN_ENDPOINTS.update_mcp, (o) => o.update_mcp),
+    rotate_mcp_secret: run(ADMIN_ENDPOINTS.rotate_mcp_secret, (o) => o.rotate_mcp_secret),
+    delete_mcp: run(ADMIN_ENDPOINTS.delete_mcp, (o) => o.delete_mcp),
+    preview_mcp: run(ADMIN_ENDPOINTS.preview_mcp, (o) => o.preview_mcp),
+    install_package: run(ADMIN_ENDPOINTS.install_package, (o) => o.install_package),
+    remove_instance: run(ADMIN_ENDPOINTS.remove_instance, (o) => o.remove_instance),
+    export_system_data: run(ADMIN_ENDPOINTS.export_system_data, (o) => o.export_system_data),
   };
   for (const name of ADMIN_FN_NAMES) { fns.register(hub.fns[name], impls[name]); }
 }

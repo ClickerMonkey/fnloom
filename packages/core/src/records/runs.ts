@@ -4,7 +4,7 @@ import { GinTypeDef } from '../gin.ts';
 import { LlmChunk, LlmRequest, LlmUsage } from '../llm.ts';
 import { FnKindName } from '../manifest.ts';
 import {
-  ActorId, DeliveryId, HandlerCallId, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
+  ActorId, DeliveryId, HandlerCallId, InstanceName, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
 import { RunText } from '../status.ts';
@@ -23,6 +23,11 @@ export const Run = z.object({
   kind: FnKindName,
   /** The system that ran it. */
   system: SystemName,
+  /**
+   * The instance of the system it runs on, chosen once when it is made (`laptop` in a fleet of fs instances). Absent
+   * for the hub's own runs and for rows made before fleets.
+   */
+  instance: InstanceName.optional(),
   parent: RunId.optional(),
   root: RunId,
   turn: TurnId,

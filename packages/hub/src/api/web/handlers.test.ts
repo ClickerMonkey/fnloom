@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, ApprovalId, HandlerCallId, mintId, QualifiedName, RunId, SessionId, SystemName, TurnId, type Approval, type ChatMessage, type HandlerCall, type Run,
+  ActorId, ApprovalId, HandlerCallId, MAIN_INSTANCE, mintId, QualifiedName, RunId, SessionId, SystemName, TurnId, type Approval, type ChatMessage, type HandlerCall, type Run,
   type Session,
 } from '@harness/core';
 import { rig, webRig, type Fakes } from '../testing/rig.ts';
@@ -223,7 +223,7 @@ describe('system handlers', () => {
           install: (input) => {
             push('install', input);
             return Promise.resolve({
-              name: fs, source: { path: '/x' }, dir: '/d', command: { run: 'node', args: [], env: {} }, version: '1', autoStart: true,
+              name: fs, instance: MAIN_INSTANCE, source: { path: '/x' }, dir: '/d', command: { run: 'node', args: [], env: {} }, version: '1', autoStart: true,
               restart: { policy: 'on-failure', backoff: 1, maxPerHour: 1 }, status: 'stopped', installedBy: me, installedAt: 1,
             });
           },
@@ -238,7 +238,7 @@ describe('system handlers', () => {
       },
     });
     await r.store.table('systems').insert({
-      name: fs, description: '', status: 'connected', enabled: { functions: true, renderers: true }, keyFingerprint: 'f', publicKey: 'k', version: '1', manifestHash: 'h',
+      name: fs, description: '', status: 'connected', enabled: { functions: true, renderers: true }, version: '1', manifestHash: 'h',
       actor: ActorId.parse('act_fs'),
     });
     await r.store.table('pairings').insert({

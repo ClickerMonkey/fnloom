@@ -11,6 +11,7 @@ import type { HubServices } from '../../boot/index.ts';
 import { visibleRun, visibleSession, visibleTurn, type FullHandlers } from './access.ts';
 import { collect } from '../paging.ts';
 import type { authPlugin } from './auth.ts';
+import type { HubReads } from '../reads.ts';
 
 const PAGE = 200;
 
@@ -32,7 +33,7 @@ export function buildTree(turn: Pick<Turn, 'root'>, runs: readonly Run[], calls:
 }
 
 /** The runs plugin. */
-export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
+export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, reads: HubReads) {
   const { chat, execution, store } = hub;
   return plugin({ name: 'web.runs', spec: runsSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof runsSlice> => ({
@@ -46,24 +47,9 @@ export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         hub.log.info('turn.undone', { turn: data.turn, undone: report.undone.length, failed: report.failed.length });
         return report;
       },
-      tree: async ({ data, user }) => {
-        const turn = await visibleTurn(hub, data.turn, user);
-        const order = [['createdAt', 'asc']] as const;
-        const [runs, calls] = await Promise.all([
-          collect((cursor) => store.table('runs').find({ where: { turn: turn.id }, order, limit: PAGE, cursor })),
-          collect((cursor) => store.table('llmInteractions').find({ where: { turn: turn.id }, order: [['queuedAt', 'asc']], limit: PAGE, cursor })),
-        ]);
-        const tree = buildTree(turn, runs, calls);
-        if (tree === undefined) { throw reject(404, 'TURN_HAS_NO_RUNS', 'nothing has run in this turn yet'); }
-        return tree;
-      },
-      run: ({ data, user }) => visibleRun(hub, data.run, user),
-      llmCall: async ({ data, user }) => {
-        const call = await store.table('llmInteractions').get(data.id);
-        if (call === undefined) { throw reject(404, 'LLM_CALL_NOT_FOUND', 'no such LLM call'); }
-        await visibleRun(hub, call.run, user);
-        return call;
-      },
+      tree: ({ data, user }) => reads.run_tree(data, user),
+      run: ({ data, user }) => reads.run_get(data, user),
+      llmCall: ({ data, user }) => reads.llm_call(data, user),
       waiting: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
         const [approvals, calls] = await Promise.all([

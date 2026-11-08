@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core';
-import { MessageId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type KindDescription, type Manifest } from '@harness/core';
+import { MAIN_INSTANCE, MessageId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type KindDescription, type Manifest } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, declOf, manifestFor, orders, shop, vectors } from '../catalog/fixtures.ts';
@@ -9,6 +9,7 @@ import { FakeSystem, linkRig, pairDirectly, type LinkRig } from './rig.ts';
 
 const q = (name: string) => QualifiedName.parse(name);
 const SHOP = SystemName.parse('shop');
+const main = (system: string) => ({ system: SystemName.parse(system), instance: MAIN_INSTANCE });
 
 /** The status an `ApiError` rejection carries. */
 async function statusOf(promise: Promise<unknown>): Promise<{ status: number; code: string }> {
@@ -35,24 +36,25 @@ describe('pairing with a code', () => {
     const reply = await system.connect();
     if ('limits' in reply) { throw new Error('expected pairing'); }
     expect(reply.code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
-    expect(reply.url).toBe(`http://hub:4300/admin/systems?pairing=${reply.pairing}`);
+    expect(reply.url).toBe(`http://hub/pair/${reply.pairing}?code=${reply.code ?? ''}`);
     expect(reply.expiresAt).toBe(rig.time.now + 60_000);
     const pending = await rig.pairing.pending();
-    expect(pending).toMatchObject([{ id: reply.pairing, name: 'shop', method: 'code', address: '10.0.0.7', keyFingerprint: fingerprint(system.keys.publicKey) }]);
+    expect(pending).toMatchObject([{ id: reply.pairing, name: 'shop', instance: 'main', method: 'code', address: '10.0.0.7', keyFingerprint: fingerprint(system.keys.publicKey) }]);
     expect(rig.bus.of('pairing')).toHaveLength(1);
 
     // the same name and key asking again gets the same request
     expect(await system.hello()).toMatchObject({ kind: 'pairing', pairing: reply.pairing, code: reply.code });
 
     const record = await rig.pairing.approve(reply.pairing, ADMIN);
-    expect(record).toMatchObject({ name: 'shop', status: 'disconnected', pairedBy: ADMIN, publicKey: system.keys.publicKey });
-    expect(await rig.store.table('actors').get(record.actor)).toMatchObject({ kind: 'system', system: 'shop' });
+    expect(record).toMatchObject({ system: 'shop', instance: 'main', status: 'disconnected', pairedBy: ADMIN, publicKey: system.keys.publicKey });
+    const shopRow = await rig.store.table('systems').get(SHOP);
+    expect(await rig.store.table('actors').get(shopRow?.actor ?? ADMIN)).toMatchObject({ kind: 'system', system: 'shop' });
     await settle(5);
     expect(system.paired).toEqual([reply.pairing]);
     expect(await rig.pairing.pending()).toEqual([]);
 
     const welcome = await system.connect();
-    expect(welcome).toMatchObject({ sendManifest: true, start: { first: true }, limits: { maxChunk: 1_024 } });
+    expect(welcome).toMatchObject({ instance: 'main', sendManifest: true, start: { first: true }, limits: { maxChunk: 1_024 } });
     expect('config' in welcome).toBe(false);
   });
 
@@ -98,7 +100,7 @@ describe('pairing with a token', () => {
     expect(rig.bus.of('pairing').map((e) => e.pairing.status)).toEqual(['pending', 'approved', 'expired']);
     await settle(5);
     expect(system.paired).toEqual([reply.pairing]);
-    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.pairedBy).toBe(ADMIN);
+    expect((await rig.store.table('instances').get(main('shop')))?.pairedBy).toBe(ADMIN);
 
     const other = new FakeSystem(rig.app, 'other', shopManifest);
     other.open();
@@ -121,11 +123,11 @@ describe('re-keying with a token', () => {
     impostor.open();
     const general = await rig.pairing.createToken({ expiresIn: 30_000, by: ADMIN });
     expect(await statusOf(impostor.hello(general.token))).toEqual({ status: 403, code: 'TOKEN_NOT_FOR_SYSTEM' });
-    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.publicKey).toBe(system.keys.publicKey);
+    expect((await rig.store.table('instances').get(main('shop')))?.publicKey).toBe(system.keys.publicKey);
 
     const named = await rig.pairing.createToken({ name: SHOP, expiresIn: 30_000, by: ADMIN });
     expect(await impostor.hello(named.token)).toMatchObject({ kind: 'pairing' });
-    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.publicKey).toBe(impostor.keys.publicKey);
+    expect((await rig.store.table('instances').get(main('shop')))?.publicKey).toBe(impostor.keys.publicKey);
   });
 });
 
@@ -155,9 +157,10 @@ describe('the handshake', () => {
     await pairDirectly(rig, system);
     await system.start();
     const record = await rig.store.table('systems').get(SystemName.parse('shop'));
-    expect(record).toMatchObject({ status: 'needs-config', manifestHash: shopManifest.hash, description: 'A small shop.', address: '10.0.0.7' });
+    expect(record).toMatchObject({ status: 'needs-config', manifestHash: shopManifest.hash, description: 'A small shop.' });
+    expect(await rig.store.table('instances').get(main('shop'))).toMatchObject({ status: 'needs-config', manifestHash: shopManifest.hash, address: '10.0.0.7' });
     expect(await rig.catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'system-needs-config' });
-    expect(rig.links.connection(SHOP)?.instance).toBe('i-1');
+    expect(rig.links.connection(SHOP)).toMatchObject({ instance: 'main', boot: 'b-1' });
 
     expect(await rig.config.set(SHOP, { currency: 'euros' }, ADMIN)).toMatchObject({ problems: [expect.any(String)] });
     expect(await rig.config.set(SHOP, { currency: 'EUR' }, ADMIN)).toEqual({ version: 1 });
@@ -183,7 +186,7 @@ describe('the handshake', () => {
   });
 
   it('refuses config for unknown systems and systems without a contract', async () => {
-    expect(await rig.config.set(SHOP, {}, ADMIN)).toEqual({ problems: ['no system shop'] });
+    expect(await rig.config.set(SHOP, {}, ADMIN)).toEqual({ problems: ['shop has no instance'] });
     const system = new FakeSystem(rig.app, 'shop', shopManifest);
     await pairDirectly(rig, system);
     expect(await rig.config.set(SHOP, {}, ADMIN)).toEqual({ problems: ['shop has not sent its contract yet, so its config type is unknown'] });
@@ -208,11 +211,11 @@ describe('the handshake', () => {
     expect(await rig.catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'system-disconnected' });
 
     const waiting = rig.links.whenConnected(SHOP);
-    system.instance = 'i-2';
+    system.boot = 'b-2';
     system.version = '1.1.0';
     const welcome = await system.connect();
     expect(welcome).toMatchObject({ sendManifest: false, start: { first: false, upgradedFrom: '1.0.0' }, config: { value: { currency: 'EUR' }, version: 1 } });
-    expect((await waiting).instance).toBe('i-2');
+    expect((await waiting).boot).toBe('b-2');
     expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.status).toBe('connected');
   });
 
@@ -416,13 +419,13 @@ describe('connections', () => {
     await pairDirectly(rig, first);
     await first.start();
     const second = new FakeSystem(rig.app, 'vectors', await manifestFor(vectors), first.keys);
-    second.instance = 'i-2';
+    second.boot = 'b-2';
     await second.start();
-    expect(rig.links.connection(SystemName.parse('vectors'))?.instance).toBe('i-2');
+    expect(rig.links.connection(SystemName.parse('vectors'))?.boot).toBe('b-2');
     expect(rig.records.some((r) => r.msg === 'link.replaced')).toBe(true);
     first.drop();
     await settle(5);
-    expect(rig.links.connected().map((c) => c.instance)).toEqual(['i-2']);
+    expect(rig.links.connected().map((c) => c.boot)).toEqual(['b-2']);
     expect((await rig.store.table('systems').get(SystemName.parse('vectors')))?.status).toBe('connected');
   });
 

@@ -5,7 +5,7 @@
  */
 import type { Json } from '@harness/core';
 import { UiIcon, UiIconButton } from '../../ui/index.ts';
-import GinForm from '../forms/GinForm.vue';
+import GinForm from '../../gin/GinForm.vue';
 import { fnLabel } from '../logic/labels.ts';
 import type { Invocation } from '../logic/composer.ts';
 

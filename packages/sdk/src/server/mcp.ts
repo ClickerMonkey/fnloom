@@ -18,7 +18,7 @@ import {
   errorResult, mcpHttp, mcpSourceServer, serveStdio, textResult,
   type McpHttpHandler, type McpServer, type McpTool, type McpToolResult, type McpToolSource,
 } from '@ayepi/mcp';
-import { Json, mintId, qualify, type RunRequest } from '@harness/core';
+import { Json, MAIN_INSTANCE, mintId, qualify, type RunRequest } from '@harness/core';
 import { z } from 'zod';
 import type { AnyFnDef } from '../fn.ts';
 import type { McpServe } from './index.ts';
@@ -27,7 +27,7 @@ import { McpPrompts, type ContextTexts } from './mcp-prompts.ts';
 import { McpResources } from './mcp-resources.ts';
 import { ActiveRun, type RunEnvironment } from './run.ts';
 import type { SystemTable } from './table.ts';
-import { messageOf } from './wire.ts';
+import { messageOf, problemsText } from './wire.ts';
 
 /** A fn's MCP tool name (MCP tool names allow letters, digits, `_` and `-`). */
 function toolName(local: string): string {
@@ -165,7 +165,7 @@ export class McpFace implements McpToolSource {
         turn: mintId('turn'),
         user,
         time,
-        system: { name: this.#table.contract.name, instance: 'mcp' },
+        system: { name: this.#table.contract.name, instance: MAIN_INSTANCE, boot: 'mcp' },
         caller: MCP_ACTOR,
         attempt: 1,
         priority: 'interactive',
@@ -185,7 +185,7 @@ export class McpFace implements McpToolSource {
       const outcome = await run.outcome();
       switch (outcome.status) {
         case 'done': return outcome.result;
-        case 'invalid-input': throw new Error(outcome.invalid.problems.map((p) => p.message).join('; '));
+        case 'invalid-input': throw new Error(`The input was refused: ${problemsText(outcome.invalid)}`);
         case 'failed': throw new Error(outcome.error.message);
         case 'paused': throw new Error('The fn paused; MCP calls cannot be resumed.');
         case 'cancelled': throw new Error('The fn was cancelled.');

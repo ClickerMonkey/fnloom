@@ -1,18 +1,24 @@
 /**
- * Installed systems: kept under the hub's data folder (`<systems>/<name>/versions/<version>`, its key pair and state
- * in `<systems>/<name>/state`), paired at install with a key the hub makes, started with the hub, and restarted
- * when they exit unexpectedly: after `backoff`, doubling with each crash in the last hour, until `maxPerHour`
- * crashes. A system that exits with the restart code asked for a restart (its `restart` fn, or the hub's): it is
- * started again at once and that doesn't count as a crash. Then a system that has a last good version (the last one that connected) rolls back to it; one that
- * doesn't is disabled until an admin starts it. Stopping asks over the link first, then ends the process.
+ * Installed instances. A system's package is kept under the hub's data folder in `<systems>/<name>/versions/<version>`
+ * (shared by its instances); each instance has its own `<systems>/<name>/instances/<instance>/{state,data,cache}`
+ * outside the package, so upgrades and rollbacks keep them: `state` holds the key pair the hub made at install and
+ * the SDK's journal, `data` is the system's own (`ctx.dataDir`), `cache` is rebuildable. Instances start with the
+ * hub and are restarted when they exit unexpectedly: after `backoff`, doubling with each crash in the last hour,
+ * until `maxPerHour` crashes. An instance that exits with the restart code asked for a restart (its `restart` fn, or
+ * the hub's): it is started again at once and that doesn't count as a crash. Then an instance that has a last good
+ * version (the last one that connected) rolls back to it; one that doesn't is disabled until an admin starts it.
+ * Stopping asks over the link first, then ends the process.
  */
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { reject as refuse } from '@ayepi/core';
 import { backoff } from '@ayepi/core/retry';
 import type { Logger } from '@ayepi/log';
 import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
-import type { ActorId, InstallSource, InstalledSystem, Json, StopReason, SystemName, SystemRecord } from '@harness/core';
+import {
+  MAIN_INSTANCE, instanceLabel, type ActorId, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
+  type Json, type StopReason, type SystemName,
+} from '@harness/core';
 import { allRows } from '../catalog/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
@@ -20,7 +26,7 @@ import type { StoreConfigService } from './config.ts';
 import type { LinkService, PairingService, Supervisor } from './index.ts';
 import { KEY_FILE, makeKeyPair, randomToken } from './keys.ts';
 import type { Installer, ProcessExit, ProcessLauncher, SystemPackage, SystemProcess } from './process.ts';
-import type { SystemStatusKeeper } from './status.ts';
+import type { InstanceKeeper } from './status.ts';
 
 /** An hour, the window crashes are counted in. */
 const HOUR = 3_600_000;
@@ -49,12 +55,11 @@ export interface SupervisorOptions {
   readonly links: LinkService;
   readonly pairing: PairingService;
   readonly config: StoreConfigService;
-  readonly status: SystemStatusKeeper;
+  readonly instances: InstanceKeeper;
   readonly launcher: ProcessLauncher;
   readonly installer: Installer;
   readonly settings: SupervisorSettings;
 }
-
 
 /** One running process. */
 interface Running {
@@ -64,93 +69,183 @@ interface Running {
   stopping: boolean;
 }
 
-/** Starts, watches and restarts installed systems. */
+/** An installed instance's ref. */
+function refOf(installed: Pick<InstalledSystem, 'name' | 'instance'>): InstanceRef {
+  return { system: installed.name, instance: installed.instance };
+}
+
+/** Starts, watches and restarts installed instances. */
 export class ProcessSupervisor implements Supervisor {
   readonly #options: SupervisorOptions;
-  readonly #running = new Map<SystemName, Running>();
-  readonly #crashes = new Map<SystemName, number[]>();
-  readonly #timers = new Map<SystemName, ReturnType<typeof setTimeout>>();
+  /** By `system@instance`. */
+  readonly #running = new Map<string, Running>();
+  readonly #crashes = new Map<string, number[]>();
+  readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(options: SupervisorOptions) {
     this.#options = options;
     options.links.onChange((change) => {
-      if (change.connected && this.#running.has(change.system)) { void this.#connected(change.system); }
+      if (change.connected && this.#running.has(instanceLabel(change))) { void this.#connected(change); }
     });
   }
 
-  /** A system's folder. */
+  /** A system's folder (absolute, since each process runs in its own package folder). */
   dirOf(system: SystemName): string {
-    return join(this.#options.settings.systemsDir, system);
+    return resolve(this.#options.settings.systemsDir, system);
   }
 
-  async install(input: { source: InstallSource; config?: Json; autoStart?: boolean; by: ActorId }): Promise<InstalledSystem> {
-    const { installer, pairing, config, status, settings, clock, log } = this.#options;
-    const staging = join(settings.systemsDir, `.staging-${randomToken(6)}`);
-    let fetched: SystemPackage;
-    try {
-      fetched = await installer.fetch(input.source, staging);
-    } catch (error) {
-      await rm(staging, { recursive: true, force: true });
-      throw refuse(422, 'INSTALL_FAILED', `could not fetch the system: ${messageOf(error)}`);
+  /** An instance's state, data and cache folders. */
+  dirsOf(ref: InstanceRef): InstanceDirs {
+    const base = join(this.dirOf(ref.system), 'instances', ref.instance);
+    return { state: join(base, 'state'), data: join(base, 'data'), cache: join(base, 'cache') };
+  }
+
+  /**
+   * Install an instance. A system already installed takes a new instance only when its package allows a fleet
+   * (`instances: 'many'`); the same instance twice is refused (upgrade is `upgrade`). The package is fetched into a
+   * staging folder, placed under `versions/<version>` (a version another instance already runs is shared), and the
+   * instance gets its folders and a key the hub made, is paired, has its config preset, and starts.
+   */
+  async install(input: { source: InstallSource; config?: Json; autoStart?: boolean; instance?: InstanceName; by: ActorId }): Promise<InstalledSystem> {
+    const { instances, pairing, config, settings, clock, log } = this.#options;
+    const fetched = await this.#fetch(input.source);
+    const name = fetched.pkg.manifest.name;
+    const ref: InstanceRef = { system: name, instance: input.instance ?? MAIN_INSTANCE };
+    const installed = (await instances.of(name)).filter((i) => i.installed !== undefined && i.status !== 'removed');
+    const refusal = installed.some((i) => i.instance === ref.instance) ? refuse(409, 'ALREADY_INSTALLED', `${instanceLabel(ref)} is already installed`)
+      : installed.length > 0 && fetched.pkg.manifest.instances === 'one' ? refuse(409, 'ONE_INSTANCE', `${name} runs one instance, and it is installed`)
+        : undefined;
+    if (refusal !== undefined) {
+      await fetched.discard();
+      throw refusal;
     }
-    const existing = await this.#options.store.table('systems').get(fetched.name);
-    if (existing?.installed !== undefined) {
-      await rm(staging, { recursive: true, force: true });
-      throw refuse(409, 'ALREADY_INSTALLED', `${fetched.name} is already installed`);
-    }
-    const pkg = await this.#place(input.source, fetched, staging);
+    const pkg = await fetched.place();
+    const dirs = this.dirsOf(ref);
+    for (const folder of Object.values(dirs)) { await mkdir(folder, { recursive: true }); }
     const keys = makeKeyPair();
-    await mkdir(this.#stateDir(pkg.name), { recursive: true });
-    await writeFile(join(this.#stateDir(pkg.name), KEY_FILE), JSON.stringify(keys), { mode: 0o600 });
-    await pairing.pairInstalled(pkg.name, keys.publicKey, input.by);
-    const installed: InstalledSystem = {
-      name: pkg.name,
-      source: input.source,
-      dir: this.dirOf(pkg.name),
-      command: this.#command(pkg),
-      version: pkg.version,
-      autoStart: input.autoStart ?? true,
-      restart: { policy: 'on-failure', backoff: settings.backoff, maxPerHour: settings.perHour },
-      status: 'stopped',
-      installedBy: input.by,
-      installedAt: clock(),
+    await writeFile(join(dirs.state, KEY_FILE), JSON.stringify(keys), { mode: 0o600 });
+    await pairing.pairInstalled(ref, keys.publicKey, pkg.manifest.version, input.by);
+    const entry: InstalledSystem = {
+      name, instance: ref.instance, source: input.source, dir: this.dirOf(name), command: this.#command(pkg, ref, dirs), version: pkg.manifest.version,
+      autoStart: input.autoStart ?? true, restart: { policy: 'on-failure', backoff: settings.backoff, maxPerHour: settings.perHour },
+      status: 'stopped', installedBy: input.by, installedAt: clock(),
     };
-    await status.sync(pkg.name, { installed, version: pkg.version });
-    if (input.config !== undefined) { config.preset(pkg.name, input.config, input.by); }
-    log.info('supervisor.installed', { system: pkg.name, version: pkg.version, by: input.by });
-    if (installed.autoStart) { await this.start(pkg.name); }
-    return (await this.#installed(pkg.name)) ?? installed;
+    await instances.sync(ref, { installed: entry, dirs, version: pkg.manifest.version });
+    if (input.config !== undefined) { config.preset(ref, input.config, input.by); }
+    log.info('supervisor.installed', { system: name, instance: ref.instance, version: pkg.manifest.version, by: input.by });
+    if (entry.autoStart) { await this.start(name, ref.instance); }
+    return (await this.#installed(ref)) ?? entry;
   }
 
-  async start(system: SystemName): Promise<void> {
-    const installed = await this.#require(system);
-    this.#clearTimer(system);
-    if (this.#running.has(system)) { return; }
-    if (installed.status === 'disabled') { this.#crashes.delete(system); }
+  async start(system: SystemName, instance?: InstanceName): Promise<void> {
+    for (const installed of await this.#targets(system, instance)) { await this.#start(installed); }
+  }
+
+  async stop(system: SystemName, reason: StopReason, instance?: InstanceName): Promise<void> {
+    const targets = instance === undefined ? await this.#targets(system).catch(() => []) : [];
+    const refs: InstanceRef[] = instance === undefined ? targets.map(refOf) : [{ system, instance }];
+    await Promise.all(refs.map((ref) => this.#stop(ref, reason)));
+  }
+
+  async upgrade(system: SystemName, version?: string): Promise<{ from: string; to: string }> {
+    const targets = await this.#targets(system);
+    const first = targets[0];
+    if (first === undefined) { throw refuse(404, 'NOT_INSTALLED', `${system} is not installed`); }
+    const source: InstallSource = 'package' in first.source ? { ...first.source, version: version ?? 'latest' }
+      : 'git' in first.source ? { ...first.source, ref: version ?? first.source.ref }
+        : first.source;
+    return this.upgradeTo(system, source);
+  }
+
+  /** Move every installed instance of a system to the package a source names (a new zip, a new npm version). */
+  async upgradeTo(system: SystemName, source: InstallSource): Promise<{ from: string; to: string }> {
+    const targets = await this.#targets(system);
+    const first = targets[0];
+    if (first === undefined) { throw refuse(404, 'NOT_INSTALLED', `${system} is not installed`); }
+    const fetched = await this.#fetch(source);
+    if (fetched.pkg.manifest.name !== system) {
+      await fetched.discard();
+      throw refuse(422, 'WRONG_SYSTEM', `the new version is ${fetched.pkg.manifest.name}, not ${system}`);
+    }
+    const pkg = await fetched.place();
+    for (const installed of targets) {
+      const ref = refOf(installed);
+      const wasRunning = this.#running.has(instanceLabel(ref));
+      await this.#stop(ref, 'upgrade');
+      await this.#update(ref, { source, version: pkg.manifest.version, command: this.#command(pkg, ref, this.dirsOf(ref)) });
+      this.#crashes.delete(instanceLabel(ref));
+      this.#options.log.info('supervisor.upgraded', { system, instance: ref.instance, from: installed.version, to: pkg.manifest.version });
+      if (wasRunning || installed.autoStart) { await this.#start({ ...installed, command: this.#command(pkg, ref, this.dirsOf(ref)) }); }
+    }
+    return { from: first.version, to: pkg.manifest.version };
+  }
+
+  async uninstall(system: SystemName, instance?: InstanceName): Promise<void> {
+    const targets = await this.#targets(system, instance);
+    for (const installed of targets) {
+      const ref = refOf(installed);
+      await this.#stop(ref, 'removed');
+      await this.#options.instances.sync(ref, (record) => {
+        const { installed: _gone, ...rest } = record;
+        return { ...rest, status: 'removed' };
+      });
+      this.#crashes.delete(instanceLabel(ref));
+      this.#options.log.info('supervisor.uninstalled', { system, instance: ref.instance });
+    }
+    // the package goes with the last installed instance; data folders stay, so the data can still be exported
+    const left = (await this.list()).filter((i) => i.name === system);
+    const first = targets[0];
+    if (left.length === 0 && first !== undefined && !('path' in first.source)) { await rm(join(first.dir, 'versions'), { recursive: true, force: true }); }
+  }
+
+  async startAll(): Promise<void> {
+    const ready = (await this.list()).filter((s) => s.autoStart && s.status !== 'disabled');
+    await Promise.allSettled(ready.map((s) => this.#start(s)));
+  }
+
+  async stopAll(reason: StopReason): Promise<void> {
+    const running = (await this.list()).filter((s) => this.#running.has(instanceLabel(refOf(s))));
+    await Promise.allSettled(running.map((s) => this.#stop(refOf(s), reason)));
+    for (const key of [...this.#timers.keys()]) { this.#clearTimer(key); }
+  }
+
+  async list(): Promise<InstalledSystem[]> {
+    return (await allRows(this.#options.store.table('instances'))).flatMap((r) => (r.installed === undefined ? [] : [r.installed]));
+  }
+
+  // ─── Starting and stopping one instance ─────────────────────────────────────
+
+  async #start(installed: InstalledSystem): Promise<void> {
+    const ref = refOf(installed);
+    const key = instanceLabel(ref);
+    this.#clearTimer(key);
+    if (this.#running.has(key)) { return; }
+    if (installed.status === 'disabled') { this.#crashes.delete(key); }
     const process = this.#options.launcher.launch(installed.command);
-    const handled = process.exited.then((exit) => this.#exited(system, exit)).catch((error: unknown) => {
-      this.#options.log.error('supervisor.exit.failed', { system, error: messageOf(error) });
+    const handled = process.exited.then((exit) => this.#exited(ref, exit)).catch((error: unknown) => {
+      this.#options.log.error('supervisor.exit.failed', { system: ref.system, instance: ref.instance, error: messageOf(error) });
     });
-    this.#running.set(system, { process, handled, stopping: false });
-    await this.#update(system, { status: 'starting', ...(process.pid === undefined ? {} : { pid: process.pid }) });
-    this.#options.log.info('supervisor.started', { system, version: installed.version, pid: process.pid });
+    this.#running.set(key, { process, handled, stopping: false });
+    await this.#update(ref, { status: 'starting', ...(process.pid === undefined ? {} : { pid: process.pid }) });
+    this.#options.log.info('supervisor.started', { system: ref.system, instance: ref.instance, version: installed.version, pid: process.pid });
   }
 
-  async stop(system: SystemName, reason: StopReason): Promise<void> {
+  async #stop(ref: InstanceRef, reason: StopReason): Promise<void> {
     const { links, settings, log } = this.#options;
-    this.#clearTimer(system);
-    const running = this.#running.get(system);
+    const key = instanceLabel(ref);
+    this.#clearTimer(key);
+    const running = this.#running.get(key);
     if (running === undefined) {
-      if ((await this.#installed(system)) !== undefined) { await this.#update(system, { status: 'stopped' }); }
+      if ((await this.#installed(ref)) !== undefined) { await this.#update(ref, { status: 'stopped' }); }
       return;
     }
     running.stopping = true;
-    const connection = links.connection(system);
+    const connection = links.connection(ref.system, ref.instance);
     if (connection !== undefined) {
       try {
         await connection.peer.call('stop', { reason, timeout: settings.stopTimeout }, { signal: AbortSignal.timeout(settings.stopTimeout) });
       } catch (error) {
-        log.warn('supervisor.stop.ask.failed', { system, reason, error: messageOf(error) });
+        log.warn('supervisor.stop.ask.failed', { system: ref.system, instance: ref.instance, reason, error: messageOf(error) });
       }
     }
     const wait = new AbortController();
@@ -158,173 +253,157 @@ export class ProcessSupervisor implements Supervisor {
     const ended = await Promise.race([running.process.exited, delay(settings.stopTimeout, wait.signal).then(() => timedOut)]);
     wait.abort();
     if (ended === timedOut) {
-      log.warn('supervisor.stop.killed', { system, reason });
+      log.warn('supervisor.stop.killed', { system: ref.system, instance: ref.instance, reason });
       running.process.kill();
     }
     await running.handled;
   }
 
-  async upgrade(system: SystemName, version?: string): Promise<{ from: string; to: string }> {
-    const installed = await this.#require(system);
-    const source: InstallSource = 'package' in installed.source ? { ...installed.source, version: version ?? 'latest' }
-      : 'git' in installed.source ? { ...installed.source, ref: version ?? installed.source.ref }
-        : installed.source;
-    const staging = join(this.#options.settings.systemsDir, `.staging-${randomToken(6)}`);
-    const fetched = await this.#options.installer.fetch(source, staging);
-    if (fetched.name !== system) {
-      await rm(staging, { recursive: true, force: true });
-      throw refuse(422, 'WRONG_SYSTEM', `the new version is ${fetched.name}, not ${system}`);
-    }
-    const pkg = await this.#place(source, fetched, staging);
-    const wasRunning = this.#running.has(system);
-    await this.stop(system, 'upgrade');
-    await this.#update(system, { source, version: pkg.version, command: this.#command(pkg) });
-    this.#crashes.delete(system);
-    this.#options.log.info('supervisor.upgraded', { system, from: installed.version, to: pkg.version });
-    if (wasRunning || installed.autoStart) { await this.start(system); }
-    return { from: installed.version, to: pkg.version };
-  }
-
-  async uninstall(system: SystemName): Promise<void> {
-    const installed = await this.#require(system);
-    await this.stop(system, 'removed');
-    await this.#options.status.sync(system, (record) => {
-      const { installed: _gone, ...rest } = record;
-      return { ...rest, status: 'removed' };
-    });
-    await rm(installed.dir, { recursive: true, force: true });
-    this.#crashes.delete(system);
-    this.#options.log.info('supervisor.uninstalled', { system });
-  }
-
-  async startAll(): Promise<void> {
-    const ready = (await this.list()).filter((s) => s.autoStart && s.status !== 'disabled');
-    await Promise.allSettled(ready.map((s) => this.start(s.name)));
-  }
-
-  async stopAll(reason: StopReason): Promise<void> {
-    await Promise.allSettled([...this.#running.keys()].map((system) => this.stop(system, reason)));
-    for (const system of [...this.#timers.keys()]) { this.#clearTimer(system); }
-  }
-
-  async list(): Promise<InstalledSystem[]> {
-    return (await allRows(this.#options.store.table('systems'))).flatMap((r) => (r.installed === undefined ? [] : [r.installed]));
-  }
-
   // ─── Exits, restarts and roll backs ─────────────────────────────────────────
 
-  /** A started system connected: this version starts cleanly. */
-  async #connected(system: SystemName): Promise<void> {
-    const installed = await this.#installed(system);
+  /** A started instance connected: this version starts cleanly. */
+  async #connected(ref: InstanceRef): Promise<void> {
+    const installed = await this.#installed(ref);
     if (installed === undefined) { return; }
-    await this.#update(system, { status: 'running', goodVersion: installed.version });
+    await this.#update(ref, { status: 'running', goodVersion: installed.version });
   }
 
-  async #exited(system: SystemName, exit: ProcessExit): Promise<void> {
+  async #exited(ref: InstanceRef, exit: ProcessExit): Promise<void> {
     const { clock, log } = this.#options;
-    const running = this.#running.get(system);
-    this.#running.delete(system);
-    const installed = await this.#installed(system);
+    const key = instanceLabel(ref);
+    const running = this.#running.get(key);
+    this.#running.delete(key);
+    const installed = await this.#installed(ref);
     if (installed === undefined) { return; }
     const lastExit = { code: exit.code, at: clock(), output: exit.output };
+    const fields = { system: ref.system, instance: ref.instance, version: installed.version };
     if (running?.stopping !== false) {
-      await this.#update(system, { status: 'stopped', lastExit });
+      await this.#update(ref, { status: 'stopped', lastExit });
       return;
     }
     if (exit.code === RESTART_CODE) {
-      log.info('supervisor.restarting', { system, version: installed.version });
-      await this.#update(system, { status: 'starting', lastExit });
-      await this.start(system);
+      log.info('supervisor.restarting', fields);
+      await this.#update(ref, { status: 'starting', lastExit });
+      await this.#start(installed);
       return;
     }
     const { policy } = installed.restart;
     if (policy === 'never' || (policy === 'on-failure' && exit.code === 0)) {
-      await this.#update(system, { status: exit.code === 0 ? 'stopped' : 'crashed', lastExit });
+      await this.#update(ref, { status: exit.code === 0 ? 'stopped' : 'crashed', lastExit });
       return;
     }
     const now = clock();
-    const crashes = [...(this.#crashes.get(system) ?? []).filter((at) => at > now - HOUR), now];
-    this.#crashes.set(system, crashes);
-    log.warn('supervisor.crashed', { system, version: installed.version, code: exit.code, crashes: crashes.length });
+    const crashes = [...(this.#crashes.get(key) ?? []).filter((at) => at > now - HOUR), now];
+    this.#crashes.set(key, crashes);
+    log.warn('supervisor.crashed', { ...fields, code: exit.code, crashes: crashes.length });
     if (crashes.length > installed.restart.maxPerHour) {
-      await this.#giveUp(system, installed, lastExit);
+      await this.#giveUp(ref, installed, lastExit);
       return;
     }
-    await this.#update(system, { status: 'crashed', lastExit });
+    await this.#update(ref, { status: 'crashed', lastExit });
     const wait = backoff(crashes.length, { base: installed.restart.backoff, max: MAX_BACKOFF, jitter: 0 });
-    this.#timers.set(system, setTimeout(() => {
-      this.#timers.delete(system);
-      this.start(system).catch((error: unknown) => { log.error('supervisor.restart.failed', { system, error: messageOf(error) }); });
+    this.#timers.set(key, setTimeout(() => {
+      this.#timers.delete(key);
+      this.start(ref.system, ref.instance).catch((error: unknown) => { log.error('supervisor.restart.failed', { ...fields, error: messageOf(error) }); });
     }, wait));
   }
 
   /** Too many crashes: roll back to the last good version if there is one, else stop trying. */
-  async #giveUp(system: SystemName, installed: InstalledSystem, lastExit: NonNullable<InstalledSystem['lastExit']>): Promise<void> {
+  async #giveUp(ref: InstanceRef, installed: InstalledSystem, lastExit: NonNullable<InstalledSystem['lastExit']>): Promise<void> {
     const { log, installer } = this.#options;
     const good = installed.goodVersion;
     if (good !== undefined && good !== installed.version && !('path' in installed.source)) {
-      const pkg = await installer.describe(this.#versionDir(system, good));
-      await this.#update(system, { version: good, command: this.#command(pkg), status: 'crashed', lastExit });
-      this.#crashes.delete(system);
-      log.error('supervisor.rolled.back', { system, from: installed.version, to: good });
-      await this.start(system);
+      const pkg = await installer.describe(this.#versionDir(ref.system, good));
+      const command = this.#command(pkg, ref, this.dirsOf(ref));
+      await this.#update(ref, { version: good, command, status: 'crashed', lastExit });
+      this.#crashes.delete(instanceLabel(ref));
+      log.error('supervisor.rolled.back', { system: ref.system, instance: ref.instance, from: installed.version, to: good });
+      await this.#start({ ...installed, version: good, command });
       return;
     }
-    await this.#update(system, { status: 'disabled', lastExit });
-    log.error('supervisor.gave.up', { system, version: installed.version, crashes: installed.restart.maxPerHour + 1 });
+    await this.#update(ref, { status: 'disabled', lastExit });
+    log.error('supervisor.gave.up', { system: ref.system, instance: ref.instance, version: installed.version, crashes: installed.restart.maxPerHour + 1 });
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
-
-  #stateDir(system: SystemName): string {
-    return join(this.dirOf(system), 'state');
-  }
 
   #versionDir(system: SystemName, version: string): string {
     return join(this.dirOf(system), 'versions', version);
   }
 
-  /** Move a fetched package into its version folder (a folder source stays where it is). */
-  async #place(source: InstallSource, fetched: SystemPackage, staging: string): Promise<SystemPackage> {
-    if ('path' in source) { return fetched; }
-    const target = this.#versionDir(fetched.name, fetched.version);
-    await rm(target, { recursive: true, force: true });
-    await mkdir(join(this.dirOf(fetched.name), 'versions'), { recursive: true });
-    await rename(staging, target);
-    return this.#options.installer.describe(join(target, fetched.dir.slice(staging.length)));
+  /**
+   * Fetch a source into a staging folder. `place` moves it to its version folder (a folder source stays where it is;
+   * a version already there is kept, since another instance may run it); `discard` drops it.
+   */
+  async #fetch(source: InstallSource): Promise<{ pkg: SystemPackage; place: () => Promise<SystemPackage>; discard: () => Promise<void> }> {
+    const { installer, settings } = this.#options;
+    const staging = resolve(settings.systemsDir, `.staging-${randomToken(6)}`);
+    const discard = () => rm(staging, { recursive: true, force: true });
+    let pkg: SystemPackage;
+    try {
+      pkg = await installer.fetch(source, staging);
+    } catch (error) {
+      await discard();
+      throw refuse(422, 'INSTALL_FAILED', `could not fetch the system: ${messageOf(error)}`);
+    }
+    const place = async (): Promise<SystemPackage> => {
+      if ('path' in source) { return pkg; }
+      const target = this.#versionDir(pkg.manifest.name, pkg.manifest.version);
+      if (await exists(target)) {
+        await discard();
+      } else {
+        await mkdir(join(this.dirOf(pkg.manifest.name), 'versions'), { recursive: true });
+        await rename(staging, target);
+      }
+      return installer.describe(join(target, pkg.dir.slice(staging.length)));
+    };
+    return { pkg, place, discard };
   }
 
-  #command(pkg: SystemPackage): InstalledSystem['command'] {
+  /** How to run an instance: Node on its server entry, told where its hub, name, instance and folders are. */
+  #command(pkg: SystemPackage, ref: InstanceRef, dirs: InstanceDirs): InstalledSystem['command'] {
     return {
       run: process.execPath,
       args: [pkg.entry],
       env: {
-        [SYSTEM_ENV.hub]: this.#options.settings.hubLink, [SYSTEM_ENV.state]: this.#stateDir(pkg.name), [SYSTEM_ENV.name]: pkg.name,
+        [SYSTEM_ENV.hub]: this.#options.settings.hubLink, [SYSTEM_ENV.name]: ref.system, [SYSTEM_ENV.instance]: ref.instance,
+        [SYSTEM_ENV.state]: dirs.state, [SYSTEM_ENV.data]: dirs.data, [SYSTEM_ENV.cache]: dirs.cache,
         [SYSTEM_ENV.supervised]: 'true', [SYSTEM_ENV.restartCode]: String(RESTART_CODE),
       },
       cwd: pkg.dir,
     };
   }
 
-  async #installed(system: SystemName): Promise<InstalledSystem | undefined> {
-    return (await this.#options.store.table('systems').get(system))?.installed;
+  async #installed(ref: InstanceRef): Promise<InstalledSystem | undefined> {
+    return (await this.#options.instances.get(ref))?.installed;
   }
 
-  async #require(system: SystemName): Promise<InstalledSystem> {
-    const installed = await this.#installed(system);
-    if (installed === undefined) { throw refuse(404, 'NOT_INSTALLED', `${system} is not installed`); }
-    return installed;
+  /** The installed instances of a system (one, when named); refused when there are none. */
+  async #targets(system: SystemName, instance?: InstanceName): Promise<InstalledSystem[]> {
+    const all = (await this.list()).filter((i) => i.name === system && (instance === undefined || i.instance === instance));
+    if (all.length === 0) { throw refuse(404, 'NOT_INSTALLED', `${instance === undefined ? system : instanceLabel({ system, instance })} is not installed`); }
+    return all;
   }
 
-  /** Change an installed system's entry on its row (through the status keeper, so no write is lost); nothing once uninstalled. */
-  #update(system: SystemName, change: Partial<InstalledSystem>): Promise<SystemRecord> {
-    return this.#options.status.sync(system, (record) => (record.installed === undefined ? record : { ...record, installed: { ...record.installed, ...change } }));
+  /** Change an installed instance's entry on its row (through the keeper, so no write is lost); nothing once uninstalled. */
+  #update(ref: InstanceRef, change: Partial<InstalledSystem>): Promise<InstanceRecord> {
+    return this.#options.instances.sync(ref, (record) => (record.installed === undefined ? record : { ...record, installed: { ...record.installed, ...change } }));
   }
 
-  #clearTimer(system: SystemName): void {
-    const timer = this.#timers.get(system);
+  #clearTimer(key: string): void {
+    const timer = this.#timers.get(key);
     if (timer !== undefined) { clearTimeout(timer); }
-    this.#timers.delete(system);
+    this.#timers.delete(key);
+  }
+}
+
+/** Whether a path exists. */
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
   }
 }
 

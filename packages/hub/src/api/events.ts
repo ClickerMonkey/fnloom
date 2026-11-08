@@ -45,6 +45,8 @@ export const ROUTES: { readonly [E in HubEventName]?: Route<E> } = {
   'catalog.changed': (_data, emit) => { emit('user', { type: 'capabilities' }); },
   'fn.stats': ({ fn, system, stats }, emit) => { emit('user', { type: 'fn', fn, system, stats }); },
   'capabilities.changed': (_data, emit) => { emit('user', { type: 'capabilities' }); },
+  'resource.forms': ({ uri, forms }, emit) => { emit('user', { type: 'resource', uri, forms }); },
+  'context.changed': ({ name }, emit) => { emit('user', { type: 'context', name }); },
 };
 
 /** The names of the relayed events, typed (the table's keys). */

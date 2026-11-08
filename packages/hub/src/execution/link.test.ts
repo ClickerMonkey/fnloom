@@ -34,8 +34,8 @@ async function started(): Promise<ExecutionRig> {
 const input = (turn: Turn, name: QualifiedName, args: RunInput['args']): RunInput => ({
   fn: name, args, turn: turn.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [],
 });
-const fsLink = LinkSession.parse({ system: 'fs', instance: 'test-1' });
-const otherLink = LinkSession.parse({ system: 'other', instance: 'o-1' });
+const fsLink = LinkSession.parse({ system: 'fs', instance: 'main', boot: 'test-1' });
+const otherLink = LinkSession.parse({ system: 'other', instance: 'main', boot: 'o-1' });
 
 /** A running fs run the link calls can belong to. */
 async function parentRun(r: ExecutionRig): Promise<{ turn: Turn; run: RunId }> {

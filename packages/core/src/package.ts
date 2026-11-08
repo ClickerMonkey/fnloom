@@ -6,9 +6,9 @@
  */
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
-import { ActorId, InstanceName, Json, PairingId, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, InstanceName, PairingId, SystemName, Timestamp, type InstanceRef } from './primitives.ts';
 import { CONTENT_HASH } from './resources.ts';
-import { SystemStatus } from './records/systems.ts';
+import { InstalledSystem, InstanceConfig, SystemStatus } from './records/systems.ts';
 
 /** The package format this hub reads. */
 export const PACKAGE_FORMAT = 1;
@@ -17,8 +17,20 @@ export const PACKAGE_FORMAT = 1;
 export const SemVer = z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 export type SemVer = z.infer<typeof SemVer>;
 
-/** A path inside a package: relative, forward slashes, never escaping the folder. */
-export const PackagePath = z.string().min(1).refine((path) => !path.startsWith('/') && !path.includes('\\') && !path.split('/').includes('..'), 'A package path is relative and stays inside the package.');
+/** File names Windows keeps for devices (with any extension); neither Windows nor git can hold a file named so. */
+const RESERVED_FILE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
+/** Whether one part of a package path is a plain file or folder name. */
+const plainPart = (part: string): boolean => part !== '' && part !== '.' && part !== '..' && !RESERVED_FILE.test(part);
+
+/**
+ * A path inside a package: relative, forward slashes, no empty, `.` or `..` part, no drive or stream colon, and no
+ * name Windows reserves, so it never leaves the folder and unpacks the same everywhere.
+ */
+export const PackagePath = z.string().min(1).refine(
+  (path) => !path.includes('\\') && !path.includes(':') && path.split('/').every(plainPart),
+  'A package path is relative, uses forward slashes and stays inside the package.',
+);
 export type PackagePath = z.infer<typeof PackagePath>;
 
 /**
@@ -55,19 +67,26 @@ export const PACKAGE_MANIFEST_FILE = 'system.json';
 export const InstanceDirs = z.object({ state: z.string(), data: z.string(), cache: z.string() });
 export type InstanceDirs = z.infer<typeof InstanceDirs>;
 
-/** The hub's row for one instance of a system: where it is, what it runs, and its config. */
+/**
+ * The hub's row for one instance of a system (key `[system, instance]`): its key, what it runs, its config, its
+ * status and, when the hub runs it, its process and folders. The one place each of these facts lives.
+ */
 export const InstanceRecord = z.object({
   system: SystemName,
   instance: InstanceName,
+  /** What the instance said about itself (its machine, its purpose); shown beside its name. */
   description: z.string(),
   status: SystemStatus,
+  /** A known instance must prove it holds the key with this fingerprint. */
   keyFingerprint: z.string(),
   publicKey: z.string(),
   version: z.string(),
   manifestHash: z.string(),
-  /** Its config, checked against the contract's config type. Absent until a valid value is set. */
-  config: z.object({ value: Json, version: z.number().int().min(1), setBy: ActorId, setAt: Timestamp }).optional(),
-  /** Set for an instance the hub installed and runs. */
+  /** Its config. Absent until a valid value is set. */
+  config: InstanceConfig.optional(),
+  /** Set for an instance the hub installed and runs: its process. */
+  installed: InstalledSystem.optional(),
+  /** Set for an instance the hub installed: its state, data and cache folders. */
   dirs: InstanceDirs.optional(),
   pairedAt: Timestamp.optional(),
   pairedBy: ActorId.optional(),
@@ -102,3 +121,13 @@ export const SystemDataExport = z.object({
 });
 export type SystemDataExport = z.infer<typeof SystemDataExport>;
 
+
+/** The file name of a package zip: `fs-0.2.0.zip` (what `harness system pack` writes). */
+export function packageFileName(system: SystemName, version: string): string {
+  return `${system}-${version}.zip`;
+}
+
+/** The file name of a data export: `fs-laptop-data.zip` (what `harness system export-data` and the hub download). */
+export function dataExportFileName(ref: InstanceRef): string {
+  return `${ref.system}-${ref.instance}-data.zip`;
+}

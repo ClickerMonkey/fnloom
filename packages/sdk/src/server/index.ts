@@ -13,6 +13,8 @@ import type { AnyFnRef, FnRef } from '../refs.ts';
 import type { ContractShape, SystemContract, SystemImpl } from '../system.ts';
 import type { FilesFactory } from './files.ts';
 import { LinkHost } from './host.ts';
+import { SYSTEM_ENV, sdkEnv } from './env.ts';
+import { checkPackage, findPackageManifest } from './package.ts';
 
 /** How a system process connects. */
 export interface ServeOptions {
@@ -20,8 +22,16 @@ export interface ServeOptions {
   hub: string;
   /** The folder where the system keeps its key pair and outcome journal. */
   state: string;
-  /** The system's version; defaults to the version in the current folder's `package.json`. */
+  /**
+   * The system's version. Defaults to its `system.json`'s, then to the version in the current folder's
+   * `package.json`.
+   */
   version?: string;
+  /**
+   * The folder holding the system's `system.json` (default: the current folder). When there is one, `serve` checks it
+   * against the contract (the same name, a protocol this SDK speaks) before connecting, and takes its version.
+   */
+  package?: string;
   /** A one-time pairing token, if an admin made one. Otherwise the system logs a pairing code and link. */
   pairingToken?: string;
   /** The folder of the built client assets (`buildClient`'s output), if the system has renderers. */
@@ -76,28 +86,41 @@ export interface KeyStore {
 
 /**
  * Run a system: connect to the hub (pairing the first time), send the contract, and serve the implementation.
- * The implementation is checked against the contract at compile time.
+ * The implementation is checked against the contract at compile time; its `system.json`, when it has one, is checked
+ * against the contract and this process's instance here (a mismatch throws `PackageManifestError` before anything
+ * connects).
  */
-export function serve<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, host: SystemHost = new LinkHost()): Promise<RunningSystem<N>> {
-  return host.start(contract, impl, options);
+export async function serve<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, host: SystemHost = new LinkHost()): Promise<RunningSystem<N>> {
+  const manifest = await findPackageManifest(options.package ?? process.cwd());
+  if (manifest === undefined) { return host.start(contract, impl, options); }
+  checkPackage(contract, manifest, sdkEnv.parse()[SYSTEM_ENV.instance]);
+  return host.start(contract, impl, { ...options, version: options.version ?? manifest.version });
 }
 
 export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
-export { RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, type SdkEnv } from './env.ts';
+export { placeFolders, RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, type SdkEnv } from './env.ts';
 export { contentHash, contentHasher, type ContentHasher } from './content.ts';
 export { FileKeyStore, isPublicKey, KEY_FILE, makeKeyPair, MemoryKeyStore, signNonce, StoredKeyPair, verifyNonce } from './keys.ts';
 export { FileJournal, MemoryJournal, type OutcomeJournal } from './journal.ts';
 export { WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
 export {
-  HarnessProvider, HubLlm, HubLlmError, harnessAi, harnessAiOf, wireRequest, HUB_MODEL, type HarnessAi, type HarnessMetadata, type HarnessProviderConfig,
+  HarnessProvider, HubLlm, HubLlmError, HubModels, harnessAi, harnessAiOf, wireRequest, HUB_MODEL, type HarnessAi, type HarnessMetadata, type HarnessProviderConfig,
 } from './llm.ts';
 export {
   LlmWire, UNSENDABLE_CONTENT, messageFromWire, requestFromWire, isObjectSchema, descriptorsOf, applyDescriptors, usageToWire, usageFromWire, chunkToWire,
   chunkFromWire, responseToWire, type LlmWireOptions, type LlmDescriptors,
 } from './llm-wire.ts';
-export { NodeFiles, fileUri, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
+export { NodeFiles, fileUri, uriInstance, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
 export { NodeProcess, type ProcessControl } from './process.ts';
 export { StateConflict } from './state.ts';
 export { McpFace, type McpLimits } from './mcp.ts';
+export {
+  LogPairingDisplay, TerminalPairingDisplay, PAIRING_QR_MODES, codeBanner, pairingDisplayFor, terminalQr,
+  type PairingDisplay, type PairingShown, type PairingQrMode, type QrRenderer,
+} from './pairing.ts';
 export { LinkGap, InvalidValue } from './wire.ts';
 export { readClientBundle, CLIENT_ENTRY, type ClientBundle } from './assets.ts';
+export {
+  PackageManifestError, parsePackageManifest, readPackageManifest, findPackageManifest, packageProblems, checkPackage, builtPackageManifest,
+  packedPackageManifest, packageFileProblems, packageManifestText, type BuiltEntries,
+} from './package.ts';

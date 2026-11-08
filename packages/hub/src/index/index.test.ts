@@ -1,6 +1,6 @@
 import {
-  ActorId, QualifiedName, ResourceUri, SectionKey, SectionRuleId, SessionId, SystemName,
-  type Page, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceRoot, type ResourceStat, type Section, type Session,
+  ActorId, MAIN_INSTANCE, QualifiedName, ResourceUri, SectionKey, SectionRuleId, SessionId, SystemName,
+  type Page, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceRoot, type ResourceStat, type Section, type SectionDiff, type Session,
 } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StoreCatalog } from '../catalog/catalog.ts';
@@ -63,8 +63,8 @@ class FakeRouter implements ResourceRouter {
   readonly files = new Map<string, { text: string; version: string; format?: string }>();
   readonly root: ResourceRoot = { uri: ResourceUri.parse('file:///docs'), name: 'docs', description: 'd', index: 'all', ignore: [], watch: true };
   sectionCalls = 0;
-  roots() { return [{ system: SystemName.parse('shop'), root: this.root }]; }
-  route(uri: ResourceUri) { return uri.startsWith(`${this.root.uri}/`) ? { system: SystemName.parse('shop'), root: this.root } : undefined; }
+  roots() { return [{ system: SystemName.parse('shop'), instance: MAIN_INSTANCE, root: this.root }]; }
+  route(uri: ResourceUri) { return uri.startsWith(`${this.root.uri}/`) ? { system: SystemName.parse('shop'), instance: MAIN_INSTANCE, root: this.root } : undefined; }
   refresh(): Promise<void> { return Promise.resolve(); }
   #stat(uri: ResourceUri): ResourceStat {
     const file = this.files.get(uri);
@@ -437,3 +437,34 @@ describe('embedders from systems', () => {
 function never(): never {
   throw new Error('expected a value');
 }
+
+describe('reading through the resources module', () => {
+  it('indexes hub resources in their primary form, keeps the record\'s forms, and tells the reader what changed', async () => {
+    const { indexer, store } = ctx;
+    const uri = ResourceUri.parse('hub://resources/web/site.dev/page');
+    const hub = SystemName.parse('hub');
+    const page = { text: '# One\nfirst\n# Two\nsecond\n', version: 'h1' };
+    const stat = (): ResourceStat => ({ uri, name: 'page', type: 'page', format: 'html', version: page.version });
+    const diffs: SectionDiff[] = [];
+    const stop = indexer.readWith({
+      route: (at) => (at.startsWith('hub://') ? { system: hub, index: 'all' } : undefined),
+      primary: () => Promise.resolve({ stat: stat(), links: [], text: page.text, form: 'markdown' }),
+      sectioned: (diff) => { diffs.push(diff); return Promise.resolve(); },
+    });
+    const raw = { hash: 'a'.repeat(64), size: 10, mime: 'text/html' };
+    await store.table('resources').put({ uri, system: hub, stat: stat(), links: [], raw, forms: ['markdown'], primary: 'markdown', seenAt: 1 });
+    const first = await indexer.resource(uri);
+    expect(first?.added).toEqual(['One', 'Two']);
+    const record = await store.table('resources').get(uri);
+    expect(record).toMatchObject({ raw, forms: ['markdown'], primary: 'markdown', sectioner: 'hub/headings', indexedVersion: 'h1' });
+    const rows = await store.table('sections').find({ where: { uri }, limit: 10 });
+    expect(rows.items.map((row) => row.form)).toEqual(['markdown', 'markdown']);
+    expect(diffs).toEqual([]);
+    page.text = '# One\nfirst, changed\n# Two\nsecond\n';
+    page.version = 'h2';
+    await indexer.resource(uri);
+    expect(diffs.map((diff) => [diff.changed, diff.removed])).toEqual([[['One'], []]]);
+    stop();
+    expect(await indexer.resource(uri)).toBeUndefined();
+  });
+});

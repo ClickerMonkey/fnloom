@@ -1,8 +1,7 @@
 import { ADMIN_ENDPOINTS, fn, hub, manifestOf, type FnRef } from '@harness/sdk';
-import { QualifiedName, READ_TAG, type Json, type Turn } from '@harness/core';
+import { ADMIN_TAG, INVALID_INPUT_CODE, QualifiedName, READ_TAG, type Json, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AdminOperations } from '../api/admin-ops.ts';
-import { RunRefused } from '../execution/errors.ts';
 import type { RunInput } from '../execution/index.ts';
 import { ALICE, ALICE_INFO, executionRig, SESSION, type ExecutionRig } from '../execution/testing.ts';
 import { ADMIN_FN_NAMES, registerAdminFns } from './admin-fns.ts';
@@ -20,7 +19,9 @@ function recordingOps(asked: Array<{ op: string; data: unknown; by: string }>): 
     set_budget: (data, by) => { asked.push({ op: 'set_budget', data, by }); return Promise.resolve({ id: 'bgt_1' }); },
     set_model_category: unused, set_priority: unused, set_policy: unused, set_actor_setting: unused, add_user: unused, add_group: unused,
     remove_rule: unused, approve_pairing: unused, create_pairing_token: unused, configure_system: unused, enable_system: unused, remove_system: unused,
-    install_system: unused, start_system: unused, stop_system: unused, upgrade_system: unused,
+    install_system: unused, start_system: unused, stop_system: unused, upgrade_system: unused, set_model_role: unused, clear_model_role: unused,
+    set_model_limits: unused, create_mcp: unused, update_mcp: unused, rotate_mcp_secret: unused, delete_mcp: unused, preview_mcp: unused,
+    install_package: unused, remove_instance: unused, export_system_data: unused,
   };
 }
 
@@ -47,7 +48,7 @@ async function call(r: ExecutionRig, turn: Turn, name: string, args: Json) {
 }
 
 describe('admin fns', () => {
-  it('offers every admin endpoint as a hub fn, none tagged read, each implemented', async () => {
+  it('offers every admin endpoint as a hub fn, tagged admin and never read, each implemented', async () => {
     const r = await executionRig();
     rig = r;
     registerAdminFns(r.module.hubFns, () => recordingOps([]));
@@ -57,6 +58,8 @@ describe('admin fns', () => {
       const decl = manifest.fns.find((f) => f.name === name);
       expect(decl, name).toBeDefined();
       expect(decl?.tags, name).not.toContain(READ_TAG);
+      // tagged admin: never exposed through a hub MCP
+      expect(decl?.tags, name).toContain(ADMIN_TAG);
       expect(r.module.hubFns.has(hub.fns[name].name), name).toBe(true);
     }
   });
@@ -74,10 +77,12 @@ describe('admin fns', () => {
     expect(asked).toEqual([{ op: 'configure_provider', data: { provider: 'openrouter', apiKey: 'sk-or-1' }, by: ALICE }]);
   });
 
-  it('refuses args the endpoint body refuses, before a run is made', async () => {
+  it('refuses args the endpoint body refuses as invalid input, before the operation runs', async () => {
     const { r, asked, turn } = await started();
-    await expect(call(r, turn, 'set_budget', { target: { scope: 'hub' }, period: 'per-turn', maxCost: 2, onLimit: 'explode' })).rejects.toBeInstanceOf(RunRefused);
-    await expect(call(r, turn, 'set_budget', { target: { scope: 'galaxy' }, period: 'per-turn', maxCost: 2, onLimit: 'refuse' })).rejects.toBeInstanceOf(RunRefused);
+    await expect(call(r, turn, 'set_budget', { target: { scope: 'hub' }, period: 'per-turn', maxCost: 2, onLimit: 'explode' }))
+      .resolves.toMatchObject({ status: 'failed', error: { code: INVALID_INPUT_CODE, data: { source: 'schema', problems: [{ path: 'onLimit' }] } } });
+    await expect(call(r, turn, 'set_budget', { target: { scope: 'galaxy' }, period: 'per-turn', maxCost: 2, onLimit: 'refuse' }))
+      .resolves.toMatchObject({ status: 'failed', error: { code: INVALID_INPUT_CODE } });
     expect(asked).toEqual([]);
   });
 

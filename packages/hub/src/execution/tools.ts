@@ -1,20 +1,22 @@
 /**
- * Agent tools from fn signatures. Every tool an agent sees is a fn: its schema is the fn's gin args as a zod value
- * schema (from the catalog), and calling it never runs anything inline. The tool records the call and suspends the
- * prompt (`PromptSuspend`), and the agent loop turns each recorded call into a queued run.
+ * Agent tools from a chat mode's native tools (`ModeTool`: a fn's args in tools mode, the static toolset's five in
+ * static mode). Calling one never runs anything inline: the tool records the call and suspends the prompt
+ * (`PromptSuspend`), and the agent loop asks the mode what each recorded call means (a run of a fn, or invalid input
+ * answered at once) and turns the runs into queued runs.
  *
- * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`).
+ * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`) and the args
+ * it checked against the tool's schema.
  */
 import { PromptSuspend, Tool } from '@aeye/core';
-import { Json, type FnRecord, type QualifiedName } from '@harness/core';
-import type { FnSignature } from '../catalog/index.ts';
+import { Json } from '@harness/core';
+import type { ModeTool } from '../contextor/index.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
-import { isObjectSchema, toolName } from './wire.ts';
 
-/** A tool call the model made, waiting to become a run. */
+/** A tool call the model made, waiting to be interpreted. */
 export interface ToolCallIntent {
   readonly toolCallId: string;
-  readonly fn: QualifiedName;
+  /** The tool's name as the model called it. */
+  readonly name: string;
   readonly args: Json;
 }
 
@@ -39,42 +41,27 @@ export class PendingCalls {
   }
 }
 
-/** An agent tool for one fn. */
-export type FnTool = Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>;
+/** An agent tool. */
+export type AgentTool = Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>;
 
-/** The tools of one prompt job, and which fn each tool name stands for. */
-export interface Toolset {
-  readonly tools: FnTool[];
-  readonly fns: ReadonlyMap<string, QualifiedName>;
-}
-
-/** Build the tool for a fn. Refused (undefined) when the fn's args aren't an object, which no LLM tool can take. */
-export function fnTool(fn: FnRecord, signature: FnSignature, calls: PendingCalls): FnTool | undefined {
-  const schema = signature.argsSchema;
-  if (!isObjectSchema(schema)) return undefined;
+/** The aeye tool for a mode's tool: it records its calls and suspends. */
+export function agentTool(tool: ModeTool, calls: PendingCalls): AgentTool {
   return new Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>({
-    name: toolName(fn.name),
-    description: fn.decl.description,
-    ...(fn.decl.instructions === undefined ? {} : { instructions: fn.decl.instructions }),
-    schema,
+    name: tool.name,
+    description: tool.description,
+    ...(tool.instructions === undefined ? {} : { instructions: tool.instructions }),
+    schema: tool.schema,
     call: (input, _refs, ctx) => {
       const toolCallId = ctx.toolCallId;
-      if (toolCallId === undefined) throw new Error(`tool ${fn.name} was called without a tool call id`);
-      calls.add({ toolCallId, fn: fn.name, args: Json.parse(input) });
-      throw new PromptSuspend(`${fn.name} runs as a queued run`);
+      if (toolCallId === undefined) throw new Error(`tool ${tool.name} was called without a tool call id`);
+      calls.add({ toolCallId, name: tool.name, args: Json.parse(input) });
+      throw new PromptSuspend(`${tool.name} runs as a queued run`);
     },
   });
 }
 
-/** Build the tools for fns (each with its signature), skipping any that can't be a tool. */
-export function toolset(entries: ReadonlyArray<{ fn: FnRecord; signature: FnSignature }>, calls: PendingCalls): Toolset {
-  const tools: FnTool[] = [];
-  const fns = new Map<string, QualifiedName>();
-  for (const { fn, signature } of entries) {
-    const tool = fnTool(fn, signature, calls);
-    if (tool === undefined || fns.has(tool.name)) continue;
-    tools.push(tool);
-    fns.set(tool.name, fn.name);
-  }
-  return { tools, fns };
+/** The aeye tools of a prompt, each once by name. */
+export function agentTools(tools: readonly ModeTool[], calls: PendingCalls): AgentTool[] {
+  const seen = new Set<string>();
+  return tools.flatMap((tool) => (seen.has(tool.name) ? [] : (seen.add(tool.name), [agentTool(tool, calls)])));
 }

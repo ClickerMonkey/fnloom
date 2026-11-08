@@ -18,7 +18,9 @@ import type {
 } from '../chat/index.ts';
 import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, ProviderService, RunService } from '../execution/index.ts';
 import type { Embedders, Indexer, Search, Suggester } from '../index/index.ts';
-import type { ConfigService, LinkService, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens } from '../link/index.ts';
+import type {
+  ConfigService, InstanceRouter, LinkService, Packages, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens,
+} from '../link/index.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
 import type { ContextorServices } from '../contextor/index.ts';
 import type { McpServices } from '../mcp/index.ts';
@@ -47,6 +49,7 @@ export interface HubServices {
   readonly link: {
     readonly connections: LinkService; readonly pairing: PairingService; readonly config: ConfigService; readonly supervisor: Supervisor;
     readonly admin: SystemAdmin; readonly resources: ResourceRouter; readonly tokens: SystemTokens; readonly output: SystemOutput;
+    readonly packages: Packages; readonly instances: InstanceRouter;
   };
   readonly execution: {
     readonly runs: RunService; readonly agents: AgentLoop; readonly llm: LlmGateway; readonly limits: LimitResolver; readonly ledger: Ledger;

@@ -1,7 +1,7 @@
 /**
  * `LinkHost`: runs a system against a hub over the WebSocket link.
  *
- * On every connection the system says hello (name, version, this process's instance, its public key and its manifest
+ * On every connection the system says hello (name, its instance, this process start, its public key and its manifest
  * hash). A name the hub has never seen starts pairing: the system logs the code and link and waits for the hub's
  * `paired` call, then says hello again. A known name signs the hub's challenge. Once welcomed, it sends its manifest
  * if the hub's copy is stale (uploading its client renderers first), takes its config, and runs its lifecycle events:
@@ -12,22 +12,23 @@
  * again. Stopping runs `stopping`, lets runs finish within the deadline, cancels the rest, and closes the link.
  */
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { updown, type UpDown } from '@ayepi/updown';
 import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
-  type ImportReport, type LogLine, type QualifiedName, type StopReason, type Welcome,
+  type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type Welcome,
 } from '@harness/core';
-import type { Log } from '../ctx.ts';
+import type { Log, SystemPlace } from '../ctx.ts';
+import { wireType } from '../gin.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
 import { configTypeOf, type ConfigOf, type ContractShape, type SystemContract, type SystemImpl } from '../system.ts';
 import { readClientBundle, uploadClientBundle, type ClientBundle } from './assets.ts';
 import { HubContent, LocalContent } from './content.ts';
-import { sdkEnv, type SdkEnv } from './env.ts';
+import { placeFolders, SYSTEM_ENV, sdkEnv, type SdkEnv } from './env.ts';
 import { NodeFiles } from './files.ts';
 import type { KeyStore, RunningStatus, RunningSystem, ServeOptions, SystemHost } from './index.ts';
 import { FileJournal, type OutcomeJournal } from './journal.ts';
@@ -36,12 +37,13 @@ import { hubClient, WsLinkTransport, type HubAccess, type HubLink, type LinkSock
 import { ScopedLog, systemLogger } from './log.ts';
 import { ManifestState } from './manifest-state.ts';
 import { McpFace } from './mcp.ts';
+import { pairingDisplayFor, type PairingDisplay, type PairingShown } from './pairing.ts';
 import { NodeProcess, type ProcessControl } from './process.ts';
 import type { RunEnvironment } from './run.ts';
 import { RunRegistry } from './runs.ts';
 import { ConfigStore, SystemRuntime } from './runtime.ts';
 import { implTable, runtimeFnImpl, SystemTable, type RuntimeLifecycle } from './table.ts';
-import { Deferred, messageOf } from './wire.ts';
+import { Deferred, messageOf, withTimeout } from './wire.ts';
 
 /** The system stopped; nothing more goes to the hub. */
 export class SystemStopped extends Error {
@@ -64,6 +66,10 @@ export interface LinkHostDeps {
   readonly env?: SdkEnv;
   /** The process logger. Default: console, plus the hub while connected. */
   readonly logger?: (sink: (line: LogLine) => void) => Logger;
+  /** Shows a pending pairing. Default: a QR code on a terminal (`HARNESS_PAIRING_QR`), else a log line. */
+  readonly pairing?: PairingDisplay;
+  /** Makes the instance's data and cache folders before the system starts. Default: `mkdir -p` each. */
+  readonly folders?: (dirs: readonly string[]) => Promise<void>;
 }
 
 /** A link host and the process log it serves with. */
@@ -111,6 +117,11 @@ async function packageVersion(): Promise<string | undefined> {
   }
 }
 
+/** Make folders (and their parents) that don't exist yet. */
+async function makeFolders(dirs: readonly string[]): Promise<void> {
+  await Promise.all(dirs.map((dir) => mkdir(dir, { recursive: true })));
+}
+
 /** One system, connected (or connecting) to the hub. */
 class LinkedSystem<N extends string, C extends ContractShape> implements RunningSystem<N> {
   readonly name: N;
@@ -120,7 +131,11 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   readonly #env: SdkEnv;
   readonly #logger: Logger;
   readonly #log: ScopedLog;
-  readonly #instance = randomUUID();
+  /** This process start, so the hub tells a restart from a reconnect. */
+  readonly #boot = randomUUID();
+  /** The instance this is: asked for from `HARNESS_INSTANCE`, then the name the hub's welcome gives it. */
+  #instance: InstanceName;
+  #pairingDisplay: PairingDisplay | undefined;
   readonly #stop = new AbortController();
   readonly #statusListeners = new Set<(status: RunningStatus) => void>();
   readonly #table: SystemTable;
@@ -159,6 +174,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     this.#env = deps.env ?? sdkEnv.parse();
     this.#limits = LinkLimits.parse({ maxFrame: this.#env.HARNESS_LINK_MAX_FRAME, maxChunk: this.#env.HARNESS_LINK_MAX_CHUNK, heartbeat: this.#env.HARNESS_LINK_HEARTBEAT });
     this.#pairingToken = options.pairingToken;
+    this.#instance = this.#env[SYSTEM_ENV.instance];
     const sink = (line: LogLine): void => {
       const hub = this.#now();
       if (hub !== undefined) { hub.call('log', line).catch(() => undefined); }
@@ -204,6 +220,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     });
     const hubAccess = this.#access;
     const content = new HubContent(hubAccess);
+    const place = await this.#place();
     const runEnv: RunEnvironment = {
       system: this.name,
       hub: hubAccess,
@@ -211,6 +228,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
       files: this.#options.files ?? NodeFiles.at(process.cwd()),
       fetch: this.#options.fetch ?? globalThis.fetch,
       log: this.#log,
+      place,
       stateRetries: this.#env.HARNESS_STATE_RETRIES,
       now: this.#deps.now ?? Date.now,
       config: (version) => this.#config.at(version),
@@ -345,6 +363,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
         name: this.#contract.name,
         version: this.#version,
         instance: this.#instance,
+        boot: this.#boot,
         publicKey: await this.#keys.publicKey(),
         manifestHash: await this.#manifestState().hash(),
         ...(this.#pairingToken === undefined ? {} : { pairingToken: this.#pairingToken }),
@@ -356,7 +375,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
           // a pairing token: the hub has approved it and will say so (`paired`); nothing for an admin to do
           this.#log.info('system.pairing.token', { pairing: reply.pairing });
         } else {
-          this.#log.warn('system.pairing', { code: reply.code, url: reply.url, expiresAt: reply.expiresAt });
+          await this.#showPairing(hub, reply.pairing, { system: this.name, instance: this.#instance, code: reply.code, url: reply.url, expiresAt: reply.expiresAt });
         }
         return;
       }
@@ -373,6 +392,10 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
 
   async #welcome(hub: HubLink, welcome: Welcome): Promise<void> {
     this.#limits = welcome.limits;
+    if (welcome.instance !== this.#instance) {
+      this.#log.info('system.instance', { asked: this.#instance, instance: welcome.instance });
+      this.#instance = welcome.instance;
+    }
     if (welcome.config !== undefined) {
       try {
         this.#config.apply(welcome.config);
@@ -458,6 +481,36 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
+  /**
+   * Which instance this is and its folders, made if missing: the hub's (`HARNESS_SYSTEM_DATA` / `_CACHE`) for what it
+   * installs, else `data` and `cache` in the state folder. `instance` reads the current name, which the welcome sets.
+   */
+  async #place(): Promise<SystemPlace> {
+    const { dataDir, cacheDir } = placeFolders(this.#options.state, this.#env);
+    await (this.#deps.folders ?? makeFolders)([dataDir, cacheDir]);
+    const instance = (): InstanceName => this.#instance;
+    return { get instance() { return instance(); }, dataDir, cacheDir };
+  }
+
+  /**
+   * Tell the hub what the pairing page should show (description, instance, config type), then show the pairing to
+   * the person who approves it. A hub that keeps no pairing info only loses the page's details.
+   */
+  async #showPairing(hub: HubLink, pairing: PairingId, shown: PairingShown): Promise<void> {
+    try {
+      await hub.call('pairingInfo', { pairing, description: this.#contract.description, instance: shown.instance, configType: wireType(this.#contract.defs.config) });
+    } catch (error) {
+      this.#log.warn('system.pairing-info-failed', { error: messageOf(error) });
+    }
+    this.#pairingDisplay ??= this.#deps.pairing ?? await pairingDisplayFor(this.#env.HARNESS_PAIRING_QR, {
+      log: this.#log,
+      tty: process.stdout.isTTY,
+      write: (text) => { process.stdout.write(`${text}
+`); },
+    });
+    await this.#pairingDisplay.show(shown);
+  }
+
   /** Log once when the hub stays unreachable for `connectTimeout`; the transport keeps retrying. */
   #watchReachable(state: 'open' | 'closed' | 'connecting'): void {
     if (state === 'open') {
@@ -477,7 +530,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     return this.#runtime.systemCtx();
   }
 
-  async #lifecycleEvent(event: string, run: () => Promise<void> | undefined): Promise<void> {
+  async #lifecycleEvent(event: string, run: () => Promise<unknown> | undefined): Promise<void> {
     try {
       await run();
     } catch (error) {
@@ -505,12 +558,4 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     this.#log.info('system.status', { status });
     for (const listener of this.#statusListeners) { listener(status); }
   }
-}
-
-/** Wait for `work`, but no longer than `timeout`. */
-async function withTimeout(work: Promise<void> | undefined, timeout: number): Promise<void> {
-  if (work === undefined) { return; }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([work, new Promise<void>((resolve) => { timer = setTimeout(resolve, timeout); })]);
-  clearTimeout(timer);
 }

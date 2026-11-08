@@ -19,7 +19,7 @@ import { SessionListStore } from './sessions.ts';
 import { DraftSuggestions } from './suggest.ts';
 import { stateKey, ThreadStore, undoSummary } from './thread.ts';
 import { UploadQueue } from './uploads.ts';
-import { VoiceStore } from './voice.ts';
+import { RecordedDictation, SpeechDictation, VoiceStore, type SpeechRecognizer } from './voice.ts';
 
 const S1 = SessionId.parse('ses_1');
 const flush = async (): Promise<void> => { for (let i = 0; i < 6; i++) { await Promise.resolve(); } };
@@ -677,18 +677,59 @@ describe('VoiceStore', () => {
   it('records, uploads, transcribes; a blocked microphone says how to fix it', async () => {
     const api = fakeChatApi();
     const upload = vi.fn(() => Promise.resolve({ hash: 'b'.repeat(64), size: 3, mime: 'audio/webm' }));
-    const voice = new VoiceStore(fakeRecorder(), upload, api, () => T0);
-    await voice.start();
+    const voice = new VoiceStore({ model: new RecordedDictation(fakeRecorder(), upload, api) }, () => T0);
+    expect(voice.can('model')).toBe(true);
+    expect(voice.can('browser')).toBe(false);
+    await voice.start('model');
     expect(voice.state.value).toBe('recording');
     expect(await voice.stop()).toBe('dictated words');
     expect(upload).toHaveBeenCalledOnce();
     expect(voice.state.value).toBe('idle');
-    const denied = new VoiceStore(fakeRecorder(false), upload, api);
-    await denied.start();
+    const denied = new VoiceStore({ model: new RecordedDictation(fakeRecorder(false), upload, api) });
+    await denied.start('model');
     expect(denied.state.value).toBe('denied');
     expect(denied.problem.value).toContain('blocked');
     denied.dismiss();
     expect(denied.state.value).toBe('idle');
+  });
+});
+
+describe('SpeechDictation', () => {
+  /** A recognizer that hears `words` when stopped, or fails with `error` when started. */
+  function fakeSpeech(words: readonly string[], error?: string): SpeechRecognizer & { lang: string } {
+    const recognizer: SpeechRecognizer & { lang: string } = {
+      lang: '', continuous: false, interimResults: true, onresult: null, onerror: null, onend: null,
+      start: () => { if (error !== undefined) { recognizer.onerror?.({ error }); } },
+      stop: () => {
+        recognizer.onresult?.({ results: words.map((transcript) => Object.assign([{ transcript }], { isFinal: true })) });
+        recognizer.onend?.();
+      },
+      abort: () => { recognizer.onend?.(); },
+    };
+    return recognizer;
+  }
+
+  it('hears speech in the browser with no upload and no model call, in the role’s language', async () => {
+    const api = fakeChatApi();
+    const recognizer = fakeSpeech(['open the', ' readme ']);
+    const voice = new VoiceStore({ browser: new SpeechDictation(() => recognizer) }, () => T0);
+    await voice.start('browser', 'en-GB');
+    expect(recognizer.lang).toBe('en-GB');
+    expect(recognizer.continuous).toBe(true);
+    expect(voice.state.value).toBe('recording');
+    expect(await voice.stop()).toBe('open the readme');
+    expect(api.transcribe.calls).toEqual([]);
+    expect(voice.state.value).toBe('idle');
+  });
+
+  it('says the microphone is blocked when speech is refused, and that an engine this browser lacks can’t run', async () => {
+    const voice = new VoiceStore({ browser: new SpeechDictation(() => fakeSpeech([], 'not-allowed')) });
+    await voice.start('browser');
+    expect(voice.state.value).toBe('denied');
+    const none = new VoiceStore({});
+    await none.start('browser');
+    expect(none.state.value).toBe('failed');
+    expect(none.problem.value).toContain('speech');
   });
 });
 
@@ -899,13 +940,36 @@ describe('ChatStore', () => {
     await flush();
     const thread = chat.thread(S1);
     api.messages = failingCaller<'messages'>(new ApiError(0, 'DISCONNECTED', undefined));
-    await chat.refresh();
+    const refreshed = chat.refresh();
+    await vi.waitFor(() => { expect(thread.problem.value).toBe("Can't reach the hub. Check the connection and try again."); });
     expect(thread.status.value).toBe('ready');
+    expect(thread.stale.value).toBe(true);
     expect(thread.messages.value.map((m) => m.id)).toEqual([kept.id]);
-    expect(thread.problem.value).toBe("Can't reach the hub. Check the connection and try again.");
+    chat.leave();
+    await refreshed;
     const never = SessionId.parse('ses_never');
     await chat.open(never);
     expect(chat.thread(never).status.value).toBe('error');
+  });
+
+  it('retries the catch-up after a reconnect until it works, so a run missed while offline shows without a reload', async () => {
+    const { chat, api } = fakeChat();
+    await chat.open(S1);
+    await flush();
+    const thread = chat.thread(S1);
+    const missed = message({ role: 'assistant', author: 'act_agent', runs: ['run_late'], parts: [{ type: 'text', text: 'Finished offline.' }] });
+    // the hub is back but its first answers fail: the socket dropped again mid catch-up
+    let failures = 2;
+    api.messages = fakeCaller<'messages'>(() => (failures-- > 0 ? Promise.reject(new ApiError(0, 'DISCONNECTED', undefined)) : Promise.resolve({ items: [missed] })));
+    api.run = fakeCaller<'run'>(({ run: id }) => Promise.resolve(run({ id, status: 'done', session: S1 })));
+    const refreshed = chat.refresh();
+    await vi.waitFor(() => { expect(thread.stale.value).toBe(true); });
+    await refreshed;
+    expect(api.messages.calls.length).toBe(3);
+    expect(thread.stale.value).toBe(false);
+    expect(thread.problem.value).toBe('');
+    expect(thread.messages.value.map((m) => m.id)).toEqual([missed.id]);
+    expect(thread.runs.value.get(RunId.parse('run_late'))?.status).toBe('done');
   });
 });
 

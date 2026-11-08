@@ -27,7 +27,7 @@ export class SystemExecutor implements RunExecutor {
   }
 
   async execute(job: ExecutionJob, signal: AbortSignal): Promise<OutcomeWire> {
-    const connection = this.#deps.link.connection(job.run.system);
+    const connection = this.#deps.link.connection(job.run.system, job.run.instance);
     if (connection === undefined) throw new SystemGone(job.run.system);
     try {
       return await connection.peer.call('run', job.request, { signal: AbortSignal.any([signal, connection.signal]) });
@@ -38,7 +38,7 @@ export class SystemExecutor implements RunExecutor {
   }
 
   async control(run: Run, action: RunControlAction): Promise<ControlAnswer> {
-    const connection = this.#deps.link.connection(run.system);
+    const connection = this.#deps.link.connection(run.system, run.instance);
     if (connection === undefined) return { accepted: false, reason: `${run.system} is not connected` };
     const answer = await connection.peer.call('control', { run: run.id, action });
     return answer.reason === undefined ? { accepted: answer.accepted } : { accepted: answer.accepted, reason: answer.reason };
@@ -51,7 +51,7 @@ export class SystemExecutor implements RunExecutor {
 
   async undo(job: UndoJob): Promise<UndoOutcome> {
     const { run, fn, info, payload } = job;
-    const connection = this.#deps.link.connection(run.system);
+    const connection = this.#deps.link.connection(run.system, run.instance);
     if (connection === undefined) return { status: 'failed', error: fnError('retry', `${run.system} is not connected`, 'unavailable') };
     return connection.peer.call('undo', {
       run: info, fn: splitName(fn.name).local, kind: fn.decl.kind, payload, ...(fn.decl.payload === undefined ? {} : { fnPayload: fn.decl.payload }),

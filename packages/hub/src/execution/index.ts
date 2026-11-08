@@ -13,9 +13,11 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelInfo,
+  ModelInfo, ModelCallId, InvalidInput, InstanceName,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
+import type { ModelSite } from '../models/index.ts';
+import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { SpendReader } from './spend.ts';
 
 /** The qualified kind of agent fns, from the hub contract (`hub.kinds.llm`): renaming it there breaks every user. */
@@ -43,6 +45,13 @@ export interface RunInput {
   llmCall?: LlmInteractionId;
   toolCallId?: string;
   budget?: { cost?: Usd; time?: number };
+  /**
+   * The caller found the input unusable before it could be checked (a model's tool call whose JSON didn't parse): the
+   * run is made and settles `invalid-input` with these problems at once, so the caller hears them and may try again.
+   */
+  invalid?: InvalidInput;
+  /** The instance of a fleet to run on (`on=laptop`); without it the hub picks one (`InstanceRouter`). */
+  on?: InstanceName;
 }
 
 /** Runs: create (after the policy check), queue, execute on the right system, control, settle and undo. */
@@ -105,18 +114,29 @@ export interface Ledger extends SpendReader {
   remaining(limits: ResolvedLimits, who?: { turn: TurnId; actor: ActorId }): Promise<{ cost: Usd; limitedBy: string }>;
 }
 
-/** The one caller of real LLM providers: queued by priority, rate-limited per model, budgeted and recorded. */
+/** What a non-chat model call gave, with its `ModelCall` record, what it cost and the model that answered. */
+export interface Recorded<T> {
+  readonly value: T;
+  readonly call: ModelCallId;
+  readonly cost: Usd;
+  readonly model: string;
+}
+
+/**
+ * The one caller of real model providers, for every modality: queued by priority, rate-limited per model, budgeted
+ * (calls inside a run, against its turn) and recorded (a `ModelCall` each; chat calls also as interactions). Non-chat
+ * calls are for a run of a system (`ModelSite` with `system`, which must name the system's own unsettled run) or the
+ * hub's own work (`purpose`, inside a run that pays when one is given).
+ */
 export interface LlmGateway {
   /** A forwarded request from a system (`HubLink.llm`), streamed back. */
   forward(input: LlmForward & { system: string; turn?: TurnId }, signal: AbortSignal): AsyncIterable<LlmForwardChunk>;
-  /** Embeddings through a provider (when no embedder system is used). */
-  embed(texts: readonly string[], run?: RunId): Promise<{ vectors: number[][]; cost: Usd }>;
+  embed(input: EmbedCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<number[][]>>;
+  image(input: ImageCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<MadeImage[]>>;
+  transcribe(input: TranscribeCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Heard>>;
+  speech(input: SpeechCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Spoken>>;
   /** The models configured providers offer. */
   models(): Promise<ModelInfo[]>;
-  /** Whether voice input can be transcribed: a transcription model is set (`HARNESS_TRANSCRIBE_MODEL`). */
-  canTranscribe(): boolean;
-  /** The text spoken in a recording, through the transcription model. Refused when none is set. */
-  transcribe(audio: Uint8Array): Promise<string>;
 }
 
 /** The model providers behind the hub AI. */

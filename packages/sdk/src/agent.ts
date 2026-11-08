@@ -1,6 +1,6 @@
 /** Declaring agents: fns of the hub's `llm` kind, with tools and context given as refs. */
 import type { Audience, ModelChoice } from '@harness/core';
-import type { FnDef, KindFnTypes } from './fn.ts';
+import type { FnDef, FnExampleOf, KindFnTypes } from './fn.ts';
 import type { GinType, Infer } from './gin.ts';
 import { hub, type LlmPayloadType } from './hub.ts';
 import type { AnyContextRef, AnyFnRef, AnyHookRef } from './refs.ts';
@@ -34,8 +34,16 @@ export interface AgentInput<A, R> {
   toolExecution?: 'parallel' | 'sequential';
   /** Default 16. */
   maxIterations?: number;
+  /** How fns reach the model: strict tools (the hub's default) or the static toolset. */
+  mode?: NonNullable<LlmPayload['mode']>;
+  /** What goes into each prompt: plain (the hub's default), suggest, or graph (for small local models). */
+  contextor?: NonNullable<LlmPayload['contextor']>;
+  /** The most tokens one answer may take; the model's own limit when absent. */
+  maxOutput?: number;
   visibility?: Audience;
   tags?: string[];
+  /** Example calls (args of its own args type), shown to other agents on its card. */
+  examples?: FnExampleOf<NoInfer<A>>[];
 }
 
 /**
@@ -50,6 +58,7 @@ export function agent<A, R>(def: AgentInput<A, R>): FnDef<AgentFnTypes<A, R>> {
     returns: def.returns,
     ...(def.visibility === undefined ? {} : { visibility: def.visibility }),
     ...(def.tags === undefined ? {} : { tags: def.tags }),
+    ...(def.examples === undefined ? {} : { examples: def.examples }),
     payload: {
       instructions: def.instructions,
       ...(def.model === undefined ? {} : { model: def.model }),
@@ -64,6 +73,9 @@ export function agent<A, R>(def: AgentInput<A, R>): FnDef<AgentFnTypes<A, R>> {
       hooks: (def.hooks ?? []).map((h) => h.name),
       toolExecution: def.toolExecution ?? 'parallel',
       maxIterations: def.maxIterations ?? 16,
+      ...(def.mode === undefined ? {} : { mode: def.mode }),
+      ...(def.contextor === undefined ? {} : { contextor: def.contextor }),
+      ...(def.maxOutput === undefined ? {} : { maxOutput: def.maxOutput }),
     },
   });
 }

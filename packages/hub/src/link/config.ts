@@ -1,104 +1,120 @@
 /**
- * System config. A value is checked against the config type in the system's manifest; a valid one is versioned,
- * stored on the system's row and pushed to the system (`configure`, with the previous value) if it is connected.
- * A system can't be used without a valid config. A config given before the system sent its contract (at install)
- * waits and is applied once the contract arrives; a config type `{}` satisfies is set to `{}` by itself.
+ * Instance config. A value is checked against the config type in the system's manifest; a valid one is versioned,
+ * stored on the instance's row and pushed to the instance (`configure`, with the previous value) if it is connected.
+ * An instance can't be used without a valid config. A config given before the system sent its contract (at install)
+ * waits and is applied once the contract arrives; a config type `{}` satisfies is set to `{}` by itself. Each instance
+ * of a fleet has its own config (each fs machine its own folders).
  */
 import type { Logger } from '@ayepi/log';
-import type { ActorId, ConfigValue, Json, SystemName, SystemRecord } from '@harness/core';
+import { instanceLabel, type ActorId, type ConfigValue, type InstanceName, type InstanceRecord, type InstanceRef, type Json, type SystemName } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
-import type { HubStore } from '../store/index.ts';
 import type { ConfigService, LinkService } from './index.ts';
-import type { SystemStatusKeeper } from './status.ts';
+import type { InstanceKeeper } from './status.ts';
 
 /** What config needs. */
 export interface ConfigOptions {
-  readonly store: HubStore;
   readonly log: Logger;
   readonly clock: () => number;
   readonly catalog: Catalog;
   readonly bus: EventBus;
   readonly links: LinkService;
-  readonly status: SystemStatusKeeper;
+  readonly instances: InstanceKeeper;
 }
 
 /** The config value a row holds, as the link carries it. */
-function valueOf(record: SystemRecord | undefined): ConfigValue | undefined {
+export function configOf(record: Pick<InstanceRecord, 'config'> | undefined): ConfigValue | undefined {
   return record?.config === undefined ? undefined : { value: record.config.value, version: record.config.version };
 }
 
-/** Config kept on system rows. */
+/** Config kept on instance rows. */
 export class StoreConfigService implements ConfigService {
   readonly #options: ConfigOptions;
-  /** Configs given before the system's contract arrived, applied when it does. */
-  readonly #waiting = new Map<SystemName, { value: Json; by: ActorId }>();
+  /** Configs given before the system's contract arrived, applied when it does, by `system@instance`. */
+  readonly #waiting = new Map<string, { value: Json; by: ActorId }>();
 
   constructor(options: ConfigOptions) {
     this.#options = options;
   }
 
-  async current(system: SystemName): Promise<ConfigValue | undefined> {
-    return valueOf(await this.#options.store.table('systems').get(system));
+  async current(system: SystemName, instance?: InstanceName): Promise<ConfigValue | undefined> {
+    const ref = await this.#ref(system, instance);
+    return ref === undefined ? undefined : configOf(await this.#options.instances.get(ref));
   }
 
-  async set(system: SystemName, value: Json, by: ActorId): Promise<{ version: number } | { problems: string[] }> {
-    const { store, catalog, clock } = this.#options;
-    const [record, manifest] = await Promise.all([store.table('systems').get(system), catalog.manifest(system)]);
-    if (record === undefined) { return { problems: [`no system ${system}`] }; }
-    if (manifest === undefined) { return { problems: [`${system} has not sent its contract yet, so its config type is unknown`] }; }
-    const problems = await catalog.check(system, manifest.config, value);
+  async set(system: SystemName, value: Json, by: ActorId, instance?: InstanceName): Promise<{ version: number } | { problems: string[] }> {
+    const ref = await this.#ref(system, instance);
+    if (ref === undefined) { return { problems: [`${system} has no instance${instance === undefined ? '' : ` ${instance}`}`] }; }
+    const problems = await this.check(system, value);
     if (problems.length > 0) { return { problems }; }
-    // the version is taken from the row inside the status keeper's write, so two sets at once get two versions
-    let change: ConfigValue & { previous?: Json } = { value, version: 0 };
-    await this.#options.status.sync(system, (current) => {
-      const previous = current.config?.value;
-      change = { value, version: (current.config?.version ?? 0) + 1, ...(previous === undefined ? {} : { previous }) };
-      return { ...current, config: { value, version: change.version, setBy: by, setAt: clock() } };
-    });
-    this.#options.log.info('config.set', { system, version: change.version, by });
-    this.#push(system, change);
-    return { version: change.version };
+    return this.#write(ref, value, by);
   }
 
-  /** Keep a config for a system whose contract hasn't arrived yet (an installed system's first start). */
-  preset(system: SystemName, value: Json, by: ActorId): void {
-    this.#waiting.set(system, { value, by });
+  /** The problems of a value for a system's config type (none when it fits). */
+  async check(system: SystemName, value: Json): Promise<string[]> {
+    const { catalog } = this.#options;
+    const manifest = await catalog.manifest(system);
+    if (manifest === undefined) { return [`${system} has not sent its contract yet, so its config type is unknown`]; }
+    return catalog.check(system, manifest.config, value);
+  }
+
+  /** Keep a config for an instance whose contract hasn't arrived yet (an installed instance's first start). */
+  preset(ref: InstanceRef, value: Json, by: ActorId): void {
+    this.#waiting.set(instanceLabel(ref), { value, by });
   }
 
   /**
-   * Once a system's contract is known: apply the config waiting for it, or give a system whose config type accepts
-   * `{}` that value, so a system with nothing to configure is usable at once. A waiting config its type refuses is
-   * dropped and logged. Returns the config the system has afterwards.
+   * Once a system's contract is known: apply the config waiting for an instance, or give an instance whose config type
+   * accepts `{}` that value, so a system with nothing to configure is usable at once. A waiting config its type
+   * refuses is dropped and logged. Returns the config the instance has afterwards.
    */
-  async applyPending(system: SystemName, by: ActorId): Promise<ConfigValue | undefined> {
-    const current = await this.current(system);
-    const manifest = await this.#options.catalog.manifest(system);
-    if (manifest === undefined) { return current; }
-    const waiting = this.#waiting.get(system);
+  async applyPending(ref: InstanceRef, by: ActorId): Promise<ConfigValue | undefined> {
+    const current = configOf(await this.#options.instances.get(ref));
+    if (await this.#options.catalog.manifest(ref.system) === undefined) { return current; }
+    const key = instanceLabel(ref);
+    const waiting = this.#waiting.get(key);
     if (waiting !== undefined) {
-      this.#waiting.delete(system);
-      const set = await this.set(system, waiting.value, waiting.by);
+      this.#waiting.delete(key);
+      const set = await this.set(ref.system, waiting.value, waiting.by, ref.instance);
       if ('version' in set) { return { value: waiting.value, version: set.version }; }
-      this.#options.log.warn('config.preset.refused', { system, problems: set.problems });
+      this.#options.log.warn('config.preset.refused', { system: ref.system, instance: ref.instance, problems: set.problems });
     }
-    if (current !== undefined || (await this.#options.catalog.check(system, manifest.config, {})).length > 0) { return current; }
-    const set = await this.set(system, {}, by);
+    if (current !== undefined || (await this.check(ref.system, {})).length > 0) { return current; }
+    const set = await this.set(ref.system, {}, by, ref.instance);
     return 'version' in set ? { value: {}, version: set.version } : undefined;
   }
 
+  /** The instance a call names, or the system's default. */
+  async #ref(system: SystemName, instance: InstanceName | undefined): Promise<InstanceRef | undefined> {
+    const name = instance ?? await this.#options.instances.defaultOf(system);
+    return name === undefined ? undefined : { system, instance: name };
+  }
+
+  /** Store a checked value as the next version (taken inside the keeper's write, so two sets get two versions). */
+  async #write(ref: InstanceRef, value: Json, by: ActorId): Promise<{ version: number }> {
+    let change: ConfigValue & { previous?: Json } = { value, version: 0 };
+    await this.#options.instances.sync(ref, (current) => {
+      const previous = current.config?.value;
+      change = { value, version: (current.config?.version ?? 0) + 1, ...(previous === undefined ? {} : { previous }) };
+      return { ...current, config: { value, version: change.version, setBy: by, setAt: this.#options.clock() } };
+    });
+    this.#options.log.info('config.set', { system: ref.system, instance: ref.instance, version: change.version, by });
+    this.#push(ref, change);
+    return { version: change.version };
+  }
+
   /**
-   * Tell a connected system its config changed; a system that is away gets it in its next welcome. Once the system
-   * has applied it, `system.configured` says so (what it serves, such as its roots, may follow from the config).
+   * Tell a connected instance its config changed; one that is away gets it in its next welcome. Once it has applied
+   * it, `system.configured` says so (what it serves, such as its roots, may follow from the config).
    */
-  #push(system: SystemName, change: ConfigValue & { previous?: Json }): void {
-    const connection = this.#options.links.connection(system);
+  #push(ref: InstanceRef, change: ConfigValue & { previous?: Json }): void {
+    const connection = this.#options.links.connection(ref.system, ref.instance);
     if (connection === undefined) { return; }
     connection.peer.call('configure', change).then(() => {
-      this.#options.bus.publish('system.configured', { system, version: change.version });
+      this.#options.bus.publish('system.configured', { system: ref.system, version: change.version });
     }, (error: unknown) => {
-      this.#options.log.warn('config.push.failed', { system, version: change.version, error: messageOf(error) });
+      this.#options.log.warn('config.push.failed', { system: ref.system, instance: ref.instance, version: change.version, error: messageOf(error) });
     });
   }
 }

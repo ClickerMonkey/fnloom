@@ -45,6 +45,7 @@ describe('the WebSocket link', () => {
       signals: false,
       env: { ...sdkEnv.parse(), HARNESS_LINK_BACKOFF: 20, HARNESS_LINK_BACKOFF_MAX: 50 },
       logger: (sink) => systemLogger({ level: 'debug', json: false, sink, console: 'none' }),
+      folders: () => Promise.resolve(),
     });
     running = await serve(echo, { fns: { say: { async run(args, ctx) { return ctx.done(`you said ${args.text}`); } } } }, { hub: `ws://127.0.0.1:${PORT}/link`, state: 'x', version: '1' }, host);
     await running.ready();

@@ -1,0 +1,177 @@
+/**
+ * The resource browser's state, all of it in the URL: the view (list, grid or groups), the grouping, the group
+ * narrowed to (`in`), the folder (`under`), the filters (words, system, family, a form present or missing), the
+ * list's sort, the grid's card size, and the opened resource with its viewer mode. One schema (`BrowserQuery`) is
+ * the route's query, so links and the page read the same keys. From it come the hub's `ResourceQuery` for the list,
+ * each group's own query, and the folder trail. Grouping keys are the hub's (its facets); the web only asks for them.
+ * Pure, so it is tested alone.
+ */
+import {
+  FormatFamily, FormKind, HUB_RESOURCE_ROOT, ResourceGrouping, ResourceUri, SectionKey, SystemName,
+  type ResourceFacet, type ResourceQuery, type ResourceRecord,
+} from '@harness/core';
+import { z } from 'zod';
+
+/** How the browser lays resources out. */
+export const BrowserView = z.enum(['list', 'grid', 'groups']);
+export type BrowserView = z.infer<typeof BrowserView>;
+
+/** What the list sorts by (the rows of the pages loaded). */
+export const BrowserSort = z.enum(['seen', 'name', 'size', 'modified', 'type']);
+export type BrowserSort = z.infer<typeof BrowserSort>;
+
+/** The grid's card sizes. */
+export const CardSize = z.enum(['s', 'm', 'l']);
+export type CardSize = z.infer<typeof CardSize>;
+
+/** The browser's query: every key the `/resources` URL may hold. */
+export const BrowserQuery = z.object({
+  view: BrowserView,
+  group: ResourceGrouping,
+  /** Only the resources in one group value (with `group`). */
+  in: z.string(),
+  /** A folder: a URI prefix. */
+  under: z.string(),
+  q: z.string(),
+  system: SystemName,
+  family: FormatFamily,
+  form: FormKind,
+  missing: FormKind,
+  sort: BrowserSort,
+  desc: z.enum(['1']),
+  size: CardSize,
+  /** The opened resource, its viewer mode, a section of it, and a page (pdf). */
+  uri: ResourceUri,
+  mode: z.string(),
+  section: SectionKey,
+  page: z.string().regex(/^\d+$/),
+}).partial();
+export type BrowserQuery = z.infer<typeof BrowserQuery>;
+
+/** The default view and grouping. */
+export const DEFAULTS = { view: 'list', group: 'type', sort: 'seen', size: 'm' } as const satisfies Required<Pick<BrowserQuery, 'view' | 'group' | 'sort' | 'size'>>;
+
+/** How many resources a list or grid page holds, and how many each group shows before "show all". */
+export const PAGE_SIZE = 60;
+export const GROUP_PREVIEW = 6;
+
+/** The browser's query read from a URL's query (unknown or bad keys dropped, one at a time). */
+export function readQuery(raw: Readonly<Record<string, unknown>>): BrowserQuery {
+  const out: Record<string, unknown> = {};
+  for (const [key, schema] of Object.entries(BrowserQuery.shape)) {
+    const value = raw[key];
+    const parsed = schema.safeParse(typeof value === 'string' ? value : undefined);
+    if (parsed.success && parsed.data !== undefined) { out[key] = parsed.data; }
+  }
+  return BrowserQuery.parse(out);
+}
+
+/** A query with some keys changed (`undefined` or '' removes a key), and the defaults left out of the URL. */
+export function patchQuery(query: BrowserQuery, patch: { readonly [K in keyof BrowserQuery]?: BrowserQuery[K] | '' }): Record<string, string> {
+  const next: Record<string, string> = {};
+  const merged: Record<string, unknown> = { ...query, ...patch };
+  for (const key of Object.keys(BrowserQuery.shape)) {
+    const value = merged[key];
+    if (typeof value !== 'string' || value === '') { continue; }
+    if (key in DEFAULTS && Reflect.get(DEFAULTS, key) === value) { continue; }
+    next[key] = value;
+  }
+  return next;
+}
+
+/** Whether the browser narrows the resources at all (words, a system, a family, a form, a folder or a group). */
+export function isFiltered(query: BrowserQuery): boolean {
+  return [query.q, query.system, query.family, query.form, query.missing, query.under, query.in].some((v) => v !== undefined && v !== '');
+}
+
+/** The hub's query for the list or grid: the filters, the folder, and the group narrowed to. */
+export function hubQuery(query: BrowserQuery): ResourceQuery {
+  const group = query.group ?? DEFAULTS.group;
+  return {
+    ...(query.q === undefined || query.q === '' ? {} : { search: query.q }),
+    ...(query.system === undefined ? {} : { system: query.system }),
+    ...(query.family === undefined ? {} : { family: query.family }),
+    ...(query.form === undefined ? {} : { form: query.form }),
+    ...(query.missing === undefined ? {} : { missing: query.missing }),
+    ...(query.under === undefined || query.under === '' ? {} : { under: query.under }),
+    group,
+    ...(query.in === undefined || query.in === '' ? {} : { in: query.in }),
+  };
+}
+
+/** The query for one group's first resources in the groups view. */
+export function groupQuery(query: BrowserQuery, facet: ResourceFacet): ResourceQuery {
+  return { ...hubQuery({ ...query, in: facet.value }), limit: GROUP_PREVIEW };
+}
+
+/** The query for the folders under `under` (the hub's `path` facets), for the folder tree. */
+export function folderQuery(query: BrowserQuery, under: string): ResourceQuery {
+  const { in: _in, under: _under, ...rest } = hubQuery(query);
+  return { ...rest, group: 'path', ...(under === '' ? {} : { under }), limit: 1 };
+}
+
+/** One step of the folder trail. */
+export interface Crumb {
+  readonly label: string;
+  /** The `under` it goes to ('' for every resource). */
+  readonly under: string;
+}
+
+/**
+ * The folder trail of `under`: every resource, then the root (`fs://work`), then each folder down to it. A trailing
+ * slash is kept on folders so a prefix never matches a sibling (`docs/` and not `docs-old`).
+ */
+export function crumbsOf(under: string): Crumb[] {
+  const crumbs: Crumb[] = [{ label: 'All resources', under: '' }];
+  const match = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i.exec(under);
+  if (match === null) { return crumbs; }
+  const scheme = match[1] ?? '';
+  const parts = (match[2] ?? '').split('/').filter((p) => p !== '');
+  let at = scheme;
+  parts.forEach((part, i) => {
+    at = i === 0 ? `${at}${part}` : `${at}/${part}`;
+    crumbs.push({ label: i === 0 ? `${scheme}${part}` : part, under: `${at}/` });
+  });
+  return crumbs;
+}
+
+/** A resource's name for display: its stat's name, or the last part of its URI. */
+export function nameOf(record: Pick<ResourceRecord, 'uri' | 'stat'>): string {
+  return record.stat.name || record.uri.split('/').filter((p) => p !== '').at(-1) || record.uri;
+}
+
+/** Whether a resource lives in the hub (an upload, a web page, a fn's output): only these rename and delete. */
+export function isHubResource(uri: string): boolean {
+  return uri.startsWith(HUB_RESOURCE_ROOT);
+}
+
+/** The loaded rows sorted for the list. `seen` keeps the hub's order (most recently seen first). */
+export function sortRecords(records: readonly ResourceRecord[], sort: BrowserSort, descending: boolean): ResourceRecord[] {
+  if (sort === 'seen') { return descending ? [...records].reverse() : [...records]; }
+  const value = (r: ResourceRecord): string | number => {
+    switch (sort) {
+      case 'name': return nameOf(r).toLowerCase();
+      case 'size': return r.stat.size ?? -1;
+      case 'modified': return r.stat.modifiedAt ?? r.seenAt;
+      case 'type': return r.stat.format ?? r.stat.type;
+    }
+  };
+  const sorted = [...records].sort((a, b) => {
+    const x = value(a);
+    const y = value(b);
+    return typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+  });
+  return descending ? sorted.reverse() : sorted;
+}
+
+/** The facets of two pages of the same query merged: a value's count is the latest one, new values are added. */
+export function mergeFacets(older: readonly ResourceFacet[], newer: readonly ResourceFacet[]): ResourceFacet[] {
+  const byValue = new Map(older.map((f) => [f.value, f]));
+  for (const facet of newer) { byValue.set(facet.value, facet); }
+  return [...byValue.values()];
+}
+
+/** The total count of a grouping's facets. */
+export function facetTotal(facets: readonly ResourceFacet[]): number {
+  return facets.reduce((sum, f) => sum + f.count, 0);
+}

@@ -11,18 +11,22 @@
  * - `McpEndpoints` mounts the servers and answers HTTP; tool sources are `each` (one tool per fn, `<system>_<local>`)
  *   or `static` (the chat's static toolset, scoped to the MCP). Outcomes map to MCP results: done → structured
  *   content, invalid input → `isError` with the problems (the model can correct them), failed or cancelled →
- *   `isError`; an approval wait keeps the call open until `HARNESS_MCP_ASK_TIMEOUT`.
+ *   `isError`; an approval wait keeps the call open until `HARNESS_HUB_MCP_ASK_TIMEOUT`.
  * - `McpTokens` mints short-lived session tokens for grantee systems (`hub/mint_mcp_token`), so a Claude system can
  *   give each Claude Code session its own labelled credential without the secret leaving the hub.
  *
  * Tunables are the `mcpEnv` slice (`env.ts`).
  */
-import type { ActorId, HubMcpId, HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView, McpTokenClaims, QualifiedName, SystemName } from '@harness/core';
+import type { ActorId, HubMcp, HubMcpId, HubMcpInput, HubMcpView, McpSlug, McpRules, McpScopePreview, McpSessionView, McpTokenClaims, QualifiedName, SystemName } from '@harness/core';
 
 /** Hub MCP records and their secrets. */
 export interface McpRegistry {
   list(): Promise<HubMcpView[]>;
   get(mcp: HubMcpId): Promise<HubMcpView | undefined>;
+  /** The stored record (with its secret's digest), for the hub's own use. */
+  record(mcp: HubMcpId): Promise<HubMcp | undefined>;
+  /** The record at a route. */
+  bySlug(slug: McpSlug): Promise<HubMcp | undefined>;
   /** Make an MCP (and its `mcp` actor); the secret is returned this once. */
   create(input: HubMcpInput, by: ActorId): Promise<{ mcp: HubMcpView; secret: string }>;
   update(mcp: HubMcpId, change: Partial<HubMcpInput>, by: ActorId): Promise<HubMcpView>;
@@ -52,10 +56,13 @@ export interface McpEndpoints {
   /** Answer one HTTP request under `/mcp` (Streamable HTTP: JSON or SSE). Unknown slug, disabled MCP and bad bearer look alike. */
   handle(request: Request): Promise<Response>;
   sessions(mcp: HubMcpId): Promise<McpSessionView[]>;
+  /** Mount every enabled MCP (on start); later changes remount each as it changes. Returns the stop. */
+  start(): Promise<() => void>;
 }
 
 /** Short-lived session tokens minted from an MCP for its grantee systems. */
 export interface McpTokens {
+  /** Refused unless the system is one of the MCP's grantees. `ttl` is capped at `HARNESS_HUB_MCP_TOKEN_TTL`. */
   mint(input: { mcp: HubMcpId; label: string; ttl: number; system: SystemName }): Promise<{ token: string; expiresAt: number }>;
   verify(token: string): Promise<McpTokenClaims | undefined>;
 }

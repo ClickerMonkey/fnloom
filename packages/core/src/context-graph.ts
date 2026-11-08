@@ -37,6 +37,26 @@ export const ContextOrigin = z.discriminatedUnion('type', [
 export type ContextOrigin = z.infer<typeof ContextOrigin>;
 export type ContextOriginType = ContextOrigin['type'];
 
+/** Who is asking to see a context item: the person, and the session they ask from (if any). */
+export interface ContextViewer {
+  readonly actor: ActorId;
+  readonly session?: SessionId | undefined;
+}
+
+/**
+ * Whether a viewer may see an item of this origin: everything but memory always; a memory only in its scope (one
+ * session, one person, everyone), and always by its author. The one rule every reader of context applies.
+ */
+export function seesOrigin(origin: ContextOrigin | undefined, viewer: ContextViewer): boolean {
+  if (origin?.type !== 'memory') return true;
+  if (origin.author === viewer.actor) return true;
+  switch (origin.scope.to) {
+    case 'everyone': return true;
+    case 'user': return origin.scope.user === viewer.actor;
+    case 'session': return origin.scope.session === viewer.session;
+  }
+}
+
 /** Estimated tokens of an item's full content and of its summary, kept current on write so selection never tokenizes. */
 export const ContextTokens = z.object({ full: z.number().int().min(0), summary: z.number().int().min(0) });
 export type ContextTokens = z.infer<typeof ContextTokens>;
@@ -103,6 +123,8 @@ export const ContextLink = z.object({
   source: LinkSource,
   /** For learned edges: how many turns used both ends (decays by half every `HARNESS_LINK_HALF_LIFE`). */
   uses: z.number().min(0).optional(),
+  /** For authored edges: the person who drew it. */
+  by: ActorId.optional(),
   updatedAt: Timestamp,
 });
 export type ContextLink = z.infer<typeof ContextLink>;

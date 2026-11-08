@@ -11,7 +11,6 @@
 import { join } from 'node:path';
 import { verifyJwt } from '@ayepi/auth/server';
 import { peers, server, spec, type AnySpec, type Server } from '@ayepi/core';
-import { fsFiles } from '@ayepi/files/fs';
 import { mountFiles } from '@ayepi/files/server';
 import type { Logger } from '@ayepi/log';
 import { createPluginHost } from '@ayepi/plugin';
@@ -22,6 +21,7 @@ import { FILES_PATH, HttpFront } from '../api/http.ts';
 import { generateVapidKeys, WebPushSender, type PushSender } from '../api/push.ts';
 import { ClientBuildRoute, WebAppRoute } from '../api/serve.ts';
 import { NamedContentFiles } from '../api/files.ts';
+import { openContentFiles } from '../resources/storage.ts';
 import { first, PAGE } from '../api/paging.ts';
 import { webPlugins } from '../api/web/index.ts';
 import { MemoryEventBus } from '../bus/memory.ts';
@@ -110,7 +110,12 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     } });
     const systems = peers(systemLinkSpec);
     const link = emptyServer({ peers: systems });
-    const files = new NamedContentFiles(fsFiles({ dir: settings.hubEnv.HARNESS_FILES_DIR, onError: (error, op, key) => { log.warn('files.failed', { op, key }, error); } }));
+    // raw content and forms: files by default, the hub's database with HARNESS_CONTENT_AT=database
+    const contentFiles = openContentFiles({
+      at: settings.resourcesEnv.HARNESS_CONTENT_AT, dir: settings.hubEnv.HARNESS_FILES_DIR, database: settings.hubEnv.HARNESS_DB_FILE,
+      busyTimeout: settings.storeEnv.HARNESS_DB_BUSY_TIMEOUT, clock, onError: (error, op, key) => { log.warn('files.failed', { op, key }, error); },
+    });
+    const files = new NamedContentFiles(contentFiles.files);
     const mounted = mountFiles(web, files, { secret: keys.filesSecret, basePath: FILES_PATH, expiresIn: Math.round(settings.httpEnv.HARNESS_PRESIGN_TTL / 1000), now: clock });
 
     const base: BaseServices = { settings, log, clock, bus, store };
@@ -130,7 +135,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
       onError: (error, phase, component) => { log.error('lifecycle.failed', { phase, component }, error); },
     });
     const front = new HttpFront({
-      web, link, health: { live: () => lc.isLive(), ready: () => lc.isReady() }, heartbeat: settings.httpEnv.HARNESS_WS_HEARTBEAT,
+      web, link, mcp: { fetch: (request) => hub.mcp.endpoints.handle(request) }, health: { live: () => lc.isLive(), ready: () => lc.isReady() }, heartbeat: settings.httpEnv.HARNESS_WS_HEARTBEAT,
       tokenMargin: settings.httpEnv.HARNESS_WS_TOKEN_MARGIN, clock, log,
       files: [new ClientBuildRoute({ catalog: hub.catalog, content: api.content }), new WebAppRoute(webDist(settings))],
       tokenExpiry: (token) => accessTokenExpiry(token, keys.jwtSecret),
@@ -146,7 +151,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
 
     const components: readonly Component<ComponentName>[] = [
       { name: COMPONENTS.log, post: async () => { restoreConsole(); if (options.log === undefined) { await log.close(); } } },
-      { name: COMPONENTS.store, deps: [COMPONENTS.log], post: () => store.close() },
+      { name: COMPONENTS.store, deps: [COMPONENTS.log], post: async () => { contentFiles.close(); await store.close(); } },
       {
         name: COMPONENTS.plugins, deps: [COMPONENTS.store],
         up: async () => {

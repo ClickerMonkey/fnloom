@@ -1,6 +1,7 @@
 /**
  * The model providers the hub AI calls, built from the stored `ProviderRecord`s with their keys revealed from the
- * secret vault: `@aeye/openai` for OpenAI (and OpenAI-compatible base URLs), `@aeye/openrouter` for OpenRouter. The
+ * secret vault: `@aeye/openai` for OpenAI (and OpenAI-compatible base URLs), `@aeye/openrouter` for OpenRouter, and a
+ * local Ollama through `@aeye/openai` with its native API for abilities and served windows (`contextor/ollama.ts`). The
  * bootstrap OpenRouter key in the model env slice only seeds the first record, when none is stored yet; after that the
  * records are the one source. The hub AI is rebuilt whenever a record changes (`reload`).
  */
@@ -11,6 +12,7 @@ import type { Logger } from '@ayepi/log';
 import { mintId, type ActorId, type ProviderConfig, type SecretId } from '@harness/core';
 import type { SecretVault } from '../api/index.ts';
 import { allRows } from '../catalog/rows.ts';
+import { OllamaProvider } from '../contextor/ollama.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 
@@ -22,6 +24,7 @@ export async function buildProvider(config: ProviderConfig, key: (id: SecretId) 
   switch (config.provider) {
     case 'openai': return new OpenAIProvider({ apiKey: await key(config.apiKey), ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }) });
     case 'openrouter': return new OpenRouterProvider({ apiKey: await key(config.apiKey), defaultParams: { appName: APP_NAME } });
+    case 'ollama': return new OllamaProvider(config);
   }
 }
 

@@ -1,0 +1,19 @@
+{
+  "name": "@harness/system-notes",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The authoring guide's worked example. Development only: system.json holds the name, version and entries.",
+  "exports": {
+    ".": "./shared/index.ts",
+    "./server": "./server/index.ts",
+    "./client": "./client/index.ts"
+  },
+  "dependencies": {
+    "@ayepi/env": "file:../../../../ayepi/packages/env",
+    "@harness/core": "*",
+    "@harness/sdk": "*",
+    "vue": "^3.5.22",
+    "zod": "^4.6.7"
+  }
+}

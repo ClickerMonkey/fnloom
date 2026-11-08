@@ -158,7 +158,7 @@ void serve(fs, {
   // @ts-expect-error actions the contract doesn't declare are refused
   actions: { rerun: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
   // tree is dynamic context, so it must be implemented; its args are typed from the command
-  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}` },
+  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}`, 'system-authoring': async () => 'How to write a system.' },
   hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
   mentions: {
     files: {

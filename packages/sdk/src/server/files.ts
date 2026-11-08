@@ -6,7 +6,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ResourceStat, ResourceUri, type ContentRef } from '@harness/core';
+import { InstanceName, ResourceStat, ResourceUri, type ContentRef } from '@harness/core';
 import type { Files } from '../ctx.ts';
 import type { ContentTransfer } from './content.ts';
 
@@ -31,9 +31,27 @@ export function mimeOf(path: string): string {
   return MIME_BY_EXTENSION[extname(path).toLowerCase()] ?? 'application/octet-stream';
 }
 
-/** A file's `file://` URI. */
-export function fileUri(path: string): ResourceUri {
-  return ResourceUri.parse(pathToFileURL(path).href);
+/**
+ * A file's `file://` URI. A system of many instances (a fleet) names its instance as the URI's host
+ * (`file://laptop/C:/docs/a.md`), so the hub routes a read of it to that machine; one instance leaves the host empty.
+ */
+export function fileUri(path: string, instance?: InstanceName): ResourceUri {
+  const url = pathToFileURL(path);
+  if (instance !== undefined) { url.host = instance; }
+  return ResourceUri.parse(url.href);
+}
+
+/** The instance a `file://` URI names as its host, if it names one (`undefined` for `file:///…` and other schemes). */
+export function uriInstance(uri: ResourceUri): InstanceName | undefined {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'file:' || url.host === '') { return undefined; }
+  const named = InstanceName.safeParse(url.host);
+  return named.success ? named.data : undefined;
 }
 
 /** `Files` on the local disk. Relative paths resolve against `base`. */

@@ -70,6 +70,13 @@ describe('routes', () => {
     expect(() => links.runs({ status: 'bogus' })).toThrow();
   });
 
+  it('opens a model call by its own address in the list', async () => {
+    const router = createAppRouter(fakeStores({ signedIn: true }).stores.session, createMemoryHistory());
+    await router.push('/admin/model-calls/mca_1?modality=chat');
+    expect(router.currentRoute.value.name).toBe(ROUTES.modelCalls);
+    expect(router.currentRoute.value.query).toEqual({ modality: 'chat', call: 'mca_1' });
+  });
+
   it('leaves defaults out of links', () => {
     expect(links.inbox()).toEqual({ name: ROUTES.inbox });
     expect(links.inbox('unread')).toEqual({ name: ROUTES.inbox, query: { filter: 'unread' } });
@@ -144,13 +151,14 @@ describe('nav', () => {
   it('lists the entries for the user, marks the current one and counts the inbox', () => {
     const admin = fakeStores({ signedIn: true }).stores.session.user.value;
     const entries = navEntries({ name: ROUTES.session }, admin, { inbox: 4, admin: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'admin', 'settings']);
+    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'admin', 'settings']);
     expect(entries.find((e) => e.id === 'admin')?.count).toBe(2);
     expect(navEntries({ name: ROUTES.llmCalls }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('admin');
+    expect(navEntries({ name: ROUTES.resources }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('resources');
     expect(entries.find((e) => e.active)?.id).toBe('chat');
     expect(entries.find((e) => e.id === 'inbox')?.count).toBe(4);
     const member = admin === undefined ? undefined : { ...admin, role: 'member' as const };
-    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'settings']);
+    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'settings']);
   });
 });
 
@@ -201,7 +209,7 @@ describe('url state', () => {
   it('follows a typed draft into the URL once typing pauses, and the URL back into the draft', async () => {
     vi.useFakeTimers();
     try {
-      const { router, got } = await probe('/admin/resources?q=old', () => useRouteQuery(ROUTES.resources).draft('q', 300));
+      const { router, got } = await probe('/resources?q=old', () => useRouteQuery(ROUTES.resources).draft('q', 300));
       expect(got.draft.value).toBe('old');
       got.draft.value = 'ne';
       await flushPromises();

@@ -2,8 +2,11 @@
  * The SDK runtime's tunables, as an `@ayepi/env` slice. Defaults live in the schema; a system process can override any
  * of them through its environment. Durations are milliseconds.
  */
+import { join, resolve } from 'node:path';
 import { env } from '@ayepi/env';
+import { InstanceName, MAIN_INSTANCE } from '@harness/core';
 import { z } from 'zod';
+import { PAIRING_QR_MODES } from './pairing.ts';
 
 /**
  * The variables that tell a system process where its hub is, where to keep its state, and whether the hub supervises
@@ -13,6 +16,12 @@ import { z } from 'zod';
 export const SYSTEM_ENV = {
   hub: 'HARNESS_HUB',
   state: 'HARNESS_SYSTEM_STATE',
+  /** Which copy of the system this process is (`main` when unset); a fleet's instances each have their own. */
+  instance: 'HARNESS_INSTANCE',
+  /** The instance's own data folder, outside the package, kept across upgrades and exported with its data. */
+  data: 'HARNESS_SYSTEM_DATA',
+  /** The instance's cache folder: rebuildable, never exported. */
+  cache: 'HARNESS_SYSTEM_CACHE',
   name: 'HARNESS_SYSTEM_NAME',
   pairingToken: 'HARNESS_PAIRING_TOKEN',
   supervised: 'HARNESS_SUPERVISED',
@@ -21,6 +30,28 @@ export const SYSTEM_ENV = {
 
 /** The exit code a supervised system exits with to ask the hub for a restart, unless the hub sets another. */
 export const RESTART_CODE = 75;
+
+/**
+ * The instance's folders a hub that runs it names: data (`ctx.dataDir`, kept across upgrades and exported) and cache
+ * (`ctx.cacheDir`, rebuildable, never exported). Unset, they are `data` and `cache` in the state folder
+ * (`placeFolders`). One schema for both the SDK's slice and each system's (`systemFields`).
+ */
+const placeFields = {
+  [SYSTEM_ENV.data]: z.string().min(1).optional(),
+  [SYSTEM_ENV.cache]: z.string().min(1).optional(),
+} as const;
+
+/**
+ * An instance's data and cache folders, as absolute paths: the ones the hub named, else `data` and `cache` in its
+ * state folder. The SDK gives these to `ctx.dataDir` and `ctx.cacheDir`; a system that needs a folder before it
+ * serves (to build its renderers into the cache) asks here, so the two never disagree.
+ */
+export function placeFolders(state: string, named: { readonly [SYSTEM_ENV.data]?: string | undefined; readonly [SYSTEM_ENV.cache]?: string | undefined }): { dataDir: string; cacheDir: string } {
+  return {
+    dataDir: resolve(named[SYSTEM_ENV.data] ?? join(state, 'data')),
+    cacheDir: resolve(named[SYSTEM_ENV.cache] ?? join(state, 'cache')),
+  };
+}
 
 export const sdkEnv = env({
   /** How often the link pings the hub; a missed pong reconnects. */
@@ -49,10 +80,15 @@ export const sdkEnv = env({
   HARNESS_INLINE_TEXT: z.number().int().min(1_024).default(256_000),
   /** Bytes of content kept for the hub to fetch by ref. */
   HARNESS_CONTENT_CACHE: z.number().int().min(1_024).default(64_000_000),
+  /** Which copy of the system this process is: `main` unless it is one of a fleet. */
+  [SYSTEM_ENV.instance]: InstanceName.default(MAIN_INSTANCE),
+  ...placeFields,
   /** Set by the hub when it starts an installed system: restarting means exiting, and the hub starts it again. */
   [SYSTEM_ENV.supervised]: z.boolean().default(false),
   /** The exit code that asks a supervising hub for a restart. */
   [SYSTEM_ENV.restartCode]: z.number().int().min(1).max(255).default(RESTART_CODE),
+  /** When a waiting system prints its pairing link as a QR code: on a terminal (`auto`), `always`, or `never` (logged only). */
+  HARNESS_PAIRING_QR: z.enum(PAIRING_QR_MODES).default('auto'),
   HARNESS_LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   HARNESS_LOG_JSON: z.boolean().default(false),
 });
@@ -72,5 +108,6 @@ export function systemFields(name: string) {
     [SYSTEM_ENV.state]: z.string().default(`.harness/systems/${name}`),
     /** A one-time pairing token an admin made, if any. */
     [SYSTEM_ENV.pairingToken]: z.string().optional(),
+    ...placeFields,
   } as const;
 }

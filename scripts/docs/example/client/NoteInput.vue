@@ -1,0 +1,52 @@
+<script setup lang="ts">
+/**
+ * The editor and viewer of a `notes/Note`, used wherever the chat draws one: `!` forms, handler prompts and config forms
+ * edit it (`v-model`: it emits a whole new note on every change, and shows the type's problems), and run cards and
+ * mention cards show it read-only (`readonly`).
+ */
+import type { InputViewOf } from '@harness/sdk';
+import { computed } from 'vue';
+import type { NoteValue, notes } from '../shared/index.ts';
+
+const props = defineProps<InputViewOf<typeof notes, 'Note'>>();
+const emit = defineEmits<{ 'update:modelValue': [value: NoteValue] }>();
+
+const current = computed<NoteValue>(() => props.modelValue ?? { id: '', title: '', text: '', tags: [], pinned: false, updatedAt: new Date() });
+
+function change(patch: Partial<NoteValue>): void {
+  emit('update:modelValue', { ...current.value, ...patch });
+}
+function onTitle(event: Event): void {
+  if (event.target instanceof HTMLInputElement) { change({ title: event.target.value }); }
+}
+function onText(event: Event): void {
+  if (event.target instanceof HTMLTextAreaElement) { change({ text: event.target.value }); }
+}
+function onTags(event: Event): void {
+  if (event.target instanceof HTMLInputElement) { change({ tags: event.target.value.split(',').map((tag) => tag.trim()).filter((tag) => tag !== '') }); }
+}
+</script>
+
+<template>
+  <article v-if="props.readonly" class="note view">
+    <strong class="title">{{ current.title }}</strong>
+    <p class="text">{{ current.text }}</p>
+    <p class="tags">{{ current.tags.map((tag) => `#${tag}`).join(' ') }}</p>
+  </article>
+  <div v-else class="note" :class="{ invalid: props.problems.length > 0 }">
+    <label class="field">Title<input type="text" :value="current.title" @input="onTitle"></label>
+    <label class="field">Text<textarea rows="4" :value="current.text" @input="onText" /></label>
+    <label class="field">Tags<input type="text" :value="current.tags.join(', ')" placeholder="work, ideas" @input="onTags"></label>
+    <p v-for="problem in props.problems" :key="problem" class="problem">{{ problem }}</p>
+  </div>
+</template>
+
+<style scoped>
+.note { display: grid; gap: var(--space-2); min-width: 0; }
+.field { display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+.invalid .field input, .invalid .field textarea { border-color: var(--danger); }
+.problem { margin: 0; color: var(--danger); font-size: var(--text-xs); }
+.view { gap: var(--space-1); }
+.text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tags { margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
+</style>

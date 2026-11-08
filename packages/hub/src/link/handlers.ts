@@ -1,36 +1,35 @@
 /**
- * The hub's side of the system link for what this module answers: the handshake (`hello`, `prove`), the contract
- * (`manifest`, `patch`), resources (`resource`, `resourcesChanged`), embeddings (`embed`) and logs (`log`), plus
- * the `linkSession` guard every endpoint after the handshake runs behind. `linkPlugin` packages them as an
- * `@ayepi/plugin` over `LINK_SPEC` (this module's slice of `hubLinkSpec`; it binds `linkSession` once for every
+ * The hub's side of the system link for what this module answers: the handshake (`hello`, `prove`, `pairingInfo`),
+ * the contract (`manifest`, `patch`), resources (`resource`, `resourcesChanged`), embeddings (`embed`) and logs
+ * (`log`), plus the `linkSession` guard every endpoint after the handshake runs behind. `linkPlugin` packages them as
+ * an `@ayepi/plugin` over `LINK_SPEC` (this module's slice of `hubLinkSpec`; it binds `linkSession` once for every
  * slice); boot installs it on the hub link server, which must be made with `{ peers: PeerLinkService.peers }`.
  *
- * The handshake: `hello` from a known name with its paired key gets a nonce to sign; anything else starts pairing.
- * `prove` checks the signature, makes the socket the system's connection, and welcomes it with its config, why it
- * is starting, an HTTP token, whether to send its manifest, and the link's limits.
+ * The handshake: `hello` whose key matches a paired instance of the system gets a nonce to sign; anything else starts
+ * pairing. `prove` checks the signature, makes the socket that instance's connection, and welcomes it with the name
+ * it is known as, its config, why it is starting, an HTTP token, whether to send its manifest, and the link's limits.
  */
 import { reject as refuse, spec, type HandlerFor, type ImplFor, type WsConn } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { telemetry } from '@ayepi/otel/server';
 import { plugin } from '@ayepi/plugin';
-import { hubLinkSpec, linkSession, linkTel, type Hello, type LinkLimits, type LinkSession, type Welcome } from '@harness/core';
+import { hubLinkSpec, linkSession, linkTel, type Hello, type InstanceRecord, type InstanceRef, type LinkLimits, type LinkSession, type Welcome } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
-import type { HubStore } from '../store/index.ts';
 import type { StoreConfigService } from './config.ts';
 import type { PeerLinkService } from './connections.ts';
 import type { ResourceRouter, SystemTokens } from './index.ts';
-import { fingerprint, isPublicKey, randomToken, verifyNonce } from './keys.ts';
+import { isPublicKey, randomToken, verifyNonce } from './keys.ts';
 import type { SystemOutput } from './output.ts';
 import type { StorePairingService } from './pairing.ts';
-import type { SystemStatusKeeper } from './status.ts';
+import type { InstanceKeeper } from './status.ts';
 
 const endpoints = hubLinkSpec.endpoints;
 
 /** The slice of `hubLinkSpec` this module answers: the same endpoint objects, so its types are the spec's. */
 export const LINK_SPEC = spec({
   endpoints: {
-    hello: endpoints.hello, prove: endpoints.prove, manifest: endpoints.manifest, patch: endpoints.patch,
+    hello: endpoints.hello, prove: endpoints.prove, pairingInfo: endpoints.pairingInfo, manifest: endpoints.manifest, patch: endpoints.patch,
     resourcesChanged: endpoints.resourcesChanged, resource: endpoints.resource, embed: endpoints.embed, log: endpoints.log,
   },
 });
@@ -47,14 +46,13 @@ export interface LinkEmbedding {
 
 /** What the handshake and its handlers need. */
 export interface LinkHandlerOptions {
-  readonly store: HubStore;
   readonly log: Logger;
   readonly clock: () => number;
   readonly catalog: Catalog;
   readonly links: PeerLinkService;
   readonly pairing: StorePairingService;
   readonly config: StoreConfigService;
-  readonly status: SystemStatusKeeper;
+  readonly instances: InstanceKeeper;
   readonly tokens: SystemTokens;
   readonly resources: ResourceRouter;
   readonly embedding: LinkEmbedding;
@@ -68,19 +66,31 @@ export function addressOf(conn: WsConn): string {
   return conn.req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? conn.req.headers.get('x-real-ip') ?? new URL(conn.req.url).host;
 }
 
+/**
+ * The web origin a socket reached the hub at: the `Host` it dialed, with `http` for `ws` and `https` for `wss` (or
+ * what a proxy says it was), so a pairing link opens from wherever the system could reach the hub.
+ */
+export function originOf(conn: WsConn): string {
+  const url = new URL(conn.req.url);
+  const host = conn.req.headers.get('x-forwarded-host') ?? conn.req.headers.get('host') ?? url.host;
+  const forwarded = conn.req.headers.get('x-forwarded-proto');
+  const secure = forwarded === null ? url.protocol === 'wss:' || url.protocol === 'https:' : forwarded === 'https' || forwarded === 'wss';
+  return `${secure ? 'https' : 'http'}://${host}`;
+}
+
 /** The handshake and the hub link handlers of this module. */
 export class LinkHandshake {
   readonly #options: LinkHandlerOptions;
   /** Sockets that said hello with a known key and were sent a nonce. */
-  readonly #challenges = new Map<WsConn, { hello: Hello; nonce: string }>();
+  readonly #challenges = new Map<WsConn, { hello: Hello; instance: InstanceRecord; nonce: string }>();
 
   constructor(options: LinkHandlerOptions) {
     this.#options = options;
     options.links.peers.onClose((peer) => void this.#challenges.delete(peer.conn));
     options.links.onChange((change) => {
       if (change.connected) { return; }
-      options.status.sync(change.system, { lastSeenAt: options.clock() }).catch((error: unknown) => {
-        options.log.error('link.disconnect.sync.failed', { system: change.system, error: messageOf(error) });
+      options.instances.sync(change, { lastSeenAt: options.clock() }).catch((error: unknown) => {
+        options.log.error('link.disconnect.sync.failed', { system: change.system, instance: change.instance, error: messageOf(error) });
       });
     });
   }
@@ -95,15 +105,20 @@ export class LinkHandshake {
 
   /** The handlers, to install on the hub link server. */
   handlers(): LinkHandlers {
-    const { catalog, resources, embedding, log } = this.#options;
+    const { catalog, resources, embedding, log, pairing, links } = this.#options;
     return {
       hello: ({ data, conn }) => this.#hello(data, conn),
       prove: ({ data, conn }) => this.#prove(data.signature, conn),
+      pairingInfo: async ({ data, conn }) => {
+        const peer = conn === undefined ? undefined : links.peer(conn);
+        if (peer === undefined) { throw refuse(400, 'NOT_A_LINK', 'pairing info must come over the link socket'); }
+        await pairing.info(data, peer);
+      },
       manifest: async ({ data, link }) => {
         if (data.name !== link.system) { throw refuse(403, 'WRONG_SYSTEM', `this link is ${link.system}, not ${data.name}`); }
         const report = await catalog.importManifest(data);
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', { description: data.description, version: data.version });
-        if (data.resources) { await resources.refresh(link.system); }
+        if (data.resources) { await resources.refresh(link.system, link.instance); }
         return report;
       },
       patch: async ({ data, link }) => {
@@ -111,7 +126,7 @@ export class LinkHandshake {
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', {});
         return report;
       },
-      resourcesChanged: ({ data, link }) => { resources.changed(link.system, data.changes); },
+      resourcesChanged: ({ data, link }) => { resources.changed(link, data.changes); },
       resource: ({ data, signal }) => resources.read(data.uri, data.want, signal),
       embed: ({ data, signal }) => embedding.embed(data.texts, signal),
       log: ({ data, link }) => {
@@ -125,35 +140,38 @@ export class LinkHandshake {
     const peer = conn === undefined ? undefined : this.#options.links.peer(conn);
     if (conn === undefined || peer === undefined) { throw refuse(400, 'NOT_A_LINK', 'hello must come over the link socket'); }
     if (!isPublicKey(hello.publicKey)) { throw refuse(400, 'BAD_KEY', 'the public key must be Ed25519, SPKI DER in base64'); }
-    const record = await this.#options.store.table('systems').get(hello.name);
-    if (record !== undefined && record.status !== 'removed' && record.keyFingerprint === fingerprint(hello.publicKey)) {
+    const known = await this.#options.pairing.known(hello);
+    if (known !== undefined) {
       const nonce = randomToken();
-      this.#challenges.set(conn, { hello, nonce });
+      this.#challenges.set(conn, { hello, instance: known.instance, nonce });
       return { kind: 'challenge', nonce };
     }
-    return this.#options.pairing.start(hello, { address: addressOf(conn), peer });
+    return this.#options.pairing.start(hello, { address: addressOf(conn), origin: originOf(conn), peer });
   }
 
   async #prove(signature: string, conn: WsConn | undefined): Promise<Welcome> {
-    const { store, links, catalog, status, config, tokens, limits, clock, log } = this.#options;
+    const { links, catalog, instances, config, tokens, limits, clock, log } = this.#options;
     const challenge = conn === undefined ? undefined : this.#challenges.get(conn);
     if (conn === undefined || challenge === undefined) { throw refuse(400, 'NO_CHALLENGE', 'say hello first'); }
     this.#challenges.delete(conn);
     const { hello, nonce } = challenge;
-    const record = await store.table('systems').get(hello.name);
+    const ref: InstanceRef = { system: challenge.instance.system, instance: challenge.instance.instance };
+    const record = await instances.get(ref);
     if (record === undefined || !verifyNonce(record.publicKey, nonce, signature)) {
-      log.warn('link.prove.refused', { system: hello.name });
+      log.warn('link.prove.refused', { system: hello.name, instance: ref.instance });
       throw refuse(401, 'BAD_SIGNATURE', 'the signature does not match the paired key');
     }
     const first = record.lastSeenAt === undefined;
     const upgradedFrom = !first && record.version !== hello.version ? record.version : undefined;
     const manifest = await catalog.manifest(hello.name);
     const sendManifest = manifest === undefined || record.manifestHash !== hello.manifestHash;
-    const session: LinkSession = { system: hello.name, instance: hello.instance };
+    const session: LinkSession = { ...ref, boot: hello.boot };
     links.establish(conn, session);
-    await status.sync(hello.name, { version: hello.version, lastSeenAt: clock(), address: addressOf(conn) });
-    const current = sendManifest ? await config.current(hello.name) : await config.applyPending(hello.name, record.actor);
+    await instances.sync(ref, { version: hello.version, lastSeenAt: clock(), address: addressOf(conn) });
+    const system = await instances.syncSystem(ref.system);
+    const current = sendManifest ? await config.current(ref.system, ref.instance) : await config.applyPending(ref, system.actor);
     return {
+      instance: ref.instance,
       ...(current === undefined ? {} : { config: current }),
       start: { first, ...(upgradedFrom === undefined ? {} : { upgradedFrom }) },
       token: tokens.issue(session),
@@ -162,12 +180,15 @@ export class LinkHandshake {
     };
   }
 
-  /** After a contract import: keep the hash it matched (blank when something was refused, so it is sent again). */
+  /**
+   * After a contract import: keep the hash the instance's contract matched (blank when something was refused, so it
+   * is sent again), the system's description and newest version, and apply a config waiting for the contract.
+   */
   async #contractChanged(link: LinkSession, manifestHash: string, change: { description?: string; version?: string }): Promise<void> {
-    const { status, config, store } = this.#options;
-    await status.sync(link.system, { manifestHash, ...change });
-    const record = await store.table('systems').get(link.system);
-    if (record !== undefined) { await config.applyPending(link.system, record.actor); }
+    const { instances, config } = this.#options;
+    await instances.sync(link, { manifestHash, ...(change.version === undefined ? {} : { version: change.version }) });
+    const system = await instances.syncSystem(link.system, { manifestHash, ...change });
+    await config.applyPending(link, system.actor);
   }
 }
 

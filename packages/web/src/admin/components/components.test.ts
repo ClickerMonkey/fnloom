@@ -105,14 +105,16 @@ describe('lists and cards', () => {
     expect(token.find('[data-testid=pairing-code]').exists()).toBe(false);
   });
 
-  it('FnList says why a fn is off and links to its runs', () => {
-    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', available: { unavailable: 'disabled', detail: '' }, paused: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}` }, global: { stubs } });
+  it('FnList says why a fn is off and links to its page and its runs', () => {
+    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', available: { unavailable: 'disabled', detail: '' }, paused: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}`, pageOf: (fn: string) => `/fns/${fn}` }, global: { stubs } });
     expect(list.text()).toContain('Read file');
     expect(list.text()).toContain('Turned off');
     expect(list.text()).toContain('Paused');
     expect(list.text()).toContain('140 runs');
     expect(list.text()).toContain('2% failed');
-    expect(list.findAllComponents(RouterLinkStub)[1]?.props('to')).toBe('/runs?fn=fs/write_file');
+    // each fn links to its page (its name) and its runs (its numbers)
+    expect(list.findAllComponents(RouterLinkStub)[0]?.props('to')).toBe('/fns/fs/read_file');
+    expect(list.findAllComponents(RouterLinkStub)[3]?.props('to')).toBe('/runs?fn=fs/write_file');
   });
 
   it('LogView shows lines by stream and offers to follow again', async () => {
@@ -176,7 +178,7 @@ describe('lists and cards', () => {
 
   it('AdminNav links every section and marks the current one', () => {
     const nav = mount(AdminNav, { props: { entries: adminNav({ name: 'runs' }, { systems: 3 }) }, global: { stubs } });
-    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(8);
+    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(9);
     expect(nav.get('[aria-current=page]').text()).toContain('Runs');
     expect(nav.get('.count').text()).toBe('3');
   });
@@ -240,7 +242,7 @@ describe('dialogs', () => {
   });
 
   it('InstallDialog needs every field of its source', async () => {
-    const dialog = mount(InstallDialog, { ...inBody, props: { open: false } });
+    const dialog = mount(InstallDialog, { ...inBody, props: { open: false, from: 'package' } });
     await reveal(dialog);
     await click('[data-testid=install-submit]');
     expect(all('[aria-invalid=true]')).toHaveLength(2);

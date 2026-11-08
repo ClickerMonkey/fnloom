@@ -4,13 +4,20 @@
  * the user channel while an admin page is open.
  */
 import type { UserEvents } from '../../api/notifications.ts';
-import type { ChatApi } from '../../chat/api.ts';
+import type { ChatApi, FileSender } from '../../chat/api.ts';
+import type { McpProbe } from '../probe.ts';
 import type { AdminApi, SystemLogEvents } from '../api.ts';
 import { ActorsDirectory } from './actors.ts';
-import { llmBrowser, resourcesBrowser, runsBrowser, type LlmBrowser, type ResourcesBrowser, type RunsBrowser } from './browsers.ts';
+import { llmBrowser, modelCallsBrowser, resourcesBrowser, runsBrowser, type LlmBrowser, type ModelCallsBrowser, type ResourcesBrowser, type RunsBrowser } from './browsers.ts';
+import { FnStore } from './fn.ts';
+import { InstanceStore } from './instance.ts';
+import { McpStore, McpsStore } from './mcps.ts';
+import { PackagesStore } from './packages.ts';
+import { PairingPageStore } from './pairing.ts';
 import { LimitsStore } from './limits.ts';
 import { ModelsStore } from './models.ts';
 import { PoliciesStore } from './policies.ts';
+import { ModelRolesStore } from './roles.ts';
 import { ActorSettingsStore } from './settings.ts';
 import { SystemStore } from './system.ts';
 import { SystemsStore } from './systems.ts';
@@ -21,6 +28,10 @@ export interface AdminDeps {
   readonly chat: Pick<ChatApi, 'run' | 'llmCall' | 'resource' | 'background' | 'undoTurn'>;
   readonly userEvents: UserEvents;
   readonly systemLogs: SystemLogEvents;
+  /** Sends package zips and data exports to the hub's presigned upload. */
+  readonly sender: FileSender;
+  /** Tries a hub MCP from the browser (its tools, with its secret). */
+  readonly probe: McpProbe;
 }
 
 /** Every admin store. */
@@ -29,11 +40,19 @@ export class AdminStore {
   readonly systems: SystemsStore;
   readonly system: SystemStore;
   readonly models: ModelsStore;
+  readonly roles: ModelRolesStore;
   readonly limits: LimitsStore;
   readonly policies: PoliciesStore;
   readonly settings: ActorSettingsStore;
   readonly runs: RunsBrowser;
   readonly llm: LlmBrowser;
+  readonly modelCalls: ModelCallsBrowser;
+  readonly fn: FnStore;
+  readonly instance: InstanceStore;
+  readonly packages: PackagesStore;
+  readonly mcps: McpsStore;
+  readonly mcp: McpStore;
+  readonly pairing: PairingPageStore;
   readonly resources: ResourcesBrowser;
 
   constructor(deps: AdminDeps) {
@@ -42,11 +61,19 @@ export class AdminStore {
     this.systems = new SystemsStore(api, deps.userEvents);
     this.system = new SystemStore(api, deps.userEvents, deps.systemLogs);
     this.models = new ModelsStore(api);
+    this.roles = new ModelRolesStore(api);
     this.limits = new LimitsStore(api);
     this.policies = new PoliciesStore(api);
     this.settings = new ActorSettingsStore(api);
     this.runs = runsBrowser(api, deps.chat);
     this.llm = llmBrowser(api, deps.chat);
+    this.modelCalls = modelCallsBrowser(api, deps.chat);
+    this.fn = new FnStore(api, deps.userEvents);
+    this.instance = new InstanceStore(api, deps.userEvents);
+    this.packages = new PackagesStore(api, deps.sender);
+    this.mcps = new McpsStore(api);
+    this.mcp = new McpStore(api, deps.probe);
+    this.pairing = new PairingPageStore(api, deps.userEvents);
     this.resources = resourcesBrowser(api, deps.chat);
   }
 

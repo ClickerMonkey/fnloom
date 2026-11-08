@@ -3,14 +3,18 @@
  * answer token by token while a run reads a file (queued, running with progress, done, with its cost); a message
  * that asks to write something waits for approval first. `!` invocations run, undo reports, the tree, LLM calls,
  * mentions and their hover cards, limits and capabilities all answer from the same in-memory state, and every change
- * goes out on the session's channel as the real hub sends it. It is a stand-in for building the UI, not a hub.
+ * goes out on the session's channel as the real hub sends it. A message that says "bad args" first makes a run whose
+ * input is refused (retried, as an agent's mistake is), and every LLM call carries what the contextor chose for it
+ * (the session's chat mode and contextor, set in its settings). It is a stand-in for building the UI, not a hub.
  */
+import { fixture } from './fixture.ts';
 import {
-  Approval, ChatCapabilities, ChatMessage, LlmInteraction, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, type Json, type MessagePart, type OutgoingPart,
+  splitName, Approval, ChatCapabilities, ChatMessage, LlmInteraction, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, type Json, type MessagePart, type OutgoingPart,
   type QualifiedName, type RunUpdate, type SessionEvent, type SessionId, type SessionSummary, type TreeNode, type TurnId,
 } from '@harness/core';
 import type { z } from 'zod';
 import { summaryOf as summary } from '../src/chat/state/sessions.ts';
+import { selectionReport } from '../src/chat/test/fakes.ts';
 
 /** Send one event on a session's channel. */
 export type EmitSession = (session: SessionId, event: SessionEvent) => void;
@@ -93,7 +97,7 @@ export class MockChat {
 
   create(title?: string): Session {
     const now = this.#now();
-    const made = Session.parse({
+    const made = fixture(Session, {
       id: mintId('session'), title: title ?? 'New chat', owner: this.#owner(), agent: 'hub/chat',
       participants: [{ actor: this.#owner(), role: 'owner', notify: 'all', joinedAt: now }, { actor: AGENT, role: 'agent', notify: 'none', joinedAt: now }],
       systems: 'all', tools: [], context: [], status: 'idle', transcript: [], createdAt: now, updatedAt: now, archived: false,
@@ -103,11 +107,20 @@ export class MockChat {
     return made;
   }
 
-  update(id: SessionId, change: Partial<Pick<Session, 'title' | 'archived' | 'systems'>> & { notify?: Session['participants'][number]['notify'] }): Session {
+  update(id: SessionId, change: Partial<Pick<Session, 'title' | 'archived' | 'systems'>> & {
+    notify?: Session['participants'][number]['notify'];
+    /** The chat mode and contextor here; `null` goes back to the agent's. */
+    mode?: Session['mode'] | null;
+    contextor?: Session['contextor'] | null;
+  }): Session {
     const current = this.session(id);
-    const { notify, ...rest } = change;
+    const { notify, mode, contextor, ...rest } = change;
+    const { mode: _mode, contextor: _contextor, ...kept } = current;
+    const nextMode = mode === undefined ? current.mode : mode ?? undefined;
+    const nextContextor = contextor === undefined ? current.contextor : contextor ?? undefined;
     const next: Session = {
-      ...current, ...rest, updatedAt: this.#now(),
+      ...kept, ...rest, updatedAt: this.#now(),
+      ...(nextMode === undefined ? {} : { mode: nextMode }), ...(nextContextor === undefined ? {} : { contextor: nextContextor }),
       participants: notify === undefined ? current.participants : current.participants.map((p) => (p.actor === this.#owner() ? { ...p, notify } : p)),
     };
     this.sessions.set(id, next);
@@ -124,7 +137,7 @@ export class MockChat {
   }
 
   limits(session: SessionId): ResolvedLimits {
-    return ResolvedLimits.parse({
+    return fixture(ResolvedLimits, {
       priority: 'interactive', priorityFrom: { default: 'hub' }, turn: { cost: 0.5, time: 600_000 }, limitedBy: 'bgt_session',
       budgets: [{ rule: 'bgt_session', scope: { scope: 'session', session }, remaining: 1.2 }, { rule: 'bgt_hub', scope: { scope: 'hub' }, remaining: 48 }],
     });
@@ -139,7 +152,8 @@ export class MockChat {
       ...(replyTo === undefined ? {} : { replyTo }),
     });
     const write = /write|save|change/i.test(text);
-    setTimeout(() => { this.#answer(id, turn, { fn: write ? 'fs/write_file' : 'fs/read_file', args: { path: write ? 'notes/summary.md' : 'docs/harness.md' }, approval: write }); }, 250);
+    const retried = /bad args/i.test(text);
+    setTimeout(() => { this.#answer(id, turn, { fn: write ? 'fs/write_file' : 'fs/read_file', args: { path: write ? 'notes/summary.md' : 'docs/harness.md' }, approval: write }, retried); }, 250);
     return { turn, message };
   }
 
@@ -159,7 +173,7 @@ export class MockChat {
   approve(id: ApprovalId, approve: boolean): Approval {
     const waiting = this.approvals.get(id);
     if (waiting === undefined) { throw new Error(`no approval ${id}`); }
-    const decided = Approval.parse({ ...waiting.approval, status: approve ? 'approved' : 'denied', decisions: [{ by: this.#owner(), approve, remember: 'once', at: this.#now() }] });
+    const decided = fixture(Approval, { ...waiting.approval, status: approve ? 'approved' : 'denied', decisions: [{ by: this.#owner(), approve, remember: 'once', at: this.#now() }] });
     this.approvals.delete(id);
     const session = this.runs.get(decided.run)?.session;
     if (session !== undefined) { this.#emit(session, { type: 'approval', approval: decided }); }
@@ -213,12 +227,14 @@ export class MockChat {
     return { hover: { title: path.split('/').at(-1) ?? path, subtitle: path, fields: [{ label: 'Size', value: '12.4 KB' }, { label: 'Changed', value: 'Today' }], body: '# Harness\nA web-based agent harness.', open: { resource: `file:///${path}` } } };
   }
 
-  #answer(id: SessionId, turn: TurnId, script: Script): void {
+  #answer(id: SessionId, turn: TurnId, script: Script, retried = false): void {
     const agentRun = mintId('run');
     this.#setStatus(id, 'running');
+    // the model's first call had the wrong args: refused before the fn ran, and fed back, so it tries again
+    const refused = retried ? [this.#refused(id, turn, script.fn, agentRun)] : [];
     const run = this.#run(id, turn, script.fn, script.args, AGENT, agentRun, script.approval ? 'awaiting-approval' : 'queued');
     const call = this.#call(id, turn, agentRun);
-    const answer = this.#add(id, { turn, author: AGENT, role: 'assistant', status: 'streaming', parts: [{ type: 'text', text: '' }], runs: [run.id] });
+    const answer = this.#add(id, { turn, author: AGENT, role: 'assistant', status: 'streaming', parts: [{ type: 'text', text: '' }], runs: [...refused.map((r) => r.id), run.id] });
     const stream = (): void => {
       let at = 0;
       const timer = setInterval(() => {
@@ -236,7 +252,7 @@ export class MockChat {
       }, 180);
     };
     if (script.approval) {
-      const approval = Approval.parse({ id: mintId('approval'), run: run.id, fn: run.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: this.#now() });
+      const approval = fixture(Approval, { id: mintId('approval'), run: run.id, fn: run.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: this.#now() });
       this.approvals.set(approval.id, { approval, resume: () => { this.#progress(id, run.id, stream); } });
       this.#emit(id, { type: 'approval', approval });
       return;
@@ -295,10 +311,22 @@ export class MockChat {
     this.#emit(id, { type: 'session', session: summary(next) });
   }
 
+  /** A run whose input the hub refused (the model wrote `file` where the fn takes `path`): settled at once, retried by the agent. */
+  #refused(session: SessionId, turn: TurnId, fn: QualifiedName, parent: RunId): Run {
+    const run = this.#run(session, turn, fn, { file: 'docs/harness.md' }, AGENT, parent);
+    const settled: Run = {
+      ...run, status: 'invalid-input', startedAt: this.#now(), endedAt: this.#now(),
+      outcome: { status: 'invalid-input', invalid: { source: 'schema', problems: [{ path: 'path', message: 'Required' }, { path: 'file', message: 'Not a field of fs/read_file' }] } },
+    };
+    this.runs.set(run.id, settled);
+    this.#emit(session, { type: 'run', run: run.id, fn, update: { type: 'status', status: 'invalid-input' } });
+    return settled;
+  }
+
   #run(session: SessionId, turn: TurnId, fn: QualifiedName, args: Json, caller: string, parent?: RunId, status: Run['status'] = 'queued'): Run {
     const id = mintId('run');
-    const run = Run.parse({
-      id, fn, fnVersion: '1', kind: 'native', system: fn.split('/')[0], root: parent ?? id, ...(parent === undefined ? {} : { parent }), turn, session, key: id,
+    const run = fixture(Run, {
+      id, fn, fnVersion: '1', kind: 'native', system: splitName(fn).system, root: parent ?? id, ...(parent === undefined ? {} : { parent }), turn, session, key: id,
       actor: this.#owner(), caller, args, status, allowed: { cancel: true, pause: false, background: true }, cost: 0, totalCost: 0, priority: 'interactive',
       background: false, attempt: 1, errors: [], stateChanges: [], createdAt: this.#now(),
     });
@@ -308,7 +336,10 @@ export class MockChat {
   }
 
   #call(session: SessionId, turn: TurnId, run: RunId): LlmInteraction {
-    const call = LlmInteraction.parse({
+    const chosen = this.sessions.get(session);
+    const call = fixture(LlmInteraction, {
+      // what the contextor chose for this prompt, in the session's own mode and contextor
+      selection: selectionReport({ mode: chosen?.mode?.type ?? 'tools', contextor: chosen?.contextor?.type ?? 'graph' }),
       id: mintId('llmInteraction'), turn, run, session, iteration: 0, provider: 'openrouter', model: 'meta-llama/llama-3.3-8b-instruct:free',
       request: {
         messages: [
@@ -324,7 +355,7 @@ export class MockChat {
   }
 
   #add(id: SessionId, fields: Pick<ChatMessage, 'turn' | 'author' | 'role' | 'status' | 'parts'> & Partial<Pick<ChatMessage, 'runs' | 'replyTo' | 'createdAt'>>): ChatMessage {
-    const message = ChatMessage.parse({ id: mintId('message'), session: id, runs: [], replyAll: false, answerers: [], createdAt: this.#now(), ...fields });
+    const message = fixture(ChatMessage, { id: mintId('message'), session: id, runs: [], replyAll: false, answerers: [], createdAt: this.#now(), ...fields });
     this.messages.set(id, [...(this.messages.get(id) ?? []), message]);
     this.#emit(id, { type: 'message', message });
     return message;
@@ -343,6 +374,8 @@ export class MockChat {
     this.sessions.set(notes.id, { ...notes, updatedAt: now - DAY - 3_600_000 });
     this.sessions.set(budget.id, { ...budget, updatedAt: now - 3 * DAY });
     const turn = mintId('turn');
+    const refused = this.#refused(router.id, turn, 'fs/read_file', RunId.parse('run_agent'));
+    this.runs.set(refused.id, { ...refused, startedAt: now - DAY - 62_000, endedAt: now - DAY - 62_000 });
     const read = this.#run(router.id, turn, 'fs/read_file', { path: 'packages/web/src/app/routes.ts' }, AGENT);
     const edit = this.#run(router.id, turn, 'fs/edit', { path: 'packages/web/src/app/routes.ts', find: 'props: true', replace: 'meta: { group: \'chat\' }' }, AGENT);
     for (const [run, ms] of [[read, 640], [edit, 1_820]] as const) {
@@ -358,7 +391,7 @@ export class MockChat {
       ],
     });
     this.#add(router.id, {
-      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - DAY - 80_000, runs: [read.id, edit.id],
+      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - DAY - 80_000, runs: [refused.id, read.id, edit.id],
       parts: [{ type: 'text', text: 'Done. All three chat routes now carry `meta.group = \'chat\'`, and the shell keys the page by group:\n\n```ts\n<component :is="Component" :key="shown.meta.group ?? shown.path" />\n```\n\n| Route | Group |\n|---|---|\n| `/chat` | chat |\n| `/chat/:session` | chat |\n| `/chat/:session/turn/:turn/tree` | chat |' },
         { type: 'attachment', attachment: 'fs/diff', title: 'Edited packages/web/src/app/routes.ts', data: { path: 'packages/web/src/app/routes.ts', before: 'props: true', after: "meta: { group: 'chat' }" } },
         { type: 'link', link: { resource: 'file:///repo/packages/web/src/app/routes.ts', title: 'routes.ts' } },

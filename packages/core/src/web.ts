@@ -69,12 +69,22 @@ export type ProviderInput = z.infer<typeof ProviderInput>;
 export const Waiting = z.object({ approvals: z.array(Approval), handlers: z.array(HandlerCall) });
 export type Waiting = z.infer<typeof Waiting>;
 
-/** A system as the admin pages show it. */
-export const SystemView = SystemRecord.omit({ publicKey: true }).extend({
-  fns: z.number().int(),
-  needsConfig: z.boolean(),
-  configType: Json.optional(),
-});
+/** An instance as the admin pages show it: without its public key. */
+export const InstanceView = InstanceRecord.omit({ publicKey: true });
+export type InstanceView = z.infer<typeof InstanceView>;
+
+/**
+ * A system as the admin pages show it: the system, every instance, and for pages that show one copy, its default
+ * instance's key, config, process and last sighting (`keyFingerprint` is blank for a system with no instance).
+ */
+export const SystemView = SystemRecord.omit({ keyFingerprint: true, publicKey: true, config: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true })
+  .extend(InstanceRecord.pick({ keyFingerprint: true, config: true, installed: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true }).shape)
+  .extend({
+    fns: z.number().int(),
+    needsConfig: z.boolean(),
+    configType: Json.optional(),
+    instances: z.array(InstanceView),
+  });
 export type SystemView = z.infer<typeof SystemView>;
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -271,8 +281,8 @@ export const systemsSlice = spec({
       ws: 'approvePairing',
     },
     createPairingToken: { body: z.object({ name: SystemName.optional(), expiresIn: Duration }), response: z.object({ token: z.string(), expiresAt: Timestamp }), ws: 'createPairingToken' },
-    /** Set a system's config. Refused unless it is valid for the system's config type. */
-    configureSystem: { body: z.object({ system: SystemName, config: Json }), response: z.union([z.object({ version: z.number().int() }), z.object({ problems: z.array(z.string()) })]), ws: 'configureSystem' },
+    /** Set a system's config: one instance's (each fs machine has its own folders), else its default instance's. Refused unless valid. */
+    configureSystem: { body: z.object({ system: SystemName, config: Json, instance: InstanceName.optional() }), response: z.union([z.object({ version: z.number().int() }), z.object({ problems: z.array(z.string()) })]), ws: 'configureSystem' },
     /** Turn a system's functions and renderers on or off separately. */
     enableSystem: { body: z.object({ system: SystemName, functions: z.boolean().optional(), renderers: z.boolean().optional() }), response: z.object({ enabled: SystemEnabled }), ws: 'enableSystem' },
     removeSystem: { body: z.object({ system: SystemName }), response: z.object({ fnsUnavailable: z.number().int() }), ws: 'removeSystem' },
@@ -452,20 +462,24 @@ export const packagingSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
     /** One pairing request for the `/pair/:pairing` page, with what the system said about itself. */
     pairing: { body: z.object({ pairing: PairingId }), response: PairingRequest, ws: 'pairing' },
-    instances: { body: z.object({ system: SystemName }), response: z.array(InstanceRecord.omit({ publicKey: true })), ws: 'instances' },
+    instances: { body: z.object({ system: SystemName }), response: z.array(InstanceView), ws: 'instances' },
     /**
      * Install a package zip (`harness system pack`) uploaded with `upload`: checked (format, protocol, file hashes, no
      * path leaving the folder), placed under `systems/<name>/versions/<version>`, paired, configured and started. A
-     * name already installed adds an instance (for a fleet) or is refused (upgrade is `upgradeSystem`).
+     * name already installed adds an instance (for a fleet); the same instance takes a newer version as an upgrade and
+     * refuses anything else. `data` is a data export (`exportSystemData`) to restore into the new instance.
      */
     installPackage: {
-      body: z.object({ zip: ContentRef, instance: InstanceName.optional(), config: Json.optional(), autoStart: z.boolean().optional() }),
+      body: z.object({ zip: ContentRef, instance: InstanceName.optional(), config: Json.optional(), data: ContentRef.optional(), autoStart: z.boolean().optional() }),
       response: InstanceRef,
       ws: 'installPackage',
     },
     removeInstance: { body: InstanceRef, response: z.object({ ok: z.boolean() }), ws: 'removeInstance' },
-    /** Zip an instance's data folder with its config (secret fields only when asked); the CLI downloads the ref. */
-    exportSystemData: { body: InstanceRef.extend({ withSecrets: z.boolean().optional() }), response: ContentRef, ws: 'exportSystemData' },
+    /**
+     * Zip an instance's data folder (its config only when `withSecrets`, since the hub can't tell secret fields apart).
+     * Returns the zip's ref and a presigned download of it, which the CLI and the admin page fetch.
+     */
+    exportSystemData: { body: InstanceRef.extend({ withSecrets: z.boolean().optional() }), response: ContentRef.extend({ url: z.string() }), ws: 'exportSystemData' },
   }),
 });
 

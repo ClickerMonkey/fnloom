@@ -28,9 +28,14 @@ interface NavSpec {
 const NAV: readonly NavSpec[] = [
   { id: 'chat', to: links.chat(), label: 'Chat', icon: 'chat', routes: [ROUTES.chat, ROUTES.session, ROUTES.turnTree], adminOnly: false },
   { id: 'inbox', to: links.inbox(), label: 'Inbox', icon: 'inbox', routes: [ROUTES.inbox], adminOnly: false },
+  { id: 'resources', to: links.resources(), label: 'Resources', icon: 'layers', routes: [ROUTES.resources], adminOnly: false },
+  { id: 'context', to: links.context(), label: 'Context', icon: 'book', routes: [ROUTES.context, ROUTES.contextItem], adminOnly: false },
   {
     id: 'admin', to: links.systems(), label: 'Admin', icon: 'shield', adminOnly: true,
-    routes: [ROUTES.admin, ROUTES.systems, ROUTES.system, ROUTES.models, ROUTES.limits, ROUTES.policies, ROUTES.actorSettings, ROUTES.runs, ROUTES.llmCalls, ROUTES.resources],
+    routes: [
+      ROUTES.admin, ROUTES.systems, ROUTES.system, ROUTES.instance, ROUTES.fn, ROUTES.models, ROUTES.limits, ROUTES.policies, ROUTES.actorSettings, ROUTES.runs, ROUTES.llmCalls,
+      ROUTES.modelCalls, ROUTES.mcps, ROUTES.mcp,
+    ],
   },
   { id: 'settings', to: links.settings(), label: 'Settings', icon: 'settings', routes: [ROUTES.settings], adminOnly: false },
 ];

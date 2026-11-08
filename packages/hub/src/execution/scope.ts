@@ -4,7 +4,7 @@
  * AI's hooks reserve, settle and record against it without any id threading.
  */
 import type {
-  ActorId, LlmInteractionId, LlmUsage, Priority, QualifiedName, ResolvedLimits, RunId, SessionId, SystemName, TurnId, Usd,
+  ActorId, LlmInteractionId, LlmUsage, ModelCallId, Priority, QualifiedName, ResolvedLimits, RunId, SessionId, SystemName, TurnId, Usd,
 } from '@harness/core';
 
 /** What a scope is made from. */
@@ -25,9 +25,45 @@ export interface LlmCallScopeInput {
 /** One finished LLM call inside a scope. */
 export interface LlmCallRecord {
   readonly interaction: LlmInteractionId;
+  /** Its `ModelCall` record. */
+  readonly modelCall: ModelCallId;
   readonly model: string;
   readonly cost: Usd;
   readonly usage: LlmUsage;
+}
+
+/** One finished model call of any modality, as its caller hears of it. */
+export interface ModelCallReceipt {
+  readonly modelCall: ModelCallId;
+  readonly model: string;
+  readonly cost: Usd;
+}
+
+/**
+ * Where the hub AI's hooks tell a caller what its calls were (their `ModelCall` ids, models and costs): a caller that
+ * needs them (the model gateway, answering a system) puts one on the aeye context.
+ */
+export class CallReceipts {
+  readonly #calls: ModelCallReceipt[] = [];
+
+  record(call: ModelCallReceipt): void {
+    this.#calls.push(call);
+  }
+
+  /** The calls finished so far, oldest first. */
+  get calls(): readonly ModelCallReceipt[] {
+    return this.#calls;
+  }
+
+  /** The last finished call. */
+  get last(): ModelCallReceipt | undefined {
+    return this.#calls.at(-1);
+  }
+
+  /** What every call cost together. */
+  get cost(): Usd {
+    return this.#calls.reduce((sum, call) => sum + call.cost, 0);
+  }
 }
 
 /** One chain of LLM calls (a prompt iteration with its retries, or one forwarded request). */
@@ -90,9 +126,15 @@ export class LlmCallScope {
   }
 }
 
-/** The hub's part of every aeye context: the scope its hooks work against (absent for calls nobody pays for). */
+/**
+ * The hub's part of every aeye context: the scope its hooks reserve and settle against (absent for the hub's own work,
+ * which no turn pays for), what that work is for (`purpose`, recorded on its `ModelCall`: `index`, `form:description`),
+ * and where to report each call's record.
+ */
 export type HubCallContext = {
   call?: LlmCallScope;
+  purpose?: string;
+  receipts?: CallReceipts;
 };
 
 /** Model selection for one call, as aeye metadata: a model id, or weights for automatic selection. */

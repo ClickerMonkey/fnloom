@@ -10,6 +10,7 @@ import { chatEnv } from '../chat/env.ts';
 import { executionEnv } from '../execution/env.ts';
 import { indexEnv } from '../index/env.ts';
 import { contextorEnv } from '../contextor/env.ts';
+import { packagingEnv } from '../link/env.ts';
 import { mcpEnv } from '../mcp/env.ts';
 import { resourcesEnv } from '../resources/env.ts';
 import { storeEnv } from '../store/env.ts';
@@ -106,14 +107,14 @@ export const pushEnv = env({
 });
 
 /** Every slice by name, so each module takes its own and an admin page can list them. Module slices live beside their module. */
-export const HUB_ENV = { hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv } as const;
+export const HUB_ENV = { hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv, packagingEnv } as const;
 
 /**
  * Every slice as one view (`mergeEnvs`): `parse` reports every bad value of every slice in one `EnvError`, `set`
  * reaches every slice, `describe` lists every tunable (the source of `.env.example`), and two slices declaring the
  * same key fail to compile.
  */
-export const HUB_SETTINGS = mergeEnvs(hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv);
+export const HUB_SETTINGS = mergeEnvs(hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv, packagingEnv);
 
 /** The parsed hub settings, by slice, derived from the slices (never written by hand). */
 export type HubSettings = { [K in keyof typeof HUB_ENV]: ReturnType<(typeof HUB_ENV)[K]['parse']> };

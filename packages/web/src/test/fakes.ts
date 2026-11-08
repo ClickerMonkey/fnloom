@@ -18,6 +18,8 @@ import { ThemeStore, type DeviceQuery } from '../state/theme.ts';
 import { Toasts } from '../state/toasts.ts';
 import { fakeChat } from '../chat/test/fakes.ts';
 import { fakeAdmin } from '../admin/test/fakes.ts';
+import { fakeResources } from '../resources/test/fakes.ts';
+import { fakeContext } from '../context/test/fakes.ts';
 
 type EndpointOf<K extends Endpoint> = HubWebSpec['endpoints'][K];
 
@@ -176,6 +178,8 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
   if (options.signedIn === true) { session.keep(tokens()); }
   const chat = fakeChat();
   const admin = fakeAdmin();
+  const resources = fakeResources();
+  const context = fakeContext();
   const stores: Stores = {
     session,
     keeper: new SessionKeeper(api.auth, session),
@@ -187,7 +191,9 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     chat: chat.chat,
     admin: admin.admin,
     signInForm: () => new SignInForm(api.auth, session),
+    resources: resources.resources,
+    context: context.context,
     push: new PushStore(api.notifications, fakePush(), () => 'Test browser'),
   };
-  return { stores, api, events, connection, store, chat, admin };
+  return { stores, api, events, connection, store, chat, admin, resources, context };
 }

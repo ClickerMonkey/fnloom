@@ -63,4 +63,9 @@ const Blocks: FunctionalComponent = () => renderBlocks(blocks.value, {
 .ui-markdown :deep(th), .ui-markdown :deep(td) { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
 .ui-markdown :deep(th) { background: var(--surface-2); font-weight: var(--weight-medium); white-space: nowrap; }
 .ui-markdown :deep(tr:last-child td) { border-bottom: 0; }
+.ui-markdown :deep(.md-math) { font-size: 1.05em; }
+.ui-markdown :deep(.md-math-wrap) { max-width: 100%; overflow-x: auto; padding: var(--space-2) 0; }
+.ui-markdown :deep(.md-math-wrap:focus-visible) { outline: none; box-shadow: var(--ring); border-radius: var(--radius); }
+.ui-markdown :deep(.md-math-block) { font-size: 1.15em; }
+.ui-markdown :deep(.md-math-unknown) { color: var(--danger); }
 </style>

@@ -11,6 +11,9 @@ import { collect, PAGE } from '../paging.ts';
 /** A handler for every endpoint of a slice: `.handlers(() => …)` annotated with this can't leave one out. */
 export type FullHandlers<S extends AnySpec> = { readonly [K in keyof S['endpoints'] & string]: HandlerFor<S, S['endpoints'][K] & AnyEndpoint> };
 
+/** Who is looking: a person's id and role, all the visibility checks need (a browser's user, or a run's person). */
+export type Viewer = Pick<UserView, 'id' | 'role'>;
+
 /** Used when neither the browser nor the profile gives a time zone or locale. */
 const FALLBACK = { timeZone: 'UTC', locale: 'en' } as const;
 
@@ -34,28 +37,28 @@ export async function userInfo(hub: Pick<HubServices, 'store'>, user: UserView, 
 }
 
 /** A session the person may see, or 404. */
-export async function visibleSession(hub: Pick<HubServices, 'chat'>, session: SessionId, user: UserView): Promise<Session> {
+export async function visibleSession(hub: Pick<HubServices, 'chat'>, session: SessionId, user: Viewer): Promise<Session> {
   const found = await hub.chat.sessions.get(session, user.id);
   if (found === undefined) { throw reject(404, 'SESSION_NOT_FOUND', 'no such session'); }
   return found;
 }
 
 /** Whether the person may see what happened in a session (or, outside a session, what they started). */
-async function mayView(hub: Pick<HubServices, 'chat'>, user: UserView, where: { session?: SessionId | undefined; actor: string }): Promise<boolean> {
+async function mayView(hub: Pick<HubServices, 'chat'>, user: Viewer, where: { session?: SessionId | undefined; actor: string }): Promise<boolean> {
   if (user.role === 'admin') { return true; }
   if (where.session !== undefined) { return (await hub.chat.sessions.get(where.session, user.id)) !== undefined; }
   return where.actor === user.id;
 }
 
 /** A run the person may see, or 404. */
-export async function visibleRun(hub: Pick<HubServices, 'chat' | 'execution'>, run: RunId, user: UserView): Promise<Run> {
+export async function visibleRun(hub: Pick<HubServices, 'chat' | 'execution'>, run: RunId, user: Viewer): Promise<Run> {
   const found = await hub.execution.runs.get(run);
   if (found === undefined || !(await mayView(hub, user, found))) { throw reject(404, 'RUN_NOT_FOUND', 'no such run'); }
   return found;
 }
 
 /** A turn the person may see, or 404. */
-export async function visibleTurn(hub: Pick<HubServices, 'chat' | 'store'>, turn: TurnId, user: UserView): Promise<Turn> {
+export async function visibleTurn(hub: Pick<HubServices, 'chat' | 'store'>, turn: TurnId, user: Viewer): Promise<Turn> {
   const found = await hub.store.table('turns').get(turn);
   if (found === undefined || !(await mayView(hub, user, found))) { throw reject(404, 'TURN_NOT_FOUND', 'no such turn'); }
   return found;

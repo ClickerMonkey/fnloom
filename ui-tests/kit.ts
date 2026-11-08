@@ -41,6 +41,8 @@ export const VIEWPORTS = {
   laptop: { width: 1180, height: 800, deviceScaleFactor: 1, isMobile: false, hasTouch: false, compact: false },
   /** 760-1099px: the sidebar, with the chat list as a drawer. */
   tablet: { width: 768, height: 1024, deviceScaleFactor: 2, isMobile: true, hasTouch: true, compact: false },
+  /** A tall tablet (an iPad Air upright), the tablet size build 2's features are checked at. */
+  tabletTall: { width: 820, height: 1180, deviceScaleFactor: 2, isMobile: true, hasTouch: true, compact: false },
   /** Below 760px: the compact shell. */
   phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true, compact: true },
   /** From 1720px: the list and a side panel side by side. */
@@ -50,8 +52,11 @@ export const VIEWPORTS = {
 } as const;
 export type ViewportName = keyof typeof VIEWPORTS;
 
-/** The viewports every feature runs at; a feature adds others with `also`. */
+/** The viewports every feature runs at; a feature adds others with `also`, or names its own with `viewports`. */
 export const EVERY_FEATURE: readonly ViewportName[] = ['desktop', 'laptop', 'tablet', 'phone'];
+
+/** The viewports build 2's features are checked at: a desktop, a tall tablet and a phone (each in light and dark). */
+export const BUILD_2_VIEWPORTS: readonly ViewportName[] = ['desktop', 'tabletTall', 'phone'];
 
 /** What the fixture session holds, made once through the API so features have something real to look at. */
 export interface Fixtures {
@@ -89,6 +94,8 @@ export interface Feature {
   readonly signedOut?: boolean;
   /** Viewports to run at besides `EVERY_FEATURE` (`wide` for panel-heavy features, `landscape` for the shell). */
   readonly also?: readonly ViewportName[];
+  /** The viewports to run at instead of `EVERY_FEATURE` (and `also`). */
+  readonly viewports?: readonly ViewportName[];
   run(ctx: FeatureContext): Promise<void>;
 }
 
@@ -173,7 +180,23 @@ export const hasListColumn = (ctx: FeatureContext): boolean => !VIEWPORTS[ctx.vi
 
 /** The viewports a feature runs at. */
 export function viewportsOf(feature: Feature): readonly ViewportName[] {
-  return [...EVERY_FEATURE, ...(feature.also ?? [])];
+  return feature.viewports ?? [...EVERY_FEATURE, ...(feature.also ?? [])];
+}
+
+/** The colour schemes a feature is shot in. */
+export const SCHEMES = ['light', 'dark'] as const;
+export type Scheme = (typeof SCHEMES)[number];
+
+/**
+ * Run steps once in each colour scheme (the device's preference, which the app follows unless a theme was chosen), so
+ * every shot of a feature exists in light and dark. Shots name their scheme: `shot(name)` saves `<name>-<scheme>`.
+ */
+export async function inEachScheme(ctx: FeatureContext, steps: (shot: (name: string) => Promise<void>, scheme: Scheme) => Promise<void>): Promise<void> {
+  for (const scheme of SCHEMES) {
+    await ctx.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
+    await steps((name) => ctx.shot(`${name}-${scheme}`), scheme);
+  }
+  await ctx.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
 }
 
 /** Empty the composer (a draft from an earlier run is kept per chat). */

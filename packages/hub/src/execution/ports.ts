@@ -12,10 +12,12 @@ import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { ApproverDirectory, SessionService, TurnService } from '../chat/index.ts';
-import type { ConfigService, LinkService } from '../link/index.ts';
+import type { ConfigService, InstanceRouter, LinkService } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ExecutionEnv } from './env.ts';
-import type { HubCallContext, HubCallMetadata, LlmCallScope } from './scope.ts';
+import type { FnMetricsService, ModelCallLog } from '../metrics/index.ts';
+import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
+import type { HubCallContext, HubCallMetadata } from './scope.ts';
 
 /** The settings execution reads: the shared queue slice, the default model, and its own. */
 export interface ExecutionSettings {
@@ -39,12 +41,18 @@ export interface ExecutionBase {
 export interface ExecutionDeps extends ExecutionBase {
   readonly catalog: Catalog;
   readonly link: Pick<LinkService, 'connection'>;
+  /** Which instance of a fleet a system's run goes to, picked once as it is made. */
+  readonly instances: Pick<InstanceRouter, 'route'>;
   readonly config: Pick<ConfigService, 'current'>;
   /** Whether a person is active in a session (the global tool timeout only unblocks the agent then). */
   readonly presence: Pick<SessionService, 'active'>;
   /** Where an agent's answer streams, and where a turn is settled. */
   readonly turns: Pick<TurnService, 'begin' | 'stream' | 'finish' | 'settle' | 'track' | 'followUp'>;
   readonly approvers: ApproverDirectory;
+  /** Every model call's record (the metrics module). */
+  readonly calls: ModelCallLog;
+  /** Fn metrics, fed each settled run. */
+  readonly metrics: Pick<FnMetricsService, 'settled'>;
 }
 
 /** One run to execute: the stored run, its fn and the request its executor gets. */
@@ -94,18 +102,23 @@ export interface RunEvents {
   onSettled(listener: (run: Run, settled: RunSettled) => void): () => void;
 }
 
-/** Adding LLM spend to the run that made it (and its ancestors' totals). */
+/** Adding model spend to the run that made it (and its ancestors' totals), and the tokens its model calls used. */
 export interface RunCosts {
   addCost(run: RunId, cost: Usd): Promise<void>;
+  addTokens(run: RunId, tokens: number): Promise<void>;
 }
 
-/** The LLM calls the hub makes: an aeye streamer bound to the hub AI (budgets, rate limits and records on it). */
+/**
+ * The model calls the hub makes, every modality on the hub AI (budgets, rate limits and records on it): chat as an
+ * aeye streamer, and embeddings, images, transcription and speech as calls. `ctx.call` is the run scope that pays
+ * (absent for the hub's own work, named by `ctx.purpose`); `ctx.receipts` hears each call's record and cost.
+ */
 export interface LlmEngine {
   readonly streamer: Streamer<HubCallContext, HubCallMetadata>;
-  /** Embeddings through a provider model; `scope` pays for them. */
-  embed(texts: readonly string[], scope?: LlmCallScope): Promise<{ vectors: number[][]; cost: Usd }>;
-  /** The text spoken in a recording, heard by `model` (a model with hearing from a configured provider). */
-  transcribe(audio: Uint8Array, model: string): Promise<string>;
+  embed(input: EmbedCall, ctx: HubCallContext, signal?: AbortSignal): Promise<number[][]>;
+  image(input: ImageCall, ctx: HubCallContext, signal?: AbortSignal): Promise<MadeImage[]>;
+  transcribe(input: TranscribeCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Heard>;
+  speech(input: SpeechCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Spoken>;
   models(): ModelInfo[];
 }
 

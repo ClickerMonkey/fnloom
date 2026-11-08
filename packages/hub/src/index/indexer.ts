@@ -4,6 +4,9 @@
  * connected; an item whose text hash hasn't changed is left alone. Items stored while no embedder was connected
  * (`vectorHash` behind `hash`) are embedded once one connects. The indexer follows the bus: a catalog change
  * re-indexes the systems it touched; a resource change re-sections that resource, by its root's index policy.
+ * Resources are read through the router (their raw text) until the resources module gives an `IndexReader`
+ * (`readWith`): then the hub's own resources are indexed too, every resource is cut in its primary form (markdown for
+ * a web page, tables for a spreadsheet), and the reader hears each section diff (snapshot context goes stale).
  */
 import type { Logger } from '@ayepi/log';
 import {
@@ -19,7 +22,7 @@ import { sha256Hex } from '../link/keys.ts';
 import type { ResourceRouter } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { EmbedBatcher } from './batch.ts';
-import type { Embedders, IndexItem, Indexer } from './index.ts';
+import type { Embedders, IndexItem, IndexReader, Indexer, PrimaryText } from './index.ts';
 import type { Sectioning } from './sectioning.ts';
 
 /** What the indexer needs. */
@@ -79,6 +82,7 @@ export function parseSectionIndexKey(key: string): { uri: string; section: strin
 export class StoreIndexer implements Indexer {
   readonly #options: IndexerOptions;
   readonly #serial = new Serial();
+  #reader: IndexReader | undefined;
 
   constructor(options: IndexerOptions) {
     this.#options = options;
@@ -107,6 +111,24 @@ export class StoreIndexer implements Indexer {
     if (embedders.active() !== undefined) { this.#queue('index.backfill', () => this.backfill()); }
     log.debug('index.started', {});
     return () => { for (const stop of stops) { stop(); } };
+  }
+
+  readWith(reader: IndexReader): () => void {
+    this.#reader = reader;
+    return () => { if (this.#reader === reader) { this.#reader = undefined; } };
+  }
+
+  /** The system serving a URI and its root's index policy: the reader's when there is one, else the router's. */
+  #route(uri: ResourceUri): ReturnType<IndexReader['route']> {
+    const reader = this.#reader?.route(uri);
+    if (reader !== undefined) { return reader; }
+    const route = this.#options.router.route(uri);
+    return route === undefined ? undefined : { system: route.system, index: route.root.index };
+  }
+
+  /** A resource's text as it is cut: its primary form through the reader, else the router's raw text. */
+  #text(uri: ResourceUri): Promise<PrimaryText> {
+    return this.#reader === undefined ? this.#options.router.text(uri) : this.#reader.primary(uri);
   }
 
   /** Resolves once everything queued so far has run. */
@@ -157,14 +179,15 @@ export class StoreIndexer implements Indexer {
   }
 
   async resource(uri: ResourceUri): Promise<SectionDiff | undefined> {
-    const { store, router, sectioning, clock, log } = this.#options;
-    const route = router.route(uri);
+    const { store, sectioning, clock, log } = this.#options;
+    const route = this.#route(uri);
     if (route === undefined) { return undefined; }
-    const { stat, text, links } = await router.text(uri);
+    const read = await this.#text(uri);
+    const { stat, text, links } = read;
     const record = await store.table('resources').get(uri);
     if (record?.indexedVersion === stat.version) { return undefined; }
-    const sectioner = await sectioning.choose(stat, route.system);
-    const sections = await sectioning.cut(sectioner, uri, stat, text);
+    const sectioner = await sectioning.choose(stat, route.system, read.form);
+    const sections = await sectioning.cut(sectioner, uri, { text, stat, ...(read.form === undefined ? {} : { form: read.form }), ...(read.version === undefined ? {} : { version: read.version }) });
     const before = record?.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { uri, version: record.indexedVersion });
     const old = new Map(before.map((row) => [row.key, row]));
     const rows: SectionRow[] = sections.map((s) => ({ ...s, uri, version: stat.version, hash: sha256Hex(text.slice(s.start, s.end)) }));
@@ -178,14 +201,17 @@ export class StoreIndexer implements Indexer {
     await store.tx(async (tx) => {
       for (const row of before) { await tx.table('sections').remove(row); }
       for (const row of rows) { await tx.table('sections').put(row); }
-      await tx.table('resources').put({ uri, system: route.system, stat, links, indexedVersion: stat.version, sectioner, seenAt: clock() });
+      // the resources module may have written the record's raw content and forms meanwhile: keep them
+      const latest = await tx.table('resources').get(uri);
+      await tx.table('resources').put({ ...latest, uri, system: route.system, stat, links, indexedVersion: stat.version, sectioner, seenAt: clock() });
     });
     await this.upsert(rows.filter((r) => diff.added.includes(r.key) || diff.changed.includes(r.key) || record?.indexedVersion === undefined).map((r) => ({
       kind: 'section', key: sectionIndexKey(uri, r.key), system: route.system,
       text: r.embedText ?? `${stat.name}${r.path.length > 0 ? ` > ${r.path.join(' > ')}` : ''}\n\n${text.slice(r.start, r.end)}`,
     })));
     await this.remove('section', diff.removed.map((key) => sectionIndexKey(uri, key)));
-    log.info('index.resource', { uri, sectioner, added: diff.added.length, changed: diff.changed.length, removed: diff.removed.length });
+    log.info('index.resource', { uri, sectioner, form: read.form, added: diff.added.length, changed: diff.changed.length, removed: diff.removed.length });
+    if (record?.indexedVersion !== undefined && (diff.changed.length > 0 || diff.removed.length > 0)) { await this.#reader?.sectioned(diff); }
     return diff;
   }
 
@@ -267,9 +293,9 @@ export class StoreIndexer implements Indexer {
 
   /** A changed resource: re-section it when its root indexes everything, or it was indexed before (on read). */
   async #follow(uri: ResourceUri): Promise<void> {
-    const route = this.#options.router.route(uri);
-    if (route === undefined || route.root.index === 'none') { return; }
-    if (route.root.index === 'on-read' && (await this.#options.store.table('resources').get(uri)) === undefined) { return; }
+    const route = this.#route(uri);
+    if (route === undefined || route.index === 'none') { return; }
+    if (route.index === 'on-read' && (await this.#options.store.table('resources').get(uri)) === undefined) { return; }
     await this.resource(uri);
   }
 

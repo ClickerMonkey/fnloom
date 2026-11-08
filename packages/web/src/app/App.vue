@@ -1,12 +1,24 @@
 <script setup lang="ts">
-/** The root: the shell, which draws the current page, with the browser's named gin types for every form in it. */
+/**
+ * The root: the shell, which draws the current page, with what every page shares: the browser's named gin types for
+ * every form, the systems' components for their named types, and the resource viewer for systems' renderers.
+ */
+import { RESOURCE_VIEWER } from '@harness/sdk';
 import { provide } from 'vue';
-import { FORM_TYPES } from '../chat/forms/types.ts';
+import { GIN_INPUTS } from '../gin/registry.ts';
+import { GIN_TYPES } from '../gin/types.ts';
+import ResourceViewer from '../resources/ResourceViewer.vue';
 import { useStores } from '../state/stores.ts';
 import AppShell from './AppShell.vue';
 import { useLeaveWhenSignedOut } from './signOut.ts';
 
-provide(FORM_TYPES, useStores().chat.types);
+const { chat } = useStores();
+provide(GIN_TYPES, chat.types);
+// a system's component for its named type draws values of that type everywhere: forms, run cards, config forms
+provide(GIN_INPUTS, (type) => chat.renderers.inputView(type));
+// a system's renderer shows any resource with the hub's viewer
+// eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ResourceViewerProps
+provide(RESOURCE_VIEWER, ResourceViewer);
 useLeaveWhenSignedOut();
 </script>
 

@@ -167,7 +167,7 @@ export const ModelLimitsView = z.object({
   model: z.string(),
   limits: ResolvedModelLimits,
   sources: z.record(z.enum(['contextWindow', 'maxOutputTokens', 'reasoningTokens', 'charsPerToken']), LimitSource),
-  /** Measured input tokens over estimated, from recent calls (1 before any). */
+  /** Measured input tokens over estimated, a moving average of recent calls (1.1 before any, so estimates err high). */
   ratio: z.number(),
 });
 export type ModelLimitsView = z.infer<typeof ModelLimitsView>;

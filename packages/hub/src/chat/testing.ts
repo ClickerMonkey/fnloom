@@ -5,14 +5,14 @@
  */
 import { ApiError, type CallReturn, type Peer, type PeerCallArgs, type PeerKeys, type WsConn } from '@ayepi/core';
 import {
-  GinTypeDef, IDS, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
+  GinTypeDef, IDS, MAIN_INSTANCE, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
   type Notification, type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
   type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor, type SessionControlAction,
 } from '@harness/core';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
 import type { Search, Suggester } from '../index/index.ts';
-import type { LinkService, SystemConnection } from '../link/index.ts';
+import type { ConnectionChange, LinkService, SystemConnection } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { FaultyStore, RecordingBus, memoryLog, settle, testStore } from '../testing.ts';
 import type { ChatDeps } from './deps.ts';
@@ -159,13 +159,13 @@ export class FakePeer implements Peer<SystemLinkSpec> {
 /** A link whose systems are fake peers. */
 export class FakeLink implements Pick<LinkService, 'connection' | 'connected' | 'onChange'> {
   readonly #connections = new Map<SystemName, SystemConnection & { peer: FakePeer }>();
-  readonly #listeners = new Set<(change: { system: SystemName; connected: boolean }) => void>();
+  readonly #listeners = new Set<(change: ConnectionChange) => void>();
 
   connect(system: string, handlers: SystemHandlers): FakePeer {
     const name = SystemName.parse(system);
     const peer = new FakePeer(handlers);
-    this.#connections.set(name, { system: name, instance: `${system}-1`, connectedAt: 0, peer, signal: peer.signal });
-    for (const listener of this.#listeners) { listener({ system: name, connected: true }); }
+    this.#connections.set(name, { system: name, instance: MAIN_INSTANCE, boot: `${system}-1`, connectedAt: 0, peer, signal: peer.signal });
+    for (const listener of this.#listeners) { listener({ system: name, instance: MAIN_INSTANCE, connected: true }); }
     return peer;
   }
 
@@ -173,12 +173,12 @@ export class FakeLink implements Pick<LinkService, 'connection' | 'connected' | 
     const name = SystemName.parse(system);
     this.#connections.get(name)?.peer.close();
     this.#connections.delete(name);
-    for (const listener of this.#listeners) { listener({ system: name, connected: false }); }
+    for (const listener of this.#listeners) { listener({ system: name, instance: MAIN_INSTANCE, connected: false }); }
   }
 
   connection(system: SystemName): SystemConnection | undefined { return this.#connections.get(system); }
   connected(): readonly SystemConnection[] { return [...this.#connections.values()]; }
-  onChange(listener: (change: { system: SystemName; connected: boolean }) => void): () => void {
+  onChange(listener: (change: ConnectionChange) => void): () => void {
     this.#listeners.add(listener);
     return () => { this.#listeners.delete(listener); };
   }

@@ -7,6 +7,7 @@ import { plugin, type AnyPlugin } from '@ayepi/plugin';
 import { eventsSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { adminOperations } from '../admin-ops.ts';
+import { hubReads } from '../reads.ts';
 import { adminPlugin } from './admin.ts';
 import { authPlugin, type AuthPluginOptions } from './auth.ts';
 import { chatPlugin } from './chat.ts';
@@ -40,25 +41,26 @@ export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugi
 export function webPlugins(hub: HubServices, options: AuthPluginOptions): readonly AnyPlugin[] {
   const auth = authPlugin(hub, options);
   const ops = adminOperations(hub);
-  const systems = systemsPlugin(hub, auth, ops);
+  const reads = hubReads(hub);
+  const systems = systemsPlugin(hub, auth, ops, reads);
   return [
     auth,
-    chatPlugin(hub, auth),
-    runsPlugin(hub, auth),
+    chatPlugin(hub, auth, reads),
+    runsPlugin(hub, auth, reads),
     findPlugin(hub, auth),
     inboxPlugin(hub, auth),
     contentPlugin(hub, auth),
     systems,
     settingsPlugin(hub, systems, ops),
-    adminPlugin(hub, systems, ops),
+    adminPlugin(hub, systems, ops, reads),
     // build 2 slices: each starts as `notBuilt` stubs its lane replaces
-    resourcesPlugin(auth),
-    contextPlugin(auth),
-    contextorPlugin(systems),
-    modelsPlugin(systems),
-    metricsPlugin(systems),
-    mcpsPlugin(systems),
-    packagingPlugin(systems),
+    resourcesPlugin(hub, auth),
+    contextPlugin(hub, auth),
+    contextorPlugin(hub, systems, ops),
+    modelsPlugin(hub, systems, ops),
+    metricsPlugin(hub, systems, reads),
+    mcpsPlugin(hub, systems, ops),
+    packagingPlugin(hub, systems, ops),
     eventsPlugin(hub, auth),
   ];
 }

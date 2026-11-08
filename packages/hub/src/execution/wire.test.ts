@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { Channel } from './channel.ts';
 import { localTime, timeInfo } from './time.ts';
-import { PendingCalls, toolset } from './tools.ts';
+import { fnModeTool } from '../contextor/modes.ts';
+import { CatalogFnViews } from '../contextor/views.ts';
+import { agentTools, PendingCalls } from './tools.ts';
 import { TestCatalog } from './testing.ts';
 import {
   chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, messageToWire, replyText, requestFromWire, requestToWire, responseToWire, tokensOf,
@@ -110,17 +112,18 @@ describe('fn tools', () => {
     const read = catalog.add('fs', 'read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text() }));
     const scalar = catalog.add('fs', 'odd', fn({ description: 'Odd.', args: g.text(), returns: g.text() }));
     const calls = new PendingCalls();
-    const set = toolset([
-      { fn: read, signature: await catalog.signature(read.name) },
-      { fn: scalar, signature: await catalog.signature(scalar.name) },
-    ], calls);
-    expect(set.tools.map((t) => t.name)).toEqual(['fs__read']);
-    expect(set.fns.get('fs__read')).toBe('fs/read');
-    const tool = set.tools[0];
+    const views = new CatalogFnViews(catalog);
+    const modeTools = [await views.view(read.name), await views.view(scalar.name)].flatMap((view) => {
+      const tool = view === undefined ? undefined : fnModeTool(view);
+      return tool === undefined ? [] : [tool, tool];
+    });
+    const tools = agentTools(modeTools, calls);
+    expect(tools.map((t) => t.name)).toEqual(['fs__read']);
+    const tool = tools[0];
     if (tool === undefined) throw new Error('no tool');
     expect(() => tool.input.call({ path: 'a' }, [], { toolCallId: 'c1' })).toThrow(PromptSuspend);
     expect(() => tool.input.call({ path: 'a' }, [], {})).toThrow(/tool call id/);
-    expect(calls.inOrder(['c1', 'c2'])).toEqual([{ toolCallId: 'c1', fn: 'fs/read', args: { path: 'a' } }]);
+    expect(calls.inOrder(['c1', 'c2'])).toEqual([{ toolCallId: 'c1', name: 'fs__read', args: { path: 'a' } }]);
   });
 });
 

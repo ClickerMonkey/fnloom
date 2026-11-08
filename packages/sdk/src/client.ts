@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import type { DeliveryId, DeliveryStatus, FnError, Json, MentionHover, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
+import type { DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -67,6 +67,11 @@ export interface InputView<T> {
   modelValue: T | undefined;
   /** Problems with the current value, from the type's checks. */
   problems: string[];
+  /**
+   * Draw the value without letting it be changed (a run card's args, a result): the same component is the type's
+   * editor and its viewer everywhere a value of the type is drawn.
+   */
+  readonly: boolean;
 }
 
 /** The props of a custom mention hover card. */
@@ -83,8 +88,32 @@ export interface MentionView<T> {
 export interface ResourceView {
   stat: ResourceStat;
   section?: SectionKey;
-  text(): Promise<string>;
+  /** The forms the hub has made of it (`markdown`, `table`, `description`, …), so a viewer can offer them. */
+  forms: readonly FormKind[];
+  /** Its text: the raw text, or one of its forms. */
+  text(form?: FormKind): Promise<string>;
   bytes(): Promise<Uint8Array>;
+}
+
+/**
+ * A viewer given as a bare component. Vue's component type takes almost any object, so one shaped like an entry
+ * (`{ component, mode }`) is kept out here and checked as an entry instead.
+ */
+export type BareViewer<R> = R & { readonly component?: never; readonly mode?: never };
+
+/** How a system's resource viewer sits beside the hub's: instead of its preview, or as one more mode (tab). */
+export const RESOURCE_VIEWER_MODES = ['replace', 'tab'] as const;
+export type ResourceViewerMode = (typeof RESOURCE_VIEWER_MODES)[number];
+
+/**
+ * A system's viewer for a resource format with how it is offered: `replace` draws instead of the hub's preview for that
+ * format; `tab` adds a mode named `label` beside the hub's own (Preview, Source, the forms).
+ */
+export interface ResourceViewerEntry<R> {
+  readonly component: R;
+  readonly mode: ResourceViewerMode;
+  /** The mode's name in the viewer's switch. Default: the system's name. */
+  readonly label?: string;
 }
 
 type FnTypesOf<C extends ContractShape, K extends keyof C['fns']> = C['fns'][K] extends FnDef<infer T> ? T : never;
@@ -111,7 +140,7 @@ export interface AnyViews {
   /** A fn's renderer. `submit` is undefined for a fn that declares no form, as its typed view says. */
   fn: Omit<FnView<DecodedFn>, 'submit'> & { submit: FnView<DecodedFn>['submit'] | undefined } & WithSystem<ContractShape>;
   attachment: AttachmentView<unknown> & WithSystem<ContractShape>;
-  /** A custom input's extra props; the form adds the `InputView` ones (`modelValue`, `problems`) as it draws. */
+  /** A custom input's extra props; the form adds the `InputView` ones (`modelValue`, `problems`, `readonly`) as it draws. */
   input: WithSystem<ContractShape>;
   mention: MentionView<unknown> & WithSystem<ContractShape>;
   resource: ResourceView & WithSystem<ContractShape>;
@@ -153,8 +182,11 @@ export interface ClientRenderers<C extends ContractShape> {
   inputs?: { readonly [K in keyof C['types']]?: Renderer<InputView<ValueOf<C['types'][K]>> & WithSystem<C>> };
   /** Custom hover cards for mentions (otherwise the hub draws the `MentionHover`). */
   mentions?: { readonly [K in keyof C['mentions']]?: Renderer<MentionView<MentionTarget<C, K>> & WithSystem<C>> };
-  /** Viewers for resource formats (`markdown`, `csv`, a system's own). Shared by format across systems. */
-  resources?: Record<string, Renderer<ResourceView & WithSystem<C>>>;
+  /**
+   * Viewers for resource formats (`markdown`, `csv`, a system's own), shared by format across systems. A bare
+   * component replaces the hub's preview; `{ component, mode: 'tab', label }` adds a mode beside it.
+   */
+  resources?: Readonly<Record<string, BareViewer<Renderer<ResourceView & WithSystem<C>>> | ResourceViewerEntry<Renderer<ResourceView & WithSystem<C>>>>>;
 }
 
 /**

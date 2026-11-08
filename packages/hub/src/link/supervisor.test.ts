@@ -1,67 +1,35 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { ApiError } from '@ayepi/core';
-import { SystemName, type InstallSource, type Manifest } from '@harness/core';
+import { InstanceName, LINK_PROTOCOL, MAIN_INSTANCE, SystemName, type InstallSource, type Manifest, type SystemPackageManifest } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, manifestFor, shop, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
 import { StoredKeyPair } from './keys.ts';
-import { NodeInstaller, NodeLauncher, SystemPackageJson, type Installer, type ProcessExit, type ProcessLauncher, type SystemCommand, type SystemPackage, type SystemProcess } from './process.ts';
-import { FakeSystem, linkRig, type LinkRig } from './rig.ts';
+import { NodeInstaller, NodeLauncher, readManifest, type Installer, type SystemPackage } from './process.ts';
+import { FakeLauncher, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
 import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
 import { ProcessSupervisor } from './supervisor.ts';
 
-/** A process the test ends by hand. */
-class FakeProcess implements SystemProcess {
-  readonly pid: number;
-  readonly exited: Promise<ProcessExit>;
-  killed = false;
-  #end: (exit: ProcessExit) => void = () => undefined;
-
-  readonly command: SystemCommand;
-
-  constructor(command: SystemCommand, pid: number) {
-    this.command = command;
-    this.pid = pid;
-    this.exited = new Promise((resolve) => { this.#end = resolve; });
-  }
-
-  exit(code: number, output = ''): void { this.#end({ code, output }); }
-  kill(): void { this.killed = true; this.exit(143, 'killed'); }
-}
-
-class FakeLauncher implements ProcessLauncher {
-  readonly launched: FakeProcess[] = [];
-  launch(command: SystemCommand): FakeProcess {
-    const process = new FakeProcess(command, 100 + this.launched.length);
-    this.launched.push(process);
-    return process;
-  }
-  get last(): FakeProcess {
-    const last = this.launched.at(-1);
-    if (last === undefined) { throw new Error('nothing launched'); }
-    return last;
-  }
-}
-
-/** Writes a package.json for the source's version instead of running npm or git. */
+/** Writes a system.json for the source's version instead of running npm or git. */
 class FakeInstaller implements Installer {
   readonly name: string;
+  instances: SystemPackageManifest['instances'] = 'one';
 
   constructor(name: string) {
     this.name = name;
   }
   async fetch(source: InstallSource, dir: string): Promise<SystemPackage> {
     if ('path' in source) { return this.describe(source.path); }
-    const version = 'package' in source ? (source.version === 'latest' ? '9.0.0' : source.version) : source.ref;
+    const version = 'package' in source ? (source.version === 'latest' ? '9.0.0' : source.version) : 'git' in source ? source.ref : '1.0.0';
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: `@x/${this.name}`, version, harness: { name: this.name, main: 'server/main.ts' } }));
+    await writeFile(join(dir, 'system.json'), JSON.stringify(systemJson(this.name, version, { instances: this.instances })));
     return this.describe(dir);
   }
   describe(dir: string): Promise<SystemPackage> {
-    return new NodeInstaller().describe(dir);
+    return new NodeInstaller({ npm: RIG_SETTINGS.packaging.HARNESS_NPM, maxBytes: RIG_SETTINGS.packaging.HARNESS_PACKAGE_MAX }).describe(dir);
   }
 }
 
@@ -70,11 +38,11 @@ let dir: string;
 let launcher: FakeLauncher;
 const SHOP = SystemName.parse('shop');
 
-function supervisor(name = 'shop', perHour = 2) {
+function supervisor(name = 'shop', perHour = 2, installer = new FakeInstaller(name), systemsDir = dir) {
   return new ProcessSupervisor({
-    store: rig.store, log: rig.log, clock: () => rig.time.now, links: rig.links, pairing: rig.pairing, config: rig.config, status: rig.status,
-    launcher, installer: new FakeInstaller(name),
-    settings: { systemsDir: dir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour },
+    store: rig.store, log: rig.log, clock: () => rig.time.now, links: rig.links, pairing: rig.pairing, config: rig.config, instances: rig.instances,
+    launcher, installer,
+    settings: { systemsDir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour },
   });
 }
 
@@ -89,9 +57,10 @@ afterEach(async () => {
 });
 
 /** Connect a fake system with the key the supervisor wrote, as the real process would. */
-async function connectInstalled(manifest: Manifest, name = 'shop'): Promise<FakeSystem> {
-  const keys = StoredKeyPair.parse(JSON.parse(await readFile(join(dir, name, 'state', 'key.json'), 'utf8')));
+async function connectInstalled(manifest: Manifest, name = 'shop', instance = 'main'): Promise<FakeSystem> {
+  const keys = StoredKeyPair.parse(JSON.parse(await readFile(join(dir, name, 'instances', instance, 'state', 'key.json'), 'utf8')));
   const system = new FakeSystem(rig.app, name, manifest, keys);
+  system.instance = InstanceName.parse(instance);
   await system.start();
   await settle(5);
   return system;
@@ -101,20 +70,23 @@ describe('installing', () => {
   it('installs a package into its version folder, pairs it with a key it made, and starts it', async () => {
     const sup = supervisor();
     const installed = await sup.install({ source: { package: '@x/shop', version: '1.0.0' }, config: { currency: 'EUR' }, by: ADMIN });
-    expect(installed).toMatchObject({ name: 'shop', version: '1.0.0', status: 'starting', autoStart: true, pid: 100, dir: join(dir, 'shop') });
+    expect(installed).toMatchObject({ name: 'shop', instance: 'main', version: '1.0.0', status: 'starting', autoStart: true, pid: 100, dir: join(dir, 'shop') });
     expect(launcher.last.command).toMatchObject({
       run: process.execPath,
       args: [join(dir, 'shop', 'versions', '1.0.0', 'server', 'main.ts')],
       env: {
-        [SYSTEM_ENV.hub]: 'ws://hub:4300/link', [SYSTEM_ENV.state]: join(dir, 'shop', 'state'), [SYSTEM_ENV.name]: 'shop',
+        [SYSTEM_ENV.hub]: 'ws://hub:4300/link', [SYSTEM_ENV.name]: 'shop', [SYSTEM_ENV.instance]: 'main',
+        [SYSTEM_ENV.state]: join(dir, 'shop', 'instances', 'main', 'state'), [SYSTEM_ENV.data]: join(dir, 'shop', 'instances', 'main', 'data'),
+        [SYSTEM_ENV.cache]: join(dir, 'shop', 'instances', 'main', 'cache'),
         [SYSTEM_ENV.supervised]: 'true', [SYSTEM_ENV.restartCode]: String(RESTART_CODE),
       },
     });
-    expect((await rig.store.table('systems').get(SystemName.parse('shop')))?.pairedBy).toBe(ADMIN);
+    expect((await rig.store.table('instances').get({ system: SHOP, instance: MAIN_INSTANCE }))?.pairedBy).toBe(ADMIN);
 
     // the process connects with the key the hub made; its config was waiting for its contract
     const system = await connectInstalled(await manifestFor(shop));
-    expect((await rig.store.table('systems').get(SystemName.parse('shop')))).toMatchObject({ status: 'connected', config: { value: { currency: 'EUR' } } });
+    expect((await rig.store.table('systems').get(SHOP))?.status).toBe('connected');
+    expect(await rig.store.table('instances').get({ system: SHOP, instance: MAIN_INSTANCE })).toMatchObject({ status: 'connected', config: { value: { currency: 'EUR' } } });
     expect(system.configured).toEqual([{ value: { currency: 'EUR' }, version: 1 }]);
     expect((await sup.list())[0]).toMatchObject({ status: 'running', goodVersion: '1.0.0' });
   });
@@ -126,10 +98,17 @@ describe('installing', () => {
     await expect(sup.install({ source: { path: join(dir, 'nowhere') }, by: ADMIN })).rejects.toBeInstanceOf(ApiError);
   });
 
+  it('gives a process absolute folders when the systems folder is relative, since it runs in its package folder', async () => {
+    const sup = supervisor('shop', 2, new FakeInstaller('shop'), relative(process.cwd(), dir));
+    await sup.install({ source: { package: '@x/shop', version: '1.0.0' }, by: ADMIN });
+    expect(launcher.last.command.env[SYSTEM_ENV.state]).toBe(join(dir, 'shop', 'instances', 'main', 'state'));
+    expect(isAbsolute(launcher.last.command.args[0] ?? '')).toBe(true);
+  });
+
   it('runs a folder source in place', async () => {
     const folder = join(dir, 'src-shop');
     await mkdir(folder, { recursive: true });
-    await writeFile(join(folder, 'package.json'), JSON.stringify({ name: 'shop', version: '0.1.0', harness: { name: 'shop', main: 'main.ts' } }));
+    await writeFile(join(folder, 'system.json'), JSON.stringify(systemJson('shop', '0.1.0', { server: { entry: 'main.ts', external: {} } })));
     const sup = supervisor();
     const installed = await sup.install({ source: { path: folder }, autoStart: false, by: ADMIN });
     expect(installed.command).toMatchObject({ args: [join(folder, 'main.ts')], cwd: folder });
@@ -236,8 +215,14 @@ describe('running', () => {
 });
 
 describe('the Node ports', () => {
-  it('reads a system package.json', () => {
-    expect(SystemPackageJson.safeParse({ name: 'x', version: '1', harness: { name: 'Bad Name', main: 'm.ts' } }).success).toBe(false);
+  it('reads a system.json, refusing a bad one and another link protocol', async () => {
+    await writeFile(join(dir, 'system.json'), JSON.stringify({ ...systemJson('x', '1.0.0'), name: 'Bad Name' }));
+    await expect(readManifest(dir)).rejects.toThrow(/name/);
+    await writeFile(join(dir, 'system.json'), JSON.stringify(systemJson('x', '1.0.0', { protocol: LINK_PROTOCOL + 1 })));
+    await expect(readManifest(dir)).rejects.toThrow(/link protocol/);
+    await writeFile(join(dir, 'system.json'), '{ not json');
+    await expect(readManifest(dir)).rejects.toThrow(/system.json/);
+    expect((await new NodeInstaller({ npm: RIG_SETTINGS.packaging.HARNESS_NPM, maxBytes: RIG_SETTINGS.packaging.HARNESS_PACKAGE_MAX }).describe(join(dir, '..', 'nowhere-at-all')).catch((e: unknown) => e)) instanceof Error).toBe(true);
   });
 
   it('launches a real process and keeps the end of its output', async () => {

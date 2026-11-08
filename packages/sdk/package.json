@@ -9,7 +9,8 @@
     "./server": "./src/server/index.ts",
     "./server/testing": "./src/server/testing.ts",
     "./build": "./src/build.ts",
-    "./client": "./src/client-runtime.ts"
+    "./client": "./src/client-runtime.ts",
+    "./AUTHORING.md": "./AUTHORING.md"
   },
   "dependencies": {
     "@aeye/ai": "file:../../../aits/packages/ai",

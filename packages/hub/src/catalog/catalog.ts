@@ -14,6 +14,8 @@ import {
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
 import type { EventBus } from '../bus.ts';
+import { removeLinksFrom, writeDerivedLinks } from '../contextor/graph.ts';
+import { contextTokens } from '../contextor/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { AvailabilityRules, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
 import type { Catalog, CatalogEntry, FnSignature, KindDescriber } from './index.ts';
@@ -397,14 +399,18 @@ export class StoreCatalog implements Catalog {
       }
       for (const decl of accepted.context) {
         const name = qualify(system, decl.name);
-        if (changedNames.has(name) || force) { await tx.table('context').put(await this.#contextRecord(tx, system, decl, accepted.context, now)); }
+        if (changedNames.has(name) || force) {
+          const record = await tx.table('context').put(await this.#contextRecord(tx, system, decl, accepted.context, now));
+          // the context graph's declared and mentioned edges are rewritten in the same transaction, so they never drift
+          await writeDerivedLinks(tx, record, now);
+        }
       }
       for (const name of removedFrom.get('fns') ?? []) {
         if ((await tx.table('fns').get(name))?.origin === 'contract') { await tx.table('fns').remove(name); }
       }
       for (const name of removedFrom.get('types') ?? []) { await tx.table('types').remove(name); }
       for (const name of removedFrom.get('kinds') ?? []) { await tx.table('kinds').remove(name); }
-      for (const name of removedFrom.get('context') ?? []) { await tx.table('context').remove(name); }
+      for (const name of removedFrom.get('context') ?? []) { await tx.table('context').remove(name); await removeLinksFrom(tx, name); }
       await tx.table('manifests').put({ system, manifest: stored, importedAt: now });
     });
 
@@ -603,7 +609,7 @@ export class StoreCatalog implements Catalog {
       if ((await store.table('fns').get(name)) !== undefined) { fns.push(name); }
       else if (ownContext.has(name) || (await store.table('context').get(name)) !== undefined) { context.push(name); }
     }
-    return { name: qualify(system, decl.name), system, decl, mentions: { context, fns }, stale: false, updatedAt: now };
+    return { name: qualify(system, decl.name), system, decl, mentions: { context, fns }, tokens: contextTokens(decl), stale: false, updatedAt: now };
   }
 
   // ─── Loading ──────────────────────────────────────────────────────────────

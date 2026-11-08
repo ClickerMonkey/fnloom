@@ -8,7 +8,7 @@
 import type { HandlerCall, Json } from '@harness/core';
 import { computed } from 'vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
-import GinForm from '../forms/GinForm.vue';
+import GinForm from '../../gin/GinForm.vue';
 import { confirmVerb, humanize } from '../logic/labels.ts';
 import ArgList from './ArgList.vue';
 
