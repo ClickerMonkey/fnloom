@@ -135,10 +135,14 @@ export class HttpFront {
     }
   }
 
-  /** When a browser socket closes: a little before the access token it opened with expires; never without one. */
+  /**
+   * When a browser socket closes: a little before the access token it opened with expires; at once when that token has
+   * already expired (or isn't the hub's), so the browser reconnects with the one it refreshes; never without one.
+   */
   #closeAt(req: Request): number | undefined {
     const token = new URL(req.url).searchParams.get('access_token');
-    const expiry = token === null ? undefined : this.#o.tokenExpiry(token);
-    return expiry === undefined ? undefined : expiry - this.#o.tokenMargin;
+    if (token === null || token === '') { return undefined; }
+    const expiry = this.#o.tokenExpiry(token);
+    return expiry === undefined ? this.#o.clock() : expiry - this.#o.tokenMargin;
   }
 }

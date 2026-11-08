@@ -61,6 +61,17 @@ describe('HttpFront', () => {
     });
     expect(stillOpen).toBe(true);
   });
+
+  it('closes a browser socket at once when the token it opened with has already expired', async () => {
+    const { ws } = await start({ expiry: 60_000 });
+    const closedAfter = await new Promise<number>((resolve, reject) => {
+      const opened = Date.now();
+      const socket = new WebSocket(`${ws}/ws?access_token=expired`);
+      socket.onclose = () => { resolve(Date.now() - opened); };
+      socket.onerror = () => { reject(new Error('socket failed')); };
+    });
+    expect(closedAfter).toBeLessThan(5_000);
+  });
 });
 
 describe('accessTokenExpiry', () => {

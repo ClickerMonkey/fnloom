@@ -29,39 +29,78 @@ export interface HubOptions {
   readonly token: () => string;
   /**
    * The hub refused a call made with the access token (401): the sign-in ended there (its tokens expired, or the hub
-   * forgot them). Calls made before sign-in (no token) don't count.
+   * forgot them). Calls made before sign-in (no token) don't count. Resolves whether the tab is signed in again (it
+   * refreshed); if so, a call the socket carried is sent once more, so the page never sees that refusal.
    */
-  readonly unauthorized?: () => void;
+  readonly unauthorized?: () => Promise<boolean>;
 }
 
-/** A ws call response the hub refused for its token: `$status` 401 (see the ayepi ws wire protocol). */
-const REFUSED_FRAME = '"$status":401';
+/** The keys of a ws frame this file reads (see the ayepi ws wire protocol). */
+interface WireFrame {
+  readonly id?: unknown;
+  readonly type?: unknown;
+  readonly abort?: unknown;
+  readonly end?: unknown;
+  readonly $status?: unknown;
+}
 
-/** Whether a ws frame is a call the hub refused for its token. */
-export function isRefusedFrame(frame: string): boolean {
-  if (!frame.includes(REFUSED_FRAME)) { return false; }
+/** A ws frame as an object, or undefined when it isn't one. */
+function frameOf(raw: string): WireFrame | undefined {
   try {
-    const parsed: unknown = JSON.parse(frame);
-    return typeof parsed === 'object' && parsed !== null && Reflect.get(parsed, '$status') === 401;
+    const value: unknown = JSON.parse(raw);
+    return typeof value === 'object' && value !== null && !Array.isArray(value) ? { ...value } : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-/** The socket as the client sees it, reporting each call the hub refused for its token. */
-function watchRefusals(socket: WsTransport, refused: () => void): ClientWs {
+/** Whether a ws frame is a call the hub refused for its token: `$status` 401 (see the ayepi ws wire protocol). */
+export function isRefusedFrame(frame: string): boolean {
+  return frame.includes('"$status":401') && frameOf(frame)?.$status === 401;
+}
+
+/**
+ * The socket as the client sees it. A call the hub refuses for its token is held back: the tab refreshes its tokens
+ * (the hub closes a socket whose token has expired, so it reconnects with the new one) and the call is sent once
+ * more. Only when that fails, or the call streamed items up (which can't be sent again), does the refusal reach the
+ * caller.
+ */
+export function watchRefusals(socket: WsTransport, recover: () => Promise<boolean>): ClientWs {
+  /** Calls waiting for their answer, by id: the frame to send again, or undefined once it can't be. */
+  const open = new Map<string, string | undefined>();
   return {
-    send: (frame) => { socket.send(frame); },
-    onMessage: (cb) => { socket.onMessage((frame) => { if (isRefusedFrame(frame)) { refused(); } cb(frame); }); },
+    send: (raw) => {
+      const frame = frameOf(raw);
+      const id = frame?.id;
+      if (typeof id === 'string') {
+        if (typeof frame?.type === 'string') { open.set(id, raw); }
+        else if (frame?.abort === true) { open.delete(id); }
+        else if (open.has(id)) { open.set(id, undefined); }
+      }
+      socket.send(raw);
+    },
+    onMessage: (cb) => {
+      socket.onMessage((raw) => {
+        const frame = frameOf(raw);
+        const id = frame?.id;
+        if (frame === undefined || typeof id !== 'string' || !('$status' in frame || frame.end === true)) { cb(raw); return; }
+        const again = open.get(id);
+        open.delete(id);
+        if (frame.$status !== 401) { cb(raw); return; }
+        void recover().then((signedIn) => {
+          if (signedIn && again !== undefined) { socket.send(again); } else { cb(raw); }
+        });
+      });
+    },
     onState: (cb) => socket.onState(cb),
   };
 }
 
 /** `fetch`, reporting each call made with a token that the hub refused. */
-function watchedFetch(refused: () => void): (request: Request) => Promise<Response> {
+function watchedFetch(refused: () => unknown): (request: Request) => Promise<Response> {
   return async (request) => {
     const response = await fetch(request);
-    if (response.status === 401 && request.headers.has('authorization')) { refused(); }
+    if (response.status === 401 && request.headers.has('authorization')) { void refused(); }
     return response;
   };
 }

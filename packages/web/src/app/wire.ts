@@ -42,7 +42,7 @@ import { Toasts } from '../state/toasts.ts';
 /** Build the app's stores for `win`. */
 export function createStores(win: Window): Stores {
   const session = new SessionStore(win.localStorage, Date.now, windowStorageChanges(win));
-  const { hub } = createHub({ origin: win.location.origin, token: () => session.accessToken.value, unauthorized: () => { void keeper.recover(); } });
+  const { hub } = createHub({ origin: win.location.origin, token: () => session.accessToken.value, unauthorized: () => keeper.recover() });
   const api = createApi(hub);
   const keeper = new SessionKeeper(api.auth, session, Date.now, new BrowserLock(win.navigator));
   const connection = new ConnectionStore(api.connection);
