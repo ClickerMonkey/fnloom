@@ -4,7 +4,7 @@
  * edges. The graph contextor walks the edges; loading an item brings what it hard-links (`imports`, `brings`).
  */
 import { z } from 'zod';
-import { ActorId, QualifiedName, RunId, type Same, SessionId, Timestamp } from './primitives.ts';
+import { ActorId, Audience, QualifiedName, RunId, type Same, SessionId, Timestamp } from './primitives.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
 
 // ─── Where context comes from ─────────────────────────────────────────────────
@@ -137,6 +137,32 @@ export type ContextLink = z.infer<typeof ContextLink>;
 
 // ─── Hub fn shapes (args and results; the hub contract's gin types are made from these) ───────────────────────
 
+/**
+ * The options a person-made context item takes beyond its text (build 3): the context page's Advanced section, and
+ * the same as a declared item's (`ContextDecl`). Absent fields keep their defaults (or, on an edit, their values).
+ */
+export const ContextOptions = z.object({
+  /** How much it counts when scored (0 leaves it out; 1 when absent). */
+  weight: z.number().min(0).max(2).optional(),
+  /** A short form shown at `signature` detail. */
+  summary: z.string().optional(),
+  tags: z.array(z.string().min(1)).optional(),
+  /** Tied fns: offered whenever this item is loaded. */
+  fns: z.array(QualifiedName).optional(),
+  /** Fns suggested alongside it. */
+  suggestFns: z.array(QualifiedName).optional(),
+  /** Agent fns whose prompts always carry it. */
+  alwaysFor: z.array(QualifiedName).optional(),
+  /** A `/command` name that loads it. */
+  command: z.string().regex(/^[a-z][a-z0-9-]*$/).optional(),
+  /** Who sees it listed, and who it is suggested to. */
+  visible: Audience.optional(),
+  suggest: Audience.optional(),
+  /** Its parent in a hierarchy. */
+  parent: QualifiedName.optional(),
+});
+export type ContextOptions = z.infer<typeof ContextOptions>;
+
 /** `hub/remember`: write a memory. */
 export const RememberArgs = z.object({
   text: z.string().min(1),
@@ -144,8 +170,11 @@ export const RememberArgs = z.object({
   title: z.string().optional(),
   scope: z.enum(['session', 'user', 'everyone']).default('session'),
   about: z.array(LinkTarget).optional(),
-  weight: z.number().min(0).max(2).optional(),
-});
+}).extend(ContextOptions.shape);
+
+/** Edit a memory (build 3): any of what `remember` takes; the scope is fixed once written. */
+export const UpdateMemoryArgs = RememberArgs.omit({ scope: true }).partial().extend({ name: QualifiedName });
+export type UpdateMemoryArgs = z.infer<typeof UpdateMemoryArgs>;
 export type RememberArgs = z.infer<typeof RememberArgs>;
 
 /** `hub/context_from_resource`: make context items from a resource or chosen sections. */
@@ -154,12 +183,7 @@ export const ContextFromResourceArgs = z.object({
   /** Which sections; all of them when absent. */
   sections: z.array(SectionKey).optional(),
   copy: ContextCopy.default('live'),
-  weight: z.number().min(0).max(2).optional(),
-  /** Agent fns whose prompts always carry the made context. */
-  alwaysFor: z.array(QualifiedName).optional(),
-  /** A `/command` name that loads the resource-level item. */
-  command: z.string().regex(/^[a-z][a-z0-9-]*$/).optional(),
-});
+}).extend(ContextOptions.omit({ summary: true, parent: true }).shape);
 export type ContextFromResourceArgs = z.infer<typeof ContextFromResourceArgs>;
 
 /** What making context from a resource did. Re-running it updates the same names, never duplicates. */

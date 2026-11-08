@@ -5,7 +5,7 @@ import {
   SystemName, SystemStatus, TypeRecord, adminSlice, authSlice, chatSlice, contentSlice, eventsSlice, findSlice, hubLinkSpec, hubWebSpec, inboxSlice,
   ProviderConfig, ProviderInput, ProviderKind, RunControl, RunControlAction, SessionControlAction, SessionId, isIdKind,
   isHeardSystemStatus, mintId, qualify, runsSlice, settingsSlice, splitName, systemLinkSpec, systemsSlice,
-  contextSlice, contextorSlice, mcpsSlice, metricsSlice, modelsSlice, packagingSlice, resourcesSlice,
+  contextSlice, contextorSlice, mcpsSlice, metricsSlice, modelsSlice, packagingSlice, resourcesSlice, querySlice, suggestionsSlice, autoPairSlice,
 } from './index.ts';
 
 describe('ids', () => {
@@ -141,7 +141,7 @@ describe('specs', () => {
   it('joins the web spec from its slices, every endpoint the same object as in its slice', () => {
     const slices = [
       authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
-      resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
+      resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice, querySlice, suggestionsSlice, autoPairSlice,
     ];
     const fromSlices = slices.flatMap((slice) => Object.entries(slice.endpoints));
     expect(Object.keys(hubWebSpec.endpoints)).toHaveLength(fromSlices.length);

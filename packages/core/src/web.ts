@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { BudgetView, LlmFilter, LlmSummary, ModelInfo, OutputLine, ResourceFilter, RuleRef, RunFilter, SettingView } from './admin.ts';
 import { MentionHover, MentionOption, ImportReport, SuggestionScore } from './manifest.ts';
 import {
-  ActorId, ActorKind, ApprovalId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
+  ActorId, ActorKind, ApprovalId, AutoPairId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
   ModelCallId, PageRequest, PairingId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, page,
 } from './primitives.ts';
 import { ReadWant, ResourceRead, ResourceUri, ContentRef } from './resources.ts';
@@ -23,7 +23,7 @@ import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNo
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
 import { ContextRecord, FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
 import { Policy } from './records/actors.ts';
-import { CONTEXT_ORIGIN_TYPES, ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs } from './context-graph.ts';
+import { CONTEXT_ORIGIN_TYPES, ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs, UpdateMemoryArgs } from './context-graph.ts';
 import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
 import { ModelCall, ModelCallQuery, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
 import { ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
@@ -31,6 +31,9 @@ import { InstanceRecord } from './package.ts';
 import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery, ResourceReadArgs, ResourceReadResult } from './resource-forms.ts';
 import { HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } from './records/mcps.ts';
 import { FormKind } from './resources.ts';
+import { FieldValueOption, ListQuery, ListValuesQuery, QueryFnArgs, QueryFnResult } from './query.ts';
+import { SuggestDecision, SuggestDecisionView, SuggestionRecord } from './suggestions.ts';
+import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
 
@@ -157,7 +160,7 @@ export const authSlice = mergeSpecs(
 );
 
 /** What the session list is filtered and paged by. */
-export const SessionListQuery = PageRequest.extend({ search: z.string().optional(), archived: z.boolean().optional() });
+export const SessionListQuery = PageRequest.extend({ search: z.string().optional(), archived: z.boolean().optional(), query: ListQuery.optional() });
 export type SessionListQuery = z.infer<typeof SessionListQuery>;
 
 /** A page of a session's messages, newest first, paged backwards with the cursor. */
@@ -165,7 +168,7 @@ export const MessageListQuery = PageRequest.extend({ session: SessionId });
 export type MessageListQuery = z.infer<typeof MessageListQuery>;
 
 /** What the inbox is filtered and paged by. */
-export const NotificationListQuery = PageRequest.extend({ unread: z.boolean().optional() });
+export const NotificationListQuery = PageRequest.extend({ unread: z.boolean().optional(), query: ListQuery.optional() });
 export type NotificationListQuery = z.infer<typeof NotificationListQuery>;
 
 /** Sessions, messages, turns and what the composer may offer. */
@@ -204,7 +207,8 @@ export const chatSlice = spec({
     },
     /** Run a fn by hand (`!fn`). */
     invoke: { body: z.object({ session: SessionId, fn: QualifiedName, args: Json, client: ClientInfo }), response: z.object({ turn: TurnId, run: RunId }), ws: 'invoke' },
-    control: { body: z.object({ session: SessionId, action: SessionControlAction }), response: SessionControls, ws: 'control' },
+    /** Pause, resume or cancel the session's work: every run it applies to, or only `runs` (build 3). */
+    control: { body: z.object({ session: SessionId, action: SessionControlAction, runs: z.array(RunId).min(1).optional() }), response: SessionControls, ws: 'control' },
     presence: { body: Presence.omit({ user: true, lastActiveAt: true }), ws: 'presence' },
   }),
 });
@@ -271,16 +275,16 @@ export const contentSlice = spec({
 /** Systems and pairing (admins). */
 export const systemsSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
-    systems: { body: z.object({}), response: z.array(SystemView), ws: 'systems' },
+    systems: { body: z.object({ query: ListQuery.optional() }), response: z.array(SystemView), ws: 'systems' },
     system: { body: z.object({ system: SystemName }), response: SystemView, ws: 'system' },
     pairings: { body: z.object({ status: PairingRequest.shape.status.optional() }), response: z.array(PairingRequest), ws: 'pairings' },
     /** Approve or refuse; an approval may name the instance and set the config in the same step (the QR pairing page). */
     approvePairing: {
-      body: z.object({ pairing: PairingId, approve: z.boolean(), instance: InstanceName.optional(), config: Json.optional() }),
+      body: z.object({ pairing: PairingId, approve: z.boolean(), instance: InstanceName.optional(), config: Json.optional(), autoPair: AutoPairChoice.optional() }),
       response: z.object({ system: SystemName.optional() }),
       ws: 'approvePairing',
     },
-    createPairingToken: { body: z.object({ name: SystemName.optional(), expiresIn: Duration }), response: z.object({ token: z.string(), expiresAt: Timestamp }), ws: 'createPairingToken' },
+    createPairingToken: { body: z.object({ name: SystemName.optional(), expiresIn: Duration, autoPair: AutoPairChoice.optional() }), response: z.object({ token: z.string(), expiresAt: Timestamp }), ws: 'createPairingToken' },
     /** Set a system's config: one instance's (each fs machine has its own folders), else its default instance's. Refused unless valid. */
     configureSystem: { body: z.object({ system: SystemName, config: Json, instance: InstanceName.optional() }), response: z.union([z.object({ version: z.number().int() }), z.object({ problems: z.array(z.string()) })]), ws: 'configureSystem' },
     /** Turn a system's functions and renderers on or off separately. */
@@ -330,11 +334,11 @@ export const adminSlice = spec({
     actors: { body: z.object({ kind: ActorKind.optional() }), response: z.array(Actor), ws: 'actors' },
     actorSettings: { body: z.object({}), response: z.object({ declared: z.array(SettingView), values: z.array(ActorSetting) }), ws: 'actorSettings' },
     /** Runs, newest first. */
-    runs: { body: PageRequest.extend(RunFilter.shape), response: page(Run), ws: 'runs' },
+    runs: { body: PageRequest.extend(RunFilter.shape).extend({ query: ListQuery.optional() }), response: page(Run), ws: 'runs' },
     /** LLM calls, newest first. */
-    llmCalls: { body: PageRequest.extend(LlmFilter.shape), response: page(LlmSummary), ws: 'llmCalls' },
+    llmCalls: { body: PageRequest.extend(LlmFilter.shape).extend({ query: ListQuery.optional() }), response: page(LlmSummary), ws: 'llmCalls' },
     /** Resources the hub knows, most recently seen first. */
-    resources: { body: PageRequest.extend(ResourceFilter.shape), response: page(ResourceRecord), ws: 'resources' },
+    resources: { body: PageRequest.extend(ResourceFilter.shape).extend({ query: ListQuery.optional() }), response: page(ResourceRecord), ws: 'resources' },
     removeRule: { body: RuleRef, response: z.object({ ok: z.boolean() }), ws: 'removeRule' },
   }),
   events: {
@@ -370,7 +374,7 @@ export type ResourceForms = z.infer<typeof ResourceForms>;
  */
 export const resourcesSlice = spec({
   endpoints: use(tel, hubAuth).group({
-    browseResources: { body: ResourceQuery, response: ResourcePage, ws: 'browseResources' },
+    browseResources: { body: ResourceQuery.extend({ query: ListQuery.optional() }), response: ResourcePage, ws: 'browseResources' },
     resourceForms: { body: z.object({ uri: ResourceUri }), response: ResourceForms, ws: 'resourceForms' },
     readResource: { body: ResourceReadArgs, response: ResourceReadResult, ws: 'readResource' },
     /** Make a form now (describe, OCR, transcribe, convert) and answer when it is made. */
@@ -386,7 +390,7 @@ export const resourcesSlice = spec({
 });
 
 /** What the context list narrows by. */
-export const ContextQuery = PageRequest.extend({ search: z.string().optional(), origin: z.enum(CONTEXT_ORIGIN_TYPES).optional(), system: SystemName.optional() });
+export const ContextQuery = PageRequest.extend({ search: z.string().optional(), origin: z.enum(CONTEXT_ORIGIN_TYPES).optional(), system: SystemName.optional(), query: ListQuery.optional() });
 export type ContextQuery = z.infer<typeof ContextQuery>;
 
 /** One context item with its edges both ways and its text (dynamic context is asked for). */
@@ -399,6 +403,8 @@ export const contextSlice = spec({
     contexts: { body: ContextQuery, response: page(ContextRecord), ws: 'contexts' },
     contextItem: { body: z.object({ name: QualifiedName }), response: ContextItemView, ws: 'contextItem' },
     remember: { body: RememberArgs, response: z.object({ name: QualifiedName }), ws: 'remember' },
+    /** Edit a memory's text, title and options (build 3). */
+    updateMemory: { body: UpdateMemoryArgs, response: z.object({ name: QualifiedName }), ws: 'updateMemory' },
     forget: { body: z.object({ name: QualifiedName }), response: z.object({ ok: z.boolean() }), ws: 'forget' },
     linkContext: { body: z.object({ from: QualifiedName, to: LinkTarget, relation: DeclarableRelation, weight: z.number().min(0).max(1) }), response: ContextLink, ws: 'linkContext' },
     unlinkContext: { body: ContextLink.pick({ from: true, toKey: true, relation: true }), response: z.object({ ok: z.boolean() }), ws: 'unlinkContext' },
@@ -435,7 +441,7 @@ export const modelsSlice = spec({
 /** Every model call of every modality, and fn metrics (admins). */
 export const metricsSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
-    modelCalls: { body: ModelCallQuery, response: page(ModelCall), ws: 'modelCalls' },
+    modelCalls: { body: ModelCallQuery.extend({ query: ListQuery.optional() }), response: page(ModelCall), ws: 'modelCalls' },
     modelCall: { body: z.object({ id: ModelCallId }), response: ModelCall, ws: 'modelCall' },
     fnMetrics: { body: FnMetricsQuery, response: z.array(FnMetrics), ws: 'fnMetrics' },
     /** One fn's daily rollups, oldest first, for its charts. */
@@ -485,9 +491,50 @@ export const packagingSlice = spec({
   }),
 });
 
+// ─── Build 3 slices ───────────────────────────────────────────────────────────
+
+/**
+ * The query standard: any list by the same `ListQuery` (`query`, also the hub fn `hub/query`; each list answers only
+ * those who may read it through its own endpoint), the values a field takes for the search box, and the global fns
+ * catalogue (admins).
+ */
+export const querySlice = mergeSpecs(
+  spec({
+    endpoints: use(tel, hubAuth).group({
+      query: { body: QueryFnArgs, response: QueryFnResult, ws: 'query' },
+      listValues: { body: ListValuesQuery, response: z.array(FieldValueOption), ws: 'listValues' },
+    }),
+  }),
+  spec({
+    endpoints: use(tel, hubAuth, adminOnly).group({
+      /** Every fn of every system, with its stats, by the `fns` list's fields. */
+      fns: { body: ListQuery, response: page(FnRecord), ws: 'fns' },
+    }),
+  }),
+);
+
+/** The suggestion decision model (admins): read and set it, and try it on a message without sending. */
+export const suggestionsSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    suggestDecision: { body: z.object({}), response: SuggestDecisionView, ws: 'suggestDecision' },
+    setSuggestDecision: { body: SuggestDecision, response: SuggestDecisionView, ws: 'setSuggestDecision' },
+    /** What would be suggested for `text` in `session` now, used and not, with reasons. */
+    previewSuggestions: { body: z.object({ session: SessionId, text: z.string().min(1) }), response: SuggestionRecord, ws: 'previewSuggestions' },
+  }),
+});
+
+/** Auto-pair secrets (admins): list them (no secret is ever shown) and revoke one. */
+export const autoPairSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    autoPairs: { body: z.object({ system: SystemName.optional() }), response: z.array(AutoPairView), ws: 'autoPairs' },
+    revokeAutoPair: { body: z.object({ id: AutoPairId }), response: z.object({ ok: z.boolean() }), ws: 'revokeAutoPair' },
+  }),
+});
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
   resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
+  querySlice, suggestionsSlice, autoPairSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

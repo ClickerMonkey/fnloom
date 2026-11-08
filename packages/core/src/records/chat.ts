@@ -9,6 +9,8 @@ import { CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
 import { ContentRef, Link } from '../resources.ts';
 import { SystemStatus } from './systems.ts';
+import { SuggestionRecord } from '../suggestions.ts';
+import { RunStatus } from '../run.ts';
 import { Display } from '../run.ts';
 
 /** How a person wants to hear about a session's messages. */
@@ -111,6 +113,8 @@ export const ChatMessage = z.object({
   replyAll: z.boolean(),
   /** The agents the hub woke for this message. */
   answerers: z.array(ActorId),
+  /** User messages (build 3): the fns and context suggested for it, and those left out with their reasons. */
+  suggestions: SuggestionRecord.optional(),
   createdAt: Timestamp,
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
@@ -119,6 +123,10 @@ export type ChatMessage = z.infer<typeof ChatMessage>;
 export const SessionControlAction = z.enum(['pause', 'resume', 'cancel']);
 export type SessionControlAction = z.infer<typeof SessionControlAction>;
 
+/** A running (or paused) run and what can be done to it now. */
+export const ControllableRun = z.object({ run: RunId, fn: QualifiedName, status: RunStatus, pause: z.boolean(), resume: z.boolean(), cancel: z.boolean() });
+export type ControllableRun = z.infer<typeof ControllableRun>;
+
 /** What the session's controls can do, given what's running. */
 export const SessionControls = z.object({
   pause: z.boolean(),
@@ -126,6 +134,8 @@ export const SessionControls = z.object({
   /** Runs that won't stop on cancel. */
   uncancellable: z.array(RunId),
   undoLastTurn: z.boolean(),
+  /** Build 3: each run of the session a person can control, so the chat can stop, pause or resume one, some or all. */
+  runs: z.array(ControllableRun).optional(),
 });
 export type SessionControls = z.infer<typeof SessionControls>;
 

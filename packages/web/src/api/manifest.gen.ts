@@ -175,7 +175,8 @@ export const manifest = {
         "cursor",
         "limit",
         "search",
-        "archived"
+        "archived",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -376,7 +377,8 @@ export const manifest = {
       "q": [],
       "b": [
         "session",
-        "action"
+        "action",
+        "runs"
       ],
       "f": [],
       "hasBody": true,
@@ -759,7 +761,8 @@ export const manifest = {
       "b": [
         "cursor",
         "limit",
-        "unread"
+        "unread",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -900,7 +903,9 @@ export const manifest = {
       "items": false,
       "p": [],
       "q": [],
-      "b": [],
+      "b": [
+        "query"
+      ],
       "f": [],
       "hasBody": true,
       "hasHeaders": false,
@@ -962,7 +967,8 @@ export const manifest = {
         "pairing",
         "approve",
         "instance",
-        "config"
+        "config",
+        "autoPair"
       ],
       "f": [],
       "hasBody": true,
@@ -983,7 +989,8 @@ export const manifest = {
       "q": [],
       "b": [
         "name",
-        "expiresIn"
+        "expiresIn",
+        "autoPair"
       ],
       "f": [],
       "hasBody": true,
@@ -1572,7 +1579,8 @@ export const manifest = {
         "status",
         "fn",
         "system",
-        "session"
+        "session",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -1597,7 +1605,8 @@ export const manifest = {
         "status",
         "model",
         "system",
-        "session"
+        "session",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -1620,7 +1629,8 @@ export const manifest = {
         "cursor",
         "limit",
         "search",
-        "system"
+        "system",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -1668,7 +1678,8 @@ export const manifest = {
         "form",
         "missing",
         "group",
-        "in"
+        "in",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -1838,8 +1849,13 @@ export const manifest = {
         "sections",
         "copy",
         "weight",
+        "tags",
+        "fns",
+        "suggestFns",
         "alwaysFor",
-        "command"
+        "command",
+        "visible",
+        "suggest"
       ],
       "f": [],
       "hasBody": true,
@@ -1863,7 +1879,8 @@ export const manifest = {
         "limit",
         "search",
         "origin",
-        "system"
+        "system",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -1907,7 +1924,49 @@ export const manifest = {
         "title",
         "scope",
         "about",
-        "weight"
+        "weight",
+        "summary",
+        "tags",
+        "fns",
+        "suggestFns",
+        "alwaysFor",
+        "command",
+        "visible",
+        "suggest",
+        "parent"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "updateMemory": {
+      "method": "POST",
+      "path": "/updateMemory",
+      "ws": "updateMemory",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "text",
+        "title",
+        "about",
+        "weight",
+        "summary",
+        "tags",
+        "fns",
+        "suggestFns",
+        "alwaysFor",
+        "command",
+        "visible",
+        "suggest",
+        "parent",
+        "name"
       ],
       "f": [],
       "hasBody": true,
@@ -2117,7 +2176,8 @@ export const manifest = {
         "system",
         "run",
         "session",
-        "status"
+        "status",
+        "query"
       ],
       "f": [],
       "hasBody": true,
@@ -2463,6 +2523,178 @@ export const manifest = {
         "system",
         "instance",
         "withSecrets"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "query": {
+      "method": "POST",
+      "path": "/query",
+      "ws": "query",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "list",
+        "query"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "listValues": {
+      "method": "POST",
+      "path": "/listValues",
+      "ws": "listValues",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "list",
+        "field",
+        "prefix",
+        "limit"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "fns": {
+      "method": "POST",
+      "path": "/fns",
+      "ws": "fns",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "cursor",
+        "limit",
+        "text",
+        "filters",
+        "sort"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "suggestDecision": {
+      "method": "POST",
+      "path": "/suggestDecision",
+      "ws": "suggestDecision",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "setSuggestDecision": {
+      "method": "POST",
+      "path": "/setSuggestDecision",
+      "ws": "setSuggestDecision",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "enabled",
+        "model",
+        "messages",
+        "candidates",
+        "cap",
+        "floor"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "previewSuggestions": {
+      "method": "POST",
+      "path": "/previewSuggestions",
+      "ws": "previewSuggestions",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session",
+        "text"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "autoPairs": {
+      "method": "POST",
+      "path": "/autoPairs",
+      "ws": "autoPairs",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "revokeAutoPair": {
+      "method": "POST",
+      "path": "/revokeAutoPair",
+      "ws": "revokeAutoPair",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "id"
       ],
       "f": [],
       "hasBody": true,

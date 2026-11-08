@@ -22,6 +22,9 @@
  * - `metrics`: fn metrics (build 2).
  * - `package`: system packages, instances, pairing info, data exports (build 2).
  * - `records/mcps`: hub MCPs (build 2).
+ * - `query`: the filter and sort standard every list shares, and each list's fields (build 3).
+ * - `suggestions`: what a message was suggested and not, with reasons; the decision model setting (build 3).
+ * - `auto-pair`: auto-pair secrets (build 3).
  */
 export * from './primitives.ts';
 export * from './modes.ts';
@@ -50,4 +53,7 @@ export * from './package.ts';
 export * from './records/tables.ts';
 export * from './system-events.ts';
 export * from './admin.ts';
+export * from './query.ts';
+export * from './suggestions.ts';
+export * from './auto-pair.ts';
 export * from './web.ts';

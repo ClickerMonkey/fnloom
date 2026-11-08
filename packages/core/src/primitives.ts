@@ -47,6 +47,7 @@ export const ID_PREFIXES = {
   authSession: 'aus',
   modelCall: 'mdl',
   mcp: 'mcp',
+  autoPair: 'apk',
 } as const;
 
 /** The kinds of id. */
@@ -133,6 +134,8 @@ export const ModelCallId = IDS.modelCall;
 export type ModelCallId = IdOf<'modelCall'>;
 export const HubMcpId = IDS.mcp;
 export type HubMcpId = IdOf<'mcp'>;
+export const AutoPairId = IDS.autoPair;
+export type AutoPairId = IdOf<'autoPair'>;
 
 /** Makes the random part of a new id. Injectable, so tests get stable ids. */
 export type IdRandom = () => string;

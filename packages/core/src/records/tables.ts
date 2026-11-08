@@ -18,6 +18,8 @@ import { ModelCalibration, ModelLimitsRecord } from '../modes.ts';
 import { InstanceRecord } from '../package.ts';
 import { FormRecord } from '../resource-forms.ts';
 import { HubMcp } from './mcps.ts';
+import { AutoPairSecret } from '../auto-pair.ts';
+import { HubOption } from '../suggestions.ts';
 import { ResourceUri } from '../resources.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
@@ -115,6 +117,9 @@ export const HUB_TABLES = {
   } satisfies TableDef<typeof ModelRoleRecord, ModelRole>,
   fnMetrics: byFields(FnMetricsDay, 'fn', 'day'),
   mcps: byField(HubMcp, 'id'),
+  // build 3
+  autoPairSecrets: byField(AutoPairSecret, 'id'),
+  hubOptions: byField(HubOption, 'key'),
 } as const;
 
 /** The table names. */

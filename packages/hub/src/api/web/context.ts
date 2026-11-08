@@ -3,6 +3,7 @@
  * links drawn and removed by people, through `hub.resources.context` (`ContextLibrary`, over the contextor's
  * `ContextGraph`), as the signed-in person. A memory written here has no session, so it is for the person or everyone.
  */
+import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { contextSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
@@ -19,6 +20,8 @@ export function contextPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         contextItem: ({ data, user }) => context.item(data.name, { actor: user.id }),
         // the browser has no chat session, so a session memory (the schema's default) is the person's own
         remember: ({ data, user }) => context.remember({ ...data, scope: data.scope === 'session' ? 'user' : data.scope }, { actor: user.id }),
+        // STUB (design lane): the hub lane implements memory edits (build-3-design.md)
+        updateMemory: () => { throw reject(501, 'NOT_IMPLEMENTED', 'updateMemory is not built yet'); },
         forget: async ({ data, user }) => ({ ok: await context.forget(data.name, { actor: user.id }) }),
         linkContext: ({ data, user }) => context.link(data, { actor: user.id }),
         unlinkContext: async ({ data, user }) => ({ ok: await context.unlink(data, { actor: user.id }) }),

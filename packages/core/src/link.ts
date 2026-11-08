@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { LlmForward, LlmForwardChunk } from './llm.ts';
 import { ModelForward, ModelForwardResult } from './model-calls.ts';
 import { PairingInfo } from './package.ts';
+import { AutoPairGrant, AutoPairProof } from './auto-pair.ts';
 import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, HandlerCallId, InstanceName, Json, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
@@ -39,6 +40,8 @@ export const Hello = z.object({
   publicKey: z.string(),
   manifestHash: z.string(),
   pairingToken: z.string().optional(),
+  /** An auto-pair secret (build 3): re-pairs this instance with the new key once the challenge is signed. */
+  autoPair: AutoPairProof.optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 
@@ -90,6 +93,8 @@ export const Welcome = z.object({
   /** The hub's copy is stale: send the manifest. */
   sendManifest: z.boolean(),
   limits: LinkLimits,
+  /** A new auto-pair secret (build 3): when one was granted at pairing, or rotated because the last one was used. */
+  autoPair: AutoPairGrant.optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
 
