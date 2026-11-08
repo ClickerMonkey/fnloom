@@ -6,7 +6,7 @@
 import { IndexedKind } from '@harness/core';
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { type AuxDb, TEXT_FTS, TextDoc, createAuxTable, createTextFts } from './aux.ts';
+import { type AuxDb, TEXT_FTS, TextDoc, createAuxTable, createTextFts } from './auxTables.ts';
 import type { Scope } from './db.ts';
 import type { TextIndex } from './index.ts';
 

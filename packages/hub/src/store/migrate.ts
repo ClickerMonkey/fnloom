@@ -10,7 +10,7 @@
  */
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { type AuxTableName, SQL_TYPE, TableMeta, createAuxTable } from './aux.ts';
+import { type AuxTableName, SQL_TYPE, TableMeta, createAuxTable } from './auxTables.ts';
 import type { Db } from './db.ts';
 import { StoreError } from './errors.ts';
 import { type ColumnKind, ColumnKind as ColumnKindSchema, KEY_COLUMN, type Layout, indexName } from './schema.ts';

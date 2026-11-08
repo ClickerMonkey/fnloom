@@ -11,7 +11,7 @@ import { IndexedKind, type QualifiedName, compositeKey } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { VectorMeta, createAuxTable } from './aux.ts';
+import { VectorMeta, createAuxTable } from './auxTables.ts';
 import type { Scope } from './db.ts';
 import { StoreError } from './errors.ts';
 import type { VectorIndex } from './index.ts';

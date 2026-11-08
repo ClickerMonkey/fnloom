@@ -11,7 +11,7 @@
 import { type ControlledTransaction, Kysely, SqliteDialect } from 'kysely';
 import type BetterSqlite3 from 'better-sqlite3';
 import { z } from 'zod';
-import type { AuxDb } from './aux.ts';
+import type { AuxDb } from './auxTables.ts';
 
 /** A value as SQLite stores it. */
 export type Cell = string | number | bigint | Uint8Array | null;
