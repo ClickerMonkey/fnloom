@@ -13,6 +13,7 @@ import type { FileSender } from '../../chat/api.ts';
 import { Loaded, Paged, Task, type Outcome } from '../../state/loaded.ts';
 import { problemText } from '../../state/problems.ts';
 import type { ResourceEvents, ResourcesApi } from '../api/resources.ts';
+import { withPage } from '../../state/query.ts';
 import { folderQuery, groupQuery, hubQuery, mergeFacets, PAGE_SIZE, type BrowseQuery, type BrowserQuery } from '../logic/browse.ts';
 import { webAddress } from '../logic/actions.ts';
 import { familyOfStat } from '../logic/formats.ts';
@@ -73,7 +74,7 @@ export class ResourceBrowserStore {
     this.#deps = deps;
     this.list = new Paged<ResourceRecord, BrowseQuery>({
       fetch: async (filter, cursor, limit) => {
-        const page = await deps.api.browse.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) });
+        const page = await deps.api.browse.call(withPage(filter, limit, cursor));
         this.facets.value = cursor === undefined ? page.facets : mergeFacets(this.facets.value, page.facets);
         return page;
       },

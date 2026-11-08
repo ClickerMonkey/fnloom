@@ -121,6 +121,6 @@ async function install(source: InstallSource, autoStart: boolean): Promise<void>
 .pairings { display: grid; gap: var(--space-3); }
 .section-title { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); }
 .count { min-width: 20px; padding: 0 6px; border-radius: var(--radius-full); background: var(--accent); color: var(--on-accent); font-size: 11px; line-height: 20px; text-align: center; }
-.pairing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-3); }
+.pairing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-3); }
 .systems { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
 </style>

@@ -10,7 +10,7 @@
  * behind.
  */
 import { SessionSummary, type Filter, type ListQuery, type QualifiedName, type Session, type SessionId, type UserEvent } from '@harness/core';
-import { hubListQuery, readListQuery } from '../../state/query.ts';
+import { hubListQuery, readListQuery, withPage } from '../../state/query.ts';
 import { computed, ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { isSuperseded, problemText } from '../../state/problems.ts';
@@ -21,7 +21,8 @@ export const SESSIONS_PAGE = 40;
 
 /** What the list asks the hub for: a page of the active or archived chats, maybe with the list's query. */
 interface SessionsQuery {
-  readonly limit: number;
+  readonly limit?: number;
+  readonly cursor?: string;
   readonly archived: boolean;
   readonly query?: ListQuery;
 }
@@ -101,7 +102,7 @@ export class SessionListStore {
     if (cursor === undefined || this.loadingMore.value) { return; }
     this.loadingMore.value = true;
     try {
-      const page = await this.#api.sessions.call({ ...this.#query(), cursor });
+      const page = await this.#api.sessions.call(this.#query(cursor));
       const known = new Set(this.items.value.map((s) => s.id));
       this.items.value = [...this.items.value, ...page.items.filter((s) => !known.has(s.id))];
       this.#cursor = page.cursor;
@@ -205,13 +206,13 @@ export class SessionListStore {
    * The page asked for. `search` is the list's written query (`agent:x deploy`); when it has one the hub takes it over
    * the old narrow fields, so the archive choice goes in as a filter too (unless the query names its own).
    */
-  #query(): SessionsQuery {
+  #query(cursor?: string): SessionsQuery {
     const list = hubListQuery(readListQuery('sessions', this.search.value));
-    const base = { limit: SESSIONS_PAGE, archived: this.archived.value };
-    if (Object.keys(list).length === 0) { return base; }
+    const base = { archived: this.archived.value };
+    if (Object.keys(list).length === 0) { return withPage(base, SESSIONS_PAGE, cursor); }
     const filters = list.filters ?? [];
     const archived: Filter = { field: 'archived', op: 'is', value: this.archived.value };
-    return { ...base, query: filters.some((f) => f.field === 'archived') ? list : { ...list, filters: [...filters, archived] } };
+    return withPage({ ...base, query: filters.some((f) => f.field === 'archived') ? list : { ...list, filters: [...filters, archived] } }, SESSIONS_PAGE, cursor);
   }
 
   #upsert(summary: SessionSummary): void {

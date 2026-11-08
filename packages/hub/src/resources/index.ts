@@ -31,6 +31,8 @@ export interface Asking {
   readonly actor: ActorId;
   readonly run?: RunId;
   readonly session?: SessionId;
+  /** Whether the asker is an admin, who alone may set the options that reach everyone (`alwaysFor`, `command` on shared context). */
+  readonly admin?: boolean;
 }
 
 /** The hub's own resources under `hub://resources/`. */

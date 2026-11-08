@@ -458,7 +458,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       <template #actions><UiButton variant="primary" icon="refresh" @click="thread.open()">Try again</UiButton></template>
     </UiEmpty>
     <ChatScroller
-      v-else ref="scroller" class="thread" :items="items" :has-older="thread.hasOlder.value" :loading-older="thread.loadingOlder.value" :beginning="thread.beginning.value"
+      v-else ref="scroller" class="thread" :items="items" :has-older="thread.hasOlder.value" :loading-older="thread.loadingOlder.value" :beginning="thread.beginning.value && items[0]?.kind !== 'day'"
       :needs-you="waiting > 0" @older="thread.loadOlder()"
     >
       <template #empty>

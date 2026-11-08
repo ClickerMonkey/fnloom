@@ -25,14 +25,18 @@ const props = withDefaults(defineProps<{
   required?: boolean;
   /** Draw nested objects without their own frame. */
   flat?: boolean;
-}>(), { docs: '', required: false, flat: false });
+  /** On a line of code (an expression's literal): a one-line value shows no label or hint (the hint is its tooltip). */
+  inline?: boolean;
+}>(), { docs: '', required: false, flat: false, inline: false });
 
 const emit = defineEmits<{ update: [draft: Draft] }>();
 const lookup = inject(GIN_INPUTS, () => undefined);
 const id = useId();
 
 const error = computed(() => problemAt(props.problems, props.path));
-const hint = computed(() => [props.docs || props.node.docs, constraintHint(props.node)].filter((s) => s !== '').join(' · '));
+const fullHint = computed(() => [props.docs || props.node.docs, constraintHint(props.node)].filter((s) => s !== '').join(' · '));
+/** The hint under the field; inline, it moves to the tooltip. */
+const hint = computed(() => (props.inline ? '' : fullHint.value));
 
 const text = computed(() => (props.draft.kind === 'text' ? props.draft.text : ''));
 /** Inputs of type number hand back numbers (Vue casts them); the draft keeps the text. */
@@ -137,20 +141,20 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
 </script>
 
 <template>
-  <div class="gin-input" :class="`kind-${node.kind}`" :data-path="path" data-testid="gin-input">
+  <div class="gin-input" :class="[`kind-${node.kind}`, { inline }]" :data-path="path" :title="inline && fullHint !== '' ? fullHint : undefined" data-testid="gin-input">
     <template v-if="node.kind === 'text'">
       <UiTextarea v-if="node.multiline" :model-value="text" :label="label" :hint="hint" :error="error" :required="required" :rows="3" @update:model-value="setText" />
-      <UiInput v-else :model-value="text" :label="label" :hint="hint" :error="error" :required="required" @update:model-value="setText" />
+      <UiInput v-else :model-value="text" :label="label" :hint="hint" :error="error" :required="required" :hide-label="inline" :size="inline ? 'sm' : 'md'" @update:model-value="setText" />
     </template>
 
-    <UiInput v-else-if="node.kind === 'num'" :model-value="text" type="number" :label="label" :hint="hint" :error="error" :required="required" @update:model-value="setText" />
-    <UiInput v-else-if="node.kind === 'duration'" :model-value="text" :label="label" :hint="hint" :error="error" :required="required" placeholder="2s" @update:model-value="setText" />
+    <UiInput v-else-if="node.kind === 'num'" :model-value="text" type="number" :label="label" :hint="hint" :error="error" :required="required" :hide-label="inline" :size="inline ? 'sm' : 'md'" @update:model-value="setText" />
+    <UiInput v-else-if="node.kind === 'duration'" :model-value="text" :label="label" :hint="hint" :error="error" :required="required" :hide-label="inline" :size="inline ? 'sm' : 'md'" placeholder="2s" @update:model-value="setText" />
 
     <div v-else-if="node.kind === 'bool'" class="switch-row">
       <UiSwitch :model-value="bool" :label="label" :description="hint" @update:model-value="emit('update', { kind: 'bool', value: $event })" />
     </div>
 
-    <UiField v-else-if="node.kind === 'enum'" v-slot="field" :label="label" :hint="hint" :error="error" :required="required">
+    <UiField v-else-if="node.kind === 'enum'" v-slot="field" :label="label" :hint="hint" :error="error" :required="required" :hide-label="inline">
       <UiSegmented v-if="choiceOptions.length <= 4" :model-value="choiceValue" :options="choiceOptions" :label="label" @update:model-value="setChoice" />
       <select v-else :id="field.id" class="native" :value="choiceValue" :aria-describedby="field.describedBy" :aria-invalid="field.invalid ? 'true' : undefined" @change="setChoice(eventValue($event))">
         <option value="" disabled>Choose…</option>

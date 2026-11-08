@@ -11,7 +11,7 @@ import {
   type ListField, type ListQuery, type ResourceFacet, type ResourceLink, type ResourceQuery, type ResourceRecord, type Sort,
 } from '@harness/core';
 import { z } from 'zod';
-import { hubListQuery, readListQuery } from '../../state/query.ts';
+import { hubListQuery, readListQuery, withPage } from '../../state/query.ts';
 
 /** How the browser lays resources out. */
 export const BrowserView = z.enum(['list', 'grid', 'groups']);
@@ -117,7 +117,7 @@ export function hubQuery(query: BrowserQuery): BrowseQuery {
 
 /** The query for one group's first resources in the groups view. */
 export function groupQuery(query: BrowserQuery, facet: ResourceFacet): BrowseQuery {
-  return { ...hubQuery({ ...query, in: facet.value }), limit: GROUP_PREVIEW };
+  return withPage(hubQuery({ ...query, in: facet.value }), GROUP_PREVIEW, undefined);
 }
 
 /** The query for the folders under `under` (the hub's `path` facets), for the folder tree. */

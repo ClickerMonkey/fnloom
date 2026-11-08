@@ -67,7 +67,7 @@ function save(): void {
 <template>
   <UiDialog
     v-model:open="open" :title="editing ? 'Edit this memory' : 'New context'" width="600px"
-    :description="editing ? 'Changes it in place; who it is for stays as written.' : 'A memory is context the agent can be given when a message is about it.'"
+    :description="editing ? 'Changes it in place; who it is for stays as written.' : 'Context the agent can be given when a message is about it.'"
   >
     <form class="form" data-testid="memory-form" @submit.prevent="save">
       <div class="top">
@@ -77,7 +77,7 @@ function save(): void {
           <UiSegmented v-model="scope" :options="SCOPES" label="Who it is for" data-testid="memory-scope" />
         </div>
       </div>
-      <UiTextarea v-model="text" label="What to remember" :rows="4" :error="textError" placeholder="The owner indents with tabs, never spaces." data-testid="memory-text" />
+      <UiTextarea v-model="text" label="Context" :rows="4" :error="textError" placeholder="The owner indents with tabs, never spaces." data-testid="memory-text" />
 
       <button type="button" class="fold" :aria-expanded="advanced" data-testid="memory-advanced" @click="advanced = !advanced">
         <UiIcon :name="advanced ? 'chevron-down' : 'chevron-right'" :size="14" />

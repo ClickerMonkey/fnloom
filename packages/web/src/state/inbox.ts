@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { computed, ref, shallowRef } from 'vue';
 import type { NotificationsApi, UserEvents } from '../api/notifications.ts';
 import { problemText } from './problems.ts';
+import { withPage } from './query.ts';
 
 /** Which notifications the list shows. */
 export const InboxFilter = z.enum(['all', 'unread']);
@@ -138,7 +139,7 @@ export class InboxStore {
 
   /** A page request for the current filter and search. */
   #body(cursor?: string): NotificationListQuery {
-    return { limit: INBOX_PAGE, ...(cursor === undefined ? {} : { cursor }), ...(this.filter.value === 'unread' ? { unread: true } : {}), ...(this.#searched() ? { query: this.#query } : {}) };
+    return withPage({ ...(this.filter.value === 'unread' ? { unread: true } : {}), ...(this.#searched() ? { query: this.#query } : {}) }, INBOX_PAGE, cursor);
   }
 
   /** Whether a search narrows the list (then live arrivals are not added: the hub decides what matches). */

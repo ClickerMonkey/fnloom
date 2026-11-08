@@ -8,12 +8,13 @@
  */
 import type { Logger } from '@ayepi/log';
 import {
-  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type Exposure, type FnRecord, type LlmMessage, type ModelInfo,
+  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type ContextViewer, type Exposure, type FnRecord, type LlmMessage, type ModelInfo,
   type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import type { ModelResolver } from '../execution/models.ts';
+import { visibleMade } from '../resources/context.ts';
 import type { HubStore } from '../store/index.ts';
 import { budgetPlan } from './budget.ts';
 import { CONTEXTORS } from './contextors.ts';
@@ -203,7 +204,7 @@ export class HubPromptPlanner implements PromptPlanner {
 
     const input = {
       session, user: planning.user, turn: planning.turn?.id, agent, payload, query, history, current: fitted.messages,
-      always: { context: [...payload.context, ...(await this.#alwaysFor(agent.name))], fns: shown(payload.tools) },
+      always: { context: [...payload.context, ...(await this.#alwaysFor(agent.name, { actor: planning.user, session: session?.id }))], fns: shown(payload.tools) },
       loaded: { context: session?.context ?? [], fns: shown(session?.tools ?? []) },
       ...asked, asked: { ...asked.asked, fns: shown(asked.asked.fns) }, person: planning.turn?.user,
       mode, ctx, plan, cached: planning.cached,
@@ -288,9 +289,10 @@ export class HubPromptPlanner implements PromptPlanner {
     });
   }
 
-  /** Context that names this agent in `alwaysFor`. */
-  async #alwaysFor(agent: QualifiedName): Promise<QualifiedName[]> {
-    return (await this.#deps.catalog.entries('context')).filter((entry) => entry.decl.alwaysFor.includes(agent)).map((entry) => entry.name);
+  /** Context that names this agent in `alwaysFor`: systems' context, and the hub-made context (memory, from resources) the viewer may see. */
+  async #alwaysFor(agent: QualifiedName, viewer: ContextViewer): Promise<QualifiedName[]> {
+    const [declared, made] = await Promise.all([this.#deps.catalog.entries('context'), visibleMade(this.#deps.store, viewer)]);
+    return [...new Set([...declared, ...made].filter((item) => item.decl.alwaysFor.includes(agent)).map((item) => item.name))];
   }
 
   /** What the current message asks for: its `/command` context (with each command's args), and the fns its person names (`fs/bash`, `@` mentions). */

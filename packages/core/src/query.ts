@@ -12,6 +12,7 @@ import { CONTEXT_ORIGIN_TYPES } from './context-graph.ts';
 import { RESOURCE_SOURCES, FORMAT_FAMILIES } from './resource-forms.ts';
 import { MODALITIES, ModelCallStatus } from './model-calls.ts';
 import { LlmStatus } from './records/runs.ts';
+import { FormKind } from './resources.ts';
 
 // ─── Fields and operators ─────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export const LIST_FIELDS = {
   resources: {
     fields: {
       name: text('Name'), system: dynamic('System'), family: choice('Type', FORMAT_FAMILIES), source: choice('Source', RESOURCE_SOURCES),
-      size: num('Size', 'bytes'), seenAt: date('Seen'), modifiedAt: date('Modified'),
+      forms: { ...choice('Forms', FormKind.options), sortable: false }, size: num('Size', 'bytes'), seenAt: date('Seen'), modifiedAt: date('Modified'),
     },
     defaultSort: [{ field: 'seenAt', dir: 'desc' }],
   },

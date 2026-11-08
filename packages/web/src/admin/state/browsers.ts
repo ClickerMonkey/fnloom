@@ -9,11 +9,20 @@ import { Loaded, Paged, Task, type PagedSource, type Outcome } from '../../state
 import type { ChatApi } from '../../chat/api.ts';
 import type { AdminApi } from '../api.ts';
 import type { LlmSummary, ResourceFilter } from '@harness/core';
+import { withPage } from '../../state/query.ts';
 
 /** The model calls browser's filter: the list's query, and the run they were made for (a link from a run). */
 export interface ModelCallsFilter {
   readonly query: ListQuery;
   readonly run?: RunId;
+}
+
+/**
+ * The hub request for a model calls filter. The hub's query has no run field, so a run's calls go by the old `run`
+ * field alone (the hub checks the reader may see that run, and ignores the query); otherwise the list's query.
+ */
+export function modelCallsBody(filter: ModelCallsFilter): { readonly query?: ListQuery; readonly run?: RunId } {
+  return filter.run === undefined ? { query: filter.query } : { run: filter.run };
 }
 
 /** How many rows a browser fetches per page. */
@@ -90,7 +99,7 @@ export type ResourcesBrowser = Browser<ResourceRecord, ResourceFilter, ResourceU
 /** Runs, newest first; a run opens with its full record. */
 export function runsBrowser(api: Pick<AdminApi, 'runs'>, chat: Pick<ChatApi, 'run' | 'background' | 'undoTurn'>): RunsBrowser {
   return new RunsBrowser({
-    fetch: (query, cursor, limit) => api.runs.call({ query, limit, ...(cursor === undefined ? {} : { cursor }) }),
+    fetch: (query, cursor, limit) => api.runs.call(withPage({ query }, limit, cursor)),
     key: (run) => run.id,
     failure: "Couldn't load runs.",
     limit: BROWSER_PAGE,
@@ -102,7 +111,7 @@ export function runsBrowser(api: Pick<AdminApi, 'runs'>, chat: Pick<ChatApi, 'ru
 /** LLM calls, newest first; a call opens with what the model saw and said. */
 export function llmBrowser(api: Pick<AdminApi, 'llmCalls'>, chat: Pick<ChatApi, 'llmCall'>): LlmBrowser {
   return new Browser({
-    fetch: (query, cursor, limit) => api.llmCalls.call({ query, limit, ...(cursor === undefined ? {} : { cursor }) }),
+    fetch: (query, cursor, limit) => api.llmCalls.call(withPage({ query }, limit, cursor)),
     key: (call) => call.id,
     failure: "Couldn't load LLM calls.",
     limit: BROWSER_PAGE,
@@ -114,7 +123,7 @@ export function llmBrowser(api: Pick<AdminApi, 'llmCalls'>, chat: Pick<ChatApi, 
 /** Every model call of every modality, newest first; a chat call opens with its interaction (what the model saw and said). */
 export function modelCallsBrowser(api: Pick<AdminApi, 'modelCalls' | 'modelCall'>, chat: Pick<ChatApi, 'llmCall'>): ModelCallsBrowser {
   return new Browser({
-    fetch: (filter, cursor, limit) => api.modelCalls.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) }),
+    fetch: (filter, cursor, limit) => api.modelCalls.call(withPage(modelCallsBody(filter), limit, cursor)),
     key: (call) => call.id,
     failure: "Couldn't load model calls.",
     limit: BROWSER_PAGE,
@@ -129,7 +138,7 @@ export function modelCallsBrowser(api: Pick<AdminApi, 'modelCalls' | 'modelCall'
 /** Resources the hub knows; one opens with its text and links, in its viewer. */
 export function resourcesBrowser(api: Pick<AdminApi, 'resources'>, chat: Pick<ChatApi, 'resource'>): ResourcesBrowser {
   return new Browser({
-    fetch: (filter, cursor, limit) => api.resources.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) }),
+    fetch: (filter, cursor, limit) => api.resources.call(withPage(filter, limit, cursor)),
     key: (resource) => resource.uri,
     failure: "Couldn't load resources.",
     limit: BROWSER_PAGE,

@@ -41,5 +41,10 @@ const compact = useMediaQuery(COMPACT_QUERY);
 .crumb { display: flex; margin-bottom: var(--space-1); font-size: var(--text-sm); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .compact .title { font-size: var(--text-xl); }
+/* on a phone the actions sit beside the title and its line, not on a row of their own */
+.compact .head { flex-wrap: nowrap; align-items: flex-start; }
+.compact .titles { flex: 1 1 auto; }
+.compact .description { font-size: var(--text-sm); }
+.compact .actions { flex: none; }
 .compact { padding: var(--space-4) var(--space-4) max(var(--space-6), var(--safe-bottom)); gap: var(--space-4); }
 </style>

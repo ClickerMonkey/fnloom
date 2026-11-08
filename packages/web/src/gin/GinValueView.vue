@@ -23,7 +23,9 @@ const props = withDefaults(defineProps<{
   readonly?: boolean;
   /** What the value is, when it isn't an object (an object's fields carry their own labels). */
   label?: string;
-}>(), { modelValue: undefined, readonly: false, label: 'Value' });
+  /** On a line of code: a one-line value without its label or hint (the hint is its tooltip). */
+  inline?: boolean;
+}>(), { modelValue: undefined, readonly: false, label: 'Value', inline: false });
 
 const emit = defineEmits<{ 'update:modelValue': [value: Json]; problems: [problems: readonly FormProblem[]] }>();
 const types = inject(GIN_TYPES, LOCAL_TYPES);
@@ -49,7 +51,7 @@ function update(draft: Parameters<ValueEditor['update']>[0]): void {
     <GinValueNode v-if="readonly" :node="editor.form.value.node" :value="modelValue" :label="label" />
     <GinInput
       v-else :node="editor.form.value.node" :draft="editor.form.value.draft.value" path="" :problems="editor.form.value.problems.value" :label="label"
-      :required="editor.form.value.node.kind !== 'obj'" @update="update"
+      :required="editor.form.value.node.kind !== 'obj'" :inline="inline" @update="update"
     />
   </div>
 </template>

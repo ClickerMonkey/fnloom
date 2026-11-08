@@ -16,7 +16,7 @@
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  ContextFromResourceArgs, qualify, RememberArgs, seesOrigin, UpdateMemoryArgs, type ContextOptions, type ActorId, ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
+  ContextFromResourceArgs, qualify, RememberArgs, seesOrigin, UpdateMemoryArgs, type ContextOptions, type ContextViewer, type ActorId, ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
   type ContextOrigin, type ContextQuery, type ContextRecord, type DeclarableRelation, type LinkTarget, type MemoryScope, type Page, type QualifiedName,
   type ResourceUri, type Section, type SectionKey,
 } from '@harness/core';
@@ -103,6 +103,7 @@ export class StoreContextLibrary implements ContextLibrary {
 
   async fromResource(input: ContextFromResourceArgs, who: Asking): Promise<ContextFromResourceResult> {
     const args = ContextFromResourceArgs.parse(input);
+    guardReach(args, true, who);
     const { store, graph, indexer, log } = this.#o;
     const primary = await this.#o.forms().primary(args.uri, who, { make: true });
     const sections = await this.#o.reader().outline(args.uri, who);
@@ -140,6 +141,7 @@ export class StoreContextLibrary implements ContextLibrary {
   async remember(input: RememberArgs, who: Asking): Promise<{ name: QualifiedName }> {
     const args = RememberArgs.parse(input);
     const scope = this.#scope(args.scope, who);
+    guardReach(args, scope.to === 'everyone', who);
     const title = args.title?.trim() || args.text.trim().split(/\s+/).slice(0, 8).join(' ');
     const name = madeName(MEMORY, title, `${JSON.stringify(scope)}\n${args.text}`);
     const decl = this.#decl(name, {
@@ -160,6 +162,7 @@ export class StoreContextLibrary implements ContextLibrary {
     const record = await this.#visible(args.name, who);
     if (record.origin?.type !== 'memory') { throw reject(403, 'NOT_A_MEMORY', `${args.name} is not a memory; only memories can be edited`); }
     if (record.origin.author !== who.actor) { throw reject(403, 'NOT_YOUR_MEMORY', 'only the person who wrote a memory can edit it'); }
+    guardReach(args, record.origin.scope.to === 'everyone', who);
     const title = args.title?.trim();
     const description = title === undefined || title === '' ? record.decl.description : title;
     const content = args.text ?? record.decl.content;
@@ -247,7 +250,8 @@ export class StoreContextLibrary implements ContextLibrary {
     }
     if (live.size > 0) {
       const [sample] = live.values();
-      const who: Asking = { actor: this.#o.hubActor };
+      // the hub remakes what a person already made, with the options they were allowed to set
+      const who: Asking = { actor: this.#o.hubActor, admin: true };
       const kept = await this.#o.reader().outline(uri, who);
       const still = [...live.keys()].filter((key) => kept.some((section) => section.key === key));
       if (still.length > 0) {
@@ -356,6 +360,29 @@ export class StoreContextLibrary implements ContextLibrary {
     if (record === undefined || !seesOrigin(record.origin, who)) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
     return record;
   }
+}
+
+/**
+ * Refuse the options that load or offer context without anyone asking, where they would reach too far: a model (a
+ * run) never sets `alwaysFor`, since an injected prompt could plant text in every later prompt; and on context that
+ * everyone sees (a memory for everyone, context made from a resource) only an admin sets `alwaysFor` or a `/command`,
+ * and never through a model.
+ */
+export function guardReach(options: ContextOptions, wide: boolean, who: Asking): void {
+  const always = options.alwaysFor !== undefined && options.alwaysFor.length > 0;
+  if (always && who.run !== undefined) { throw reject(403, 'ALWAYS_FOR_BY_HAND', 'a model cannot make context always load; set "Always for" on the context page'); }
+  if (wide && (always || options.command !== undefined) && (who.admin !== true || who.run !== undefined)) {
+    throw reject(403, 'ADMIN_ONLY', 'only an admin, by hand, can make context everyone sees always load or offer a /command');
+  }
+}
+
+/**
+ * The context the hub made (memory, context made from resources) that is on and that a viewer may see, for what
+ * system manifests can't list: `alwaysFor` in the planner and `/command`s in the composer.
+ */
+export async function visibleMade(store: HubStore, viewer: ContextViewer): Promise<ContextRecord[]> {
+  return (await allRows(store.table('context'), { system: HUB_SYSTEM }))
+    .filter((record) => record.origin !== undefined && record.disabled !== true && seesOrigin(record.origin, viewer));
 }
 
 /** The context options a person gave, as the declaration fields they set (a `/command` takes no arguments). */

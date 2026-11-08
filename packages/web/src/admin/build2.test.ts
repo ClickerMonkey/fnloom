@@ -202,7 +202,7 @@ describe('fn metrics', () => {
     expect(api.fnMetricsDays.calls[0]?.[0]).toEqual({ fn, days: 30 });
     expect(admin.fn.daily.value.value).toHaveLength(30);
     // its latest runs: the runs list narrowed to the fn
-    expect(api.runs.calls[0]?.[0]).toEqual({ query: { filters: [{ field: 'fn', op: 'is', value: fn }] }, limit: 8 });
+    expect(api.runs.calls[0]?.[0]).toEqual({ query: { filters: [{ field: 'fn', op: 'is', value: fn }], limit: 8 } });
     expect(admin.fn.recent.value.value).toHaveLength(2);
     user.push({ type: 'fn', fn, system: SystemName.parse('fs'), stats: { outcomes: { done: 138, 'invalid-input': 0, failed: 3, cancelled: 0 }, averageCost: 0, averageTime: 40, tokens: 0 } });
     expect(admin.fn.record.value.value?.stats.outcomes.done).toBe(138);

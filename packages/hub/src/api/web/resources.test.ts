@@ -54,7 +54,7 @@ describe('resources endpoints', () => {
     expect(calls).toEqual([
       ['browse', { group: 'type' }, who], ['forms', uri, who], ['read', { uri, maxChars: 10 }, who], ['ensure', uri, 'description', who],
       ['download', uri, undefined, who], ['import', { url: 'https://site.dev/' }, who], ['rename', uri, 'b.md', who], ['remove', uri, who],
-      ['fromResource', { uri, copy: 'live' }, who],
+      ['fromResource', { uri, copy: 'live' }, { ...who, admin: true }],
     ]);
   });
 });
@@ -85,7 +85,7 @@ describe('context endpoints', () => {
     await expect(web.client.call('linkContext', { from: name, to: link.to, relation: 'related', weight: 0.5 }, as)).resolves.toMatchObject({ source: 'authored' });
     await expect(web.client.call('unlinkContext', { from: name, toKey: link.toKey, relation: 'related' }, as)).resolves.toEqual({ ok: false });
     expect(calls).toEqual([
-      ['list', { origin: 'memory' }, who], ['remember', { text: 'A note.', scope: 'user' }, who], ['remember', { text: 'No scope.', scope: 'user' }, who], ['forget', name, who],
+      ['list', { origin: 'memory' }, who], ['remember', { text: 'A note.', scope: 'user' }, { ...who, admin: true }], ['remember', { text: 'No scope.', scope: 'user' }, { ...who, admin: true }], ['forget', name, who],
       ['link', { from: name, to: link.to, relation: 'related', weight: 0.5 }, who], ['unlink', { from: name, toKey: link.toKey, relation: 'related' }, who],
     ]);
   });

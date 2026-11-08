@@ -44,16 +44,20 @@ const countText = computed(() => (props.count === undefined ? '' : `${props.coun
 <template>
   <div class="list-search" data-testid="list-search">
     <UiSearch v-model="model" :fields="fields" :label="`Search ${label}`" :format="formatFigure" :values="values" v-bind="placeholder === undefined ? {} : { placeholder }" />
+    <!-- the sort and the count stay on the search's row (the sort's words shorten on a phone); what a page adds may wrap -->
     <div class="side">
       <UiSort v-if="!noSort" v-model="sort" :fields="fields" :default-sort="defaultSort" />
-      <slot />
       <span v-if="countText" class="count" :aria-label="`${countText} ${label}`" data-testid="list-count">{{ countText }}</span>
     </div>
+    <div v-if="$slots['default']" class="extra"><slot /></div>
   </div>
 </template>
 
 <style scoped>
 .list-search { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
-.side { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-height: var(--control); margin-left: auto; }
+.list-search > :first-child { flex-basis: 170px; }
+.side { display: flex; align-items: center; gap: var(--space-2); flex: 0 1 auto; max-width: 48%; min-width: 0; min-height: var(--control); margin-left: auto; }
+.side :deep(.ui-menu-trigger) { min-width: 0; }
+.extra { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-height: var(--control); margin-left: auto; }
 .count { min-width: 2ch; color: var(--text-faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-align: right; }
 </style>

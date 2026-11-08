@@ -66,12 +66,12 @@ const split = computed(() => splitParts(props.message.parts));
 /** A message that is only `!` invocations whose run cards show under it: the cards say it all, so no bubble. */
 const onlyRuns = computed(() => split.value.shown.length > 0
   && split.value.shown.every((part) => part.type === 'invocation' && props.runs.some((run) => run.id === part.run)));
-const added = computed(() => split.value.added.flatMap((part: MessagePart) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : [])));
+/** What else went to the model with the message; the suggestions are left out, as their chips beside the time list them. */
+const added = computed(() => split.value.added.flatMap((part: MessagePart) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : []))
+  .filter((block) => block.type !== 'suggest-context' && block.type !== 'suggest-fns'));
 const addedText = computed(() => added.value.map((block) => {
   switch (block.type) {
     case 'text': return `<${block.tag}> ${block.text}`;
-    case 'suggest-context': return `Suggested context: ${block.items.map((i) => i.context).join(', ')}`;
-    case 'suggest-fns': return `Suggested fns: ${block.items.map((i) => i.fn).join(', ')}`;
     case 'load': return `Loaded: ${[...(block.context ?? []), ...(block.fns ?? [])].join(', ')}`;
   }
 }));

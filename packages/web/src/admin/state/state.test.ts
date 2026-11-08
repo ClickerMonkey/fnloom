@@ -4,6 +4,8 @@ import { flushPromises } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { fakeCaller } from '../../test/fakes.ts';
 import { Loaded, Paged, Task } from '../../state/loaded.ts';
+import { withPage } from '../../state/query.ts';
+import { modelCallsBody } from './browsers.ts';
 import { budget, fakeAdmin, fakeAdminApi, installed, logLine, pairing, settingView, systemView, T0 } from '../test/fakes.ts';
 
 const fs = SystemName.parse('fs');
@@ -229,11 +231,20 @@ describe('ModelsStore, LimitsStore, PoliciesStore and ActorSettingsStore', () =>
 });
 
 describe('browsers', () => {
+  it("pages inside the query when there is one, and names a run's model calls by the old field", () => {
+    expect(withPage({ query: { text: 'x' } }, 50, 'c2')).toEqual({ query: { text: 'x', limit: 50, cursor: 'c2' } });
+    expect(withPage({ archived: false }, 40, undefined)).toEqual({ archived: false, limit: 40 });
+    const run = RunId.parse('run_a');
+    expect(modelCallsBody({ query: { text: 'x' }, run })).toEqual({ run });
+    expect(modelCallsBody({ query: {} })).toEqual({ query: {} });
+  });
+
+
   it('lists runs for a filter and opens one whole', async () => {
     const { admin, api } = fakeAdmin();
     const failed: ListQuery = { filters: [{ field: 'status', op: 'is', value: 'failed' }] };
     await admin.runs.list.load(failed);
-    expect(api.runs.calls[0]?.[0]).toEqual({ query: failed, limit: 50 });
+    expect(api.runs.calls[0]?.[0]).toEqual({ query: { ...failed, limit: 50 } });
     expect(admin.runs.list.items.value.map((r) => r.id)).toEqual(['run_a', 'run_b']);
     await admin.runs.open(RunId.parse('run_a'));
     expect(admin.runs.opened.value.value?.id).toBe('run_a');

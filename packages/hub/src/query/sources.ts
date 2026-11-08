@@ -5,7 +5,7 @@
  */
 import { reject } from '@ayepi/core';
 import {
-  familyOf, RunStatus, SessionSummary, SystemName, seesOrigin, runCount, type ContextRecord, type FieldValueOption, type Filter, type FnRecord, type ListField, type ListName,
+  familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, seesOrigin, runCount, type ContextRecord, type FieldValueOption, type Filter, type FnRecord, type ListField, type ListName,
   type ListQuery, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView,
 } from '@harness/core';
 import type { z } from 'zod';
@@ -86,6 +86,13 @@ function oneOf<V>(values: readonly V[] | undefined): V | { in: readonly V[] } | 
   return values.length === 1 && values[0] !== undefined ? values[0] : { in: values };
 }
 
+/** The `system` and `session` filters of a call list, pushed down to the store so the scan bound doesn't cut them. */
+function pushed(query: ListQuery): { system?: SystemName | { in: readonly SystemName[] }; session?: SessionId | { in: readonly SessionId[] } } {
+  const system = oneOf(allowed(query.filters, 'system', SystemName));
+  const session = oneOf(allowed(query.filters, 'session', SessionId));
+  return { ...(system === undefined ? {} : { system }), ...(session === undefined ? {} : { session }) };
+}
+
 /** Read the newest rows a where matches, up to the scan bound. */
 async function newest<Row, Key>(table: Table<Row, Key>, where: Where<Row>, order: NonNullable<Parameters<Table<Row, Key>['find']>[0]['order']>, max: number): Promise<Row[]> {
   const out: Row[] = [];
@@ -132,7 +139,7 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
       search: (r) => r.uri,
       fields: {
         name: (r) => r.stat.name, system: (r) => r.system, family: (r) => familyOf(r.stat.format, r.stat.mime), source: (r) => r.source?.from ?? 'system',
-        size: (r) => r.stat.size, seenAt: (r) => r.seenAt, modifiedAt: (r) => r.stat.modifiedAt,
+        forms: (r) => r.forms ?? [], size: (r) => r.stat.size, seenAt: (r) => r.seenAt, modifiedAt: (r) => r.stat.modifiedAt,
       },
     }),
     fns: new RowsSource({
@@ -154,8 +161,11 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
       load: async (viewer, query) => {
         const status = oneOf(allowed(query.filters, 'status', RunStatus));
         const system = oneOf(allowed(query.filters, 'system', SystemName));
+        const fn = oneOf(allowed(query.filters, 'fn', QualifiedName));
+        const session = oneOf(allowed(query.filters, 'session', SessionId));
         const where: Where<Run> = {
           ...(status === undefined ? {} : { status }), ...(system === undefined ? {} : { system }),
+          ...(fn === undefined ? {} : { fn }), ...(session === undefined ? {} : { session }),
           // a member sees the runs they started
           ...(viewer.role === 'admin' ? {} : { actor: viewer.id }),
         };
@@ -170,8 +180,7 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
     modelCalls: new RowsSource({
       list: 'modelCalls', page,
       load: async (viewer, query) => {
-        const system = oneOf(allowed(query.filters, 'system', SystemName));
-        const rows = await newest(store.table('modelCalls'), system === undefined ? {} : { system }, [['startedAt', 'desc']], max);
+        const rows = await newest(store.table('modelCalls'), pushed(query), [['startedAt', 'desc']], max);
         if (viewer.role === 'admin') { return rows; }
         // a member sees the model calls of their own sessions
         const mine = await ownSessions(viewer);
@@ -187,8 +196,7 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
       list: 'llmCalls', page,
       load: async (viewer, query) => {
         adminOnly(viewer, 'LLM calls');
-        const system = oneOf(allowed(query.filters, 'system', SystemName));
-        const rows = await newest(store.table('llmInteractions'), system === undefined ? {} : { system }, [['queuedAt', 'desc']], max);
+        const rows = await newest(store.table('llmInteractions'), pushed(query), [['queuedAt', 'desc']], max);
         return rows.map(({ request: _request, response: _response, ...summary }): LlmSummary => summary);
       },
       fields: {

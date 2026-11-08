@@ -15,7 +15,7 @@ export const chatEnv = env({
   HARNESS_TITLE_LENGTH: z.number().int().min(8).default(60).describe('A session titled by its first message keeps this many characters of it.'),
   HARNESS_TURN_ERRORS: z.number().int().min(0).default(3).describe('A turn stops after this many failed runs; 0 keeps feeding errors back to the agent.'),
   HARNESS_SUGGEST_THRESHOLD: z.number().min(0).max(1).default(0.15).describe('The least score (0 to 1, the best match scores 1) a fn or context item needs to be suggested with a message when the decision model is off.'),
-  HARNESS_SUGGEST_DECISION_TIMEOUT: z.number().int().min(500).default(20_000).describe('How long the suggestion decision model has to choose before the score decides.'),
+  HARNESS_SUGGEST_DECISION_TIMEOUT: z.number().int().min(500).default(4_000).describe('How long the suggestion decision model has to choose before the score decides; a sent message waits this long at most before it shows.'),
   HARNESS_UNDO_RUNS: z.number().int().min(1).default(500).describe('The most runs one turn\'s undo looks at.'),
 });
 

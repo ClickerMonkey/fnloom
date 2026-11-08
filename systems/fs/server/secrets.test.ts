@@ -4,7 +4,7 @@ import { GlobSecrets } from './secrets.ts';
 describe('GlobSecrets', () => {
   it('hides env files, keys and credentials by default, but serves the env example', () => {
     const secrets = new GlobSecrets();
-    for (const path of ['.env', 'app/.env.local', 'certs/site.pem', 'tls.key', '.ssh/id_ed25519', '.ssh/id_rsa.pub', 'a.pfx', 'b.p12', '.npmrc', 'aws/credentials', 'gcp.credentials.json']) {
+    for (const path of ['.env', 'app/.env.local', 'certs/site.pem', 'tls.key', '.ssh/id_ed25519', '.ssh/id_rsa.pub', 'a.pfx', 'b.p12', '.npmrc', 'aws/credentials', 'gcp.credentials.json', '.secret.pem', 'certs/.server.key', '.cert.pfx']) {
       expect(secrets.hides(path), path).toBe(true);
     }
     for (const path of ['.env.example', 'src/env.ts', 'src/id_map.ts', 'docs/keys.md', 'README.md', '']) {

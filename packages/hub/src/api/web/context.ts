@@ -19,8 +19,8 @@ export function contextPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         contexts: ({ data, user }) => (data.query === undefined ? context.list(data, { actor: user.id }) : reads.lists.page('contexts', data.query, user)),
         contextItem: ({ data, user }) => context.item(data.name, { actor: user.id }),
         // the browser has no chat session, so a session memory (the schema's default) is the person's own
-        remember: ({ data, user }) => context.remember({ ...data, scope: data.scope === 'session' ? 'user' : data.scope }, { actor: user.id }),
-        updateMemory: ({ data, user }) => context.update(data, { actor: user.id }),
+        remember: ({ data, user }) => context.remember({ ...data, scope: data.scope === 'session' ? 'user' : data.scope }, { actor: user.id, admin: user.role === 'admin' }),
+        updateMemory: ({ data, user }) => context.update(data, { actor: user.id, admin: user.role === 'admin' }),
         forget: async ({ data, user }) => ({ ok: await context.forget(data.name, { actor: user.id }) }),
         linkContext: ({ data, user }) => context.link(data, { actor: user.id }),
         unlinkContext: async ({ data, user }) => ({ ok: await context.unlink(data, { actor: user.id }) }),

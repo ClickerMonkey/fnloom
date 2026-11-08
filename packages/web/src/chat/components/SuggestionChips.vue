@@ -47,7 +47,7 @@ function use(item: SuggestionItem): void {
       :aria-label="`${label(kind)}: ${used(kind).length} used${skipped(kind).length > 0 ? `, ${skipped(kind).length} left out` : ''}`" :title="label(kind)"
       :aria-expanded="open === kind ? 'true' : 'false'" @click="toggle(kind, $event)"
     >
-      <UiIcon :name="kind === 'fn' ? 'fn' : 'sparkles'" :size="14" /><span class="count">{{ used(kind).length }}</span>
+      <UiIcon :name="kind === 'fn' ? 'fn' : 'book'" :size="14" /><span class="count">{{ used(kind).length }}</span>
     </button>
     <UiPopover :open="open !== undefined" :anchor="anchor" side="bottom" align="end" :label="open === undefined ? '' : label(open)" @update:open="open = $event ? open : undefined">
       <div v-if="open !== undefined" class="pop">

@@ -14,6 +14,7 @@ import { CLIENTS_PATH } from '../serve.ts';
 import { userInfo, visibleSession, type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
 import { dictationOf } from '../../models/roles.ts';
+import { visibleMade } from '../../resources/context.ts';
 import type { HubReads } from '../reads.ts';
 
 /** Whether a session lets a system's contributions in. */
@@ -26,9 +27,11 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     .filter((s) => s.status !== 'removed');
   const usable = new Set(systems.filter((s) => s.status === 'connected' && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
   const rendering = systems.filter((s) => s.enabled.renderers && allows(scope, s.name));
-  const [mentions, contexts, fns, models, manifests, types, dictate] = await Promise.all([
+  const [mentions, contexts, made, fns, models, manifests, types, dictate] = await Promise.all([
     hub.catalog.entries('mentions'),
     hub.catalog.entries('context'),
+    // memory and context made from resources aren't in any manifest; a person sees the ones in their reach
+    visibleMade(hub.store, { actor: user.id, session }),
     hub.catalog.fns({ available: true }),
     hub.execution.llm.models(),
     Promise.all(rendering.map(async (s) => ({ system: s.name, manifest: await hub.catalog.manifest(s.name) }))),
@@ -47,7 +50,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     voiceOutput: false,
     uploads: true,
     mentions: mentions.filter((m) => usable.has(m.system)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
-    commands: contexts.filter((c) => usable.has(c.system)).flatMap((c) => (c.decl.command === undefined ? [] : [{
+    commands: [...contexts.filter((c) => usable.has(c.system)), ...made].flatMap((c) => (c.decl.command === undefined ? [] : [{
       name: c.decl.command.name, context: c.name, args: c.decl.command.args, description: c.decl.description,
     }])),
     agents: fns.filter((f) => (f.system === HUB_SYSTEM || usable.has(f.system)) && f.decl.kind === AGENT_KIND).map((f) => ({ fn: f.name, description: f.decl.description })),

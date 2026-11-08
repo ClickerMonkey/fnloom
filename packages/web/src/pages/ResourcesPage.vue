@@ -2,13 +2,13 @@
 /**
  * The resource browser (`/resources`), every part of it in the URL: a list (sortable), a grid of thumbnails (three
  * card sizes), or groups made by the hub by type, source, folder or date ("Show all" narrows to one); a folder tree
- * beside them on wide screens; the list's search bar (words, filter pills, the sort, which the hub applies) and a form
- * filter on one row; the folder trail; bulk select with the actions every
+ * beside them on wide screens; the list's search bar (words, filter pills, the sort, which the hub applies) on one row;
+ * the folder trail; bulk select with the actions every
  * selected resource allows; the uploader (files, a pasted image, a web address); and the opened resource in the
  * viewer beside the list on roomy screens or in a sheet, with its mode, page and line in the URL too. Live: resource
  * changes refresh what is shown.
  */
-import { FormKind, ResourceUri, sortOf, type QualifiedName, type ResourceRecord, type ResourceStat } from '@harness/core';
+import { ResourceUri, sortOf, type QualifiedName, type ResourceRecord, type ResourceStat } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import ListSearch from '../components/query/ListSearch.vue';
@@ -53,34 +53,10 @@ const phone = useMediaQuery(COMPACT_QUERY);
 const VIEWS: readonly SegmentOption<BrowserView>[] = [{ value: 'list', label: 'List', icon: 'list' }, { value: 'grid', label: 'Grid', icon: 'grid' }, { value: 'groups', label: 'Groups', icon: 'layers' }];
 const GROUPS = [{ value: 'type', label: 'By type' }, { value: 'source', label: 'By source' }, { value: 'path', label: 'By folder' }, { value: 'date', label: 'By date' }] as const satisfies readonly SelectOption<string>[];
 const SIZES: readonly SegmentOption<CardSize>[] = [{ value: 's', label: 'S' }, { value: 'm', label: 'M' }, { value: 'l', label: 'L' }];
-const ANY = 'any';
-/** The forms the filter offers, as present or missing. */
-const FILTER_FORMS = ['markdown', 'table', 'description', 'transcript'] as const satisfies readonly FormKind[];
-type FormFilter = `has:${FormKind}` | `lacks:${FormKind}` | typeof ANY;
-const FORM_FILTERS: readonly SelectOption<FormFilter>[] = [
-  { value: ANY, label: 'Any forms' },
-  ...FILTER_FORMS.flatMap((kind): SelectOption<FormFilter>[] => [
-    { value: `has:${kind}`, label: `Has ${FORM_LABEL[kind].toLowerCase()}` }, { value: `lacks:${kind}`, label: `No ${FORM_LABEL[kind].toLowerCase()} yet` },
-  ]),
-];
 
 const view = computed({ get: () => query.value.view ?? DEFAULTS.view, set: (next: BrowserView) => { url.set({ view: next, in: '' }); } });
 const group = computed({ get: () => query.value.group ?? DEFAULTS.group, set: (next: string) => { const parsed = GROUPS.find((g) => g.value === next); if (parsed) { url.set({ group: parsed.value, in: '' }); } } });
 const size = computed({ get: () => query.value.size ?? DEFAULTS.size, set: (next: CardSize) => { url.set({ size: next }); } });
-/** The form filter's choice, from the URL's `form` (present) or `missing`. */
-function formChoice(): FormFilter {
-  if (query.value.form !== undefined) { return `has:${query.value.form}`; }
-  return query.value.missing === undefined ? ANY : `lacks:${query.value.missing}`;
-}
-const formFilter = computed({
-  get: formChoice,
-  set: (next: FormFilter) => {
-    const [how, kind] = next.split(':');
-    const form = FormKind.safeParse(kind);
-    if (!form.success) { url.set({ form: '', missing: '' }); return; }
-    url.set(how === 'has' ? { form: form.data, missing: '' } : { missing: form.data, form: '' });
-  },
-});
 
 /** The list's query (words, filters, sort) in `q`. */
 const search = useListQuery('resources');
@@ -222,9 +198,8 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
 
       <section class="main" aria-label="Resources">
         <div class="toolbar" role="search" aria-label="Filter resources">
-          <!-- one row: the search bar with the sort, then the form filter and what the layout adds (grouping, card size) beside the layout switch -->
+          <!-- one row: the search bar with the sort, then what the layout adds (grouping, card size) beside the layout switch -->
           <ListSearch v-model="search" list="resources" label="resources" placeholder="Search names, addresses and contents" :count="showGroups ? undefined : records.length" :more="browser.list.hasMore.value" data-testid="resource-search">
-            <UiSelect v-model="formFilter" class="pick" :options="FORM_FILTERS" label="Forms" hide-label size="sm" />
             <UiSelect v-if="view === 'groups'" v-model="group" class="pick" :options="GROUPS" label="Group" hide-label size="sm" data-testid="resource-grouping" />
             <UiSegmented v-if="view === 'grid'" v-model="size" :options="SIZES" label="Card size" />
             <UiSegmented v-model="view" :options="VIEWS" label="Layout" icon-only data-testid="resource-view" />

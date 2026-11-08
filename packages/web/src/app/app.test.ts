@@ -6,7 +6,7 @@ import { createMemoryHistory, type Router } from 'vue-router';
 import { OFFLINE_AFTER } from '../state/connection.ts';
 import { STORES } from '../state/stores.ts';
 import { fakeStores, notification } from '../test/fakes.ts';
-import { InboxFilter } from '../state/inbox.ts';
+import { INBOX_PAGE, InboxFilter } from '../state/inbox.ts';
 import App from './App.vue';
 import { navEntries } from './nav.ts';
 import { createAppRouter } from './router.ts';
@@ -377,7 +377,7 @@ describe('pages', () => {
     expect(router.currentRoute.value.fullPath).toBe('/inbox');
     await router.replace('/inbox?q=kind:approval');
     await flushPromises();
-    expect(api.notifications.list.calls.at(-1)?.[0]?.query).toEqual({ filters: [{ field: 'kind', op: 'is', value: 'approval' }] });
+    expect(api.notifications.list.calls.at(-1)?.[0]?.query).toEqual({ filters: [{ field: 'kind', op: 'is', value: 'approval' }], limit: INBOX_PAGE });
     expect(app.text()).toContain('Nothing matches');
     app.unmount();
   });

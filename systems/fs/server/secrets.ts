@@ -16,6 +16,15 @@ export const DEFAULT_SECRETS: readonly string[] = [
   'credentials', 'credentials.*', '*.credentials', '*.credentials.json',
 ];
 
+/**
+ * `matchesGlob` with dot files included: `*`, `?` and `[...]` also match a leading dot, so `*.pem` hides `.secret.pem`.
+ * Node's matcher has no dot option, so the second test swaps each name's leading dot for a NUL, which no glob spells
+ * out but every wildcard matches; the first test keeps globs that spell the dot (`.env`) working.
+ */
+function matchesDotted(subject: string, glob: string): boolean {
+  return matchesGlob(subject, glob) || matchesGlob(subject.replace(/(^|\/)\./g, '$1\u0000'), glob);
+}
+
 /** One glob of the list, and whether it is an exception. */
 interface SecretRule {
   readonly glob: string;
@@ -53,7 +62,7 @@ export class GlobSecrets implements SecretFilter {
     const path = parts.join('/');
     let hidden = false;
     for (const rule of this.rules) {
-      if (matchesGlob(rule.byName ? name : path, rule.glob)) { hidden = !rule.serve; }
+      if (matchesDotted(rule.byName ? name : path, rule.glob)) { hidden = !rule.serve; }
     }
     return hidden;
   }

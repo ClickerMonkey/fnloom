@@ -26,7 +26,7 @@ export function resourcesPlugin(hub: HubServices, auth: ReturnType<typeof authPl
         importResource: ({ data, user }) => library.import(data, { actor: user.id }),
         renameResource: ({ data, user }) => library.rename(data.uri, data.name, { actor: user.id }),
         deleteResource: ({ data, user }) => library.remove(data.uri, { actor: user.id }),
-        contextFromResource: ({ data, user }) => context.fromResource(data, { actor: user.id }),
+        contextFromResource: ({ data, user }) => context.fromResource(data, { actor: user.id, admin: user.role === 'admin' }),
       };
     });
 }

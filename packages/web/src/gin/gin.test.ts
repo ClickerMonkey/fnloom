@@ -277,4 +277,26 @@ describe('the components', () => {
     await edit.find('textarea').setValue('Bye {name}');
     expect(edit.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ kind: 'template', template: 'Bye {name}' });
   });
+
+  it('edits like code: a literal sits on its line with no label, and notes wait behind an icon', async () => {
+    const def: ExprDef = { kind: 'new', type: { name: 'num' }, value: 3 };
+    const edit = mount(GinExprView, { props: { modelValue: def, scope: {} } });
+    await flushPromises();
+    const node = edit.find('[data-testid="gin-expr-node"]');
+    expect(node.find('.head input').exists()).toBe(true);
+    expect(node.find('.head label:not(.sr-only)').exists()).toBe(false);
+  });
+
+  it('keeps the warnings behind the note icon on the line until asked', async () => {
+    const def: ExprDef = {
+      kind: 'if', ifs: [{ condition: { kind: 'new', type: { name: 'num' }, value: 1 }, body: { kind: 'new', type: { name: 'num' }, value: 2 } }],
+    };
+    const edit = mount(GinExprView, { props: { modelValue: def, scope: {} } });
+    await flushPromises();
+    const notes = edit.find('[data-testid="gin-expr-notes"]');
+    expect(notes.exists()).toBe(true);
+    expect(edit.find('.problem.warning').exists()).toBe(false);
+    await notes.trigger('click');
+    expect(edit.find('.problem.warning, .problem.info').exists()).toBe(true);
+  });
 });

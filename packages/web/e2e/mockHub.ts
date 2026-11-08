@@ -25,9 +25,10 @@ import {
   type ActorId, type NotificationReason, type Tokens, type UserEvent,
 } from '@harness/core';
 import { z } from 'zod';
-import { hubWebSpec } from '@harness/core';
+import { hubWebSpec, ModelCallQuery, PageRequest } from '@harness/core';
 import { logger, type Logger } from '@ayepi/log';
 import { MockAdmin } from './mockAdmin.ts';
+import { legacyOf, LlmPage, ResourcePage, RunPage } from './mockQuery.ts';
 import { declaredStatusLogger } from './mockLog.ts';
 import { EMPTY_ZIP, MOCK_EXPORTS, MockBuild2 } from './mockBuild2.ts';
 import { MockBuild3 } from './mockBuild3.ts';
@@ -145,8 +146,9 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       me: ({ user }) => user,
       notifications: ({ data }) => {
         const all = state.notifications.filter((n) => data.unread !== true || !n.read);
-        const start = data.cursor === undefined ? 0 : Number(data.cursor);
-        const end = start + (data.limit ?? 30);
+        const page = PageRequest.parse(legacyOf(data));
+        const start = page.cursor === undefined ? 0 : Number(page.cursor);
+        const end = start + (page.limit ?? 30);
         return { items: all.slice(start, end), ...(end < all.length ? { cursor: String(end) } : {}) };
       },
       readNotifications: ({ data }) => {
@@ -219,11 +221,11 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       actors: ({ data }) => admin.actorsOf(data),
       actorSettings: () => admin.settings,
       setActorSetting: ({ data }) => admin.setSetting(data.setting, data.actor, data.value, owner()),
-      runs: ({ data }) => { const { cursor, limit, ...filter } = data; return admin.runs(filter, cursor, limit); },
-      llmCalls: ({ data }) => { const { cursor, limit, ...filter } = data; return admin.llmCalls(filter, cursor, limit); },
-      resources: ({ data }) => { const { cursor, limit, ...filter } = data; return admin.resourceList(filter, cursor, limit); },
+      runs: ({ data }) => { const { cursor, limit, ...filter } = RunPage.parse(legacyOf(data)); return admin.runs(filter, cursor, limit); },
+      llmCalls: ({ data }) => { const { cursor, limit, ...filter } = LlmPage.parse(legacyOf(data)); return admin.llmCalls(filter, cursor, limit); },
+      resources: ({ data }) => { const { cursor, limit, ...filter } = ResourcePage.parse(legacyOf(data)); return admin.resourceList(filter, cursor, limit); },
       resource: ({ data }) => admin.read(data.uri),
-      browseResources: ({ data }) => library.browse(ResourceQuery.parse(data)),
+      browseResources: ({ data }) => library.browse(ResourceQuery.parse(legacyOf(data))),
       resourceForms: ({ data }) => library.forms(data.uri),
       readResource: ({ data }) => library.read(ResourceReadArgs.parse(data)),
       convertResource: ({ data }) => {
@@ -247,7 +249,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       modelRoles: () => build2.roles,
       setModelRole: ({ data }) => { const view = build2.setRole(data); announce({ type: 'capabilities' }); return view; },
       clearModelRole: ({ data }) => { const view = build2.clearRole(data.role); announce({ type: 'capabilities' }); return view; },
-      modelCalls: ({ data }) => build2.modelCalls(data),
+      modelCalls: ({ data }) => build2.modelCalls(ModelCallQuery.parse(legacyOf(data))),
       modelCall: ({ data }) => build2.modelCall(data.id),
       fnMetrics: ({ data }) => build2.fnMetrics(data),
       fnMetricsDays: ({ data }) => build2.fnDays(data.fn, data.days),

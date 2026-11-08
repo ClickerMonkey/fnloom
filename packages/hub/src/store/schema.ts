@@ -68,7 +68,7 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   sessions: [['owner', 'updatedAt'], ['updatedAt']],
   messages: [['session', 'createdAt'], ['turn']],
   turns: [['session', 'createdAt'], ['status']],
-  runs: [['turn', 'createdAt'], ['parent'], ['root'], ['session', 'createdAt'], ['status']],
+  runs: [['turn', 'createdAt'], ['parent'], ['root'], ['session', 'createdAt'], ['status'], ['fn', 'createdAt']],
   handlerCalls: [['run'], ['status']],
   stateFields: [['session', 'system']],
   deliveries: [['session', 'createdAt'], ['status']],

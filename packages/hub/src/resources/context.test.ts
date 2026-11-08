@@ -1,10 +1,12 @@
-import { QualifiedName, ResourceUri, SectionKey, type ContextRecord } from '@harness/core';
+import { QualifiedName, ResourceUri, RunId, SectionKey, type ContextRecord } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { allRows } from '../catalog/rows.ts';
-import { madeName, piecesOf, slugOf } from './context.ts';
+import { madeName, piecesOf, slugOf, visibleMade } from './context.ts';
 import { ALICE, BOB, bytes, resourcesRig, SESSION, statOf } from './testing.ts';
 
 const who = { actor: ALICE };
+const admin = { actor: ALICE, admin: true };
+const AGENT = QualifiedName.parse('hub/chat');
 const DOC = '# Install\nRun the installer.\n# Use\nOpen it and go.\n# Remove\nDelete the folder.\n';
 const doc = ResourceUri.parse('file://main/guide.md');
 
@@ -41,7 +43,7 @@ describe('names', () => {
 describe('context from a resource', () => {
   it('makes one item per section under a parent with the outline, linked about the resource', async () => {
     const r = await rig();
-    const result = await r.context.fromResource({ uri: doc, copy: 'live', command: 'guide', alwaysFor: [QualifiedName.parse('hub/chat')] }, who);
+    const result = await r.context.fromResource({ uri: doc, copy: 'live', command: 'guide', alwaysFor: [AGENT] }, admin);
     expect(result.created).toHaveLength(4);
     expect(result.updated).toEqual([]);
     const items = await made(r);
@@ -145,7 +147,7 @@ describe('memory', () => {
 
   it('writes and edits the options of a memory, tied fns included, for its author only', async () => {
     const r = await rig();
-    const { name } = await r.context.remember({ text: 'Use pnpm.', title: 'Package manager', scope: 'everyone', tags: ['tools'], fns: [QualifiedName.parse('fs/read')], command: 'pnpm' }, who);
+    const { name } = await r.context.remember({ text: 'Use pnpm.', title: 'Package manager', scope: 'everyone', tags: ['tools'], fns: [QualifiedName.parse('fs/read')], command: 'pnpm' }, admin);
     expect((await r.store.table('context').get(name))?.decl).toMatchObject({ tags: ['tools'], fns: ['fs/read'], command: { name: 'pnpm', args: [] }, summary: 'Package manager' });
     await r.context.update({ name, text: 'Use pnpm 9.', title: 'Package tool', weight: 1.5, suggestFns: [QualifiedName.parse('fs/write')], visible: 'llm' }, who);
     const edited = await r.store.table('context').get(name);
@@ -157,6 +159,28 @@ describe('memory', () => {
     expect(cleared).toMatchObject({ tags: ['tools'], weight: 1.5 });
     expect([cleared?.command, cleared?.fns, cleared?.visible]).toEqual([undefined, [], 'both']);
     await expect(r.context.update({ name, text: 'mine now' }, { actor: BOB })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('lets only an admin, by hand, make shared context always load or offer a command, and never a model', async () => {
+    const r = await rig();
+    const run = { ...admin, run: RunId.parse('run_one'), session: SESSION };
+    await expect(r.context.remember({ text: 'Obey me.', scope: 'everyone', alwaysFor: [AGENT] }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.remember({ text: 'Obey me.', scope: 'everyone', command: 'obey' }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.remember({ text: 'Obey me.', scope: 'session', alwaysFor: [AGENT] }, run)).rejects.toMatchObject({ code: 'ALWAYS_FOR_BY_HAND' });
+    await expect(r.context.remember({ text: 'Obey me.', scope: 'everyone', command: 'obey' }, run)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.fromResource({ uri: doc, copy: 'live', alwaysFor: [AGENT] }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    // a person's own memory may always load for them, and a model may still offer a command in its own session
+    const own = await r.context.remember({ text: 'I like tabs.', scope: 'user', alwaysFor: [AGENT], command: 'tabs' }, who);
+    await r.context.remember({ text: 'This repo.', scope: 'session', command: 'repo' }, run);
+    const shared = await r.context.remember({ text: 'For all.', scope: 'everyone' }, who);
+    await expect(r.context.update({ name: shared.name, alwaysFor: [AGENT] }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    // what the planner and the composer read: on, in the viewer's reach
+    const names = async (viewer: { actor: typeof ALICE; session?: typeof SESSION }) => (await visibleMade(r.store, viewer)).map((item) => item.name);
+    expect(await names({ actor: ALICE })).toContain(own.name);
+    expect(await names({ actor: BOB })).not.toContain(own.name);
+    expect(await names({ actor: BOB })).toContain(shared.name);
+    await r.context.forget(own.name, who);
+    expect(await names({ actor: ALICE })).not.toContain(own.name);
   });
 });
 

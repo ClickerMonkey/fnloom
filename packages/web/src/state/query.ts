@@ -65,6 +65,15 @@ export function hubListQuery(query: SearchQuery): ListQuery {
   };
 }
 
+/**
+ * A list request with its page (size and cursor) where the hub reads them: inside `query` when the body has one
+ * (the hub then ignores the old top-level fields), at the top level otherwise.
+ */
+export function withPage<B extends object>(body: B & { readonly query?: ListQuery }, limit: number, cursor: string | undefined): B & { readonly limit?: number; readonly cursor?: string } {
+  const page = { limit, ...(cursor === undefined ? {} : { cursor }) };
+  return body.query === undefined ? { ...body, ...page } : { ...body, query: { ...body.query, ...page } };
+}
+
 /** The hub's `listValues` caller, as the search boxes use it. */
 export interface ListValuesCaller {
   call(body: ListValuesQuery): Promise<readonly FieldValueOption[]>;

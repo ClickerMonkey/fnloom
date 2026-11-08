@@ -69,7 +69,7 @@ export class FnStore {
     await Promise.all([
       this.metrics.load(async () => (await this.#api.fnMetrics.call({ fn, days })).find((m) => m.fn === fn), "Couldn't load this fn's metrics.", quiet),
       this.daily.load(() => this.#api.fnMetricsDays.call({ fn, days }), "Couldn't load this fn's days.", quiet),
-      this.recent.load(async () => (await this.#api.runs.call({ query: { filters: [{ field: 'fn', op: 'is', value: fn }] }, limit: FN_RECENT_RUNS })).items, "Couldn't load this fn's runs.", quiet),
+      this.recent.load(async () => (await this.#api.runs.call({ query: { filters: [{ field: 'fn', op: 'is', value: fn }], limit: FN_RECENT_RUNS } })).items, "Couldn't load this fn's runs.", quiet),
     ]);
   }
 

@@ -76,6 +76,15 @@ describe('the lists', () => {
     expect(result.items[0]).toMatchObject({ id: 'run_c', fn: 'fs/read' });
   });
 
+  it('pushes fn and session filters to the store, so the scan bound never cuts the runs of a rarely used fn', async () => {
+    const { store } = await rig();
+    const turn = IDS.turn.parse('trn_1');
+    for (let i = 0; i < 100; i++) { await store.table('runs').insert(makeRun({ id: IDS.run.parse(`run_n${i}`), fn: 'fs/read', turn, actor: admin.id, status: 'done', createdAt: 10 + i })); }
+    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog() }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
+    const result = await lists.query({ list: 'runs', query: { filters: [{ field: 'fn', op: 'is', value: 'fs/write' }] } }, admin);
+    expect(result).toMatchObject({ total: 1, items: [{ id: 'run_b' }] });
+  });
+
   it('refuses a query its list cannot answer (422) and lists admin-only lists to admins only (403)', async () => {
     const { lists } = await rig();
     await expect(lists.page('runs', { filters: [{ field: 'nope', op: 'is', value: 1 }] }, admin)).rejects.toSatisfy((e) => e instanceof ApiError && e.status === 422);

@@ -374,7 +374,7 @@ describe('InboxStore', () => {
     const query = { filters: [{ field: 'kind', op: 'is' as const, value: 'approval' }] };
     await inbox.load('unread', query);
     await inbox.loadMore();
-    expect(api.notifications.list.calls.slice(-2)).toEqual([[{ limit: INBOX_PAGE, unread: true, query }], [{ limit: INBOX_PAGE, cursor: 'c2', unread: true, query }]]);
+    expect(api.notifications.list.calls.slice(-2)).toEqual([[{ unread: true, query: { ...query, limit: INBOX_PAGE } }], [{ unread: true, query: { ...query, limit: INBOX_PAGE, cursor: 'c2' } }]]);
     events.push({ type: 'notification', notification: notification() });
     expect(inbox.items.value).toEqual([]);
     await inbox.load('all', {});

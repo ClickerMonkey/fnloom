@@ -36,7 +36,7 @@ const TEXT_ONLY: ContentModel = { id: 'text', capabilities: ['chat'] };
 /** Who a fn runs for: the run's person, in its session, charged to the run. */
 function askingOf(ctx: HubFnCtx): Asking {
   const run = ctx.request.run;
-  return { actor: run.user.id, run: run.id, ...(run.session === undefined ? {} : { session: run.session }) };
+  return { actor: run.user.id, run: run.id, admin: run.user.role === 'admin', ...(run.session === undefined ? {} : { session: run.session }) };
 }
 
 /** What a run's caller may reach: everything outside an MCP, else what its hub MCP's rules expose. */

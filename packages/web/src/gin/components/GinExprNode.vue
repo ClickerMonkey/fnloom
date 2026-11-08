@@ -42,6 +42,13 @@ const view = computed(() => (parsed.value.ok ? viewOf(parsed.value.value) : unde
 const typeText = computed(() => (parsed.value.ok ? tools.typeText(parsed.value.value, props.scope) : ''));
 const children = computed(() => (view.value === undefined ? [] : childrenOf(view.value)));
 const own = computed(() => problemsAt(props.problems, props.path));
+/** The node's errors, shown under its line. */
+const errors = computed(() => own.value.filter((p) => p.severity === 'error'));
+/** Its warnings and tips, behind the note icon on its line (their text is the icon's label too). */
+const notes = computed(() => own.value.filter((p) => p.severity !== 'error'));
+const warned = computed(() => notes.value.some((p) => p.severity === 'warning'));
+const notesOpen = ref(false);
+const notesLabel = computed(() => (notesOpen.value ? 'Hide notes' : notes.value.map((p) => p.message).join(' ')));
 const firstVariable = computed(() => [...props.scope.keys()][0] ?? 'value');
 const KIND_OPTIONS = EXPR_KINDS.map((k) => ({ value: k.kind, label: k.label }));
 const ACTION_OPTIONS = FLOW_ACTIONS.map((action) => ({ value: action, label: action }));
@@ -141,8 +148,17 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
         <code v-else-if="view.kind === 'lambda'" class="type-code">{{ lambdaType }}</code>
       </template>
 
-      <code v-if="typeText !== '' && typeText !== 'any'" class="type" title="What it evaluates to">→ {{ typeText }}</code>
+      <!-- a literal's value on the line, as code reads it -->
+      <GinValueView
+        v-if="view?.kind === 'new'" class="literal" :type="newType" :model-value="newValue" :label="`${label} value`" inline
+        @update:model-value="scalar({ field: 'new-value', value: $event })"
+      />
       <span class="ends">
+        <code v-if="typeText !== '' && typeText !== 'any'" class="type" title="What it evaluates to">→ {{ typeText }}</code>
+        <UiIconButton
+          v-if="notes.length > 0" :icon="warned ? 'warning' : 'info'" size="sm" class="notes-toggle" :class="{ warn: warned }" :label="notesLabel" :pressed="notesOpen"
+          data-testid="gin-expr-notes" @click="notesOpen = !notesOpen"
+        />
         <UiIconButton
           v-if="view?.kind === 'new'" icon="braces" size="sm" :label="typeOpen ? 'Hide its type' : 'Change its type'" :pressed="typeOpen" data-testid="gin-expr-type-toggle"
           @click="typeOpen = !typeOpen"
@@ -152,12 +168,13 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
       </span>
     </div>
     <p v-if="!parsed.ok" class="problem" role="alert">{{ parsed.problem }}</p>
-    <p v-for="(problem, i) in own" :key="i" class="problem" :class="problem.severity" role="alert">{{ problem.message }}</p>
+    <!-- errors show at once; warnings and tips wait behind the note icon on the line -->
+    <p v-for="(problem, i) in errors" :key="i" class="problem" role="alert">{{ problem.message }}</p>
+    <template v-if="notesOpen"><p v-for="(problem, i) in notes" :key="`note-${i}`" class="problem" :class="problem.severity">{{ problem.message }}</p></template>
 
     <template v-if="view">
-      <div v-if="view.kind === 'new'" class="value">
-        <GinTypeView v-if="typeOpen" :model-value="newType" :label="`${label} type`" @update:model-value="scalar({ field: 'new-type', type: $event })" />
-        <GinValueView :type="newType" :model-value="newValue" :label="`${label} value`" @update:model-value="scalar({ field: 'new-value', value: $event })" />
+      <div v-if="view.kind === 'new' && typeOpen" class="value">
+        <GinTypeView :model-value="newType" :label="`${label} type`" @update:model-value="scalar({ field: 'new-type', type: $event })" />
       </div>
       <UiTextarea
         v-else-if="view.kind === 'template'" :model-value="view.text" label="Template" hide-label placeholder="Hello {name}" :rows="1"
@@ -197,7 +214,10 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
 .kind { width: auto; min-width: 7rem; max-width: 100%; }
 .type { color: var(--text-faint); font: var(--text-xs) var(--mono); overflow-wrap: anywhere; }
-.ends { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; }
+.ends { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; white-space: nowrap; }
+.literal { flex: 1 1 8rem; min-width: 0; }
+.notes-toggle { color: var(--text-dim); }
+.notes-toggle.warn { color: var(--warn); }
 .problem { margin: 0; color: var(--danger); font-size: var(--text-xs); }
 .problem.warning { color: var(--warn); }
 .problem.info { color: var(--text-dim); }
