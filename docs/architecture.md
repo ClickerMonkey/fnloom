@@ -39,8 +39,12 @@ systems/
   embedder/    @harness/system-embedder  shared/ (contract + service schemas), server/
   web/         @harness/system-web       Tavily search, page reading and rendering (build 2, web-system lane)
   template/    the template system `harness system new` copies: system.json, shared/, server/, client/ (build 2)
-scripts/       dev.ts (npm run dev), stack.ts (boots the stack), hub-client.ts and session.ts (driving a hub from scripts),
-               web-manifest.ts (generated web manifest)
+scripts/       dev.ts (npm run dev), stack.ts (boots the stack), hub-client.ts (the CLI's `@harness/cli/hub-client`) and
+               session.ts (driving a hub from scripts), web-manifest.ts (generated web manifest), env-example.ts
+  docs/        the authoring guide generator (`npm run docs:authoring`, `--check` in `npm run check`): the TypeScript
+               compiler over the SDK's entry points (`extract.ts`), the section order every export must have a place in
+               (`outline.ts`), the prose (`prose/`), and a compiled example system (`example/`) the guide quotes; it
+               writes `packages/sdk/AUTHORING.md`, which fs serves as the `fs/system-authoring` context (`/new-system`)
 e2e/           the end-to-end suite over the real stack (npm run e2e)
 ui-tests/      a puppeteer script per UI feature against a running harness (npm run ui-tests)
 types/         the approved type design (design record; not imported by code)
@@ -109,7 +113,7 @@ through each other's implementation files. Each module's handlers are installed 
 | `execution/` | `RunService`, `PolicyEngine`, `LimitResolver`, `Ledger`, `LlmGateway`, `AgentLoop` | `@ayepi/work`, `@ayepi/rate`, `@aeye/core` (`Prompt`, `PromptSuspend`), `@aeye/ai`, `@aeye/openrouter`, `@aeye/models` |
 | `chat/` | `SessionService`, `TurnService`, `ReplyRule`, `MessageEnricher`, `StateService`, `DeliveryService`, `UndoService` | core records |
 | `index/` | `Embedder`, `Embedders`, `Indexer`, `Search`, `Suggester` | `@ayepi/work` batches, `@aeye/resources` |
-| `api/` | `PasswordHasher`, `Authenticator`, `ContentStore`, `PushService`, `EventRelay` | `@ayepi/auth`, `@ayepi/files`, `@ayepi/otel`, `@ayepi/cache`, `@ayepi/rate` (sign-in), web-push |
+| `api/` | `PasswordHasher`, `Authenticator`, `ContentStore`, `PushService`, `EventRelay` | `@ayepi/auth`, `@ayepi/files`, `@ayepi/otel`, `@ayepi/cache`, `@ayepi/rate` (sign-in), `@ayepi/push` |
 | `boot/` | `HubServices`, `RunningHub`, `StartHub`, `COMPONENTS`; env slices in `env.ts`, merged as `HUB_SETTINGS` (`mergeEnvs`; `.env.example` is generated from it by `scripts/env-example.ts`); the hub fns (`hub-fns.ts`) and the admin fns (`admin-fns.ts`), which run the same `AdminOperations` (`api/admin-ops.ts`) as the web admin endpoints | `@ayepi/env`, `@ayepi/log`, `@ayepi/updown`, `@ayepi/codec` |
 | `bus.ts` | `EventBus`, `HubEvents` | — |
 | `contextor/` (build 2) | `PromptPlanner`, `ChatMode`, `Contextor`, `TokenEstimates`, `ModelLimitsService`, `ContextGraph` (factories typed by `ChatModeFactories` / `ContextorFactories`) | `@aeye/core`, `@aeye/gin` (`toCode`, `toCodeDefinition`), `@aeye/models` |
@@ -119,9 +123,14 @@ through each other's implementation files. Each module's handlers are installed 
 | `models/` (build 2) | `ModelRoles`, `ModelGateway` | `@aeye/ai` and its providers |
 
 Build 2's modules are wired into `HubServices` (`contextor`, `resources`, `mcp`, `metrics`, `models`) and built by
-their `create.ts` factories (`BUILD_2_MODULES` in `boot/modules.ts`). Until a lane builds one, its factory returns
-`notBuiltService` stubs (`boot/not-built.ts`) whose methods answer 501 `NOT_BUILT`, and its web slice is served by
-`notBuilt` handlers (`api/web/access.ts`), so the hub serves every endpoint from the start.
+their `create.ts` factories (`BUILD_2_MODULES` in `boot/modules.ts`); each serves its own web slice from its plugin in
+`api/web/`.
+
+The `link/` module also owns installed systems and fleets: `system.json` is checked by `checkManifest`
+(`link/package/format.ts`, the zip format beside it), the per-instance facts (key, config, status, install, folders)
+are the `instances` table while `systems` keeps the per-system ones (`migrateLegacyInstances` moved build 1's rows on
+first start), and `FleetRouter` answers which instance runs a call. The CLI (`packages/cli`) drives all of it over the
+web API, and its `hub-client.ts` is what scripts and tests sign in with.
 
 ## Lanes and what they own
 
@@ -151,12 +160,14 @@ why).
 | `npm test` | vitest `unit` (Node) and `web` (happy-dom) projects; no live network |
 | `npm run test:live` | `*.live.test.ts`: OpenRouter with `OPENROUTER_API_KEY` and a free model (`liveEnv`), the local embedder |
 | `npm run coverage` | tests with v8 coverage |
-| `npm run lint` | ESLint (strict type-checked, no `any`, no casts, Vue) |
+| `npm run lint` | `scripts/lint.ts`: ESLint (strict type-checked, no `any`, no casts, Vue), one area (each workspace, `scripts`, `e2e`, `ui-tests`) per process so the type-aware rules fit in memory |
 | `npm run web:manifest` | regenerate the web app's manifest from `hubWebSpec` |
-| `npm run dev` | `scripts/dev.ts` over `scripts/stack.ts`: builds the web app, starts the hub (serving it) on `HARNESS_PORT` (4300) bound to `0.0.0.0`, signs in as the admin from `.env`, pairs fs and the embedder with one-time tokens the first time, configures fs with this repository as its root. Data in `HARNESS_DATA` (`.harness`). `HARNESS_DEV_ONLY=hub,fs` runs a subset |
+| `npm run dev` | `scripts/dev.ts` over `scripts/stack.ts`: builds the web app, starts the hub (serving it) on `HARNESS_PORT` (4300) bound to `0.0.0.0`, signs in as the admin from `.env`, pairs fs, the embedder and (with `TAVILY_API_KEY` set) the web system with one-time tokens the first time, configures fs with this repository as its root. Data in `HARNESS_DATA` (`.harness`). `HARNESS_DEV_ONLY=hub,fs` runs a subset; the components are `web` (the build), `hub`, `fs`, `embedder` and `web-system` |
 | `npm run dev:web` | Vite with hot reload on `HARNESS_WEB_PORT` (4310), proxying the hub |
-| `npm run e2e` | `e2e/*.e2e.test.ts` (vitest project `e2e`): boots the stack on `HARNESS_E2E_PORT` (4330) and drives it with a free OpenRouter model |
+| `npm run e2e` | `e2e/*.e2e.test.ts` (vitest project `e2e`): boots the stack (with the web system when `TAVILY_API_KEY` is set) on `HARNESS_E2E_PORT` (4330), data `.harness-test/e2e`, and drives it with a free OpenRouter model; the graph contextor suite uses the local Ollama and is skipped without it |
 | `npm run ui-tests` | `ui-tests/run.ts`: every UI feature script in `ui-tests/features/` against `HARNESS_UI_URL`, at each layout (desktop 1440, laptop 1180, tablet 768, phone 390; wide 1920 and phone-landscape 844x390 for the features that ask); shots in `ui-tests/shots/<feature>/` |
+| `npm run ui-tests:mock` | `ui-tests/mock.ts`: every UI feature against the web app's mock hub (builds the app, serves it on 4480 beside the mock on 4481) |
+| `npm run docs:authoring` | regenerate `packages/sdk/AUTHORING.md` from the SDK's sources (`scripts/docs/`); a new SDK export needs a place in `scripts/docs/outline.ts` first |
 | `npm run e2e:mock` | the web lane's puppeteer scenarios against its mock hub at phone, tablet and desktop in light and dark; shots in `packages/web/e2e/shots/` |
 | `npm run build` | manifest, typecheck, then the web build (`packages/web/dist`, served by the hub) |
 | `npm run check` | manifest check, typecheck, lint, tests, explorer build |
@@ -174,9 +185,16 @@ Still open (build 2's list is in [plans/build-2-design.md](plans/build-2-design.
 - **@ayepi/sqlite:** a `FileStore` over SQLite (the resources lane keeps a `SqliteFiles` in the hub until then).
 - **@ayepi/mcp:** server progress notifications.
 - **@aeye/core:** `forget` counting tool definitions; a provider hook for the served context window.
+- **@aeye/gin:** a secret marker for text fields (the web system's Tavily key is plain text today), so exports can carry
+  config without its secrets.
+- **@aeye/resources:** `CODE_TYPES` from a browser-safe subpath (core lists the code formats itself and the hub checks
+  them against the library's at compile time); versioned converter ids (`htmlConverter@2`); `basenameFromLocation`
+  for non-local `file://` URLs on Windows; `inferType` letting a name's extension beat a generic `text/*` mime
+  (`text/typescript` is `typescript`, not `text`; the hub's `RegistryConverters.typeOf` does this until then).
+- **@ayepi/mcp:** a stdio-to-HTTP proxy helper (the CLI's `harness mcp` bridges by hand).
 
 Done for build 2: `@ayepi/mcp` caller info, annotations, `McpRouter`, `BearerAuth`, views and `McpToolSet`;
-`@ayepi/push` (web push; the hub moves off `web-push`); `@aeye/resources` converted versions and converters, the url
+`@ayepi/push` (web push, which the hub sends with); `@aeye/resources` converted versions and converters, the url
 loader with page renderers, the folder resolver, sections of a version.
 
 Settled in the libraries, on their `harness` branches (harness carries no workaround):

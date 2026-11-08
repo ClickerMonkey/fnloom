@@ -40,9 +40,16 @@ export interface IndexItem {
   readonly system?: SystemName;
 }
 
+/**
+ * When an upsert resolves: once the items' vectors are stored too (`wait`), or once their words are, with the vectors
+ * made in the background (`background`: a person waiting on a write doesn't wait on a busy embedder; search finds the
+ * items by words at once and by meaning soon after).
+ */
+export type VectorTiming = 'wait' | 'background';
+
 /** Keeps the index current: fns, context, types, sections and messages, re-embedded only when their text changes. */
 export interface Indexer {
-  upsert(items: readonly IndexItem[]): Promise<void>;
+  upsert(items: readonly IndexItem[], options?: { readonly vectors?: VectorTiming }): Promise<void>;
   remove(kind: IndexedKind, keys: readonly string[]): Promise<void>;
   /** Re-index everything a system contributes (after a manifest import). */
   reindexSystem(system: SystemName): Promise<void>;

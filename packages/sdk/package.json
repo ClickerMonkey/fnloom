@@ -23,6 +23,7 @@
     "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
     "@ayepi/updown": "file:../../../ayepi/packages/updown",
     "@harness/core": "*",
+    "qrcode": "^1.5.4",
     "ws": "^8.18.0",
     "zod": "^4.6.7"
   },
@@ -30,6 +31,7 @@
     "vue": "^3.5.0"
   },
   "devDependencies": {
-    "@harness/system-fs": "*"
+    "@harness/system-fs": "*",
+    "@types/qrcode": "^1.5.6"
   }
 }

@@ -16,6 +16,7 @@ import type { ConfigService, InstanceRouter, LinkService } from '../link/index.t
 import type { HubStore } from '../store/index.ts';
 import type { ExecutionEnv } from './env.ts';
 import type { FnMetricsService, ModelCallLog } from '../metrics/index.ts';
+import type { ModelRoles } from '../models/index.ts';
 import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
 
@@ -53,6 +54,8 @@ export interface ExecutionDeps extends ExecutionBase {
   readonly calls: ModelCallLog;
   /** Fn metrics, fed each settled run. */
   readonly metrics: Pick<FnMetricsService, 'settled'>;
+  /** The model roles, for the `chat` role's model when an agent names none. */
+  readonly roles: Pick<ModelRoles, 'resolve'>;
 }
 
 /** One run to execute: the stored run, its fn and the request its executor gets. */

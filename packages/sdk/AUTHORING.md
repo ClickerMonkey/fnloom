@@ -223,16 +223,16 @@ export default client(template, {
  * in `main.ts`, never `process.env`, and passes what it needs to `createImpl`.
  */
 import { env } from '@ayepi/env';
-import { systemFields } from '@harness/sdk/server';
+import { systemFields, systemState } from '@harness/sdk/server';
 
 /** The template system's env slice: the fields every system has (`systemFields`) and its own tunables. */
 export const templateEnv = env({
-  ...systemFields('template'),
+  ...systemFields(),
   // TODO: add tunables, each a zod schema (`import { z } from 'zod'`) with its default and a TSDoc line saying what it
   // is, named with the system's name in capitals as a prefix (fs uses `FS_`):
   //   /** How long one request to the service may take. */
   //   <NAME>_TIMEOUT: z.number().int().min(1).default(30_000),
-});
+}).add(systemState('template'));
 
 /** The template system's settings, resolved. */
 export type TemplateSettings = ReturnType<typeof templateEnv.parse>;
@@ -4044,7 +4044,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/run_get`: One run: its fn, args, status, result or error, cost and timings. Tags: `read`.
 
   ```text
-  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, parent?, root, turn, session?, key, actor, caller, llmCall?, toolCallId?, args, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
+  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, llmCall?, toolCallId?, args, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
   ```
 - `hub/run_tree`: The tree of runs a turn made: each run with the runs it called. Tags: `read`.
 
@@ -4349,12 +4349,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/start_system`: Start an installed system. Tags: `admin`.
 
   ```text
-  (obj{system: text}) => obj{ok: bool}
+  (obj{system: text, instance?: text}) => obj{ok: bool}
   ```
 - `hub/stop_system`: Stop an installed system. Tags: `admin`.
 
   ```text
-  (obj{system: text}) => obj{ok: bool}
+  (obj{system: text, instance?: text}) => obj{ok: bool}
   ```
 - `hub/upgrade_system`: Upgrade an installed system to a version (the latest when none is given). Tags: `admin`.
 
@@ -4534,7 +4534,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`HubMcpId`](#core-hubmcpid), [`ResourceUri`](#core-resourceuri), [`Section`](#core-section), [`SectionKey`](#core-sectionkey).
+Refers to: [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`Section`](#core-section).
 
 #### `HubContract`
 
@@ -4842,20 +4842,21 @@ outcome journal), `pairingToken` (a one-time token an admin made), `client` (the
 `version` (default: from `package.json`), `mcp` (also serve its native fns as an MCP server over stdio or HTTP),
 `connectTimeout`, and seams for `files` and `fetch`.
 
-**Env.** A system's tunables are an `@ayepi/env` slice that spreads `systemFields('<name>')` (the hub URL
-`HARNESS_HUB`, the state folder `HARNESS_SYSTEM_STATE`, the pairing token `HARNESS_PAIRING_TOKEN`) and adds its own,
-each a zod schema with a default and a TSDoc line. Feature code never reads `process.env`:
+**Env.** A system's tunables are an `@ayepi/env` slice that spreads `systemFields()` (the hub URL `HARNESS_HUB`, the
+instance `HARNESS_INSTANCE`, the pairing token `HARNESS_PAIRING_TOKEN`, the data and cache folders) and its own, each a
+zod schema with a default and a TSDoc line, then adds `systemState('<name>')`: the state folder
+`HARNESS_SYSTEM_STATE`, which defaults to one of its own per instance. Feature code never reads `process.env`:
 
 _From `scripts/docs/example/server/env.ts`:_
 
 ```ts
 export const notesEnv = env({
-  ...systemFields('notes'),
+  ...systemFields(),
   /** The most notes `find` returns when no limit is given. */
   NOTES_FIND_LIMIT: z.number().int().min(1).default(10),
   /** The most pinned titles the `pinned` hook adds to a message. */
   NOTES_HOOK_TITLES: z.number().int().min(0).default(5),
-});
+}).add(systemState('notes'));
 ```
 
 **Pairing.** The first time a name connects, the hub has never seen it, so the system waits as `pairing`: it logs a
@@ -4931,6 +4932,19 @@ Where the MCP face listens: stdin/stdout, or MCP Streamable HTTP on a port (any 
 ```ts
 type McpServe = { stdio: true } | { http: { port: number; host?: string } };
 ```
+
+#### `mcpToolNameOf`
+
+function · `import { mcpToolNameOf } from '@harness/sdk/server'`
+
+A fn's MCP tool name: `<system>_<local>` in the characters MCP allows (`mcpToolName`; a system name never holds
+`_`). One name for a fn wherever an MCP offers it: a system's own MCP face and the hub's MCPs.
+
+```ts
+function mcpToolNameOf(fn: QualifiedName): string;
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `RunningSystem`
 
@@ -5042,12 +5056,37 @@ interface LoggedHost {
 
 function · `import { systemFields } from '@harness/sdk/server'`
 
-The link fields of a system's env slice, for spreading into it: `env({ ...systemFields('fs'), FS_SHELL: … })`.
-State defaults to `.harness/systems/<name>`, the hub to this machine's default port.
+The link fields of a system's env slice, for spreading into it, followed by its state folder in a group of its own
+(`systemState`): `env({ ...systemFields(), FS_SHELL: … }).add(systemState('fs'))`. The hub defaults to this
+machine's default port, the instance to `main`.
 
 ```ts
-function systemFields(name: string): { readonly HARNESS_SYSTEM_DATA: z.ZodOptional<z.ZodString>; readonly HARNESS_SYSTEM_CACHE: z.ZodOptional<z.ZodString>; readonly HARNESS_HUB: z.ZodDefault<z.ZodString>; readonly HARNESS_SYSTEM_STATE: z.ZodDefault<z.ZodString>; readonly HARNESS_PAIRING_TOKEN: z.ZodOptional<z.ZodString>; };
+function systemFields(): { readonly HARNESS_SYSTEM_DATA: z.ZodOptional<z.ZodString>; readonly HARNESS_SYSTEM_CACHE: z.ZodOptional<z.ZodString>; readonly HARNESS_HUB: z.ZodDefault<z.ZodString>; readonly HARNESS_INSTANCE: z.ZodDefault<z.core.$ZodBranded<z.ZodString, "InstanceName", "out">>; readonly HARNESS_PAIRING_TOKEN: z.ZodOptional<z.ZodString>; };
 ```
+
+#### `systemState`
+
+function · `import { systemState } from '@harness/sdk/server'`
+
+A system's state folder, where it keeps its key pair, outcome journal and anything else it stores: the one named
+(the hub's supervisor and `npm run dev` always name one), else `defaultStateFolder`, so two instances started by
+hand on one machine never share a key pair. A group of its own because it reads the instance (`systemFields`).
+
+```ts
+function systemState(name: string): { readonly HARNESS_SYSTEM_STATE: (e: { readonly [SYSTEM_ENV.instance]: InstanceName; }) => z.ZodDefault<z.ZodString>; };
+```
+
+#### `defaultStateFolder`
+
+function · `import { defaultStateFolder } from '@harness/sdk/server'`
+
+The state folder an instance gets when none is named: `.harness/systems/<name>` for `main`, else `/<instance>` in it.
+
+```ts
+function defaultStateFolder(name: string, instance: InstanceName): string;
+```
+
+Refers to: [`InstanceName`](#core-instancename).
 
 #### `SYSTEM_ENV`
 
@@ -5145,8 +5184,6 @@ class LinkHost implements SystemHost {
 
 interface · `import { LinkHostDeps } from '@harness/sdk/server'`
 
-The seams `LinkHost` runs on. Every one has a real default; tests replace them.
-
 ```ts
 interface LinkHostDeps {
   /** Opens the socket to the hub. Default: a real WebSocket with backoff and heartbeat. */
@@ -5224,7 +5261,7 @@ The display a host uses: the terminal one when QR codes are on (`always`, or `au
 otherwise.
 
 ```ts
-function pairingDisplayFor(mode: PairingQrMode, options: { log: Log; tty: boolean; write: (text: string) => void; }): Promise<PairingDisplay>;
+function pairingDisplayFor(mode: PairingQrMode, options: { log: Log; tty: boolean; write: (text: string) => void; }): PairingDisplay;
 ```
 
 #### `LogPairingDisplay`
@@ -5245,7 +5282,7 @@ class LogPairingDisplay implements PairingDisplay {
 class · `import { TerminalPairingDisplay } from '@harness/sdk/server'`
 
 Prints the pairing for a person at the terminal: a QR code of the link, the link, and the code in large letters, as
-well as logging it. Without a QR renderer (the `qrcode` package isn't installed) it prints the link and code alone.
+well as logging it. Without a QR renderer it prints the link and code alone.
 
 ```ts
 class TerminalPairingDisplay implements PairingDisplay {
@@ -5284,12 +5321,12 @@ function codeBanner(code: string): string;
 
 #### `terminalQr`
 
-function · `import { terminalQr } from '@harness/sdk/server'`
+const · `import { terminalQr } from '@harness/sdk/server'`
 
-The `qrcode` package's terminal renderer, if the package is installed (it is optional).
+The `qrcode` package's terminal renderer: small UTF-8 blocks, so the code fits a terminal.
 
 ```ts
-function terminalQr(): Promise<QrRenderer | undefined>;
+const terminalQr: QrRenderer;
 ```
 
 #### `QrRenderer`
@@ -5929,10 +5966,12 @@ interface CallOptions<H extends Handlers> {
   /** Don't wait: the call continues even if this run finishes. */
   background?: boolean;
   handlers?: HandlerArgs<H>;
+  /** Which instance of a fleet runs the call (`laptop`); absent, the hub picks by the args' resource URIs, the session's pin or the system's default. */
+  on?: InstanceName;
 }
 ```
 
-Refers to: [`Duration`](#core-duration), [`Usd`](#core-usd).
+Refers to: [`Duration`](#core-duration), [`InstanceName`](#core-instancename), [`Usd`](#core-usd).
 
 #### `FnCall`
 
@@ -6819,8 +6858,8 @@ Every command, read from the CLI itself:
 | `harness system install <zip \| folder \| npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>] [--no-start] [--wait <ms>]` | Install a package zip, a folder or an npm package on a hub, which pairs, configures and starts it. |
 | `harness system export-data <system> [--instance <name>] [--out <file>] [--with-secrets --yes]` | Download an installed instance’s data folder as a zip (its config too, with --with-secrets --yes). |
 | `harness system list` | List the hub’s systems and their instances. |
-| `harness system start <system>` | Start an installed system. |
-| `harness system stop <system>` | Stop an installed system. |
+| `harness system start <system> [--instance <name>]` | Start an installed system (every instance, or one with --instance). |
+| `harness system stop <system> [--instance <name>]` | Stop an installed system (every instance, or one with --instance). |
 | `harness system upgrade <system> [--version <version>]` | Upgrade an installed system from its npm or git source (a zip upgrades by installing a newer zip). |
 | `harness system uninstall <system> [--instance <name>]` | Stop and remove an installed system’s instances (one with --instance); their data folders stay. |
 | `harness mcp <slug> --secret <secret>` | Bridge a hub MCP to stdin and stdout, for MCP clients that speak stdio only. |
@@ -7182,6 +7221,8 @@ interface FakeHubOptions {
   config?: unknown;
   /** Ask for pairing the first time a name says hello (default false: every key is accepted). */
   pairing?: boolean;
+  /** How long a pairing request lasts, in ms (default ten minutes). */
+  pairingTtl?: number;
   /** The welcome's start info. */
   start?: { first: boolean; upgradedFrom?: string };
   maxChunk?: number;
@@ -7944,17 +7985,17 @@ export default client(notes, {
 ```ts
 /** The notes system's tunables, an `@ayepi/env` slice. Code reads them through `notesEnv.parse()` in `main.ts`. */
 import { env } from '@ayepi/env';
-import { systemFields } from '@harness/sdk/server';
+import { systemFields, systemState } from '@harness/sdk/server';
 import { z } from 'zod';
 
 // #region env
 export const notesEnv = env({
-  ...systemFields('notes'),
+  ...systemFields(),
   /** The most notes `find` returns when no limit is given. */
   NOTES_FIND_LIMIT: z.number().int().min(1).default(10),
   /** The most pinned titles the `pinned` hook adds to a message. */
   NOTES_HOOK_TITLES: z.number().int().min(0).default(5),
-});
+}).add(systemState('notes'));
 // #endregion env
 
 /** The notes system's settings, resolved. */
@@ -10125,14 +10166,6 @@ type · declared in `packages/core/src/link.ts`
 type HubLinkSpec = typeof hubLinkSpec;
 ```
 
-#### <a id="core-hubmcpid"></a>`HubMcpId`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-```ts
-type HubMcpId = IdOf<'mcp'>;
-```
-
 #### <a id="core-inputproblem"></a>`InputProblem`
 
 const, type · declared in `packages/core/src/run.ts`
@@ -10956,6 +10989,20 @@ type MentionHover = {
 };
 ```
 
+#### <a id="core-mintmcptokenargs"></a>`MintMcpTokenArgs`
+
+const, type · declared in `packages/core/src/records/mcps.ts`
+
+`hub/mint_mcp_token`: which MCP, a label for the session, and how long the token lasts (the hub's default when absent).
+
+```ts
+type MintMcpTokenArgs = {
+  mcp: string;
+  label: string;
+  ttl?: number | undefined;
+};
+```
+
 #### <a id="core-modelchoice"></a>`ModelChoice`
 
 const, type · declared in `packages/core/src/llm.ts`
@@ -11289,6 +11336,18 @@ type ResourceLink = {
 };
 ```
 
+#### <a id="core-resourceoutlineargs"></a>`ResourceOutlineArgs`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+`hub/resource_outline`: the resource whose sections to list.
+
+```ts
+type ResourceOutlineArgs = {
+  uri: `${string}://${string}`;
+};
+```
+
 #### <a id="core-resourceread"></a>`ResourceRead`
 
 const, type · declared in `packages/core/src/resources.ts`
@@ -11344,6 +11403,19 @@ type ResourceRoot = {
   index: "none" | "all" | "on-read";
   ignore: string[];
   watch: boolean;
+};
+```
+
+#### <a id="core-resourcesendargs"></a>`ResourceSendArgs`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+`hub/resource_send`: a resource (or one section of it) to show the model at its next step.
+
+```ts
+type ResourceSendArgs = {
+  uri: `${string}://${string}`;
+  section?: (string & z.core.$brand<"SectionKey">) | undefined;
 };
 ```
 

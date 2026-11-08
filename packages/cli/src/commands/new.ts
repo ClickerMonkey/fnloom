@@ -15,22 +15,24 @@ export const TEMPLATE_DIR = fileURLToPath(new URL('../../../../systems/template'
 /** The name the template is written with. */
 const TEMPLATE = 'template';
 
-/** A system name in camel and Pascal case: `notes-db` → `notesDb`, `NotesDb`. */
-export function cases(name: SystemName): { camel: string; pascal: string } {
+/** A system name in camel, Pascal and constant case: `notes-db` → `notesDb`, `NotesDb`, `NOTES_DB`. */
+export function cases(name: SystemName): { camel: string; pascal: string; constant: string } {
   const camel = name.replace(/-([a-z0-9])/g, (_, letter: string) => letter.toUpperCase());
-  return { camel, pascal: camel.charAt(0).toUpperCase() + camel.slice(1) };
+  return { camel, pascal: camel.charAt(0).toUpperCase() + camel.slice(1), constant: name.replace(/-/g, '_').toUpperCase() };
 }
 
 /**
  * Put a system's name into a template file: the name where the template's name is a string, a path or part of a
- * dashed name; its camel case for identifiers and prose (`template`, `templateEnv`); its Pascal case for type names.
+ * dashed name; its camel case for identifiers and prose (`template`, `templateEnv`); its Pascal case for type names;
+ * its constant case for env names and constants (`TEMPLATE_TIMEOUT`).
  */
 export function rename(text: string, name: SystemName): string {
-  const { camel, pascal } = cases(name);
+  const { camel, pascal, constant } = cases(name);
   return text
     .replace(/(?<=['"/-]|^# )template\b|\btemplate(?=-)/gm, name)
     .replace(/\btemplate(?=[A-Z]|\b)/g, camel)
-    .replace(/\bTemplate(?=[A-Z]|\b)/g, pascal);
+    .replace(/\bTemplate(?=[A-Z]|\b)/g, pascal)
+    .replace(/\bTEMPLATE(?=_|\b)/g, constant);
 }
 
 /** Files read as text and renamed; anything else is copied as it is. */

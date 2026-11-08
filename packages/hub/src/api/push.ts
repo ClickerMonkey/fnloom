@@ -1,56 +1,27 @@
 /**
- * Web push (VAPID) with the `web-push` package. The hub signs pushes with its VAPID keys (given in `pushEnv`, or
- * generated into the keys file). A subscription the push service says is gone (404, 410) is removed.
+ * Web push (VAPID) with `@ayepi/push`. The hub signs pushes with its VAPID keys (given in `pushEnv`, or generated
+ * into the keys file). A subscription the push service says is gone (404, 410) is removed.
  */
-import webpush from 'web-push';
+import { WebPush, generateVapidKeys as makeVapidKeys, type PushSender, type VapidDetails, type VapidKeys } from '@ayepi/push';
 import type { ActorId, Notification, PushSubscription } from '@harness/core';
 import type { HubStore } from '../store/index.ts';
 import type { PushService } from './index.ts';
 
-/** VAPID keys and the contact the push services see. */
-export interface VapidKeys {
-  readonly publicKey: string;
-  readonly privateKey: string;
-  readonly subject: string;
-}
+export type { PushSender } from '@ayepi/push';
 
-/** Sends one push; resolves with the push service's status. Its own interface so tests don't reach the network. */
-export interface PushSender {
-  send(subscription: PushSubscription, payload: string): Promise<{ status: number }>;
-}
-
-/** The status codes that mean a subscription is gone for good. */
-const GONE = new Set([404, 410]);
 const PAGE = 100;
 
 /** How long a push service keeps an undelivered push, in seconds (web push's unit). */
 const PUSH_TTL = 24 * 60 * 60;
 
-/** The `web-push` sender. */
-export class WebPushSender implements PushSender {
-  readonly #keys: VapidKeys;
-
-  constructor(keys: VapidKeys) {
-    this.#keys = keys;
-  }
-
-  async send(subscription: PushSubscription, payload: string): Promise<{ status: number }> {
-    try {
-      const result = await webpush.sendNotification({ endpoint: subscription.endpoint, keys: subscription.keys }, payload, {
-        vapidDetails: { subject: this.#keys.subject, publicKey: this.#keys.publicKey, privateKey: this.#keys.privateKey },
-        TTL: PUSH_TTL,
-      });
-      return { status: result.statusCode };
-    } catch (error) {
-      if (error instanceof webpush.WebPushError) { return { status: error.statusCode }; }
-      throw error;
-    }
-  }
+/** The library's sender, keeping undelivered pushes for a day. */
+export function webPushSender(vapid: VapidDetails): PushSender {
+  return new WebPush({ vapid, defaults: { ttl: PUSH_TTL } });
 }
 
 /** Make a VAPID key pair. */
-export function generateVapidKeys(): { publicKey: string; privateKey: string } {
-  return webpush.generateVAPIDKeys();
+export function generateVapidKeys(): Promise<VapidKeys> {
+  return makeVapidKeys();
 }
 
 /** What a push carries to the service worker: enough to show it and open the right place. */
@@ -86,20 +57,21 @@ export class WebPushService implements PushService {
       const page = await table.find({ where: { user }, limit: PAGE, ...(cursor === undefined ? {} : { cursor }) });
       const results = await Promise.all(page.items.map(async (subscription) => {
         try {
-          return { subscription, status: (await this.#sender.send(subscription, payload)).status };
+          return { subscription, result: await this.#sender.send({ endpoint: subscription.endpoint, keys: subscription.keys }, payload) };
         } catch (error) {
           this.#onError(error, subscription);
-          return { subscription, status: 0 };
+          return { subscription, result: undefined };
         }
       }));
-      for (const { subscription, status } of results) {
-        if (GONE.has(status)) {
+      for (const { subscription, result } of results) {
+        if (result === undefined) { continue; }
+        if (result.gone) {
           gone.push(subscription.id);
-        } else if (status >= 200 && status < 300) {
+        } else if (result.ok) {
           sent += 1;
-        } else if (status !== 0) {
+        } else {
           // Refused for now (rate limited, too large, bad keys): reported, and the subscription is kept.
-          this.#onError(new Error(`the push service answered ${status}`), subscription);
+          this.#onError(new Error(`the push service answered ${result.status}`), subscription);
         }
       }
       cursor = page.cursor;

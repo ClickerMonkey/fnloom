@@ -171,7 +171,7 @@ export class HubAiHooks {
     if (end.status === 'done') {
       await record.done({ units, cost: end.cost, ...sizesOf(modality, request, end.response), ...(call.interaction === undefined ? {} : { interaction: call.interaction }) });
     } else {
-      await record.failed(end.error ?? (end.status === 'aborted' ? 'stopped by its caller' : 'the call ended early'), end.status === 'aborted');
+      await record.failed(end.error ?? (end.status === 'aborted' ? 'stopped by its caller' : 'the call ended early'), end.status === 'aborted', call.interaction);
     }
     if (scope !== undefined && call.interaction !== undefined) scope.record({ interaction: call.interaction, modelCall: record.id, model: call.model.id, cost: end.cost, usage: wire });
     call.receipts?.record({ modelCall: record.id, model: call.model.id, cost: end.cost });
@@ -223,9 +223,9 @@ export type HubAi = ReturnType<typeof createHubAi>;
  */
 export class SwitchingLlm implements LlmEngine {
   #current: LlmEngine;
-  readonly #make: (providers: Providers) => LlmEngine;
+  readonly #make: (providers: Providers) => RefreshableEngine;
 
-  constructor(make: (providers: Providers) => LlmEngine, providers: Providers) {
+  constructor(make: (providers: Providers) => RefreshableEngine, providers: Providers) {
     this.#make = make;
     this.#current = make(providers);
   }
@@ -254,10 +254,20 @@ export class SwitchingLlm implements LlmEngine {
     return this.#current.models();
   }
 
-  /** Build the AI again with these providers. */
-  use(providers: Providers): void {
-    this.#current = this.#make(providers);
+  /**
+   * Build the AI again with these providers, and ask each for the models it serves before calls switch over, so a
+   * provider whose models no list knows (a local Ollama) offers them at once.
+   */
+  async use(providers: Providers): Promise<void> {
+    const next = this.#make(providers);
+    await next.refresh();
+    this.#current = next;
   }
+}
+
+/** An engine that can ask its providers for the models they serve now. */
+export interface RefreshableEngine extends LlmEngine {
+  refresh(): Promise<void>;
 }
 
 /** A request's model, when the metadata names one (weights choose a model instead). */
@@ -271,13 +281,18 @@ function contextOf(ctx: HubCallContext, metadata: HubCallMetadata, signal: Abort
 }
 
 /** The hub AI as the agent loop and gateway use it. */
-export class AeyeLlm implements LlmEngine {
+export class AeyeLlm implements RefreshableEngine {
   readonly #ai: HubAi;
   readonly streamer: Streamer<HubCallContext, HubCallMetadata>;
 
   constructor(ai: HubAi) {
     this.#ai = ai;
     this.streamer = ai.chat.createStreamer();
+  }
+
+  /** Ask every provider for the models it serves (a provider that can't answer keeps the known list's models). */
+  refresh(): Promise<void> {
+    return this.#ai.models.refresh();
   }
 
   async embed(input: EmbedCall, ctx: HubCallContext, signal?: AbortSignal): Promise<number[][]> {

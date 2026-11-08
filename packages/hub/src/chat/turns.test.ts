@@ -228,7 +228,7 @@ describe('running a fn by hand', () => {
     w.catalog.addFn('fs', { name: 'edit' });
     const fsActor = IDS.actor.parse('act_fs');
     await w.store.table('systems').insert({
-      name: SystemName.parse('fs'), description: 'Files.', status: 'connected', enabled: { functions: true, renderers: true }, keyFingerprint: 'fp', publicKey: 'k',
+      name: SystemName.parse('fs'), description: 'Files.', status: 'connected', enabled: { functions: true, renderers: true },
       version: '1', manifestHash: 'h', actor: fsActor,
     });
     const { turn, run } = await w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/edit', args: { path: 'a.md' }, client: CLIENT });

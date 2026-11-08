@@ -119,8 +119,9 @@ export function recordingPush(status: (endpoint: string) => number = () => 201):
   return {
     sent,
     send: (subscription, payload) => {
-      sent.push({ endpoint: subscription.endpoint, payload });
-      return Promise.resolve({ status: status(subscription.endpoint) });
+      sent.push({ endpoint: subscription.endpoint, payload: typeof payload === 'string' ? payload : new TextDecoder().decode(payload) });
+      const code = status(subscription.endpoint);
+      return Promise.resolve({ status: code, ok: code >= 200 && code < 300, gone: code === 404 || code === 410, body: '' });
     },
   };
 }

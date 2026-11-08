@@ -9,7 +9,9 @@ export default feature({
   id: 'fn-metrics', ref: 'build-2 3.18', title: 'Fn metrics', viewports: BUILD_2_VIEWPORTS,
   async run(ctx) {
     const { page, api } = ctx;
-    const fns = await api.hub.call('systemFns', { system: (await api.hub.call('systems', {}))[0]?.name ?? 'fs' });
+    // the busiest fn of any connected system (some systems, like an embedder, have no fns)
+    const connected = (await api.hub.call('systems', {})).filter((s) => s.status === 'connected');
+    const fns = (await Promise.all(connected.map((s) => api.hub.call('systemFns', { system: s.name })))).flat();
     const fn = [...fns].sort((a, b) => b.stats.runs - a.stats.runs)[0];
     check(fn !== undefined, 'a system has fns');
     const [system, local] = fn.name.split('/');
@@ -25,7 +27,7 @@ export default feature({
       if (await page.$(tid('fn-runs-chart')) !== null) {
         await show(page, tid('fn-runs-chart'));
         if (!isTouch(ctx)) {
-          await page.hover(`${tid('fn-runs-chart')} .column:nth-child(3)`);
+          await page.hover(`${tid('fn-runs-chart')} .column:last-child`);
           await find(page, 'fn-runs-chart');
           check(await page.$(`${tid('fn-runs-chart')} .tip`) !== null, 'pointing at a day shows its numbers');
         }

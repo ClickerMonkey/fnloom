@@ -3,10 +3,10 @@
  * the way boot makes it (the link plugin installed on a server with the module's peers), and fake systems that
  * connect to it over an in-process socket and serve `systemLinkSpec`. Tests only.
  */
-import { client, implement, server, spec, type ApiClient, type ClientWs, type Serves, type WsConn } from '@ayepi/core';
+import { client, implement, reject, server, spec, type ApiClient, type ClientWs, type Serves, type WsConn } from '@ayepi/core';
 import { createPluginHost } from '@ayepi/plugin';
 import {
-  LINK_PROTOCOL, MAIN_INSTANCE, SystemName, systemLinkSpec,
+  EXPORT_NOT_READY, LINK_PROTOCOL, MAIN_INSTANCE, SystemName, systemLinkSpec,
   type ContentRef, type InstanceName, type SystemPackageManifest,
   type ConfigValue, type HelloReply, type KindDescription, type Manifest, type ResourceChange, type ResourceRead, type ResourceRoot, type Section,
   type StopReason, type SystemEvent, type Welcome,
@@ -30,7 +30,7 @@ export const RIG_SETTINGS: SystemsSettings = {
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2,
   },
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
-  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_INDEX_CRAWL_MAX: 1_000 },
+  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000 },
   search: { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 },
 };
 
@@ -96,6 +96,8 @@ export class FakeSystem {
   readonly stops: StopReason[] = [];
   /** How many times the hub asked it to get ready for an export. */
   exports = 0;
+  /** Set to refuse exports as not ready (the SDK's answer when `lifecycle.exporting` fails). */
+  exportRefused: string | undefined;
   /** The data folder it says it uses when asked for an export. */
   dataDir = '';
   readonly watched: string[][] = [];
@@ -127,7 +129,11 @@ export class FakeSystem {
       event: ({ data }) => { this.events.push(data); },
       configure: ({ data }) => { this.configured.push(data); b.configure(data); },
       stop: ({ data }) => { this.stops.push(data.reason); },
-      export: () => { this.exports += 1; return { data: this.dataDir }; },
+      export: () => {
+        this.exports += 1;
+        if (this.exportRefused !== undefined) { throw reject(500, EXPORT_NOT_READY, this.exportRefused); }
+        return { data: this.dataDir };
+      },
       run: notHere, control: notHere, undo: notHere, handler: notHere, child: notHere, context: notHere, hook: notHere, mentions: notHere,
       mentionHover: notHere, mentionText: notHere, action: notHere, form: notHere, restart: notHere,
     })]);

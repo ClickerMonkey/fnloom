@@ -29,7 +29,13 @@ export function systemLines(system: SystemView): string[] {
   return [`${system.name.padEnd(14)} ${system.status.padEnd(13)} ${system.version} · ${system.instances.length} instances, ${connected} connected`, ...system.instances.map(instanceLine)];
 }
 
-const SYSTEM_ARGS = z.object({ positionals: z.tuple([SystemName]), values: z.object(HUB_OPTIONS) });
+/** A system, and optionally one of its instances (every instance when absent). */
+const SYSTEM_ARGS = z.object({ positionals: z.tuple([SystemName]), values: z.object({ ...HUB_OPTIONS, instance: InstanceName.optional() }) });
+
+/** `fs` or `fs@laptop`, for what a command says it did. */
+function targetLabel(system: SystemName, instance: InstanceName | undefined): string {
+  return instance === undefined ? system : `${system}@${instance}`;
+}
 
 export const listCommand = command({
   path: ['system', 'list'],
@@ -46,24 +52,24 @@ export const listCommand = command({
 
 export const startCommand = command({
   path: ['system', 'start'],
-  summary: 'Start an installed system.',
-  usage: '<system>',
+  summary: 'Start an installed system (every instance, or one with --instance).',
+  usage: '<system> [--instance <name>]',
   args: SYSTEM_ARGS,
   run: ({ positionals: [system], values }, io) => withHub(io, values, async (hub) => {
-    await hub.api.call('startSystem', { system });
-    io.out.line(`started ${system}`);
+    await hub.api.call('startSystem', { system, ...(values.instance === undefined ? {} : { instance: values.instance }) });
+    io.out.line(`started ${targetLabel(system, values.instance)}`);
     return 0;
   }),
 });
 
 export const stopCommand = command({
   path: ['system', 'stop'],
-  summary: 'Stop an installed system.',
-  usage: '<system>',
+  summary: 'Stop an installed system (every instance, or one with --instance).',
+  usage: '<system> [--instance <name>]',
   args: SYSTEM_ARGS,
   run: ({ positionals: [system], values }, io) => withHub(io, values, async (hub) => {
-    await hub.api.call('stopSystem', { system });
-    io.out.line(`stopped ${system}`);
+    await hub.api.call('stopSystem', { system, ...(values.instance === undefined ? {} : { instance: values.instance }) });
+    io.out.line(`stopped ${targetLabel(system, values.instance)}`);
     return 0;
   }),
 });

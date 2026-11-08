@@ -40,17 +40,9 @@ export function languageOf(format: string | undefined): string {
   return format === undefined ? '' : LANGUAGE[format] ?? '';
 }
 
-/** Whether a format's text is code the highlighter can colour, though core's families don't list it (`ruby`, `dart`). */
-export function isCodeFormat(format: string | undefined): boolean {
-  const language = languageOf(format);
-  return language !== '' && !['markdown', 'mermaid', 'csv', 'tsv', 'text', 'html', 'xml', 'json', 'yaml', 'toml', 'ini'].includes(language);
-}
-
-/** The family of a resource, from its format and mime type, with code formats core doesn't list as code. */
+/** The family of a resource: a folder, else core's family of its format and mime type (the hub's facets use the same). */
 export function familyOfStat(stat: Pick<ResourceStat, 'format' | 'mime' | 'type'>): FormatFamily {
-  if (stat.type === 'folder') { return 'folder'; }
-  const family = familyOf(stat.format, stat.mime);
-  return family === 'other' && isCodeFormat(stat.format) ? 'code' : family;
+  return stat.type === 'folder' ? 'folder' : familyOf(stat.format, stat.mime);
 }
 
 /** The extension of a resource's name (`ts`, `tar.gz` reads as `gz`), lower case; '' when it has none. */

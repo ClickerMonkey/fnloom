@@ -241,12 +241,12 @@ export const manifest = {
         "systems",
         "agent",
         "archived",
-        "session",
         "priority",
         "notify",
         "model",
         "mode",
-        "contextor"
+        "contextor",
+        "session"
       ],
       "f": [],
       "hasBody": true,
@@ -1089,7 +1089,8 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
-        "system"
+        "system",
+        "instance"
       ],
       "f": [],
       "hasBody": true,
@@ -1109,7 +1110,8 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
-        "system"
+        "system",
+        "instance"
       ],
       "f": [],
       "hasBody": true,

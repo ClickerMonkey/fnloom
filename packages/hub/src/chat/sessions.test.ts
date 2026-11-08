@@ -81,6 +81,19 @@ describe('sessions', () => {
     expect((await w.store.table('sessions').get(w.session.id))?.model).toBeUndefined();
   });
 
+  it('keep a chat mode and contextor of their own until set back to the agent fn’s', async () => {
+    const w = await chatWorld();
+    const bo = await w.user('Bo');
+    const set = await w.chat.sessions.update(w.session.id, { mode: { type: 'static', protocol: 'native', placement: 'tail', loadDetail: 'full' }, contextor: { type: 'plain' } }, w.admin.id);
+    expect(set).toMatchObject({ mode: { type: 'static', placement: 'tail' }, contextor: { type: 'plain' } });
+    expect((await w.store.table('sessions').get(w.session.id))?.mode?.type).toBe('static');
+    await expect(w.chat.sessions.update(w.session.id, { mode: null }, bo.id)).rejects.toMatchObject({ code: 'not-found' });
+    const cleared = await w.chat.sessions.update(w.session.id, { mode: null }, w.admin.id);
+    expect('mode' in cleared).toBe(false);
+    expect(cleared.contextor).toEqual({ type: 'plain' });
+    expect('contextor' in await w.chat.sessions.update(w.session.id, { contextor: null }, w.admin.id)).toBe(false);
+  });
+
   it('switch agents by swapping the agent participant', async () => {
     const w = await chatWorld();
     w.catalog.addFn('crm', { name: 'coach', kind: 'hub/llm' });

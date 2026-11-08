@@ -1,8 +1,9 @@
 /**
  * Hybrid search over the index: the query is embedded with the query embedder and matched against stored vectors and
  * words at once, merged by reciprocal rank (the store's `HybridSearch`). With no embedder connected, when embedding
- * the query fails, or when the vectors can't be searched with it (no vectors stored yet, or the query is another
- * size), it is words alone. Results can be limited to some systems.
+ * the query fails or takes longer than `embedWait` (the embedder is busy, say indexing), or when the vectors can't be
+ * searched with it (no vectors stored yet, or the query is another size), it is words alone, so a person or agent
+ * waiting never waits on the embedder for long. Results can be limited to some systems.
  */
 import type { Logger } from '@ayepi/log';
 import { type IndexedKind, type QualifiedName, type SearchHit, type SystemName } from '@harness/core';
@@ -23,6 +24,8 @@ export interface IndexSearchOptions {
   readonly document: QualifiedName;
   /** How many times more candidates to ask for when results are filtered by system. */
   readonly overfetch: number;
+  /** The longest the query's embedding is waited for, in ms (`HARNESS_SEARCH_EMBED_WAIT`). */
+  readonly embedWait: number;
 }
 
 /** Search over the store's vector and text indexes. */
@@ -64,11 +67,17 @@ export class IndexSearch implements Search {
   async #vector(text: string): Promise<number[] | undefined> {
     const active = this.#options.embedders.active();
     if (active === undefined || text.trim() === '') { return undefined; }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>((resolve) => { timer = setTimeout(() => { resolve(undefined); }, this.#options.embedWait); });
     try {
-      return (await this.#options.batcher.embed(active.query.name, [text], 'interactive'))[0];
+      const vector = await Promise.race([this.#options.batcher.embed(active.query.name, [text], 'interactive').then((vectors) => vectors[0]), late]);
+      if (vector === undefined) { this.#options.log.warn('index.search.embed.slow', { wait: this.#options.embedWait }); }
+      return vector;
     } catch (error) {
       this.#options.log.warn('index.search.embed.failed', { error: messageOf(error) });
       return undefined;
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

@@ -178,10 +178,10 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const system = SystemName.parse(executingSystem(fn));
     // the one place a system's run is given its instance: a fleet with no clear pick is refused input the caller can fix
     const routed = checked === undefined && executorKind(fn) === 'system'
-      ? await this.#deps.instances.route({ fn: fn.name, args: input.args, on: input.on, session: input.session })
+      ? await this.#deps.instances.route({ system, args: input.args, on: input.on, session: input.session })
       : undefined;
     const invalid = checked ?? (routed !== undefined && 'invalid' in routed ? routed.invalid : undefined);
-    const instance = routed !== undefined && 'instance' in routed && routed.instance.system === system ? routed.instance.instance : undefined;
+    const instance = routed !== undefined && 'instance' in routed ? routed.instance.instance : undefined;
     const turn = await store.table('turns').get(input.turn);
     if (turn === undefined) throw new RunRefused(fnError('fatal', `There is no turn ${input.turn}.`, 'not-found'));
 
@@ -638,8 +638,12 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   /** A child call must be to one of its parent's declared deps (agents call their tools, checked by the agent loop). */
+  /**
+   * A system's fn may call only the deps it declares. Agents call what their tools allow, and the hub's own fns call
+   * what the hub's code does (`hub/resource_import` fetching a URL through `web/fetch_raw`): no system declares those.
+   */
   async #checkDep(parent: Run, fn: FnRecord): Promise<void> {
-    if (parent.kind === AGENT_KIND) return;
+    if (parent.kind === AGENT_KIND || parent.system === HUB_SYSTEM) return;
     const parentFn = await this.#deps.catalog.fn(parent.fn);
     if (parentFn?.decl.deps.includes(fn.name) !== true) {
       throw new RunRefused(fnError('fatal', `${parent.fn} doesn't declare ${fn.name} as a dep, so it can't call it.`, 'not-a-dep'));

@@ -6,7 +6,8 @@
  * call its fns with typed refs; its server implements it and its client draws it.
  */
 import type { RenderMode as LibraryRenderMode } from '@aeye/resources';
-import { type Infer, type ValueOf, context, fn, g, hub, mention, system, type } from '@harness/sdk';
+import { RawPage as CoreRawPage } from '@harness/core';
+import { type Infer, type ValueOf, context, fn, g, ginAs, hub, mention, system, type } from '@harness/sdk';
 
 const renderModes = ['auto', 'always', 'never'] as const satisfies readonly LibraryRenderMode[];
 /**
@@ -69,15 +70,8 @@ export const ReadResult = g.obj({
   rendered: g.bool(),
 });
 
-/** What `web/fetch_raw` gives the hub: the fetched bytes by ref, and what the fetch found out. */
-export const RawPage = g.obj({
-  content: hub.types.ContentRef,
-  mime: g.text(),
-  finalUrl: g.text(),
-  status: g.num({ whole: true }),
-  rendered: g.bool(),
-  title: g.optional(g.text()),
-});
+/** What `web/fetch_raw` gives the hub: core's `RawPage`, the shape the hub reads the result with. */
+export const RawPage = ginAs(CoreRawPage);
 
 /** The pages mention's target: a URL. */
 export const PageTarget = g.obj({ url: g.text({ minLength: 1 }) });

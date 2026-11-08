@@ -54,6 +54,7 @@ export function executionLinkHandlers(deps: LinkHandlerDeps): { [K in ExecutionL
         const started = await runs.start({
           fn: data.fn, args: data.args, turn: parent.turn, parent: parent.id, key: data.key, actor: parent.actor, caller: system?.actor ?? parent.caller,
           priority: parent.priority, background: data.background, handlers: data.handlers,
+          ...(data.on === undefined ? {} : { on: data.on }),
           ...(parent.session === undefined ? {} : { session: parent.session }),
           ...(data.budget === undefined ? {} : { budget: { ...(data.budget.cost === undefined ? {} : { cost: data.budget.cost }), ...(data.budget.time === undefined ? {} : { time: data.budget.time }) } }),
         });

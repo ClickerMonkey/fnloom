@@ -25,7 +25,7 @@ type StoredKeys = z.infer<typeof StoredKeys>;
 /** Makes what isn't in the file yet. Injected so tests don't generate real VAPID keys. */
 export interface KeyMaker {
   secret(): string;
-  vapid(): { publicKey: string; privateKey: string };
+  vapid(): Promise<HubKeys['vapid']> | HubKeys['vapid'];
 }
 
 /** A random secret of 32 bytes, base64url. */
@@ -42,7 +42,7 @@ export async function loadKeys(settings: Pick<HubSettings, 'hubEnv' | 'authEnv' 
     jwtSecret: stored.jwtSecret ?? make.secret(),
     secretKey: stored.secretKey ?? make.secret(),
     filesSecret: stored.filesSecret ?? make.secret(),
-    vapid: stored.vapid ?? make.vapid(),
+    vapid: stored.vapid ?? await make.vapid(),
   };
   if (!HubKeys.safeParse(stored).success) {
     await mkdir(dirname(file), { recursive: true });

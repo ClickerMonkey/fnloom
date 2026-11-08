@@ -10,8 +10,8 @@
  */
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  HubMcpId, mcpsSlice, metricsSlice, modelsSlice, packagingSlice, READ_TAG, resourcesSlice, ResourceUri, RUN_STATUSES, runsSlice, Section,
-  SectionKey, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, type Display, type LinkTargetKind,
+  mcpsSlice, metricsSlice, MintMcpTokenArgs, modelsSlice, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, type Display, type LinkTargetKind,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn } from './fn.ts';
@@ -402,14 +402,14 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       // ─── Resources beyond the web endpoints ───
       resource_outline: fn({
         description: 'A resource\'s sections (headings, symbols, pages or tables), each with its key and place in the outline.',
-        args: ginAs(z.object({ uri: ResourceUri })),
+        args: ginAs(ResourceOutlineArgs),
         returns: g.list(ginAs(Section)),
         tags: [READ_TAG],
         display: 'message',
       }),
       resource_send: fn({
         description: 'Show a resource (or one section) to yourself at the next step as the model can take it: text, an image, audio or a file.',
-        args: ginAs(z.object({ uri: ResourceUri, section: SectionKey.optional() })),
+        args: ginAs(ResourceSendArgs),
         returns: g.obj({ parts: g.list(SentPart) }),
         tags: [READ_TAG],
         display: 'hidden',
@@ -417,7 +417,7 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       // ─── Hub MCP session tokens for grantee systems ───
       mint_mcp_token: fn({
         description: 'Mint a short-lived token for a hub MCP, for a session this system starts (a Claude session, for one). Only a grantee system\'s runs may call it.',
-        args: ginAs(z.object({ mcp: HubMcpId, label: z.string().min(1), ttl: z.number().int().min(1_000).optional() })),
+        args: ginAs(MintMcpTokenArgs),
         returns: g.obj({ token: g.text(), expiresAt: g.timestamp() }),
         tags: [ADMIN_TAG],
       }),

@@ -185,6 +185,8 @@ const linked = use(linkTel, linkSession).group({
       /** The optional handlers this caller supplies; the hub relays them back over `handler`. */
       handlers: z.array(z.string()),
       background: z.boolean(),
+      /** Which instance of a fleet runs the child (`ctx.call(ref, args, { on })`); absent, the hub picks (`InstanceRouter`). */
+      on: InstanceName.optional(),
     }),
     response: RunSettled,
     ws: 'call',
@@ -316,3 +318,9 @@ export const systemLinkSpec = spec({
   },
 });
 export type SystemLinkSpec = typeof systemLinkSpec;
+
+/**
+ * The code a system answers `export` with when it could not get its data ready in time (its `lifecycle.exporting`
+ * failed or ran late). The hub refuses the export then, since a copy made meanwhile might not be whole.
+ */
+export const EXPORT_NOT_READY = 'EXPORT_NOT_READY';

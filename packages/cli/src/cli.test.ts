@@ -66,7 +66,7 @@ describe('arguments', () => {
 
 describe('system new', () => {
   it('names the template’s strings, paths and identifiers after the system', () => {
-    expect(cases(SystemName.parse('notes-db'))).toEqual({ camel: 'notesDb', pascal: 'NotesDb' });
+    expect(cases(SystemName.parse('notes-db'))).toEqual({ camel: 'notesDb', pascal: 'NotesDb', constant: 'NOTES_DB' });
     const source = [
       "export const template = system('template', {});",
       'export const templateEnv = env({ ...systemFields("template") });',
@@ -75,6 +75,7 @@ describe('system new', () => {
       'npx tsx systems/template/server/main.ts && zip template-1.0.0.zip',
       '"name": "@harness/system-template"',
       'The template system’s renderers; a templates folder stays.',
+      '  TEMPLATE_TIMEOUT: z.number().default(TEMPLATE_DEFAULT), TEMPLATES: 1,',
     ].join('\n');
     expect(rename(source, SystemName.parse('notes-db')).split('\n')).toEqual([
       "export const notesDb = system('notes-db', {});",
@@ -84,6 +85,7 @@ describe('system new', () => {
       'npx tsx systems/notes-db/server/main.ts && zip notes-db-1.0.0.zip',
       '"name": "@harness/system-notes-db"',
       'The notesDb system’s renderers; a templates folder stays.',
+      '  NOTES_DB_TIMEOUT: z.number().default(NOTES_DB_DEFAULT), TEMPLATES: 1,',
     ]);
   });
 
@@ -246,10 +248,11 @@ describe('system export-data', () => {
 describe('managing installed systems', () => {
   it('lists systems with their instances, starts, stops, upgrades and uninstalls', async () => {
     const removed: string[] = [];
+    const started: unknown[] = [];
     const hub = new FakeHub({
       systems: () => [systemView()],
-      startSystem: () => ({ ok: true }),
-      stopSystem: () => ({ ok: true }),
+      startSystem: (body) => { started.push(body); return { ok: true }; },
+      stopSystem: (body) => { started.push(body); return { ok: true }; },
       upgradeSystem: () => ({ from: '1.0.0', to: '1.1.0' }),
       instances: () => systemView().instances,
       removeInstance: (body) => { removed.push(body.instance); return { ok: true }; },
@@ -259,7 +262,9 @@ describe('managing installed systems', () => {
     expect(io.lines[0]).toContain('2 instances, 1 connected');
     expect(io.lines[1]).toContain('laptop');
     expect(await runCli(['system', 'start', 'notes'], io)).toBe(0);
-    expect(await runCli(['system', 'stop', 'notes'], io)).toBe(0);
+    expect(await runCli(['system', 'stop', 'notes', '--instance', 'laptop'], io)).toBe(0);
+    expect(io.lines.at(-1)).toBe('stopped notes@laptop');
+    expect(started).toEqual([{ system: 'notes' }, { system: 'notes', instance: 'laptop' }]);
     expect(await runCli(['system', 'upgrade', 'notes', '--version', '1.1.0'], io)).toBe(0);
     expect(io.lines.at(-1)).toBe('upgraded notes from 1.0.0 to 1.1.0');
     expect(await runCli(['system', 'uninstall', 'notes', '--instance', 'desk'], io)).toBe(0);

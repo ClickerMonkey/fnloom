@@ -4,14 +4,20 @@
  * `ResourceVersion` (core's `ConvertedVersion`), stored as JSON. Tables are capped at `HARNESS_TABLE_ROWS` rows each,
  * with the real counts kept in the version's metadata (`TableCounts`), so a huge sheet never fills a form.
  */
-import { type ResourceRegistry, type ResourceSource } from '@aeye/resources';
+import { CODE_TYPES, type ResourceRegistry, type ResourceSource } from '@aeye/resources';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { type ConvertedVersion, Section } from '@harness/core';
+import { type CodeFormat, type ConvertedVersion, Section } from '@harness/core';
 import { z } from 'zod';
 import type { Converters } from './index.ts';
 
+/** The type the library gives any `text/*` mime it has no other rule for. */
+const GENERIC_TEXT = 'text';
+
 /** The prefix of every converter id made with the library, so forms record what made them. */
 export const LIBRARY_CONVERTER = '@aeye/resources';
+
+/** The library's code types, each a code format in core's families: a type added there fails to compile here until core lists it. */
+export const LIBRARY_CODE_FORMATS: readonly CodeFormat[] = CODE_TYPES;
 
 /** The real row count of each table of a capped table version, by table index (kept in its metadata). */
 export const TableCounts = z.object({ tableRows: z.array(z.number().int().min(0)) });
@@ -48,8 +54,14 @@ export class RegistryConverters implements Converters {
     this.#maxRows = options.maxRows;
   }
 
+  /**
+   * The resource type of a location and mime type. The library reads the mime first, and a generic `text/*` mime
+   * (`text/typescript`, `text/x-python`) says only `text`; the name's extension is more exact then (`typescript`).
+   */
   typeOf(location: string, mime?: string): string | undefined {
-    return this.#registry.inferType(location, mime);
+    const sent = this.#registry.inferType(location, mime);
+    const named = this.#registry.inferType(location);
+    return sent === GENERIC_TEXT && named !== undefined ? named : sent ?? named;
   }
 
   current(type: string): readonly string[] {

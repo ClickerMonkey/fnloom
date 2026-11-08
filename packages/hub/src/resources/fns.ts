@@ -8,7 +8,7 @@
  * handler, as the run's person, so the chat LLM sees and does what the browser does. Services are read when a fn
  * runs, never while registering.
  */
-import { ResourceUri, SectionKey } from '@harness/core';
+import { ResourceOutlineArgs, ResourceSendArgs } from '@harness/core';
 import { hub, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, toolArgsOf } from '@harness/sdk';
 import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 import type { LlmGateway } from '../execution/index.ts';
@@ -60,11 +60,11 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
   fns.register(refs.resource_list, async (args, ctx) => deps.resources().library.browse(read.list(args), askingOf(ctx)));
   fns.register(refs.resource_read, async (args, ctx) => deps.resources().reader.read(read.read(args), askingOf(ctx)));
   fns.register(refs.context_get, async (args, ctx) => deps.resources().context.item(read.context(args).name, askingOf(ctx)));
-  // args arrive checked against the contract's gin types; only the brands are added here
-  fns.register(refs.resource_outline, async (args, ctx) => deps.resources().reader.outline(ResourceUri.parse(args.uri), askingOf(ctx)));
+  // args arrive checked against the contract's gin types, made from these schemas; parsing adds the brands
+  fns.register(refs.resource_outline, async (args, ctx) => deps.resources().reader.outline(ResourceOutlineArgs.parse(args).uri, askingOf(ctx)));
   fns.register(refs.resource_send, async (args, ctx) => {
-    const section = args.section === undefined ? {} : { section: SectionKey.parse(args.section) };
-    const parts = await deps.resources().content.parts(ResourceUri.parse(args.uri), await modelOf(deps, ctx), askingOf(ctx), section);
+    const { uri, section } = ResourceSendArgs.parse(args);
+    const parts = await deps.resources().content.parts(uri, await modelOf(deps, ctx), askingOf(ctx), section === undefined ? {} : { section });
     return { parts: parts.map((part) => ({ type: part.type, chars: part.content.length, ...(part.name === undefined ? {} : { name: part.name }) })) };
   });
 

@@ -10,8 +10,8 @@
  */
 import type {
   ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
-  MessageId, MessagePart, ModelChoice, Notification, NotificationId, NotificationLink, NotificationReason, NotifyChoice, OutgoingPart, Page, Presence, Priority, QualifiedName, RunId,
-  Session, SessionControls, SessionId, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
+  MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
+  Session, SessionControls, SessionId, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
   Compact, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
 } from '@harness/core';
 
@@ -23,7 +23,7 @@ export interface SessionService {
   /** Change a session. `notify` is the choice of `by` alone; everything else needs `by` to own the session. */
   update(
     session: SessionId,
-    patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; model?: ModelChoice | null; priority?: Priority; archived?: boolean; notify?: NotifyChoice },
+    patch: SessionPatch,
     by: ActorId,
   ): Promise<Session>;
   /**

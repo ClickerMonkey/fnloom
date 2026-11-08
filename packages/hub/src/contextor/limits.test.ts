@@ -78,6 +78,8 @@ describe('model limits', () => {
     });
     await r.store.table('providers').insert({ id: mintId('provider'), config: { provider: 'ollama', baseURL: 'http://ollama.test:11434' }, createdAt: 0 });
     const r1 = await r.limits.resolve('deepseek-r1:7b');
+    // named under its provider (a session or role pinned to it), it is the same model, probed the same way
+    expect((await r.limits.resolve('ollama/deepseek-r1:7b')).sources.contextWindow).toBe('probe');
     expect(r1.limits).toEqual({ contextWindow: 2_048, maxOutputTokens: 512, reasoningTokens: 256, charsPerToken: 3.5 });
     expect(r1.sources).toEqual({ contextWindow: 'probe', maxOutputTokens: 'default', reasoningTokens: 'model-info', charsPerToken: 'probe' });
     expect(r1.ratio).toBe(CALIBRATION.start);

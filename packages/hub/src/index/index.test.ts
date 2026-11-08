@@ -11,6 +11,7 @@ import { FakeSystem, linkRig, pairDirectly } from '../link/rig.ts';
 import { HybridSearch } from '../store/hybrid.ts';
 import { EmbedBatcher } from './batch.ts';
 import { IndexEmbedding } from './embedding.ts';
+import { StoreModelCallLog } from '../metrics/calls.ts';
 import { SystemEmbedders } from './embedders.ts';
 import type { Embedder, Embedders } from './index.ts';
 import { StoreIndexer, sectionIndexKey } from './indexer.ts';
@@ -33,12 +34,15 @@ class WordEmbedder implements Embedder {
   readonly maxInput = 1_000;
   calls = 0;
   failing = false;
+  /** Never answer (an embedder busy with something else). */
+  stuck = false;
   readonly name: QualifiedName;
   readonly dimensions: number;
   constructor(name: QualifiedName, dimensions = 3) { this.name = name; this.dimensions = dimensions; }
   embed(texts: readonly string[]): Promise<number[][]> {
     this.calls += 1;
     const sized = (text: string): number[] => [...wordVector(text), ...Array<number>(this.dimensions - 3).fill(0)];
+    if (this.stuck) { return new Promise(() => undefined); }
     return this.failing ? Promise.reject(new Error('embedder down')) : Promise.resolve(texts.map(sized));
   }
 }
@@ -107,7 +111,7 @@ async function setup() {
   const sectioning = new Sectioning({ store, catalog, router });
   const indexer = new StoreIndexer({ store, bus, log, clock: () => 5, catalog, embedders, batcher, router, sectioning, document: DOCUMENT, maxText: 500, maxCrawl: 100 });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 });
-  const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document: DOCUMENT, overfetch: 3 });
+  const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document: DOCUMENT, overfetch: 3, embedWait: 200 });
   const suggester = new IndexSuggester({ store, catalog, search });
   return { store, bus, log, records, catalog, embedders, batcher, router, sectioning, indexer, search, suggester };
 }
@@ -319,6 +323,26 @@ describe('search and suggestions', () => {
     expect((await ctx.search.search({ text: 'product', kinds: ['fn'], limit: 5 })).map((h) => h.key)).toEqual(['shop/get']);
   });
 
+  it('stores words at once and vectors in the background when asked, so a write never waits on the embedder', async () => {
+    const { indexer } = ctx;
+    ctx.embedders.connect();
+    ctx.embedders.document.stuck = true;
+    await indexer.upsert([{ kind: 'context', key: 'memory/note', text: 'A product note' }], { vectors: 'background' });
+    expect((await ctx.store.text.search({ text: 'product', kinds: ['context'], limit: 5 })).map((h) => h.key)).toEqual(['memory/note']);
+    expect(await vectorKeys()).toEqual([]);
+  });
+
+  it('searches by words alone when the query’s embedding takes longer than its wait', async () => {
+    const { indexer } = ctx;
+    await indexer.upsert([{ kind: 'fn', key: 'shop/get', text: 'Get a product by sku' }]);
+    ctx.embedders.connect();
+    ctx.embedders.query.stuck = true;
+    const started = Date.now();
+    expect((await ctx.search.search({ text: 'product', kinds: ['fn'], limit: 5 })).map((h) => h.key)).toEqual(['shop/get']);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(ctx.records.some((r) => r.msg === 'index.search.embed.slow')).toBe(true);
+  });
+
   it('searches and suggests by words when an embedder connected before anything was embedded or sized', async () => {
     const { catalog, indexer, embedders, store, records } = ctx;
     await catalog.importManifest(await manifestFor(shop));
@@ -404,7 +428,8 @@ describe('embed lanes', () => {
 describe('embedders from systems', () => {
   it('follows embedder systems as they connect, and embeds for systems that ask', async () => {
     const rig = await linkRig();
-    const embedders = new SystemEmbedders({ catalog: rig.catalog, links: rig.links, bus: rig.bus, log: rig.log, document: DOCUMENT, query: QUERY, batch: 2 });
+    const calls = new StoreModelCallLog({ store: rig.store, clock: () => rig.time.now, log: rig.log });
+    const embedders = new SystemEmbedders({ catalog: rig.catalog, links: rig.links, bus: rig.bus, log: rig.log, clock: () => rig.time.now, document: DOCUMENT, query: QUERY, batch: 2, calls: () => calls });
     let changes = 0;
     embedders.onChange(() => { changes += 1; });
     expect(embedders.active()).toBeUndefined();
@@ -416,6 +441,10 @@ describe('embedders from systems', () => {
     expect(embedders.active()?.document.name).toBe(DOCUMENT);
     expect(changes).toBeGreaterThan(0);
     expect(await embedders.get(DOCUMENT)?.embed(['a', 'bb', 'ccc'])).toEqual([[1, 0, 0], [2, 0, 0], [3, 0, 0]]);
+    // each embed call is a model call of the index's own work, in two batches but one record
+    expect((await calls.list({ modality: 'embed' })).items).toMatchObject([
+      { modality: 'embed', provider: 'vectors', model: DOCUMENT.split('/')[1], purpose: 'index', status: 'done', units: { modality: 'embed', texts: 3, characters: 6, dimensions: 3 } },
+    ]);
 
     const batcher = new EmbedBatcher({ embedders, log: rig.log, size: 4, wait: 1, poll: 2, concurrency: { interactive: 1, background: 1 } });
     const answer = new IndexEmbedding({ embedders, batcher, catalog: rig.catalog });
@@ -423,6 +452,7 @@ describe('embedders from systems', () => {
 
     system.behaviour.embed = (texts) => texts.map(() => [1]);
     await expect(embedders.get(DOCUMENT)?.embed(['x'])).rejects.toThrow('returned a vector of 1 numbers, not 3');
+    expect((await calls.list({ modality: 'embed', status: 'failed' })).items).toHaveLength(1);
 
     system.drop();
     await settle(5);

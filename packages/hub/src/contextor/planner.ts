@@ -8,7 +8,7 @@
  */
 import type { Logger } from '@ayepi/log';
 import {
-  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, QualifiedName, type ActorId, type Exposure, type FnRecord, type LlmMessage, type ModelInfo,
+  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type Exposure, type FnRecord, type LlmMessage, type ModelInfo,
   type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
@@ -156,7 +156,7 @@ export class HubPromptPlanner implements PromptPlanner {
     const payload = parseValue(LlmPayloadType, agent.decl.payload);
     const choice = modeChoice(session, payload);
     const mode = chatModeOf(choice.mode, this.#deps);
-    const nativeTools = (await this.#deps.models()).find((m) => m.id === model)?.capabilities.includes('tools') ?? true;
+    const nativeTools = (await this.#deps.models()).find((m) => namesModel(model, m))?.capabilities.includes('tools') ?? true;
     return { mode, ctx: { estimator: await this.#deps.tokens.forModel(model), protocol: mode.protocol(nativeTools) }, payload, choice };
   }
 

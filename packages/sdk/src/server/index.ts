@@ -98,7 +98,7 @@ export async function serve<N extends string, C extends ContractShape>(contract:
 }
 
 export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
-export { placeFolders, RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, type SdkEnv } from './env.ts';
+export { placeFolders, RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, systemState, defaultStateFolder, type SdkEnv } from './env.ts';
 export { contentHash, contentHasher, type ContentHasher } from './content.ts';
 export { FileKeyStore, isPublicKey, KEY_FILE, makeKeyPair, MemoryKeyStore, signNonce, StoredKeyPair, verifyNonce } from './keys.ts';
 export { FileJournal, MemoryJournal, type OutcomeJournal } from './journal.ts';
@@ -113,7 +113,7 @@ export {
 export { NodeFiles, fileUri, uriInstance, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
 export { NodeProcess, type ProcessControl } from './process.ts';
 export { StateConflict } from './state.ts';
-export { McpFace, type McpLimits } from './mcp.ts';
+export { McpFace, mcpToolNameOf, type McpLimits } from './mcp.ts';
 export {
   LogPairingDisplay, TerminalPairingDisplay, PAIRING_QR_MODES, codeBanner, pairingDisplayFor, terminalQr,
   type PairingDisplay, type PairingShown, type PairingQrMode, type QrRenderer,

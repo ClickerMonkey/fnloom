@@ -768,3 +768,29 @@ page renderers, the folder resolver, version sections.
 - System value components keep the key `inputs` (the owner's word) and gain `readonly`; there is no separate viewer
   registration.
 - The generated authoring doc ships in the SDK package (`packages/sdk/AUTHORING.md`).
+
+---
+
+## 10. Changes made in integration
+
+What the build did differently from the sections above, accepted at integration:
+
+- **Zips use `node:zlib`** behind `@harness/hub/package` (`zip`, `unzip`, `readPackage`, `readExport`), not `fflate`
+  (§3.12, §7). One small module the CLI imports too; no new dependency.
+- **Tavily through its REST API** behind the web system's `SearchProvider` (`TavilySearch`), not `@tavily/core`
+  (§3.7, §7): one `fetch` with the injected seam, the same shapes, nothing more to install.
+- **Fn cards print types with gin's `toCode()`**, not `toCodeDefinition()` (§3.3): the definition form adds about ten
+  built-in methods per type, too costly for small windows.
+- **`RawPage`, the `hub/resource_outline`, `hub/resource_send` and `hub/mint_mcp_token` args, `ROLE_CAPABILITY`,
+  `CODE_FORMATS` and `SessionPatch` live in `@harness/core`**, each the one source the hub, the SDK contract (with
+  `ginAs`), the web system and the web app read.
+- **Hub fns are not held to declared deps** (`HubRunService`): see "Hub fns call what the hub's code calls" in
+  [harness.md](../harness.md) "Decided".
+- **The e2e suites** (§6): `fleet.e2e.test.ts` is two suites, `package.e2e.test.ts` (a packed fleet the hub installs)
+  and `pairing.e2e.test.ts` (QR pairing of a second fs instance, routing, and the ambiguous call); beside them
+  `runs.e2e.test.ts` (invalid input, errors, fn metrics, embedding model calls), `resources.e2e.test.ts`,
+  `web.e2e.test.ts`, `contextor.e2e.test.ts` (static toolset on a free model; graph on the local Ollama with request
+  sizes checked) and `authoring.e2e.test.ts` (the agent makes a system from the guide; the CLI packs it; the hub
+  installs and runs it).
+- **Defaults outside the hub** (§3.12): an instance's data and cache folders default to `data/` and `cache/` in its
+  state folder (`placeFolders`), and fs reads them from there like `ctx.dataDir` and `ctx.cacheDir`.

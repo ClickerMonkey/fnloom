@@ -51,6 +51,9 @@ export class SystemStopped extends Error {
 }
 
 /** The seams `LinkHost` runs on. Every one has a real default; tests replace them. */
+/** How long after a pairing request runs out the system asks for a new one (so the hub has marked it expired). */
+const PAIRING_RENEW_AFTER = 1_000;
+
 export interface LinkHostDeps {
   /** Opens the socket to the hub. Default: a real WebSocket with backoff and heartbeat. */
   readonly transport?: LinkTransport;
@@ -164,6 +167,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   #stopping: Promise<void> | undefined;
   #lifecycleRunner: UpDown | undefined;
   #unreachable: ReturnType<typeof setTimeout> | undefined;
+  /** Says hello again when the pending pairing request runs out. */
+  #pairingRenewal: ReturnType<typeof setTimeout> | undefined;
   #mcp: McpFace | undefined;
 
   constructor(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, deps: LinkHostDeps) {
@@ -376,6 +381,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
           this.#log.info('system.pairing.token', { pairing: reply.pairing });
         } else {
           await this.#showPairing(hub, reply.pairing, { system: this.name, instance: this.#instance, code: reply.code, url: reply.url, expiresAt: reply.expiresAt });
+          this.#renewPairing(connection, reply.expiresAt);
         }
         return;
       }
@@ -502,13 +508,27 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     } catch (error) {
       this.#log.warn('system.pairing-info-failed', { error: messageOf(error) });
     }
-    this.#pairingDisplay ??= this.#deps.pairing ?? await pairingDisplayFor(this.#env.HARNESS_PAIRING_QR, {
+    this.#pairingDisplay ??= this.#deps.pairing ?? pairingDisplayFor(this.#env.HARNESS_PAIRING_QR, {
       log: this.#log,
       tty: process.stdout.isTTY,
-      write: (text) => { process.stdout.write(`${text}
-`); },
+      write: (text) => { process.stdout.write(`${text}\n`); },
     });
     await this.#pairingDisplay.show(shown);
+  }
+
+  /**
+   * Once a pending pairing request runs out while this connection still waits on it, say hello again: the hub makes a
+   * new request, so an instance left waiting shows a fresh link and code instead of one nobody can approve.
+   */
+  #renewPairing(connection: number, expiresAt: number): void {
+    clearTimeout(this.#pairingRenewal);
+    const wait = Math.max(0, expiresAt - (this.#deps.now ?? Date.now)()) + PAIRING_RENEW_AFTER;
+    this.#pairingRenewal = setTimeout(() => {
+      if (connection !== this.#connection || this.#status !== 'pairing' || this.#stop.signal.aborted) { return; }
+      this.#log.info('system.pairing.renewed', { instance: this.#instance });
+      void this.#handshake(connection);
+    }, wait);
+    this.#pairingRenewal.unref();
   }
 
   /** Log once when the hub stays unreachable for `connectTimeout`; the transport keeps retrying. */

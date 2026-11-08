@@ -205,6 +205,7 @@ export class CallSet {
       handlers,
       background: options?.background ?? false,
       ...(options?.budget === undefined ? {} : { budget: options.budget }),
+      ...(options?.on === undefined ? {} : { on: options.on }),
     };
     try {
       // the hub dedupes calls by parent and key, so a call cut off by a dropped link is sent again on the next one

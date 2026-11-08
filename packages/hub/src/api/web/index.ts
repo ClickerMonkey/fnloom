@@ -53,7 +53,6 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     systems,
     settingsPlugin(hub, systems, ops),
     adminPlugin(hub, systems, ops, reads),
-    // build 2 slices: each starts as `notBuilt` stubs its lane replaces
     resourcesPlugin(hub, auth),
     contextPlugin(hub, auth),
     contextorPlugin(hub, systems, ops),

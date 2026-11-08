@@ -14,6 +14,14 @@ export const ModelChoice = z.union([
 ]);
 export type ModelChoice = z.infer<typeof ModelChoice>;
 
+/**
+ * Whether a model a provider serves is the one a model name means: its own id (`deepseek-r1:7b`), or its id under its
+ * provider (`ollama/deepseek-r1:7b`, how the hub names a model pinned to a provider).
+ */
+export function namesModel(name: string, model: { readonly id: string; readonly provider: string }): boolean {
+  return model.id === name || `${model.provider}/${model.id}` === name;
+}
+
 /** A tool call the model asked for. `arguments` is the JSON text the model wrote. */
 export const LlmToolCall = z.object({ id: z.string(), name: z.string(), arguments: z.string() });
 export type LlmToolCall = z.infer<typeof LlmToolCall>;

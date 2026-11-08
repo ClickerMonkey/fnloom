@@ -8,7 +8,7 @@
  */
 import type { ModelInfo as AeyeModelInfo } from '@aeye/ai';
 import type { Logger } from '@ayepi/log';
-import { messageOf, type ActorId, type LimitSource, type ModelInfo, type ModelLimits, type ModelLimitsView, type ProviderConfig, type ResolvedModelLimits } from '@harness/core';
+import { messageOf, namesModel, type ActorId, type LimitSource, type ModelInfo, type ModelLimits, type ModelLimitsView, type ProviderConfig, type ResolvedModelLimits } from '@harness/core';
 import { allRows } from '../catalog/rows.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ContextorEnv } from './env.ts';
@@ -85,8 +85,8 @@ export class HubModelLimits implements ModelLimitsService {
   async resolve(model: string): Promise<ModelLimitsView> {
     const { store, settings } = this.#deps;
     const admin = (await store.table('modelLimits').get(model))?.limits ?? {};
-    const info = (await this.#deps.models()).find((m) => m.id === model);
-    const known = this.#deps.registry.find((m) => m.id === model || `${m.provider}/${m.id}` === model);
+    const info = (await this.#deps.models()).find((m) => namesModel(model, m));
+    const known = this.#deps.registry.find((m) => namesModel(model, m));
     const probe = info === undefined ? {} : (await this.#probe(info)) ?? {};
     const card: ModelLimits = {
       ...(info?.contextWindow !== undefined && info.contextWindow > 0 ? { contextWindow: info.contextWindow } : known !== undefined && known.contextWindow > 0 ? { contextWindow: known.contextWindow } : {}),

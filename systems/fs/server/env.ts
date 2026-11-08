@@ -3,17 +3,17 @@
  * named. Feature code reads these through `fsEnv.parse()`, never `process.env`.
  */
 import { env } from '@ayepi/env';
-import { systemFields } from '@harness/sdk/server';
+import { systemFields, systemState } from '@harness/sdk/server';
 import { z } from 'zod';
 
 /** Folder names skipped by every walk (listing, glob, grep, tree, mentions) unless asked for by path. */
-const IGNORED = ['.git', 'node_modules', 'dist', 'coverage', '.types', '.harness', '.next', '.cache', '__pycache__', '.venv'];
+const IGNORED = ['.git', 'node_modules', 'dist', 'coverage', '.types', '.harness', '.harness-test', '.next', '.cache', '__pycache__', '.venv'];
 
 /** Command prefixes that run without asking when the user has no shell setting. */
 const SAFE = ['ls', 'pwd', 'cat', 'head', 'tail', 'wc', 'echo', 'which', 'git status', 'git diff', 'git log', 'git show', 'git branch', 'npm run typecheck', 'npm test', 'npx vitest', 'npx tsc'];
 
 export const fsEnv = env({
-  ...systemFields('fs'),
+  ...systemFields(),
   /** The shell `bash` runs commands with. Default: Git Bash on Windows when installed, else bash, else the system shell. */
   FS_SHELL: z.string().optional(),
   /** Lines `read` returns when no limit is given. */
@@ -70,7 +70,7 @@ export const fsEnv = env({
   FS_REVEAL_TIMEOUT: z.number().int().min(1).default(10_000),
   /** How long after answering `restart` the process restarts. */
   FS_RESTART_DELAY: z.number().int().min(0).default(250),
-});
+}).add(systemState('fs'));
 
 /** The fs system's settings, resolved. */
 export type FsSettings = ReturnType<typeof fsEnv.parse>;

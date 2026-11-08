@@ -11,3 +11,4 @@ packages/web/e2e/shots/
 
 # UI test screenshots and their fixture ids
 ui-tests/shots/
+.harness-test/

@@ -141,6 +141,14 @@ describe('exporting and restoring data', () => {
     expect(launcher.last.command.env[SYSTEM_ENV.instance]).toBe('copy');
   });
 
+  it('refuses to copy an instance that says its data is not ready', async () => {
+    const ref = await packages.installZip({ zip: await packed('1.0.0'), by: ADMIN });
+    const system = await connect(ref);
+    system.exportRefused = 'vectors could not get its data ready: disk busy';
+    await expect(packages.exportData({ ref, withSecrets: false, by: ADMIN })).rejects.toMatchObject({ status: 409, code: 'EXPORT_NOT_READY', message: 'vectors could not get its data ready: disk busy' });
+    expect(system.exports).toBe(1);
+  });
+
   it('copies an instance that is away as it lies, and refuses one the hub doesn’t run', async () => {
     const ref = await packages.installZip({ zip: await packed('1.0.0'), autoStart: false, by: ADMIN });
     const plain = await packages.exportData({ ref, withSecrets: true, by: ADMIN });

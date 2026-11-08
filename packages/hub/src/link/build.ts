@@ -16,6 +16,7 @@ import { EmbedBatcher } from '../index/batch.ts';
 import { IndexEmbedding } from '../index/embedding.ts';
 import { SystemEmbedders } from '../index/embedders.ts';
 import type { IndexTuning } from '../index/env.ts';
+import type { ModelCallLog } from '../metrics/index.ts';
 import { StoreIndexer } from '../index/indexer.ts';
 import { IndexSearch } from '../index/search.ts';
 import { Sectioning } from '../index/sectioning.ts';
@@ -71,6 +72,8 @@ export interface SystemsOptions {
   readonly embedding?: LinkEmbedding;
   /** Replace the catalog (tests); default the store catalog with kinds described over the link. */
   readonly catalog?: (describer: LinkKindDescriber) => Catalog;
+  /** Where embed calls to system embedders are recorded (the metrics module's log, looked up when used). */
+  readonly calls?: () => Pick<ModelCallLog, 'begin'>;
 }
 
 /** The link URL systems connect to, from the hub's public URL. */
@@ -112,7 +115,9 @@ export function buildSystems(options: SystemsOptions) {
     },
   });
 
-  const embedders = new SystemEmbedders({ catalog, links: connections, bus, log, document, query, batch: settings.model.HARNESS_EMBED_BATCH });
+  const embedders = new SystemEmbedders({
+    catalog, links: connections, bus, log, clock, document, query, batch: settings.model.HARNESS_EMBED_BATCH, ...(options.calls === undefined ? {} : { calls: options.calls }),
+  });
   const batcher = new EmbedBatcher({
     embedders, log, size: settings.model.HARNESS_EMBED_BATCH, wait: settings.index.HARNESS_EMBED_WAIT, poll: settings.index.HARNESS_EMBED_POLL,
     concurrency: { interactive: settings.index.HARNESS_EMBED_INTERACTIVE, background: settings.index.HARNESS_EMBED_BACKGROUND },
@@ -120,7 +125,7 @@ export function buildSystems(options: SystemsOptions) {
   const sectioning = new Sectioning({ store, catalog, router: resources });
   const indexer = new StoreIndexer({ store, bus, log, clock, catalog, embedders, batcher, router: resources, sectioning, document, maxText: settings.index.HARNESS_INDEX_MAX_TEXT, maxCrawl: settings.index.HARNESS_INDEX_CRAWL_MAX });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, settings.search);
-  const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document, overfetch: settings.index.HARNESS_SEARCH_OVERFETCH });
+  const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document, overfetch: settings.index.HARNESS_SEARCH_OVERFETCH, embedWait: settings.index.HARNESS_SEARCH_EMBED_WAIT });
   const suggest = new IndexSuggester({ store, catalog, search });
 
   const packages = new HubPackages({

@@ -36,9 +36,10 @@ outcome journal), `pairingToken` (a one-time token an admin made), `client` (the
 `version` (default: from `package.json`), `mcp` (also serve its native fns as an MCP server over stdio or HTTP),
 `connectTimeout`, and seams for `files` and `fetch`.
 
-**Env.** A system's tunables are an `@ayepi/env` slice that spreads `systemFields('<name>')` (the hub URL
-`HARNESS_HUB`, the state folder `HARNESS_SYSTEM_STATE`, the pairing token `HARNESS_PAIRING_TOKEN`) and adds its own,
-each a zod schema with a default and a TSDoc line. Feature code never reads `process.env`:
+**Env.** A system's tunables are an `@ayepi/env` slice that spreads `systemFields()` (the hub URL `HARNESS_HUB`, the
+instance `HARNESS_INSTANCE`, the pairing token `HARNESS_PAIRING_TOKEN`, the data and cache folders) and its own, each a
+zod schema with a default and a TSDoc line, then adds `systemState('<name>')`: the state folder
+`HARNESS_SYSTEM_STATE`, which defaults to one of its own per instance. Feature code never reads `process.env`:
 
 <!-- include: scripts/docs/example/server/env.ts#env -->
 

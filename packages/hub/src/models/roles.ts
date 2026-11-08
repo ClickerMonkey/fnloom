@@ -8,16 +8,14 @@
 import type { ModelCapability } from '@aeye/ai';
 import type { Logger } from '@ayepi/log';
 import {
-  MODEL_ROLES, type ActorId, type ChatCapabilities, type ModelChoice, type ModelInfo, type ModelRole, type ModelRoleView, type ProviderId, type RoleChoice, type RoleModel,
+  MODEL_ROLES, namesModel, ROLE_CAPABILITY, type ActorId, type ChatCapabilities, type ModelChoice, type ModelInfo, type ModelRole, type ModelRoleView, type ProviderId, type RoleChoice, type RoleModel,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ModelRoles } from './index.ts';
 
-/** The capability a role's model must have, by role. */
-export const ROLE_CAPABILITY = {
-  chat: 'chat', transcribe: 'hearing', dictate: 'hearing', speak: 'audio', describe: 'vision', ocr: 'vision',
-} as const satisfies Record<ModelRole, ModelCapability>;
+/** The capability a role's model must have, by role: core's words, which must be capabilities aeye knows (a rename there fails to compile here). */
+const ROLE_ABILITIES: Record<ModelRole, ModelCapability> = ROLE_CAPABILITY;
 
 /** The env defaults roles fall back to. */
 export interface RoleDefaults {
@@ -63,7 +61,7 @@ export type Resolution = { readonly model: string; readonly provider: string } |
 export function resolveChoice(
   role: ModelRole, wanted: RoleModel, offered: readonly ModelInfo[], kindOf: (provider: ProviderId) => string | undefined, categories: ReadonlyMap<string, readonly string[]>,
 ): Resolution {
-  const capability = ROLE_CAPABILITY[role];
+  const capability = ROLE_ABILITIES[role];
   const pinned = wanted.provider === undefined ? undefined : kindOf(wanted.provider);
   if (wanted.provider !== undefined && pinned === undefined) return { problem: `There is no provider ${wanted.provider}.` };
   const candidates = offered.filter((model) => pinned === undefined || model.provider === pinned);
@@ -74,7 +72,7 @@ export function resolveChoice(
     const best = able[0];
     return best === undefined ? { problem: `No configured provider offers a model that can do ${capability}.` } : { model: best.id, provider: best.provider };
   }
-  const found = candidates.find((model) => model.id === id || `${model.provider}/${model.id}` === id);
+  const found = candidates.find((model) => namesModel(id, model));
   if (found === undefined) {
     return pinned === undefined ? { problem: `No configured provider offers ${id}.` } : { model: id, provider: pinned };
   }

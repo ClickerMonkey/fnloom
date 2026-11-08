@@ -85,7 +85,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'server',
     title: 'The server: serve and the implementation',
     exports: [
-      'serve', 'ServeOptions', 'McpServe', 'RunningSystem', 'RunningStatus', 'SystemImpl', 'FnImpl', 'loggedHost', 'LoggedHost', 'systemFields', 'SYSTEM_ENV', 'placeFolders', 'sdkEnv', 'SdkEnv',
+      'serve', 'ServeOptions', 'McpServe', 'mcpToolNameOf', 'RunningSystem', 'RunningStatus', 'SystemImpl', 'FnImpl', 'loggedHost', 'LoggedHost', 'systemFields', 'systemState', 'defaultStateFolder', 'SYSTEM_ENV', 'placeFolders', 'sdkEnv', 'SdkEnv',
       'RESTART_CODE', 'SystemHost', 'LinkHost', 'LinkHostDeps', 'SystemStopped',
       'PairingDisplay', 'PairingShown', 'pairingDisplayFor', 'LogPairingDisplay', 'TerminalPairingDisplay', 'PAIRING_QR_MODES', 'PairingQrMode', 'codeBanner', 'terminalQr', 'QrRenderer',
     ],

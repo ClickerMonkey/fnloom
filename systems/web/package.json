@@ -3,11 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The web system: Tavily search, and web pages read into hub resources (script-built pages rendered with puppeteer).",
-  "harness": {
-    "name": "web",
-    "main": "server/main.ts"
-  },
+  "description": "Development only: system.json holds this system's name, version and entries.",
   "exports": {
     ".": "./shared/index.ts",
     "./server": "./server/index.ts",

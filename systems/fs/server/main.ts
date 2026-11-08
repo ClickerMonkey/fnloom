@@ -1,14 +1,15 @@
 /**
  * The fs system's process: builds the implementation with the real shell, git, file manager, snapshots and watcher,
  * builds its renderers into its cache folder, then serves both to the hub. Its undo snapshots are its data (kept
- * across upgrades and exported with it); a hub that runs it says where its data and cache folders are. `npm run dev` starts it; `restart` restarts it
- * through the running system, which builds the renderers again so changes to them go live too.
+ * across upgrades and exported with it); its data and cache folders come from the SDK's `placeFolders`, the same
+ * ones `ctx.dataDir` and `ctx.cacheDir` give. `npm run dev` starts it; `restart` restarts it through the running
+ * system, which builds the renderers again so changes to them go live too.
  */
 import { existsSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { loggedHost, serve, type RunningSystem } from '@harness/sdk/server';
+import { loggedHost, placeFolders, serve, type RunningSystem } from '@harness/sdk/server';
 import { fs } from '../shared/index.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
@@ -20,8 +21,7 @@ import { NodeExec, NodeShell, chooseShell } from './shell.ts';
 import { DiskSnapshots } from './snapshots.ts';
 
 const settings = fsEnv.parse();
-const dataDir = settings.HARNESS_SYSTEM_DATA ?? join(settings.HARNESS_SYSTEM_STATE, 'data');
-const cacheDir = settings.HARNESS_SYSTEM_CACHE ?? join(settings.HARNESS_SYSTEM_STATE, 'cache');
+const { dataDir, cacheDir } = placeFolders(settings.HARNESS_SYSTEM_STATE, settings);
 const { host, log } = loggedHost(fs.name);
 const processLimits = { outputMax: settings.FS_OUTPUT_MAX, progressEvery: settings.FS_PROGRESS_EVERY };
 const exec = new NodeExec(processLimits);

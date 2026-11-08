@@ -5,9 +5,9 @@
  * installed instance of the system; anything else already installed is refused. An export zips an installed
  * instance's data folder with `export.json` (and its config only when asked, since the hub can't tell secret fields).
  */
-import { reject as refuse } from '@ayepi/core';
+import { ApiError, reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
-import { MAIN_INSTANCE, PACKAGE_FORMAT, instanceLabel, packageFileName, type ActorId, type ContentRef, type InstanceName, type InstanceRef, type Json } from '@harness/core';
+import { EXPORT_NOT_READY, MAIN_INSTANCE, PACKAGE_FORMAT, instanceLabel, packageFileName, type ActorId, type ContentRef, type InstanceName, type InstanceRef, type Json } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { InstanceKeeper } from './status.ts';
@@ -140,7 +140,8 @@ export class HubPackages implements Packages {
 
   /**
    * Ask a connected instance to get its data folder into a state worth copying (`exporting`) and say where it is; an
-   * instance that is away, or doesn't answer in time, is copied as it lies.
+   * instance that is away, or doesn't answer in time, is copied as it lies. One that answers that it could not get
+   * its data ready (`EXPORT_NOT_READY`) is not copied: a copy made meanwhile might not be whole.
    */
   async #quiesced(ref: InstanceRef, folder: string): Promise<string> {
     const { links, exportTimeout, log } = this.#options;
@@ -150,6 +151,10 @@ export class HubPackages implements Packages {
       const { data } = await connection.peer.call('export', { timeout: exportTimeout }, { signal: AbortSignal.timeout(exportTimeout) });
       return data;
     } catch (error) {
+      if (error instanceof ApiError && error.code === EXPORT_NOT_READY) {
+        log.warn('packages.export.refused', { system: ref.system, instance: ref.instance, error: error.message });
+        throw refuse(409, EXPORT_NOT_READY, error.message);
+      }
       log.warn('packages.export.quiesce.failed', { system: ref.system, instance: ref.instance, error: messageOf(error) });
       return folder;
     }

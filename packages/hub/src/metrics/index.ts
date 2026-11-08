@@ -31,7 +31,8 @@ export interface OpenModelCall {
   /** The provider started answering (its first byte or chunk), now or at `at`. Only the first call counts. */
   firstByte(at?: number): void;
   done(input: { units: ModelUnits; cost: Usd; sent: number; received: number; interaction?: ModelCall['interaction'] }): Promise<ModelCall>;
-  failed(error: string, aborted: boolean): Promise<ModelCall>;
+  /** It failed or was stopped; a chat call still points at the interaction it saved. */
+  failed(error: string, aborted: boolean, interaction?: ModelCall['interaction']): Promise<ModelCall>;
 }
 
 /** The record of every model call. */

@@ -377,7 +377,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     if (made !== undefined) {
       const interpreted = await Promise.all(made.calls.map(async (call) => ({ ...call, plan: await this.#deps.planner.interpret(call.out, planned) })));
       const pending = await this.#startCalls(run, state.iteration, interpreted, last?.interaction);
-      await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used: pending.flatMap((call) => (call.run === undefined ? [] : [QualifiedName.parse(call.fn)])) });
+      await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used: pending.flatMap((call) => (call.run === undefined || call.invalid !== undefined ? [] : [QualifiedName.parse(call.fn)])) });
       if (message !== undefined) await this.#deps.turns.track(message, pending.flatMap((call) => (call.run === undefined ? [] : [call.run])));
       const next: AgentState = { ...state, iteration: state.iteration + 1, pending, anchor: at + made.index, ...this.#saved(conversation) };
       await store.table('runs').update(run.id, { status: 'waiting', resume: Json.parse(next) });
@@ -559,14 +559,24 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     for (const { toolCallId, block, plan, out } of calls) {
       const marker = block ? { block: true } : {};
       if (plan.type === 'invalid') {
-        pending.push({ toolCallId, fn: plan.fn ?? (out.type === 'tool' ? out.name : out.fn ?? 'run'), invalid: plan.reply, ...marker });
+        // refused input for a fn the model named is still a run (settled invalid-input at once), so the chat shows it
+        // as retried and the fn's metrics count it; the model reads the plan's reply, with the fn's card
+        const recorded = plan.fn === undefined ? undefined : await this.#deps.runs.start({
+          fn: plan.fn, args: plan.args ?? {}, invalid: plan.invalid, turn: run.turn, parent: run.id, key: toolCallKey(iteration, toolCallId), actor: run.actor, caller,
+          priority: run.priority, background: false, handlers: [], toolCallId, ...(run.session === undefined ? {} : { session: run.session }), ...(llmCall === undefined ? {} : { llmCall }),
+        }).then((started) => started.run, (error: unknown) => {
+          this.#deps.log.warn('agent.invalid-input.unrecorded', { run: run.id, fn: plan.fn ?? null, error: messageOf(error) });
+          return undefined;
+        });
+        pending.push({ toolCallId, fn: plan.fn ?? (out.type === 'tool' ? out.name : out.fn ?? 'run'), invalid: plan.reply, ...(recorded === undefined ? {} : { run: recorded }), ...marker });
         this.#deps.log.info('agent.invalid-input', { run: run.id, iteration, fn: plan.fn ?? null, source: plan.invalid.source });
         continue;
       }
       try {
         const started = await this.#deps.runs.start({
           fn: plan.fn, args: plan.args, turn: run.turn, parent: run.id, key: toolCallKey(iteration, toolCallId), actor: run.actor, caller, priority: run.priority,
-          background: false, handlers: [], toolCallId, ...(run.session === undefined ? {} : { session: run.session }), ...(llmCall === undefined ? {} : { llmCall }),
+          background: false, handlers: [], toolCallId, ...(plan.on === undefined ? {} : { on: plan.on }), ...(run.session === undefined ? {} : { session: run.session }),
+          ...(llmCall === undefined ? {} : { llmCall }),
         });
         pending.push({ toolCallId, fn: plan.fn, run: started.run, ...marker });
       } catch (error) {

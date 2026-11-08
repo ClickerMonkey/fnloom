@@ -103,6 +103,17 @@ describe('runs on a system', () => {
     await expect(r.module.runs.start({ ...input(turn, 'fs/read', { path: 'x' }), parent: RunId.parse('run_missing') })).rejects.toMatchObject({ error: { code: 'not-found' } });
   });
 
+  it('lets the hub’s own fns call fns no declaration names (their calls are the hub’s code)', async () => {
+    const r = await started();
+    r.connect('fs');
+    const turn = await r.turn();
+    r.catalog.add('hub', 'run_wait', fn({ description: 'Wait.', args: hub.fns.run_wait.args, returns: hub.fns.run_wait.returns, tags: ['read'], resume: g.obj({}) }));
+    const waited = await r.module.runs.start(input(turn, 'fs/copy', { from: 'x' }));
+    const parent = await r.module.runs.start({ ...input(turn, 'hub/run_wait', { run: waited.run, timeout: 60_000 }), key: 'wait' });
+    const child = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'x' }), parent: parent.run, key: 'child' });
+    expect((await r.module.runs.get(child.run))?.parent).toBe(parent.run);
+  });
+
   it('gives a repeated call key the run it already has (resume by key)', async () => {
     const r = await started();
     r.connect('fs');
@@ -455,7 +466,7 @@ describe('fleets', () => {
     const { run, settled } = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'a' }), on: LAPTOP });
     await settled;
     expect(fs.requests.map((request) => request.run.system.instance)).toEqual([LAPTOP]);
-    expect(asked).toEqual([{ fn: 'fs/read', args: { path: 'a' }, on: LAPTOP, session: undefined }]);
+    expect(asked).toEqual([{ system: 'fs', args: { path: 'a' }, on: LAPTOP, session: undefined }]);
     expect((await r.module.runs.get(run))?.instance).toBe(LAPTOP);
   });
 

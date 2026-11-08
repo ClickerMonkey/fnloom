@@ -194,11 +194,11 @@ export function adminOperations(hub: HubServices): AdminOperations {
       return { name: installed.name };
     },
     start_system: async (data) => {
-      await link.supervisor.start(data.system);
+      await link.supervisor.start(data.system, data.instance);
       return { ok: true };
     },
     stop_system: async (data) => {
-      await link.supervisor.stop(data.system, 'shutdown');
+      await link.supervisor.stop(data.system, 'shutdown', data.instance);
       return { ok: true };
     },
     upgrade_system: (data) => link.supervisor.upgrade(data.system, data.version),

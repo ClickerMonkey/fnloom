@@ -5,10 +5,10 @@
  * connected. With none connected, the call goes to the system's default instance (`InstanceKeeper.defaultOf`). Otherwise the call is refused as invalid input naming the choices, which an agent retries with `on`.
  */
 import {
-  MAIN_INSTANCE, ResourceUri, SystemName, splitName, type InstanceName, type InstanceRef, type InvalidInput, type Json, type QualifiedName, type SessionId,
+  MAIN_INSTANCE, ResourceUri, type InstanceName, type InstanceRef, type InvalidInput, type Json, type SessionId, type SystemName,
 } from '@harness/core';
 import type { HubStore } from '../store/index.ts';
-import type { InstancePin, InstanceRouter, LinkService, ResourceRouter } from './index.ts';
+import type { InstancePin, InstanceRouter, LinkService, ResourceRouter, RouteAsk } from './index.ts';
 import type { InstanceKeeper } from './status.ts';
 
 /** The most strings of a call's args looked at for resource URIs. */
@@ -70,8 +70,8 @@ export class FleetRouter implements InstanceRouter {
     if (pins.size === 0) { this.#pins.delete(session); } else { this.#pins.set(session, pins); }
   }
 
-  async route(input: { fn: QualifiedName; args: Json; on?: InstanceName | undefined; session?: SessionId | undefined }): Promise<{ instance: InstanceRef } | { invalid: InvalidInput }> {
-    const system = SystemName.parse(splitName(input.fn).system);
+  async route(input: RouteAsk): Promise<{ instance: InstanceRef } | { invalid: InvalidInput }> {
+    const { system } = input;
     const choices = this.connected(system);
     const pick = (instance: InstanceName) => ({ instance: { system, instance } });
     if (input.on !== undefined) { return choices.includes(input.on) || choices.length === 0 ? pick(input.on) : { invalid: ambiguous(system, choices, input.on) }; }

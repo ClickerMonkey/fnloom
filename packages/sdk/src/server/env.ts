@@ -97,17 +97,34 @@ export const sdkEnv = env({
 export type SdkEnv = ReturnType<typeof sdkEnv.parse>;
 
 /**
- * The link fields of a system's env slice, for spreading into it: `env({ ...systemFields('fs'), FS_SHELL: … })`.
- * State defaults to `.harness/systems/<name>`, the hub to this machine's default port.
+ * The link fields of a system's env slice, for spreading into it, followed by its state folder in a group of its own
+ * (`systemState`): `env({ ...systemFields(), FS_SHELL: … }).add(systemState('fs'))`. The hub defaults to this
+ * machine's default port, the instance to `main`.
  */
-export function systemFields(name: string) {
+export function systemFields() {
   return {
     /** The hub's link URL. */
     [SYSTEM_ENV.hub]: z.string().default('ws://127.0.0.1:4300/link'),
-    /** Where the system keeps its key pair, outcome journal and anything else it stores. */
-    [SYSTEM_ENV.state]: z.string().default(`.harness/systems/${name}`),
+    /** Which copy of the system this process is: `main` unless it is one of a fleet. */
+    [SYSTEM_ENV.instance]: InstanceName.default(MAIN_INSTANCE),
     /** A one-time pairing token an admin made, if any. */
     [SYSTEM_ENV.pairingToken]: z.string().optional(),
     ...placeFields,
+  } as const;
+}
+
+/** The state folder an instance gets when none is named: `.harness/systems/<name>` for `main`, else `/<instance>` in it. */
+export function defaultStateFolder(name: string, instance: InstanceName): string {
+  return instance === MAIN_INSTANCE ? `.harness/systems/${name}` : `.harness/systems/${name}/${instance}`;
+}
+
+/**
+ * A system's state folder, where it keeps its key pair, outcome journal and anything else it stores: the one named
+ * (the hub's supervisor and `npm run dev` always name one), else `defaultStateFolder`, so two instances started by
+ * hand on one machine never share a key pair. A group of its own because it reads the instance (`systemFields`).
+ */
+export function systemState(name: string) {
+  return {
+    [SYSTEM_ENV.state]: (e: { readonly [SYSTEM_ENV.instance]: InstanceName }) => z.string().default(defaultStateFolder(name, e[SYSTEM_ENV.instance])),
   } as const;
 }

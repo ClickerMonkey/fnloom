@@ -15,10 +15,10 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { createRequestListener } from '@ayepi/node';
 import {
-  errorResult, mcpHttp, mcpSourceServer, serveStdio, textResult,
+  errorResult, mcpHttp, mcpSourceServer, mcpToolName, serveStdio, textResult,
   type McpHttpHandler, type McpServer, type McpTool, type McpToolResult, type McpToolSource,
 } from '@ayepi/mcp';
-import { Json, MAIN_INSTANCE, mintId, qualify, type RunRequest } from '@harness/core';
+import { Json, MAIN_INSTANCE, mintId, qualify, splitName, type QualifiedName, type RunRequest } from '@harness/core';
 import { z } from 'zod';
 import type { AnyFnDef } from '../fn.ts';
 import type { McpServe } from './index.ts';
@@ -29,9 +29,13 @@ import { ActiveRun, type RunEnvironment } from './run.ts';
 import type { SystemTable } from './table.ts';
 import { messageOf, problemsText } from './wire.ts';
 
-/** A fn's MCP tool name (MCP tool names allow letters, digits, `_` and `-`). */
-function toolName(local: string): string {
-  return local.replace(/[^A-Za-z0-9_-]/g, '_');
+/**
+ * A fn's MCP tool name: `<system>_<local>` in the characters MCP allows (`mcpToolName`; a system name never holds
+ * `_`). One name for a fn wherever an MCP offers it: a system's own MCP face and the hub's MCPs.
+ */
+export function mcpToolNameOf(fn: QualifiedName): string {
+  const { system, local } = splitName(fn);
+  return mcpToolName(`${system}_${local}`);
 }
 
 /** How long an MCP call may run, and the largest HTTP request body in bytes (from the SDK's env slice). */
@@ -131,9 +135,8 @@ export class McpFace implements McpToolSource {
       return was !== undefined && was[0] === local && was[1] === def;
     });
     if (same) { return built.byTool; }
-    const prefix = `${this.#table.contract.name}_`;
     const byTool = new Map(fns.map(([local, def]): [string, Offered] => {
-      const name = prefix + toolName(local);
+      const name = mcpToolNameOf(qualify(this.#table.contract.name, local));
       const inputSchema = z.toJSONSchema(def.args.toValueSchema({ includeDocs: 'all' }), { io: 'input', unrepresentable: 'any' });
       return [name, { local, tool: { name, description: def.description, inputSchema } }];
     }));

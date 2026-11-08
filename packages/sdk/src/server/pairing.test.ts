@@ -54,9 +54,9 @@ describe('showing a pairing', () => {
 
   it('draws QR codes only on a terminal unless told always or never', async () => {
     const options = { log: memoryLog(), write: () => undefined };
-    expect(await pairingDisplayFor('auto', { ...options, tty: false })).toBeInstanceOf(LogPairingDisplay);
-    expect(await pairingDisplayFor('never', { ...options, tty: true })).toBeInstanceOf(LogPairingDisplay);
-    expect(await pairingDisplayFor('auto', { ...options, tty: true })).toBeInstanceOf(TerminalPairingDisplay);
-    expect(await pairingDisplayFor('always', { ...options, tty: false })).toBeInstanceOf(TerminalPairingDisplay);
+    expect(pairingDisplayFor('auto', { ...options, tty: false })).toBeInstanceOf(LogPairingDisplay);
+    expect(pairingDisplayFor('never', { ...options, tty: true })).toBeInstanceOf(LogPairingDisplay);
+    expect(pairingDisplayFor('auto', { ...options, tty: true })).toBeInstanceOf(TerminalPairingDisplay);
+    expect(pairingDisplayFor('always', { ...options, tty: false })).toBeInstanceOf(TerminalPairingDisplay);
   });
 });

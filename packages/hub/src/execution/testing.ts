@@ -11,7 +11,7 @@ import { memoryStore as rateMemory } from '@ayepi/rate';
 import { memoryBackend } from '@ayepi/work';
 import { fnDecl, type AnyFnDef } from '@harness/sdk';
 import {
-  ActorId, MAIN_INSTANCE, MessageId, SystemName, mintId, splitName, systemLinkSpec,
+  ActorId, MAIN_INSTANCE, MessageId, SystemName, mintId, systemLinkSpec,
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction,
@@ -312,8 +312,9 @@ export async function executionRig(options: {
     settings: options.settings ?? testSettings(),
     log, clock, random, store, bus, catalog,
     link: { connection: (system) => { const found = systems.get(system); return found === undefined ? undefined : found.connection(hub); } },
-    instances: options.instances ?? { route: ({ fn }) => Promise.resolve({ instance: { system: SystemName.parse(splitName(fn).system), instance: MAIN_INSTANCE } }) },
+    instances: options.instances ?? { route: ({ system }) => Promise.resolve({ instance: { system, instance: MAIN_INSTANCE } }) },
     config: { current: (system) => Promise.resolve(configs.get(system)) },
+    roles: { resolve: () => Promise.resolve(undefined) },
     presence: { active: () => Promise.resolve(presence.active) },
     turns: {
       begin: async (input) => {

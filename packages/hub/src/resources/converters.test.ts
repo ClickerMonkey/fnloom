@@ -34,6 +34,9 @@ describe('converting with @aeye/resources', () => {
   it('detects types and sections versions with their form', () => {
     expect(converters.typeOf('report.pdf')).toBe('pdf');
     expect(converters.typeOf('x', 'text/html')).toBe('html');
+    // a generic text mime says less than the name does
+    expect(converters.typeOf('hub://resources/uploads/a.ts', 'text/typescript')).toBe('typescript');
+    expect(converters.typeOf('notes.txt', 'text/plain')).toBe('text');
     const sections = converters.sections({ kind: 'markdown', converter: 'c', from: 'html', text: '# A\none\n# B\ntwo\n' });
     expect(sections.map((s) => [s.key, s.form])).toEqual([['A', 'markdown'], ['B', 'markdown']]);
   });

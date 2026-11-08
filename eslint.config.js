@@ -7,7 +7,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['eslint.config.js', 'types/**', 'explorer/**', '**/node_modules/**', '**/dist/**', '.types/**', 'coverage/**', 'explorer/explorer.html', 'packages/web/src/api/manifest.gen.ts', '.harness/**'] },
+  { ignores: ['eslint.config.js', 'types/**', 'explorer/**', '**/node_modules/**', '**/dist/**', '.types/**', 'coverage/**', 'explorer/explorer.html', 'packages/web/src/api/manifest.gen.ts', '.harness/**', '.harness-test/**', 'ui-tests/shots/**', 'packages/web/e2e/shots/**'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...vue.configs['flat/recommended'],

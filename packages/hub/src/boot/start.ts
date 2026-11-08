@@ -18,7 +18,7 @@ import { updown, type Component } from '@ayepi/updown';
 import { mintId, systemLinkSpec, type ActorId, type SystemActor } from '@harness/core';
 import { ACCESS_TOKEN } from '../api/auth.ts';
 import { FILES_PATH, HttpFront } from '../api/http.ts';
-import { generateVapidKeys, WebPushSender, type PushSender } from '../api/push.ts';
+import { generateVapidKeys, webPushSender, type PushSender } from '../api/push.ts';
 import { ClientBuildRoute, WebAppRoute } from '../api/serve.ts';
 import { NamedContentFiles } from '../api/files.ts';
 import { openContentFiles } from '../resources/storage.ts';
@@ -119,7 +119,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     const mounted = mountFiles(web, files, { secret: keys.filesSecret, basePath: FILES_PATH, expiresIn: Math.round(settings.httpEnv.HARNESS_PRESIGN_TTL / 1000), now: clock });
 
     const base: BaseServices = { settings, log, clock, bus, store };
-    const api = apiServices(base, { keys, files, presign: mounted.presign, pushSender: options.pushSender ?? new WebPushSender({ ...keys.vapid, subject: settings.pushEnv.HARNESS_VAPID_SUBJECT }) });
+    const api = apiServices(base, { keys, files, presign: mounted.presign, pushSender: options.pushSender ?? webPushSender({ ...keys.vapid, subject: settings.pushEnv.HARNESS_VAPID_SUBJECT }) });
     const { hub, builds } = assemble(base, api, options.modules, {
       peers: systems, hubActor, systemTokens: new JwtSystemTokens({ secret: keys.jwtSecret, ttl: settings.authEnv.HARNESS_ACCESS_TTL }),
     });

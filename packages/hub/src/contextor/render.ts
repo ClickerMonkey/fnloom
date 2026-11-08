@@ -4,7 +4,7 @@
  * thing, used by every place that shows it (the prompt, `inspect`, an invalid-input reply), so they always read the
  * same.
  */
-import type { Detail, InputProblem, QualifiedName } from '@harness/core';
+import { problemLine, type Detail, type InputProblem, type QualifiedName } from '@harness/core';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
 
 /** How calls come back in a prompt (`CallProtocol`, named for the renderers' signatures). */
@@ -96,7 +96,7 @@ export function textProtocolInstructions(): string {
 
 /** Input problems as the model reads them, one per line, each with where it was. */
 export function problemLines(problems: readonly InputProblem[]): string {
-  return problems.map((p) => `- ${p.path === '' ? '' : `${p.path}: `}${p.message}`).join('\n');
+  return problems.map((p) => `- ${problemLine(p)}`).join('\n');
 }
 
 /** A result sent back for a `<run>` block. */

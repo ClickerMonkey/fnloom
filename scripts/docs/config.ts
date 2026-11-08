@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { SystemPackageManifest } from '@harness/core';
 import { hub } from '@harness/sdk';
 import { z } from 'zod';
-import { COMMANDS, usageOf } from '../../packages/cli/src/index.ts';
+import { COMMANDS, usageOf } from '@harness/cli';
 import { fence, renderReached, table } from './compose.ts';
 import { contractListing } from './contract-listing.ts';
 import { filesUnder, folderListing, readText, type GuideConfig } from './guide.ts';

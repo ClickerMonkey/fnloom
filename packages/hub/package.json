@@ -30,6 +30,7 @@
     "@ayepi/node": "file:../../../ayepi/packages/node",
     "@ayepi/otel": "file:../../../ayepi/packages/otel",
     "@ayepi/plugin": "file:../../../ayepi/packages/plugin",
+    "@ayepi/push": "file:../../../ayepi/packages/push",
     "@ayepi/rate": "file:../../../ayepi/packages/rate",
     "@ayepi/sqlite": "file:../../../ayepi/packages/sqlite",
     "@ayepi/updown": "file:../../../ayepi/packages/updown",
@@ -37,10 +38,14 @@
     "@harness/core": "*",
     "@harness/sdk": "*",
     "better-sqlite3": "^12.4.1",
+    "js-yaml": "^4.3.2",
+    "jszip": "^3.10.2",
     "kysely": "^0.28.8",
+    "mammoth": "^1.13.0",
+    "pdf-parse": "^1.1.4",
     "sqlite-vec": "^0.1.7-alpha.2",
-    "web-push": "^3.6.7",
     "ws": "^8.18.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.6.7"
   }
 }

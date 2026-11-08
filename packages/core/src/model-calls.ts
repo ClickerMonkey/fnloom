@@ -115,6 +115,14 @@ export const MODEL_ROLES = ['chat', 'transcribe', 'dictate', 'speak', 'describe'
 export const ModelRole = z.enum(MODEL_ROLES);
 export type ModelRole = z.infer<typeof ModelRole>;
 
+/**
+ * The ability each role's model needs, in aeye's capability words (`ModelInfo.capabilities`). The hub pins these to
+ * aeye's `ModelCapability` at compile time; the admin's role editor offers the able models first.
+ */
+export const ROLE_CAPABILITY = {
+  chat: 'chat', transcribe: 'hearing', dictate: 'hearing', speak: 'audio', describe: 'vision', ocr: 'vision',
+} as const satisfies Record<ModelRole, string>;
+
 /** A model for a role, optionally pinned to one configured provider (when several serve the same model). */
 export const RoleModel = z.object({ model: ModelChoice, provider: ProviderId.optional() });
 export type RoleModel = z.infer<typeof RoleModel>;

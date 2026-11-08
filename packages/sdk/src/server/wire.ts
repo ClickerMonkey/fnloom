@@ -4,7 +4,7 @@
  * value that does not fit becomes a `FnError` the hub and the LLM can act on, never a crash.
  */
 import { ApiError, DISCONNECTED_STATUS } from '@ayepi/core';
-import { FnError, InvalidInput, messageOf, type ErrorClass, type InputProblem, type Json, type RunSettled } from '@harness/core';
+import { FnError, InvalidInput, messageOf, problemLine, type ErrorClass, type InputProblem, type Json, type RunSettled } from '@harness/core';
 import { CallFailed, HandlerFailed, Suspended, type Settled } from '../ctx.ts';
 import { encodeValue, parseValue, type GinType } from '../gin.ts';
 
@@ -64,7 +64,7 @@ export function invalidInput(problems: string | readonly InputProblem[]): Invali
 
 /** Refused input in one line, each problem after its path: `path: must be relative; span.to: too small`. */
 export function problemsText(invalid: InvalidInput): string {
-  return invalid.problems.map((problem) => (problem.path === '' ? problem.message : `${problem.path}: ${problem.message}`)).join('; ');
+  return invalid.problems.map(problemLine).join('; ');
 }
 
 /** `decode`, throwing the `FnError` as an `InvalidValue` when the value does not fit. */

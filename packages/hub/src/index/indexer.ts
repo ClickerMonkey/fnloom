@@ -22,7 +22,7 @@ import { sha256Hex } from '../link/keys.ts';
 import type { ResourceRouter } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { EmbedBatcher } from './batch.ts';
-import type { Embedders, IndexItem, IndexReader, Indexer, PrimaryText } from './index.ts';
+import type { Embedders, IndexItem, IndexReader, Indexer, PrimaryText, VectorTiming } from './index.ts';
 import type { Sectioning } from './sectioning.ts';
 
 /** What the indexer needs. */
@@ -136,7 +136,7 @@ export class StoreIndexer implements Indexer {
     return this.#serial.run(() => Promise.resolve());
   }
 
-  async upsert(items: readonly IndexItem[]): Promise<void> {
+  async upsert(items: readonly IndexItem[], options: { readonly vectors?: VectorTiming } = {}): Promise<void> {
     const { store, clock, document, maxText } = this.#options;
     const rows: IndexEntry[] = [];
     for (const item of items) {
@@ -152,7 +152,10 @@ export class StoreIndexer implements Indexer {
     }
     if (rows.length === 0) { return; }
     await store.text.upsert(rows.map((r) => ({ kind: r.kind, key: r.key, text: r.text })));
-    await this.#embed(rows.filter((r) => r.vectorHash !== r.hash));
+    const embedding = this.#embed(rows.filter((r) => r.vectorHash !== r.hash));
+    // `#embed` logs its own failures, so a background embedding never rejects
+    if (options.vectors === 'background') { void embedding; return; }
+    await embedding;
   }
 
   async remove(kind: IndexedKind, keys: readonly string[]): Promise<void> {

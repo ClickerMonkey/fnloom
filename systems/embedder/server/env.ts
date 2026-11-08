@@ -1,10 +1,10 @@
 /** The embedder system's tunables, an `@ayepi/env` slice. Durations are milliseconds. */
 import { env } from '@ayepi/env';
-import { systemFields } from '@harness/sdk/server';
+import { systemFields, systemState } from '@harness/sdk/server';
 import { z } from 'zod';
 
 export const embedderEnv = env({
-  ...systemFields('embedder'),
+  ...systemFields(),
   /** The EmbeddingGemma service, used when the system's config names none. */
   HARNESS_EMBEDDER_URL: z.string().default('http://127.0.0.1:8760'),
   /** Most texts per request (the service's own `max_batch` also caps it). */
@@ -21,7 +21,7 @@ export const embedderEnv = env({
   EMBEDDER_TIMEOUT: z.number().int().min(1).default(60_000),
   /** Query vectors kept for repeated searches (0 turns the cache off). */
   EMBEDDER_QUERY_CACHE: z.number().int().min(0).default(1_000),
-});
+}).add(systemState('embedder'));
 
 /** The embedder system's settings, resolved. */
 export type EmbedderSettings = ReturnType<typeof embedderEnv.parse>;

@@ -174,7 +174,10 @@ describe('the static toolset', () => {
     const { settled, run } = await answer(r, 'tools/small', 'Read README.md');
     expect(settled).toEqual({ status: 'done', result: 'Sorry.' });
     expect(fs.requests).toEqual([]);
-    expect((await r.store.table('runs').find({ where: { parent: run }, limit: 5 })).items).toEqual([]);
+    // the fn the model named is a run settled invalid-input with the args it gave; the unknown fn is no run at all
+    expect((await r.store.table('runs').find({ where: { parent: run }, limit: 5 })).items.map((child) => [child.fn, child.status, child.args])).toEqual([
+      ['fs/read', 'invalid-input', { file: 'README.md' }],
+    ]);
     const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
     const replies = transcript.filter((m) => m.role === 'tool').map((m) => say(m));
     expect(replies[0]).toContain('The args don\'t fit fs/read');

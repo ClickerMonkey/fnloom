@@ -2,7 +2,7 @@ import { FormRecord, ResourceRecord, type FormKind, type ResourceStat } from '@h
 import { describe, expect, it } from 'vitest';
 import { actionsFor, bulkActions, isMake, madeBy, webAddress } from './actions.ts';
 import { crumbsOf, folderQuery, groupQuery, hubQuery, mergeFacets, nameOf, patchQuery, readQuery, sortRecords } from './browse.ts';
-import { familyOfStat, isCodeFormat, languageOf } from './formats.ts';
+import { familyOfStat, languageOf } from './formats.ts';
 import { matchPaths, parseJson, pathsTo, treeRows, valueAt } from './json-tree.ts';
 import { delimiterOf, nextSort, parseDelimited, viewRows } from './tables.ts';
 import { clockOf, lineAt, secondsOf, transcriptLines } from './transcript.ts';
@@ -66,8 +66,6 @@ describe('formats', () => {
     expect(languageOf('typescript')).toBe('ts');
     expect(languageOf('shell')).toBe('sh');
     expect(languageOf(undefined)).toBe('');
-    expect(isCodeFormat('dart')).toBe(true);
-    expect(isCodeFormat('json')).toBe(false);
     expect(familyOfStat({ format: 'dart', type: 'file' })).toBe('code');
     expect(familyOfStat({ format: 'csv', type: 'file' })).toBe('table');
     expect(familyOfStat({ type: 'folder' })).toBe('folder');

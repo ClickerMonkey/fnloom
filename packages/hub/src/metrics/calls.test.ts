@@ -1,4 +1,4 @@
-import { RunId, SessionId, SystemName } from '@harness/core';
+import { LlmInteractionId, RunId, SessionId, SystemName } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { memoryLog, testStore } from '../testing.ts';
 import { emptyUnits, StoreModelCallLog } from './calls.ts';
@@ -32,6 +32,9 @@ describe('the model call log', () => {
     const b = await calls.begin({ modality: 'speech', provider: 'openai', model: 'tts-1', purpose: 'speak' }, 1_000);
     expect(await a.failed('content policy', false)).toMatchObject({ status: 'failed', error: 'content policy', purpose: 'form:thumbnail' });
     expect(await b.failed('stopped', true)).toMatchObject({ status: 'aborted' });
+    // a failed chat call still points at the interaction it saved
+    const chat = await calls.begin({ modality: 'chat', provider: 'ollama', model: 'small' }, 1_000);
+    expect(await chat.failed('400 no tools', false, LlmInteractionId.parse('llm_1'))).toMatchObject({ status: 'failed', interaction: 'llm_1' });
   });
 
   it('lists newest first, filtered by modality, model, system, run, session and status', async () => {

@@ -3,12 +3,12 @@
  * these for the fields it has. Durations are milliseconds.
  */
 import { env } from '@ayepi/env';
-import { systemFields } from '@harness/sdk/server';
+import { systemFields, systemState } from '@harness/sdk/server';
 import { z } from 'zod';
 import { READ_CHARS_MAX, RENDER_MODES, SEARCH_LIMIT_MAX } from '../shared/index.ts';
 
 export const webEnv = env({
-  ...systemFields('web'),
+  ...systemFields(),
   /** The Tavily API key, used when the system's config names none. */
   TAVILY_API_KEY: z.string().min(1).optional(),
   /** Tavily's API. */
@@ -47,7 +47,7 @@ export const webEnv = env({
   WEB_MENTION_LIMIT: z.number().int().min(1).default(10),
   /** Recently read pages the `@` mention offers. */
   WEB_RECENT_PAGES: z.number().int().min(0).default(50),
-});
+}).add(systemState('web'));
 
 /** The web system's settings, resolved. */
 export type WebSettings = ReturnType<typeof webEnv.parse>;

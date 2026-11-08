@@ -46,7 +46,7 @@ function engineOf(source: LlmSource, hooks: HubAiHooks, log: ExecutionInput['log
   const models = source.models === undefined ? {} : { models: source.models };
   const engine = new SwitchingLlm((providers) => new AeyeLlm(createHubAi({ providers, hooks, log, ...models })), 'providers' in source ? source.providers : {});
   if (!('stored' in source)) return { engine, providers: { reload: () => Promise.resolve() } };
-  return { engine, providers: { reload: async () => { engine.use(await source.stored.load()); } } };
+  return { engine, providers: { reload: async () => { await engine.use(await source.stored.load()); } } };
 }
 
 /** What the module is built from. */
@@ -221,6 +221,7 @@ export function executionModule(options: {
       link: hub.link.connections,
       instances: hub.link.instances,
       config: hub.link.config,
+      roles: { resolve: (role) => hub.models.roles.resolve(role) },
       ...chatPorts(hub),
       ...contextorPorts(hub),
       ...metricsPorts(hub),

@@ -70,6 +70,10 @@ export type HubMcpInput = z.infer<typeof HubMcpInput>;
 
 /** The claims of a session token minted from an MCP: which MCP, a label for its runs (`claude session 3`), and expiry. */
 export const McpTokenClaims = z.object({ mcp: HubMcpId, label: z.string().min(1), exp: z.number().int() });
+
+/** `hub/mint_mcp_token`: which MCP, a label for the session, and how long the token lasts (the hub's default when absent). */
+export const MintMcpTokenArgs = z.object({ mcp: HubMcpId, label: z.string().min(1), ttl: z.number().int().min(1_000).optional() });
+export type MintMcpTokenArgs = z.infer<typeof MintMcpTokenArgs>;
 export type McpTokenClaims = z.infer<typeof McpTokenClaims>;
 
 /**

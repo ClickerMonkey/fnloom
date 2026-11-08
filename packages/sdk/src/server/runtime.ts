@@ -5,7 +5,7 @@
  */
 import { implement, reject, server, type Server } from '@ayepi/core';
 import {
-  systemLinkSpec,
+  EXPORT_NOT_READY, systemLinkSpec,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
   type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo,
@@ -236,11 +236,11 @@ export class SystemRuntime<C extends ContractShape> {
         finished = await withTimeout(lifecycle.exporting({ ...this.systemCtx(), timeout }), timeout);
       } catch (error) {
         env.log.error('system.exporting-failed', {}, error);
-        throw reject(500, 'EXPORT_NOT_READY', `${env.system} could not get its data ready: ${messageOf(error)}`);
+        throw reject(500, EXPORT_NOT_READY, `${env.system} could not get its data ready: ${messageOf(error)}`);
       }
       if (!finished) {
         env.log.warn('system.exporting-slow', { timeout });
-        throw reject(500, 'EXPORT_NOT_READY', `${env.system} did not get its data ready within ${timeout} ms.`);
+        throw reject(500, EXPORT_NOT_READY, `${env.system} did not get its data ready within ${timeout} ms.`);
       }
     }
     return { data: env.place.dataDir };

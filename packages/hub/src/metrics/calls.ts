@@ -53,8 +53,8 @@ class OpenCall implements OpenModelCall {
     return this.#close({ status: 'done', units: input.units, cost: input.cost, sent: input.sent, received: input.received, ...(input.interaction === undefined ? {} : { interaction: input.interaction }) });
   }
 
-  async failed(error: string, aborted: boolean): Promise<ModelCall> {
-    return this.#close({ status: aborted ? 'aborted' : 'failed', error });
+  async failed(error: string, aborted: boolean, interaction?: ModelCall['interaction']): Promise<ModelCall> {
+    return this.#close({ status: aborted ? 'aborted' : 'failed', error, ...(interaction === undefined ? {} : { interaction }) });
   }
 
   async #close(patch: Partial<ModelCall> & Pick<ModelCall, 'status'>): Promise<ModelCall> {

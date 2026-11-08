@@ -1,4 +1,4 @@
-import { ActorId, InstanceName, MAIN_INSTANCE, QualifiedName, ResourceUri, SessionId, SystemName, type Manifest, type ResourceRoot } from '@harness/core';
+import { ActorId, InstanceName, MAIN_INSTANCE, ResourceUri, SessionId, SystemName, type Manifest, type ResourceRoot } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, instanceRow, manifestFor, systemRow, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
@@ -10,7 +10,6 @@ import { defaultInstanceOf, liveStatus, systemStatus } from './status.ts';
 const FS = SystemName.parse('vectors');
 const LAPTOP = InstanceName.parse('laptop');
 const DESK = InstanceName.parse('desk');
-const READ = QualifiedName.parse('vectors/read');
 
 let rig: LinkRig;
 let manifest: Manifest;
@@ -113,36 +112,36 @@ describe('many instances of one system', () => {
 
 describe('routing a call to an instance', () => {
   it('needs no choice with one connected instance, and uses the default (or main) with none', async () => {
-    expect(await rig.router.route({ fn: READ, args: {} })).toEqual({ instance: { system: FS, instance: 'main' } });
+    expect(await rig.router.route({ system: FS, args: {} })).toEqual({ instance: { system: FS, instance: 'main' } });
     await instance(LAPTOP);
-    expect(await rig.router.route({ fn: READ, args: {} })).toEqual({ instance: { system: FS, instance: 'laptop' } });
+    expect(await rig.router.route({ system: FS, args: {} })).toEqual({ instance: { system: FS, instance: 'laptop' } });
   });
 
   it('picks by on, by a URI in the args, by the session pin and by the default, in that order', async () => {
     await instance(LAPTOP);
     await instance(DESK);
     const session = SessionId.parse('ses_1');
-    expect(await rig.router.route({ fn: READ, args: {}, on: DESK })).toEqual({ instance: { system: FS, instance: 'desk' } });
-    expect(await rig.router.route({ fn: READ, args: { path: 'file://laptop/work/a.md' } })).toEqual({ instance: { system: FS, instance: 'laptop' } });
+    expect(await rig.router.route({ system: FS, args: {}, on: DESK })).toEqual({ instance: { system: FS, instance: 'desk' } });
+    expect(await rig.router.route({ system: FS, args: { path: 'file://laptop/work/a.md' } })).toEqual({ instance: { system: FS, instance: 'laptop' } });
     // URIs on two machines don't pick one
-    expect(await rig.router.route({ fn: READ, args: { from: 'file://laptop/work/a', to: 'file://desk/work/b' } })).toEqual({ invalid: ambiguous(FS, [LAPTOP, DESK]) });
+    expect(await rig.router.route({ system: FS, args: { from: 'file://laptop/work/a', to: 'file://desk/work/b' } })).toEqual({ invalid: ambiguous(FS, [LAPTOP, DESK]) });
     rig.router.pin(session, { system: FS, instance: DESK });
-    expect(await rig.router.route({ fn: READ, args: {}, session })).toEqual({ instance: { system: FS, instance: 'desk' } });
+    expect(await rig.router.route({ system: FS, args: {}, session })).toEqual({ instance: { system: FS, instance: 'desk' } });
     // an explicit on still wins over the pin
-    expect(await rig.router.route({ fn: READ, args: {}, session, on: LAPTOP })).toEqual({ instance: { system: FS, instance: 'laptop' } });
+    expect(await rig.router.route({ system: FS, args: {}, session, on: LAPTOP })).toEqual({ instance: { system: FS, instance: 'laptop' } });
     rig.router.pin(session, { system: FS });
-    expect(await rig.router.route({ fn: READ, args: {}, session })).toMatchObject({ invalid: { source: 'validation' } });
+    expect(await rig.router.route({ system: FS, args: {}, session })).toMatchObject({ invalid: { source: 'validation' } });
     await rig.instances.syncSystem(FS, { defaultInstance: LAPTOP });
-    expect(await rig.router.route({ fn: READ, args: {} })).toEqual({ instance: { system: FS, instance: 'laptop' } });
+    expect(await rig.router.route({ system: FS, args: {} })).toEqual({ instance: { system: FS, instance: 'laptop' } });
   });
 
   it('refuses an ambiguous call, or an instance that is not connected, as invalid input naming the choices', async () => {
     await instance(LAPTOP);
     await instance(DESK);
-    expect(await rig.router.route({ fn: READ, args: {} })).toEqual({
+    expect(await rig.router.route({ system: FS, args: {} })).toEqual({
       invalid: { source: 'validation', problems: [{ path: 'on', message: 'vectors has several machines: say on=laptop or on=desk' }] },
     });
-    expect(await rig.router.route({ fn: READ, args: {}, on: InstanceName.parse('attic') })).toEqual({
+    expect(await rig.router.route({ system: FS, args: {}, on: InstanceName.parse('attic') })).toEqual({
       invalid: { source: 'validation', problems: [{ path: 'on', message: 'vectors has no connected instance attic: say on=laptop or on=desk' }] },
     });
   });

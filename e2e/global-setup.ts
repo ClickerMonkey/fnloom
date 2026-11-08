@@ -1,6 +1,7 @@
 /**
- * Boots the stack once for the whole e2e run (unless `HARNESS_E2E_URL` points at one already running) and hands its
- * URL and admin account to the tests through vitest's `provide`. The data folder starts empty each run, so the suite is
+ * Boots the stack once for the whole e2e run (unless `HARNESS_E2E_URL` points at one already running): hub, fs and
+ * embedder, and the web system when `TAVILY_API_KEY` is set. Hands its URL and admin account to the tests through
+ * vitest's `provide`. The data folder starts empty each run, so the suite is
  * repeatable. Process output goes to `<data>/stack.log`.
  */
 import { appendFileSync, rmSync } from 'node:fs';
@@ -31,7 +32,7 @@ export async function setup(project: TestProject): Promise<void> {
   const log = join(data, 'stack.log');
   stack = await startStack({
     port: settings.HARNESS_E2E_PORT, data, admin: credentials, build: false, watch: false,
-    only: new Set(['hub', 'fs', 'embedder']), systems: { fs: fsConfig(ROOT), embedder: {} },
+    only: new Set(['hub', 'fs', 'embedder', ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system'] as const)]), systems: { fs: fsConfig(ROOT), embedder: {} },
     hubEnv: { HARNESS_LOG_FILES: 'false', HARNESS_DEFAULT_MODEL: liveModels()[0] ?? '' },
     output: (component, line) => { appendFileSync(log, `${component.padEnd(9)} ${line}\n`); },
   });

@@ -11,6 +11,8 @@ import type { HubSettings } from '../boot/env.ts';
 import type { Search } from '../index/index.ts';
 import type { Logger } from '@ayepi/log';
 import type { ManifestSection, ModelInfo, SystemName } from '@harness/core';
+import type { InstanceRouter } from '../link/index.ts';
+import type { ModelRoles } from '../models/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { StoreTokenEstimates } from './calibration.ts';
 import type { ContextorEnv } from './env.ts';
@@ -34,6 +36,10 @@ export interface ContextorModuleInput {
   readonly clock: () => number;
   /** How providers are asked what they serve (default: Ollama's native API over `fetch`). */
   readonly probes?: ProbeFactory;
+  /** A fleet's connected instances (default: none, so no fn gets an `on` choice). */
+  readonly instances?: Pick<InstanceRouter, 'connected'>;
+  /** The model roles, for a preview's model when the agent names none (default: no roles, so the default model). */
+  readonly roles?: Pick<ModelRoles, 'resolve'>;
 }
 
 /** Build the contextor's services. */
@@ -45,8 +51,11 @@ export function createContextor(input: ContextorModuleInput): ContextorServices 
   const tokens = new StoreTokenEstimates({ store, limits, clock });
   const graph = new StoreContextGraph({ store, catalog, clock, halfLife: settings.HARNESS_LINK_HALF_LIFE });
   const views = new CatalogFnViews(catalog);
-  const resolver = new ModelResolver({ store, settings: { model: { HARNESS_DEFAULT_MODEL: input.modelSettings.HARNESS_DEFAULT_MODEL } } });
-  const planner = new HubPromptPlanner({ store, catalog, search, views, graph, settings, log, clock, limits, tokens, models: input.models, resolver });
+  const resolver = new ModelResolver({
+    store, settings: { model: { HARNESS_DEFAULT_MODEL: input.modelSettings.HARNESS_DEFAULT_MODEL } }, roles: input.roles ?? { resolve: () => Promise.resolve(undefined) },
+  });
+  const instances = input.instances ?? { connected: () => [] };
+  const planner = new HubPromptPlanner({ store, catalog, search, views, graph, instances, settings, log, clock, limits, tokens, models: input.models, resolver });
   return { planner, limits, tokens, graph, views };
 }
 
@@ -65,5 +74,7 @@ export const contextorModule: ModuleFactory<'contextor'> = ({ hub }) => ({
     models: () => hub.execution.llm.models(),
     log: hub.log,
     clock: () => hub.clock(),
+    instances: { connected: (system) => hub.link.instances.connected(system) },
+    roles: { resolve: (role) => hub.models.roles.resolve(role) },
   }),
 });

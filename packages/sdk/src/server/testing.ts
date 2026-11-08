@@ -168,6 +168,8 @@ export interface FakeHubOptions {
   config?: unknown;
   /** Ask for pairing the first time a name says hello (default false: every key is accepted). */
   pairing?: boolean;
+  /** How long a pairing request lasts, in ms (default ten minutes). */
+  pairingTtl?: number;
   /** The welcome's start info. */
   start?: { first: boolean; upgradedFrom?: string };
   maxChunk?: number;
@@ -413,7 +415,7 @@ export class FakeHub {
           if (known === undefined && this.#options.pairing === true && data.pairingToken === undefined) {
             const pairing = mintId('pairing');
             this.#pending.set(data.name, { pairing, conn, publicKey: data.publicKey });
-            return { kind: 'pairing', pairing, code: 'ABCD-1234', url: 'http://hub.test/pair', expiresAt: Date.now() + 600_000 };
+            return { kind: 'pairing', pairing, code: 'ABCD-1234', url: 'http://hub.test/pair', expiresAt: Date.now() + (this.#options.pairingTtl ?? 600_000) };
           }
           if (known !== undefined && known !== data.publicKey) { throw reject(403, 'KEY_MISMATCH', 'A different key is paired with this name.'); }
           const nonce = randomUUID();

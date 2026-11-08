@@ -25,6 +25,20 @@ export const ContentRef = z.object({
 });
 export type ContentRef = z.infer<typeof ContentRef>;
 
+/**
+ * What `web/fetch_raw` gives the hub: the fetched bytes by ref and what the fetch found out. The one shape: the web
+ * system's contract declares it with `ginAs`, and the hub reads the result with it.
+ */
+export const RawPage = z.object({
+  content: ContentRef,
+  mime: z.string(),
+  finalUrl: z.string(),
+  status: z.number().int(),
+  rendered: z.boolean(),
+  title: z.string().optional(),
+});
+export type RawPage = z.infer<typeof RawPage>;
+
 /** A place a system offers resources from, initially a folder. */
 export const ResourceRoot = z.object({
   uri: ResourceUri,

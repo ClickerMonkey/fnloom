@@ -29,7 +29,7 @@ const slots = defineSlots<{ mark?: () => unknown; badges?: () => unknown; figure
 <style scoped>
 .browser-row + .browser-row { border-top: 1px solid var(--border); }
 .open {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 220px) 64px; align-items: center; gap: var(--space-3); width: 100%;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: var(--space-3); width: 100%;
   padding: var(--space-3) var(--space-4); border: 0; background: transparent; color: var(--text); text-align: left;
   transition: background-color var(--fast) var(--ease);
 }

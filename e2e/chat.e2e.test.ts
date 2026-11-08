@@ -3,19 +3,14 @@
  * model: sign in, start a session, have the chat agent read and summarise a file and run a shell command, and check
  * what the hub records and streams along the way. Tests share one session and run in order.
  */
-import { QualifiedName, SystemName, type RunId, type SessionId, type TreeNode, type TurnId } from '@harness/core';
+import { QualifiedName, SystemName, type RunId, type SessionId, type TurnId } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { waitFor, type SignedIn } from '../scripts/hub-client.ts';
-import { admin, Approver, ask as askAgent, clientInfo, finished, SessionWatch, settings, settle, statusOf, textOf } from './kit.ts';
+import { admin, Approver, ask as askAgent, clientInfo, finished, runsOf, SessionWatch, settings, settle, statusOf, textOf } from './kit.ts';
 
 const TURN = settings.HARNESS_E2E_TURN_TIMEOUT;
 const FS = SystemName.parse('fs');
 const fsFn = (name: string) => QualifiedName.parse(`fs/${name}`);
-
-/** Every run in a turn's tree, depth first. */
-function runsOf(node: TreeNode): TreeNode[] {
-  return [node, ...node.children.flatMap(runsOf)];
-}
 
 let me: SignedIn;
 let other: SignedIn;

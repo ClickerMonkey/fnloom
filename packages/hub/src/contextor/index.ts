@@ -21,7 +21,7 @@
  */
 import type {
   ActorId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnRecord,
-  InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
+  InstanceName, InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
   Session, SessionId, Turn, TurnId,
 } from '@harness/core';
 import type { Logger } from '@ayepi/log';
@@ -29,6 +29,7 @@ import type { LlmPayload } from '@harness/sdk';
 import type { z } from 'zod';
 import type { Catalog, FnSignature } from '../catalog/index.ts';
 import type { Search } from '../index/index.ts';
+import type { InstanceRouter } from '../link/index.ts';
 import type { ContextorEnv } from './env.ts';
 import type { Exchange } from './history.ts';
 
@@ -150,6 +151,8 @@ export interface RenderedIteration {
   readonly protocol: CallProtocol;
   /** Tool name → the fn it runs, for `interpret` (static mode: only `run` and the four hub fns). */
   readonly fns: ReadonlyMap<string, QualifiedName>;
+  /** Tools whose args carry an `on` choice (a fleet's fn in tools mode), taken out before the fn's args are checked. */
+  readonly fleet: ReadonlySet<string>;
 }
 
 /** A call the model made: a native tool call, or a `<run fn="…">{…}</run>` block from its text. */
@@ -162,8 +165,8 @@ export type ModelCallOut =
  * with invalid input (bad JSON, not the fn's args, an unknown fn: fed back softly, with the fn's card or near names).
  */
 export type CallPlan =
-  | { readonly type: 'run'; readonly fn: QualifiedName; readonly args: Json }
-  | { readonly type: 'invalid'; readonly fn: QualifiedName | undefined; readonly invalid: InvalidInput; readonly reply: string };
+  | { readonly type: 'run'; readonly fn: QualifiedName; readonly args: Json; /** The fleet instance the model named (`on`), taken out of the args. */ readonly on?: InstanceName }
+  | { readonly type: 'invalid'; readonly fn: QualifiedName | undefined; readonly invalid: InvalidInput; readonly reply: string; /** The args the model gave the fn, when they were JSON. */ readonly args?: Json };
 
 // ─── Modes and contextors ─────────────────────────────────────────────────────
 
@@ -252,6 +255,8 @@ export interface ContextorDeps {
   readonly search: Pick<Search, 'search'>;
   readonly views: FnViewSource;
   readonly graph: ContextGraph;
+  /** A fleet's connected instances, so a fn whose system has several gets an `on` choice. */
+  readonly instances: Pick<InstanceRouter, 'connected'>;
   readonly settings: ContextorEnv;
   readonly log: Logger;
   readonly clock: () => number;

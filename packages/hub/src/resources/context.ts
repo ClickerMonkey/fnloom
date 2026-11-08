@@ -16,7 +16,7 @@
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  ContextFromResourceArgs, qualify, RememberArgs, type ActorId, type ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
+  ContextFromResourceArgs, qualify, RememberArgs, seesOrigin, type ActorId, type ContextDecl, type ContextFromResourceResult, type ContextItemView, type ContextLink,
   type ContextOrigin, type ContextQuery, type ContextRecord, type DeclarableRelation, type LinkTarget, type MemoryScope, type Page, type QualifiedName,
   type ResourceUri, type Section, type SectionKey,
 } from '@harness/core';
@@ -127,7 +127,7 @@ export class StoreContextLibrary implements ContextLibrary {
       links += item.edges.length;
     }
     for (const name of dropped) { await this.#drop(name); }
-    await indexer().upsert(items.map((item) => ({ kind: 'context', key: item.record.name, text: contextText(item.record.name, item.record.decl), system: HUB_SYSTEM })));
+    await indexer().upsert(items.map((item) => ({ kind: 'context', key: item.record.name, text: contextText(item.record.name, item.record.decl), system: HUB_SYSTEM })), { vectors: 'background' });
     for (const item of items) { this.#o.onContext?.(item.record.name); }
     const created = items.filter((item) => !known.has(item.record.name)).map((item) => item.record.name);
     const updated = items.filter((item) => known.has(item.record.name)).map((item) => item.record.name);
@@ -147,7 +147,7 @@ export class StoreContextLibrary implements ContextLibrary {
     const record = this.#record(name, decl, { type: 'memory', scope, author: who.actor, ...(who.run === undefined ? {} : { run: who.run }) });
     await this.#o.store.table('context').put(record);
     await this.#o.graph().derive(record);
-    await this.#o.indexer().upsert([{ kind: 'context', key: name, text: contextText(name, decl), system: HUB_SYSTEM }]);
+    await this.#o.indexer().upsert([{ kind: 'context', key: name, text: contextText(name, decl), system: HUB_SYSTEM }], { vectors: 'background' });
     this.#o.onContext?.(name);
     this.#o.log.info('context.remembered', { name, scope: scope.to, chars: args.text.length });
     return { name };
@@ -168,7 +168,7 @@ export class StoreContextLibrary implements ContextLibrary {
     const rows = await allRows(this.#o.store.table('context'), query.system === undefined ? undefined : { system: query.system });
     const search = query.search?.trim().toLowerCase();
     const shown = rows
-      .filter((record) => this.#sees(record, who))
+      .filter((record) => seesOrigin(record.origin, who))
       .filter((record) => query.origin === undefined || (record.origin?.type ?? 'system') === query.origin)
       .filter((record) => search === undefined || search === '' || `${record.name}\n${record.decl.description}`.toLowerCase().includes(search))
       .sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name));
@@ -315,22 +315,10 @@ export class StoreContextLibrary implements ContextLibrary {
     }
   }
 
-  /** Whether a person may see an item: a memory only in its scope (its author always), everything else always. */
-  #sees(record: ContextRecord, who: Asking): boolean {
-    if (record.origin?.type !== 'memory') { return true; }
-    const { scope, author } = record.origin;
-    if (author === who.actor) { return true; }
-    switch (scope.to) {
-      case 'everyone': return true;
-      case 'user': return scope.user === who.actor;
-      case 'session': return scope.session === who.session;
-    }
-  }
-
   /** An item the person may see, or 404. */
   async #visible(name: QualifiedName, who: Asking): Promise<ContextRecord> {
     const record = await this.#o.store.table('context').get(name);
-    if (record === undefined || !this.#sees(record, who)) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
+    if (record === undefined || !seesOrigin(record.origin, who)) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
     return record;
   }
 }

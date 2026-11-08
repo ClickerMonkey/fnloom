@@ -8,7 +8,7 @@ const SHOP = SystemName.parse('shop');
 
 function system(fields: Partial<SystemRecord> = {}): SystemRecord {
   return {
-    name: SHOP, description: 'A shop.', status: 'connected', enabled: { functions: true, renderers: true }, keyFingerprint: 'fp', publicKey: 'k', version: '1',
+    name: SHOP, description: 'A shop.', status: 'connected', enabled: { functions: true, renderers: true }, version: '1',
     manifestHash: 'h', actor: ActorId.parse('act_shop'), ...fields,
   };
 }

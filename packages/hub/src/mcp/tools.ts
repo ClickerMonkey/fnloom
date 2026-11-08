@@ -9,9 +9,10 @@
  * The list is rebuilt when the scope may have changed (`refresh`), and listeners hear only when it really changed.
  * Every call resolves the scope again, so a tool hidden since the client listed it is refused, not run.
  */
-import { errorResult, McpToolSet, mcpToolName, textResult, type McpCaller, type McpToolResult, type McpToolSource } from '@ayepi/mcp';
+import { errorResult, McpToolSet, textResult, type McpCaller, type McpToolResult, type McpToolSource } from '@ayepi/mcp';
 import type { Logger } from '@ayepi/log';
-import { Json, QualifiedName, READ_TAG, splitName, type FnRecord, type HubMcp, type HubMcpId, type StaticTool } from '@harness/core';
+import { Json, QualifiedName, READ_TAG, type FnRecord, type HubMcp, type HubMcpId, type StaticTool } from '@harness/core';
+import { mcpToolNameOf } from '@harness/sdk/server';
 import { z } from 'zod';
 import type { Catalog } from '../catalog/index.ts';
 import type { FnViewSource } from '../contextor/index.ts';
@@ -19,11 +20,6 @@ import { fnCard, listedLine } from '../contextor/render.ts';
 import type { McpRunner } from './calls.ts';
 import type { McpRegistry, McpScopes } from './index.ts';
 
-/** A fn's tool name: `<system>_<local>`, in the characters MCP allows (a system name never holds `_`). */
-export function toolNameOf(fn: QualifiedName): string {
-  const { system, local } = splitName(fn);
-  return mcpToolName(`${system}_${local}`);
-}
 
 /** How many fns `find` lists when not asked. */
 const FIND_LIMIT = 10;
@@ -99,7 +95,7 @@ export class HubMcpTools implements McpToolSource {
       set.clear();
       for (const { fn, inputSchema } of defined) {
         set.define({
-          name: toolNameOf(fn.name), title: fn.name, description: fn.decl.description, inputSchema, validate: false,
+          name: mcpToolNameOf(fn.name), title: fn.name, description: fn.decl.description, inputSchema, validate: false,
           annotations: { title: fn.name, readOnlyHint: fn.decl.tags.includes(READ_TAG) },
           run: (args, { signal, caller }) => this.#run(fn.name, args, signal, caller),
         });

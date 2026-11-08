@@ -54,7 +54,7 @@ async function runOne(feature: Feature, viewport: ViewportName, context: Browser
   const started = Date.now();
   try {
     await feature.run({
-      page, viewport, fixtures: made, api,
+      page, viewport, fixtures: made, api, mock: settings.HARNESS_UI_MOCK,
       url: (path) => new URL(path, base).toString(),
       shot: async (name) => {
         step = name;

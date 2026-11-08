@@ -4,11 +4,14 @@
  * (`PromptSuspend`), and the agent loop asks the mode what each recorded call means (a run of a fn, or invalid input
  * answered at once) and turns the runs into queued runs.
  *
- * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`) and the args
- * it checked against the tool's schema.
+ * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`). The schema
+ * is what the model is shown; aeye only checks that the args are a JSON object (`acceptObject`), so args that don't
+ * fit reach the hub, which checks them against the fn's type and settles the run `invalid-input` (a run the chat
+ * shows as retried), instead of aeye retrying them where nothing records it. Args that aren't JSON at all are still
+ * aeye's to retry.
  */
 import { PromptSuspend, Tool } from '@aeye/core';
-import { Json } from '@harness/core';
+import { Json, JsonObject } from '@harness/core';
 import type { ModeTool } from '../contextor/index.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
 
@@ -41,6 +44,12 @@ export class PendingCalls {
   }
 }
 
+/** Any JSON object, else the error aeye feeds back to the model. */
+export function acceptObject(raw: unknown): object | Error {
+  const parsed = JsonObject.safeParse(raw);
+  return parsed.success ? parsed.data : new Error('The args must be one JSON object.');
+}
+
 /** An agent tool. */
 export type AgentTool = Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>;
 
@@ -51,6 +60,7 @@ export function agentTool(tool: ModeTool, calls: PendingCalls): AgentTool {
     description: tool.description,
     ...(tool.instructions === undefined ? {} : { instructions: tool.instructions }),
     schema: tool.schema,
+    parse: acceptObject,
     call: (input, _refs, ctx) => {
       const toolCallId = ctx.toolCallId;
       if (toolCallId === undefined) throw new Error(`tool ${tool.name} was called without a tool call id`);

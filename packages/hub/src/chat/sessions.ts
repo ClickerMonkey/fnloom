@@ -4,8 +4,8 @@
  * only its owner changes it (anyone in it picks their own notify choice).
  */
 import {
-  ACTIVE_RUN_STATUSES, IDS, SessionSummary, isUnsettled, mintId, type ActorId, type ChatMessage, type ModelChoice, type NotifyChoice, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
-  type Run, type Session, type SessionControls, type SessionId, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
+  ACTIVE_RUN_STATUSES, IDS, SessionSummary, isUnsettled, mintId, type ActorId, type ChatMessage, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
+  type Run, type Session, type SessionControls, type SessionId, type SessionPatch, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ChatDeps } from './deps.ts';
@@ -102,13 +102,13 @@ export class StoreSessionService implements SessionService {
 
   async update(
     id: SessionId,
-    patch: { title?: string; systems?: SystemName[] | 'all'; agent?: QualifiedName; model?: ModelChoice | null; priority?: Priority; archived?: boolean; notify?: NotifyChoice },
+    patch: SessionPatch,
     by: ActorId,
   ): Promise<Session> {
     const session = await this.require(id, by);
-    const { notify, priority, model, ...owned } = patch;
-    if (model !== undefined && session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can change this session.'); }
-    if ((Object.keys(owned).length > 0 || priority !== undefined) && session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can change this session.'); }
+    const { notify, priority, model, mode, contextor, ...owned } = patch;
+    const choices = model !== undefined || mode !== undefined || contextor !== undefined;
+    if ((Object.keys(owned).length > 0 || priority !== undefined || choices) && session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can change this session.'); }
     let participants = session.participants;
     if (notify !== undefined) { participants = participants.map((p) => (p.actor === by ? { ...p, notify } : p)); }
     if (owned.agent !== undefined && owned.agent !== session.agent) {
@@ -124,11 +124,13 @@ export class StoreSessionService implements SessionService {
       ...(owned.agent === undefined ? {} : { agent: owned.agent }),
       ...(owned.archived === undefined ? {} : { archived: owned.archived }),
       ...(model === undefined || model === null ? {} : { model }),
+      ...(mode === undefined || mode === null ? {} : { mode }),
+      ...(contextor === undefined || contextor === null ? {} : { contextor }),
       participants,
     });
-    if (model === null) { return this.#clearModel(updated); }
+    const result = await this.#clear(updated, { model: model === null, mode: mode === null, contextor: contextor === null });
     this.#deps.log.info('chat.session.updated', { session: id, by, fields: Object.keys(patch) });
-    return updated;
+    return result;
   }
 
   async delete(id: SessionId, by: ActorId): Promise<boolean> {
@@ -231,10 +233,17 @@ export class StoreSessionService implements SessionService {
   }
 
   /** Drop a session's own model, so its agent chooses again. */
-  async #clearModel(session: Session): Promise<Session> {
-    const { model, ...rest } = session;
-    if (model === undefined) { return session; }
-    const cleared = await this.#deps.store.table('sessions').put(rest);
+  /** Take the session's own model, mode or contextor away (each `true` one), so its agent fn's choice applies again. */
+  async #clear(session: Session, clear: { readonly model: boolean; readonly mode: boolean; readonly contextor: boolean }): Promise<Session> {
+    const { model, mode, contextor, ...rest } = session;
+    const gone = (clear.model && model !== undefined) || (clear.mode && mode !== undefined) || (clear.contextor && contextor !== undefined);
+    if (!gone) { return session; }
+    const cleared = await this.#deps.store.table('sessions').put({
+      ...rest,
+      ...(clear.model || model === undefined ? {} : { model }),
+      ...(clear.mode || mode === undefined ? {} : { mode }),
+      ...(clear.contextor || contextor === undefined ? {} : { contextor }),
+    });
     this.#changed(cleared);
     return cleared;
   }

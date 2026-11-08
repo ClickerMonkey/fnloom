@@ -77,6 +77,16 @@ export const FormatFamily = z.enum(FORMAT_FAMILIES);
 export type FormatFamily = z.infer<typeof FormatFamily>;
 
 /** Formats by family. A format not listed is `other`. The one table the hub's facets and the web's viewers read. */
+/**
+ * The formats that are code: every one of `@aeye/resources`' `CODE_TYPES` (the hub checks it at compile time) and the
+ * few more the hub reads as code. Grouped as `code` and drawn with the highlighter.
+ */
+export const CODE_FORMATS = [
+  'typescript', 'javascript', 'jsx', 'tsx', 'vue', 'python', 'ruby', 'go', 'rust', 'java', 'c', 'cpp', 'csharp', 'php', 'swift', 'kotlin', 'scala',
+  'css', 'scss', 'less', 'shell', 'sql', 'dockerfile', 'graphql', 'lua', 'r', 'dart',
+] as const;
+export type CodeFormat = (typeof CODE_FORMATS)[number];
+
 export const FORMAT_FAMILY: Readonly<Record<string, FormatFamily>> = {
   markdown: 'document', text: 'document', pdf: 'document', docx: 'document', pptx: 'document', rtf: 'document', odt: 'document', notebook: 'document',
   html: 'web',
@@ -86,7 +96,7 @@ export const FORMAT_FAMILY: Readonly<Record<string, FormatFamily>> = {
   audio: 'audio', video: 'video',
   zip: 'archive',
   folder: 'folder',
-  typescript: 'code', javascript: 'code', vue: 'code', python: 'code', go: 'code', rust: 'code', java: 'code', csharp: 'code', css: 'code', shell: 'code', sql: 'code',
+  ...Object.fromEntries(CODE_FORMATS.map((format) => [format, 'code'] as const)),
 };
 
 /** The family of a format (`other` for one not in `FORMAT_FAMILY`), with the mime type's major type as a fallback. */
@@ -126,6 +136,14 @@ export const ResourceQuery = PageRequest.extend({
 export type ResourceQuery = z.infer<typeof ResourceQuery>;
 
 // ─── Hub fn shapes ────────────────────────────────────────────────────────────
+
+/** `hub/resource_outline`: the resource whose sections to list. */
+export const ResourceOutlineArgs = z.object({ uri: ResourceUri });
+export type ResourceOutlineArgs = z.infer<typeof ResourceOutlineArgs>;
+
+/** `hub/resource_send`: a resource (or one section of it) to show the model at its next step. */
+export const ResourceSendArgs = z.object({ uri: ResourceUri, section: SectionKey.optional() });
+export type ResourceSendArgs = z.infer<typeof ResourceSendArgs>;
 
 /** `hub/resource_read`: a resource's text in one form, a section of it, or a window of it, for a small budget. */
 export const ResourceReadArgs = z.object({

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "web",
+  "version": "0.1.0",
+  "description": "Search the web and read web pages, which are kept as hub resources.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": { "puppeteer": "^25.16.0" } },
+  "client": { "entry": "client/index.ts" },
+  "instances": "one"
+}

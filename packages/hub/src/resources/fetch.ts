@@ -12,8 +12,7 @@ import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import { reject } from '@ayepi/core';
 import { fetchResource, type FetchFn } from '@aeye/resources';
-import { ContentRef, qualify, SystemName, type ActorId, type Run, type RunId, type RunSettled } from '@harness/core';
-import { z } from 'zod';
+import { qualify, RawPage, SystemName, type ActorId, type Run, type RunId, type RunSettled } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
 import type { RunService } from '../execution/index.ts';
 import type { ResourcesEnv } from './env.ts';
@@ -119,16 +118,6 @@ export class LibraryFetcher implements UrlFetcher {
     return { bytes: page.source.input, mime: page.source.type === 'html' && !mime.startsWith('text/html') ? 'text/html' : mime, finalUrl: page.url, rendered: false };
   }
 }
-
-/** What `web/fetch_raw` gives, as the hub reads it (the web system's `RawPage`). */
-export const RawPage = z.object({
-  content: ContentRef,
-  mime: z.string(),
-  finalUrl: z.string(),
-  status: z.number().int(),
-  rendered: z.boolean(),
-  title: z.string().optional(),
-});
 
 /** The web system, and the fn it fetches with. */
 export const WEB = SystemName.parse('web');

@@ -4,25 +4,25 @@
  * model's limits with where each came from. Pure, so it is tested alone.
  */
 import {
-  ModelLimits, RoleChoice, type DictationEngine, type LimitSource, type ModelInfo, type ModelLimitsView, type ModelRole, type ModelRoleView, type ProviderId,
+  ModelLimits, ROLE_CAPABILITY, RoleChoice, type DictationEngine, type LimitSource, type ModelInfo, type ModelLimitsView, type ModelRole, type ModelRoleView, type ProviderId,
 } from '@harness/core';
 
-/** What each role is for, the capability its model needs (as aeye names it), and that ability in words. */
+/** What each role is for, and the ability its model needs (core's `ROLE_CAPABILITY`) in words. */
 export const ROLE_WORDS = {
-  chat: { label: 'Chat', about: 'The model agents answer with unless they choose one.', capability: 'chat', can: 'chat' },
-  transcribe: { label: 'Transcription', about: 'Turns audio resources and recordings into text.', capability: 'hearing', can: 'hear audio' },
-  dictate: { label: 'Dictation', about: 'Turns what people say into the composer into text.', capability: 'hearing', can: 'hear audio' },
-  speak: { label: 'Speech', about: 'Reads answers aloud.', capability: 'audio', can: 'speak' },
-  describe: { label: 'Image descriptions', about: 'Describes images so agents can read them.', capability: 'vision', can: 'see images' },
-  ocr: { label: 'Text in images', about: 'Reads the text in images and scanned pages.', capability: 'vision', can: 'see images' },
-} as const satisfies Record<ModelRole, { label: string; about: string; capability: string; can: string }>;
+  chat: { label: 'Chat', about: 'The model agents answer with unless they choose one.', can: 'chat' },
+  transcribe: { label: 'Transcription', about: 'Turns audio resources and recordings into text.', can: 'hear audio' },
+  dictate: { label: 'Dictation', about: 'Turns what people say into the composer into text.', can: 'hear audio' },
+  speak: { label: 'Speech', about: 'Reads answers aloud.', can: 'speak' },
+  describe: { label: 'Image descriptions', about: 'Describes images so agents can read them.', can: 'see images' },
+  ocr: { label: 'Text in images', about: 'Reads the text in images and scanned pages.', can: 'see images' },
+} as const satisfies Record<ModelRole, { label: string; about: string; can: string }>;
 
 /** Where a role's setting came from, in words. */
 export const ROLE_FROM_WORDS = { setting: 'Set here', env: 'Hub default', none: 'Off' } as const satisfies Record<ModelRoleView['from'], string>;
 
 /** The models that can do a role, the able ones first by name; the rest follow so a model aeye doesn't label can still be picked. */
 export function modelsFor(role: ModelRole, models: readonly ModelInfo[]): { readonly able: readonly ModelInfo[]; readonly other: readonly ModelInfo[] } {
-  const capability = ROLE_WORDS[role].capability;
+  const capability = ROLE_CAPABILITY[role];
   const byName = [...models].sort((a, b) => a.name.localeCompare(b.name));
   return { able: byName.filter((m) => m.capabilities.includes(capability)), other: byName.filter((m) => !m.capabilities.includes(capability)) };
 }

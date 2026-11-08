@@ -1086,3 +1086,25 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **Web pages are hub resources** (build 2): the web system fetches and renders, the hub imports and converts.
 - **Model roles** (build 2): transcription, dictation, speech, image description and text-in-image models are set in
   the admin's model settings.
+- **Hub fns call what the hub's code calls** (build 2 integration): the deps rule (a fn may call only the deps it
+  declares) keeps systems honest; the hub's own fns are the hub's code, so `hub/resource_import` may fetch a URL
+  through `web/fetch_raw` without a declaration no system could name. Agents still call only their tools.
+- **Models named on their provider** (build 2 integration): `provider/id` (`ollama/deepseek-r1:7b`) and the bare id
+  name the same model everywhere a model is looked up (limits and probes, the planner's tool check, roles), through
+  core's `namesModel`.
+- **Providers list their models live** (build 2 integration): whenever the stored providers change, the hub asks
+  each for the models it serves (aeye's registry refresh), so a local Ollama's models are offered at once, with the
+  window Ollama serves them with.
+- **Tool args reach the hub's own check** (build 2 integration): agent tools accept any JSON object and the hub checks
+  the args against the fn's type, so args that don't fit become an `invalid-input` run the chat shows as "Retried"
+  and the fn's metrics count. Args that aren't JSON at all are retried inside aeye, before any run exists.
+- **Fleets in the chat** (build 2 integration): in tools mode a fn whose system has several connected instances gets
+  an optional `on` choice in its tool schema; the static toolset's `run` takes `on`. Both are taken out of the args and
+  given to the run as its instance; a call that names none and has no other pick is refused as invalid input naming
+  the machines.
+- **Every embedding is a model call** (build 2 integration): the index's calls to an embedder system are `ModelCall`
+  records (provider the system, model the embedder, purpose `index` or `search`), like calls through a provider.
+- **Common formats out of the box** (build 2 integration): the hub and fs install `@aeye/resources`' optional parsers
+  (`xlsx`, `pdf-parse`, `mammoth`, `jszip`, `js-yaml`), so workbooks become tables, pdfs pages and docx markdown.
+- **Reading a web page asks first** (build 2 integration): `web/read` imports through `hub/resource_import`, which is
+  a write, so a person approves it unless a policy allows it.

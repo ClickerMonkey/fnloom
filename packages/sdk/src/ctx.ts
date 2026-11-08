@@ -154,6 +154,8 @@ export interface CallOptions<H extends Handlers> {
   /** Don't wait: the call continues even if this run finishes. */
   background?: boolean;
   handlers?: HandlerArgs<H>;
+  /** Which instance of a fleet runs the call (`laptop`); absent, the hub picks by the args' resource URIs, the session's pin or the system's default. */
+  on?: InstanceName;
 }
 
 /** Calls a dep. When the dep has required handlers, the options (with those handlers) are required too. */

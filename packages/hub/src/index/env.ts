@@ -12,6 +12,7 @@ export const indexEnv = env({
   HARNESS_EMBED_BACKGROUND: z.number().int().min(1).default(1).describe('How many embed batches for indexing and systems run at once; the rest wait, so the embedder stays free for people.'),
   HARNESS_INDEX_MAX_TEXT: z.number().int().min(100).default(4_000).describe('The most characters of a section, fn or context that are embedded.'),
   HARNESS_SEARCH_OVERFETCH: z.number().int().min(1).default(3).describe('How many extra candidates search asks for when it filters by system.'),
+  HARNESS_SEARCH_EMBED_WAIT: z.number().int().min(0).default(4_000).describe('The longest search waits for its query\'s embedding (a busy embedder may be indexing) before it searches by words alone.'),
   HARNESS_INDEX_CRAWL_MAX: z.number().int().min(1).default(20_000).describe('The most resources one crawl of a root (on connect, for roots that index everything) looks at.'),
 });
 

@@ -125,4 +125,12 @@ describe('waiting to be paired', () => {
     await running?.ready();
     expect(shown).toHaveLength(1);
   });
+
+  it('asks for a new pairing once the one it shows runs out, and shows that one', async () => {
+    const hub = new FakeHub({ pairing: true, pairingTtl: 50, config: { name: 'v' } });
+    const shown: PairingShown[] = [];
+    await start(hub, { display: { show: (pairing) => { shown.push(pairing); return Promise.resolve(); } } });
+    await vi.waitFor(() => { expect(shown.length).toBeGreaterThanOrEqual(2); }, { timeout: 5_000 });
+    expect(hub.hellos.length).toBeGreaterThanOrEqual(2);
+  });
 });

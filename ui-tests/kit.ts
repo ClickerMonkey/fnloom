@@ -26,6 +26,8 @@ export const uiEnv = env({
   HARNESS_UI_HEADLESS: z.boolean().default(true),
   /** How long the fixture's agent turn may take. */
   HARNESS_UI_TURN_TIMEOUT: z.number().int().min(10_000).default(240_000),
+  /** The app talks to the web app's mock hub (`ui-tests/mock.ts` sets it): features skip what only a real hub does. */
+  HARNESS_UI_MOCK: z.boolean().default(false),
 });
 export type UiSettings = ReturnType<typeof uiEnv.parse>;
 
@@ -77,6 +79,8 @@ export interface FeatureContext {
   readonly fixtures: Fixtures;
   /** Signed in to the API as the admin, to set things up or check what the UI did. */
   readonly api: SignedIn;
+  /** Whether the hub behind the app is the mock (`HARNESS_UI_MOCK`), so a feature can't start real systems on it. */
+  readonly mock: boolean;
   /** An absolute URL on the harness under test. */
   url(path: string): string;
   /** Save a screenshot of this step and check its layout. */

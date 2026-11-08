@@ -42,7 +42,7 @@ try {
   const code = await new Promise<number>((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', runner], {
       stdio: 'inherit',
-      env: { ...process.env, HARNESS_UI_URL: webUrl, HARNESS_UI_EMAIL: MOCK_ADMIN.email, HARNESS_UI_PASSWORD: MOCK_ADMIN.password },
+      env: { ...process.env, HARNESS_UI_MOCK: 'true', HARNESS_UI_URL: webUrl, HARNESS_UI_EMAIL: MOCK_ADMIN.email, HARNESS_UI_PASSWORD: MOCK_ADMIN.password },
     });
     child.on('exit', (exit) => { resolve(exit ?? 1); });
   });

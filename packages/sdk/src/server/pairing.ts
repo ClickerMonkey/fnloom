@@ -5,8 +5,8 @@
  * processes nobody watches. Which one a host uses follows `HARNESS_PAIRING_QR`.
  */
 import type { InstanceName, Timestamp } from '@harness/core';
+import QRCode from 'qrcode';
 import type { Log } from '../ctx.ts';
-import { messageOf } from './wire.ts';
 
 /** What is shown while a system waits for its pairing to be approved. */
 export interface PairingShown {
@@ -54,7 +54,7 @@ export function codeBanner(code: string): string {
 
 /**
  * Prints the pairing for a person at the terminal: a QR code of the link, the link, and the code in large letters, as
- * well as logging it. Without a QR renderer (the `qrcode` package isn't installed) it prints the link and code alone.
+ * well as logging it. Without a QR renderer it prints the link and code alone.
  */
 export class TerminalPairingDisplay implements PairingDisplay {
   readonly #log: LogPairingDisplay;
@@ -84,41 +84,14 @@ export class TerminalPairingDisplay implements PairingDisplay {
   }
 }
 
-/** The `qrcode` package's terminal renderer, if the package is installed (it is optional). */
-export async function terminalQr(): Promise<QrRenderer | undefined> {
-  // the specifier is a variable so the SDK builds without the optional package; what loads is checked below
-  const specifier = 'qrcode';
-  let loaded: unknown;
-  try {
-    loaded = await import(specifier);
-  } catch {
-    return undefined;
-  }
-  const fallback: unknown = typeof loaded === 'object' && loaded !== null ? Reflect.get(loaded, 'default') : undefined;
-  const toString = qrToString(loaded) ?? qrToString(fallback);
-  if (toString === undefined) { return undefined; }
-  return async (text) => {
-    const drawn: unknown = await toString(text, { type: 'terminal', small: true });
-    if (typeof drawn !== 'string') { throw new Error(`qrcode drew ${typeof drawn}, not text`); }
-    return drawn;
-  };
-}
-
-/** `qrcode`'s `toString`, when the module has one. */
-function qrToString(module: unknown): ((text: string, options: { type: 'terminal'; small: boolean }) => Promise<unknown>) | undefined {
-  const toString: unknown = typeof module === 'object' && module !== null ? Reflect.get(module, 'toString') : undefined;
-  if (typeof toString !== 'function' || toString === Object.prototype.toString) { return undefined; }
-  return (text, options) => Promise.resolve()
-    .then((): unknown => Reflect.apply(toString, module, [text, options]))
-    .catch((error: unknown) => { throw new Error(`qrcode: ${messageOf(error)}`, { cause: error }); });
-}
+/** The `qrcode` package's terminal renderer: small UTF-8 blocks, so the code fits a terminal. */
+export const terminalQr: QrRenderer = (text) => QRCode.toString(text, { type: 'terminal', small: true });
 
 /**
  * The display a host uses: the terminal one when QR codes are on (`always`, or `auto` on a terminal), the log-only one
  * otherwise.
  */
-export async function pairingDisplayFor(mode: PairingQrMode, options: { log: Log; tty: boolean; write: (text: string) => void }): Promise<PairingDisplay> {
+export function pairingDisplayFor(mode: PairingQrMode, options: { log: Log; tty: boolean; write: (text: string) => void }): PairingDisplay {
   if (mode === 'never' || (mode === 'auto' && !options.tty)) { return new LogPairingDisplay(options.log); }
-  const qr = await terminalQr();
-  return new TerminalPairingDisplay({ log: options.log, write: options.write, ...(qr === undefined ? {} : { qr }) });
+  return new TerminalPairingDisplay({ log: options.log, write: options.write, qr: terminalQr });
 }

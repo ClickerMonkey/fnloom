@@ -170,6 +170,14 @@ export interface SystemTokens {
   issue(session: LinkSession): string;
 }
 
+/** One call to place on a fleet: the executing system, the call's args, the caller's pick and the session. */
+export interface RouteAsk {
+  readonly system: SystemName;
+  readonly args: Json;
+  readonly on?: InstanceName | undefined;
+  readonly session?: SessionId | undefined;
+}
+
 /** An instance a session is pinned to, or no pin for that system. */
 export type InstancePin = InstanceRef | { readonly system: SystemName; readonly instance?: undefined };
 
@@ -180,7 +188,8 @@ export type InstancePin = InstanceRef | { readonly system: SystemName; readonly 
  * choices. The run service asks once per run (hub-platform's one call site).
  */
 export interface InstanceRouter {
-  route(input: { fn: QualifiedName; args: Json; on?: InstanceName | undefined; session?: SessionId | undefined }): Promise<{ instance: InstanceRef } | { invalid: InvalidInput }>;
+  /** The instance of `system` (the system executing the fn, which is not always the one that declared it) for one call. */
+  route(input: RouteAsk): Promise<{ instance: InstanceRef } | { invalid: InvalidInput }>;
   /** The connected instances of a system, for the `on` enum added to tool schemas when there is more than one. */
   connected(system: SystemName): readonly InstanceName[];
   /** Pin a session to an instance of a system (`/on laptop`), or clear the pin. */

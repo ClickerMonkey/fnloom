@@ -169,6 +169,19 @@ export const NotificationListQuery = PageRequest.extend({ unread: z.boolean().op
 export type NotificationListQuery = z.infer<typeof NotificationListQuery>;
 
 /** Sessions, messages, turns and what the composer may offer. */
+/**
+ * What can change on a session: its owner's settings (title, systems, agent, archive, priority, and the agent's model,
+ * chat mode and contextor here, each `null` to go back to the agent fn's own), and any participant's `notify`.
+ */
+export const SessionPatch = Session.pick({ title: true, systems: true, agent: true, archived: true }).partial().extend({
+  priority: Priority.optional(),
+  notify: NotifyChoice.optional(),
+  model: Session.shape.model.unwrap().nullable().optional(),
+  mode: Session.shape.mode.unwrap().nullable().optional(),
+  contextor: Session.shape.contextor.unwrap().nullable().optional(),
+});
+export type SessionPatch = z.infer<typeof SessionPatch>;
+
 export const chatSlice = spec({
   endpoints: use(tel, hubAuth).group({
     capabilities: { body: z.object({ session: SessionId.optional() }), response: ChatCapabilities, ws: 'capabilities' },
@@ -177,20 +190,7 @@ export const chatSlice = spec({
     sessions: { body: SessionListQuery, response: page(SessionSummary), ws: 'sessions' },
     session: { body: z.object({ session: SessionId }), response: Session, ws: 'session' },
     createSession: { body: Session.pick({ agent: true, systems: true, title: true }).partial(), response: Session, ws: 'createSession' },
-    updateSession: {
-      body: Session.pick({ title: true, systems: true, agent: true, archived: true }).partial().extend({
-        session: SessionId,
-        priority: Priority.optional(),
-        notify: NotifyChoice.optional(),
-        /** The model the agent answers with here; `null` goes back to the one its fn chooses. */
-        model: Session.shape.model.unwrap().nullable().optional(),
-        /** The chat mode and contextor here; `null` goes back to the agent fn's. */
-        mode: Session.shape.mode.unwrap().nullable().optional(),
-        contextor: Session.shape.contextor.unwrap().nullable().optional(),
-      }),
-      response: Session,
-      ws: 'updateSession',
-    },
+    updateSession: { body: SessionPatch.extend({ session: SessionId }), response: Session, ws: 'updateSession' },
     /** Delete a session for good, with its messages and state; its owner only. Work still running in it is cancelled. */
     deleteSession: { body: z.object({ session: SessionId }), response: z.object({ deleted: z.boolean() }), ws: 'deleteSession' },
     /** The priority and budgets the next turn in a session would get, for the budget meter. */
@@ -287,8 +287,10 @@ export const systemsSlice = spec({
     enableSystem: { body: z.object({ system: SystemName, functions: z.boolean().optional(), renderers: z.boolean().optional() }), response: z.object({ enabled: SystemEnabled }), ws: 'enableSystem' },
     removeSystem: { body: z.object({ system: SystemName }), response: z.object({ fnsUnavailable: z.number().int() }), ws: 'removeSystem' },
     installSystem: { body: z.object({ source: InstallSource, config: Json.optional(), autoStart: z.boolean().optional() }), response: z.object({ name: SystemName }), ws: 'installSystem' },
-    startSystem: { body: z.object({ system: SystemName }), response: z.object({ ok: z.boolean() }), ws: 'startSystem' },
-    stopSystem: { body: z.object({ system: SystemName }), response: z.object({ ok: z.boolean() }), ws: 'stopSystem' },
+    /** Start an installed system's instances, or one of them. */
+    startSystem: { body: z.object({ system: SystemName, instance: InstanceName.optional() }), response: z.object({ ok: z.boolean() }), ws: 'startSystem' },
+    /** Stop an installed system's instances, or one of them. */
+    stopSystem: { body: z.object({ system: SystemName, instance: InstanceName.optional() }), response: z.object({ ok: z.boolean() }), ws: 'stopSystem' },
     upgradeSystem: { body: z.object({ system: SystemName, version: z.string().optional() }), response: z.object({ from: z.string(), to: z.string() }), ws: 'upgradeSystem' },
     reimport: { body: z.object({ system: SystemName }), response: ImportReport, ws: 'reimport' },
   }),

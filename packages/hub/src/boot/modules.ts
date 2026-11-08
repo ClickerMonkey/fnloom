@@ -66,6 +66,7 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       launcher: seams.launcher ?? new NodeLauncher({ baseEnv: process.env, nodeArgs: process.execArgv }),
       ...(seams.installer === undefined ? {} : { installer: seams.installer }),
       content: () => hub.api.content,
+      calls: () => hub.metrics.calls,
     });
     builds.set(context, built);
     return built;

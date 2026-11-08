@@ -167,12 +167,21 @@ describe('model choices', () => {
   it('resolve ids, categories and weights, with the hub default otherwise', async () => {
     const store = await testStore();
     await store.table('modelCategories').insert({ id: ModelCategoryId.parse('mct_1'), name: 'fast', description: 'Fast ones', models: ['m-fast', 'm-slow'] });
-    const models = new ModelResolver({ store, settings: testSettings() });
+    const models = new ModelResolver({ store, settings: testSettings(), roles: { resolve: () => Promise.resolve(undefined) } });
     expect(await models.resolve(undefined)).toEqual({ model: 'test-model' });
     expect(await models.resolve({ model: 'x' })).toEqual({ model: 'x' });
     expect(await models.resolve({ category: 'fast' })).toEqual({ model: 'm-fast' });
     expect(await models.resolve({ category: 'none' })).toEqual({ model: 'test-model' });
     expect(await models.resolve({ auto: { cost: 1, accuracy: 0.5 } })).toEqual({ weights: { cost: 1, accuracy: 0.5 } });
+  });
+
+  it('use the chat role’s model, on its provider, when no choice names one', async () => {
+    const store = await testStore();
+    const roles = { resolve: (role: string) => Promise.resolve(role === 'chat' ? { model: 'qwen2.5:3b', provider: 'ollama' } : undefined) };
+    const models = new ModelResolver({ store, settings: testSettings(), roles });
+    expect(await models.resolve(undefined)).toEqual({ model: 'ollama/qwen2.5:3b' });
+    expect(await models.resolve({ category: 'none' })).toEqual({ model: 'ollama/qwen2.5:3b' });
+    expect(await models.resolve({ model: 'x' })).toEqual({ model: 'x' });
   });
 });
 

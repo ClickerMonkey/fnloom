@@ -77,14 +77,14 @@ export function lanAddresses(): string[] {
 }
 
 /** A started child process and the promise of its exit code. */
-interface Child {
+export interface Child {
   readonly name: ComponentName;
   readonly process: ChildProcess;
   readonly exited: Promise<number | null>;
 }
 
 /** Spawn a Node script, routing its output line by line. */
-function run(name: ComponentName, args: readonly string[], options: { cwd: string; env: Readonly<Record<string, string>>; output: StackOptions['output'] }): Child {
+export function runComponent(name: ComponentName, args: readonly string[], options: { cwd: string; env: Readonly<Record<string, string>>; output: StackOptions['output'] }): Child {
   const child = spawn(process.execPath, [...args], { cwd: options.cwd, env: { ...process.env, ...options.env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const lines = (stream: 'out' | 'err') => (chunk: Buffer) => {
     for (const line of chunk.toString().split(/\r?\n/)) { if (line !== '') { options.output(name, line, stream); } }
@@ -99,7 +99,7 @@ function run(name: ComponentName, args: readonly string[], options: { cwd: strin
  * Stop a child and wait for it (killing it hard after `grace` ms). On Windows signals can't be sent and `tsx` runs the
  * script in a grandchild, so the whole process tree is ended with `taskkill /T`.
  */
-async function halt(child: Child, grace: number): Promise<void> {
+export async function halt(child: Child, grace: number): Promise<void> {
   if (child.process.exitCode !== null) { return; }
   const pid = child.process.pid;
   if (process.platform === 'win32' && pid !== undefined) {
@@ -132,7 +132,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
 
   try {
     if (options.only.has('web') && options.build) {
-      const build = run('web', [VITE, 'build'], { cwd: join(ROOT, 'packages', 'web'), env: {}, output: options.output });
+      const build = runComponent('web', [VITE, 'build'], { cwd: join(ROOT, 'packages', 'web'), env: {}, output: options.output });
       if (await build.exited !== 0) { throw new Error('the web build failed'); }
     }
 
@@ -140,7 +140,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     const lanUrls = lanAddresses().map((address) => `http://${address}:${options.port}`);
     if (options.only.has('hub')) {
       const entry = join(ROOT, 'packages', 'hub', 'src', 'main.ts');
-      children.push(run('hub', options.watch ? [TSX, 'watch', entry] : [TSX, entry], {
+      children.push(runComponent('hub', options.watch ? [TSX, 'watch', entry] : [TSX, entry], {
         cwd: ROOT, output: options.output,
         env: {
           HARNESS_PORT: String(options.port), HARNESS_HOST: '0.0.0.0', HARNESS_DATA: data, HARNESS_URL: lanUrls[0] ?? url,
@@ -166,7 +166,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       const token = known === undefined || known.status === 'removed'
         ? (await admin.hub.call('createPairingToken', { name, expiresIn: 600_000 })).token
         : undefined;
-      children.push(run(component, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
+      children.push(runComponent(component, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
         cwd: ROOT, output: options.output,
         env: {
           [SYSTEM_ENV.hub]: link, [SYSTEM_ENV.state]: join(data, 'dev-systems', system.name), ...(token === undefined ? {} : { [SYSTEM_ENV.pairingToken]: token }),
