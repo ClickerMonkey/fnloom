@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * One run in full, in a side panel: its status and timing, cost (its own and with everything it called), progress,
+ * One run in full, in a side panel whose header names the fn (its name and id, so neither repeats here): its status and timing, cost (its own and with everything it called), progress,
  * args (by their gin type when it is known, so system components draw named types) and result (readable, and as JSON), why its input was refused (softly: the agent retries), the error of every failed attempt, where it came from (the LLM call that
  * asked for it, its parent) and what may be done with it now (move to the background, open the turn's tree, undo
  * the turn; for admins, its model calls). Live while the run is going.
@@ -9,9 +9,9 @@ import type { GinTypeDef, Json, LlmInteractionId, Run, RunId } from '@harness/co
 import { computed } from 'vue';
 import { UiBanner, UiButton, UiCodeBlock, UiSkeleton, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
-import { fnLabel, humanize } from '../logic/labels.ts';
+import { humanize } from '../logic/labels.ts';
 import { isSettled } from '@harness/core';
-import { argSummary, INPUT_PROBLEM_WORDS, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runResult, runText, STATUS_LOOK, type RunView } from '../logic/runs.ts';
+import { argSummary, INPUT_PROBLEM_WORDS, resultBrief, runElapsed, runError, runInvalid, runResult, statusDetail, STATUS_LOOK, type RunView } from '../logic/runs.ts';
 import type { RunTab as Tab } from '../logic/inspect.ts';
 import GinValueView from '../../gin/GinValueView.vue';
 import RunDot from './RunDot.vue';
@@ -47,6 +47,7 @@ const elapsed = computed(() => (props.run === undefined ? undefined : runElapsed
 /** The args and result in brief, for the overview. */
 const about = computed(() => argSummary(props.run?.args, 200));
 const brief = computed(() => resultBrief(result.value));
+const detail = computed(() => (props.run === undefined ? '' : statusDetail(props.run, about.value)));
 
 /** A value's fields as label and text, for the readable views. */
 function readable(value: Json | undefined): { key: string; label: string; text: string }[] {
@@ -69,12 +70,11 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
       <div class="status">
         <RunDot :status="run.status" :size="10" />
         <span class="word">{{ STATUS_LOOK[run.status].word }}</span>
-        <span v-if="!repeatsArgs(runText(run), about)" class="text">{{ runText(run) }}</span>
+        <span v-if="detail !== ''" class="text">{{ detail }}</span>
         <span v-if="run.background" class="dim">· in the background</span>
       </div>
       <dl class="facts">
-        <dt>Fn</dt><dd><code :title="fnLabel(run.fn)">{{ run.fn }}</code></dd>
-        <template v-if="run.system"><dt>System</dt><dd>{{ run.system }}<span v-if="run.instance" class="dim" data-testid="run-instance">@{{ run.instance }}</span></dd></template>
+        <template v-if="run.instance"><dt>Instance</dt><dd data-testid="run-instance">@{{ run.instance }}</dd></template>
         <template v-if="elapsed !== undefined"><dt>{{ isSettled(run.status) ? 'Took' : 'Running for' }}</dt><dd data-testid="run-elapsed">{{ formatDuration(elapsed) }}</dd></template>
         <template v-if="run.startedAt"><dt>Started</dt><dd>{{ fullTime(run.startedAt) }}</dd></template>
         <dt>Cost</dt><dd>{{ formatCost(run.cost) }}<span v-if="run.totalCost !== run.cost" class="dim"> · {{ formatCost(run.totalCost) }} with what it called</span></dd>

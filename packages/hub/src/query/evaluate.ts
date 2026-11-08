@@ -17,7 +17,7 @@ export function readerOf<L extends ListName, Row>(fields: FieldAccessors<L, Row>
 }
 
 /** A filter value as a number: numbers as they are, dates and numbers written as text parsed. */
-function numberOf(value: FilterValue): number | undefined {
+export function numberOf(value: FilterValue): number | undefined {
   if (typeof value === 'number') { return value; }
   if (typeof value === 'boolean') { return undefined; }
   const plain = Number(value);

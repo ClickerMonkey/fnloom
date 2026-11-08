@@ -85,6 +85,21 @@ describe('the lists', () => {
     expect(result).toMatchObject({ total: 1, items: [{ id: 'run_b' }] });
   });
 
+  it('pushes number and date bounds and number sorts to the store, and says partial when the scan bound cut the read', async () => {
+    const { store } = await rig();
+    const turn = IDS.turn.parse('trn_1');
+    for (let i = 0; i < 100; i++) { await store.table('runs').insert(makeRun({ id: IDS.run.parse(`run_n${i}`), fn: 'fs/read', turn, actor: admin.id, status: 'done', cost: 0.01, createdAt: 10 + i })); }
+    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog() }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
+    const run = async (query: ListQuery) => lists.query({ list: 'runs', query }, admin);
+    // the oldest runs, past the newest 100, by a date bound and by a cost sort
+    expect(await run({ filters: [{ field: 'createdAt', op: 'lt', value: 3 }] })).toMatchObject({ total: 2, items: [{ id: 'run_b' }, { id: 'run_a' }] });
+    expect((await run({ filters: [{ field: 'cost', op: 'between', from: 0.1, to: 1 }] })).items).toMatchObject([{ id: 'run_b' }]);
+    const cheapest = await run({ sort: [{ field: 'cost', dir: 'asc' }], limit: 2 });
+    expect(cheapest).toMatchObject({ items: [{ id: 'run_c' }, { id: 'run_a' }], partial: true });
+    // complete answers aren't partial
+    expect(await run({ filters: [{ field: 'createdAt', op: 'lt', value: 3 }] })).not.toHaveProperty('partial');
+  });
+
   it('refuses a query its list cannot answer (422) and lists admin-only lists to admins only (403)', async () => {
     const { lists } = await rig();
     await expect(lists.page('runs', { filters: [{ field: 'nope', op: 'is', value: 1 }] }, admin)).rejects.toSatisfy((e) => e instanceof ApiError && e.status === 422);

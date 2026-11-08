@@ -216,6 +216,18 @@ export function repeatsArgs(text: string, about: string): boolean {
   return about !== '' && text.includes(about);
 }
 
+/**
+ * What a run's details add beside its status word, under a header that already names the fn: its line (`Ran ls -la`),
+ * or nothing when that line only says the fn's name and the status again (`Bash done`) or repeats the args shown.
+ */
+export function statusDetail(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text' | 'asking'>, about: string): string {
+  const text = runText(run);
+  if (repeatsArgs(text, about)) { return ''; }
+  const label = fnLabel(run.fn);
+  const rest = text.startsWith(label) ? text.slice(label.length).replace(/^[\s·]+/, '') : text;
+  return rest === '' || rest.toLowerCase() === STATUS_LOOK[run.status].word.toLowerCase() ? '' : text;
+}
+
 /** How long a run has taken: until it ended, or until `now` while it runs. Undefined before it starts. */
 export function runElapsed(run: Pick<RunView, 'startedAt' | 'endedAt'>, now: number): number | undefined {
   if (run.startedAt === undefined) { return undefined; }

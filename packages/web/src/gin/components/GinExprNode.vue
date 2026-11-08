@@ -2,10 +2,13 @@
 /**
  * One node of a gin expression, edited, with an editor for each of gin's twelve kinds: a value (its type and value,
  * with the gin editors), a read or write path (fields, calls with named arguments, indexes), a template, if and switch
- * branches, a define's variables, a block's steps, a loop, a function body, a flow action and a native id. Dense: the
- * kind, its small fields, what it evaluates to and its comment (behind an info icon) share one line, a value's type
- * editor stays folded until asked for, and each child sits on a row after its label. Editing swaps a node's kind, adds and removes branches, steps, cases and arguments,
- * and emits each changed definition upward. Reading an expression is `GinCode`'s job.
+ * branches, a define's variables, a block's steps, a loop, a function body, a flow action and a native id. Laid out
+ * like code: a child's line starts with its keyword (`if`, `then`, `else`, an argument's name), then its kind, its
+ * small fields and its value, all on that one line; children indent under their parent. What a node evaluates to is
+ * its line's tooltip (the root's shows in the card's header), notes and the comment wait behind icons, a value's type
+ * editor stays folded until asked for, and a path's step buttons show on hover or focus where there is a pointer.
+ * Editing swaps a node's kind, adds and removes branches, steps, cases and arguments, and emits each changed definition
+ * upward. Reading an expression is `GinCode`'s job.
  */
 import type { ExprDef, Type } from '@aeye/gin';
 import type { GinTypeDef, Json } from '@harness/core';
@@ -32,7 +35,9 @@ const props = withDefaults(defineProps<{
   label?: string;
   /** Offer to take this node out (an optional slot, or an item of a list). */
   removable?: boolean;
-}>(), { path: '', problems: () => [], scope: () => new Map(), label: 'Expression', removable: false });
+  /** Start the line with its label as a code keyword (a child in its parent's slot). */
+  keyword?: boolean;
+}>(), { path: '', problems: () => [], scope: () => new Map(), label: 'Expression', removable: false, keyword: false });
 
 const emit = defineEmits<{ update: [def: ExprDef]; remove: [] }>();
 const tools = inject(EXPR_TOOLS, sharedExprTools, true);
@@ -88,12 +93,17 @@ const lambdaType = computed(() => (view.value?.kind === 'lambda' ? view.value.ty
 const comment = computed(() => (typeof props.def.comment === 'string' ? props.def.comment : ''));
 /** A value's type editor, folded away until asked for: most values keep the type they have. */
 const typeOpen = ref(false);
+/** The line's tooltip: what it evaluates to (the root's is the card header's). */
+const evaluates = computed(() => (props.path === '' || typeText.value === '' || typeText.value === 'any' ? undefined : `Evaluates to ${typeText.value}`));
+/** A name input as wide as its name, as code would print it. */
+const fit = (name: string): { width: string } => ({ width: `calc(${Math.max(3, name.length)}ch + 1.75rem)` });
 const grows = computed(() => view.value?.kind === 'block' || view.value?.kind === 'if' || view.value?.kind === 'switch');
 </script>
 
 <template>
   <div class="gin-expr-node" :class="`kind-${view?.kind ?? 'unreadable'}`" :data-path="path" :data-kind="view?.kind" data-testid="gin-expr-node">
-    <div class="head">
+    <div class="head" :title="evaluates">
+      <code v-if="keyword" class="keyword">{{ label }}</code>
       <UiSelect
         v-if="view && view.kind !== 'other'" class="kind" :model-value="view.kind" :options="KIND_OPTIONS" :label="`${label}: kind`" hide-label size="sm"
         @update:model-value="swap($event)"
@@ -107,31 +117,31 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
             <span v-if="step.kind === 'prop'" class="step">
               <span v-if="i > 0" class="punct" aria-hidden="true">.</span>
               <UiInput
-                class="name-input" :model-value="step.name" :label="i === 0 ? 'Variable' : `Field ${i + 1}`" hide-label size="sm"
+                class="name-input" :style="fit(step.name)" :model-value="step.name" :label="i === 0 ? 'Variable' : `Field ${i + 1}`" hide-label size="sm"
                 @update:model-value="scalar({ field: 'prop', step: i, name: $event })"
               />
             </span>
             <span v-else-if="step.kind === 'call'" class="step">
               <code class="punct">(</code>
               <UiInput
-                v-for="[name] in step.args" :key="name" class="name-input" :model-value="name" :label="`Argument ${name} name`" hide-label size="sm"
+                v-for="[name] in step.args" :key="name" class="name-input" :style="fit(name)" :model-value="name" :label="`Argument ${name} name`" hide-label size="sm"
                 @update:model-value="scalar({ field: 'arg', step: i, from: name, to: $event })"
               />
-              <UiIconButton icon="plus" size="sm" label="Add argument" @click="list({ of: 'args', step: i }, { op: 'add' })" />
+              <UiIconButton class="step-tool" icon="plus" size="sm" label="Add argument" @click="list({ of: 'args', step: i }, { op: 'add' })" />
               <code class="punct">)</code>
             </span>
             <code v-else class="punct">[ ]</code>
-            <UiIconButton v-if="steps.length > 1" icon="x" size="sm" :label="`Remove step ${i + 1}`" @click="list({ of: 'steps' }, { op: 'remove', index: i })" />
+            <UiIconButton v-if="steps.length > 1" class="step-tool" icon="x" size="sm" :label="`Remove step ${i + 1}`" @click="list({ of: 'steps' }, { op: 'remove', index: i })" />
           </template>
           <UiMenu :items="STEP_MENU" label="Add a step" @select="list({ of: 'steps' }, { op: 'add', step: $event })">
-            <template #trigger="{ toggle, attrs }"><UiIconButton icon="plus" size="sm" label="Add a step" v-bind="attrs" @click="toggle" /></template>
+            <template #trigger="{ toggle, attrs }"><UiIconButton class="step-tool" icon="plus" size="sm" label="Add a step" v-bind="attrs" @click="toggle" /></template>
           </UiMenu>
         </span>
 
         <!-- the small fields of the other kinds, on the line too -->
         <template v-else-if="view.kind === 'define'">
           <UiInput
-            v-for="(v, i) in view.def.vars" :key="i" class="name-input" :model-value="v.name" :label="`Variable ${i + 1}`" hide-label size="sm"
+            v-for="(v, i) in view.def.vars" :key="i" class="name-input" :style="fit(v.name)" :model-value="v.name" :label="`Variable ${i + 1}`" hide-label size="sm"
             @update:model-value="scalar({ field: 'var', index: i, name: $event })"
           />
           <UiIconButton icon="plus" size="sm" label="Add a variable" @click="list({ of: 'vars' }, { op: 'add' })" />
@@ -146,6 +156,10 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
         />
         <UiInput v-else-if="view.kind === 'native'" :model-value="view.def.id" label="Native id" hide-label placeholder="num.add" size="sm" @update:model-value="scalar({ field: 'native', id: $event })" />
         <code v-else-if="view.kind === 'lambda'" class="type-code">{{ lambdaType }}</code>
+        <UiTextarea
+          v-else-if="view.kind === 'template'" class="template" :model-value="view.text" label="Template" hide-label placeholder="Hello {name}" :rows="1"
+          @update:model-value="scalar({ field: 'template', text: $event })"
+        />
       </template>
 
       <!-- a literal's value on the line, as code reads it -->
@@ -154,7 +168,6 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
         @update:model-value="scalar({ field: 'new-value', value: $event })"
       />
       <span class="ends">
-        <code v-if="typeText !== '' && typeText !== 'any'" class="type" title="What it evaluates to">→ {{ typeText }}</code>
         <UiIconButton
           v-if="notes.length > 0" :icon="warned ? 'warning' : 'info'" size="sm" class="notes-toggle" :class="{ warn: warned }" :label="notesLabel" :pressed="notesOpen"
           data-testid="gin-expr-notes" @click="notesOpen = !notesOpen"
@@ -176,22 +189,17 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
       <div v-if="view.kind === 'new' && typeOpen" class="value">
         <GinTypeView :model-value="newType" :label="`${label} type`" @update:model-value="scalar({ field: 'new-type', type: $event })" />
       </div>
-      <UiTextarea
-        v-else-if="view.kind === 'template'" :model-value="view.text" label="Template" hide-label placeholder="Hello {name}" :rows="1"
-        @update:model-value="scalar({ field: 'template', text: $event })"
-      />
-      <UiCodeBlock v-else-if="view.kind === 'other'" :code="parsed.ok ? tools.code(parsed.value) : ''" language="ts" :max-height="240" />
+      <UiCodeBlock v-if="view.kind === 'other'" :code="parsed.ok ? tools.code(parsed.value) : ''" language="ts" :max-height="240" />
 
-      <!-- children, each on a row after its label -->
+      <!-- children, indented, each line starting with its keyword -->
       <div v-if="children.length > 0" class="children">
-        <div v-for="child in children" :key="child.path" class="slot">
-          <span class="slot-label">{{ child.label }}</span>
+        <template v-for="child in children" :key="child.path">
           <GinExprNode
-            v-if="child.def" :def="child.def" :path="join(child.path)" :problems="problems" :scope="scope" :label="child.label"
+            v-if="child.def" :def="child.def" :path="join(child.path)" :problems="problems" :scope="scope" :label="child.label" keyword
             :removable="canRemove(child)" @update="setChild(child, $event)" @remove="removeChild(child)"
           />
-          <UiButton v-else class="fill" size="sm" variant="ghost" icon="plus" @click="fill(child)">Add</UiButton>
-        </div>
+          <div v-else class="head"><code class="keyword">{{ child.label }}</code><UiButton size="sm" variant="ghost" icon="plus" @click="fill(child)">Add</UiButton></div>
+        </template>
       </div>
 
       <!-- growing a node's lists -->
@@ -210,12 +218,13 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
 </template>
 
 <style scoped>
-.gin-expr-node { display: grid; gap: var(--space-1); min-width: 0; }
-.head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
-.kind { width: auto; min-width: 7rem; max-width: 100%; }
-.type { color: var(--text-faint); font: var(--text-xs) var(--mono); overflow-wrap: anywhere; }
-.ends { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; white-space: nowrap; }
-.literal { flex: 1 1 8rem; min-width: 0; }
+.gin-expr-node { display: grid; gap: 2px; min-width: 0; }
+.head { display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--space-1); min-width: 0; }
+.keyword { flex: none; min-width: 2.5rem; color: var(--accent); font: var(--weight-medium) var(--text-sm) var(--mono); text-transform: lowercase; white-space: nowrap; }
+.kind { width: auto; min-width: 0; max-width: 100%; }
+.ends { display: inline-flex; flex: none; align-items: center; white-space: nowrap; }
+.literal { flex: 1 1 6rem; min-width: 4rem; max-width: 16rem; }
+.template { flex: 1 1 12rem; min-width: 8rem; }
 .notes-toggle { color: var(--text-dim); }
 .notes-toggle.warn { color: var(--warn); }
 .problem { margin: 0; color: var(--danger); font-size: var(--text-xs); }
@@ -225,15 +234,12 @@ const grows = computed(() => view.value?.kind === 'block' || view.value?.kind ==
 .value > * { flex: 1 1 14rem; min-width: 0; }
 .path, .step { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px; min-width: 0; }
 .punct { color: var(--text-faint); font-family: var(--mono); }
-.name-input { width: 8rem; max-width: 100%; }
-.type-code { font: var(--text-xs) var(--mono); color: var(--text-dim); overflow-wrap: anywhere; }
-.children { display: grid; gap: var(--space-1); padding-left: var(--space-2); border-left: 2px solid var(--border); min-width: 0; }
-.slot { display: grid; grid-template-columns: minmax(3rem, max-content) minmax(0, 1fr); align-items: start; gap: var(--space-2); min-width: 0; }
-.slot-label { padding-top: 5px; color: var(--text-dim); font: var(--weight-medium) var(--text-xs) var(--mono); white-space: nowrap; }
-.fill { justify-self: start; }
-.grow { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-@media (max-width: 480px) {
-  .slot { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .slot-label { padding-top: 0; }
+.name-input { max-width: 100%; }
+/* a path's add and remove buttons wait for a hover or focus, where there is a pointer to hover with */
+@media (hover: hover) {
+  .path:not(:hover):not(:focus-within) .step-tool { display: none; }
 }
+.type-code { font: var(--text-xs) var(--mono); color: var(--text-dim); overflow-wrap: anywhere; }
+.children { display: grid; gap: 2px; padding-left: var(--space-3); border-left: 1px solid var(--border); min-width: 0; }
+.grow { display: flex; flex-wrap: wrap; }
 </style>

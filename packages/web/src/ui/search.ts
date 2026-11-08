@@ -24,6 +24,9 @@ export type SearchQuery = Pick<ListQuery, 'text' | 'filters' | 'sort'>;
 
 const plainNumber: NumberFormat = (value) => String(value);
 
+/** A data value's readable name (a session id's chat title), or undefined to show the value itself. */
+export type ValueNamer = (field: string, value: FilterValue) => string | undefined;
+
 // ─── Fields and values ────────────────────────────────────────────────────────
 
 const squash = (text: string): string => text.toLowerCase().replace(/[\s_-]+/g, '');
@@ -115,11 +118,14 @@ export function filterValues(filter: Filter): FilterValue[] {
   }
 }
 
-/** A filter's words: `Status: Running`, `Cost > $0.01`, `Status in Running, Queued`, `Tags is empty`. */
-export function pillText(fields: SearchFields, filter: Filter, format: NumberFormat = plainNumber): string {
+/**
+ * A filter's words: `Status: Running`, `Cost > $0.01`, `Status in Running, Queued`, `Tags is empty`. `name` gives a data
+ * value its readable name (`Session: Trip plans`, not the session's id).
+ */
+export function pillText(fields: SearchFields, filter: Filter, format: NumberFormat = plainNumber, name?: ValueNamer): string {
   const decl = fields[filter.field];
   const label = decl?.label ?? filter.field;
-  const show = (value: FilterValue): string => (decl === undefined ? String(value) : valueLabel(decl, value, format));
+  const show = (value: FilterValue): string => name?.(filter.field, value) ?? (decl === undefined ? String(value) : valueLabel(decl, value, format));
   switch (filter.op) {
     case 'is': return `${label}: ${show(filter.value)}`;
     case 'in': case 'notIn': return `${label} ${OP_LABELS[filter.op]} ${filter.values.map(show).join(', ')}`;

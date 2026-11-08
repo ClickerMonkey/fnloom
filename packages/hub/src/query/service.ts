@@ -29,7 +29,7 @@ export class HubQuery implements QueryService {
   }
 
   /** A list's typed page for its endpoint; refuses a query with problems (422). */
-  async page<L extends ListName>(list: L, query: ListQuery, viewer: QueryViewer): Promise<Page<ListRows[L]> & { total?: number }> {
+  async page<L extends ListName>(list: L, query: ListQuery, viewer: QueryViewer): Promise<Page<ListRows[L]> & { total?: number; partial?: true }> {
     const problems = queryProblems(list, query);
     if (problems.length > 0) { throw reject(422, 'BAD_QUERY', problems.join(' ')); }
     const source: ListSources[L] = this.#sources[list];
@@ -40,7 +40,7 @@ export class HubQuery implements QueryService {
     const found = await this.page(args.list, args.query, viewer);
     return {
       items: found.items.map(toJson), sort: [...sortOf(args.list, args.query)],
-      ...(found.cursor === undefined ? {} : { cursor: found.cursor }), ...(found.total === undefined ? {} : { total: found.total }),
+      ...(found.cursor === undefined ? {} : { cursor: found.cursor }), ...(found.total === undefined ? {} : { total: found.total }), ...(found.partial === true ? { partial: true } : {}),
     };
   }
 

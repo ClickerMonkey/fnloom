@@ -4,7 +4,8 @@
  * words being typed. Typing suggests values that match (pills to add), fields, and the words as a plain search; a
  * filter typed out whole (`cost>0.01`, `status:running`) becomes a pill at a space or Enter. The filter icon in the box
  * opens the menu of every field, its operators and its value; a pill opens the same menu to change it. Backspace in an
- * empty box takes the last pill off. The words reach the model once typing pauses. See `search.ts` for the rules.
+ * empty box takes the last pill off. The words reach the model once typing pauses. The pills and the words wrap inside
+ * the box; the clear and filter icons stay at the end of its first line. See `search.ts` for the rules.
  */
 import type { Filter } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -12,7 +13,7 @@ import UiFilterMenu from './UiFilterMenu.vue';
 import UiIcon from './UiIcon.vue';
 import UiPopover from './UiPopover.vue';
 import {
-  pillText, readFilter, suggest, typing, withFilter, withoutFilter, withText, type NumberFormat, type SearchFields, type SearchQuery, type Suggestion, type ValueOption,
+  pillText, readFilter, type ValueNamer, suggest, typing, withFilter, withoutFilter, withText, type NumberFormat, type SearchFields, type SearchQuery, type Suggestion, type ValueOption,
 } from './search.ts';
 
 const props = withDefaults(defineProps<{
@@ -25,7 +26,9 @@ const props = withDefaults(defineProps<{
   values?: ((field: string, prefix: string) => Promise<readonly ValueOption[]>) | undefined;
   /** How long typing pauses before the words reach the model (ms). */
   delay?: number;
-}>(), { placeholder: 'Search or filter', format: (value: number) => String(value), values: undefined, delay: 300 });
+  /** A data value's readable name in its pill (a session id's chat title). */
+  name?: ValueNamer | undefined;
+}>(), { placeholder: 'Search or filter', format: (value: number) => String(value), values: undefined, delay: 300, name: undefined });
 
 const model = defineModel<SearchQuery>({ required: true });
 
@@ -41,6 +44,7 @@ const editingAt = ref<number | undefined>(undefined);
 const editing = computed(() => (editingAt.value === undefined ? undefined : model.value.filters?.[editingAt.value]));
 
 const filters = computed(() => model.value.filters ?? []);
+const pills = computed(() => filters.value.map((filter) => pillText(props.fields, filter, props.format, props.name)));
 const suggestions = computed<Suggestion[]>(() => (draft.value.trim() === '' ? [] : suggest(props.fields, draft.value, fetched.value, props.format)));
 const listOpen = computed({ get: () => suggesting.value && suggestions.value.length > 0 && !menuOpen.value, set: (open: boolean) => { suggesting.value = open; } });
 
@@ -188,16 +192,18 @@ const listId = `search-${Math.random().toString(36).slice(2, 9)}`;
 <template>
   <div ref="box" class="ui-search" role="search" :aria-label="label" data-testid="search" @click.self="input?.focus()">
     <UiIcon name="search" :size="16" class="lead" />
-    <span v-for="(filter, i) in filters" :key="i" class="pill" data-testid="search-pill">
-      <button type="button" class="pill-text" :aria-label="`Change filter ${pillText(fields, filter, format)}`" @click="openMenu(i)">{{ pillText(fields, filter, format) }}</button>
-      <button type="button" class="pill-x" :aria-label="`Remove filter ${pillText(fields, filter, format)}`" @click="remove(i)"><UiIcon name="x" :size="12" /></button>
-    </span>
-    <input
-      ref="input" class="text" type="search" :value="draft" :placeholder="filters.length === 0 ? placeholder : ''" :aria-label="label" autocomplete="off"
-      role="combobox" :aria-expanded="listOpen ? 'true' : 'false'" :aria-controls="listId" aria-autocomplete="list" data-testid="search-input"
-      :aria-activedescendant="listOpen ? `${listId}-${active}` : undefined"
-      @input="onInput" @keydown="onKey" @focus="suggesting = true" @blur="suggesting = false"
-    />
+    <div class="field" @click.self="input?.focus()">
+      <span v-for="(text, i) in pills" :key="i" class="pill" :title="text" data-testid="search-pill">
+        <button type="button" class="pill-text" :aria-label="`Change filter ${text}`" @click="openMenu(i)">{{ text }}</button>
+        <button type="button" class="pill-x" :aria-label="`Remove filter ${text}`" @click="remove(i)"><UiIcon name="x" :size="12" /></button>
+      </span>
+      <input
+        ref="input" class="text" type="search" :value="draft" :placeholder="filters.length === 0 ? placeholder : ''" :aria-label="label" autocomplete="off"
+        role="combobox" :aria-expanded="listOpen ? 'true' : 'false'" :aria-controls="listId" aria-autocomplete="list" data-testid="search-input"
+        :aria-activedescendant="listOpen ? `${listId}-${active}` : undefined"
+        @input="onInput" @keydown="onKey" @focus="suggesting = true" @blur="suggesting = false"
+      />
+    </div>
     <button v-if="hasAny" type="button" class="icon-btn" aria-label="Clear search and filters" @click="clearAll"><UiIcon name="x" :size="14" /></button>
     <button type="button" class="icon-btn" :class="{ on: menuOpen }" aria-label="Add a filter" aria-haspopup="dialog" :aria-expanded="menuOpen ? 'true' : 'false'" data-testid="search-filter" @click="menuOpen ? closeMenu() : openMenu()">
       <UiIcon name="filter" :size="16" />
@@ -223,21 +229,22 @@ const listId = `search-${Math.random().toString(36).slice(2, 9)}`;
 
 <style scoped>
 .ui-search {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 4px var(--space-1); flex: 1 1 260px; min-width: 0; min-height: var(--control);
+  display: flex; align-items: flex-start; gap: var(--space-1); flex: 1 1 260px; min-width: 0; min-height: var(--control);
   padding: 3px var(--space-1) 3px var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); cursor: text;
   transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
 .ui-search:hover { border-color: var(--text-faint); }
 .ui-search:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
-.lead { color: var(--text-faint); margin-right: 2px; }
+.lead { flex: none; margin: 6px 2px 0 0; color: var(--text-faint); }
+.field { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 2px var(--space-1); min-width: 0; min-height: 28px; }
 .pill {
-  display: inline-flex; align-items: center; max-width: 100%; height: 24px; border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
+  display: inline-flex; align-items: center; min-width: 0; max-width: 100%; height: 24px; border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
   border-radius: var(--radius-full); background: var(--accent-soft); font-size: var(--text-xs); cursor: default;
 }
 .pill-text { min-width: 0; padding: 0 4px 0 8px; border: 0; background: none; color: var(--text); font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .pill-x { display: grid; place-items: center; width: 20px; height: 20px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--radius-full); background: none; color: var(--text-dim); }
 .pill-x:hover { background: var(--surface-3); color: var(--text); }
-.text { flex: 1 1 120px; min-width: 80px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
+.text { flex: 1 1 3rem; min-width: 3rem; height: 26px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
 .text::placeholder { color: var(--text-faint); }
 .text::-webkit-search-cancel-button { display: none; }
 .icon-btn { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-dim); }

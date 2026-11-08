@@ -41,6 +41,11 @@ export interface Stores {
 
 export const STORES: InjectionKey<Stores> = Symbol('stores');
 
+/** The app's stores, or undefined outside the app (a component mounted alone, in a test). */
+export function useStoresIfAny(): Stores | undefined {
+  return inject(STORES, undefined);
+}
+
 /** The app's stores. Throws outside the app, where nothing provided them. */
 export function useStores(): Stores {
   const stores = inject(STORES);

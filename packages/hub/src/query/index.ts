@@ -15,8 +15,12 @@ export type FieldAccessors<L extends ListName, Row> = { readonly [F in ListField
 export interface ListSource<L extends ListName, Row> {
   readonly list: L;
   readonly fields: FieldAccessors<L, Row>;
-  /** A page of rows matching the query (checked with `queryProblems` first), in `sortOf(list, query)` order, with how many matched when known. */
-  page(query: ListQuery, viewer: QueryViewer): Promise<Page<Row> & { total?: number }>;
+  /**
+   * A page of rows matching the query (checked with `queryProblems` first), in `sortOf(list, query)` order, with how
+   * many matched when known. `partial` when the source stopped reading at its scan bound, so rows past it may match
+   * too: `total` is then a lower bound and the order covers only the rows read.
+   */
+  page(query: ListQuery, viewer: QueryViewer): Promise<Page<Row> & { total?: number; partial?: true }>;
   /** The values a field takes, with counts, matching `prefix`. */
   values(field: ListField<L>, prefix: string | undefined, limit: number, viewer: QueryViewer): Promise<FieldValueOption[]>;
 }

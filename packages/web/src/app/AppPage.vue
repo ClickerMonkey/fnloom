@@ -3,7 +3,8 @@
  * A page's frame: its title, a line about it, actions on the right (`actions` slot) and its content, centred at a
  * readable width with the same spacing on every page. A `crumb` slot above the title leads back to where the page
  * sits. On phones the top bar already shows the page's name, so the title is kept for screen readers only, unless
- * `keepTitle` (a page about one thing, whose name the top bar can't know).
+ * `keepTitle` (a page about one thing, whose name the top bar can't know); then the name takes the row and the actions
+ * wrap under it.
  */
 import { COMPACT_QUERY } from '../state/layout.ts';
 import { useMediaQuery } from '../ui/index.ts';
@@ -14,7 +15,7 @@ const compact = useMediaQuery(COMPACT_QUERY);
 </script>
 
 <template>
-  <div class="app-page" :class="[width, { compact }]">
+  <div class="app-page" :class="[width, { compact, kept: keepTitle }]">
     <header class="head">
       <div class="titles">
         <div v-if="slots.crumb" class="crumb"><slot name="crumb" /></div>
@@ -46,5 +47,9 @@ const compact = useMediaQuery(COMPACT_QUERY);
 .compact .titles { flex: 1 1 auto; }
 .compact .description { font-size: var(--text-sm); }
 .compact .actions { flex: none; }
+/* a page about one thing keeps its (often long) name: the name takes the row and the actions wrap under it */
+.compact.kept .head { flex-wrap: wrap; }
+.compact.kept .titles { flex-basis: 100%; }
+.compact.kept .actions { flex: 1 1 100%; }
 .compact { padding: var(--space-4) var(--space-4) max(var(--space-6), var(--safe-bottom)); gap: var(--space-4); }
 </style>

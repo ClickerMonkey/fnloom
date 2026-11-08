@@ -215,10 +215,14 @@ export class SessionListStore {
     return withPage({ ...base, query: filters.some((f) => f.field === 'archived') ? list : { ...list, filters: [...filters, archived] } }, SESSIONS_PAGE, cursor);
   }
 
+  /** Put a changed summary in place: newest first by default; under a chosen sort it keeps its place (new ones go on top). */
   #upsert(summary: SessionSummary): void {
     const others = this.items.value.filter((s) => s.id !== summary.id);
     const belongs = summary.archived === this.archived.value && this.#matches(summary);
-    this.items.value = belongs ? [summary, ...others].sort(newestFirst) : others;
+    if (!belongs) { this.items.value = others; return; }
+    if ((readListQuery('sessions', this.search.value).sort ?? []).length === 0) { this.items.value = [summary, ...others].sort(newestFirst); return; }
+    const at = this.items.value.findIndex((s) => s.id === summary.id);
+    this.items.value = at < 0 ? [summary, ...others] : this.items.value.map((s) => (s.id === summary.id ? summary : s));
   }
 
   #matches(summary: SessionSummary): boolean {

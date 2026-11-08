@@ -5,8 +5,8 @@
  * fakes. Pages reach it through `useStores().chat`.
  */
 import type { ListValuesCaller } from '../../state/query.ts';
-import type { ActorId, ClientInfo, ContentRef, RunId, SessionId } from '@harness/core';
-import { ref } from 'vue';
+import { SessionId, type ActorId, type ClientInfo, type ContentRef, type RunId } from '@harness/core';
+import { ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import type { KeyValueStore } from '../../state/persisted.ts';
 import type { ChatApi, FileSender, SessionEvents } from '../api.ts';
@@ -67,6 +67,10 @@ export class ChatStore {
   readonly collapse: CollapseStore;
   readonly renderers: RendererHub;
   readonly mentions: MentionCards;
+  /** Chat titles read for ids the list doesn't hold (a search pill's session), by id. */
+  readonly #titles = shallowRef<ReadonlyMap<string, string>>(new Map());
+  /** The ids already asked for (not reactive: asking happens while a view reads a title). */
+  readonly #askedTitles = new Set<string>();
   /** The session shown now. */
   readonly current = ref<SessionId | undefined>(undefined);
   readonly #deps: ChatDeps;
@@ -102,6 +106,25 @@ export class ChatStore {
     this.sessions.stop();
     this.capabilities.stop();
     for (const thread of this.#threads.values()) { thread.close(); }
+  }
+
+  /**
+   * A chat's title by its id, for showing an id a person can't read (a search pill's session): from the list when it
+   * holds the chat, else asked of the hub once and filled in when it answers. Undefined while unknown or untitled.
+   */
+  titleOf(id: string): string | undefined {
+    const listed = this.sessions.items.value.find((s) => s.id === id);
+    if (listed !== undefined) { return listed.title === '' ? undefined : listed.title; }
+    const known = this.#titles.value.get(id);
+    if (known !== undefined) { return known === '' ? undefined : known; }
+    const parsed = SessionId.safeParse(id);
+    if (!parsed.success || this.#askedTitles.has(id)) { return undefined; }
+    this.#askedTitles.add(id);
+    this.#deps.api.session.call({ session: parsed.data }).then(
+      (session) => { this.#titles.value = new Map([...this.#titles.value, [id, session.title]]); },
+      () => undefined,
+    );
+    return undefined;
   }
 
   /** A session's thread, made on first use. The oldest beyond `THREADS_KEPT` are let go. */

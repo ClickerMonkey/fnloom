@@ -1,18 +1,20 @@
 /**
  * One `ListSource` per list of `LIST_FIELDS`: how each reads its rows (bounded, narrowed to what the viewer may see
- * through the list's own endpoint, with exact column filters pushed down to the store), and how each field reads off a
- * row. The filtering, free text, sorting and paging are the shared evaluator's (`evaluate.ts`).
+ * through the list's own endpoint), and how each field reads off a row. What the store can answer is pushed down to
+ * it (exact column filters, number and date bounds on columns, a sort on number columns), so the scan bound cuts the
+ * right rows. The filtering, free text, sorting and paging are the shared evaluator's (`evaluate.ts`), which applies
+ * every filter again; when the scan stopped at its bound, the page says `partial`.
  */
 import { reject } from '@ayepi/core';
 import {
-  familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, seesOrigin, runCount, type ContextRecord, type FieldValueOption, type Filter, type FnRecord, type ListField, type ListName,
-  type ListQuery, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView,
+  familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, seesOrigin, runCount, sortOf, type ContextRecord, type FieldValueOption, type Filter, type FnRecord,
+  type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView,
 } from '@harness/core';
 import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
 import { systemView } from '../api/web/systems.ts';
-import type { Table, Where } from '../store/index.ts';
-import { evaluate, valuesOf, type Evaluation } from './evaluate.ts';
+import type { ColumnFilter, Order, ScalarKey, Table, Where } from '../store/index.ts';
+import { evaluate, numberOf, valuesOf, type Evaluation } from './evaluate.ts';
 import type { FieldAccessors, ListSource, QueryViewer } from './index.ts';
 import type { QueryEnv } from './env.ts';
 
@@ -32,8 +34,14 @@ export interface ListRows {
 /** Every list's source by name. */
 export type ListSources = { readonly [L in ListName]: ListSource<L, ListRows[L]> };
 
+/** The rows a source read, and whether the read stopped at the scan bound with more rows left unread. */
+export interface Scan<Row> {
+  readonly rows: readonly Row[];
+  readonly partial: boolean;
+}
+
 /** How a source reads the rows a query looks at: bounded, and only what the viewer may see. */
-type Load<Row> = (viewer: QueryViewer, query: ListQuery) => Promise<readonly Row[]>;
+type Load<Row> = (viewer: QueryViewer, query: ListQuery) => Promise<Scan<Row>>;
 
 /** A source over rows it reads whole, evaluated by the shared evaluator. */
 export class RowsSource<L extends ListName, Row> implements ListSource<L, Row> {
@@ -51,12 +59,13 @@ export class RowsSource<L extends ListName, Row> implements ListSource<L, Row> {
     this.#page = options.page;
   }
 
-  async page(query: ListQuery, viewer: QueryViewer): Promise<Page<Row> & { total: number }> {
-    return evaluate(await this.#load(viewer, query), query, this.#how, this.#page);
+  async page(query: ListQuery, viewer: QueryViewer): Promise<Page<Row> & { total: number; partial?: true }> {
+    const scan = await this.#load(viewer, query);
+    return { ...evaluate(scan.rows, query, this.#how, this.#page), ...(scan.partial ? { partial: true as const } : {}) };
   }
 
   async values(field: ListField<L>, prefix: string | undefined, limit: number, viewer: QueryViewer): Promise<FieldValueOption[]> {
-    return valuesOf(await this.#load(viewer, {}), this.#how, field, prefix, limit);
+    return valuesOf((await this.#load(viewer, {})).rows, this.#how, field, prefix, limit);
   }
 }
 
@@ -93,8 +102,54 @@ function pushed(query: ListQuery): { system?: SystemName | { in: readonly System
   return { ...(system === undefined ? {} : { system }), ...(session === undefined ? {} : { session }) };
 }
 
-/** Read the newest rows a where matches, up to the scan bound. */
-async function newest<Row, Key>(table: Table<Row, Key>, where: Where<Row>, order: NonNullable<Parameters<Table<Row, Key>['find']>[0]['order']>, max: number): Promise<Row[]> {
+/**
+ * A number or date filter on a field as a store bound on its column: the first `gt`, `gte`, `lt`, `lte` or `between`
+ * (its lower end) whose value reads as a number. The bound only narrows what the evaluator would keep anyway; the
+ * evaluator still applies every filter. Use it only for a field whose reading is its column's own number.
+ */
+export function bound(filters: readonly Filter[] | undefined, field: string): ColumnFilter<number> | undefined {
+  for (const filter of filters ?? []) {
+    if (filter.field !== field) { continue; }
+    const value = filter.op === 'between' ? numberOf(filter.from)
+      : filter.op === 'gt' || filter.op === 'gte' || filter.op === 'lt' || filter.op === 'lte' ? numberOf(filter.value) : undefined;
+    if (value === undefined) { continue; }
+    switch (filter.op) {
+      case 'gt': return { gt: value };
+      case 'lt': return { lt: value };
+      case 'lte': return { lte: value };
+      default: return { gte: value };
+    }
+  }
+  return undefined;
+}
+
+/** One column filter to spread into a where, or nothing when there is no filter. */
+function column<K extends string, V>(key: K, filter: V | undefined): { [P in K]?: V } {
+  const out: { [P in K]?: V } = {};
+  if (filter !== undefined) { out[key] = filter; }
+  return out;
+}
+
+/** The columns of a row whose values are numbers (dates are numbers too): the ones a sort can be pushed down on. */
+type NumberKey<Row> = Extract<{ [K in ScalarKey<Row>]-?: Exclude<Row[K], undefined> extends number ? K : never }[ScalarKey<Row>], ScalarKey<Row>>;
+
+/**
+ * The order to scan in: the query's sort (`sortOf`) when every key is a number column, which orders the same in the
+ * store and in the evaluator (absent first ascending), so the bound keeps the rows that sort first; else the fallback.
+ */
+function scanOrder<L extends ListName, Row>(list: L, query: ListQuery, columns: { readonly [F in ListField<L>]?: NumberKey<Row> }, fallback: Order<Row>): Order<Row> {
+  const named: Readonly<Record<string, NumberKey<Row> | undefined>> = columns;
+  const out: Array<readonly [ScalarKey<Row>, 'asc' | 'desc']> = [];
+  for (const key of sortOf(list, query)) {
+    const name = named[key.field];
+    if (name === undefined) { return fallback; }
+    out.push([name, key.dir]);
+  }
+  return out.length === 0 ? fallback : out;
+}
+
+/** Read the rows a where matches in an order, up to the scan bound, saying whether rows were left unread. */
+async function newest<Row, Key>(table: Table<Row, Key>, where: Where<Row>, order: Order<Row>, max: number): Promise<Scan<Row>> {
   const out: Row[] = [];
   let cursor: string | undefined;
   do {
@@ -102,7 +157,13 @@ async function newest<Row, Key>(table: Table<Row, Key>, where: Where<Row>, order
     out.push(...page.items);
     cursor = page.cursor;
   } while (cursor !== undefined && out.length < max);
-  return out;
+  return { rows: out, partial: cursor !== undefined };
+}
+
+/** A scan's rows changed by a function, keeping whether it was partial. */
+async function mapped<Row, Out>(scan: Promise<Scan<Row>>, change: (rows: readonly Row[]) => Out[] | Promise<Out[]>): Promise<Scan<Out>> {
+  const read = await scan;
+  return { rows: await change(read.rows), partial: read.partial };
 }
 
 /** A span in milliseconds, when both ends are known. */
@@ -125,17 +186,18 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
   const { store } = hub;
   const max = settings.HARNESS_QUERY_SCAN;
   const page = settings.HARNESS_QUERY_PAGE;
-  /** The ids of the sessions a viewer owns (a member's model calls are those of their sessions). */
-  const ownSessions = async (viewer: QueryViewer): Promise<Set<string>> =>
-    new Set((await newest(store.table('sessions'), { owner: viewer.id }, [['updatedAt', 'desc']], max)).map((s) => s.id));
+  /** The sessions a viewer owns (a member's model calls are those of their sessions), and whether the read was cut. */
+  const ownSessions = (viewer: QueryViewer): Promise<Scan<SessionId>> =>
+    mapped(newest(store.table('sessions'), { owner: viewer.id }, [['updatedAt', 'desc']], max), (rows) => rows.map((s) => s.id));
 
   return {
     resources: new RowsSource({
       list: 'resources', page,
-      load: async (_viewer, query) => {
-        const system = oneOf(allowed(query.filters, 'system', SystemName));
-        return newest(store.table('resources'), system === undefined ? {} : { system }, [['seenAt', 'desc']], max);
-      },
+      load: (_viewer, query) => newest(
+        store.table('resources'),
+        { ...column('system', oneOf(allowed(query.filters, 'system', SystemName))), ...column('seenAt', bound(query.filters, 'seenAt')) },
+        scanOrder('resources', query, { seenAt: 'seenAt' }, [['seenAt', 'desc']]), max,
+      ),
       search: (r) => r.uri,
       fields: {
         name: (r) => r.stat.name, system: (r) => r.system, family: (r) => familyOf(r.stat.format, r.stat.mime), source: (r) => r.source?.from ?? 'system',
@@ -146,8 +208,8 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
       list: 'fns', page,
       load: async (viewer, query) => {
         adminOnly(viewer, 'fns');
-        const system = oneOf(allowed(query.filters, 'system', SystemName));
-        return newest(store.table('fns'), system === undefined ? {} : { system }, [['name', 'asc']], max);
+        const where: Where<FnRecord> = { ...column('system', oneOf(allowed(query.filters, 'system', SystemName))), ...column('updatedAt', bound(query.filters, 'updatedAt')) };
+        return newest(store.table('fns'), where, scanOrder('fns', query, { updatedAt: 'updatedAt' }, [['name', 'asc']]), max);
       },
       search: (f) => f.decl.description,
       fields: {
@@ -159,17 +221,15 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
     runs: new RowsSource({
       list: 'runs', page,
       load: async (viewer, query) => {
-        const status = oneOf(allowed(query.filters, 'status', RunStatus));
-        const system = oneOf(allowed(query.filters, 'system', SystemName));
-        const fn = oneOf(allowed(query.filters, 'fn', QualifiedName));
-        const session = oneOf(allowed(query.filters, 'session', SessionId));
+        const { filters } = query;
         const where: Where<Run> = {
-          ...(status === undefined ? {} : { status }), ...(system === undefined ? {} : { system }),
-          ...(fn === undefined ? {} : { fn }), ...(session === undefined ? {} : { session }),
+          ...column('status', oneOf(allowed(filters, 'status', RunStatus))), ...column('system', oneOf(allowed(filters, 'system', SystemName))),
+          ...column('fn', oneOf(allowed(filters, 'fn', QualifiedName))), ...column('session', oneOf(allowed(filters, 'session', SessionId))),
+          ...column('cost', bound(filters, 'cost')), ...column('createdAt', bound(filters, 'createdAt')), ...column('endedAt', bound(filters, 'endedAt')),
           // a member sees the runs they started
           ...(viewer.role === 'admin' ? {} : { actor: viewer.id }),
         };
-        return newest(store.table('runs'), where, [['createdAt', 'desc']], max);
+        return newest(store.table('runs'), where, scanOrder('runs', query, { cost: 'cost', createdAt: 'createdAt', endedAt: 'endedAt' }, [['createdAt', 'desc']]), max);
       },
       search: (r) => r.id,
       fields: {
@@ -180,11 +240,19 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
     modelCalls: new RowsSource({
       list: 'modelCalls', page,
       load: async (viewer, query) => {
-        const rows = await newest(store.table('modelCalls'), pushed(query), [['startedAt', 'desc']], max);
-        if (viewer.role === 'admin') { return rows; }
-        // a member sees the model calls of their own sessions
+        const { filters } = query;
+        const where: Where<ModelCall> = {
+          ...pushed(query),
+          ...column('cost', bound(filters, 'cost')), ...column('startedAt', bound(filters, 'createdAt')), ...column('total', bound(filters, 'duration')),
+        };
+        const order = scanOrder<'modelCalls', ModelCall>('modelCalls', query, { cost: 'cost', createdAt: 'startedAt', duration: 'total' }, [['startedAt', 'desc']]);
+        if (viewer.role === 'admin') { return newest(store.table('modelCalls'), where, order, max); }
+        // a member sees the model calls of their own sessions: those sessions (within any session filter) go to the store
         const mine = await ownSessions(viewer);
-        return rows.filter((call) => call.session !== undefined && mine.has(call.session));
+        const asked = allowed(filters, 'session', SessionId);
+        const sessions = asked === undefined ? mine.rows : mine.rows.filter((id) => asked.includes(id));
+        const calls = await newest(store.table('modelCalls'), { ...where, session: { in: sessions } }, order, max);
+        return { rows: calls.rows, partial: calls.partial || mine.partial };
       },
       search: (c) => `${c.fn ?? ''} ${c.purpose ?? ''}`,
       fields: {
@@ -196,8 +264,9 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
       list: 'llmCalls', page,
       load: async (viewer, query) => {
         adminOnly(viewer, 'LLM calls');
-        const rows = await newest(store.table('llmInteractions'), pushed(query), [['queuedAt', 'desc']], max);
-        return rows.map(({ request: _request, response: _response, ...summary }): LlmSummary => summary);
+        const where = { ...pushed(query), ...column('cost', bound(query.filters, 'cost')), ...column('queuedAt', bound(query.filters, 'createdAt')) };
+        const order = scanOrder<'llmCalls', LlmInteraction>('llmCalls', query, { cost: 'cost', createdAt: 'queuedAt' }, [['queuedAt', 'desc']]);
+        return mapped(newest(store.table('llmInteractions'), where, order, max), (rows) => rows.map(({ request: _request, response: _response, ...summary }): LlmSummary => summary));
       },
       fields: {
         model: (c) => c.model, system: (c) => c.system, status: (c) => c.status, session: (c) => c.session, cost: (c) => c.cost,
@@ -207,18 +276,22 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
     }),
     sessions: new RowsSource({
       list: 'sessions', page,
-      load: async (viewer) => (await newest(store.table('sessions'), { owner: viewer.id }, [['updatedAt', 'desc']], max)).map((s) => SessionSummary.parse(s)),
+      load: (viewer, query) => mapped(newest(
+        store.table('sessions'),
+        { owner: viewer.id, ...column('createdAt', bound(query.filters, 'createdAt')), ...column('updatedAt', bound(query.filters, 'updatedAt')) },
+        scanOrder('sessions', query, { createdAt: 'createdAt', updatedAt: 'updatedAt' }, [['updatedAt', 'desc']]), max,
+      ), (rows) => rows.map((s) => SessionSummary.parse(s))),
       fields: {
         title: (s) => s.title, agent: (s) => s.agent, status: (s) => s.status, archived: (s) => s.archived, createdAt: (s) => s.createdAt, updatedAt: (s) => s.updatedAt,
       },
     }),
     contexts: new RowsSource({
       list: 'contexts', page,
-      load: async (viewer, query) => {
-        const system = oneOf(allowed(query.filters, 'system', SystemName));
-        const rows = await newest(store.table('context'), system === undefined ? {} : { system }, [['updatedAt', 'desc']], max);
-        return rows.filter((record) => seesOrigin(record.origin, { actor: viewer.id }));
-      },
+      load: (viewer, query) => mapped(newest(
+        store.table('context'),
+        { ...column('system', oneOf(allowed(query.filters, 'system', SystemName))), ...column('updatedAt', bound(query.filters, 'updatedAt')) },
+        scanOrder('contexts', query, { updatedAt: 'updatedAt' }, [['updatedAt', 'desc']]), max,
+      ), (rows) => rows.filter((record) => seesOrigin(record.origin, { actor: viewer.id }))),
       search: (c) => c.decl.description,
       fields: {
         name: (c) => c.name, system: (c) => c.system, origin: (c) => c.origin?.type ?? 'system', tags: (c) => c.decl.tags, disabled: (c) => c.disabled === true,
@@ -227,16 +300,18 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
     }),
     notifications: new RowsSource({
       list: 'notifications', page,
-      load: (viewer) => newest(store.table('notifications'), { user: viewer.id }, [['createdAt', 'desc']], max),
+      load: (viewer, query) => newest(
+        store.table('notifications'), { user: viewer.id, ...column('createdAt', bound(query.filters, 'createdAt')) },
+        scanOrder('notifications', query, { createdAt: 'createdAt' }, [['createdAt', 'desc']]), max,
+      ),
       search: (n) => `${n.title} ${n.body}`,
       fields: { kind: (n) => n.reason, read: (n) => n.read, createdAt: (n) => n.createdAt },
     }),
     systems: new RowsSource({
       list: 'systems', page,
-      load: async (viewer) => {
+      load: (viewer) => {
         adminOnly(viewer, 'systems');
-        const records = await newest(store.table('systems'), {}, [['name', 'asc']], max);
-        return Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r)));
+        return mapped(newest(store.table('systems'), {}, [['name', 'asc']], max), (records) => Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r))));
       },
       fields: {
         name: (s) => s.name, status: (s) => s.status, version: (s) => s.version, instances: (s) => s.instances.length, fns: (s) => s.fns,

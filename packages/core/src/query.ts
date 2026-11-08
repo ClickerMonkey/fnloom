@@ -216,6 +216,14 @@ export type ListValuesQuery = z.infer<typeof ListValuesQuery>;
 export const QueryFnArgs = z.object({ list: ListName, query: ListQuery.default({}) });
 export type QueryFnArgs = z.infer<typeof QueryFnArgs>;
 
-/** What `hub/query` returns: the rows as JSON (each list's record), the sort applied, and the next page's cursor. */
-export const QueryFnResult = page(z.json()).extend({ sort: z.array(Sort), total: z.number().int().min(0).optional() });
+/**
+ * What `hub/query` returns: the rows as JSON (each list's record), the sort applied, the next page's cursor, how many
+ * matched, and `partial` when the hub stopped reading at its scan bound (`HARNESS_QUERY_SCAN`): more rows may match,
+ * `total` is a lower bound, and a narrower filter (a date range, a system) gives the full answer.
+ */
+export const QueryFnResult = page(z.json()).extend({
+  sort: z.array(Sort),
+  total: z.number().int().min(0).optional(),
+  partial: z.literal(true).optional().describe('More rows than the hub reads at once: more may match; narrow the filters for a full answer.'),
+});
 export type QueryFnResult = z.infer<typeof QueryFnResult>;
