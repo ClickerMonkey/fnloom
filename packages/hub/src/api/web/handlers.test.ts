@@ -60,14 +60,14 @@ describe('chat handlers', () => {
         turns: { invoke: (input) => { push('invoke', input); return Promise.resolve({ turn: TurnId.parse('trn_2'), run: runId }); } },
       },
     });
-    await web.client.call('sessions', { search: 'plan', limit: 5 }, as);
+    await web.client.call('sessions', { limit: 5 }, as);
     await web.client.call('updateSession', { session: sessionId, title: 'New', archived: true }, as);
     await expect(web.client.call('messages', { session: sessionId, limit: 10 }, as)).resolves.toMatchObject({ cursor: 'next' });
     await web.client.call('invoke', { session: sessionId, fn: QualifiedName.parse('fs/read'), args: { path: 'a' }, client }, as);
     await web.client.call('control', { session: sessionId, action: 'cancel' }, as);
     await web.client.call('presence', { session: sessionId, focused: true, typing: false }, as);
     expect(calls).toEqual([
-      ['list', me, { search: 'plan', limit: 5 }],
+      ['list', me, { limit: 5 }],
       ['update', sessionId, { title: 'New', archived: true }, me],
       ['messages', sessionId, me, { limit: 10 }],
       ['invoke', { session: sessionId, fn: 'fs/read', args: { path: 'a' }, client, author: me }],

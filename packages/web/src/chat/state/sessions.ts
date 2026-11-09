@@ -20,12 +20,11 @@ import type { ChatApi } from '../api.ts';
 /** Sessions per page. */
 export const SESSIONS_PAGE = 40;
 
-/** What the list asks the hub for: a page of the active or archived chats, maybe with the list's query. */
+/** What the list asks the hub for: a page of the list's query, which always says active or archived chats. */
 interface SessionsQuery {
   readonly limit?: number;
   readonly cursor?: string;
-  readonly archived: boolean;
-  readonly query?: ListQuery;
+  readonly query: ListQuery;
 }
 
 const newestFirst = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt;
@@ -212,11 +211,9 @@ export class SessionListStore {
    */
   #query(cursor?: string): SessionsQuery {
     const list = hubListQuery(readListQuery('sessions', this.search.value));
-    const base = { archived: this.archived.value };
-    if (Object.keys(list).length === 0) { return withPage(base, SESSIONS_PAGE, cursor); }
     const filters = list.filters ?? [];
     const archived: Filter = { field: 'archived', op: 'is', value: this.archived.value };
-    return withPage({ ...base, query: filters.some((f) => f.field === 'archived') ? list : { ...list, filters: [...filters, archived] } }, SESSIONS_PAGE, cursor);
+    return withPage({ query: filters.some((f) => f.field === 'archived') ? list : { ...list, filters: [...filters, archived] } }, SESSIONS_PAGE, cursor);
   }
 
   /** Put a changed summary in place: newest first by default; under a chosen sort it keeps its place (new ones go on top). */

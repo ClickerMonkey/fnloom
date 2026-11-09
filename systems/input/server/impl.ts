@@ -170,6 +170,8 @@ export function createInputImpl(deps: InputDeps): InputServer {
           const problems = formProblems(args.form.type);
           if (problems.length > 0) { return ctx.invalid([{ path: 'form.type', message: problems.join(' ') }]); }
           const record = await save(args, ctx.run.user.id, ctx.llm);
+          // the person who saved it owns the new fn on the hub, which then keeps it to whom they chose
+          await ctx.shareFn(record.name, { visibility: record.visibility, with: [] });
           ctx.log.info('input.saved', { form: record.name, visibility: record.visibility });
           return ctx.done({ fn: qualify(input.name, record.name), name: record.title });
         },

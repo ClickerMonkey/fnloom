@@ -25,10 +25,10 @@ import {
   type ActorId, type NotificationReason, type Tokens, type UserEvent,
 } from '@harness/core';
 import { z } from 'zod';
-import { hubWebSpec, ModelCallQuery, PageRequest } from '@harness/core';
+import { hubWebSpec, PageRequest } from '@harness/core';
 import { logger, type Logger } from '@ayepi/log';
 import { MockAdmin } from './mockAdmin.ts';
-import { legacyOf, LlmPage, ResourcePage, RunPage } from './mockQuery.ts';
+import { legacyOf, LlmPage, ModelCallPage, ResourcePage, RunPage, SessionPage } from './mockQuery.ts';
 import { declaredStatusLogger } from './mockLog.ts';
 import { EMPTY_ZIP, MOCK_EXPORTS, MockBuild2 } from './mockBuild2.ts';
 import { MockBuild3 } from './mockBuild3.ts';
@@ -158,7 +158,10 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
         state.notifications = state.notifications.map((n) => (ids.has(n.id) ? { ...n, read: true } : n));
       },
       capabilities: () => ({ ...chat.capabilities(), ...build2.voice() }),
-      sessions: ({ data }) => ({ items: chat.list(data.search, data.archived ?? false) }),
+      sessions: ({ data }) => {
+        const { search, archived } = SessionPage.parse(legacyOf(data));
+        return { items: chat.list(search, archived ?? false) };
+      },
       session: ({ data }) => chat.session(data.session),
       createSession: ({ data }) => chat.create(data.title),
       updateSession: ({ data }) => {
@@ -251,7 +254,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       modelRoles: () => build2.roles,
       setModelRole: ({ data }) => { const view = build2.setRole(data); announce({ type: 'capabilities' }); return view; },
       clearModelRole: ({ data }) => { const view = build2.clearRole(data.role); announce({ type: 'capabilities' }); return view; },
-      modelCalls: ({ data }) => build2.modelCalls(ModelCallQuery.parse(legacyOf(data))),
+      modelCalls: ({ data }) => build2.modelCalls(ModelCallPage.parse(legacyOf(data))),
       modelCall: ({ data }) => build2.modelCall(data.id),
       fnMetrics: ({ data }) => build2.fnMetrics(data),
       fnMetricsDays: ({ data }) => build2.fnDays(data.fn, data.days),

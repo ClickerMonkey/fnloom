@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
-  type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
+  type ConnectResult, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
@@ -31,6 +31,8 @@ import type { ProcessControl } from './process.ts';
 
 /** What a system sent to a hub endpoint, as the hub parsed it. Derived from `hubLinkSpec`, so it can't drift. */
 export type HubBody<K extends keyof HubLinkSpec['endpoints']> = z.output<NonNullable<HubLinkSpec['endpoints'][K]['cfg']['body']>>;
+/** What the hub sends to a system endpoint. Derived from `systemLinkSpec`. */
+export type SystemBody<K extends keyof SystemLinkSpec['endpoints']> = SystemLinkSpec['endpoints'][K]['cfg'] extends { body: infer B extends z.ZodType } ? z.input<B> : never;
 
 /**
  * Where a fake context says its system keeps things: the `main` instance and folders nothing creates. A test that
@@ -201,6 +203,10 @@ export class FakeHub {
   readonly undos: Array<HubBody<'undoWith'>> = [];
   readonly attachments: Array<HubBody<'attach'>> = [];
   readonly logs: LogLine[] = [];
+  /** Refreshed (or expired) credentials systems handed back (`connectionUpdate`). */
+  readonly connectionUpdates: Array<HubBody<'connectionUpdate'>> = [];
+  /** Fns a run handed to its person (`shareFn`). */
+  readonly shares: Array<HubBody<'shareFn'>> = [];
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]> = [];
   readonly forwards: LlmForward[] = [];
   readonly embeds: string[][] = [];
@@ -372,6 +378,21 @@ export class FakeHub {
     return this.peer().call('export', { timeout });
   }
 
+  /** Begin connecting a person on a per-person system (`connectStart`): where to send them. */
+  connectStart(body: SystemBody<'connectStart'>): Promise<{ url: string }> {
+    return this.peer().call('connectStart', body);
+  }
+
+  /** Finish connecting a person (`connectFinish`) with what the redirect or form brought. */
+  connectFinish(body: SystemBody<'connectFinish'>): Promise<ConnectResult> {
+    return this.peer().call('connectFinish', body);
+  }
+
+  /** A person disconnected (`disconnect`). */
+  disconnect(body: SystemBody<'disconnect'>): Promise<void> {
+    return this.peer().call('disconnect', body);
+  }
+
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra: Partial<Omit<RunRequest, 'fn' | 'args'>> = {}): Promise<OutcomeWire> {
     return this.peer().call('run', this.request(fn, args, extra));
@@ -524,7 +545,8 @@ export class FakeHub {
           return { version: next.version };
         },
         log: ({ data }) => { this.logs.push(data); },
-        connectionUpdate: () => undefined,
+        connectionUpdate: ({ data }) => { this.connectionUpdates.push(data); },
+        shareFn: ({ data }) => { this.shares.push(data); },
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);

@@ -9,7 +9,7 @@ export default feature({
   id: 'model-calls', ref: 'build-2 3.16', title: 'Model calls', viewports: BUILD_2_VIEWPORTS,
   async run(ctx) {
     const { page, api } = ctx;
-    const chat = (await api.hub.call('modelCalls', { modality: 'chat', limit: 1 })).items[0];
+    const chat = (await api.hub.call('modelCalls', { query: { filters: [{ field: 'modality', op: 'is' as const, value: 'chat' }], limit: 1 } })).items[0];
     check(chat !== undefined, 'the hub has made a chat model call');
 
     await inEachScheme(ctx, async (shot) => {

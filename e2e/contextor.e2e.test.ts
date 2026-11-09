@@ -30,7 +30,7 @@ afterAll(() => { me.close(); });
 
 /** The chat model calls of a turn's agent run, with their interactions. */
 async function chatCallsOf(session: SessionId, turn: TurnId): Promise<Array<{ call: ModelCall; interaction: LlmInteraction }>> {
-  const calls = (await me.hub.call('modelCalls', { session, modality: 'chat', limit: 50 })).items.filter((call) => call.turn === turn);
+  const calls = (await me.hub.call('modelCalls', { query: { filters: [{ field: 'session', op: 'is' as const, value: session }, { field: 'modality', op: 'is' as const, value: 'chat' }], limit: 50 } })).items.filter((call) => call.turn === turn);
   return Promise.all(calls.map(async (call) => {
     if (call.interaction === undefined) { throw new Error(`model call ${call.id} has no interaction`); }
     return { call, interaction: await me.hub.call('llmCall', { id: call.interaction }) };

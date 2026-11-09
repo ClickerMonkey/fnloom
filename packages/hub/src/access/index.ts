@@ -8,7 +8,7 @@
  * (`access/scope.ts`) implements `AccessScope`.
  */
 import type {
-  AccessInfo, AccessTarget, AccessView, ActorId, ConnectionFnOption, ContextRecord, FnRecord, Sharing, ShareRule, UserConnection,
+  AccessInfo, AccessTarget, AccessView, ActorId, ConnectionFnOption, ContextRecord, FnRecord, FnShare, Sharing, ShareRule, SystemName, UserConnection,
 } from '@harness/core';
 
 /** The parts of a fn record access looks at. */
@@ -72,6 +72,11 @@ export interface AccessService {
   views(asker: ActorId, targets: readonly AccessTarget[]): Promise<AccessView[]>;
   /** Change a target's visibility; refused (403) unless the asker owns it or is an admin. */
   set(asker: ActorId, target: AccessTarget, rule: ShareRule): Promise<AccessView>;
+  /**
+   * A running fn of `system` gives one of its system's fns to its run's person (`shareFn`): refused unless the run is
+   * that system's and still going, the fn is that system's, and nobody else owns it already.
+   */
+  give(system: SystemName, share: FnShare): Promise<AccessView>;
 }
 
 /** A scope that sees and may use everything, acting as `actor` (the hub's own work, tests). */

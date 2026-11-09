@@ -1,9 +1,10 @@
 /**
  * The Google Calendar implementation: every fn acts as the person whose connection the run carries (the hub picks it:
  * the caller's own, else one shared with them, and leaves out fns the person switched off or asks first where they
- * said so). Its connect flow (`connect`) is what the hub's connect page drives.
+ * said so), and hands refreshed tokens back with `ctx.updateConnection`. Its connect flow (`connect`) is what the
+ * hub's connect page drives.
  */
-import type { ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, FnError, RunConnection } from '@harness/core';
+import type { FnError } from '@harness/core';
 import type { FnCtx, FnTypes, Outcome, SystemImpl } from '@harness/sdk';
 import type { CalendarConfigValue, CalendarContract, EventValue } from '../shared/index.ts';
 import { CalendarSession, endAfter, eventOf, instantOf, timeOf, writeOf } from './calendar.ts';
@@ -11,33 +12,11 @@ import { CalendarConnector } from './connector.ts';
 import type { CalendarSettings } from './env.ts';
 import { GoogleProblem, type GoogleApi, type GoogleProblemCode } from './google.ts';
 
-/** How the implementation reaches a run's connection and hands refreshed credentials back to the hub. */
-export interface ConnectionAccess {
-  /** The connection the run acts as (the run request's `connection`), if the hub sent one. */
-  of(ctx: object): RunConnection | undefined;
-  /** Send refreshed credentials, or that the connection expired (`connectionUpdate`). */
-  update(update: ConnectionUpdate): Promise<void>;
-}
-
 /** Everything the implementation is built from. */
 export interface CalendarDeps {
   readonly settings: CalendarSettings;
   readonly api: GoogleApi;
-  readonly connections: ConnectionAccess;
   readonly now: () => number;
-}
-
-/** The connect flow, as the hub calls it on the system link. */
-export interface CalendarConnect {
-  start(config: CalendarConfigValue, request: ConnectStart): { url: string };
-  finish(config: CalendarConfigValue, request: ConnectFinish): Promise<ConnectResult>;
-  disconnect(connection: Pick<RunConnection, 'credentials'>): Promise<boolean>;
-}
-
-/** The implementation and its connect flow. */
-export interface CalendarServer {
-  readonly impl: SystemImpl<CalendarContract['defs']>;
-  readonly connect: CalendarConnect;
 }
 
 /** The error class each Google problem fails a run with. */
@@ -48,15 +27,15 @@ const PROBLEM_CLASS: Record<GoogleProblemCode, FnError['class']> = {
 type CalendarCtx<T extends FnTypes> = FnCtx<T, CalendarConfigValue>;
 
 /** Build the implementation. */
-export function createCalendarImpl(deps: CalendarDeps): CalendarServer {
+export function createCalendarImpl(deps: CalendarDeps): SystemImpl<CalendarContract['defs']> {
   const s = deps.settings;
 
   /** Run fn code with the person's calendar, turning Google's problems into failures and a missing connection into one. */
   async function withCalendar<T extends FnTypes>(ctx: CalendarCtx<T>, work: (calendar: CalendarSession) => Promise<Outcome<T>>): Promise<Outcome<T>> {
-    const connection = deps.connections.of(ctx);
+    const connection = ctx.connection;
     if (connection === undefined) { return ctx.fail('caller', 'Your Google Calendar isn\'t connected: connect it on the Calendar page first.', { code: 'not-connected' }); }
     try {
-      const calendar = new CalendarSession({ api: deps.api, client: ctx.config, connection, now: deps.now, skew: s.CALENDAR_REFRESH_SKEW, update: (update) => deps.connections.update(update) });
+      const calendar = new CalendarSession({ api: deps.api, client: ctx.config, connection, now: deps.now, skew: s.CALENDAR_REFRESH_SKEW, update: (update) => ctx.updateConnection(update.update) });
       return await work(calendar);
     } catch (error) {
       if (!(error instanceof GoogleProblem)) { throw error; }
@@ -86,7 +65,8 @@ export function createCalendarImpl(deps: CalendarDeps): CalendarServer {
 
   const badTime = (path: string) => [{ path, message: 'Give an ISO date-time with its offset (2026-11-08T09:00:00-05:00) or a date (2026-11-08).' }];
 
-  const impl: SystemImpl<CalendarContract['defs']> = {
+  const connector = new CalendarConnector(deps.api, deps.now);
+  return {
     fns: {
       list_events: {
         run: (args, ctx) => withCalendar(ctx, async (calendar) => {
@@ -143,21 +123,18 @@ export function createCalendarImpl(deps: CalendarDeps): CalendarServer {
         }),
       },
     },
+    connect: {
+      start: (request, ctx) => connector.start(ctx.config, request),
+      finish: (request, ctx) => connector.finish(ctx.config, request),
+      disconnect: async (connection, ctx) => {
+        if (!await connector.disconnect(connection)) { ctx.log.warn('calendar.revoke.skipped', { connection: connection.id }); }
+      },
+    },
     lifecycle: {
       configured: (ctx) => {
         ctx.log.info('calendar.configured', { hub: ctx.config.hubUrl });
         return Promise.resolve();
       },
-    },
-  };
-
-  const connector = new CalendarConnector(deps.api, deps.now);
-  return {
-    impl,
-    connect: {
-      start: (config, request) => connector.start(config, request),
-      finish: (config, request) => connector.finish(config, request),
-      disconnect: (connection) => connector.disconnect(connection),
     },
   };
 }

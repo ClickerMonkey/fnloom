@@ -78,14 +78,14 @@ describe('context endpoints', () => {
       },
     });
     const who = { actor: me };
-    await web.client.call('contexts', { origin: 'memory' }, as);
+    await web.client.call('contexts', {}, as);
     await expect(web.client.call('remember', { text: 'A note.', scope: 'user' }, as)).resolves.toEqual({ name });
     await web.client.call('remember', { text: 'No scope.' }, as);
     await expect(web.client.call('forget', { name }, as)).resolves.toEqual({ ok: true });
     await expect(web.client.call('linkContext', { from: name, to: link.to, relation: 'related', weight: 0.5 }, as)).resolves.toMatchObject({ source: 'authored' });
     await expect(web.client.call('unlinkContext', { from: name, toKey: link.toKey, relation: 'related' }, as)).resolves.toEqual({ ok: false });
     expect(calls).toEqual([
-      ['list', { origin: 'memory' }, who], ['remember', { text: 'A note.', scope: 'user' }, { ...who, admin: true }], ['remember', { text: 'No scope.', scope: 'user' }, { ...who, admin: true }], ['forget', name, who],
+      ['list', {}, who], ['remember', { text: 'A note.', scope: 'user' }, { ...who, admin: true }], ['remember', { text: 'No scope.', scope: 'user' }, { ...who, admin: true }], ['forget', name, who],
       ['link', { from: name, to: link.to, relation: 'related', weight: 0.5 }, who], ['unlink', { from: name, toKey: link.toKey, relation: 'related' }, who],
     ]);
   });

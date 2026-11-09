@@ -5,7 +5,7 @@
  * `public` and owned by whoever added it, so build 3 data keeps working. A hub with one person shows none of this.
  */
 import { z } from 'zod';
-import { ActorId, ConnectionId, QualifiedName, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, ConnectionId, LocalName, QualifiedName, RunId, SystemName, Timestamp } from './primitives.ts';
 
 /** Who may see and use a thing. */
 export const VISIBILITIES = ['private', 'shared', 'public'] as const;
@@ -68,3 +68,10 @@ export type AccessInfo = z.infer<typeof AccessInfo>;
 /** A visibility without its owner, for things whose owner is kept elsewhere (a connection's `owner`). */
 export const ShareRule = Sharing.omit({ owner: true });
 export type ShareRule = z.infer<typeof ShareRule>;
+
+/**
+ * System → hub (`shareFn`): a running fn hands a fn of its own system to its run's person, with who else may use it
+ * (a form someone saved as a fn). The person then owns it and can change who sees it like anything else of theirs.
+ */
+export const FnShare = z.object({ run: RunId, fn: LocalName, share: ShareRule });
+export type FnShare = z.infer<typeof FnShare>;

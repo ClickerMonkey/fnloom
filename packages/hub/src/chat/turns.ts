@@ -6,7 +6,7 @@
  * `finish`; `settle` closes the turn and tells people who are away.
  */
 import {
-  ACTIVE_RUN_STATUSES, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
+  ACTIVE_RUN_STATUSES, isHiddenPart, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
   type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type UserInfo,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -44,12 +44,9 @@ export function plainText(parts: readonly MessagePart[]): string {
   }).join('').trim();
 }
 
-/** The parts people never see in the chat (unless it is in debug mode): what the hub adds, and a form's answers. */
-const HIDDEN_PARTS: ReadonlySet<MessagePart['type']> = new Set(['reasoning', 'extra', 'hook', 'input-answer']);
-
-/** Whether a message has nothing a person sees: only hidden parts and no files (the chat shows it in debug mode only). */
+/** Whether a message has nothing a person reads: only hidden parts (and reasoning) and no files (the chat shows it in debug mode only). */
 export function hiddenMessage(message: Pick<ChatMessage, 'parts'>): boolean {
-  return message.parts.every((part) => HIDDEN_PARTS.has(part.type));
+  return message.parts.every((part) => part.type === 'reasoning' || isHiddenPart(part));
 }
 
 /** How a settled run ends its turn. */

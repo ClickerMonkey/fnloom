@@ -8,7 +8,7 @@ import { shallowRef } from 'vue';
 import { Loaded, Paged, Task, type PagedSource, type Outcome } from '../../state/loaded.ts';
 import type { ChatApi } from '../../chat/api.ts';
 import type { AdminApi } from '../api.ts';
-import type { LlmSummary, ResourceFilter } from '@harness/core';
+import type { LlmSummary } from '@harness/core';
 import { withPage } from '../../state/query.ts';
 
 /** The model calls browser's filter: the list's query, and the run they were made for (a link from a run). */
@@ -94,7 +94,7 @@ export interface OpenedModelCall {
   readonly interaction?: LlmInteraction;
 }
 export type ModelCallsBrowser = Browser<ModelCall, ModelCallsFilter, ModelCallId, OpenedModelCall>;
-export type ResourcesBrowser = Browser<ResourceRecord, ResourceFilter, ResourceUri, ResourceRead>;
+export type ResourcesBrowser = Browser<ResourceRecord, ListQuery, ResourceUri, ResourceRead>;
 
 /** Runs, newest first; a run opens with its full record. */
 export function runsBrowser(api: Pick<AdminApi, 'runs'>, chat: Pick<ChatApi, 'run' | 'background' | 'undoTurn'>): RunsBrowser {
@@ -138,7 +138,7 @@ export function modelCallsBrowser(api: Pick<AdminApi, 'modelCalls' | 'modelCall'
 /** Resources the hub knows; one opens with its text and links, in its viewer. */
 export function resourcesBrowser(api: Pick<AdminApi, 'resources'>, chat: Pick<ChatApi, 'resource'>): ResourcesBrowser {
   return new Browser({
-    fetch: (filter, cursor, limit) => api.resources.call(withPage(filter, limit, cursor)),
+    fetch: (query, cursor, limit) => api.resources.call(withPage({ query }, limit, cursor)),
     key: (resource) => resource.uri,
     failure: "Couldn't load resources.",
     limit: BROWSER_PAGE,

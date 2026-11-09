@@ -9,7 +9,7 @@
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  HUB_RESOURCE_ROOT, ResourceStat, type ActorId, type ContentRef, type QualifiedName, type RenderMode, type ResourceImportArgs, type ResourcePage, type ResourceQuery,
+  HUB_RESOURCE_ROOT, ResourceStat, type ActorId, type ContentRef, type QualifiedName, type ResourceImportArgs, type ResourcePage, type ResourceQuery,
   type ResourceRecord, type ResourceSource, type ResourceUri, type RunId,
 } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
@@ -24,7 +24,7 @@ import { facetsOf, inGroup, matches } from './browse.ts';
 import type { ResourcesEnv } from './env.ts';
 import type { UrlFetcher } from './fetch.ts';
 import type { Asking, Converters, FormService, ResourceLibrary } from './index.ts';
-import { dayOf, hubUri, isHubUri, resourceLinkKey, safeSegment, withoutCredentials } from './rules.ts';
+import { dayOf, hubUri, isHubUri, resourceLinkKey, safePath, safeSegment, withoutCredentials } from './rules.ts';
 
 /** How many resources a browse page holds when the browser doesn't say. */
 const PAGE_SIZE = 50;
@@ -66,12 +66,16 @@ interface Place {
   readonly replace?: boolean;
 }
 
-/** A web page's place under `web/`: its host and path folders, and the page's own segment (with its query told apart). */
-function webPlace(url: URL): { path: string; segment: string } {
+/**
+ * A web page's place under `web/` (or under `web/<folder>/`, so a crawl keeps its pages under one root): its host and
+ * path folders, and the page's own segment (with its query told apart).
+ */
+export function webPlace(url: URL, folder?: string): { path: string; segment: string } {
   const parts = url.pathname.split('/').filter((part) => part !== '').map((part) => safeSegment(decodeURIComponent(part)));
   const last = parts.pop() ?? 'index';
   const query = url.search === '' ? '' : `~${sha256Hex(url.search).slice(0, 8)}`;
-  return { path: ['web', url.host, ...parts].join('/'), segment: `${last}${query}` };
+  const under = folder === undefined ? '' : safePath(folder);
+  return { path: ['web', ...(under === '' ? [] : [under]), url.host, ...parts].join('/'), segment: `${last}${query}` };
 }
 
 /** The hub's resources over its store and content store. */
@@ -83,7 +87,7 @@ export class HubResourceLibrary implements ResourceLibrary {
   }
 
   async import(args: ResourceImportArgs, who: Asking): Promise<ResourceRecord> {
-    if ('url' in args) { return this.#importUrl(args.url, args.render ?? 'auto', args.name, who); }
+    if ('url' in args) { return this.#importUrl(args, who); }
     if (!(await this.#o.content.has(args.content))) { throw reject(404, 'CONTENT_NOT_FOUND', `no content ${args.content.hash}; upload it first`); }
     this.#checkSize(args.content.size);
     const path = args.path ?? `uploads/${dayOf(this.#o.clock())}`;
@@ -133,14 +137,15 @@ export class HubResourceLibrary implements ResourceLibrary {
     return { items, facets, ...(start + limit < shown.length ? { cursor: String(start + limit) } : {}) };
   }
 
-  /** Import a URL: fetched (through the web system when it can), kept under `web/<host>/…`. */
-  async #importUrl(url: string, render: RenderMode, name: string | undefined, who: Asking): Promise<ResourceRecord> {
-    const fetched = await this.#o.fetcher.fetch(url, render, who);
+  /** Import a URL: fetched (through the web system when it can), kept under `web/<host>/…` (or `web/<folder>/<host>/…`). */
+  async #importUrl(args: Extract<ResourceImportArgs, { url: string }>, who: Asking): Promise<ResourceRecord> {
+    const { url, name } = args;
+    const fetched = await this.#o.fetcher.fetch(url, args.render ?? 'auto', who);
     this.#checkSize(fetched.bytes.length);
     const ref = await this.#o.content.put(fetched.bytes, fetched.mime);
     const asked = withoutCredentials(url);
     const final = withoutCredentials(fetched.finalUrl);
-    const { path, segment } = webPlace(final);
+    const { path, segment } = webPlace(final, args.folder);
     const shown = name ?? fetched.title ?? (final.pathname === '/' ? final.host : decodeURIComponent(final.pathname.split('/').filter((p) => p !== '').at(-1) ?? final.host));
     const source: ResourceSource = {
       from: 'web', url: asked.href, fetchedAt: this.#o.clock(), rendered: fetched.rendered, ...(final.href === asked.href ? {} : { finalUrl: final.href }),

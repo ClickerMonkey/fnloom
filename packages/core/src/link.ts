@@ -11,6 +11,7 @@ import { LlmForward, LlmForwardChunk } from './llm.ts';
 import { ModelForward, ModelForwardResult } from './model-calls.ts';
 import { PairingInfo } from './package.ts';
 import { AutoPairGrant, AutoPairProof } from './auto-pair.ts';
+import { FnShare } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, RunConnection } from './connections.ts';
 import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
@@ -247,6 +248,8 @@ const linked = use(linkTel, linkSession).group({
   log: { body: LogLine, ws: 'lg' },
   /** Build 4: refreshed credentials for a person's connection, or that it expired. */
   connectionUpdate: { body: ConnectionUpdate, ws: 'cu' },
+  /** Build 4: a running fn gives a fn of its system (one it added) to its run's person, with who else may use it. */
+  shareFn: { body: FnShare, ws: 'sh' },
 });
 
 /** What a system calls on the hub. */

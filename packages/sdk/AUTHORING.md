@@ -667,17 +667,24 @@ interface ContractShape {
   actions: Record<string, ActionDef<unknown, unknown, object>>;
   /** Model providers it brings (`provider()`), served by its implementation. */
   providers: Record<string, ProviderDef>;
+  /**
+   * A per-person system's `connect` declaration (manifest `connect`): each person connects their own account and its
+   * fns act as them. `undefined` for a system everyone shares. The implementation then serves `connect`.
+   */
+  connect: ConnectDecl | undefined;
 }
 ```
+
+Refers to: [`ConnectDecl`](#core-connectdecl).
 
 #### `ContractSection`
 
 type · `import { ContractSection } from '@harness/sdk'`
 
-The sections of a contract other than `config`.
+The sections of a contract that add named declarations (all but `config` and `connect`).
 
 ```ts
-type ContractSection = Exclude<keyof ContractShape, 'config'>;
+type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect'>;
 ```
 
 #### `CONTRACT_SECTIONS`
@@ -700,6 +707,7 @@ A contract with nothing in it yet. Its config is the empty object.
 interface EmptyContract {
   config: GinType<{}>;
   types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {}; providers: {};
+  connect: undefined;
 }
 ```
 
@@ -707,15 +715,19 @@ interface EmptyContract {
 
 type · `import { Merge } from '@harness/sdk'`
 
-A contract with more sections merged in: `config` is replaced, every other section adds to what was declared.
+A contract with more sections merged in: `config` and `connect` are replaced, every other section adds to what was declared.
 
 ```ts
 type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
   [K in keyof ContractShape]: K extends 'config'
     ? (P extends { config: infer X extends GinType<object> } ? X : C['config'])
-    : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
+    : K extends 'connect'
+      ? (P extends { connect: infer X extends ConnectDecl } ? X : C['connect'])
+      : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
 };
 ```
+
+Refers to: [`ConnectDecl`](#core-connectdecl).
 
 #### `AnyContract`
 
@@ -1508,7 +1520,17 @@ args, state)` runs before the run starts: `{ ok: false, reason }` means the fn c
 available now: reason" (it isn't an error, and the fn isn't run). `output(ctx, args, result, state)` runs after it is
 done: `{ ok: false, action: 'retry', reason }` asks the model to try again (a few times a turn), `action: 'stop'` fails
 the run with the reason shown to the person. `ctx` is the system context with the run and, for output, the attempt;
-`state` is the session state fields the fn declares, as they are now.
+`state` is the session state fields the fn declares, as they are now. An output check runs after the fn has done its
+work, and a refused result's undo is dropped: a fn with side effects should check what it can in `input`, or undo its
+own work before answering `retry` or `stop`.
+
+**Per-person systems.** A system that acts as each person (a calendar) adds `connect` to its contract with
+`.with({ connect: { title, description, how, settings, fns } })`, naming the fns that act as the person and whether
+each is on and asks first by default. Its implementation then has `connect: { start, finish, disconnect }`: `start`
+gives the provider's sign-in URL (pass the hub's `state` through), `finish` turns what came back into the account and
+credentials (or a `problem`), `disconnect` revokes them. In a run, `ctx.connection` is the connection it acts as
+(credentials and the person's settings), and `ctx.updateConnection({ credentials })` hands refreshed tokens back.
+A fn that adds a fn for the person (a saved form) gives it to them with `ctx.shareFn(name, { visibility, with })`.
 
 ```ts
 buy: fn({
@@ -4180,7 +4202,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/runs_list`: Runs, newest first, filtered by fn, status, session or system. A member sees their own runs. Tags: `read`.
 
   ```text
-  (obj{ cursor?, limit?, status?, fn?, system?, session?, query? … }) => obj{ items, cursor? … }
+  (obj{ cursor?, limit?, query? … }) => obj{ items, cursor? … }
   ```
 - `hub/run_get`: One run: its fn, args, status, result or error, cost and timings. Tags: `read`.
 
@@ -4200,7 +4222,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/model_calls`: Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings. Tags: `read`.
 
   ```text
-  (obj{ cursor?, limit?, modality?, model?, system?, run?, session?, status?, query? … }) => obj{ items, cursor? … }
+  (obj{ cursor?, limit?, run?, query? … }) => obj{ items, cursor? … }
   ```
 - `hub/fn_metrics`: How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens. Tags: `read`.
 
@@ -4214,7 +4236,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/sessions_list`: Chat sessions, most recent first. Tags: `read`.
 
   ```text
-  (obj{ cursor?, limit?, search?, archived?, query? … }) => obj{
+  (obj{ cursor?, limit?, query? … }) => obj{
     items: list<obj{
       /* session id */ id: text,
       title: text,
@@ -5118,6 +5140,7 @@ Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
 Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
 Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
 Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
+(C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>> } : { readonly connect?: never }) &
 {
   /** Resources this system serves. */
   readonly resources?: ResourceProvider;
@@ -5126,6 +5149,8 @@ Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf
   readonly lifecycle?: Lifecycle<ConfigOf<C>>;
 };
 ```
+
+Refers to: [`ConnectDecl`](#core-connectdecl).
 
 #### `FnImpl`
 
@@ -5140,6 +5165,25 @@ type FnImpl<T extends FnTypes, Cfg = unknown> =
 ```
 
 Refers to: [`UndoOutcome`](#core-undooutcome).
+
+#### `ConnectImpl`
+
+interface · `import { ConnectImpl } from '@harness/sdk'`
+
+A per-person system's connect flow, as the hub's connect page drives it. `start` gives the URL to send the person
+to (OAuth; `state` must come back unchanged on the hub's redirect); `finish` turns what came back (the redirect's
+query, or the form) into the account and credentials, or a problem in words; `disconnect` revokes the credentials
+where the provider can (best effort).
+
+```ts
+interface ConnectImpl<Cfg> {
+  start(request: ConnectStart, ctx: SystemCtx<Cfg>): Promise<{ url: string }> | { url: string };
+  finish(request: ConnectFinish, ctx: SystemCtx<Cfg>): Promise<ConnectResult>;
+  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg>): Promise<void>;
+}
+```
+
+Refers to: [`ConnectFinish`](#core-connectfinish), [`ConnectResult`](#core-connectresult), [`ConnectStart`](#core-connectstart), [`RunConnection`](#core-runconnection).
 
 #### `loggedHost`
 
@@ -5521,6 +5565,21 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
   readonly state: SessionState<T['state']>;
   /** Wait for the run's renderer to submit its form. Only fns that declare a `form` type have it. */
   readonly form: [T['form']] extends [never] ? undefined : () => Promise<T['form']>;
+  /**
+   * The person's connection this run acts as (a per-person system's fn, `connect` in the contract): its credentials
+   * and settings, which the hub picked (the caller's own, else one shared with them). `undefined` otherwise.
+   */
+  readonly connection: RunConnection | undefined;
+  /**
+   * Hand the hub refreshed credentials for this run's connection, or say they can't be refreshed (`expired`, with
+   * why in plain words). Resolves once the hub has them; throws when the run has no connection.
+   */
+  updateConnection(update: ConnectionUpdate['update']): Promise<void>;
+  /**
+   * Give a fn of this system (one this run added, a saved form) to the run's person, with who else may use it. They
+   * own it from then on and can change that on the fn's page. Resolves once the hub has it.
+   */
+  shareFn(fn: string, share: ShareRule): Promise<void>;
   /** Set when this run is resuming after a pause or a hub restart. */
   readonly resume: Resume<T['resume']> | undefined;
   /** Called when the run is asked to pause: return the state to resume from. Only fns with a resume type can pause. */
@@ -5547,7 +5606,7 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
 }
 ```
 
-Refers to: [`AllowedOperations`](#core-allowedoperations), [`Detail`](#core-detail), [`ErrorClass`](#core-errorclass), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`RunInfo`](#core-runinfo), [`Usd`](#core-usd).
+Refers to: [`AllowedOperations`](#core-allowedoperations), [`ConnectionUpdate`](#core-connectionupdate), [`Detail`](#core-detail), [`ErrorClass`](#core-errorclass), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`RunConnection`](#core-runconnection), [`RunInfo`](#core-runinfo), [`ShareRule`](#core-sharerule), [`Usd`](#core-usd).
 
 #### `Services`
 
@@ -6728,6 +6787,85 @@ interface ResourceViewerProps {
 
 Refers to: [`ResourceUri`](#core-resourceuri), [`SectionKey`](#core-sectionkey).
 
+#### `INPUT_ANSWERS`
+
+const · `import { INPUT_ANSWERS } from '@harness/sdk'`
+
+Sends a form's answers as a hidden user message (one `input-answer` part, which the chat hides and the model reads
+in `<input-answer>` tags). The chat provides it; like `RESOURCE_VIEWER`, the key is a global symbol.
+
+```ts
+const INPUT_ANSWERS: InjectionKey<InputAnswers>;
+```
+
+#### `VALUE_EDITOR`
+
+const · `import { VALUE_EDITOR } from '@harness/sdk'`
+
+The chat's gin value editor (`v-model` over the JSON value).
+
+```ts
+const VALUE_EDITOR: InjectionKey<Component<ValueEditorProps>>;
+```
+
+#### `ACCESS_INFO`
+
+const · `import { ACCESS_INFO } from '@harness/sdk'`
+
+Whether the hub has more than one person (a reactive getter), so a renderer offers who may use what it saves.
+
+```ts
+const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>>;
+```
+
+Refers to: [`AccessInfo`](#core-accessinfo).
+
+#### `InputAnswer`
+
+type · `import { InputAnswer } from '@harness/sdk'`
+
+A form's answer as it was sent: the run's `input-answer` part, without its type tag.
+
+```ts
+type InputAnswer = Omit<Extract<MessagePart, { type: 'input-answer' }>, 'type'>;
+```
+
+Refers to: [`MessagePart`](#core-messagepart).
+
+#### `InputAnswers`
+
+interface · `import { InputAnswers } from '@harness/sdk'`
+
+Sending a form's answers, and the answers already sent.
+
+```ts
+interface InputAnswers {
+  /** Add a user message whose only part is this `input-answer`; rejects with the reason when it couldn't be sent. */
+  send(answer: InputAnswer): Promise<void>;
+  /** The answer sent for a run's form, if one was (read reactively). */
+  answerOf(run: RunId): InputAnswer | undefined;
+}
+```
+
+Refers to: [`RunId`](#core-runid).
+
+#### `ValueEditorProps`
+
+interface · `import { ValueEditorProps } from '@harness/sdk'`
+
+The props of the chat's gin value editor, as a renderer binds them. `type` is a gin `TypeDef`; the editor reads any
+definition (and says when it can't), so it takes `unknown`, which a renderer's `TypeDef` fits.
+
+```ts
+interface ValueEditorProps {
+  type: unknown;
+  modelValue: Json | undefined;
+  readonly?: boolean;
+}
+```
+
+Refers to: [`Json`](#core-json).
+
 #### `buildClient`
 
 function · `import { buildClient } from '@harness/sdk/build'`
@@ -7257,6 +7395,10 @@ class FakeHub {
   readonly undos: Array<HubBody<'undoWith'>>;
   readonly attachments: Array<HubBody<'attach'>>;
   readonly logs: LogLine[];
+  /** Refreshed (or expired) credentials systems handed back (`connectionUpdate`). */
+  readonly connectionUpdates: Array<HubBody<'connectionUpdate'>>;
+  /** Fns a run handed to its person (`shareFn`). */
+  readonly shares: Array<HubBody<'shareFn'>>;
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]>;
   readonly forwards: LlmForward[];
   readonly embeds: string[][];
@@ -7314,6 +7456,12 @@ class FakeHub {
   request(fn: QualifiedName, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args">>): RunRequest;
   /** Ask the connected system to get ready for a data export; resolves with where its data folder is. */
   exportData(timeout?: number): Promise<{ data: string; }>;
+  /** Begin connecting a person on a per-person system (`connectStart`): where to send them. */
+  connectStart(body: SystemBody<"connectStart">): Promise<{ url: string; }>;
+  /** Finish connecting a person (`connectFinish`) with what the redirect or form brought. */
+  connectFinish(body: SystemBody<"connectFinish">): Promise<ConnectResult>;
+  /** A person disconnected (`disconnect`). */
+  disconnect(body: SystemBody<"disconnect">): Promise<void>;
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<OutcomeWire>;
   /** Store content (as an upload would) and return its ref. */
@@ -7321,7 +7469,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ContentRef`](#core-contentref), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -7403,6 +7551,18 @@ type HubBody<K extends keyof HubLinkSpec['endpoints']> = z.output<NonNullable<Hu
 ```
 
 Refers to: [`HubLinkSpec`](#core-hublinkspec).
+
+#### `SystemBody`
+
+type · `import { SystemBody } from '@harness/sdk/server/testing'`
+
+What the hub sends to a system endpoint. Derived from `systemLinkSpec`.
+
+```ts
+type SystemBody<K extends keyof SystemLinkSpec['endpoints']> = SystemLinkSpec['endpoints'][K]['cfg'] extends { body: infer B extends z.ZodType } ? z.input<B> : never;
+```
+
+Refers to: [`SystemLinkSpec`](#core-systemlinkspec).
 
 #### `streamOf`
 
@@ -10214,6 +10374,18 @@ interface RedirectProblems {
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
 
+#### <a id="core-accessinfo"></a>`AccessInfo`
+
+const, type · declared in `packages/core/src/access.ts`
+
+Whether the hub has more than one person; the web shows visibility controls only when it does.
+
+```ts
+type AccessInfo = {
+  multiUser: boolean;
+};
+```
+
 #### <a id="core-actorid"></a>`ActorId`
 
 const, type · declared in `packages/core/src/primitives.ts`
@@ -10310,6 +10482,102 @@ A system's config value as the hub holds it.
 type ConfigValue = {
   value: z.core.util.JSONType;
   version: number;
+};
+```
+
+#### <a id="core-connectdecl"></a>`ConnectDecl`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+A system's `connect` declaration: its page, how to connect, the per-person settings and the fns that act as the person.
+
+```ts
+type ConnectDecl = {
+  title: string;
+  description: string;
+  how: {
+    flow: "oauth";
+  } | {
+    flow: "form";
+    form: TypeDef<any>;
+  };
+  settings: TypeDef<any>;
+  fns: Record<string, {
+    on: boolean;
+    ask: boolean;
+  }>;
+  icon?: string | undefined;
+};
+```
+
+#### <a id="core-connectfinish"></a>`ConnectFinish`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+Hub → system: the redirect came back (its query `params`) or the form was sent (`form`); answer the account and credentials.
+
+```ts
+type ConnectFinish = {
+  connection: string;
+  owner: string;
+  redirect: string;
+  answer: {
+    params: Record<string, string>;
+  } | {
+    form: z.core.util.JSONType;
+  };
+};
+```
+
+#### <a id="core-connectionupdate"></a>`ConnectionUpdate`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+System → hub: refreshed credentials for a connection (`connectionUpdate`), or that it can't be refreshed.
+
+```ts
+type ConnectionUpdate = {
+  connection: string;
+  update: {
+    credentials: z.core.util.JSONType;
+    expiresAt?: number | undefined;
+  } | {
+    expired: string;
+  };
+};
+```
+
+#### <a id="core-connectresult"></a>`ConnectResult`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+The system's answer to `connectFinish`.
+
+```ts
+type ConnectResult = {
+  account: {
+    label: string;
+    detail?: string | undefined;
+  };
+  credentials: z.core.util.JSONType;
+  expiresAt?: number | undefined;
+} | {
+  problem: string;
+};
+```
+
+#### <a id="core-connectstart"></a>`ConnectStart`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+Hub → system: begin connecting (`connectStart`). `state` goes through the provider and back to the hub unchanged.
+
+```ts
+type ConnectStart = {
+  connection: string;
+  owner: string;
+  redirect: string;
+  state: string;
 };
 ```
 
@@ -11438,6 +11706,127 @@ type MentionHover = {
 };
 ```
 
+#### <a id="core-messagepart"></a>`MessagePart`
+
+const, type · declared in `packages/core/src/records/chat.ts`
+
+A piece of a message.
+
+```ts
+type MessagePart = {
+  type: "text";
+  text: string;
+} | {
+  type: "reasoning";
+  text: string;
+} | {
+  type: "mention";
+  provider: `${string}/${string}`;
+  label: string;
+  target: z.core.util.JSONType;
+  text: string;
+} | {
+  type: "command";
+  context: `${string}/${string}`;
+  args: Record<string, string>;
+} | {
+  type: "invocation";
+  run: string;
+  fn: `${string}/${string}`;
+} | {
+  type: "file";
+  ref: {
+    hash: string;
+    size: number;
+    mime: string;
+  };
+  name: string;
+} | {
+  type: "input-answer";
+  run: string;
+  title: string;
+  value: z.core.util.JSONType;
+  text: string;
+} | {
+  type: "extra";
+  extra: "local-time" | "suggested-context" | "suggested-fns";
+  blocks: ({
+    type: "text";
+    tag: string;
+    text: string;
+  } | {
+    type: "suggest-context";
+    items: {
+      context: `${string}/${string}`;
+      why?: string | undefined;
+      score?: number | undefined;
+    }[];
+  } | {
+    type: "suggest-fns";
+    items: {
+      fn: `${string}/${string}`;
+      why?: string | undefined;
+      score?: number | undefined;
+    }[];
+  } | {
+    type: "load";
+    context?: `${string}/${string}`[] | undefined;
+    fns?: `${string}/${string}`[] | undefined;
+  })[];
+} | {
+  type: "hook";
+  hook: `${string}/${string}`;
+  blocks: ({
+    type: "text";
+    tag: string;
+    text: string;
+  } | {
+    type: "suggest-context";
+    items: {
+      context: `${string}/${string}`;
+      why?: string | undefined;
+      score?: number | undefined;
+    }[];
+  } | {
+    type: "suggest-fns";
+    items: {
+      fn: `${string}/${string}`;
+      why?: string | undefined;
+      score?: number | undefined;
+    }[];
+  } | {
+    type: "load";
+    context?: `${string}/${string}`[] | undefined;
+    fns?: `${string}/${string}`[] | undefined;
+  })[];
+} | {
+  type: "attachment";
+  attachment: `${string}/${string}`;
+  data: z.core.util.JSONType;
+  title: string;
+} | {
+  type: "link";
+  link: {
+    resource: `${string}://${string}`;
+    section?: (string & z.core.$brand<"SectionKey">) | undefined;
+    title?: string | undefined;
+  } | {
+    url: string;
+    title: string;
+  } | {
+    file: {
+      hash: string;
+      size: number;
+      mime: string;
+    };
+    title: string;
+  } | {
+    run: string;
+    title: string;
+  };
+};
+```
+
 #### <a id="core-mintmcptokenargs"></a>`MintMcpTokenArgs`
 
 const, type · declared in `packages/core/src/records/mcps.ts`
@@ -11937,6 +12326,21 @@ An absolute URI. A system serves the URIs under its roots.
 type ResourceUri = `${string}://${string}`;
 ```
 
+#### <a id="core-runconnection"></a>`RunConnection`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+What a run that acts as a person carries (`RunRequest.connection`): the connection and its revealed credentials.
+
+```ts
+type RunConnection = {
+  id: string;
+  owner: string;
+  credentials: z.core.util.JSONType;
+  settings: z.core.util.JSONType;
+};
+```
+
 #### <a id="core-runcontrol"></a>`RunControl`
 
 const, type · declared in `packages/core/src/link.ts`
@@ -12236,6 +12640,19 @@ How a user's setting value combines with their groups'.
 
 ```ts
 type SettingMerge = "union" | "user-wins" | "intersect" | "most-restrictive";
+```
+
+#### <a id="core-sharerule"></a>`ShareRule`
+
+const, type · declared in `packages/core/src/access.ts`
+
+A visibility without its owner, for things whose owner is kept elsewhere (a connection's `owner`).
+
+```ts
+type ShareRule = {
+  with: string[];
+  visibility: "private" | "shared" | "public";
+};
 ```
 
 #### <a id="core-stateowner"></a>`StateOwner`

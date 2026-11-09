@@ -10,7 +10,7 @@ export default feature({
   id: 'invalid-input', ref: 'build-2 3.13', title: 'Refused input, retried', viewports: BUILD_2_VIEWPORTS,
   async run(ctx) {
     const { page, api } = ctx;
-    let found = (await api.hub.call('runs', { status: 'invalid-input', limit: 1 })).items[0];
+    let found = (await api.hub.call('runs', { query: { filters: [{ field: 'status', op: 'is' as const, value: 'invalid-input' }], limit: 1 } })).items[0];
     if (found === undefined) {
       // a scripted ask: the mock hub refuses the first call of a message that says "bad args"; a model is told to err
       const session = await api.hub.call('createSession', { title: 'UI invalid input' });
@@ -20,7 +20,7 @@ export default feature({
       } finally {
         watch.stop();
       }
-      found = (await api.hub.call('runs', { status: 'invalid-input', limit: 1 })).items[0];
+      found = (await api.hub.call('runs', { query: { filters: [{ field: 'status', op: 'is' as const, value: 'invalid-input' }], limit: 1 } })).items[0];
     }
     check(found?.session !== undefined, 'a run with refused input exists in a chat');
     const { session, id } = found;

@@ -12,7 +12,8 @@ import {
   type Policy, type PriorityRule, type ProviderId, type ProviderKind, type ResolvedLimits, type ResourceRead, type ResourceRecord, type ResourceUri, type Run, type SystemStatus, type SystemView,
   type UserEvent,
 } from '@harness/core';
-import type { BudgetView, LlmFilter, OutputLine, ModelInfo, ResourceFilter, RuleRef, RunFilter } from '@harness/core';
+import type { BudgetView, OutputLine, ModelInfo, RuleRef } from '@harness/core';
+import type { LlmFilter, ResourceFilter, RunFilter } from './mockQuery.ts';
 import {
   actor, budget, category, fnRecord, installed, logLine, model, pairing, policy, priorityRule, resourceRecord, settingValue, settingView, systemView,
 } from '../src/admin/test/fakes.ts';
@@ -81,7 +82,7 @@ export class MockAdmin {
     for (const s of [fs, notes, embedder]) { this.systems.set(s.name, s); }
     this.logs.set(fs.name, [logLine('started fs 0.4.0', { stream: 'hub', at: at - 3 * MINUTE }), ...OUTPUT.slice(0, 4).map((text, i) => logLine(text, { at: at - (4 - i) * 30_000 }))]);
     this.pairings = [pairing({ id: 'par_notes', name: 'calendar', version: '1.0.2', createdAt: at - MINUTE, expiresAt: at + 9 * MINUTE })];
-    this.providers = [{ id: mintId('provider'), provider: model().provider, models: 3 }];
+    this.providers = [{ id: mintId('provider'), provider: 'openrouter', models: 3 }];
     this.models = [
       model(),
       model({ id: 'meta-llama/llama-3.3-8b-instruct:free', name: 'Llama 3.3 8B (free)', contextWindow: 128_000 }),

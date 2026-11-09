@@ -1,8 +1,7 @@
 import { ActorId, BudgetId, LlmInteractionId, QualifiedName } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { RunFilter } from '@harness/core';
 import { budget, installed, pairing, policy, systemView, T0 } from '../test/fakes.ts';
-import { LLM_STATUS_LOOK, filterOf, llmTimes } from './browsers.ts';
+import { LLM_STATUS_LOOK, llmTimes } from './browsers.ts';
 import {
   budgetBody, budgetDraft, categoryBody, installFields, installSource, policyBody, policyDraft, priorityBody, priorityDraft, providerBody, providerFields, tokenBody, autoPairPart,
 } from './forms.ts';
@@ -165,11 +164,6 @@ describe('forms', () => {
 });
 
 describe('browsers and nav', () => {
-  it('reads a filter from the URL field by field, dropping bad values', () => {
-    expect(filterOf(RunFilter, { status: 'failed', fn: ' fs/* ', system: 'Not A Name', session: '' })).toEqual({ status: 'failed', fn: 'fs/*' });
-    expect(filterOf(RunFilter, { status: 'nope' })).toEqual({});
-  });
-
   it('times an LLM call', () => {
     expect(llmTimes({ queuedAt: T0, startedAt: T0 + 100, firstTokenAt: T0 + 400, endedAt: T0 + 1_100 }, T0 + 5_000)).toEqual({ firstToken: 300, total: 1_000 });
     expect(llmTimes({ queuedAt: T0 }, T0 + 5_000)).toEqual({});

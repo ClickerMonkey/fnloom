@@ -198,12 +198,9 @@ export class StoreContextLibrary implements ContextLibrary {
   }
 
   async list(query: ContextQuery, who: Asking): Promise<Page<ContextRecord>> {
-    const rows = await allRows(this.#o.store.table('context'), query.system === undefined ? undefined : { system: query.system });
-    const search = query.search?.trim().toLowerCase();
+    const rows = await allRows(this.#o.store.table('context'), undefined);
     const shown = rows
       .filter((record) => seesOrigin(record.origin, who))
-      .filter((record) => query.origin === undefined || (record.origin?.type ?? 'system') === query.origin)
-      .filter((record) => search === undefined || search === '' || `${record.name}\n${record.decl.description}`.toLowerCase().includes(search))
       .sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name));
     const start = query.cursor === undefined ? 0 : Math.max(0, Number.parseInt(query.cursor, 10) || 0);
     const limit = query.limit ?? PAGE_SIZE;

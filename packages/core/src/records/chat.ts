@@ -98,6 +98,15 @@ export const MessagePart = z.discriminatedUnion('type', [
 ]);
 export type MessagePart = z.infer<typeof MessagePart>;
 
+/** The parts the chat hides (they still go to the model): what the hub or a hook added, and a form's answers. */
+export const HIDDEN_PART_TYPES = ['extra', 'hook', 'input-answer'] as const satisfies readonly MessagePart['type'][];
+const HIDDEN_PARTS: ReadonlySet<string> = new Set(HIDDEN_PART_TYPES);
+
+/** Whether the chat hides a part (it shows in debug mode only). */
+export function isHiddenPart(part: Pick<MessagePart, 'type'>): boolean {
+  return HIDDEN_PARTS.has(part.type);
+}
+
 /** The parts a person can send (the rest are added by the hub and by fns). A mention's text is written by the hub. */
 export const OutgoingPart = z.discriminatedUnion('type', [TextPart, MentionPart.omit({ text: true }), CommandPart, FilePart, InputAnswerPart]);
 export type OutgoingPart = z.infer<typeof OutgoingPart>;

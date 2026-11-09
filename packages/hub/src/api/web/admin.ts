@@ -7,7 +7,7 @@
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  adminSlice, UserView, type BudgetView, type LlmSummary, type ResourceRecord, type SettingView, type TableName,
+  adminSlice, UserView, type BudgetView, type LlmSummary, type SettingView, type TableName,
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { collect, PAGE } from '../paging.ts';
@@ -73,10 +73,6 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
         const data = io.data;
         if (data.query !== undefined) { return reads.lists.page('llmCalls', data.query, io.user); }
         const page = await store.table('llmInteractions').find({
-          where: {
-            ...(data.status === undefined ? {} : { status: data.status }), ...(data.model === undefined ? {} : { model: data.model }),
-            ...(data.system === undefined ? {} : { system: data.system }), ...(data.session === undefined ? {} : { session: data.session }),
-          },
           order: [['queuedAt', 'desc']], limit: data.limit ?? PAGE_SIZE, ...(data.cursor === undefined ? {} : { cursor: data.cursor }),
         });
         return { ...page, items: page.items.map(({ request: _request, response: _response, ...summary }): LlmSummary => summary) };
@@ -84,22 +80,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
       resources: async (io) => {
         const data = io.data;
         if (data.query !== undefined) { return reads.lists.page('resources', data.query, io.user); }
-        const limit = data.limit ?? PAGE_SIZE;
-        const search = data.search?.trim().toLowerCase() ?? '';
-        const matches = (r: ResourceRecord): boolean => search === '' || r.uri.toLowerCase().includes(search);
-        // the store can't match part of a uri, so a search reads whole pages until it has enough matches or runs out
-        // (a page of matches can hold a few more than asked for; none are skipped)
-        const items: ResourceRecord[] = [];
-        let cursor = data.cursor;
-        do {
-          const page = await store.table('resources').find({
-            ...(data.system === undefined ? {} : { where: { system: data.system } }), order: [['seenAt', 'desc']], limit: search === '' ? limit : PAGE,
-            ...(cursor === undefined ? {} : { cursor }),
-          });
-          items.push(...page.items.filter(matches));
-          cursor = page.cursor;
-        } while (items.length < limit && cursor !== undefined && search !== '');
-        return { items, ...(cursor === undefined ? {} : { cursor }) };
+        return store.table('resources').find({ order: [['seenAt', 'desc']], limit: data.limit ?? PAGE_SIZE, ...(data.cursor === undefined ? {} : { cursor: data.cursor }) });
       },
       removeRule: ({ data, user }) => ops.remove_rule(data, user.id),
     }));

@@ -4,7 +4,7 @@
  * attributed to the MCP's actor, with its metrics folded. A rotated secret stops the old one working.
  */
 import { McpClient, McpHttpClientTransport } from '@ayepi/mcp';
-import { McpSlug, QualifiedName, SystemName } from '@harness/core';
+import { McpSlug, SystemName } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import type { SignedIn } from '../scripts/hub-client.ts';
@@ -53,7 +53,7 @@ describe('hub MCPs', () => {
     const result = await client.callTool('fs_read', { path: 'README.md' });
     expect(result.isError).not.toBe(true);
     const mcp = await me.hub.call('mcp', { mcp: mcpId });
-    const runs = await me.hub.call('runs', { fn: QualifiedName.parse('fs/read'), limit: 20 });
+    const runs = await me.hub.call('runs', { query: { filters: [{ field: 'fn', op: 'is' as const, value: 'fs/read' }], limit: 20 } });
     expect(runs.items.some((run) => run.caller === mcp.actor && run.status === 'done')).toBe(true);
     expect(mcp.callsToday).toBeGreaterThanOrEqual(1);
     const sessions = await me.hub.call('mcpSessions', { mcp: mcp.id });

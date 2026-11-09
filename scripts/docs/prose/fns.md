@@ -51,7 +51,17 @@ args, state)` runs before the run starts: `{ ok: false, reason }` means the fn c
 available now: reason" (it isn't an error, and the fn isn't run). `output(ctx, args, result, state)` runs after it is
 done: `{ ok: false, action: 'retry', reason }` asks the model to try again (a few times a turn), `action: 'stop'` fails
 the run with the reason shown to the person. `ctx` is the system context with the run and, for output, the attempt;
-`state` is the session state fields the fn declares, as they are now.
+`state` is the session state fields the fn declares, as they are now. An output check runs after the fn has done its
+work, and a refused result's undo is dropped: a fn with side effects should check what it can in `input`, or undo its
+own work before answering `retry` or `stop`.
+
+**Per-person systems.** A system that acts as each person (a calendar) adds `connect` to its contract with
+`.with({ connect: { title, description, how, settings, fns } })`, naming the fns that act as the person and whether
+each is on and asks first by default. Its implementation then has `connect: { start, finish, disconnect }`: `start`
+gives the provider's sign-in URL (pass the hub's `state` through), `finish` turns what came back into the account and
+credentials (or a `problem`), `disconnect` revokes them. In a run, `ctx.connection` is the connection it acts as
+(credentials and the person's settings), and `ctx.updateConnection({ credentials })` hands refreshed tokens back.
+A fn that adds a fn for the person (a saved form) gives it to them with `ctx.shareFn(name, { visibility, with })`.
 
 ```ts
 buy: fn({

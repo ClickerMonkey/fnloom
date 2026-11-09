@@ -63,7 +63,7 @@ describe('fn metrics', () => {
 describe('model calls', () => {
   it('record the index’s embedding calls to the embedder system', async () => {
     const calls = await waitFor('embed model calls', async () => {
-      const page = await me.hub.call('modelCalls', { modality: 'embed', limit: 20 });
+      const page = await me.hub.call('modelCalls', { query: { filters: [{ field: 'modality', op: 'is' as const, value: 'embed' }], limit: 20 } });
       return page.items.some((call) => call.status === 'done') ? page.items : undefined;
     }, { timeout: 60_000, every: 1_000 });
     const call = calls.find((c) => c.status === 'done');

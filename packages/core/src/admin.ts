@@ -5,9 +5,8 @@
  */
 import { z } from 'zod';
 import { SettingDecl } from './manifest.ts';
-import { BudgetId, ModelCategoryId, PolicyId, PriorityRuleId, ProviderId, QualifiedName, SessionId, SystemName, Timestamp, Usd } from './primitives.ts';
-import { RunStatus } from './run.ts';
-import { LlmInteraction, LlmStatus } from './records/runs.ts';
+import { BudgetId, ModelCategoryId, PolicyId, PriorityRuleId, ProviderId, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
+import { LlmInteraction } from './records/runs.ts';
 import { BudgetRule, ProviderKind } from './records/spend.ts';
 
 /**
@@ -17,10 +16,14 @@ import { BudgetRule, ProviderKind } from './records/spend.ts';
 export const OutputLine = z.object({ at: Timestamp, stream: z.enum(['stdout', 'stderr', 'hub']), text: z.string() });
 export type OutputLine = z.infer<typeof OutputLine>;
 
-/** A model a provider offers, as aeye's model list describes it. `provider` is the kind of provider that serves it. Prices are per million tokens. */
+/** Who serves a model: a configured provider's kind (`openai`), or a provider a system brings (`<system>/<name>`). */
+export const ModelProvider = z.union([ProviderKind, QualifiedName]);
+export type ModelProvider = z.infer<typeof ModelProvider>;
+
+/** A model a provider offers, as aeye's model list describes it. `provider` is who serves it. Prices are per million tokens. */
 export const ModelInfo = z.object({
   id: z.string(),
-  provider: ProviderKind,
+  provider: ModelProvider,
   name: z.string(),
   contextWindow: z.number().int().min(0).optional(),
   pricing: z.object({ input: Usd, output: Usd }).optional(),
@@ -37,21 +40,12 @@ export type BudgetView = z.infer<typeof BudgetView>;
 export const SettingView = z.object({ setting: QualifiedName, system: SystemName, decl: SettingDecl });
 export type SettingView = z.infer<typeof SettingView>;
 
-/** What the runs browser can narrow by. */
-export const RunFilter = z.object({ status: RunStatus.optional(), fn: z.string().optional(), system: SystemName.optional(), session: SessionId.optional() });
-export type RunFilter = z.infer<typeof RunFilter>;
 
 /** An LLM call in a list: everything but the request and response, which `llmCall` fetches. */
 export const LlmSummary = LlmInteraction.omit({ request: true, response: true });
 export type LlmSummary = z.infer<typeof LlmSummary>;
 
-/** What the LLM calls browser can narrow by. */
-export const LlmFilter = z.object({ status: LlmStatus.optional(), model: z.string().optional(), system: SystemName.optional(), session: SessionId.optional() });
-export type LlmFilter = z.infer<typeof LlmFilter>;
 
-/** What the resources browser can narrow by. */
-export const ResourceFilter = z.object({ search: z.string().optional(), system: SystemName.optional() });
-export type ResourceFilter = z.infer<typeof ResourceFilter>;
 
 /** A rule an admin can remove, by what it is. */
 export const RuleRef = z.discriminatedUnion('kind', [

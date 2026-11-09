@@ -114,9 +114,9 @@ export class StoreModelCallLog implements ModelCallLog {
   }
 
   list(query: ModelCallQuery): Promise<Page<ModelCall>> {
-    const { cursor, limit, ...filter } = query;
+    const { cursor, limit, run } = query;
     return this.#deps.store.table('modelCalls').find({
-      where: compact(filter), order: [['startedAt', 'desc']], limit: limit ?? PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }),
+      where: run === undefined ? {} : { run }, order: [['startedAt', 'desc']], limit: limit ?? PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }),
     });
   }
 }

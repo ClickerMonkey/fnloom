@@ -102,6 +102,7 @@ describe('input over the link', () => {
     expect(saved).toEqual({ fn: 'input/trip_details', name: 'Trip details' });
     expect(hub.patches.at(-1)?.upsert.fns?.[0]).toMatchObject({ name: 'trip_details', kind: 'input/form', payload: TRIP });
     expect(store.records.get('trip_details')).toMatchObject({ owner: TEST_USER.id, visibility: 'public' });
+    expect(hub.shares.at(-1)).toMatchObject({ fn: 'trip_details', share: { visibility: 'public', with: [] } });
     expect(store.records.get('trip_details')?.vector).toHaveLength(2);
 
     hub.onLlm = () => { throw new Error('the agent is not needed'); };

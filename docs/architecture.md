@@ -131,11 +131,14 @@ through each other's implementation files. Each module's handlers are installed 
 | `mcp/` (build 2) | `McpRegistry`, `McpScopes`, `McpEndpoints`, `McpTokens` | `@ayepi/mcp` (`McpRouter`, `mcpSourceServer`, authorizers), `@ayepi/auth`, `@ayepi/rate` |
 | `query/` (build 3) | `QueryService`, `ListSource`, `FieldAccessors`: one source per list in `LIST_FIELDS`, filters and sorts server side (pushed down where a source can, else the in-memory evaluator in `evaluate.ts`); the `query` and `listValues` endpoints and the `hub/query` fn | core `query.ts` |
 | `metrics/` (build 2) | `ModelCallLog`, `FnMetricsService` | core records |
-| `models/` (build 2) | `ModelRoles`, `ModelGateway` | `@aeye/ai` and its providers |
+| `models/` (build 2) | `ModelRoles`, `ModelGateway`; `RemoteProvider` (build 4): an aeye `Provider` for each provider a connected system declares, registered as `<system>/<name>` | `@aeye/ai` and its providers, `@aeye/aws` |
+| `access/` (build 4) | `AccessService` (`StoreAccessService`), `AccessScope` (`ActorScope`): who may see and use each system, fn, context item, resource root and connection; serves `accessSlice` and the system link's `shareFn` | core `access.ts` |
+| `connections/` (build 4) | `ConnectionService` (`StoreConnectionService`): per-person connections to `connect` systems, their credentials as secrets the person owns, the OAuth redirect `GET /connect/callback`; serves `connectionsSlice` and the system link's `connectionUpdate` | core `connections.ts` |
 
 Build 2's modules are wired into `HubServices` (`contextor`, `resources`, `mcp`, `metrics`, `models`) and built by
 their `create.ts` factories (`BUILD_2_MODULES` in `boot/modules.ts`); each serves its own web slice from its plugin in
-`api/web/`.
+`api/web/`. Build 4 adds `HubServices.access` and `HubServices.connections` the same way; `api/web/build4.ts` serves
+`accessSlice`, `connectionsSlice` and `pickerSlice` (`api/web/pickers.ts`: `pick` per source, filtered by access).
 
 The `link/` module also owns installed systems and fleets: `system.json` is checked by `checkManifest`
 (`link/package/format.ts`, the zip format beside it), the per-instance facts (key, config, status, install, folders)

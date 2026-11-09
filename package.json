@@ -16,7 +16,9 @@
     "systems/fs",
     "systems/embedder",
     "systems/web",
-    "systems/template"
+    "systems/template",
+    "systems/input",
+    "systems/google-calendar"
   ],
   "scripts": {
     "typecheck": "vue-tsc -b",

@@ -8,7 +8,7 @@
 import { fixture } from './fixture.ts';
 import {
   HubMcpView, InstanceRef, McpScopePreview, ModelCall, QualifiedName, mintId, type ChatCapabilities, type FnMatch, type HubMcpId, type HubMcpInput, type InstanceName, type InstanceView,
-  type LlmInteraction, type McpRules, type ModelCallQuery, type ModelLimits, type ModelLimitsView, type ModelRole, type ModelRoleView, type PairingId, type PairingRequest,
+  type LlmInteraction, type McpRules, type ModelLimits, type ModelLimitsView, type ModelRole, type ModelRoleView, type PairingId, type PairingRequest,
   type RoleChoice, type SystemName, type FnMetricsQuery,
 } from '@harness/core';
 import {
@@ -17,6 +17,7 @@ import {
 import { FS_CONFIG } from '../src/admin/test/fakes.ts';
 import type { MockAdmin } from './mockAdmin.ts';
 import type { MockChat } from './mockChat.ts';
+import type { ModelCallPage } from './mockQuery.ts';
 
 /** Where a data export is served from. */
 export const MOCK_EXPORTS = '/mock-exports/';
@@ -108,7 +109,7 @@ export class MockBuild2 {
     });
   }
 
-  modelCalls(query: ModelCallQuery): { items: ModelCall[]; cursor?: string } {
+  modelCalls(query: ModelCallPage): { items: ModelCall[]; cursor?: string } {
     const matches = (call: ModelCall): boolean => (query.modality === undefined || call.modality === query.modality) && (query.status === undefined || call.status === query.status)
       && (query.model === undefined || call.model.includes(query.model)) && (query.system === undefined || call.system === query.system)
       && (query.session === undefined || call.session === query.session) && (query.run === undefined || call.run === query.run);

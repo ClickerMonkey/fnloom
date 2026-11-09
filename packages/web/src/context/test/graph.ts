@@ -97,14 +97,14 @@ export class ContextGraphDouble {
 
   list(input: z.input<typeof ContextQuery>): Page<ContextRecord> {
     const query = ContextQuery.parse(input);
-    // the list query wins over the old narrow fields, as on the hub; this fake knows `is` filters on origin and system
+    // this fake knows the list query's words and its `is` filters on origin and system
     const is = (field: string): string | undefined => {
       const found = query.query?.filters?.find((f) => f.field === field && f.op === 'is');
       return found !== undefined && 'value' in found ? String(found.value) : undefined;
     };
-    const origin = query.query === undefined ? query.origin : is('origin');
-    const system = query.query === undefined ? query.system : is('system');
-    const words = (query.query === undefined ? query.search : query.query.text)?.toLowerCase();
+    const origin = is('origin');
+    const system = is('system');
+    const words = query.query?.text?.toLowerCase();
     const shown = this.records
       .filter((record) => origin === undefined || (record.origin?.type ?? 'system') === origin)
       .filter((record) => system === undefined || record.system === system)

@@ -3,7 +3,7 @@
  * call can use the refs declared before it. The implementation's type (`SystemImpl`) is computed from the contract,
  * so everything declared must be implemented and nothing undeclared can be.
  */
-import { SystemName, qualify, type Duration, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
+import { ConnectDecl, SystemName, qualify, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
 import type { SystemCtx } from './ctx.ts';
 import type {
   ActionDef, ActionImpl, AnyContextDef, AnyTypeDef, AttachmentDef, ContextDef, ContextImpl, EmbedderDef, EmbedderImpl, HookDef, HookImpl,
@@ -36,10 +36,15 @@ export interface ContractShape {
   actions: Record<string, ActionDef<unknown, unknown, object>>;
   /** Model providers it brings (`provider()`), served by its implementation. */
   providers: Record<string, ProviderDef>;
+  /**
+   * A per-person system's `connect` declaration (manifest `connect`): each person connects their own account and its
+   * fns act as them. `undefined` for a system everyone shares. The implementation then serves `connect`.
+   */
+  connect: ConnectDecl | undefined;
 }
 
-/** The sections of a contract other than `config`. */
-export type ContractSection = Exclude<keyof ContractShape, 'config'>;
+/** The sections of a contract that add named declarations (all but `config` and `connect`). */
+export type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect'>;
 
 /** The contract sections, in the order the manifest lists them. */
 export const CONTRACT_SECTIONS = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'embedders', 'sectioners', 'actions', 'providers'] as const satisfies readonly ContractSection[];
@@ -48,13 +53,16 @@ export const CONTRACT_SECTIONS = ['types', 'settings', 'attachments', 'kinds', '
 export interface EmptyContract {
   config: GinType<{}>;
   types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {}; providers: {};
+  connect: undefined;
 }
 
-/** A contract with more sections merged in: `config` is replaced, every other section adds to what was declared. */
+/** A contract with more sections merged in: `config` and `connect` are replaced, every other section adds to what was declared. */
 export type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
   [K in keyof ContractShape]: K extends 'config'
     ? (P extends { config: infer X extends GinType<object> } ? X : C['config'])
-    : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
+    : K extends 'connect'
+      ? (P extends { connect: infer X extends ConnectDecl } ? X : C['connect'])
+      : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
 };
 
 type Q<N extends string, K> = QualifiedName<N, K & string>;
@@ -177,7 +185,9 @@ function assemble<N extends string, C extends ContractShape>(name: N, descriptio
       const problems = clashes(defs, added);
       if (problems.length > 0) { throw new Error(`system ${name}: ${problems.join('; ')}`); }
       const more = refsOf(name, added);
-      const merged = { config: added.config ?? defs.config } as Record<string, unknown>; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- filled per section just below
+      if (added.connect !== undefined && defs.connect !== undefined) { throw new Error(`system ${name}: connect is declared twice`); }
+      const connect = added.connect === undefined ? defs.connect : ConnectDecl.parse(added.connect);
+      const merged = { config: added.config ?? defs.config, connect } as Record<string, unknown>; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- filled per section just below
       const mergedRefs: AnyRefs = EMPTY_SECTIONS();
       for (const section of CONTRACT_SECTIONS) {
         merged[section] = { ...defs[section], ...added[section] };
@@ -195,7 +205,7 @@ function assemble<N extends string, C extends ContractShape>(name: N, descriptio
 /** Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. */
 export function system<const N extends string>(name: N, info: { description: string }): SystemContract<N, EmptyContract> {
   SystemName.parse(name);
-  const defs: EmptyContract = { config: g.obj({}), ...EMPTY_SECTIONS() };
+  const defs: EmptyContract = { config: g.obj({}), connect: undefined, ...EMPTY_SECTIONS() };
   return assemble(name, info.description, defs, EMPTY_SECTIONS());
 }
 
@@ -253,6 +263,7 @@ export type SystemImpl<C extends ContractShape> =
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
   Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
   Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
+  (C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>> } : { readonly connect?: never }) &
   {
     /** Resources this system serves. */
     readonly resources?: ResourceProvider;
@@ -260,6 +271,18 @@ export type SystemImpl<C extends ContractShape> =
     readonly events?: EventHandlers<ConfigOf<C>>;
     readonly lifecycle?: Lifecycle<ConfigOf<C>>;
   };
+
+/**
+ * A per-person system's connect flow, as the hub's connect page drives it. `start` gives the URL to send the person
+ * to (OAuth; `state` must come back unchanged on the hub's redirect); `finish` turns what came back (the redirect's
+ * query, or the form) into the account and credentials, or a problem in words; `disconnect` revokes the credentials
+ * where the provider can (best effort).
+ */
+export interface ConnectImpl<Cfg> {
+  start(request: ConnectStart, ctx: SystemCtx<Cfg>): Promise<{ url: string }> | { url: string };
+  finish(request: ConnectFinish, ctx: SystemCtx<Cfg>): Promise<ConnectResult>;
+  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg>): Promise<void>;
+}
 
 /** Re-export for authors who write `FnTypes` by hand. */
 export type { FnTypes };

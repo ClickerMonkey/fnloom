@@ -570,8 +570,7 @@ describe('admin reads', () => {
     await r.store.table('runs').insert(runRow('run_a', { createdAt: 1, status: 'done' }));
     await r.store.table('runs').insert(runRow('run_b', { createdAt: 2, status: 'failed' }));
     expect((await web.client.call('runs', {}, as)).items.map((run) => run.id)).toEqual(['run_b', 'run_a']);
-    expect((await web.client.call('runs', { status: 'done' }, as)).items.map((run) => run.id)).toEqual(['run_a']);
-    expect((await web.client.call('runs', { fn: 'not a name' }, as)).items).toEqual([]);
+    expect((await web.client.call('runs', { query: { filters: [{ field: 'status', op: 'is', value: 'done' }] } }, as)).items.map((run) => run.id)).toEqual(['run_a']);
     expect((await web.client.call('llmCalls', {}, as)).items).toEqual([]);
   });
 
@@ -580,7 +579,7 @@ describe('admin reads', () => {
     await r.store.table('runs').insert(runRow('run_a', { createdAt: 1, status: 'done', cost: 0.5 }));
     await r.store.table('runs').insert(runRow('run_b', { createdAt: 2, status: 'failed', cost: 0.01 }));
     const query = { filters: [{ field: 'status', op: 'isNot' as const, value: 'failed' }] };
-    expect((await web.client.call('runs', { status: 'failed', query }, as)).items.map((run) => run.id)).toEqual(['run_a']);
+    expect((await web.client.call('runs', { query }, as)).items.map((run) => run.id)).toEqual(['run_a']);
     const found = await web.client.call('query', { list: 'runs', query: { sort: [{ field: 'cost', dir: 'asc' }] } }, as);
     expect(found).toMatchObject({ total: 2, sort: [{ field: 'cost', dir: 'asc' }], items: [{ id: 'run_b' }, { id: 'run_a' }] });
     await expect(web.client.call('listValues', { list: 'runs', field: 'status', prefix: 'do' }, as)).resolves.toEqual([{ value: 'done', count: 1 }]);
@@ -646,34 +645,20 @@ describe('admin reads', () => {
     });
   });
 
-  it('pages resources newest first, and searches their uris across store pages without skipping any', async () => {
+  it('pages resources newest first', async () => {
     const { r, web, as } = await signedIn();
     const fs = SystemName.parse('fs');
-    const notes = SystemName.parse('notes');
-    // 250 resources over three store pages; every tenth uri holds "match", and the newest is the highest number
+    // 250 resources over three store pages; the newest is the highest number
     for (let n = 0; n < 250; n++) {
       const uri = ResourceUri.parse(`fs://files/${n % 10 === 0 ? 'match' : 'other'}-${n}.md`);
-      await r.store.table('resources').insert({ uri, system: n === 249 ? notes : fs, stat: { uri, name: `${n}.md`, type: 'file', version: 'v1' }, links: [], seenAt: n });
+      await r.store.table('resources').insert({ uri, system: fs, stat: { uri, name: `${n}.md`, type: 'file', version: 'v1' }, links: [], seenAt: n });
     }
     const first = await web.client.call('resources', { limit: 3 }, as);
     expect(first.items.map((item) => item.seenAt)).toEqual([249, 248, 247]);
     const next = await web.client.call('resources', { limit: 3, ...(first.cursor === undefined ? {} : { cursor: first.cursor }) }, as);
     expect(next.items.map((item) => item.seenAt)).toEqual([246, 245, 244]);
-    expect((await web.client.call('resources', { limit: 2, system: notes }, as)).items.map((item) => item.seenAt)).toEqual([249]);
-    // a search reads store pages until it has enough matches, then hands back a cursor that skips none
-    const seen: number[] = [];
-    let cursor: string | undefined;
-    let calls = 0;
-    do {
-      const page = await web.client.call('resources', { search: '  MATCH ', limit: 7, ...(cursor === undefined ? {} : { cursor }) }, as);
-      expect(page.items.every((item) => item.uri.includes('match'))).toBe(true);
-      seen.push(...page.items.map((item) => item.seenAt));
-      cursor = page.cursor;
-      calls++;
-    } while (cursor !== undefined && calls < 20);
-    expect(seen).toEqual(Array.from({ length: 25 }, (_, i) => 240 - i * 10));
-    expect(calls).toBeLessThan(20);
-    await expect(web.client.call('resources', { search: 'nothing-has-this' }, as)).resolves.toEqual({ items: [] });
+    const matching = await web.client.call('resources', { query: { text: 'match-24', limit: 5 } }, as);
+    expect(matching.items.map((item) => item.seenAt)).toEqual([240]);
   });
 
   it('refuses members', async () => {

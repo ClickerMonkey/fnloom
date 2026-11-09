@@ -6,14 +6,11 @@
  * into the hub's own argument shapes (`LinkTarget`, `RememberArgs`) with one plain problem when they don't parse.
  */
 import {
-  ContextFromResourceArgs, ContextOptions, ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, type ListQuery,
+  ContextFromResourceArgs, ContextOptions, type ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, type ListQuery,
   type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience,
 } from '@harness/core';
 import { z } from 'zod';
 import type { IconName, Outcome } from '../../ui/index.ts';
-
-/** The origins the list filters by (an origin's type; `system` when a record has none), as the hub's query takes them. */
-export const OriginChoice = ContextQuery.shape.origin.unwrap();
 
 /** The `/context` page's query: the list's written query (`origin:memory tabs`), and the dialogs open over it. */
 export const ContextBrowseQuery = z.object({

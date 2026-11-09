@@ -265,7 +265,7 @@ describe('browsers', () => {
     await admin.llm.list.load({});
     await admin.llm.open(LlmInteractionId.parse('llm_a'));
     expect(admin.llm.opened.value.value?.id).toBe('llm_a');
-    await admin.resources.list.load({ search: 'harness' });
+    await admin.resources.list.load({ text: 'harness' });
     await admin.resources.open(ResourceUri.parse('fs://work/docs/harness.md'));
     expect(admin.resources.opened.value.value?.stat.name).toBe('harness.md');
   });

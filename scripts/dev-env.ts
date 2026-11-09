@@ -8,12 +8,14 @@ import { z } from 'zod';
 import type { ComponentName } from './stack.ts';
 
 /** Every process `npm run dev` can run. */
-export const COMPONENTS = ['web', 'hub', 'fs', 'embedder', 'web-system'] as const satisfies readonly ComponentName[];
+export const COMPONENTS = ['web', 'hub', 'fs', 'embedder', 'web-system', 'input', 'calendar'] as const satisfies readonly ComponentName[];
 
 /** What `npm run dev` runs, and with what. */
 export const devEnv = env({
-  HARNESS_DEV_ONLY: z.string().default(COMPONENTS.join(',')).describe('npm run dev: a comma list of what to run (web, the build; hub; fs; embedder; web-system, which runs only with TAVILY_API_KEY).'),
+  HARNESS_DEV_ONLY: z.string().default(COMPONENTS.join(',')).describe('npm run dev: a comma list of what to run (web, the build; hub; fs; embedder; web-system, which runs only with TAVILY_API_KEY; input; calendar, which runs only with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).'),
   HARNESS_DEV_ROOT: z.string().optional().describe('npm run dev: the folder the fs system serves; this repository when not given.'),
   HARNESS_EMBEDDER_URL: z.string().default('http://127.0.0.1:8760').describe('npm run dev: the EmbeddingGemma service the embedder system wraps.'),
   TAVILY_API_KEY: z.string().min(1).optional().describe('npm run dev: the Tavily key the web system searches with; without it the web system is not started.'),
+  GOOGLE_CLIENT_ID: z.string().min(1).optional().describe('npm run dev: the Google OAuth client (a Web application client) the calendar system connects people with; without it the calendar system is not started.'),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional().describe('npm run dev: the secret of that Google OAuth client.'),
 });

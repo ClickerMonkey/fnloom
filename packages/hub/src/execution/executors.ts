@@ -34,7 +34,7 @@ export function unavailable(reason: string): OutcomeWire {
 
 /** A refused result as the run's outcome: the model is asked to try again. */
 export function refusedResult(reason: string): OutcomeWire {
-  return { status: 'invalid-input', invalid: { source: 'result', problems: [{ path: '', message: `The result was refused: ${reason}. Try again.` }] } };
+  return { status: 'invalid-input', invalid: { source: 'result', problems: [{ path: '', message: `The result was refused: ${reason.replace(/[.!?]+$/, '')}. Try again.` }] } };
 }
 
 /** How many refused results a turn keeps count of before the oldest counts are dropped. */

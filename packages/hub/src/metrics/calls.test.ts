@@ -37,7 +37,7 @@ describe('the model call log', () => {
     expect(await chat.failed('400 no tools', false, LlmInteractionId.parse('llm_1'))).toMatchObject({ status: 'failed', interaction: 'llm_1' });
   });
 
-  it('lists newest first, filtered by modality, model, system, run, session and status', async () => {
+  it('lists newest first, or the calls of one run', async () => {
     const { calls, time } = await log();
     const session = SessionId.parse('ses_1');
     await (await calls.begin({ modality: 'embed', provider: 'p', model: 'e', session }, 0)).done({ units: emptyUnits('embed'), cost: 0, sent: 0, received: 0 });
@@ -46,8 +46,7 @@ describe('the model call log', () => {
     time.now = 3_000;
     await calls.begin({ modality: 'chat', provider: 'p', model: 'd' }, 0);
     expect((await calls.list({})).items.map((c) => c.model)).toEqual(['d', 'c', 'e']);
-    expect((await calls.list({ modality: 'chat', session })).items.map((c) => c.model)).toEqual(['c']);
-    expect((await calls.list({ status: 'done' })).items.map((c) => c.model)).toEqual(['e']);
+    expect((await calls.list({ run: RunId.parse('run_none') })).items).toEqual([]);
     const first = await calls.list({ limit: 2 });
     expect(first.items).toHaveLength(2);
     expect((await calls.list({ limit: 2, cursor: first.cursor })).items.map((c) => c.model)).toEqual(['e']);

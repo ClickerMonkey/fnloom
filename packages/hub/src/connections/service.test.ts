@@ -16,9 +16,9 @@ const DECL: ConnectDecl = {
 };
 
 
-async function world() {
+async function world(decl: ConnectDecl = DECL) {
   const store = await testStore();
-  const catalog = { manifest: (name: SystemName) => Promise.resolve(name === CAL ? testManifest(CAL, { connect: DECL }) : undefined), check: () => Promise.resolve([]) };
+  const catalog = { manifest: (name: SystemName) => Promise.resolve(name === CAL ? testManifest(CAL, { connect: decl }) : undefined), check: () => Promise.resolve([]) };
   const row: SystemRecord = { name: CAL, description: '', status: 'connected', enabled: { functions: true, renderers: true }, version: '1', manifestHash: 'h', actor: ADA };
   await store.table('systems').insert(row);
   const hub = linkServer();
@@ -51,6 +51,22 @@ describe('per-person connections', () => {
     expect(await service.pages(BEN)).toEqual([{ system: CAL, decl: DECL, ready: true, connections: [] }]);
     // the state works once
     expect((await service.callback({ state: stateOf(started.url), code: 'again' })).problem).toMatch(/expired or was already used/);
+  });
+
+  it('connects through a form the system checks, with no redirect', async () => {
+    const { service, system, store } = await world({ ...DECL, how: { flow: 'form', form: { name: 'object', props: { key: { type: { name: 'text' } } } } } });
+    const seen: unknown[] = [];
+    system.behaviour.connectFinish = (input) => {
+      seen.push(input.answer);
+      return 'form' in input.answer && JSON.stringify(input.answer.form) === '{"key":"good"}'
+        ? { account: { label: 'ada@service' }, credentials: { key: 'good' } }
+        : { problem: 'That key was refused.' };
+    };
+    const made = await service.connect(ADA, CAL, { key: 'good' });
+    expect(made).toMatchObject({ connection: { status: 'connected', account: { label: 'ada@service' } } });
+    expect(seen).toEqual([{ form: { key: 'good' } }]);
+    expect((await store.table('connections').find({ where: { owner: ADA }, limit: 5 })).items).toHaveLength(1);
+    await expect(service.connect(BEN, CAL, { key: 'bad' })).resolves.toMatchObject({ connection: { status: 'failed', problem: 'That key was refused.' } });
   });
 
   it('refuses a forged or expired state', async () => {

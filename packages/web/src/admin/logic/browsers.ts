@@ -1,22 +1,9 @@
 /**
- * The browsers' rules: a filter read from the URL through its schema (each field on its own, so one bad value drops
- * only itself), how an LLM call's status looks, and the numbers a row shows (time to first token, how long it took).
+ * The browsers' rules: how an LLM call's status looks, and the numbers a row shows (time to first token, how long it
+ * took).
  */
-import type { LlmStatus } from '@harness/core';
-import type { z } from 'zod';
+import type { LlmStatus, LlmSummary } from '@harness/core';
 import type { StatusLook } from './systems.ts';
-import type { LlmSummary } from '@harness/core';
-
-/** A filter from text values (the URL's query): every field that reads as valid, the rest left out. */
-export function filterOf<S extends z.ZodObject>(schema: S, values: Readonly<Record<string, string>>): z.output<S> {
-  const shape: Readonly<Record<string, z.ZodType>> = schema.shape;
-  const picked: Record<string, unknown> = {};
-  for (const [key, field] of Object.entries(shape)) {
-    const value = values[key]?.trim() ?? '';
-    if (value !== '' && field.safeParse(value).success) { picked[key] = value; }
-  }
-  return schema.parse(picked);
-}
 
 /** Every LLM call status's look. */
 export const LLM_STATUS_LOOK = {

@@ -67,7 +67,7 @@ describe('SessionListStore', () => {
     expect(list.loading.value).toBe(true);
     await answers.settle();
     await flush();
-    expect(search.calls.at(-1)?.[0]).toMatchObject({ archived: false, query: { text: 'zzz', filters: [{ field: 'archived', op: 'is', value: false }] } });
+    expect(search.calls.at(-1)?.[0]).toMatchObject({ query: { text: 'zzz', filters: [{ field: 'archived', op: 'is', value: false }] } });
     expect(list.items.value).toEqual([]);
     expect(list.loading.value).toBe(false);
     expect(list.problem.value).toBe('');
@@ -76,9 +76,9 @@ describe('SessionListStore', () => {
 
   it('pages on, switches to the archived chats, and finds a listed chat', async () => {
     const api = fakeChatApi();
-    api.sessions = fakeCaller<'sessions'>((body) => Promise.resolve(body?.cursor === 'next'
+    api.sessions = fakeCaller<'sessions'>((body) => Promise.resolve(body?.query?.cursor === 'next'
       ? { items: [summary({ id: 'ses_b', updatedAt: T0 - 1 }), summary({ id: 'ses_c', updatedAt: T0 - 2 })] }
-      : { items: body?.archived === true ? [summary({ id: 'ses_old', archived: true })] : [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })], cursor: 'next' }));
+      : { items: body?.query?.filters?.some((f) => f.field === 'archived' && 'value' in f && f.value === true) === true ? [summary({ id: 'ses_old', archived: true })] : [summary({ id: 'ses_a', updatedAt: T0 }), summary({ id: 'ses_b', updatedAt: T0 - 1 })], cursor: 'next' }));
     const list = new SessionListStore(api, events().subscribe);
     await list.load();
     await list.loadMore();

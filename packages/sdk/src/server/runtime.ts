@@ -107,9 +107,6 @@ export interface AskerWire {
   time: TimeInfo;
 }
 
-/** A build 4 link endpoint the platform lane has not served yet. */
-const buildFourStub = (): never => { throw new Error('not served yet (build 4, platform lane)'); };
-
 /** Answers the hub's calls on the system link. */
 export class SystemRuntime<C extends ContractShape> {
   readonly #parts: RuntimeParts<C>;
@@ -216,13 +213,12 @@ export class SystemRuntime<C extends ContractShape> {
         await host.configured(before);
       },
       export: ({ data }) => this.#export(data.timeout),
-      // Build 4 stubs (design lane): the platform lane replaces these with fn validation, providers and connections.
       validate: ({ data, signal }) => this.#validate(data, signal),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
-      connectStart: buildFourStub,
-      connectFinish: buildFourStub,
-      disconnect: buildFourStub,
+      connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),
+      connectFinish: ({ data, signal }) => this.#connect().finish(data, this.systemCtx(signal)),
+      disconnect: ({ data, signal }) => this.#connect().disconnect(data, this.systemCtx(signal)),
     })]);
   }
 
@@ -364,6 +360,12 @@ export class SystemRuntime<C extends ContractShape> {
     if (impl === undefined) { throw reject(404, 'NOT_FOUND', `Context ${name} is not implemented.`); }
     const ctx = { ...this.systemCtx(signal), user: asker.user, time: asker.time, ...(asker.session === undefined ? {} : { session: asker.session }) };
     return impl({ ...args }, ctx);
+  }
+
+  #connect(): NonNullable<SystemTable['impl']['connect']> {
+    const connect = this.#parts.table.impl.connect;
+    if (connect === undefined) { throw reject(404, 'NOT_FOUND', `${this.#parts.env.system} is not a per-person system.`); }
+    return connect;
   }
 
   #resources(): NonNullable<SystemTable['impl']['resources']> {

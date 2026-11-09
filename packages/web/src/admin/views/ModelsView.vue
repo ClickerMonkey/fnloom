@@ -23,7 +23,7 @@ import ProviderDialog from '../components/ProviderDialog.vue';
 import RuleList from '../components/RuleList.vue';
 import RuleRow from '../components/RuleRow.vue';
 import type { ModelInfo } from '@harness/core';
-import { PROVIDER_NAME, type CategoryBody } from '../logic/forms.ts';
+import { modelProviderName, PROVIDER_NAME, type CategoryBody } from '../logic/forms.ts';
 import { decisionModelText } from '../logic/suggestions.ts';
 import { LIMIT_FIELDS, LIMIT_SOURCE_WORDS, LIMIT_WORDS, resolvedText, ROLE_FROM_WORDS, ROLE_WORDS, roleWorks } from '../logic/roles.ts';
 import type { IconName } from '../../ui/index.ts';
@@ -65,7 +65,7 @@ const tabs = computed<readonly TabItem<ModelsTab>[]>(() => [
   { value: 'limits', label: 'Model limits', count: roles.limits.value.value?.length ?? 0 },
 ]);
 const ready = computed(() => models.providers.value.value !== undefined);
-const providerName = (model: ModelInfo): string => PROVIDER_NAME[model.provider];
+const providerName = (model: ModelInfo): string => modelProviderName(model.provider);
 
 onMounted(() => { void models.load(ready.value); });
 watch(tab, (current) => {

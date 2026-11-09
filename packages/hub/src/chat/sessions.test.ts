@@ -43,7 +43,7 @@ describe('sessions', () => {
     await expect(w.chat.sessions.messages(w.session.id, bo.id, {})).rejects.toBeInstanceOf(ChatError);
   });
 
-  it('list newest first, filtered by archive and by words in the title, with an exact cursor', async () => {
+  it('list newest first, leaving out archived ones, with an exact cursor', async () => {
     const w = await chatWorld();
     for (const title of ['Plan the trip', 'Fix the build', 'Trip photos', 'Old notes']) {
       w.advance(1_000);
@@ -52,11 +52,10 @@ describe('sessions', () => {
     }
     const all = await w.chat.sessions.list(w.admin.id, {});
     expect(all.items.map((s) => s.title)).toEqual(['Trip photos', 'Fix the build', 'Plan the trip', UNTITLED]);
-    const trips = await w.chat.sessions.list(w.admin.id, { search: 'TRIP', limit: 1 });
-    expect(trips.items.map((s) => s.title)).toEqual(['Trip photos']);
-    const more = await w.chat.sessions.list(w.admin.id, { search: 'trip', limit: 1, ...(trips.cursor === undefined ? {} : { cursor: trips.cursor }) });
-    expect(more.items.map((s) => s.title)).toEqual(['Plan the trip']);
-    expect((await w.chat.sessions.list(w.admin.id, { archived: true })).items.map((s) => s.title)).toEqual(['Old notes']);
+    const first = await w.chat.sessions.list(w.admin.id, { limit: 1 });
+    expect(first.items.map((s) => s.title)).toEqual(['Trip photos']);
+    const more = await w.chat.sessions.list(w.admin.id, { limit: 1, ...(first.cursor === undefined ? {} : { cursor: first.cursor }) });
+    expect(more.items.map((s) => s.title)).toEqual(['Fix the build']);
     expect(Object.keys(all.items[0] ?? {})).not.toContain('transcript');
   });
 

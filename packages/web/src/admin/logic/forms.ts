@@ -5,8 +5,8 @@
  * per top-level field.
  */
 import {
-  InstallSource, ProviderInput, type ActorKind, type ActorMatch, type Approver, type BudgetPeriod, type BudgetRule, type LimitLevel, type ModelCategory, type Policy, type Priority, type PriorityLevel,
-  type PriorityRule, type AutoPairChoice,
+  InstallSource, ProviderInput, ProviderKind, type ActorKind, type ActorMatch, type Approver, type BudgetPeriod, type BudgetRule, type LimitLevel, type ModelCategory, type Policy, type Priority, type PriorityLevel,
+  type PriorityRule, type AutoPairChoice, type ModelProvider,
 } from '@harness/core';
 import type { z } from 'zod';
 import { checkForm, type FieldProblems } from '../../state/problems.ts';
@@ -250,6 +250,12 @@ export const PROVIDER_FIELDS = {
 
 /** Every provider kind's name. */
 export const PROVIDER_NAME = { openai: 'OpenAI', openrouter: 'OpenRouter', ollama: 'Ollama', aws: 'Amazon Bedrock' } as const satisfies Record<ProviderKindInput, string>;
+
+/** Who serves a model, in words: a provider kind's name, or a system's provider as `<system>/<name>`. */
+export function modelProviderName(provider: ModelProvider): string {
+  const kind = ProviderKind.safeParse(provider);
+  return kind.success ? PROVIDER_NAME[kind.data] : provider;
+}
 
 const isProviderField = (key: string): key is ProviderField => key in PROVIDER_FIELDS;
 

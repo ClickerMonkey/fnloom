@@ -86,7 +86,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'server',
     title: 'The server: serve and the implementation',
     exports: [
-      'serve', 'ServeOptions', 'McpServe', 'mcpToolNameOf', 'RunningSystem', 'RunningStatus', 'SystemImpl', 'FnImpl', 'loggedHost', 'LoggedHost', 'systemFields', 'systemState', 'defaultStateFolder', 'SYSTEM_ENV', 'placeFolders', 'sdkEnv', 'SdkEnv',
+      'serve', 'ServeOptions', 'McpServe', 'mcpToolNameOf', 'RunningSystem', 'RunningStatus', 'SystemImpl', 'FnImpl', 'ConnectImpl', 'loggedHost', 'LoggedHost', 'systemFields', 'systemState', 'defaultStateFolder', 'SYSTEM_ENV', 'placeFolders', 'sdkEnv', 'SdkEnv',
       'RESTART_CODE', 'SystemHost', 'LinkHost', 'LinkHostDeps', 'SystemStopped',
       'PairingDisplay', 'PairingShown', 'pairingDisplayFor', 'LogPairingDisplay', 'TerminalPairingDisplay', 'PAIRING_QR_MODES', 'PairingQrMode', 'codeBanner', 'terminalQr', 'QrRenderer',
     ],
@@ -106,7 +106,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'The client: renderers, inputs and resource views',
     exports: [
       'client', 'ClientRenderers', 'ClientModule', 'Renderer', 'FnView', 'FnViewOf', 'AttachmentView', 'AttachmentViewOf', 'InputView', 'InputViewOf', 'MentionView', 'ResourceView',
-      'SystemClient', 'WithSystem', 'Delivery', 'ResourceViewerEntry', 'BareViewer', 'ResourceViewerMode', 'RESOURCE_VIEWER_MODES', 'RESOURCE_VIEWER', 'ResourceViewerProps', 'buildClient', 'BuildClientOptions', 'sharedModules', 'inlineCss', 'SHARED_IMPORTS',
+      'SystemClient', 'WithSystem', 'Delivery', 'ResourceViewerEntry', 'BareViewer', 'ResourceViewerMode', 'RESOURCE_VIEWER_MODES', 'RESOURCE_VIEWER', 'ResourceViewerProps', 'INPUT_ANSWERS', 'VALUE_EDITOR', 'ACCESS_INFO', 'InputAnswer', 'InputAnswers', 'ValueEditorProps', 'buildClient', 'BuildClientOptions', 'sharedModules', 'inlineCss', 'SHARED_IMPORTS',
       'AnyViews', 'WireViews', 'Mount', 'InputMount',
     ],
   },
@@ -121,7 +121,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'testing',
     title: 'Testing',
-    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'HubBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal'],
+    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal'],
   },
   { id: 'mistakes', title: 'Common mistakes', exports: [] },
   { id: 'examples', title: 'Worked examples', exports: [] },

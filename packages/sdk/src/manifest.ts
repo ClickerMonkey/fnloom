@@ -4,7 +4,7 @@
  */
 import {
   DeclaredLink, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
-  type ActionDecl, type ClientAssets, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
+  type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
   type TypeDecl,
 } from '@harness/core';
 import type { AnyContextDef, AnyTypeDef, ContextLinkTarget } from './declare.ts';
@@ -179,10 +179,18 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     events: SYSTEM_EVENT_TYPES.filter((e) => options.events?.includes(e) ?? false),
     resources: options.resources ?? false,
     ...(options.client === undefined ? {} : { client: options.client }),
+    ...(defs.connect === undefined ? {} : { connect: connectDecl(contract.name, defs.connect, fns.map((f) => f.name)) }),
     ...(Object.keys(defs.providers).length === 0 ? {} : { providers: entriesOf(defs.providers).map(([name, def]) => providerDecl(name, def)) }),
     config: wireType(defs.config),
     requires: referencedSystems(contract.name, defs).map((s) => SystemName.parse(s)),
   };
+}
+
+/** A `connect` declaration, checked: every fn it switches must be one of the system's fns. */
+function connectDecl(system: string, decl: ConnectDecl, fns: readonly string[]): ConnectDecl {
+  const unknown = Object.keys(decl.fns).filter((name) => !fns.includes(name));
+  if (unknown.length > 0) { throw new Error(`system ${system}: connect names fns it doesn't declare: ${unknown.join(', ')}`); }
+  return decl;
 }
 
 /** JSON with object keys sorted, so equal content always hashes the same. */

@@ -42,8 +42,8 @@ describe('read fns', () => {
     const { r, turn } = await started({
       runs_list: (data, who) => { seen.push({ data, who }); return Promise.resolve({ items: [] }); },
     });
-    expect(await call(r, turn, 'runs_list', { status: 'failed', limit: 5 })).toEqual({ status: 'done', result: { items: [] } });
-    expect(seen).toEqual([{ data: { status: 'failed', limit: 5 }, who: { id: ALICE, role: 'admin' } }]);
+    expect(await call(r, turn, 'runs_list', { limit: 5 })).toEqual({ status: 'done', result: { items: [] } });
+    expect(seen).toMatchObject([{ data: { limit: 5 }, who: { id: ALICE, role: 'admin' } }]);
     await r.store.table('turns').update(turn.id, { user: { ...ALICE_INFO, role: 'member' } });
     await call(r, turn, 'runs_list', {});
     expect(seen[1]?.who).toEqual({ id: ALICE, role: 'member' });

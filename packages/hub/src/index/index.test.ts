@@ -467,7 +467,7 @@ describe('embedders from systems', () => {
     expect(changes).toBeGreaterThan(0);
     expect(await embedders.get(DOCUMENT)?.embed(['a', 'bb', 'ccc'])).toEqual([[1, 0, 0], [2, 0, 0], [3, 0, 0]]);
     // each embed call is a model call of the index's own work, in two batches but one record
-    expect((await calls.list({ modality: 'embed' })).items).toMatchObject([
+    expect((await calls.list({})).items.filter((c) => c.modality === 'embed')).toMatchObject([
       { modality: 'embed', provider: 'vectors', model: DOCUMENT.split('/')[1], purpose: 'index', status: 'done', units: { modality: 'embed', texts: 3, characters: 6, dimensions: 3 } },
     ]);
 
@@ -477,7 +477,7 @@ describe('embedders from systems', () => {
 
     system.behaviour.embed = (texts) => texts.map(() => [1]);
     await expect(embedders.get(DOCUMENT)?.embed(['x'])).rejects.toThrow('returned a vector of 1 numbers, not 3');
-    expect((await calls.list({ modality: 'embed', status: 'failed' })).items).toHaveLength(1);
+    expect((await calls.list({})).items.filter((c) => c.modality === 'embed' && c.status === 'failed')).toHaveLength(1);
 
     system.drop();
     await settle(5);

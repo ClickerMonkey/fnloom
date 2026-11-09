@@ -342,6 +342,17 @@ export class ActiveRun {
       state: new LinkState(env.hub, { run: this.id }, this.#shape.state, { retries: env.stateRetries, signal }),
       form: form === undefined ? undefined : () => this.#nextForm(),
       resume: this.#resume(),
+      connection: request.connection,
+      updateConnection: async (update) => {
+        const connection = request.connection;
+        if (connection === undefined) { throw new Error(`Run ${this.id} acts as no connection.`); }
+        const hub = await env.hub.ready(signal);
+        await hub.call('connectionUpdate', { connection: connection.id, update });
+      },
+      shareFn: async (fn, share) => {
+        const hub = await env.hub.ready(signal);
+        await hub.call('shareFn', { run: this.id, fn, share });
+      },
       onPause: (hook) => { this.#pauseHook = hook; },
       allow: (operations) => {
         this.#allowed = { ...this.#allowed, ...operations };

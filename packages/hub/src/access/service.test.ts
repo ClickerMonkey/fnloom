@@ -1,4 +1,4 @@
-import { ActorId, QualifiedName, SystemName, type Actor, type UserConnection, ConnectionId } from '@harness/core';
+import { ActorId, QualifiedName, RunId, SystemName, TurnId, type Actor, type Run, type UserConnection, ConnectionId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { FixtureCatalog } from '../chat/testing.ts';
 import { RecordingBus, testStore } from '../testing.ts';
@@ -20,8 +20,11 @@ async function world(gate: ConnectionGate = { fn: () => undefined }) {
   for (const actor of [person(ADA, 'admin'), person(BEN, 'member'), person(CAL, 'member')]) await store.table('actors').insert(actor);
   await store.table('memberships').insert({ group: TEAM, user: CAL, addedBy: ADA, addedAt: 0 });
   const bus = new RecordingBus();
+  const catalog = new FixtureCatalog();
+  catalog.addFn('fs', { name: 'read' });
+  catalog.addFn('input', { name: 'trip_form' });
   const access = new StoreAccessService({
-    store, bus, clock: () => 5, catalog: new FixtureCatalog(), hubActor: HUB, gate: () => Promise.resolve(gate),
+    store, bus, clock: () => 5, catalog, hubActor: HUB, gate: () => Promise.resolve(gate),
     systemOf: (uri) => (uri.startsWith('file://') ? 'fs' : undefined),
   });
   return { store, bus, access };
@@ -55,6 +58,29 @@ describe('visibility', () => {
     await access.set(ADA, { kind: 'fn', fn: READ }, { visibility: 'private', with: [] });
     expect(await access.views(BEN, [{ kind: 'fn', fn: READ }])).toEqual([]);
     expect(await access.views(ADA, [{ kind: 'fn', fn: READ }])).toEqual([{ target: { kind: 'fn', fn: READ }, sharing: { owner: HUB, visibility: 'private', with: [] }, editable: true }]);
+  });
+
+  it('lets a running fn give a fn of its own system to its person, and refuses anything else', async () => {
+    const { access, store } = await world();
+    const run = (id: string, status: Run['status'], system = 'input'): Run => ({
+      id: RunId.parse(id), fn: QualifiedName.parse('input/save_form'), fnVersion: 'v1', kind: 'native', system: SystemName.parse(system), root: RunId.parse(id),
+      turn: TurnId.parse('trn_1'), key: id, actor: BEN, caller: BEN, args: {}, status, allowed: { cancel: true, pause: false, background: true }, cost: 0, totalCost: 0,
+      priority: 'interactive', background: false, attempt: 1, errors: [], stateChanges: [], createdAt: 1,
+    });
+    await store.table('runs').insert(run('run_live', 'running'));
+    await store.table('runs').insert(run('run_over', 'done'));
+    const input = SystemName.parse('input');
+    const form = QualifiedName.parse('input/trip_form');
+    const given = await access.give(input, { run: RunId.parse('run_live'), fn: 'trip_form', share: { visibility: 'private', with: [] } });
+    expect(given.sharing).toEqual({ owner: BEN, visibility: 'private', with: [] });
+    expect((await access.scope(CAL)).seesFn({ name: form, system: input })).toBe(false);
+    // the person owns it now, so they decide who else sees it
+    await access.set(BEN, { kind: 'fn', fn: form }, { visibility: 'shared', with: [TEAM] });
+    expect((await access.scope(CAL)).seesFn({ name: form, system: input })).toBe(true);
+    await expect(access.give(input, { run: RunId.parse('run_over'), fn: 'trip_form', share: { visibility: 'public', with: [] } })).rejects.toMatchObject({ status: 403 });
+    await expect(access.give(FS, { run: RunId.parse('run_live'), fn: 'read', share: { visibility: 'public', with: [] } })).rejects.toMatchObject({ status: 403 });
+    await expect(access.give(input, { run: RunId.parse('run_live'), fn: 'nothing', share: { visibility: 'public', with: [] } })).rejects.toMatchObject({ status: 404 });
+    await expect(access.set(ADA, { kind: 'fn', fn: QualifiedName.parse('fs/nothing') }, { visibility: 'public', with: [] })).rejects.toMatchObject({ status: 404 });
   });
 
   it('lets the closest root above a resource decide, and hides context made from it', async () => {

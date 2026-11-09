@@ -10,7 +10,7 @@
 import { z } from 'zod';
 import { ModelChoice } from './llm.ts';
 import {
-  ActorId, Duration, LlmInteractionId, ModelCallId, PageRequest, Priority, ProviderId, QualifiedName, RunId, type Same, SessionId, SystemName, Timestamp, TurnId, Usd,
+  ActorId, Duration, LlmInteractionId, ModelCallId, Priority, ProviderId, QualifiedName, RunId, type Same, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from './primitives.ts';
 import { ContentRef } from './resources.ts';
 
@@ -109,19 +109,6 @@ export type ModelCall = z.infer<typeof ModelCall>;
 
 // Every modality has its units and its call shape, and nothing else does.
 true satisfies Same<ModelCall['modality'], Modality>;
-
-/** A model call in a list: everything (it has no large fields). */
-export const ModelCallFilter = z.object({
-  modality: Modality.optional(),
-  model: z.string().optional(),
-  system: SystemName.optional(),
-  run: RunId.optional(),
-  session: SessionId.optional(),
-  status: ModelCallStatus.optional(),
-});
-export type ModelCallFilter = z.infer<typeof ModelCallFilter>;
-export const ModelCallQuery = PageRequest.extend(ModelCallFilter.shape);
-export type ModelCallQuery = z.infer<typeof ModelCallQuery>;
 
 // ─── Non-chat calls over the link ─────────────────────────────────────────────
 

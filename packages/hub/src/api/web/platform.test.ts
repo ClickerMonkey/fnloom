@@ -63,7 +63,7 @@ describe('metrics over the web', () => {
     const days: Array<{ fn: string; days: number }> = [];
     const { web, as } = await signedIn({
       metrics: {
-        calls: { list: (query) => Promise.resolve({ items: query.modality === 'chat' ? [] : [CALL] }), get: (id) => Promise.resolve(id === CALL.id ? CALL : undefined) },
+        calls: { list: () => Promise.resolve({ items: [CALL] }), get: (id) => Promise.resolve(id === CALL.id ? CALL : undefined) },
         fns: {
           metrics: () => Promise.resolve([]),
           days: (fn, n) => { days.push({ fn, days: n }); return Promise.resolve([]); },
@@ -71,7 +71,6 @@ describe('metrics over the web', () => {
       },
     });
     await expect(web.client.call('modelCalls', {}, as)).resolves.toEqual({ items: [CALL] });
-    await expect(web.client.call('modelCalls', { modality: 'chat' }, as)).resolves.toEqual({ items: [] });
     await expect(web.client.call('modelCall', { id: CALL.id }, as)).resolves.toEqual(CALL);
     await expect(web.client.call('modelCall', { id: ModelCallId.parse('mdl_none') }, as)).rejects.toMatchObject({ status: 404 });
     await expect(web.client.call('fnMetrics', { days: 7 }, as)).resolves.toEqual([]);

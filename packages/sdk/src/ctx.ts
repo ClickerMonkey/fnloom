@@ -3,9 +3,9 @@
  * hook, mention, action and lifecycle event gets. These are interfaces; the serve runtime provides them.
  */
 import type {
-  ActorId, AllowedOperations, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
+  ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
-  Duration, TypeDefinitions, UserInfo,
+  Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -267,6 +267,21 @@ export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
   readonly state: SessionState<T['state']>;
   /** Wait for the run's renderer to submit its form. Only fns that declare a `form` type have it. */
   readonly form: [T['form']] extends [never] ? undefined : () => Promise<T['form']>;
+  /**
+   * The person's connection this run acts as (a per-person system's fn, `connect` in the contract): its credentials
+   * and settings, which the hub picked (the caller's own, else one shared with them). `undefined` otherwise.
+   */
+  readonly connection: RunConnection | undefined;
+  /**
+   * Hand the hub refreshed credentials for this run's connection, or say they can't be refreshed (`expired`, with
+   * why in plain words). Resolves once the hub has them; throws when the run has no connection.
+   */
+  updateConnection(update: ConnectionUpdate['update']): Promise<void>;
+  /**
+   * Give a fn of this system (one this run added, a saved form) to the run's person, with who else may use it. They
+   * own it from then on and can change that on the fn's page. Resolves once the hub has it.
+   */
+  shareFn(fn: string, share: ShareRule): Promise<void>;
   /** Set when this run is resuming after a pause or a hub restart. */
   readonly resume: Resume<T['resume']> | undefined;
   /** Called when the run is asked to pause: return the state to resume from. Only fns with a resume type can pause. */

@@ -174,8 +174,6 @@ export const manifest = {
       "b": [
         "cursor",
         "limit",
-        "search",
-        "archived",
         "query"
       ],
       "f": [],
@@ -1576,10 +1574,6 @@ export const manifest = {
       "b": [
         "cursor",
         "limit",
-        "status",
-        "fn",
-        "system",
-        "session",
         "query"
       ],
       "f": [],
@@ -1602,10 +1596,6 @@ export const manifest = {
       "b": [
         "cursor",
         "limit",
-        "status",
-        "model",
-        "system",
-        "session",
         "query"
       ],
       "f": [],
@@ -1628,8 +1618,6 @@ export const manifest = {
       "b": [
         "cursor",
         "limit",
-        "search",
-        "system",
         "query"
       ],
       "f": [],
@@ -1877,9 +1865,6 @@ export const manifest = {
       "b": [
         "cursor",
         "limit",
-        "search",
-        "origin",
-        "system",
         "query"
       ],
       "f": [],
@@ -2172,12 +2157,7 @@ export const manifest = {
       "b": [
         "cursor",
         "limit",
-        "modality",
-        "model",
-        "system",
         "run",
-        "session",
-        "status",
         "query"
       ],
       "f": [],

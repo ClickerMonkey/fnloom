@@ -5,7 +5,7 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, RunInfo, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, RunConnection, RunInfo, ShareRule, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, FnCall, FnCtx, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
@@ -18,7 +18,7 @@ import type { AnyFnRef } from '../refs.ts';
 import type { ResourceProvider } from '../resources.ts';
 import type { ProviderImpl } from '../providers.ts';
 import type { Provider } from '@aeye/ai';
-import type { AnyContract, ContractShape, EventHandlers, Lifecycle, SystemImpl } from '../system.ts';
+import type { AnyContract, ConnectImpl, ContractShape, EventHandlers, Lifecycle, SystemImpl } from '../system.ts';
 import { expectType, type Equal } from '../util.ts';
 
 /** Any outcome, as the runtime handles it before encoding it for the wire. */
@@ -52,6 +52,9 @@ export interface RuntimeRunBase extends Services, OutcomeHelpers {
   readonly state: SessionState<Record<string, unknown>>;
   readonly form: (() => Promise<unknown>) | undefined;
   readonly resume: Resume<unknown> | undefined;
+  readonly connection: RunConnection | undefined;
+  updateConnection(update: ConnectionUpdate['update']): Promise<void>;
+  shareFn(fn: string, share: ShareRule): Promise<void>;
   onPause(hook: () => unknown): void;
   allow(operations: Partial<AllowedOperations>): void;
   undoWith(payload: unknown): void;
@@ -108,6 +111,13 @@ export interface RuntimeLifecycle {
   exporting?(ctx: SystemCtx & { readonly timeout: number }): Promise<void>;
 }
 
+/** A per-person system's connect flow, as the runtime calls it. */
+export interface RuntimeConnectImpl {
+  start(request: ConnectStart, ctx: SystemCtx): Promise<{ url: string }> | { url: string };
+  finish(request: ConnectFinish, ctx: SystemCtx): Promise<ConnectResult>;
+  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx): Promise<void>;
+}
+
 /** A system's implementation by section and local name. */
 export interface ImplTable {
   readonly fns?: Readonly<Record<string, RuntimeFnImpl>>;
@@ -121,6 +131,7 @@ export interface ImplTable {
   readonly actions?: Readonly<Record<string, (input: unknown, ctx: ActionCtx<Record<string, unknown>>) => Promise<unknown>>>;
   readonly resources?: ResourceProvider;
   readonly providers?: Readonly<Record<string, (ctx: SystemCtx) => Provider>>;
+  readonly connect?: RuntimeConnectImpl;
   readonly events?: { readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx) => Promise<void> };
   readonly lifecycle?: RuntimeLifecycle;
 }
@@ -153,6 +164,7 @@ expectType<Equal<RuntimeSection<'sectioners'>, AuthorSection<SectionerImpl>>>(tr
 expectType<Equal<RuntimeSection<'actions'>, AuthorSection<ActionImpl<unknown, unknown, Record<string, unknown>, object>>>>(true);
 expectType<Equal<RuntimeSection<'resources'>, Erased<ResourceProvider>>>(true);
 expectType<Equal<RuntimeSection<'providers'>, AuthorSection<ProviderImpl<object>>>>(true);
+expectType<Equal<RuntimeSection<'connect'>, Erased<ConnectImpl<object>>>>(true);
 expectType<Equal<RuntimeSection<'events'>, Erased<EventHandlers<object>>>>(true);
 expectType<Equal<RuntimeSection<'lifecycle'>, Erased<Lifecycle<object>>>>(true);
 expectType<Equal<keyof RuntimeFnCtx, keyof FnCtx<FnTypes, object>>>(true);

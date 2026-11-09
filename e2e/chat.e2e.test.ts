@@ -112,7 +112,7 @@ describe('the chat agent', () => {
   });
 
   it('saved every LLM interaction with its request and response', async () => {
-    const page = await me.hub.call('llmCalls', { session: id() });
+    const page = await me.hub.call('llmCalls', { query: { filters: [{ field: 'session', op: 'is' as const, value: id() }] } });
     const done = page.items.find((call) => call.status === 'done');
     expect(done).toBeDefined();
     if (done === undefined) { return; }
@@ -125,7 +125,7 @@ describe('the chat agent', () => {
   it('meters every LLM call and adds it to the budgets that apply', async () => {
     const MAX = 5;
     const { id: budget } = await me.hub.call('setBudget', { target: { scope: 'session', session: id() }, period: 'all-time', maxCost: MAX, onLimit: 'refuse' });
-    const calls = (await me.hub.call('llmCalls', { session: id(), limit: 200 })).items.filter((call) => call.status === 'done');
+    const calls = (await me.hub.call('llmCalls', { query: { filters: [{ field: 'session', op: 'is' as const, value: id() }], limit: 200 } })).items.filter((call) => call.status === 'done');
     expect(calls.length).toBeGreaterThan(0);
     // tokens are metered even when the free model costs nothing
     for (const call of calls) {

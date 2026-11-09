@@ -91,11 +91,10 @@ export class StoreSessionService implements SessionService {
   }
 
   async list(viewer: ActorId, query: Compact<SessionListQuery>): Promise<Page<SessionSummary>> {
-    const words = query.search?.trim().toLowerCase().split(/\s+/).filter((w) => w !== '') ?? [];
     const page = await collect(
       this.#deps.store.table('sessions'),
-      { where: { owner: viewer, archived: query.archived ?? false }, order: [['updatedAt', 'desc']], limit: query.limit ?? this.#deps.settings.chat.HARNESS_SESSION_PAGE, cursor: query.cursor },
-      (session) => words.every((w) => session.title.toLowerCase().includes(w)),
+      { where: { owner: viewer, archived: false }, order: [['updatedAt', 'desc']], limit: query.limit ?? this.#deps.settings.chat.HARNESS_SESSION_PAGE, cursor: query.cursor },
+      () => true,
     );
     return { items: page.items.map((s) => SessionSummary.parse(s)), ...(page.cursor === undefined ? {} : { cursor: page.cursor }) };
   }

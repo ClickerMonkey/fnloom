@@ -55,6 +55,9 @@ describe('hub resources', () => {
     const again = await r.library.import({ url }, who);
     expect(again.uri).toBe(record.uri);
     expect(again.raw?.hash).not.toBe(record.raw?.hash);
+    // a crawl names a folder, which keeps its pages under one root (and can't climb out of web/)
+    const crawled = await r.library.import({ url, folder: '../crawls/site.dev-20261108-1200' }, who);
+    expect(crawled.uri.startsWith('hub://resources/web/crawls/site.dev-20261108-1200/site.dev/docs/page~')).toBe(true);
   });
 
   it('keeps a fn\'s output under its run', async () => {

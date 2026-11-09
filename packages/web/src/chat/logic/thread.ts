@@ -4,7 +4,7 @@
  * text of a message (for copying and reply quotes) and the parts to send again when retrying or editing. Pure, so it
  * is tested alone.
  */
-import { INPUT_ANSWER_TAG, type ActorId, type ChatMessage, type Link, type MessageId, type MessagePart, type ModelCallId, type OutgoingPart, type RunId, type TurnId } from '@harness/core';
+import { INPUT_ANSWER_TAG, isHiddenPart, type ActorId, type ChatMessage, type Link, type MessageId, type MessagePart, type ModelCallId, type OutgoingPart, type RunId, type TurnId } from '@harness/core';
 
 /** A mention in a message. */
 export type MentionPart = Extract<MessagePart, { type: 'mention' }>;
@@ -12,13 +12,7 @@ export type MentionPart = Extract<MessagePart, { type: 'mention' }>;
 /** An input form's answers, as a message carries them. */
 export type InputAnswerPart = Extract<MessagePart, { type: 'input-answer' }>;
 
-/** The parts the chat hides: added for the model (by the hub or a hook), or a form's answers. */
-const HIDDEN_PARTS = new Set<MessagePart['type']>(['extra', 'hook', 'input-answer']);
-
-/** Whether the chat hides a part (it still goes to the model). */
-export function isHiddenPart(part: MessagePart): boolean {
-  return HIDDEN_PARTS.has(part.type);
-}
+export { isHiddenPart };
 
 /**
  * Whether a person's message shows nothing: every part is hidden (a form's answers, what the hub added), so it has no

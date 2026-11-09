@@ -11,7 +11,7 @@
 import type { BaseRequest, BaseResponse, Request, Response, Streamer, Usage } from '@aeye/core';
 import { AI, type EmbeddingRequest, type ImageGenerationRequest, type ModelInfo, type Providers, type SpeechRequest, type TranscriptionRequest } from '@aeye/ai';
 import { models as knownModels, strictSupport } from '@aeye/models';
-import { compact, ProviderKind, type CacheSupport, type LlmInteractionId, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
+import { compact, ModelProvider, type CacheSupport, type LlmInteractionId, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import type { ModelCallLog, OpenModelCall } from '../metrics/index.ts';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
@@ -362,15 +362,15 @@ export class AeyeLlm implements RefreshableEngine {
 
   /**
    * The models of the providers this AI was built with, each once (the model list also knows models of providers it
-   * lacks, and can hold a model both from the given list and from its provider). Providers that aren't a configurable
-   * `ProviderKind` are left out: the admin pages only know those.
+   * lacks, and can hold a model both from the given list and from its provider): configured providers by kind, and
+   * the providers connected systems bring (`<system>/<name>`).
    */
   models(): ModelView[] {
     const providers = new Set(Object.keys(this.#ai.providers));
     const seen = new Set<string>();
     const fresh = (key: string): boolean => !seen.has(key) && seen.add(key).has(key);
     return this.#ai.models.list().flatMap((model): ModelView[] => {
-      const kind = ProviderKind.safeParse(model.provider);
+      const kind = ModelProvider.safeParse(model.provider);
       if (!kind.success || !providers.has(kind.data) || !fresh(`${kind.data}/${model.id}`)) return [];
       const text = model.pricing.text;
       return [{

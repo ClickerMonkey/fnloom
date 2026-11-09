@@ -4,7 +4,7 @@
  */
 import { reject } from '@ayepi/core';
 import {
-  accessKey, type AccessInfo, type AccessRecord, type AccessTarget, type AccessView, type ActorId, type Sharing, type ShareRule, type UserConnection,
+  accessKey, isUnsettled, qualify, type AccessInfo, type AccessRecord, type AccessTarget, type AccessView, type ActorId, type FnShare, type Sharing, type ShareRule, type SystemName, type UserConnection,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -76,17 +76,38 @@ export class StoreAccessService implements AccessService {
     const scope = await this.scope(asker);
     const current = await this.sharing(target);
     if (!scope.admin && current.owner !== asker) { throw reject(403, 'NOT_OWNER', 'only its owner or an admin can change who sees this'); }
+    await this.#exists(target);
+    return this.#write(target, current.owner, rule, asker);
+  }
+
+  async give(system: SystemName, share: FnShare): Promise<AccessView> {
+    const run = await this.#deps.store.table('runs').get(share.run);
+    if (run?.system !== system || !isUnsettled(run.status)) { throw reject(403, 'NOT_YOUR_RUN', `run ${share.run} is not a running fn of ${system}`); }
+    const target: AccessTarget = { kind: 'fn', fn: qualify(system, share.fn) };
+    await this.#exists(target);
+    const current = (await this.#load()).get(accessKey(target));
+    if (current !== undefined && current.sharing.owner !== run.actor) { throw reject(403, 'NOT_OWNER', `${target.fn} belongs to someone else`); }
+    return this.#write(target, run.actor, share.share, run.actor);
+  }
+
+  /** Refuse a fn or context target that doesn't exist (a row for a name nobody uses would wait for one that might). */
+  async #exists(target: AccessTarget): Promise<void> {
+    const found = target.kind === 'fn' ? await this.#deps.catalog.fn(target.fn) : target.kind === 'context' ? await this.#deps.catalog.context(target.context) : true;
+    if (found === undefined) { throw reject(404, 'NOT_FOUND', `nothing is named ${target.kind === 'fn' ? target.fn : target.kind === 'context' ? target.context : ''}`); }
+  }
+
+  async #write(target: AccessTarget, owner: ActorId, rule: ShareRule, by: ActorId): Promise<AccessView> {
     const shared: ShareRule = { visibility: rule.visibility, with: rule.visibility === 'shared' ? [...new Set(rule.with)] : [] };
     if (target.kind === 'connection') {
       await this.#store().connections.update(target.connection, { share: shared, updatedAt: this.#deps.clock() });
     } else {
-      const record: AccessRecord = { key: accessKey(target), target, sharing: { owner: current.owner, ...shared }, setBy: asker, updatedAt: this.#deps.clock() };
+      const record: AccessRecord = { key: accessKey(target), target, sharing: { owner, ...shared }, setBy: by, updatedAt: this.#deps.clock() };
       await this.#store().access.put(record);
       (await this.#load()).set(record.key, record);
     }
     // what each person may see changed: browsers fetch their composer's options again
     this.#deps.bus.publish('capabilities.changed', {});
-    return { target, sharing: { owner: current.owner, ...shared }, editable: true };
+    return { target, sharing: { owner, ...shared }, editable: true };
   }
 
   #store() {

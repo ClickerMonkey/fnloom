@@ -58,8 +58,8 @@ const status = (active: string, done: string, failed: string) => ({
   failed: { one: failed, many: `${failed} ({n})` },
 });
 
-/** The Google Calendar system's contract. */
-export const googleCalendar = system('google-calendar', { description: 'Each person connects their Google Calendar; the chat can see their events and, as they allow, create, change and delete them.' })
+/** The contract's declarations, before its `connect` (which names these fns). */
+const declared = system('google-calendar', { description: 'Each person connects their Google Calendar; the chat can see their events and, as they allow, create, change and delete them.' })
   .with({
     config: g.obj({
       clientId: g.field(g.text({ minLength: 1 }), { docs: 'The OAuth client id from Google Cloud (a "Web application" client).' }),
@@ -116,16 +116,14 @@ export const googleCalendar = system('google-calendar', { description: 'Each per
     },
   });
 
-/** The contract's type. */
-export type CalendarContract = typeof googleCalendar;
 /** The fns that act as the person, by local name. */
-export type CalendarFn = Extract<keyof CalendarContract['defs']['fns'], string>;
+export type CalendarFn = Extract<keyof typeof declared.defs.fns, string>;
 /** An event. */
 export type EventValue = ValueOf<typeof Event>;
 /** A person's settings. */
 export type ConnectionSettingsValue = Infer<typeof ConnectionSettings>;
 /** The system's config. */
-export type CalendarConfigValue = Infer<CalendarContract['defs']['config']>;
+export type CalendarConfigValue = Infer<typeof declared.defs.config>;
 
 /**
  * The system's `connect` declaration (manifest `connect`): the "Calendar" page, OAuth through the hub's redirect, the
@@ -147,3 +145,9 @@ export const CALENDAR_CONNECT: ConnectDecl = ConnectDecl.parse({
     delete_event: { on: false, ask: true },
   } satisfies Record<CalendarFn, { on: boolean; ask: boolean }>,
 });
+
+/** The Google Calendar system's contract: its fns, and the per-person `connect` they act through. */
+export const googleCalendar = declared.with({ connect: CALENDAR_CONNECT });
+
+/** The contract's type. */
+export type CalendarContract = typeof googleCalendar;

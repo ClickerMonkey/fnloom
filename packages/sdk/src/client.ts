@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import type { DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
+import type { AccessInfo, DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, MessagePart, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -218,3 +218,36 @@ export interface ResourceViewerProps {
  * separately built bundle sees the same one.
  */
 export const RESOURCE_VIEWER: InjectionKey<Component<ResourceViewerProps>> = Symbol.for('harness.resourceViewer');
+
+// ─── What a form renderer reads from the chat ─────────────────────────────────
+
+/** A form's answer as it was sent: the run's `input-answer` part, without its type tag. */
+export type InputAnswer = Omit<Extract<MessagePart, { type: 'input-answer' }>, 'type'>;
+
+/** Sending a form's answers, and the answers already sent. */
+export interface InputAnswers {
+  /** Add a user message whose only part is this `input-answer`; rejects with the reason when it couldn't be sent. */
+  send(answer: InputAnswer): Promise<void>;
+  /** The answer sent for a run's form, if one was (read reactively). */
+  answerOf(run: RunId): InputAnswer | undefined;
+}
+
+/**
+ * The props of the chat's gin value editor, as a renderer binds them. `type` is a gin `TypeDef`; the editor reads any
+ * definition (and says when it can't), so it takes `unknown`, which a renderer's `TypeDef` fits.
+ */
+export interface ValueEditorProps {
+  type: unknown;
+  modelValue: Json | undefined;
+  readonly?: boolean;
+}
+
+/**
+ * Sends a form's answers as a hidden user message (one `input-answer` part, which the chat hides and the model reads
+ * in `<input-answer>` tags). The chat provides it; like `RESOURCE_VIEWER`, the key is a global symbol.
+ */
+export const INPUT_ANSWERS: InjectionKey<InputAnswers> = Symbol.for('harness.inputAnswers');
+/** The chat's gin value editor (`v-model` over the JSON value). */
+export const VALUE_EDITOR: InjectionKey<Component<ValueEditorProps>> = Symbol.for('harness.valueEditor');
+/** Whether the hub has more than one person (a reactive getter), so a renderer offers who may use what it saves. */
+export const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>> = Symbol.for('harness.accessInfo');

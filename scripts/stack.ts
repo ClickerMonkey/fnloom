@@ -1,7 +1,7 @@
 /**
  * Boots the whole harness on this machine: builds the web app, starts the hub (which serves the build), signs in as
- * the single admin account, pairs the fs, embedder and web systems with one-time pairing tokens the first time, starts
- * them, and configures fs with its root folder. `npm run dev` and the e2e tests both use it; `stop()` stops every
+ * the single admin account, pairs the fs, embedder, web, input and (when its OAuth client is given) google-calendar
+ * systems with one-time pairing tokens the first time, starts them, and configures each with its config. `npm run dev` and the e2e tests both use it; `stop()` stops every
  * process it started.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -14,6 +14,8 @@ import { encodeValue, type ConfigOf } from '@harness/sdk';
 import { SYSTEM_ENV } from '@harness/sdk/server';
 import { embedderSystem, type EmbedderContract } from '../systems/embedder/shared/index.ts';
 import { fs } from '../systems/fs/shared/index.ts';
+import { googleCalendar, type CalendarContract } from '../systems/google-calendar/shared/index.ts';
+import { input } from '../systems/input/shared/index.ts';
 import { web, type WebContract } from '../systems/web/shared/index.ts';
 import { signIn, waitFor, type Credentials, type SignedIn } from './hub-client.ts';
 
@@ -28,13 +30,15 @@ export interface StackSystems {
   readonly embedder: ConfigOf<EmbedderContract['defs']>;
   /** The web system's config; absent, its defaults (it reads `TAVILY_API_KEY` from the environment). */
   readonly web?: ConfigOf<WebContract['defs']>;
+  /** The Google Calendar system's OAuth client; absent, it isn't started (it can't connect anyone without one). */
+  readonly calendar?: ConfigOf<CalendarContract['defs']>;
 }
 
 /** The process each system runs as: its own name, but `web-system` for the web system (`web` is the app's build). */
-export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system' } as const satisfies Record<keyof StackSystems, string>;
+export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system', input: 'input', calendar: 'calendar' } as const satisfies Record<keyof StackSystems | 'input', string>;
 
 /** A process the stack runs. */
-export type ComponentName = 'web' | 'hub' | (typeof SYSTEM_COMPONENTS)[keyof StackSystems];
+export type ComponentName = 'web' | 'hub' | (typeof SYSTEM_COMPONENTS)[keyof typeof SYSTEM_COMPONENTS];
 
 /** How to boot the stack. */
 export interface StackOptions {
@@ -47,7 +51,7 @@ export interface StackOptions {
   readonly build: boolean;
   /** Restart the hub and systems when their source changes (`tsx watch`). */
   readonly watch: boolean;
-  /** Which of hub, fs, embedder and web-system to run (`web` is the build step). */
+  /** Which of hub, fs, embedder, web-system, input and calendar to run (`web` is the build step). */
   readonly only: ReadonlySet<ComponentName>;
   readonly systems: StackSystems;
   /** Extra environment for the hub (models, tunables). */
@@ -174,11 +178,15 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       { name: 'fs', entry: join(ROOT, 'systems', 'fs', 'server', 'main.ts'), config: encodeValue(fs.defs.config, options.systems.fs) },
       { name: 'embedder', entry: join(ROOT, 'systems', 'embedder', 'server', 'main.ts'), config: encodeValue(embedderSystem.defs.config, options.systems.embedder) },
       { name: 'web', entry: join(ROOT, 'systems', 'web', 'server', 'main.ts'), config: encodeValue(web.defs.config, options.systems.web ?? {}) },
-    ] as const satisfies ReadonlyArray<{ name: keyof StackSystems; entry: string; config: Json }>;
+      { name: 'input', system: input.name, entry: join(ROOT, 'systems', 'input', 'server', 'main.ts'), config: encodeValue(input.defs.config, {}) },
+      ...(options.systems.calendar === undefined ? [] : [{
+        name: 'calendar', system: googleCalendar.name, entry: join(ROOT, 'systems', 'google-calendar', 'server', 'main.ts'), config: encodeValue(googleCalendar.defs.config, options.systems.calendar),
+      } as const]),
+    ] as const satisfies ReadonlyArray<{ name: keyof typeof SYSTEM_COMPONENTS; system?: string; entry: string; config: Json }>;
     for (const system of systems) {
       const component = SYSTEM_COMPONENTS[system.name];
       if (!options.only.has(component)) { continue; }
-      const name = SystemName.parse(system.name);
+      const name = SystemName.parse('system' in system ? system.system : system.name);
       const known = await systemOf(admin, name, timeout);
       // a system the hub already knows reconnects with its key; a new one pairs with a one-time token made for its name
       const token = known === undefined || known.status === 'removed'

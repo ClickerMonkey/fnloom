@@ -139,9 +139,9 @@ describe('memory', () => {
     expect(seen).toContain(shared.name);
     expect(seen).not.toContain(mine.name);
     await expect(r.context.item(mine.name, bob)).rejects.toMatchObject({ status: 404 });
-    expect((await r.context.list({ origin: 'memory' }, who)).items).toHaveLength(2);
-    expect((await r.context.list({ search: 'for all' }, who)).items.map((item) => item.name)).toEqual([shared.name]);
-    const [resourceItem] = (await r.context.list({ origin: 'resource', limit: 1 }, who)).items;
+    const listed = (await r.context.list({}, who)).items;
+    expect(listed.filter((item) => item.origin?.type === 'memory')).toHaveLength(2);
+    const resourceItem = listed.find((item) => item.origin?.type === 'resource');
     await expect(r.context.forget(resourceItem?.name ?? shared.name, who)).rejects.toMatchObject({ status: 403 });
   });
 

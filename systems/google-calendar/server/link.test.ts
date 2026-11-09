@@ -5,7 +5,7 @@
  * requests and problems over a scripted `fetch`.
  */
 import { readFileSync } from 'node:fs';
-import { ConnectDecl, SystemPackageManifest, mintId, type ConnectionUpdate, type Json, type OutcomeWire, type RunConnection } from '@harness/core';
+import { ConnectDecl, SystemPackageManifest, mintId, type Json, type OutcomeWire, type QualifiedName, type RunConnection } from '@harness/core';
 import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -15,7 +15,7 @@ import { endAfter, eventOf, instantOf, timeOf } from './calendar.ts';
 import { calendarEnv } from './env.ts';
 import { FAKE_ACCOUNT, FakeGoogleApi } from './fake.ts';
 import { FetchGoogleApi, GoogleProblem, type GoogleEndpoints } from './google.ts';
-import { createCalendarImpl, type CalendarServer } from './impl.ts';
+import { createCalendarImpl } from './impl.ts';
 
 const packageManifest = SystemPackageManifest.parse(JSON.parse(readFileSync(new URL('../system.json', import.meta.url), 'utf8')));
 const CONFIG = { clientId: 'client-1', clientSecret: 'shh', hubUrl: 'https://hub.example' };
@@ -31,16 +31,17 @@ describe('google-calendar over the link', () => {
   let running: RunningSystem<'google-calendar'> | undefined;
   let hub: FakeHub;
   let google: FakeGoogleApi;
-  let server: CalendarServer;
   let connection: RunConnection | undefined;
-  let updates: ConnectionUpdate[];
+
+  /** Run a fn as the hub does: with the person's connection, when there is one. */
+  const run = (fn: QualifiedName, args: Json) => hub.run(fn, args, connection === undefined ? {} : { connection });
 
   /** Connect the fake account the way the hub's flow does, and keep the connection runs act as. */
   async function connect(settings: Json = {}): Promise<RunConnection> {
     const id = mintId('connection');
-    const started = server.connect.start(CONFIG, { connection: id, owner: TEST_USER.id, redirect: REDIRECT, state: 'signed-state' });
+    const started = await hub.connectStart({ connection: id, owner: TEST_USER.id, redirect: REDIRECT, state: 'signed-state' });
     expect(new URL(started.url).searchParams.get('state')).toBe('signed-state');
-    const result = await server.connect.finish(CONFIG, { connection: id, owner: TEST_USER.id, redirect: REDIRECT, answer: { params: { code: 'good-code', state: 'signed-state' } } });
+    const result = await hub.connectFinish({ connection: id, owner: TEST_USER.id, redirect: REDIRECT, answer: { params: { code: 'good-code', state: 'signed-state' } } });
     if (!('credentials' in result)) { throw new Error(result.problem); }
     expect(result.account).toEqual({ label: FAKE_ACCOUNT.email, detail: FAKE_ACCOUNT.name });
     connection = { id, owner: TEST_USER.id, credentials: result.credentials, settings };
@@ -49,23 +50,10 @@ describe('google-calendar over the link', () => {
 
   beforeEach(async () => {
     google = new FakeGoogleApi();
-    updates = [];
     connection = undefined;
-    server = createCalendarImpl({
-      settings: calendarEnv.parse(),
-      api: google,
-      connections: {
-        of: () => connection,
-        update: (update) => {
-          updates.push(update);
-          if (connection !== undefined && 'credentials' in update.update) { connection = { ...connection, credentials: update.update.credentials }; }
-          return Promise.resolve();
-        },
-      },
-      now: () => NOW,
-    });
+    const impl = createCalendarImpl({ settings: calendarEnv.parse(), api: google, now: () => NOW });
     hub = new FakeHub({ config: CONFIG });
-    running = await serve(googleCalendar, server.impl, { hub: 'ws://hub.test/link', state: 'unused', version: packageManifest.version }, hub.host());
+    running = await serve(googleCalendar, impl, { hub: 'ws://hub.test/link', state: 'unused', version: packageManifest.version }, hub.host());
     await running.ready();
   });
   afterEach(async () => {
@@ -80,64 +68,64 @@ describe('google-calendar over the link', () => {
   });
 
   it('fails every fn plainly without a connection', async () => {
-    expect(await hub.run('google-calendar/list_events', {})).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'not-connected' } });
+    expect(await run('google-calendar/list_events', {})).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'not-connected' } });
   });
 
   it('creates, lists, searches, reads, changes and deletes events as the person', async () => {
     await connect({ calendars: ['primary', 'work'] });
-    const made = done(await hub.run('google-calendar/create_event', { title: 'Dentist', start: '2026-11-09T09:00:00-05:00', location: 'Main St', attendees: ['sam@example.com'] }));
+    const made = done(await run('google-calendar/create_event', { title: 'Dentist', start: '2026-11-09T09:00:00-05:00', location: 'Main St', attendees: ['sam@example.com'] }));
     expect(made).toMatchObject({ title: 'Dentist', calendar: 'primary', allDay: false, start: '2026-11-09T09:00:00-05:00', end: '2026-11-09T15:00:00.000Z', attendees: ['sam@example.com'] });
-    done(await hub.run('google-calendar/create_event', { title: 'Offsite', start: '2026-11-10', calendar: 'work' }));
+    done(await run('google-calendar/create_event', { title: 'Offsite', start: '2026-11-10', calendar: 'work' }));
     expect(google.stored.get('work')?.[0]).toMatchObject({ start: { date: '2026-11-10' }, end: { date: '2026-11-11' } });
 
-    const listed = done(await hub.run('google-calendar/list_events', {}));
+    const listed = done(await run('google-calendar/list_events', {}));
     expect(listed).toMatchObject({ events: [{ title: 'Dentist' }, { title: 'Offsite', calendar: 'work', allDay: true }], more: false });
-    expect(done(await hub.run('google-calendar/list_events', { limit: 1 }))).toMatchObject({ events: [{ title: 'Dentist' }], more: true });
-    expect(done(await hub.run('google-calendar/search_events', { query: 'dentist' }))).toMatchObject({ events: [{ title: 'Dentist' }] });
+    expect(done(await run('google-calendar/list_events', { limit: 1 }))).toMatchObject({ events: [{ title: 'Dentist' }], more: true });
+    expect(done(await run('google-calendar/search_events', { query: 'dentist' }))).toMatchObject({ events: [{ title: 'Dentist' }] });
     expect(google.calls).toContain('events work q=dentist');
 
     const { id } = z.object({ id: z.string() }).parse(made);
-    expect(done(await hub.run('google-calendar/update_event', { id, title: 'Dentist (moved)', start: '2026-11-09T10:00:00-05:00' }))).toMatchObject({ title: 'Dentist (moved)', start: '2026-11-09T10:00:00-05:00', location: 'Main St' });
-    expect(done(await hub.run('google-calendar/get_event', { id }))).toMatchObject({ title: 'Dentist (moved)' });
-    expect(done(await hub.run('google-calendar/delete_event', { id }))).toEqual({ deleted: true, title: 'Dentist (moved)' });
-    expect(await hub.run('google-calendar/get_event', { id })).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'not-found' } });
+    expect(done(await run('google-calendar/update_event', { id, title: 'Dentist (moved)', start: '2026-11-09T10:00:00-05:00' }))).toMatchObject({ title: 'Dentist (moved)', start: '2026-11-09T10:00:00-05:00', location: 'Main St' });
+    expect(done(await run('google-calendar/get_event', { id }))).toMatchObject({ title: 'Dentist (moved)' });
+    expect(done(await run('google-calendar/delete_event', { id }))).toEqual({ deleted: true, title: 'Dentist (moved)' });
+    expect(await run('google-calendar/get_event', { id })).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'not-found' } });
   });
 
   it('refuses times that are not times, and a mixed all-day range', async () => {
     await connect();
-    expect(await hub.run('google-calendar/create_event', { title: 'x', start: 'tomorrow' })).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'start' }] } });
-    expect(await hub.run('google-calendar/create_event', { title: 'x', start: '2026-11-09', end: '2026-11-09T10:00:00Z' })).toMatchObject({ status: 'invalid-input' });
-    expect(await hub.run('google-calendar/list_events', { from: 'soon' })).toMatchObject({ status: 'invalid-input' });
+    expect(await run('google-calendar/create_event', { title: 'x', start: 'tomorrow' })).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'start' }] } });
+    expect(await run('google-calendar/create_event', { title: 'x', start: '2026-11-09', end: '2026-11-09T10:00:00Z' })).toMatchObject({ status: 'invalid-input' });
+    expect(await run('google-calendar/list_events', { from: 'soon' })).toMatchObject({ status: 'invalid-input' });
   });
 
   it('refreshes a refused token once and hands the new one to the hub; reports a connection Google gave up on', async () => {
     const connected = await connect();
     const token = z.object({ accessToken: z.string() }).parse(connected.credentials).accessToken;
     google.expire(token);
-    expect(await hub.run('google-calendar/list_events', {})).toMatchObject({ status: 'done' });
-    expect(updates).toHaveLength(1);
-    expect(updates[0]?.update).toMatchObject({ credentials: { refreshToken: 'refresh-1' } });
+    expect(await run('google-calendar/list_events', {})).toMatchObject({ status: 'done' });
+    expect(hub.connectionUpdates).toHaveLength(1);
+    expect(hub.connectionUpdates[0]).toMatchObject({ connection: connected.id, update: { credentials: { refreshToken: 'refresh-1' } } });
 
     google.refreshTokens.clear();
     google.live.clear();
-    expect(await hub.run('google-calendar/list_events', {})).toMatchObject({ status: 'failed', error: { class: 'fatal', code: 'reconnect' } });
-    expect(JSON.stringify(updates.at(-1)?.update)).toContain('connect your calendar again');
+    expect(await run('google-calendar/list_events', {})).toMatchObject({ status: 'failed', error: { class: 'fatal', code: 'reconnect' } });
+    expect(JSON.stringify(hub.connectionUpdates.at(-1)?.update)).toContain('connect your calendar again');
   });
 
   it('says what went wrong connecting, and revokes on disconnect', async () => {
     const id = mintId('connection');
-    const ask = (params: Record<string, string>) => server.connect.finish(CONFIG, { connection: id, owner: TEST_USER.id, redirect: REDIRECT, answer: { params } });
+    const ask = (params: Record<string, string>) => hub.connectFinish({ connection: id, owner: TEST_USER.id, redirect: REDIRECT, answer: { params } });
     expect(await ask({ error: 'access_denied' })).toEqual({ problem: 'You didn\'t allow access to your calendar.' });
     expect(await ask({})).toHaveProperty('problem');
     expect(await ask({ code: 'bad' })).toEqual({ problem: 'Bad code.' });
     google.grantRefresh = false;
     expect(await ask({ code: 'good-code' })).toHaveProperty('problem');
-    expect(await server.connect.finish(CONFIG, { connection: id, owner: TEST_USER.id, redirect: REDIRECT, answer: { form: {} } })).toHaveProperty('problem');
+    expect(await hub.connectFinish({ connection: id, owner: TEST_USER.id, redirect: REDIRECT, answer: { form: {} } })).toHaveProperty('problem');
     google.grantRefresh = true;
     const connected = await connect();
-    expect(await server.connect.disconnect(connected)).toBe(true);
+    await hub.disconnect({ id: connected.id, owner: connected.owner, credentials: connected.credentials });
     expect(google.refreshTokens.size).toBe(0);
-    expect(await server.connect.disconnect({ credentials: null })).toBe(false);
+    await expect(hub.disconnect({ id: connected.id, owner: connected.owner, credentials: null })).resolves.toBeUndefined();
   });
 });
 

@@ -8,7 +8,7 @@ import { bearerAuth } from '@ayepi/auth';
 import { mergeSpecs, middleware, spec, use } from '@ayepi/core';
 import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
-import { BudgetView, LlmFilter, LlmSummary, ModelInfo, OutputLine, ResourceFilter, RuleRef, RunFilter, SettingView } from './admin.ts';
+import { BudgetView, LlmSummary, ModelInfo, OutputLine, RuleRef, SettingView } from './admin.ts';
 import { MentionHover, MentionOption, ImportReport, SuggestionScore } from './manifest.ts';
 import {
   ActorId, ActorKind, ApprovalId, AutoPairId, ConnectionId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
@@ -23,9 +23,9 @@ import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNo
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
 import { ContextRecord, FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
 import { Policy } from './records/actors.ts';
-import { CONTEXT_ORIGIN_TYPES, ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs, UpdateMemoryArgs } from './context-graph.ts';
+import { ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs, UpdateMemoryArgs } from './context-graph.ts';
 import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
-import { ModelCall, ModelCallQuery, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
+import { ModelCall, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
 import { ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
 import { InstanceRecord } from './package.ts';
 import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery, ResourceReadArgs, ResourceReadResult } from './resource-forms.ts';
@@ -163,7 +163,7 @@ export const authSlice = mergeSpecs(
 );
 
 /** What the session list is filtered and paged by. */
-export const SessionListQuery = PageRequest.extend({ search: z.string().optional(), archived: z.boolean().optional(), query: ListQuery.optional() });
+export const SessionListQuery = PageRequest.extend({ query: ListQuery.optional() });
 export type SessionListQuery = z.infer<typeof SessionListQuery>;
 
 /** A page of a session's messages, newest first, paged backwards with the cursor. */
@@ -337,11 +337,11 @@ export const adminSlice = spec({
     actors: { body: z.object({ kind: ActorKind.optional() }), response: z.array(Actor), ws: 'actors' },
     actorSettings: { body: z.object({}), response: z.object({ declared: z.array(SettingView), values: z.array(ActorSetting) }), ws: 'actorSettings' },
     /** Runs, newest first. */
-    runs: { body: PageRequest.extend(RunFilter.shape).extend({ query: ListQuery.optional() }), response: page(Run), ws: 'runs' },
+    runs: { body: PageRequest.extend({ query: ListQuery.optional() }), response: page(Run), ws: 'runs' },
     /** LLM calls, newest first. */
-    llmCalls: { body: PageRequest.extend(LlmFilter.shape).extend({ query: ListQuery.optional() }), response: page(LlmSummary), ws: 'llmCalls' },
+    llmCalls: { body: PageRequest.extend({ query: ListQuery.optional() }), response: page(LlmSummary), ws: 'llmCalls' },
     /** Resources the hub knows, most recently seen first. */
-    resources: { body: PageRequest.extend(ResourceFilter.shape).extend({ query: ListQuery.optional() }), response: page(ResourceRecord), ws: 'resources' },
+    resources: { body: PageRequest.extend({ query: ListQuery.optional() }), response: page(ResourceRecord), ws: 'resources' },
     removeRule: { body: RuleRef, response: z.object({ ok: z.boolean() }), ws: 'removeRule' },
   }),
   events: {
@@ -393,7 +393,7 @@ export const resourcesSlice = spec({
 });
 
 /** What the context list narrows by. */
-export const ContextQuery = PageRequest.extend({ search: z.string().optional(), origin: z.enum(CONTEXT_ORIGIN_TYPES).optional(), system: SystemName.optional(), query: ListQuery.optional() });
+export const ContextQuery = PageRequest.extend({ query: ListQuery.optional() });
 export type ContextQuery = z.infer<typeof ContextQuery>;
 
 /** One context item with its edges both ways and its text (dynamic context is asked for). */
@@ -442,9 +442,16 @@ export const modelsSlice = spec({
 });
 
 /** Every model call of every modality, and fn metrics (admins). */
+/**
+ * The model calls list: a `ListQuery`, or one run's calls (`run`, which the list's fields don't carry). A model call in
+ * a list is everything (it has no large fields).
+ */
+export const ModelCallQuery = PageRequest.extend({ run: RunId.optional(), query: ListQuery.optional() });
+export type ModelCallQuery = z.infer<typeof ModelCallQuery>;
+
 export const metricsSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
-    modelCalls: { body: ModelCallQuery.extend({ query: ListQuery.optional() }), response: page(ModelCall), ws: 'modelCalls' },
+    modelCalls: { body: ModelCallQuery, response: page(ModelCall), ws: 'modelCalls' },
     modelCall: { body: z.object({ id: ModelCallId }), response: ModelCall, ws: 'modelCall' },
     fnMetrics: { body: FnMetricsQuery, response: z.array(FnMetrics), ws: 'fnMetrics' },
     /** One fn's daily rollups, oldest first, for its charts. */

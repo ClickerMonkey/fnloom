@@ -92,7 +92,7 @@ describe('raw and converted versions', () => {
       const made = await me.hub.call('contextFromResource', { uri: page.uri });
       expect(made.created).toHaveLength(4);
       expect(made.links).toBeGreaterThanOrEqual(3);
-      const items = await me.hub.call('contexts', { origin: 'resource', search: 'guide', limit: 50 });
+      const items = await me.hub.call('contexts', { query: { text: 'guide', filters: [{ field: 'origin', op: 'is' as const, value: 'resource' }], limit: 50 } });
       const mine = items.items.filter((item) => made.created.includes(item.name));
       expect(mine).toHaveLength(4);
       const parent = mine.find((item) => item.decl.parent === undefined);

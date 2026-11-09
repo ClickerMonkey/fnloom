@@ -8,7 +8,7 @@
  * `contextor/fns.ts`); `HubReadName` is every other read fn, so a new one fails to compile until it is answered here.
  */
 import { reject } from '@ayepi/core';
-import { compact, QualifiedName, type ModelCall, type ModelCallId, type QueryFnArgs, type QueryFnResult, type Run } from '@harness/core';
+import { compact, type ModelCall, type ModelCallId, type QueryFnArgs, type QueryFnResult, type Run } from '@harness/core';
 import type { HUB_READ_ENDPOINTS, HubReadFnName } from '@harness/sdk';
 import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
@@ -62,14 +62,8 @@ export function hubReads(hub: HubServices): HubReads {
     types_get: (data) => typeDefinitions(catalog, data.names),
     runs_list: async (data, who) => {
       if (data.query !== undefined) { return lists.page('runs', data.query, who); }
-      const fn = data.fn === undefined ? undefined : QualifiedName.safeParse(data.fn);
-      if (fn?.success === false) { return { items: [] }; }
-      const where: Where<Run> = {
-        ...(data.status === undefined ? {} : { status: data.status }), ...(fn === undefined ? {} : { fn: fn.data }),
-        ...(data.system === undefined ? {} : { system: data.system }), ...(data.session === undefined ? {} : { session: data.session }),
-        // a member sees the runs they started
-        ...(who.role === 'admin' ? {} : { actor: who.id }),
-      };
+      // a member sees the runs they started
+      const where: Where<Run> = who.role === 'admin' ? {} : { actor: who.id };
       return store.table('runs').find({ where, order: [['createdAt', 'desc']], limit: data.limit ?? PAGE_SIZE, ...(data.cursor === undefined ? {} : { cursor: data.cursor }) });
     },
     run_get: (data, who) => visibleRun(hub, data.run, who),
@@ -94,8 +88,7 @@ export function hubReads(hub: HubServices): HubReads {
       if (who.role !== 'admin') {
         // a member reads the model calls of a run or session they can see
         if (data.run !== undefined) { await visibleRun(hub, data.run, who); }
-        else if (data.session !== undefined) { await visibleSession(hub, data.session, who); }
-        else { throw reject(403, 'ADMIN_ONLY', 'name a run or a session of yours to see its model calls'); }
+        else { throw reject(403, 'ADMIN_ONLY', 'name a run of yours to see its model calls'); }
       }
       return hub.metrics.calls.list(compact(data));
     },
