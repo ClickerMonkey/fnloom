@@ -262,7 +262,7 @@ export class TestSystem {
       child: ({ data }) => { this.children.push(data); },
       paired: notHere, check: notHere, context: notHere, roots: notHere, list: notHere, stat: notHere, read: notHere, sections: notHere, watch: notHere,
       content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
-      form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere,
+      form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere, preview: notHere,
       validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
       providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
       providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),

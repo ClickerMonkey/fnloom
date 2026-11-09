@@ -5,6 +5,7 @@
  * package, so upgrades and rollbacks keep them; config lives in the hub's database, never in a file.
  */
 import { z } from 'zod';
+import { ConfigSecrets } from './config-secrets.ts';
 import { GinTypeDef } from './gin.ts';
 import { ActorId, InstanceName, PairingId, SystemName, Timestamp, type InstanceRef } from './primitives.ts';
 import { CONTENT_HASH } from './resources.ts';
@@ -105,6 +106,8 @@ export const PairingInfo = z.object({
   instance: InstanceName,
   /** Its config type, so the page can ask for config at approval. */
   configType: GinTypeDef.optional(),
+  /** Build 5: its config's secret fields, which the pairing page asks for as passwords and the hub seals. */
+  configSecrets: ConfigSecrets.optional(),
 });
 export type PairingInfo = z.infer<typeof PairingInfo>;
 

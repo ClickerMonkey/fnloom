@@ -25,6 +25,11 @@
  * - `query`: the filter and sort standard every list shares, and each list's fields (build 3).
  * - `suggestions`: what a message was suggested and not, with reasons; the decision model setting (build 3).
  * - `auto-pair`: auto-pair secrets (build 3).
+ * - `access`, `connections`, `system-providers`, `validation`, `pickers`: build 4.
+ * - `registries`: registries, contributions, visual fits and result tables (build 5).
+ * - `approvals`: fns that always ask, proposed runs and their previews (build 5).
+ * - `decisions`: the decision model for systems (build 5).
+ * - `config-secrets`: secret fields in a system's config (build 5).
  */
 export * from './primitives.ts';
 export * from './modes.ts';
@@ -62,3 +67,7 @@ export * from './connections.ts';
 export * from './system-providers.ts';
 export * from './validation.ts';
 export * from './pickers.ts';
+export * from './registries.ts';
+export * from './approvals.ts';
+export * from './decisions.ts';
+export * from './config-secrets.ts';

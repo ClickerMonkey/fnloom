@@ -67,7 +67,16 @@ Build 5 of 7. Same rules as builds 3 and 4: efficient in tokens and time.
 
 ## Carry-overs from build 4
 
-Whatever build 4 leaves open (its finish report).
+- **Index embedding fails on the dev hub:** the catch-up sends one batch of 6460 items to the embedder and times out
+  at 60 s every few minutes (`index.embed.failed`, saved 0). Embed in bounded batches (a tunable size), save each batch
+  as it lands, back off on failure, and never retry the whole set at once.
+- **The dev hub dies silently:** after a restart that crashed, `tsx watch` waited with the hub down and nothing
+  noticed. `npm run dev` should restart a crashed hub or system after a short delay and log why it crashed, to a file
+  under the data dir.
+- Pull `qwen2.5:3b` in Ollama (the build 4 pull didn't finish) and use it for the contextor e2e.
+- A build 4 e2e suite: visibility for two people, crawl into resources, get_input + hidden answer + save form,
+  validation refusal and retry, a system provider serving a call.
+- The fn validation `retry` verdict drops the run's undo; keep it, or say so in the authoring docs.
 
 ## Rules for this build
 

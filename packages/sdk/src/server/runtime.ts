@@ -107,6 +107,9 @@ export interface AskerWire {
   time: TimeInfo;
 }
 
+/** Build 5 design stub (platform lane replaces it): a system link endpoint the SDK does not serve yet. */
+const buildFiveStub = (): never => { throw new Error('not served yet (build 5, platform lane)'); };
+
 /** Answers the hub's calls on the system link. */
 export class SystemRuntime<C extends ContractShape> {
   readonly #parts: RuntimeParts<C>;
@@ -214,6 +217,7 @@ export class SystemRuntime<C extends ContractShape> {
       },
       export: ({ data }) => this.#export(data.timeout),
       validate: ({ data, signal }) => this.#validate(data, signal),
+      preview: buildFiveStub,
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),

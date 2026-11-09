@@ -6,13 +6,16 @@
 import { z } from 'zod';
 import { DeclaredLink } from './context-graph.ts';
 import { GinTypeDef } from './gin.ts';
-import { ActorKind, Audience, LocalName, Duration, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
+import { ActorKind, Audience, LocalName, Duration, InstanceName, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
 import { SectionMatch, Link } from './resources.ts';
 import { Display, FnLimits, Operations, ProgressDecl, TimeInfo, UserInfo } from './run.ts';
 import { StatusTemplates } from './status.ts';
 import { ConnectDecl } from './connections.ts';
 import { SystemProviderDecl } from './system-providers.ts';
 import { FnValidation } from './validation.ts';
+import { FnApproval } from './approvals.ts';
+import { ConfigSecrets } from './config-secrets.ts';
+import { ContributionDecl, RegistryDecl } from './registries.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -38,6 +41,11 @@ export const TypeDecl = z.object({
   def: GinTypeDef,
   display: TypeDisplay,
   methods: z.array(LocalName),
+  /**
+   * Build 5: the fleet instance this type belongs to (a database's table types). A manifest or patch from another
+   * instance of the system leaves it alone; absent, the type is the whole system's.
+   */
+  instance: InstanceName.optional(),
 });
 export type TypeDecl = z.infer<typeof TypeDecl>;
 
@@ -79,6 +87,18 @@ export const HandlerDecl = z.object({ description: z.string(), args: GinTypeDef,
 export type HandlerDecl = z.infer<typeof HandlerDecl>;
 
 /** `native`, or the qualified name of the kind that runs a fn. */
+/**
+ * Build 5: which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
+ * fn belongs to it the way `TypeDecl.instance` says. `any`: whichever connected instance the hub picks first (the
+ * session's pin, then the default), with no ambiguity refusal; the fn forwards with `on` itself when it must.
+ * Absent: the fleet rules (`FleetRouter`).
+ */
+export const FnRouting = z.discriminatedUnion('to', [
+  z.object({ to: z.literal('instance'), instance: InstanceName }),
+  z.object({ to: z.literal('any') }),
+]);
+export type FnRouting = z.infer<typeof FnRouting>;
+
 export const FnKindName = z.union([z.literal('native'), QualifiedName]);
 export type FnKindName = z.infer<typeof FnKindName>;
 
@@ -121,6 +141,10 @@ export const FnDecl = z.object({
   examples: z.array(FnExample).optional(),
   /** Build 4: the validation hooks its system runs before and after a run (`validate` on the system link). */
   validate: FnValidation.optional(),
+  /** Build 5: every run waits for approval first, with the system's preview of what it would do (`approvals.ts`). */
+  approval: FnApproval.optional(),
+  /** Build 5: which fleet instance runs it. */
+  routing: FnRouting.optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 
@@ -259,6 +283,12 @@ export const Manifest = z.object({
   providers: z.array(SystemProviderDecl).optional(),
   /** Build 4: a per-person system: each person connects their own account on its page. */
   connect: ConnectDecl.optional(),
+  /** Build 5: registries it hosts, which systems contribute entries to from their client bundles. */
+  registries: z.array(RegistryDecl).optional(),
+  /** Build 5: entries it adds to registries (its own or another system's). */
+  contributes: z.array(ContributionDecl).optional(),
+  /** Build 5: the secret fields of its config, which the hub seals (`config-secrets.ts`). */
+  configSecrets: ConfigSecrets.optional(),
 });
 export type Manifest = z.infer<typeof Manifest>;
 

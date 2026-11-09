@@ -89,6 +89,10 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `system-providers.ts` (build 4) | `SystemProviderDecl` (manifest `providers`), `ProviderChat` / `ProviderChunk` / `ProviderEmbed`, `awsProviderVariant` |
 | `validation.ts` (build 4) | `FnValidation` (`FnDecl.validate`), `InputVerdict`, `OutputVerdict`, `ValidateRequest` |
 | `pickers.ts` (build 4) | `PickSource`, `PickQuery`, `PickOption` (the `pick` endpoint behind `UiPicker`) |
+| `registries.ts` (build 5) | `RegistryDecl`, `ContributionDecl` (manifest `registries` / `contributes`), `VisualFit`, `ResultTable` and its columns |
+| `approvals.ts` (build 5) | `FnApproval` (`FnDecl.approval`), `ApprovalPreview` and its parts, `PreviewRequest` (system link `preview`), `ProposeRun` (hub link `propose`) |
+| `decisions.ts` (build 5) | `DecideRequest` / `DecideAnswer` (hub link `decide`: the decision model for systems) |
+| `config-secrets.ts` (build 5) | `ConfigSecrets` (manifest `configSecrets`), `SECRET_KEPT`, `SealedConfigSecret` |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.

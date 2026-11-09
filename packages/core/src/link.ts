@@ -15,6 +15,8 @@ import { FnShare, FnUsable } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, RunConnection } from './connections.ts';
 import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
+import { PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
+import { DecideAnswer, DecideRequest } from './decisions.ts';
 import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
@@ -252,6 +254,10 @@ const linked = use(linkTel, linkSession).group({
   shareFn: { body: FnShare, ws: 'sh' },
   /** Build 4: which of the named fns of its system a running fn's person may use now (the rest are left out). */
   usableFns: { body: FnUsable, response: z.object({ fns: z.array(LocalName) }), ws: 'uf' },
+  /** Build 5: add a run of one of its own fns that waits for approval, with its preview (`ctx.propose`). */
+  propose: { body: ProposeRun, response: ProposedRun, ws: 'po' },
+  /** Build 5: ask the admin's decision model to choose between candidates (`ctx.decide`); `off` when none is set. */
+  decide: { body: DecideRequest, response: DecideAnswer, ws: 'de' },
 });
 
 /** What a system calls on the hub. */
@@ -335,6 +341,8 @@ export const systemLinkSpec = spec({
     // Build 4
     /** Run a fn's validation hook (`FnDecl.validate`): its input before the run, its result after it succeeds. */
     validate: endpoint({ body: ValidateRequest, response: ValidateAnswer, ws: 'vl' }),
+    /** Build 5: what a run of a fn with `approval.preview` would do, asked before the person decides. */
+    preview: endpoint({ body: PreviewRequest, response: PreviewAnswer, ws: 'pv' }),
     /** A chat call for one of the system's providers (manifest `providers`). */
     providerChat: endpoint({ body: ProviderChat, streamOut: ProviderChunk, ws: 'pc' }),
     providerEmbed: endpoint({ body: ProviderEmbed, response: ProviderEmbedResult, ws: 'pe' }),

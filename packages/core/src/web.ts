@@ -37,6 +37,7 @@ import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
 import { AccessInfo, AccessTarget, AccessView, Sharing } from './access.ts';
 import { ConnectionChange, ConnectionView, ConnectPage } from './connections.ts';
 import { PickOption, PickQuery } from './pickers.ts';
+import { ContributionView } from './registries.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
 
@@ -577,11 +578,31 @@ export const pickerSlice = spec({
   }),
 });
 
+// ─── Build 5 slices ───────────────────────────────────────────────────────────
+
+/**
+ * Approvals by run (build 5): the approval of each named run the signed-in person may see, with its preview. The admin
+ * runs list finds waiting runs (`status` is `awaiting-approval`, in any session or none); `approve` answers them.
+ */
+export const approvalsSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    approvals: { body: z.object({ runs: z.array(RunId).min(1).max(200) }), response: z.array(Approval), ws: 'approvals' },
+  }),
+});
+
+/** Registries (build 5): the entries every connected system contributes to a registry, so the app loads their bundles. */
+export const registriesSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    contributions: { body: z.object({ registry: QualifiedName }), response: z.array(ContributionView), ws: 'contributions' },
+  }),
+});
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
   resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
   querySlice, suggestionsSlice, autoPairSlice,
   accessSlice, connectionsSlice, pickerSlice,
+  approvalsSlice, registriesSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

@@ -550,6 +550,9 @@ export class FakeHub {
         connectionUpdate: ({ data }) => { this.connectionUpdates.push(data); },
         shareFn: ({ data }) => { this.shares.push(data); },
         usableFns: ({ data }) => ({ fns: data.fns.filter((fn) => this.usable(data.run, fn)) }),
+        // build 5 design stubs (platform lane): the fake hub does not propose runs yet, and has no decision model
+        propose: () => { throw new Error('not served yet (build 5, platform lane)'); },
+        decide: () => ({ by: 'off' as const }),
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);

@@ -2846,6 +2846,46 @@ export const manifest = {
       "hasHeaders": false,
       "multi": false,
       "bodyEnc": "json"
+    },
+    "approvals": {
+      "method": "POST",
+      "path": "/approvals",
+      "ws": "approvals",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "runs"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "contributions": {
+      "method": "POST",
+      "path": "/contributions",
+      "ws": "contributions",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "registry"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
     }
   },
   "events": {
