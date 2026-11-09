@@ -207,6 +207,8 @@ export class FakeHub {
   readonly connectionUpdates: Array<HubBody<'connectionUpdate'>> = [];
   /** Fns a run handed to its person (`shareFn`). */
   readonly shares: Array<HubBody<'shareFn'>> = [];
+  /** Whether a run's person may use a fn of its system (`usableFns`); every fn by default. */
+  usable: (run: HubBody<'usableFns'>['run'], fn: string) => boolean = () => true;
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]> = [];
   readonly forwards: LlmForward[] = [];
   readonly embeds: string[][] = [];
@@ -547,6 +549,7 @@ export class FakeHub {
         log: ({ data }) => { this.logs.push(data); },
         connectionUpdate: ({ data }) => { this.connectionUpdates.push(data); },
         shareFn: ({ data }) => { this.shares.push(data); },
+        usableFns: ({ data }) => ({ fns: data.fns.filter((fn) => this.usable(data.run, fn)) }),
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);

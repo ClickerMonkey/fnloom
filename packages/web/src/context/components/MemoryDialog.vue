@@ -1,19 +1,20 @@
 <script setup lang="ts">
 /**
- * Writing a memory, or changing one: a short title (its name comes from it), what to remember, who it is for (only its
- * author, or everyone; fixed once written, and asked only on a hub with more than one person), and, folded under Advanced, every other context option: the fns tied to
+ * Writing a memory, or changing one: a short title (its name comes from it), what to remember, who can see it (one
+ * sharing choice: only me, me and chosen people, or everyone; asked only when writing one on a hub with more than one
+ * person, and changed later on its page), and, folded under Advanced, every other context option: the fns tied to
  * it, the fns suggested with it, the agents that always carry it, a `/command`, its parent, tags, a summary, its weight
- * and who sees and is suggested it. Opened on a memory it starts from that memory. Save sends the draft; a problem
+ * and whether people, agents or both see it listed and suggested. Opened on a memory it starts from that memory. Save sends the draft; a problem
  * shows once Save is pressed.
  */
-import { Audience, QualifiedName, VISIBILITY_LABELS, type ContextRecord } from '@harness/core';
+import { Audience, QualifiedName, type ContextRecord, type ShareRule } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import { UiBanner, UiButton, UiChipInput, UiDialog, UiIcon, UiInput, UiSegmented, UiSelect, UiTextarea, onePicked, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import { UiBanner, UiButton, UiChipInput, UiDialog, UiIcon, UiInput, UiSelect, UiTextarea, UiVisibility, onePicked, type SelectOption } from '../../ui/index.ts';
 import {
-  AUDIENCE_WORDS, changedOptions, memoryDraft, memoryRequest, optionsRequest, PLAIN_OPTIONS, type BrowserScope, type ContextOptionsDraft, type MemoryDraft,
+  AUDIENCE_WORDS, changedOptions, memoryDraft, memoryRequest, ONLY_ME, optionsRequest, PLAIN_OPTIONS, type ContextOptionsDraft, type MemoryDraft,
 } from '../logic/context.ts';
 import HubPicker from '../../components/pickers/HubPicker.vue';
-import { VISIBILITY_ICONS } from '../../ui/icons.ts';
+import { usePickerSources } from '../../components/pickers/sources.ts';
 
 const props = withDefaults(defineProps<{
   /** The memory being changed; a new one when absent. */
@@ -26,10 +27,7 @@ const props = withDefaults(defineProps<{
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ save: [draft: MemoryDraft] }>();
 
-/** The same words and icons as the sharing control (only me is private, everyone public). */
-const SCOPES: readonly SegmentOption<BrowserScope>[] = [
-  { value: 'user', label: VISIBILITY_LABELS.private, icon: VISIBILITY_ICONS.private }, { value: 'everyone', label: VISIBILITY_LABELS.public, icon: VISIBILITY_ICONS.public },
-];
+const people = usePickerSources().people();
 const AUDIENCES: readonly SelectOption<Audience>[] = Audience.options.map((value) => ({ value, label: AUDIENCE_WORDS[value] }));
 /** The picked fns as full names (a picker only offers full names; anything else is left out). */
 const fnNames = (values: readonly string[]): QualifiedName[] => values.flatMap((value) => { const parsed = QualifiedName.safeParse(value); return parsed.success ? [parsed.data] : []; });
@@ -37,7 +35,7 @@ const readTag = (text: string): string | undefined => (text === '' ? undefined :
 
 const title = ref('');
 const text = ref('');
-const scope = ref<BrowserScope>('user');
+const share = ref<ShareRule>(ONLY_ME);
 const options = ref<ContextOptionsDraft>(PLAIN_OPTIONS);
 const advanced = ref(false);
 const tried = ref(false);
@@ -45,12 +43,12 @@ const tried = ref(false);
 watch(open, (isOpen) => {
   if (!isOpen) { return; }
   const start = memoryDraft(props.memory);
-  title.value = start.title; text.value = start.text; scope.value = start.scope; options.value = start.options;
+  title.value = start.title; text.value = start.text; share.value = start.share; options.value = start.options;
   advanced.value = false;
   tried.value = false;
 }, { immediate: true });
 
-const draft = computed((): MemoryDraft => ({ title: title.value, text: text.value, scope: scope.value, options: options.value }));
+const draft = computed((): MemoryDraft => ({ title: title.value, text: text.value, share: share.value, options: options.value }));
 const checked = computed(() => memoryRequest(draft.value));
 const optionsProblem = computed(() => { const read = optionsRequest(options.value, false); return read.ok ? '' : read.problem; });
 const textError = computed(() => (tried.value && !checked.value.ok && optionsProblem.value === '' ? checked.value.problem : ''));
@@ -71,16 +69,11 @@ function save(): void {
 <template>
   <UiDialog
     v-model:open="open" :title="editing ? 'Edit this memory' : 'New context'" width="600px"
-    :description="editing ? (multiUser ? 'Changes it in place; who it is for stays as written.' : 'Changes it in place.') : 'Context the agent can be given when a message is about it.'"
+    :description="editing ? (multiUser ? 'Changes it in place; who can see it is changed on its page.' : 'Changes it in place.') : 'Context the agent can be given when a message is about it.'"
   >
     <form class="form" data-testid="memory-form" @submit.prevent="save">
-      <div class="top">
-        <UiInput v-model="title" class="title" label="Title" placeholder="Prefers tabs" hint="Optional: the first words are used when blank." autofocus data-testid="memory-title" />
-        <div v-if="!editing && multiUser" class="field">
-          <span class="label">Who it is for</span>
-          <UiSegmented v-model="scope" :options="SCOPES" label="Who it is for" data-testid="memory-scope" />
-        </div>
-      </div>
+      <UiInput v-model="title" label="Title" placeholder="Prefers tabs" hint="Optional: the first words are used when blank." autofocus data-testid="memory-title" />
+      <UiVisibility v-if="!editing && multiUser" v-model="share" :people="people" label="Who can see it" data-testid="memory-scope" />
       <UiTextarea v-model="text" label="Context" :rows="4" :error="textError" placeholder="The owner indents with tabs, never spaces." data-testid="memory-text" />
 
       <button type="button" class="fold" :aria-expanded="advanced" data-testid="memory-advanced" @click="advanced = !advanced">
@@ -106,8 +99,8 @@ function save(): void {
         />
         <UiInput v-model="weight" type="number" label="Weight" hint="0 leaves it out, 1 is plain, up to 2." />
         <UiInput :model-value="options.summary" label="Summary" placeholder="The title" hint="The short form agents see first." @update:model-value="set('summary', $event)" />
-        <UiSelect :model-value="options.visible" :options="AUDIENCES" label="Listed for" @update:model-value="set('visible', $event)" />
-        <UiSelect :model-value="options.suggest" :options="AUDIENCES" label="Suggested to" @update:model-value="set('suggest', $event)" />
+        <UiSelect :model-value="options.visible" :options="AUDIENCES" label="Listed for" hint="People, agents, both or neither." @update:model-value="set('visible', $event)" />
+        <UiSelect :model-value="options.suggest" :options="AUDIENCES" label="Suggested to" hint="People, agents, both or neither." @update:model-value="set('suggest', $event)" />
       </div>
       <UiBanner v-if="tried && optionsProblem !== ''" tone="danger" icon="warning">{{ optionsProblem }}</UiBanner>
       <UiBanner v-if="problem !== ''" tone="danger" icon="warning">{{ problem }}</UiBanner>
@@ -121,10 +114,6 @@ function save(): void {
 
 <style scoped>
 .form { display: grid; gap: var(--space-3); }
-.top { display: flex; flex-wrap: wrap; align-items: start; gap: var(--space-3); }
-.title { flex: 1 1 16rem; min-width: 0; }
-.field { display: grid; gap: var(--space-1); }
-.label { font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .fold {
   display: inline-flex; align-items: center; gap: var(--space-1); justify-self: start; padding: 2px 4px; margin-left: -4px; border: 0; border-radius: 6px;
   background: none; color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer;

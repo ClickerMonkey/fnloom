@@ -19,10 +19,10 @@ export const PICK_OPTIONS: Readonly<Partial<Record<PickSource, readonly PickOpti
   model: [{ value: 'openai/gpt-oss-20b:free', label: 'gpt-oss-20b (free)' }],
 };
 
-/** Fake `pick`, `accessInfo`, `access` and `setAccess` callers; `multiUser` says whether the hub has more than one person. */
-export function fakePickerApi(multiUser = false) {
+/** Fake `pick`, `accessInfo`, `access` and `setAccess` callers; `multiUser` says whether the hub has more than one person, `ownedBy` who owns every target. */
+export function fakePickerApi(multiUser = false, ownedBy = 'act_me') {
   const stored = new Map<string, AccessView>();
-  const owner = ActorId.parse('act_me');
+  const owner = ActorId.parse(ownedBy);
   return {
     pick: fakeCaller<'pick'>(async ({ source, text, values }) => {
       const from = listSource(PICK_OPTIONS[source] ?? []);

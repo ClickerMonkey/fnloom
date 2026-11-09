@@ -11,13 +11,13 @@ import { LlmForward, LlmForwardChunk } from './llm.ts';
 import { ModelForward, ModelForwardResult } from './model-calls.ts';
 import { PairingInfo } from './package.ts';
 import { AutoPairGrant, AutoPairProof } from './auto-pair.ts';
-import { FnShare } from './access.ts';
+import { FnShare, FnUsable } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, RunConnection } from './connections.ts';
 import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
 import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
-  ActorId, DeliveryId, Duration, HandlerCallId, InstanceName, Json, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
+  ActorId, DeliveryId, Duration, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
 import { TypeDefinitions } from './records/systems.ts';
 import { SystemEvent } from './system-events.ts';
@@ -250,6 +250,8 @@ const linked = use(linkTel, linkSession).group({
   connectionUpdate: { body: ConnectionUpdate, ws: 'cu' },
   /** Build 4: a running fn gives a fn of its system (one it added) to its run's person, with who else may use it. */
   shareFn: { body: FnShare, ws: 'sh' },
+  /** Build 4: which of the named fns of its system a running fn's person may use now (the rest are left out). */
+  usableFns: { body: FnUsable, response: z.object({ fns: z.array(LocalName) }), ws: 'uf' },
 });
 
 /** What a system calls on the hub. */

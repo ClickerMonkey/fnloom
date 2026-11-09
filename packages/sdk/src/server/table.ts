@@ -55,6 +55,7 @@ export interface RuntimeRunBase extends Services, OutcomeHelpers {
   readonly connection: RunConnection | undefined;
   updateConnection(update: ConnectionUpdate['update']): Promise<void>;
   shareFn(fn: string, share: ShareRule): Promise<void>;
+  usableFns(fns: readonly string[]): Promise<string[]>;
   onPause(hook: () => unknown): void;
   allow(operations: Partial<AllowedOperations>): void;
   undoWith(payload: unknown): void;

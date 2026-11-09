@@ -2,14 +2,18 @@
  * The hub's own fns that span modules: finding and loading fns and context for a session's agent (index search,
  * the catalog, the session), searching resources, and asking a person (a handler call they answer in the chat).
  * `registerHubFns` implements them on execution's `HubFns` against the hub contract's refs, so args and results are
- * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering.
+ * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
+ * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { QualifiedName, splitName, type IndexedKind, type Session, type SessionId } from '@harness/core';
+import { QualifiedName, splitName, type ActorId, type IndexedKind, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, wireType } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
 import type { Search } from '../index/index.ts';
 import type { HubStore } from '../store/index.ts';
+import type { AccessScope } from '../access/index.ts';
+import { keepSeen } from '../access/hits.ts';
+import { seesContextNamed } from '../access/scope.ts';
 import { allowsSystem, searchSystems } from '../chat/support.ts';
 import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 import type { HandlerRelay } from '../execution/handlers.ts';
@@ -29,19 +33,33 @@ export interface HubFnDeps {
   readonly sessions: () => Pick<SessionService, 'load'>;
   /** The relay a question to a person goes through. */
   readonly handlers: () => Pick<HandlerRelay, 'askPerson'>;
+  /** What a person may see and use now. */
+  readonly access: (actor: ActorId) => Promise<AccessScope>;
 }
 
-/** The session a run belongs to, refused when it has none (these fns only make sense in a chat). */
-async function sessionOf(deps: HubFnDeps, ctx: HubFnCtx): Promise<Session> {
+/** The session a run belongs to and what its person may see. */
+interface Asker {
+  readonly session: Session;
+  readonly access: AccessScope;
+}
+
+/** The session a run belongs to, refused when it has none (these fns only make sense in a chat), and its person's scope. */
+async function askerOf(deps: HubFnDeps, ctx: HubFnCtx): Promise<Asker> {
   const id: SessionId | undefined = ctx.request.run.session;
-  const session = id === undefined ? undefined : await deps.store().table('sessions').get(id);
+  const [session, access] = await Promise.all([
+    id === undefined ? undefined : deps.store().table('sessions').get(id),
+    deps.access(ctx.request.run.user.id),
+  ]);
   if (session === undefined) { throw new Error('this fn only works inside a chat session'); }
-  return session;
+  return { session, access };
 }
 
-/** Index hits of one kind for a session's systems. */
-async function hits(deps: HubFnDeps, session: Session, kind: IndexedKind, query: string, limit: number | undefined) {
-  return deps.search().search({ text: query, kinds: [kind], limit: limit ?? DEFAULT_LIMIT, systems: searchSystems(session) });
+/** Index hits of one kind for a session's systems, only those its person may see. */
+async function hits(deps: HubFnDeps, { session, access }: Asker, kind: IndexedKind, query: string, limit: number | undefined) {
+  return deps.search().search({
+    text: query, kinds: [kind], limit: limit ?? DEFAULT_LIMIT, systems: searchSystems(session),
+    keep: keepSeen(access, (name) => deps.catalog().context(name), session.id),
+  });
 }
 
 /** Names the agent gave, split into well-formed qualified names and the rest. */
@@ -59,24 +77,26 @@ function names(given: readonly string[]): { valid: QualifiedName[]; invalid: str
 export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
 
   fns.register(hub.fns.search_fns, async (args, ctx) => {
-    const session = await sessionOf(deps, ctx);
-    const found = await hits(deps, session, 'fn', args.query, args.limit);
+    const asker = await askerOf(deps, ctx);
+    const found = await hits(deps, asker, 'fn', args.query, args.limit);
     const records = await deps.catalog().fns({ names: names(found.map((h) => h.key)).valid });
     return Promise.all(records.map(async (fn) => ({
-      fn: fn.name, description: fn.decl.description, available: (await deps.catalog().availability(fn.name)) === true,
+      fn: fn.name, description: fn.decl.description,
+      available: asker.access.mayUse(fn) && (await deps.catalog().availability(fn.name)) === true,
     })));
   });
 
   fns.register(hub.fns.load_fns, async (args, ctx) => {
-    const session = await sessionOf(deps, ctx);
+    const { session, access } = await askerOf(deps, ctx);
     const { valid, invalid } = names(args.fns);
     const refused = invalid.map((fn) => ({ fn, reason: 'not a qualified fn name (system/name)' }));
     const loaded: QualifiedName[] = [];
     for (const name of valid) {
       const fn = await deps.catalog().fn(name);
       const availability = fn === undefined ? undefined : await deps.catalog().availability(name);
-      if (fn === undefined) { refused.push({ fn: name, reason: 'no such fn' }); }
+      if (fn === undefined || !access.seesFn(fn)) { refused.push({ fn: name, reason: 'no such fn' }); }
       else if (!allowsSystem(session, splitName(name).system)) { refused.push({ fn: name, reason: 'this session does not use that system' }); }
+      else if (!access.mayUse(fn)) { refused.push({ fn: name, reason: 'connect your account to use this fn' }); }
       else if (availability !== true) { refused.push({ fn: name, reason: availability?.detail ?? 'unavailable' }); }
       else { loaded.push(name); }
     }
@@ -85,7 +105,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
   });
 
   fns.register(hub.fns.drop_fns, async (args, ctx) => {
-    const session = await sessionOf(deps, ctx);
+    const { session } = await askerOf(deps, ctx);
     const drop = new Set<string>(args.fns);
     const dropped = session.tools.filter((fn) => drop.has(fn));
     if (dropped.length > 0) { await deps.sessions().load(session.id, { tools: session.tools.filter((fn) => !drop.has(fn)) }); }
@@ -93,26 +113,25 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
   });
 
   fns.register(hub.fns.search_context, async (args, ctx) => {
-    const session = await sessionOf(deps, ctx);
-    const found = await hits(deps, session, 'context', args.query, args.limit);
+    const found = await hits(deps, await askerOf(deps, ctx), 'context', args.query, args.limit);
     const records = await Promise.all(names(found.map((h) => h.key)).valid.map((name) => deps.catalog().context(name)));
     return records.flatMap((c) => (c === undefined ? [] : [{ context: c.name, description: c.decl.description }]));
   });
 
   fns.register(hub.fns.load_context, async (args, ctx) => {
-    const session = await sessionOf(deps, ctx);
+    const { session, access } = await askerOf(deps, ctx);
+    const lookup = (name: QualifiedName) => deps.catalog().context(name);
     const loaded: QualifiedName[] = [];
     for (const name of names(args.context).valid) {
-      if (await deps.catalog().context(name) !== undefined && allowsSystem(session, splitName(name).system)) { loaded.push(name); }
+      if (await lookup(name) !== undefined && allowsSystem(session, splitName(name).system) && await seesContextNamed(access, lookup, name, session.id)) { loaded.push(name); }
     }
     if (loaded.length > 0) { await deps.sessions().load(session.id, { context: [...new Set([...session.context, ...loaded])] }); }
     return { loaded };
   });
 
   fns.register(hub.fns.search_resources, async (args, ctx) => {
-    const session = await sessionOf(deps, ctx);
     const roots = args.roots;
-    const found = await hits(deps, session, 'section', args.query, args.limit);
+    const found = await hits(deps, await askerOf(deps, ctx), 'section', args.query, args.limit);
     return found
       .map((hit) => ({ hit, at: parseSectionIndexKey(hit.key) }))
       .filter(({ at }) => roots === undefined || roots.some((root) => at.uri.startsWith(root)))

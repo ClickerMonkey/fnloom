@@ -136,6 +136,7 @@ export function fnCtx<T extends FnTypes>(parts: FnParts<T>, options: FakeOptions
     connection: undefined,
     updateConnection: () => Promise.reject(new Error('This run acts as no connection.')),
     shareFn: () => Promise.resolve(),
+    usableFns: (fns) => Promise.resolve([...fns]),
     onPause: () => undefined,
     allow: () => undefined,
     undoWith: () => undefined,

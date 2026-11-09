@@ -1,4 +1,4 @@
-/** Builds the access module: visibility over the store, with the connections module's gate for per-person fns. Serves `shareFn` on the system link. */
+/** Builds the access module: visibility over the store, with the connections module's gate for per-person fns. Serves `shareFn` and `usableFns` on the system link. */
 import { spec } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { hubLinkSpec, ResourceUri } from '@harness/core';
@@ -6,7 +6,7 @@ import type { ModuleFactory } from '../boot/index.ts';
 import { StoreAccessService } from './service.ts';
 
 /** The slice of `hubLinkSpec` this module answers. */
-export const ACCESS_LINK_SPEC = spec({ endpoints: { shareFn: hubLinkSpec.endpoints.shareFn } });
+export const ACCESS_LINK_SPEC = spec({ endpoints: { shareFn: hubLinkSpec.endpoints.shareFn, usableFns: hubLinkSpec.endpoints.usableFns } });
 
 /** The access module's factory. Other modules are read inside its methods, never while it is built. */
 export const accessModule: ModuleFactory<'access'> = ({ hub, hubActor }) => {
@@ -23,6 +23,7 @@ export const accessModule: ModuleFactory<'access'> = ({ hub, hubActor }) => {
     services: service,
     linkPlugins: [plugin({ name: 'access', spec: ACCESS_LINK_SPEC }).handlers(() => ({
       shareFn: async ({ data, link }): Promise<void> => { await service.give(link.system, data); },
+      usableFns: async ({ data, link }) => ({ fns: await service.usable(link.system, data) }),
     }))],
   };
 };

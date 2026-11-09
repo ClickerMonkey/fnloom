@@ -5,8 +5,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   ActorId, ApprovalId, HandlerCallId, MAIN_INSTANCE, mintId, QualifiedName, RunId, SessionId, SystemName, TurnId, type Approval, type ChatMessage, type HandlerCall, type Run,
-  type Session,
+  type SearchHit, type Session,
 } from '@harness/core';
+import { openScope } from '../../access/index.ts';
 import { rig, webRig, type Fakes } from '../testing/rig.ts';
 
 const sessionId = SessionId.parse('ses_1');
@@ -174,7 +175,7 @@ describe('finding handlers', () => {
     const push = (name: string, ...args: unknown[]) => { calls.push([name, ...args]); };
     const { r, web, as, me } = await recorded({
       index: {
-        suggest: { suggest: (input) => { push('suggest', input); return Promise.resolve([{ kind: 'fn', name: QualifiedName.parse('fs/read'), description: 'Read', score: 0.9 }]); } },
+        suggest: { consider: (input) => { push('suggest', input); return Promise.resolve({ offered: [{ kind: 'fn', name: QualifiedName.parse('fs/read'), description: 'Read', score: 0.9 }], hidden: [] }); } },
         search: { search: (query) => { push('search', query); return Promise.resolve([]); } },
       },
       chat: {
@@ -201,13 +202,37 @@ describe('finding handlers', () => {
     await expect(web.client.call('mentionHover', { session: sessionId, provider, target: 'a.txt' }, as)).resolves.toEqual({});
     await expect(web.client.call('resource', { uri: 'fs://root/a', want: ['text'] }, as)).resolves.toMatchObject({ text: { inline: 'hi' } });
     expect(calls).toEqual([
-      ['suggest', { session: sessionId, text: 'read a file', limit: r.hub.settings.modelEnv.HARNESS_SUGGESTIONS }],
-      ['search', { text: 'read', kinds: ['fn', 'context', 'section', 'message', 'type'], limit: 20 }],
-      ['search', { text: 'read', kinds: ['fn'], limit: 3 }],
+      ['suggest', { session: sessionId, text: 'read a file', pool: r.hub.settings.modelEnv.HARNESS_SUGGESTIONS * 2 }],
+      ['search', { text: 'read', kinds: ['fn', 'context', 'section', 'message', 'type'], limit: 20, keep: expect.any(Function) }],
+      ['search', { text: 'read', kinds: ['fn'], limit: 3, keep: expect.any(Function) }],
       ['mentions', { session: sessionId, actor: me, provider }, 'a'],
       ['hover', { session: sessionId, actor: me, provider }, 'a.txt'],
       ['read', 'fs://root/a', ['text']],
     ]);
+  });
+});
+
+describe('finding as a member', () => {
+  it('leaves out what the person may not see and reads a hidden resource as missing', async () => {
+    const secret = QualifiedName.parse('fs/secret');
+    const read = QualifiedName.parse('fs/read');
+    const hits: SearchHit[] = [
+      { kind: 'fn', key: 'fs/read', score: 0.9, text: 'read' }, { kind: 'fn', key: secret, score: 1, text: 'secret' },
+      { kind: 'section', key: 'fs://private/crawl.md#Top', score: 1, text: 'private' }, { kind: 'message', key: 'msg_1', score: 1, text: 'hi' },
+    ];
+    let reads = 0;
+    const { web, as } = await recorded({
+      access: { scope: (actor) => Promise.resolve({ ...openScope(actor), admin: false, seesFn: (fn) => fn.name !== secret, mayUse: (fn) => fn.name !== secret, seesUri: (uri) => !uri.startsWith('fs://private/') }) },
+      index: {
+        suggest: { consider: () => Promise.resolve({ offered: [secret, read].map((name) => ({ kind: 'fn' as const, name, description: name, score: 0.9 })), hidden: [] }) },
+        search: { search: async (query) => { const kept: SearchHit[] = []; for (const hit of hits) { if (await query.keep?.(hit) ?? true) { kept.push(hit); } } return kept; } },
+      },
+      link: { resources: { read: (uri) => { reads += 1; return Promise.resolve({ stat: { uri, name: 'a', type: 'file', version: '1' } }); } } },
+    });
+    expect((await web.client.call('suggest', { session: sessionId, text: 'x' }, as)).map((s) => s.name)).toEqual([read]);
+    expect((await web.client.call('search', { query: 'x' }, as)).map((h) => h.key)).toEqual(['fs/read']);
+    await expect(web.client.call('resource', { uri: 'fs://private/crawl.md', want: ['text'] }, as)).rejects.toMatchObject({ status: 404 });
+    expect(reads).toBe(0);
   });
 });
 

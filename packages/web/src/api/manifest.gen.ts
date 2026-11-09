@@ -2764,7 +2764,7 @@ export const manifest = {
       "method": "POST",
       "path": "/connect",
       "ws": "connect",
-      "httpOnly": false,
+      "httpOnly": true,
       "streamIn": null,
       "itemsIn": false,
       "streamOut": null,

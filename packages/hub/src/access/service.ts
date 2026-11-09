@@ -4,7 +4,7 @@
  */
 import { reject } from '@ayepi/core';
 import {
-  accessKey, isUnsettled, qualify, type AccessInfo, type AccessRecord, type AccessTarget, type AccessView, type ActorId, type FnShare, type Sharing, type ShareRule, type SystemName, type UserConnection,
+  accessKey, isUnsettled, qualify, type AccessInfo, type AccessRecord, type AccessTarget, type AccessView, type ActorId, type FnShare, type FnUsable, type Sharing, type ShareRule, type SystemName, type UserConnection,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -81,13 +81,25 @@ export class StoreAccessService implements AccessService {
   }
 
   async give(system: SystemName, share: FnShare): Promise<AccessView> {
-    const run = await this.#deps.store.table('runs').get(share.run);
-    if (run?.system !== system || !isUnsettled(run.status)) { throw reject(403, 'NOT_YOUR_RUN', `run ${share.run} is not a running fn of ${system}`); }
+    const run = await this.#runOf(system, share.run);
     const target: AccessTarget = { kind: 'fn', fn: qualify(system, share.fn) };
     await this.#exists(target);
     const current = (await this.#load()).get(accessKey(target));
     if (current !== undefined && current.sharing.owner !== run.actor) { throw reject(403, 'NOT_OWNER', `${target.fn} belongs to someone else`); }
     return this.#write(target, run.actor, share.share, run.actor);
+  }
+
+  async usable(system: SystemName, query: FnUsable): Promise<string[]> {
+    const run = await this.#runOf(system, query.run);
+    const scope = await this.scope(run.actor);
+    return query.fns.filter((fn) => scope.mayUse({ name: qualify(system, fn), system }));
+  }
+
+  /** A run of `system` that is still going; refused otherwise. */
+  async #runOf(system: SystemName, id: FnShare['run']): Promise<{ readonly actor: ActorId }> {
+    const run = await this.#deps.store.table('runs').get(id);
+    if (run?.system !== system || !isUnsettled(run.status)) { throw reject(403, 'NOT_YOUR_RUN', `run ${id} is not a running fn of ${system}`); }
+    return run;
   }
 
   /** Refuse a fn or context target that doesn't exist (a row for a name nobody uses would wait for one that might). */

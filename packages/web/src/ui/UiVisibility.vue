@@ -2,7 +2,8 @@
 /**
  * Who may see and use a thing: Only me, Me and chosen people (with a picker of people and groups), or Everyone. The
  * page shows it only on a hub with more than one person. `readonly` shows the choice without changing it (someone
- * else's thing).
+ * else's thing). `owner` names the owner when the viewer is someone else (an admin), so the choices read "Only Ana" and
+ * "Ana and chosen people" rather than "Only me".
  */
 import { ActorId, VISIBILITY_LABELS, type ShareRule, type Visibility } from '@harness/core';
 import { computed } from 'vue';
@@ -17,10 +18,16 @@ const props = withDefaults(defineProps<{
   people: PickerSource;
   label?: string;
   readonly?: boolean;
-}>(), { label: 'Who can use it', readonly: false });
+  /** The owner's name when it is not the viewer's own; blank for the viewer's own. */
+  owner?: string;
+}>(), { label: 'Who can use it', readonly: false, owner: '' });
 const model = defineModel<ShareRule>({ required: true });
 
-const OPTIONS: readonly SegmentOption<Visibility>[] = (['private', 'shared', 'public'] as const).map((value) => ({ value, label: VISIBILITY_LABELS[value], icon: VISIBILITY_ICONS[value] }));
+const OWNED_LABELS = (owner: string): Record<Visibility, string> => ({ private: `Only ${owner}`, shared: `${owner} and chosen people`, public: VISIBILITY_LABELS.public });
+const options = computed((): readonly SegmentOption<Visibility>[] => {
+  const labels = props.owner === '' ? VISIBILITY_LABELS : OWNED_LABELS(props.owner);
+  return (['private', 'shared', 'public'] as const).map((value) => ({ value, label: labels[value], icon: VISIBILITY_ICONS[value] }));
+});
 
 const visibility = computed({
   get: () => model.value.visibility,
@@ -38,7 +45,7 @@ const withWhom = computed({
   <div class="ui-visibility" data-testid="visibility">
     <div class="row">
       <span class="label">{{ label }}</span>
-      <UiSegmented v-model="visibility" :options="OPTIONS" :label="label" class="choice" :class="{ locked: readonly }" data-testid="visibility-choice" />
+      <UiSegmented v-model="visibility" :options="options" :label="label" class="choice" :class="{ locked: readonly }" data-testid="visibility-choice" />
     </div>
     <UiPicker
       v-if="visibility === 'shared'" v-model="withWhom" :source="people" label="Shared with" placeholder="Add people or groups" :code="false" :disabled="readonly"

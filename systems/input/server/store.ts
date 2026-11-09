@@ -17,6 +17,10 @@ export const SavedRecord = z.object({
   description: z.string(),
   form: InputFormSchema,
   owner: ActorId,
+  /**
+   * Who it was given to when saved, as handed to the hub. Only a record: its owner or an admin can change that on the
+   * hub later, so reuse asks the hub (`ctx.usableFns`) and never reads this.
+   */
   visibility: Visibility,
   /** The people and groups a `shared` form was saved for (none otherwise; forms saved before this field have none). */
   with: z.array(ActorId).default([]),

@@ -1,10 +1,10 @@
 /**
- * The input system's implementation. `get_input` reuses the best saved form the person may use (by name, or by how
+ * The input system's implementation. `get_input` reuses the best saved form the hub says the person may use now (by name, or by how
  * close its description's embedding is), else has the form agent write one; the `ask_*` fns make quick forms;
  * `save_form` keeps a form and adds it as an `input/form` fn at runtime; the `form` kind runs those fns. Every input
  * fn returns the form, which the chat draws; nothing here waits for the answers.
  */
-import { qualify, type ActorId, type QualifiedName, type ShareRule, type UserInfo, type Visibility } from '@harness/core';
+import { qualify, type ActorId, type QualifiedName, type ShareRule, type Visibility } from '@harness/core';
 import { encodeValue, g, parseValue, wireType, type AnyFnDef, type Llm, type SystemImpl } from '@harness/sdk';
 import { Asked, WAIT_FOR_ANSWERS, input, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
 import { formProblems, quickForms } from '../shared/forms.ts';
@@ -56,14 +56,6 @@ export function cosine(a: readonly number[], b: readonly number[]): number {
 export function slugOf(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
   return slug === '' || /^[0-9]/.test(slug) ? `form_${slug}` : slug;
-}
-
-/**
- * Whether a person may reuse a saved form's content in `get_input`: their own, a public one, or a shared one naming
- * them. (A form shared with a group reaches its members as a fn, through the hub's access, which knows the groups.)
- */
-export function mayUse(record: SavedRecord, user: Pick<UserInfo, 'id'>): boolean {
-  return record.owner === user.id || record.visibility === 'public' || (record.visibility === 'shared' && record.with.includes(user.id));
 }
 
 /**
@@ -156,7 +148,10 @@ export function createInputImpl(deps: InputDeps): InputServer {
     fns: {
       get_input: {
         async run(args, ctx) {
-          const usable = (await deps.store.all()).filter((record) => mayUse(record, ctx.run.user));
+          // who may reuse a form is the hub's to say: its owner or an admin may have changed it since it was saved
+          const records = await deps.store.all();
+          const allowed = new Set(await ctx.usableFns(records.map((record) => record.name)));
+          const usable = records.filter((record) => allowed.has(record.name));
           if (usable.length > 0) {
             const vector = await embedOne(ctx.llm, args.detailedDescription);
             const match = bestMatch(args.detailedDescription, vector, usable, s.INPUT_REUSE_SCORE);

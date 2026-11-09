@@ -3,15 +3,16 @@
  * words at once, merged by reciprocal rank (the store's `HybridSearch`). With no embedder connected, when embedding
  * the query fails or takes longer than `embedWait` (the embedder is busy, say indexing), or when the vectors can't be
  * searched with it (no vectors stored yet, or the query is another size), it is words alone, so a person or agent
- * waiting never waits on the embedder for long. Results can be limited to some systems.
+ * waiting never waits on the embedder for long. Results can be limited to some systems and to what a `keep` check lets
+ * through (what the person asking may see).
  */
 import type { Logger } from '@ayepi/log';
-import { type IndexedKind, type QualifiedName, type SearchHit, type SystemName } from '@harness/core';
+import { type QualifiedName, type SearchHit } from '@harness/core';
 import { messageOf } from '../catalog/scope.ts';
 import type { FusedHit, HybridQuery, HybridSearch } from '../store/hybrid.ts';
 import type { HubStore } from '../store/index.ts';
 import type { EmbedBatcher } from './batch.ts';
-import type { Embedders, Search } from './index.ts';
+import type { Embedders, Search, SearchQuery } from './index.ts';
 
 /** What search needs. */
 export interface IndexSearchOptions {
@@ -36,18 +37,21 @@ export class IndexSearch implements Search {
     this.#options = options;
   }
 
-  async search(query: { text: string; kinds: readonly IndexedKind[]; limit: number; systems?: readonly SystemName[] | 'all' }): Promise<SearchHit[]> {
+  async search(query: SearchQuery): Promise<SearchHit[]> {
     const { store, hybrid, document, overfetch } = this.#options;
-    const filtered = query.systems !== undefined && query.systems !== 'all';
+    const bySystem = query.systems !== undefined && query.systems !== 'all';
+    const filtered = bySystem || query.keep !== undefined;
     const vector = await this.#vector(query.text);
     const words: HybridQuery = { text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit };
     const hits = vector === undefined ? await hybrid.search(words) : await this.#hybrid({ ...words, vector: { embedder: document, values: vector } }, words);
-    const allowed = filtered ? new Set<string>(query.systems) : undefined;
+    const allowed = bySystem ? new Set<string>(query.systems) : undefined;
     const out: SearchHit[] = [];
     for (const hit of hits) {
       const row = await store.table('index').get({ embedder: document, kind: hit.kind, key: hit.key });
       if (row === undefined || (allowed !== undefined && (row.system === undefined || !allowed.has(row.system)))) { continue; }
-      out.push({ kind: hit.kind, key: hit.key, score: hit.score, text: row.text });
+      const found: SearchHit = { kind: hit.kind, key: hit.key, score: hit.score, text: row.text };
+      if (query.keep !== undefined && !(await query.keep(found))) { continue; }
+      out.push(found);
       if (out.length >= query.limit) { break; }
     }
     return out;

@@ -7,7 +7,7 @@
  */
 import {
   ContextFromResourceArgs, ContextOptions, type ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, type ListQuery,
-  type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience,
+  type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience, type ShareRule,
 } from '@harness/core';
 import { z } from 'zod';
 import type { IconName, Outcome } from '../../ui/index.ts';
@@ -197,11 +197,22 @@ export function linkRequest(draft: LinkDraft, from: QualifiedName): LinkRequest 
 export const BrowserScope = z.enum(['user', 'everyone']);
 export type BrowserScope = z.infer<typeof BrowserScope>;
 
-/** The memory form as typed: the title, the text, who it is for, and the Advanced options. */
+/** A new memory's sharing until one is picked: only its author. */
+export const ONLY_ME: ShareRule = { visibility: 'private', with: [] };
+
+/**
+ * The memory scope a sharing choice is written with: only me is the author's own memory; shared and everyone are
+ * written for everyone, and the hub's visibility (set from the same choice) then decides who sees it.
+ */
+export function scopeOfShare(share: ShareRule): BrowserScope {
+  return share.visibility === 'private' ? 'user' : 'everyone';
+}
+
+/** The memory form as typed: the title, the text, who can see it (one choice: its scope and visibility both follow), and the Advanced options. */
 export interface MemoryDraft {
   readonly title: string;
   readonly text: string;
-  readonly scope: BrowserScope;
+  readonly share: ShareRule;
   readonly options: ContextOptionsDraft;
 }
 
@@ -245,13 +256,13 @@ function differs(draft: ContextOptionsDraft, key: keyof ContextOptionsDraft): bo
 
 /** A fresh memory form, or one filled from the memory being edited. */
 export function memoryDraft(record?: Pick<ContextRecord, 'origin' | 'decl'>): MemoryDraft {
-  if (record?.origin?.type !== 'memory') { return { title: '', text: '', scope: 'user', options: PLAIN_OPTIONS }; }
+  if (record?.origin?.type !== 'memory') { return { title: '', text: '', share: ONLY_ME, options: PLAIN_OPTIONS }; }
   const { decl } = record;
   const options: ContextOptionsDraft = {
     weight: decl.weight ?? 1, summary: decl.summary === decl.description ? '' : decl.summary ?? '', tags: decl.tags, fns: decl.fns, suggestFns: decl.suggestFns,
     alwaysFor: decl.alwaysFor, command: decl.command?.name ?? '', visible: decl.visible, suggest: decl.suggest, parent: decl.parent ?? '',
   };
-  return { title: decl.description, text: decl.content ?? '', scope: record.origin.scope.to === 'everyone' ? 'everyone' : 'user', options };
+  return { title: decl.description, text: decl.content ?? '', share: record.origin.scope.to === 'everyone' ? { visibility: 'public', with: [] } : ONLY_ME, options };
 }
 
 /**
@@ -286,7 +297,7 @@ export function memoryRequest(draft: MemoryDraft, about: readonly LinkTarget[] =
   const options = optionsRequest(draft.options, false);
   if (!options.ok) { return options; }
   const title = draft.title.trim();
-  return { ok: true, value: RememberArgs.parse({ text, scope: draft.scope, ...(title === '' ? {} : { title }), ...(about.length === 0 ? {} : { about }), ...options.value }) };
+  return { ok: true, value: RememberArgs.parse({ text, scope: scopeOfShare(draft.share), ...(title === '' ? {} : { title }), ...(about.length === 0 ? {} : { about }), ...options.value }) };
 }
 
 /** Read the memory form as a change to memory `name` (its scope stays as written), or the one problem with it. */

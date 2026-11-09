@@ -353,6 +353,11 @@ export class ActiveRun {
         const hub = await env.hub.ready(signal);
         await hub.call('shareFn', { run: this.id, fn, share });
       },
+      usableFns: async (fns) => {
+        if (fns.length === 0) { return []; }
+        const hub = await env.hub.ready(signal);
+        return (await hub.call('usableFns', { run: this.id, fns: [...fns] })).fns;
+      },
       onPause: (hook) => { this.#pauseHook = hook; },
       allow: (operations) => {
         this.#allowed = { ...this.#allowed, ...operations };

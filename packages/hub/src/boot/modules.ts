@@ -129,6 +129,7 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
 export function registerHubContract(module: { readonly hubFns: ExecutionModule['hubFns']; readonly handlers: Pick<ExecutionModule['handlers'], 'askPerson'> }, hub: HubServices): void {
   registerHubFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
+    access: (actor) => hub.access.scope(actor),
   });
   let ops: AdminOperations | undefined;
   registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));

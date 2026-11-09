@@ -44,6 +44,14 @@ const view = computed(() => item.view.value.value);
 const record = computed(() => view.value?.record);
 const origin = computed(() => (record.value === undefined ? undefined : ORIGIN_WORDS[originOf(record.value)]));
 const memory = computed(() => (record.value?.origin?.type === 'memory' ? record.value.origin : undefined));
+/** A memory written for its author or one chat stays that way: its sharing card shows it, locked. */
+const fixedSharing = computed(() => {
+  switch (memory.value?.scope.to) {
+    case 'user': return 'Written for its author alone; that stays as written.';
+    case 'session': return 'Written for one chat of its author; that stays as written.';
+    default: return undefined;
+  }
+});
 const fromResource = computed(() => (record.value?.origin?.type === 'resource' ? record.value.origin : undefined));
 const admin = computed(() => session.user.value?.role === 'admin');
 const routeOf = (target: LinkTarget) => targetRoute(target, admin.value);
@@ -99,7 +107,7 @@ async function save(draft: MemoryDraft): Promise<void> {
             <dl class="facts" data-testid="context-facts">
               <div><dt>Origin</dt><dd><UiIcon :name="origin.icon" :size="14" /> {{ origin.label }}</dd></div>
               <div><dt>System</dt><dd><code>{{ record.system }}</code></dd></div>
-              <div v-if="memory"><dt>For</dt><dd>{{ scopeText(memory.scope) }}</dd></div>
+              <div v-if="memory?.scope.to === 'session'"><dt>For</dt><dd>{{ scopeText(memory.scope) }}</dd></div>
               <div v-if="fromResource"><dt>Made from</dt><dd><RouterLink :to="links.resources({ uri: fromResource.uri })" class="uri">{{ fromResource.uri }}</RouterLink><template v-if="fromResource.section"> § {{ fromResource.section }}</template></dd></div>
               <div v-if="fromResource"><dt>Text</dt><dd>{{ fromResource.copy === 'live' ? 'Live: read when loaded' : 'A snapshot' }}</dd></div>
               <div v-if="record.decl.command"><dt>Command</dt><dd><code>/{{ record.decl.command.name }}</code></dd></div>
@@ -110,7 +118,7 @@ async function save(draft: MemoryDraft): Promise<void> {
               <div><dt>Changed</dt><dd><time :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time></dd></div>
             </dl>
           </UiCard>
-          <AccessControl :target="{ kind: 'context', context: record.name }" compact />
+          <AccessControl :target="{ kind: 'context', context: record.name }" :fixed="fixedSharing" compact />
           <UiCard title="Text" compact>
             <div v-if="view.text !== undefined && view.text !== ''" class="text" data-testid="context-text"><UiMarkdown :source="view.text" :navigate="navigate" /></div>
             <p v-else class="none">Its system writes this text when it is loaded.</p>

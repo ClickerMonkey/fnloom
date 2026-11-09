@@ -282,6 +282,11 @@ export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
    * own it from then on and can change that on the fn's page. Resolves once the hub has it.
    */
   shareFn(fn: string, share: ShareRule): Promise<void>;
+  /**
+   * Which of the named fns of this system the run's person may use now, by the hub's current visibility (groups
+   * included). Ask this rather than a copy of who was given a fn: its owner or an admin can change that at any time.
+   */
+  usableFns(fns: readonly string[]): Promise<string[]>;
   /** Set when this run is resuming after a pause or a hub restart. */
   readonly resume: Resume<T['resume']> | undefined;
   /** Called when the run is asked to pause: return the state to resume from. Only fns with a resume type can pause. */

@@ -132,7 +132,7 @@ through each other's implementation files. Each module's handlers are installed 
 | `query/` (build 3) | `QueryService`, `ListSource`, `FieldAccessors`: one source per list in `LIST_FIELDS`, filters and sorts server side (pushed down where a source can, else the in-memory evaluator in `evaluate.ts`); the `query` and `listValues` endpoints and the `hub/query` fn | core `query.ts` |
 | `metrics/` (build 2) | `ModelCallLog`, `FnMetricsService` | core records |
 | `models/` (build 2) | `ModelRoles`, `ModelGateway`; `RemoteProvider` (build 4): an aeye `Provider` for each provider a connected system declares, registered as `<system>/<name>` | `@aeye/ai` and its providers, `@aeye/aws` |
-| `access/` (build 4) | `AccessService` (`StoreAccessService`), `AccessScope` (`ActorScope`): who may see and use each system, fn, context item, resource root and connection; serves `accessSlice` and the system link's `shareFn` | core `access.ts` |
+| `access/` (build 4) | `AccessService` (`StoreAccessService`), `AccessScope` (`ActorScope`): who may see and use each system, fn, context item, resource root and connection; serves `accessSlice` and the system link's `shareFn` and `usableFns` | core `access.ts` |
 | `connections/` (build 4) | `ConnectionService` (`StoreConnectionService`): per-person connections to `connect` systems, their credentials as secrets the person owns, the OAuth redirect `GET /connect/callback`; serves `connectionsSlice` and the system link's `connectionUpdate` | core `connections.ts` |
 
 Build 2's modules are wired into `HubServices` (`contextor`, `resources`, `mcp`, `metrics`, `models`) and built by

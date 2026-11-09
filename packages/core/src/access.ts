@@ -75,3 +75,10 @@ export type ShareRule = z.infer<typeof ShareRule>;
  */
 export const FnShare = z.object({ run: RunId, fn: LocalName, share: ShareRule });
 export type FnShare = z.infer<typeof FnShare>;
+
+/**
+ * System → hub (`usableFns`): which of its own system's fns a running fn's person may use now, by the hub's current
+ * visibility (groups included), so a system never decides that from its own copy (a saved form offered for reuse).
+ */
+export const FnUsable = z.object({ run: RunId, fns: z.array(LocalName).max(1000) });
+export type FnUsable = z.infer<typeof FnUsable>;

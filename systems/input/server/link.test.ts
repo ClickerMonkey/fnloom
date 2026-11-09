@@ -12,7 +12,7 @@ import { WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
 import { ANSWER_FIELD, answerText, formProblems, quickForms } from '../shared/forms.ts';
 import { LlmFormAuthor, readWritten } from './author.ts';
 import { inputEnv } from './env.ts';
-import { bestMatch, cosine, createInputImpl, mayUse, slugOf, type InputServer } from './impl.ts';
+import { bestMatch, cosine, createInputImpl, slugOf, type InputServer } from './impl.ts';
 import { MemoryForms, type SavedRecord } from './store.ts';
 
 const packageManifest = SystemPackageManifest.parse(JSON.parse(readFileSync(new URL('../system.json', import.meta.url), 'utf8')));
@@ -111,6 +111,15 @@ describe('input over the link', () => {
 
     hub.onLlm = () => { throw new Error('the agent is not needed'); };
     expect(done(await hub.run('input/get_input', { detailedDescription: 'Use the trip details form.' }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' } });
+    // reuse follows the hub's visibility now, not the copy kept at save: made private to someone else, it is not reused
+    const asked: string[][] = [];
+    hub.usable = (_run, fn) => { asked.push([fn]); return false; };
+    hub.onLlm = answers(JSON.stringify({ ...TRIP, title: 'Fresh trip' }));
+    const fresh = done(await hub.run('input/get_input', { detailedDescription: 'Use the trip details form.' }));
+    expect(fresh).toMatchObject({ form: { title: 'Fresh trip' } });
+    expect(fresh).not.toHaveProperty('saved');
+    expect(asked).toEqual([['trip_details']]);
+    hub.usable = () => true;
     expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' } });
     // the same name again, or a contract fn's name, gets a free one (the SDK refuses a fn added twice)
     expect(done(await hub.run('input/save_form', { name: 'Trip details', description: 'Again.', form: TRIP }))).toEqual({ fn: 'input/trip_details_2', name: 'Trip details' });
@@ -135,7 +144,7 @@ describe('input helpers', () => {
     name: 'trip', title: 'Trip details', description: 'd', form: TRIP, owner: TEST_USER.id, visibility: 'private', with: [], vector: [1, 0], savedAt: 0, ...over,
   });
 
-  it('matches by named title, else by cosine above the threshold; only the owner\'s or public forms', () => {
+  it('matches by named title, else by cosine above the threshold', () => {
     expect(cosine([1, 0], [1, 0])).toBe(1);
     expect(cosine([1, 0], [0, 1])).toBe(0);
     expect(cosine([], [1])).toBe(0);
@@ -145,11 +154,6 @@ describe('input helpers', () => {
     expect(bestMatch('book a trip, please', [], [record({ title: 'Trip' })], 0.9)?.name).toBe('trip');
     expect(bestMatch('something', [0.9, 0.1], [record({}), record({ name: 'far', title: 'Far away', vector: [0, 1] })], 0.8)?.name).toBe('trip');
     expect(bestMatch('something', [0, 1], [record({})], 0.8)).toBeUndefined();
-    const other = { id: mintId('actor') };
-    expect(mayUse(record({}), other)).toBe(false);
-    expect(mayUse(record({ visibility: 'public' }), other)).toBe(true);
-    expect(mayUse(record({ visibility: 'shared', with: [other.id] }), other)).toBe(true);
-    expect(mayUse(record({ visibility: 'shared', with: [] }), other)).toBe(false);
     expect(slugOf('Trip details!')).toBe('trip_details');
     expect(slugOf('2026 plan')).toBe('form_2026_plan');
   });

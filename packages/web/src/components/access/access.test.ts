@@ -11,11 +11,11 @@ import HubPicker from '../pickers/HubPicker.vue';
 
 afterEach(() => { document.body.innerHTML = ''; });
 
-/** Mount `render` with stores whose hub has one person or several. */
-function withHub(multiUser: boolean, render: () => ReturnType<typeof h>) {
-  const api = { ...fakeChatApi(), ...fakePickerApi(multiUser) };
+/** Mount `render` with stores whose hub has one person or several, signed in as Ada; `owner` owns every target (Ada by default). */
+function withHub(multiUser: boolean, render: () => ReturnType<typeof h>, owner = 'act_ada') {
+  const api = { ...fakeChatApi(), ...fakePickerApi(multiUser, owner) };
   const { chat } = fakeChat({ api });
-  const stores = { ...fakeStores().stores, chat };
+  const stores = { ...fakeStores({ signedIn: true }).stores, chat };
   mount(render, { attachTo: document.body, global: { provide: { [STORES]: stores } } });
   return api;
 }
@@ -37,6 +37,15 @@ describe('AccessControl', () => {
     only?.click();
     await flushPromises();
     expect(api.setAccess.calls).toEqual([[{ target, sharing: { visibility: 'private', with: [] } }]]);
+  });
+
+  it('names the owner of someone else’s thing, and locks a fixed one to them', async () => {
+    withHub(true, () => h(AccessControl, { target, fixed: 'Written for its author alone.' }), 'act_ann');
+    await flushPromises();
+    const choices = Array.from(document.querySelectorAll('[data-testid="visibility-choice"] button')).map((b) => b.textContent.trim());
+    expect(choices).toEqual(['Only Ann', 'Ann and chosen people', 'Everyone']);
+    expect(document.querySelector('[data-testid="access-fixed"]')?.textContent).toBe('Written for its author alone.');
+    expect(document.querySelector('[data-testid="visibility-choice"] [aria-checked="true"]')?.textContent.trim()).toBe('Only Ann');
   });
 });
 

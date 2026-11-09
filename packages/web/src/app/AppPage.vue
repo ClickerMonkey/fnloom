@@ -42,9 +42,10 @@ const compact = useMediaQuery(COMPACT_QUERY);
 .crumb { display: flex; margin-bottom: var(--space-1); font-size: var(--text-sm); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .compact .title { font-size: var(--text-xl); }
-/* on a phone the actions sit beside the title and its line, not on a row of their own */
-.compact .head { flex-wrap: nowrap; align-items: flex-start; }
-.compact .titles { flex: 1 1 auto; }
+/* on a phone the actions sit beside the title and its line while that leaves the line room to read (12rem); more
+   actions than that fit wrap onto a row of their own under it, rather than squeezing the line to a word a row */
+.compact .head { align-items: flex-start; }
+.compact .titles { flex: 1 1 12rem; }
 .compact .description { font-size: var(--text-sm); }
 .compact .actions { flex: none; }
 /* a page about one thing keeps its (often long) name: the name takes the row and the actions wrap under it */

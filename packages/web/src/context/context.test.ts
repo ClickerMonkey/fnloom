@@ -3,7 +3,7 @@
  * resource, live changes), the components alone, and both pages mounted in the app at a desktop and a phone width.
  */
 import { pickIn } from '../test/pickers.ts';
-import { QualifiedName, ResourceUri, type LinkTarget } from '@harness/core';
+import { QualifiedName, ResourceUri, type LinkTarget, type ShareRule } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -18,13 +18,14 @@ import LinkDialog from './components/LinkDialog.vue';
 import LinkGroups from './components/LinkGroups.vue';
 import MemoryDialog from './components/MemoryDialog.vue';
 import {
-  emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
+  emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
 } from './logic/context.ts';
 import { targetRoute } from './logic/targets.ts';
 import { contextLink, contextRecord, fakeContext, fixtureGraph, T_CONTEXT } from './test/fakes.ts';
 
 const name = (text: string): QualifiedName => QualifiedName.parse(text);
 const GUIDE = name('fs/guide');
+const EVERYONE = { visibility: 'public', with: [] } as const satisfies ShareRule;
 const MEMORY = name('memory/likes-tabs-ab12');
 
 describe('the context URL and drafts', () => {
@@ -81,18 +82,20 @@ describe('the context URL and drafts', () => {
 
   it('reads the memory and make-from-a-resource forms', () => {
     const options = PLAIN_OPTIONS;
-    expect(memoryRequest({ title: '', text: '  ', scope: 'user', options })).toEqual({ ok: false, problem: 'Write what to remember.' });
-    expect(memoryRequest({ title: ' Tabs ', text: 'Use tabs.', scope: 'everyone', options }, [{ kind: 'context', name: GUIDE }])).toEqual({ ok: true, value: { text: 'Use tabs.', title: 'Tabs', scope: 'everyone', about: [{ kind: 'context', name: 'fs/guide' }] } });
+    expect(memoryRequest({ title: '', text: '  ', share: ONLY_ME, options })).toEqual({ ok: false, problem: 'Write what to remember.' });
+    expect(memoryRequest({ title: ' Tabs ', text: 'Use tabs.', share: EVERYONE, options }, [{ kind: 'context', name: GUIDE }])).toEqual({ ok: true, value: { text: 'Use tabs.', title: 'Tabs', scope: 'everyone', about: [{ kind: 'context', name: 'fs/guide' }] } });
     const memory = fixtureGraph().records[2];
-    expect(memoryDraft(memory)).toMatchObject({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', scope: 'user' });
-    expect(memoryDraft()).toEqual({ title: '', text: '', scope: 'user', options });
+    expect(memoryDraft(memory)).toMatchObject({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', share: ONLY_ME });
+    expect(memoryDraft()).toEqual({ title: '', text: '', share: ONLY_ME, options });
+    // one sharing choice: only me is the author's own memory, shared and everyone are written for everyone
+    expect(memoryRequest({ title: '', text: 'Tabs.', share: { visibility: 'shared', with: [] }, options })).toMatchObject({ ok: true, value: { scope: 'everyone' } });
     // the Advanced options: only those changed go with a new memory, every one with an edit, and a bad one is the problem
     const tied = { ...options, fns: [QualifiedName.parse('fs/read')], command: '/tabs', weight: 1.5 };
     expect(changedOptions(tied)).toBe(3);
-    expect(memoryRequest({ title: '', text: 'Tabs.', scope: 'user', options: tied })).toEqual({ ok: true, value: { text: 'Tabs.', scope: 'user', fns: ['fs/read'], command: 'tabs', weight: 1.5 } });
-    expect(memoryUpdate(GUIDE, { title: 'T', text: 'Tabs.', scope: 'user', options: tied })).toMatchObject({ ok: true, value: { name: GUIDE, tags: [], suggestFns: [], visible: 'both', fns: ['fs/read'] } });
-    expect(memoryRequest({ title: '', text: 'Tabs.', scope: 'user', options: { ...options, parent: 'not a name' } })).toMatchObject({ ok: false });
-    expect(memoryRequest({ title: '', text: 'Tabs.', scope: 'user', options: { ...options, command: 'Bad Name' } })).toMatchObject({ ok: false });
+    expect(memoryRequest({ title: '', text: 'Tabs.', share: ONLY_ME, options: tied })).toEqual({ ok: true, value: { text: 'Tabs.', scope: 'user', fns: ['fs/read'], command: 'tabs', weight: 1.5 } });
+    expect(memoryUpdate(GUIDE, { title: 'T', text: 'Tabs.', share: ONLY_ME, options: tied })).toMatchObject({ ok: true, value: { name: GUIDE, tags: [], suggestFns: [], visible: 'both', fns: ['fs/read'] } });
+    expect(memoryRequest({ title: '', text: 'Tabs.', share: ONLY_ME, options: { ...options, parent: 'not a name' } })).toMatchObject({ ok: false });
+    expect(memoryRequest({ title: '', text: 'Tabs.', share: ONLY_ME, options: { ...options, command: 'Bad Name' } })).toMatchObject({ ok: false });
     expect(fromResourceRequest({ uri: 'readme', copy: 'live', command: '' })).toMatchObject({ ok: false });
     expect(fromResourceRequest({ uri: 'fs://work/README.md', copy: 'snapshot', command: '/readme' })).toEqual({ ok: true, value: { uri: 'fs://work/README.md', copy: 'snapshot', command: 'readme' } });
     expect(fromResourceRequest({ uri: 'fs://work/README.md', copy: 'live', command: 'Bad Name' })).toMatchObject({ ok: false });
@@ -151,14 +154,14 @@ describe('ContextStore', () => {
   it('writes, edits and forgets memory', async () => {
     const { context, api, state } = fakeContext();
     const options = PLAIN_OPTIONS;
-    expect((await context.remember({ title: '', text: ' ', scope: 'user', options })).ok).toBe(false);
+    expect((await context.remember({ title: '', text: ' ', share: ONLY_ME, options })).ok).toBe(false);
     expect(api.remember.calls).toHaveLength(0);
-    const made = await context.remember({ title: 'Short answers', text: 'Answer in one line.', scope: 'everyone', options });
+    const made = await context.remember({ title: 'Short answers', text: 'Answer in one line.', share: EVERYONE, options });
     if (!made.ok) { throw new Error(made.problem); }
     expect(state.records[0]?.origin).toMatchObject({ type: 'memory', scope: { to: 'everyone' } });
 
     await context.item.open(MEMORY);
-    const edited = await context.item.edit({ title: 'Likes tabs', text: 'Tabs, always.', scope: 'user', options: { ...options, fns: [QualifiedName.parse('fs/read')] } });
+    const edited = await context.item.edit({ title: 'Likes tabs', text: 'Tabs, always.', share: ONLY_ME, options: { ...options, fns: [QualifiedName.parse('fs/read')] } });
     if (!edited.ok) { throw new Error(edited.problem); }
     // changed in place: the same name, its links kept, nothing forgotten
     expect(edited.value).toBe(MEMORY);
@@ -169,7 +172,7 @@ describe('ContextStore', () => {
     expect((await context.item.forget()).ok).toBe(true);
     expect(context.item.view.value.value?.record.disabled).toBe(true);
     await context.item.open(GUIDE);
-    expect((await context.item.edit({ title: '', text: 'x', scope: 'user', options })).ok).toBe(false);
+    expect((await context.item.edit({ title: '', text: 'x', share: ONLY_ME, options })).ok).toBe(false);
     expect((await context.item.forget()).ok).toBe(false);
   });
 
@@ -264,7 +267,7 @@ describe('the context components', () => {
     expect(area?.value).toBe('The owner likes tabs, not spaces.');
     document.querySelector<HTMLButtonElement>('[data-testid="memory-save"]')?.click();
     await flushPromises();
-    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', scope: 'user' });
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ title: 'Likes tabs', text: 'The owner likes tabs, not spaces.', share: ONLY_ME });
     wrapper.unmount();
   });
 

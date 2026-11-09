@@ -6,12 +6,12 @@
  * record. If it fails or answers nonsense, the score decides and the items it left out say so (`failed`).
  */
 import {
-  messageOf, splitName, SuggestDecision, type ActorId, type LlmMessage, type QualifiedName, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,
+  messageOf, SuggestDecision, type ActorId, type LlmMessage, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,
   type SuggestionOutcome, type SuggestionRecord,
 } from '@harness/core';
 import { z } from 'zod';
 import type { AccessScope } from '../access/index.ts';
-import { seesContextNamed } from '../access/scope.ts';
+import { mayOffer } from '../access/hits.ts';
 import type { ChatDeps } from './deps.ts';
 import type { DecidedSuggestions, SuggestionDecider } from './index.ts';
 import { plainText } from './turns.ts';
@@ -56,17 +56,13 @@ export class HubSuggestions implements SuggestionDecider {
     this.#deps = deps;
   }
 
-  /** The names among candidates a person may see. */
-  async #seen(access: AccessScope, items: ReadonlyArray<Pick<Suggestion, 'kind' | 'name'>>): Promise<ReadonlySet<string>> {
+  /** The names among candidates a person may be offered (`mayOffer`). */
+  async #seen(access: AccessScope, items: ReadonlyArray<Pick<Suggestion, 'kind' | 'name'>>, session: SessionId): Promise<ReadonlySet<string>> {
     const seen = new Set<string>();
     for (const item of items) {
-      if (item.kind === 'fn' ? access.mayUse({ name: item.name, system: splitName(item.name).system }) : await this.#seesContext(access, item.name)) seen.add(item.name);
+      if (await mayOffer(access, (n) => this.#deps.catalog.context(n), item, session)) seen.add(item.name);
     }
     return seen;
-  }
-
-  async #seesContext(access: AccessScope, name: QualifiedName): Promise<boolean> {
-    return seesContextNamed(access, (n) => this.#deps.catalog.context(n), name);
   }
 
   async setting(): Promise<SuggestDecisionView> {
@@ -89,7 +85,7 @@ export class HubSuggestions implements SuggestionDecider {
     const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: (on ? Math.max(decision.candidates, limit) : limit) * 2 });
     // what the person may not see is never suggested, nor named among what was left out
     const access = await this.#deps.access.scope(input.actor);
-    const sees = await this.#seen(access, [...found.offered, ...found.hidden]);
+    const sees = await this.#seen(access, [...found.offered, ...found.hidden], input.session);
     const hidden = found.hidden.filter((item) => sees.has(item.name)).map((item) => skipped(item, 'rule'));
     const offered = found.offered.filter((item) => sees.has(item.name)).sort((a, b) => b.score - a.score);
     if (!on) { return this.#byScore(offered, limit, hidden); }

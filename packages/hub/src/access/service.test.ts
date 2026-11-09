@@ -77,6 +77,14 @@ describe('visibility', () => {
     // the person owns it now, so they decide who else sees it
     await access.set(BEN, { kind: 'fn', fn: form }, { visibility: 'shared', with: [TEAM] });
     expect((await access.scope(CAL)).seesFn({ name: form, system: input })).toBe(true);
+    // a run asks which fns its person may use now, by the current rows (groups included), not what was given
+    await store.table('runs').insert({ ...run('run_cal', 'running'), actor: CAL, caller: CAL });
+    expect(await access.usable(input, { run: RunId.parse('run_cal'), fns: ['trip_form'] })).toEqual(['trip_form']);
+    await access.set(BEN, { kind: 'fn', fn: form }, { visibility: 'private', with: [] });
+    expect(await access.usable(input, { run: RunId.parse('run_cal'), fns: ['trip_form'] })).toEqual([]);
+    expect(await access.usable(input, { run: RunId.parse('run_live'), fns: ['trip_form'] })).toEqual(['trip_form']);
+    await expect(access.usable(input, { run: RunId.parse('run_over'), fns: ['trip_form'] })).rejects.toMatchObject({ status: 403 });
+    await expect(access.usable(FS, { run: RunId.parse('run_live'), fns: ['read'] })).rejects.toMatchObject({ status: 403 });
     await expect(access.give(input, { run: RunId.parse('run_over'), fn: 'trip_form', share: { visibility: 'public', with: [] } })).rejects.toMatchObject({ status: 403 });
     await expect(access.give(FS, { run: RunId.parse('run_live'), fn: 'read', share: { visibility: 'public', with: [] } })).rejects.toMatchObject({ status: 403 });
     await expect(access.give(input, { run: RunId.parse('run_live'), fn: 'nothing', share: { visibility: 'public', with: [] } })).rejects.toMatchObject({ status: 404 });

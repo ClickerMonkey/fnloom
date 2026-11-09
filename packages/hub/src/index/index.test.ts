@@ -337,6 +337,11 @@ describe('search and suggestions', () => {
     const cars = await ctx.search.search({ text: 'engine trouble', kinds: ['fn'], limit: 3, systems: [SystemName.parse('cars')] });
     expect(cars.map((h) => h.key)).toEqual(['cars/drive']);
     expect(await ctx.search.search({ text: 'engine', kinds: ['fn'], limit: 3, systems: [SystemName.parse('nobody')] })).toEqual([]);
+    // what `keep` refuses doesn't count toward the limit
+    const top = (await ctx.search.search({ text: 'which products are in stock', kinds: ['fn'], limit: 1 }))[0]?.key;
+    const kept = await ctx.search.search({ text: 'which products are in stock', kinds: ['fn'], limit: 1, keep: (hit) => hit.key !== top });
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.key).not.toBe(top);
   });
 
   it('searches by words alone while no embedder is connected, or when the query can’t be embedded', async () => {

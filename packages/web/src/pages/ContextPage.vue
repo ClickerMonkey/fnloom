@@ -45,6 +45,11 @@ const filtered = computed(() => isFiltered(filter.value));
 async function remember(draft: MemoryDraft): Promise<void> {
   const result = await context.remember(draft);
   if (!result.ok) { return; }
+  // a memory for everyone is everyone's until told otherwise; shared narrows it to the people picked
+  if (draft.share.visibility === 'shared') {
+    const shared = await chat.access.set({ kind: 'context', context: result.value }, draft.share);
+    if (!shared.ok) { toasts.error("Added, but couldn't share it", shared.problem); }
+  }
   toasts.ok('Context added', result.value);
   await router.replace(links.contextItem(result.value));
 }

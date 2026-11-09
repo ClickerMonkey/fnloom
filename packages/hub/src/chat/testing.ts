@@ -294,7 +294,11 @@ export class FixtureIndex implements Search, Suggester {
 
   async search(query: Parameters<Search['search']>[0]): Promise<SearchHit[]> {
     this.searched.push(query);
-    return Promise.resolve(this.hits.filter((h) => query.kinds.includes(h.kind)));
+    const kept: SearchHit[] = [];
+    for (const hit of this.hits) {
+      if (query.kinds.includes(hit.kind) && (query.keep === undefined || await query.keep(hit))) { kept.push(hit); }
+    }
+    return kept;
   }
 
   /** Candidates a rule hides, for `consider`. */

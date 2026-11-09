@@ -83,9 +83,23 @@ export interface IndexReader {
   sectioned(diff: SectionDiff): Promise<void>;
 }
 
+/** What a search asks for. */
+export interface SearchQuery {
+  readonly text: string;
+  readonly kinds: readonly IndexedKind[];
+  readonly limit: number;
+  /** Only hits from these systems (all when undefined or `all`). */
+  readonly systems?: readonly SystemName[] | 'all';
+  /**
+   * Only hits this keeps, checked before the limit is counted (more candidates are asked for, as with `systems`).
+   * Used to keep to what the person asking may see (`access/hits.ts`).
+   */
+  readonly keep?: (hit: SearchHit) => boolean | Promise<boolean>;
+}
+
 /** Hybrid search. Falls back to words alone while no embedder is connected. */
 export interface Search {
-  search(query: { text: string; kinds: readonly IndexedKind[]; limit: number; systems?: readonly SystemName[] | 'all' }): Promise<SearchHit[]>;
+  search(query: SearchQuery): Promise<SearchHit[]>;
 }
 
 /** Suggestions: fns and context that fit a message, from its embedding, limited to what the session allows. */

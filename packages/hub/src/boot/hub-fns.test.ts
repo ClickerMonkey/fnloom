@@ -3,6 +3,7 @@ import { ActorId, QualifiedName, SystemName, type Json, type SearchHit, type Ses
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
+import { openScope, type AccessScope } from '../access/index.ts';
 import { registerHubFns } from './hub-fns.ts';
 
 let rig: ExecutionRig | undefined;
@@ -13,8 +14,11 @@ function addHubFn<A, R>(r: ExecutionRig, ref: FnRef<QualifiedName, A, R>): void 
   r.catalog.add('hub', ref.name.slice('hub/'.length), fn({ description: ref.name, args: ref.args, returns: ref.returns, tags: ['read'] }));
 }
 
-/** A rig with the hub fns registered over its catalog and store, a search that answers `hits`, and a session. */
-async function started(hits: SearchHit[] = [], session: Partial<Session> = {}) {
+/**
+ * A rig with the hub fns registered over its catalog and store, a search that answers `hits` (keeping to its `keep`),
+ * a session, and the run's person seeing what `access` lets them (everything by default).
+ */
+async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, access: (actor: ActorId) => AccessScope = openScope) {
   const r = await executionRig();
   rig = r;
   const { search_fns, load_fns, drop_fns, search_context, load_context, search_resources, ask_user } = hub.fns;
@@ -27,7 +31,14 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}) {
   registerHubFns(r.module.hubFns, {
     store: () => r.store,
     catalog: () => r.catalog,
-    search: () => ({ search: (query) => { searched.push(query); return Promise.resolve(hits.filter((h) => query.kinds.includes(h.kind))); } }),
+    search: () => ({
+      search: async (query) => {
+        searched.push(query);
+        const kept: SearchHit[] = [];
+        for (const hit of hits) { if (query.kinds.includes(hit.kind) && (query.keep === undefined || await query.keep(hit))) { kept.push(hit); } }
+        return kept;
+      },
+    }),
     sessions: () => ({
       load: async (id, loaded) => {
         loads.push({ session: id, ...loaded });
@@ -35,6 +46,7 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}) {
       },
     }),
     handlers: () => r.module.handlers,
+    access: (actor) => Promise.resolve(access(actor)),
   });
   await r.session({ systems: [SystemName.parse('fs'), SystemName.parse('shop')], ...session });
   await r.module.start();
@@ -100,6 +112,34 @@ describe('context and resources', () => {
     expect(await call(r, turn, 'search_resources', { query: 'harness', roots: ['file:///repo'] })).toEqual({ status: 'done', result: [
       { uri: 'file:///repo/README.md', section: 'Intro', title: 'README.md > Intro', preview: 'README.md > Intro\n\nA harness.', score: 0.8 },
     ] });
+  });
+});
+
+describe('keeping to what the person may see', () => {
+  /** A member who sees nothing private: not `fs/secret` (fn or context), nor anything under file:///private. */
+  const member = (actor: ActorId): AccessScope => ({
+    ...openScope(actor), admin: false,
+    seesFn: (record) => record.name !== 'fs/secret',
+    mayUse: (record) => record.name !== 'fs/secret',
+    seesContext: (record) => record.name !== 'fs/secret',
+    seesUri: (uri) => !uri.startsWith('file:///private/'),
+  });
+
+  it('leaves hidden fns, context and sections out of searches, and refuses to load them', async () => {
+    const { r, turn } = await started([
+      { kind: 'fn', key: 'fs/read', score: 0.9, text: 'read' }, { kind: 'fn', key: 'fs/secret', score: 1, text: 'secret' },
+      { kind: 'context', key: 'fs/guide', score: 0.9, text: 'guide' }, { kind: 'context', key: 'fs/secret', score: 1, text: 'secret' },
+      { kind: 'section', key: 'file:///repo/README.md#Intro', score: 0.5, text: 'README.md\n\nOpen.' },
+      { kind: 'section', key: 'file:///private/crawl.md#Top', score: 0.9, text: 'crawl.md\n\nPrivate.' },
+    ], {}, member);
+    r.catalog.add('fs', 'secret', fn({ description: 'Secret.', args: g.obj({}), returns: g.text() }));
+    r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
+    r.catalog.contexts.set(QualifiedName.parse('fs/secret'), 'Private notes.');
+    expect(await call(r, turn, 'search_fns', { query: 'x' })).toEqual({ status: 'done', result: [{ fn: 'fs/read', description: 'Read a file.', available: true }] });
+    expect(await call(r, turn, 'load_fns', { fns: ['fs/secret'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', reason: 'no such fn' }] } });
+    expect(await call(r, turn, 'search_context', { query: 'x' })).toEqual({ status: 'done', result: [{ context: 'fs/guide', description: 'guide' }] });
+    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/secret'] })).toEqual({ status: 'done', result: { loaded: ['fs/guide'] } });
+    expect(await call(r, turn, 'search_resources', { query: 'x' })).toMatchObject({ status: 'done', result: [{ uri: 'file:///repo/README.md' }] });
   });
 });
 
