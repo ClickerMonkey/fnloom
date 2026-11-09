@@ -84,6 +84,21 @@ describe('remote providers', () => {
     expect(response.usage).toEqual({ text: { input: 4 } });
   });
 
+  it('stream a chat call with the model given as model info, and throw the error the system sends', async () => {
+    const { shop, connection } = connectedShop();
+    const remote = new RemoteProvider(SHOP, LOCAL, () => connection);
+    const texts: string[] = [];
+    for await (const chunk of remote.createStreamer()({ messages: [{ role: 'user', content: 'hi' }] }, {}, { model: { id: 'tiny' } })) {
+      if (chunk.content !== undefined) texts.push(chunk.content);
+    }
+    expect(texts).toEqual(['hello tiny']);
+    shop.behaviour.providerChat = async function* refuse() {
+      yield { type: 'error', message: 'out of credit', kind: 'limit' };
+    };
+    const stream = remote.createStreamer()({ messages: [{ role: 'user', content: 'hi' }] }, {}, { model: 'tiny' });
+    await expect(stream.next()).rejects.toThrow('shop/local: out of credit');
+  });
+
   it('fail a call while the system is away', async () => {
     const remote = new RemoteProvider(SHOP, LOCAL, () => undefined);
     expect(await remote.checkHealth()).toBe(false);

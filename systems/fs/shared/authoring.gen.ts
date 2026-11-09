@@ -29,16 +29,16 @@ export const AUTHORING_PARTS = {
   'authoring-resources': { heading: '## 17. Resources, embedders and sectioners', title: 'Resources, embedders and sectioners', tokens: 1720, reference: false, next: 'authoring-hub' },
   'authoring-hub': { heading: '## 18. The hub contract', title: 'The hub contract', tokens: 8650, reference: false, next: 'authoring-server' },
   'authoring-server': { heading: '## 19. The server: serve and the implementation', title: 'The server: serve and the implementation', tokens: 5760, reference: false, next: 'authoring-ctx' },
-  'authoring-ctx': { heading: '## 20. The run context and services', title: 'The run context and services', tokens: 5350, reference: false, next: 'authoring-calling' },
+  'authoring-ctx': { heading: '## 20. The run context and services', title: 'The run context and services', tokens: 5430, reference: false, next: 'authoring-calling' },
   'authoring-calling': { heading: '## 21. Calling other fns', title: 'Calling other fns', tokens: 1540, reference: false, next: 'authoring-lifecycle' },
   'authoring-lifecycle': { heading: '## 22. Config, events, lifecycle and data', title: 'Config, events, lifecycle and data', tokens: 1500, reference: false, next: 'authoring-client' },
-  'authoring-client': { heading: '## 23. The client: renderers, inputs and resource views', title: 'The client: renderers, inputs and resource views', tokens: 5820, reference: false, next: 'authoring-packaging' },
+  'authoring-client': { heading: '## 23. The client: renderers, inputs and resource views', title: 'The client: renderers, inputs and resource views', tokens: 6000, reference: false, next: 'authoring-packaging' },
   'authoring-packaging': { heading: '## 24. Packaging: system.json, build, pack, install', title: 'Packaging: system.json, build, pack, install', tokens: 2640, reference: false, next: 'authoring-testing' },
-  'authoring-testing': { heading: '## 25. Testing', title: 'Testing', tokens: 4040, reference: false, next: 'authoring-mistakes' },
+  'authoring-testing': { heading: '## 25. Testing', title: 'Testing', tokens: 4080, reference: false, next: 'authoring-mistakes' },
   'authoring-mistakes': { heading: '## 26. Common mistakes', title: 'Common mistakes', tokens: 2670, reference: false, next: 'authoring-examples' },
   'authoring-examples': { heading: '## 27. Worked examples', title: 'Worked examples', tokens: 16000, reference: false },
   'authoring-internals': { heading: '## 28. Runtime internals', title: 'Runtime internals', tokens: 6170, reference: true, next: 'authoring-core-types' },
-  'authoring-core-types': { heading: '## 29. Core types', title: 'Core types', tokens: 14460, reference: true },
+  'authoring-core-types': { heading: '## 29. Core types', title: 'Core types', tokens: 14520, reference: true },
 } as const;
 
 /** A part's context name. */
@@ -66,16 +66,16 @@ export function authoringContext(parent: AnyContextRef) {
     'authoring-resources': context({ description: 'Writing a harness system, part 17 of 29: Resources, embedders and sectioners (about 1720 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-hub' } }),
     'authoring-hub': context({ description: 'Writing a harness system, part 18 of 29: The hub contract (about 8650 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-server' } }),
     'authoring-server': context({ description: 'Writing a harness system, part 19 of 29: The server: serve and the implementation (about 5760 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-ctx' } }),
-    'authoring-ctx': context({ description: 'Writing a harness system, part 20 of 29: The run context and services (about 5350 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-calling' } }),
+    'authoring-ctx': context({ description: 'Writing a harness system, part 20 of 29: The run context and services (about 5430 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-calling' } }),
     'authoring-calling': context({ description: 'Writing a harness system, part 21 of 29: Calling other fns (about 1540 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-lifecycle' } }),
     'authoring-lifecycle': context({ description: 'Writing a harness system, part 22 of 29: Config, events, lifecycle and data (about 1500 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-client' } }),
-    'authoring-client': context({ description: 'Writing a harness system, part 23 of 29: The client: renderers, inputs and resource views (about 5820 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-packaging' } }),
+    'authoring-client': context({ description: 'Writing a harness system, part 23 of 29: The client: renderers, inputs and resource views (about 6000 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-packaging' } }),
     'authoring-packaging': context({ description: 'Writing a harness system, part 24 of 29: Packaging: system.json, build, pack, install (about 2640 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-testing' } }),
-    'authoring-testing': context({ description: 'Writing a harness system, part 25 of 29: Testing (about 4040 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-mistakes' } }),
+    'authoring-testing': context({ description: 'Writing a harness system, part 25 of 29: Testing (about 4080 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-mistakes' } }),
     'authoring-mistakes': context({ description: 'Writing a harness system, part 26 of 29: Common mistakes (about 2670 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-examples' } }),
     'authoring-examples': context({ description: 'Writing a harness system, part 27 of 29: Worked examples (about 16000 tokens).', parent }),
     'authoring-internals': context({ description: 'Writing a harness system, reference part 28 of 29: Runtime internals (about 6170 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-core-types' }, suggest: 'none', tags: ['reference'] }),
-    'authoring-core-types': context({ description: 'Writing a harness system, reference part 29 of 29: Core types (about 14460 tokens).', parent, suggest: 'none', tags: ['reference'] }),
+    'authoring-core-types': context({ description: 'Writing a harness system, reference part 29 of 29: Core types (about 14520 tokens).', parent, suggest: 'none', tags: ['reference'] }),
   };
 }
 

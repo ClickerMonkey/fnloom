@@ -106,7 +106,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'The client: renderers, inputs and resource views',
     exports: [
       'client', 'ClientRenderers', 'ClientModule', 'Renderer', 'FnView', 'FnViewOf', 'AttachmentView', 'AttachmentViewOf', 'InputView', 'InputViewOf', 'MentionView', 'ResourceView',
-      'SystemClient', 'WithSystem', 'Delivery', 'ResourceViewerEntry', 'BareViewer', 'ResourceViewerMode', 'RESOURCE_VIEWER_MODES', 'RESOURCE_VIEWER', 'ResourceViewerProps', 'INPUT_ANSWERS', 'VALUE_EDITOR', 'ACCESS_INFO', 'InputAnswer', 'InputAnswers', 'ValueEditorProps', 'buildClient', 'BuildClientOptions', 'sharedModules', 'inlineCss', 'SHARED_IMPORTS',
+      'SystemClient', 'WithSystem', 'Delivery', 'ResourceViewerEntry', 'BareViewer', 'ResourceViewerMode', 'RESOURCE_VIEWER_MODES', 'RESOURCE_VIEWER', 'ResourceViewerProps', 'INPUT_ANSWERS', 'VALUE_EDITOR', 'ACCESS_INFO', 'SHARE_EDITOR', 'ShareEditorProps', 'InputAnswer', 'InputAnswers', 'ValueEditorProps', 'buildClient', 'BuildClientOptions', 'sharedModules', 'inlineCss', 'SHARED_IMPORTS',
       'AnyViews', 'WireViews', 'Mount', 'InputMount',
     ],
   },

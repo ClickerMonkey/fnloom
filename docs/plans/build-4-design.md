@@ -4,6 +4,27 @@ Spec: [build-4.md](build-4.md). The contracts are in `@harness/core` now and typ
 answer 501 from `packages/hub/src/api/web/build4.ts`, and the new system-link endpoints are stubbed in
 `sdk/src/server/runtime.ts` (`buildFourStub`; `validate` answers `{ ok: true }`). The lanes replace both.
 
+## Status (end of build 4)
+
+The 501 stubs and `buildFourStub` are gone: every endpoint below is served. `npm run check` passes (2,394 tests).
+
+| Item | Status |
+|---|---|
+| 1. Cache-miss line | Done: `caching` per call, `cacheMiss` on the settled message, `CacheMissRule.vue` with its component test. |
+| 2. Systems add providers | Done: SDK `provider()`, `providerChat` / `providerEmbed`, hub `RemoteProvider` registered as `<system>/<name>` while connected (`SystemProviderSource`), priced and recorded with `system`. |
+| 3. AWS provider | Done: `@aeye/aws` Bedrock API key (bearer) with unit tests and a skipped-without-keys live test, committed on aits `harness`; the hub's `aws` variant (access keys or API key); the provider form's segmented choice. Not run against real AWS (no keys here). |
+| 4. Web feeds resources | Done: `folder` imports as a resource root; `web/crawl` with robots, progress and skip reasons, tested on a fake site. |
+| 5. Visibility | Done: `access/` (`AccessService`, `AccessScope`) over the catalog, runs, lists, suggestions, context, roots, mentions, `pick` and connections; `UiVisibility` / `AccessControl` shown only when `multiUser`. |
+| 6. Google Calendar | Done against `FakeGoogleApi`: connect page `/connect/:system`, OAuth callback, fn switches, approvals for `ask`, `RunRequest.connection`, disconnect. Not tried with a real Google OAuth client (none configured; the live test skips). |
+| 7. Input system | Done: `input/form`, `get_input` (reuse, else a gin type from an agent with retries), `ask_*`, `save_form`, the form renderer, hidden `input-answer` parts, chat Debug (`?debug=1`). |
+| 8. Fn validation hooks | Done: SDK `validate`, `invalid-input` refusal through aeye's tool `validate`, output `retry` (capped by an env tunable) and `stop`. |
+| 9. Pickers | Done: `pick` per source, `UiPicker` with component tests, in the Context Advanced section (`MemoryDialog.vue`), links, MCP rules, policies, scopes, categories and connection settings. |
+| Expression editor | Improved (monospace code lines, `codeWidth` wrapping); not re-reviewed by the owner, so it may still not read enough like code. |
+| Legacy list filters | Done: the list bodies take only `query` (`ListQuery`). |
+| Partial flag | Done: the lists show the "more rows than scanned" note. |
+| Ollama model | Not finished: `qwen2.5:3b` is the contextor e2e's first choice, but its pull was still downloading (slowly) at the end of build 4, so the suite ran on `deepseek-r1:7b` and passed. |
+| e2e | All 58 pass (`npm run e2e`, contextor run on its own). There is no build 4 e2e suite: build 4 is covered by unit, component and API-level tests. |
+
 ## Lanes
 
 | Lane | Owns |

@@ -3,11 +3,15 @@
 A web-based agent harness: one **hub** that owns every LLM call, user, permission and record, and **systems**
 that connect over WebSocket to add fns, kinds, types, resources, context and UI renderers.
 
-Status: **build 2 running.** The hub, the SDK and CLI, the fs, embedder and web systems and the Vue chat and admin
+Status: **build 4 done** (of 7). The hub, the SDK and CLI, the fs, embedder and web systems and the Vue chat and admin
 app run together. The chat agent reads and searches files, runs commands (with approval), searches and reads the web,
 and streams its answers, in strict-tools or static-toolset mode with a plain, suggesting or graph contextor that fits
 each prompt in the model's window (local Ollama models included). Resources keep their raw bytes and converted forms
-and become context; systems are packed, installed and run in fleets; admins make hub MCPs. See "Build order" in
+and become context; systems are packed, installed and run in fleets; admins make hub MCPs. Lists filter, sort and page
+on the hub (build 3). Build 4 adds providers that systems declare, an AWS Bedrock provider (access keys or an API key),
+web crawls into a resource root, private/shared/public visibility (shown only when the hub has more than one person),
+per-person connections (the Google Calendar system), forms the agent asks for (the input system), fn validation hooks,
+search pickers in place of free-text lists, and a wavy line where a chat call missed the prompt cache. See "Build order" in
 [`docs/harness.md`](docs/harness.md).
 
 - [`docs/harness.md`](docs/harness.md): the design in plain language.
@@ -27,6 +31,10 @@ and become context; systems are packed, installed and run in fleets; admins make
   start; the live tests and the e2e suite use a free model with it.
 - **`TAVILY_API_KEY`** (optional) for the web system's search; without it `npm run dev` and the e2e suite leave the
   web system out.
+- **`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`** (optional): a Google OAuth client for the calendar system (its
+  redirect is `<hub>/connect/callback`); without them `npm run dev` leaves the calendar system out.
+- **AWS** (optional): add an `aws` provider under Models → Providers with a region and either access keys or a Bedrock
+  API key.
 - **A local Ollama** (optional) on `http://127.0.0.1:11434` for small local models; an admin adds it under Models →
   Providers. The graph contextor e2e suite uses the first of `HARNESS_E2E_OLLAMA_MODELS` it has (a small tool-capable
   one such as `qwen2.5:3b` first).
@@ -54,7 +62,7 @@ the hub).
 | `OPENROUTER_API_KEY` | (none) | the openrouter provider's key |
 | `HARNESS_PORT` | 4300 | the hub and the web app it serves |
 | `HARNESS_DATA` | `.harness` | database, files, keys, logs, systems' state |
-| `HARNESS_DEV_ONLY` | `web,hub,fs,embedder,web-system` | what `npm run dev` runs (`web` is the build step; `web-system` is the web system, and runs only with `TAVILY_API_KEY`) |
+| `HARNESS_DEV_ONLY` | `web,hub,fs,embedder,web-system,input,calendar` | what `npm run dev` runs (`web` is the build step; `web-system` is the web system, and runs only with `TAVILY_API_KEY`; `calendar` only with the Google client) |
 | `TAVILY_API_KEY` | (none) | the web system's search key |
 | `HARNESS_DEV_ROOT` | this repository | the folder fs serves |
 | `HARNESS_EMBEDDER_URL` | `http://127.0.0.1:8760` | the EmbeddingGemma service |
@@ -71,7 +79,9 @@ package suite's, 4480 and 4481 `npm run ui-tests:mock`, 8760 the embedder servic
 |---|---|---|
 | fs | `systems/fs` | files and folders as resources, read/write/search fns, `fs/bash` with approval, the system authoring guide as context (`/new-system`); many instances can attach (`fs@laptop`) |
 | embedder | `systems/embedder` | embeddings from the EmbeddingGemma service, for search and suggestions |
-| web | `systems/web` | Tavily search and page reading (pages that need it are rendered with puppeteer); pages become hub resources with a markdown form |
+| web | `systems/web` | Tavily search, page reading (pages that need it are rendered with puppeteer) and `web/crawl` (a site, up to 3 links deep, into one resource root); pages become hub resources with a markdown form |
+| input | `systems/input` | forms the agent asks for: `get_input` (reuses a saved form or writes a gin type), `ask_text` / `ask_choice` / `ask_confirm` / `ask_number` / `ask_date`, and `save_form` ("Save this form for next time"); answers come back as a hidden `input-answer` part |
+| google-calendar | `systems/google-calendar` | each person connects their own calendar at `/connect/google-calendar` and picks which fns are on and which ask first; list, search, get, create, update and delete events |
 | template | `systems/template` | what `harness system new` copies: `system.json`, `shared/`, `server/`, `client/`, placeholder comments only |
 
 Every installed system gets its own data and cache folders (`ctx.dataDir`, `ctx.cacheDir`) that survive upgrades; its

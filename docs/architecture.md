@@ -37,8 +37,10 @@ packages/
 systems/
   fs/          @harness/system-fs        shared/ (contract), server/, client/ (Vue renderers)
   embedder/    @harness/system-embedder  shared/ (contract + service schemas), server/
-  web/         @harness/system-web       Tavily search, page reading and rendering (build 2, web-system lane)
+  web/         @harness/system-web       Tavily search, page reading and rendering (build 2), `web/crawl` into a resource root (build 4)
   template/    the template system `harness system new` copies: system.json, shared/, server/, client/ (build 2)
+  input/       @harness/system-input     the `input/form` kind, `get_input` (reuses a saved form or has an agent write a gin type), the `ask_*` fns, `save_form`, the form renderer (build 4)
+  google-calendar/ @harness/system-google-calendar  a per-person `connect` system (OAuth): list, search, get, create, update and delete events (build 4)
 scripts/       dev.ts (npm run dev), stack.ts (boots the stack), hub-client.ts (the CLI's `@harness/cli/hub-client`) and
                session.ts (driving a hub from scripts), web-manifest.ts (generated web manifest), env-example.ts
   docs/        the authoring guide generator (`npm run docs:authoring`, `--check` in `npm run check`): the TypeScript

@@ -49,7 +49,7 @@ const fixedSharing = computed(() => {
   switch (memory.value?.scope.to) {
     case 'user': return 'Written for its author alone; that stays as written.';
     case 'session': return 'Written for one chat of its author; that stays as written.';
-    default: return undefined;
+    case 'everyone': case undefined: return undefined;
   }
 });
 const fromResource = computed(() => (record.value?.origin?.type === 'resource' ? record.value.origin : undefined));

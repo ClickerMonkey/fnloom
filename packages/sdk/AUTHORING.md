@@ -4207,7 +4207,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/run_get`: One run: its fn, args, status, result or error, cost and timings. Tags: `read`.
 
   ```text
-  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, llmCall?, toolCallId?, args, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
+  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, connection?, llmCall?, toolCallId?, args, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
   ```
 - `hub/run_tree`: The tree of runs a turn made: each run with the runs it called. Tags: `read`.
 
@@ -5580,6 +5580,11 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
    * own it from then on and can change that on the fn's page. Resolves once the hub has it.
    */
   shareFn(fn: string, share: ShareRule): Promise<void>;
+  /**
+   * Which of the named fns of this system the run's person may use now, by the hub's current visibility (groups
+   * included). Ask this rather than a copy of who was given a fn: its owner or an admin can change that at any time.
+   */
+  usableFns(fns: readonly string[]): Promise<string[]>;
   /** Set when this run is resuming after a pause or a hub restart. */
   readonly resume: Resume<T['resume']> | undefined;
   /** Called when the run is asked to pause: return the state to resume from. Only fns with a resume type can pause. */
@@ -6820,6 +6825,33 @@ const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>>;
 
 Refers to: [`AccessInfo`](#core-accessinfo).
 
+#### `SHARE_EDITOR`
+
+const · `import { SHARE_EDITOR } from '@harness/sdk'`
+
+The chat's visibility editor: Only me, Me and chosen people (with the hub's people-and-groups picker), or Everyone,
+the same control as everywhere else in the app. The chat provides it on a hub with more than one person.
+
+```ts
+const SHARE_EDITOR: InjectionKey<Component<ShareEditorProps>>;
+```
+
+#### `ShareEditorProps`
+
+interface · `import { ShareEditorProps } from '@harness/sdk'`
+
+The props of the chat's visibility editor, as a renderer binds them (`v-model` over the rule).
+
+```ts
+interface ShareEditorProps {
+  modelValue: ShareRule;
+  /** The editor's label ("Who can use it" when absent). */
+  label?: string;
+}
+```
+
+Refers to: [`ShareRule`](#core-sharerule).
+
 #### `InputAnswer`
 
 type · `import { InputAnswer } from '@harness/sdk'`
@@ -7399,6 +7431,8 @@ class FakeHub {
   readonly connectionUpdates: Array<HubBody<'connectionUpdate'>>;
   /** Fns a run handed to its person (`shareFn`). */
   readonly shares: Array<HubBody<'shareFn'>>;
+  /** Whether a run's person may use a fn of its system (`usableFns`); every fn by default. */
+  usable: (run: HubBody<'usableFns'>['run'], fn: string) => boolean;
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]>;
   readonly forwards: LlmForward[];
   readonly embeds: string[][];
@@ -10558,6 +10592,13 @@ type ConnectResult = {
   account: {
     label: string;
     detail?: string | undefined;
+    choices?: Record<string, {
+      value: string;
+      label: string;
+      hint?: string | undefined;
+      icon?: string | undefined;
+      missing?: boolean | undefined;
+    }[]> | undefined;
   };
   credentials: z.core.util.JSONType;
   expiresAt?: number | undefined;
@@ -12034,6 +12075,7 @@ type OutcomeWire = {
     }[];
     raw?: string | undefined;
   };
+  undo?: z.core.util.JSONType | undefined;
   cost?: number | undefined;
 } | {
   status: "paused";

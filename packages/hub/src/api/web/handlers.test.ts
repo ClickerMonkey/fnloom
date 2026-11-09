@@ -201,10 +201,11 @@ describe('finding handlers', () => {
     await expect(web.client.call('mentions', { session: sessionId, provider, query: 'a' }, as)).resolves.toEqual([{ label: 'a.txt', target: 'a.txt' }]);
     await expect(web.client.call('mentionHover', { session: sessionId, provider, target: 'a.txt' }, as)).resolves.toEqual({});
     await expect(web.client.call('resource', { uri: 'fs://root/a', want: ['text'] }, as)).resolves.toMatchObject({ text: { inline: 'hi' } });
+    const anyFunction: unknown = expect.any(Function);
     expect(calls).toEqual([
       ['suggest', { session: sessionId, text: 'read a file', pool: r.hub.settings.modelEnv.HARNESS_SUGGESTIONS * 2 }],
-      ['search', { text: 'read', kinds: ['fn', 'context', 'section', 'message', 'type'], limit: 20, keep: expect.any(Function) }],
-      ['search', { text: 'read', kinds: ['fn'], limit: 3, keep: expect.any(Function) }],
+      ['search', { text: 'read', kinds: ['fn', 'context', 'section', 'message', 'type'], limit: 20, keep: anyFunction }],
+      ['search', { text: 'read', kinds: ['fn'], limit: 3, keep: anyFunction }],
       ['mentions', { session: sessionId, actor: me, provider }, 'a'],
       ['hover', { session: sessionId, actor: me, provider }, 'a.txt'],
       ['read', 'fs://root/a', ['text']],
