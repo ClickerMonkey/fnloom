@@ -23,12 +23,13 @@ import type { PackageOptions } from '../state/packages.ts';
 import LoadState from '../components/LoadState.vue';
 import LogView from '../components/LogView.vue';
 import StatusBadge from '../components/StatusBadge.vue';
+import ConnectSetup from '../components/ConnectSetup.vue';
 import SystemConfig from '../components/SystemConfig.vue';
 import SystemOverview from '../components/SystemOverview.vue';
 import { SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
 import { SystemTab } from '../sections.ts';
 
-const { admin, toasts } = useStores();
+const { admin, toasts, chat } = useStores();
 const store = admin.system;
 const route = useRoute();
 const router = useRouter();
@@ -86,8 +87,17 @@ onBeforeUnmount(() => { store.close(); });
 async function save(config: Json): Promise<void> {
   const result = await store.configure(config);
   problems.value = result.ok ? [] : result.problems;
-  if (result.ok) { toasts.ok('Config saved', `Version ${result.version}`); }
+  if (result.ok) {
+    toasts.ok('Config saved', `Version ${result.version}`);
+    // a per-person system's page becomes ready once its config is valid
+    if (connectPage.value !== undefined) { void chat.connections.load(true); }
+  }
 }
+
+/** The page people connect their own account on, when this system has one (a calendar). */
+const connectPage = computed(() => (name.value === undefined ? undefined : chat.connections.page(name.value)));
+/** Where the provider sends people back to: this hub's `/connect/callback`. */
+const redirect = `${window.location.origin}/connect/callback`;
 
 async function enable(part: keyof SystemEnabled, on: boolean): Promise<void> {
   if (!await store.enable(part, on)) { toasts.error(store.enabling.problem.value); }
@@ -135,10 +145,16 @@ async function act(action: SystemAction, version?: string): Promise<void> {
             <AutoPairList :secrets="autoPairs.secrets.value.value ?? []" :now="now" :busy="autoPairs.revoking.busy.value" @revoke="revoking = $event" />
           </template>
         </div>
-        <SystemConfig
-          v-else-if="tab === 'config'" :type="view.configType" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
-          :needs-config="view.needsConfig" :now="now" :busy="store.config.busy.value" :problems="problems" @save="save"
-        />
+        <div v-else-if="tab === 'config'" class="config-tab">
+          <ConnectSetup
+            v-if="connectPage !== undefined" :title="connectPage.decl.title" :redirect="redirect" :ready="connectPage.ready" :page="links.connect(connectPage.system)"
+            @copied="(ok) => (ok ? toasts.ok('Copied') : toasts.error('Couldn’t copy.'))"
+          />
+          <SystemConfig
+            :type="view.configType" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
+            :needs-config="view.needsConfig" :now="now" :busy="store.config.busy.value" :problems="problems" @save="save"
+          />
+        </div>
         <LoadState
           v-else-if="tab === 'fns'" :loading="store.fns.loading.value" :problem="store.fns.problem.value" :ready="store.fns.value.value !== undefined"
           :empty="(store.fns.value.value?.length ?? 0) === 0" empty-icon="fn" empty-title="No fns" empty-body="This system doesn't add any fns." @retry="store.loadFns()"
@@ -168,6 +184,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
 
 <style scoped>
 .instances { display: grid; gap: var(--space-3); }
+.config-tab { display: grid; gap: var(--space-4); }
 .search-fns { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-sm); }
 .sub { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }

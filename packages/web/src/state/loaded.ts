@@ -76,6 +76,14 @@ export interface Page<T> {
   readonly cursor?: string | undefined;
 }
 
+/**
+ * Whether a list's answer is partial: the hub stopped reading at its scan bound, so more rows may match than it
+ * found (`QueryFnResult`'s `partial`). Read from any page, as not every list's page schema carries it yet.
+ */
+export function partialOf(page: object): boolean {
+  return 'partial' in page && page.partial === true;
+}
+
 /** How a paged list fetches. */
 export interface PagedSource<T, F> {
   fetch(filter: F, cursor: string | undefined, limit: number): Promise<Page<T>>;
@@ -99,6 +107,8 @@ export class Paged<T, F> {
   /** Whether the first page for the current filter has arrived. */
   readonly loaded = ref(false);
   readonly problem = ref('');
+  /** The hub stopped at its scan bound for this filter: more rows may match (narrow the filters). */
+  readonly partial = ref(false);
   readonly #hasMore = ref(false);
   /** Whether there is another page to fetch. */
   readonly hasMore = computed(() => this.#hasMore.value);
@@ -120,6 +130,7 @@ export class Paged<T, F> {
       this.items.value = page.items;
       this.#cursor = page.cursor;
       this.#hasMore.value = page.cursor !== undefined;
+      this.partial.value = partialOf(page);
       this.loaded.value = true;
     } catch (error) {
       if (generation === this.#generation) { this.problem.value = problemText(error, this.#source.failure); }

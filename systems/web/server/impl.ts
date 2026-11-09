@@ -5,8 +5,9 @@
  */
 import { ResourceReadResult, ResourceRecord, type InputProblem, type ResourceImportArgs, type ResourceReadArgs } from '@harness/core';
 import { CallFailed, type FnCtx, type FnTypes, type Outcome, type SystemImpl } from '@harness/sdk';
-import type { RenderModeValue, WebContract } from '../shared/index.ts';
+import { CRAWL_PAGES_DEFAULT, type RenderModeValue, type WebContract } from '../shared/index.ts';
 import { parseWebUrl, redactUrl } from '../shared/urls.ts';
+import { Crawler, FetchedPages, crawlFolder, crawlRoot } from './crawl.ts';
 import type { WebSettings } from './env.ts';
 import type { ContentUploads, FetchSettings, PageSource, SearchArgs, SearchProvider, WebConfig } from './index.ts';
 import { PageMentions, RecentPages } from './mentions.ts';
@@ -27,6 +28,8 @@ export interface WebDeps {
 export interface WebServer {
   readonly impl: SystemImpl<WebContract['defs']>;
   readonly recent: RecentPages;
+  /** Pages crawls fetched, waiting for the hub to fetch them back. */
+  readonly held: FetchedPages;
 }
 
 /** Tavily credits a search uses: one for a basic search, two for an advanced one. */
@@ -72,6 +75,7 @@ export function createWebImpl(deps: WebDeps): WebServer {
   const s = deps.settings;
   const recent = new RecentPages(s.WEB_RECENT_PAGES);
   const mentions = new PageMentions(recent, s.WEB_MENTION_LIMIT);
+  const held = new FetchedPages(s.WEB_CRAWL_CACHE_TTL, deps.now);
 
   const impl: SystemImpl<WebContract['defs']> = {
     fns: {
@@ -88,7 +92,7 @@ export function createWebImpl(deps: WebDeps): WebServer {
         run: (args, ctx) => attempt(ctx, async () => {
           if (parseWebUrl(args.url) === undefined) { return ctx.invalid([urlProblem(args.url)]); }
           const started = deps.now();
-          const page = await deps.pages.fetch(args.url, fetchSettings(ctx.config, s, args.render), ctx.signal);
+          const page = held.take(parseWebUrl(args.url)?.href ?? args.url) ?? await deps.pages.fetch(args.url, fetchSettings(ctx.config, s, args.render), ctx.signal);
           const content = await deps.uploads.upload(ctx.signal, page.bytes, page.mime);
           recent.add({ url: page.requestedUrl, finalUrl: page.finalUrl, title: page.title, uri: undefined, rendered: page.rendered, at: deps.now() });
           ctx.log.info('web.fetch.done', {
@@ -96,6 +100,41 @@ export function createWebImpl(deps: WebDeps): WebServer {
             took: deps.now() - started, ...(page.renderError === undefined ? {} : { renderError: page.renderError }),
           });
           return ctx.done({ content, mime: page.mime, finalUrl: page.finalUrl, status: page.status, rendered: page.rendered, title: page.title });
+        }),
+      },
+      crawl: {
+        run: (args, ctx) => attempt(ctx, async () => {
+          const start = parseWebUrl(args.url);
+          if (start === undefined) { return ctx.invalid([urlProblem(args.url)]); }
+          start.hash = '';
+          const folder = crawlFolder(start, deps.now());
+          const maxPages = Math.min(args.maxPages ?? CRAWL_PAGES_DEFAULT, s.WEB_CRAWL_MAX_PAGES);
+          const crawler = new Crawler({
+            pages: deps.pages,
+            held,
+            importPage: async (url, into) => {
+              const importing: ResourceImportArgs = { url, folder: into, ...(args.render === undefined ? {} : { render: args.render }) };
+              const record = ResourceRecord.parse(await ctx.fns.importResource({ input: importing }));
+              return { uri: record.uri, title: record.stat.name };
+            },
+            agent: s.WEB_ROBOTS_AGENT,
+            maxLinks: s.WEB_CRAWL_MAX_LINKS,
+            progress: (fraction, message) => { ctx.progress.set(Math.min(1, fraction), message); },
+            signal: ctx.signal,
+          });
+          const report = await crawler.run({
+            start, folder, maxPages,
+            depth: args.depth ?? 1,
+            sameSite: args.sameSite ?? true,
+            include: args.include ?? [],
+            exclude: args.exclude ?? [],
+            fetch: fetchSettings(ctx.config, s, args.render),
+          });
+          for (const page of report.pages) { recent.add({ url: page.url, finalUrl: page.url, title: page.title, uri: page.uri, rendered: false, at: deps.now() }); }
+          const root = crawlRoot(report.pages.map((page) => page.uri), folder);
+          const shown = report.skipped.slice(0, s.WEB_CRAWL_SKIPPED_SHOWN);
+          ctx.log.info('web.crawl.done', { url: redactUrl(start), root, pages: report.pages.length, skipped: report.skipped.length });
+          return ctx.done({ root, count: report.pages.length, pages: [...report.pages], skipped: shown, moreSkipped: report.skipped.length - shown.length });
         }),
       },
       read: {
@@ -139,5 +178,5 @@ export function createWebImpl(deps: WebDeps): WebServer {
       },
     },
   };
-  return { impl, recent };
+  return { impl, recent, held };
 }

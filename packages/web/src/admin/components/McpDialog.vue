@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
  * Making a hub MCP, or changing its settings: its name (the route follows it until edited), route, instructions sent
- * to clients, how fns are offered, whose permissions its runs use, the systems that may mint session tokens for it,
- * the browser origins allowed, and whether it is on. Rules are edited on its page; a new MCP starts exposing nothing.
+ * to clients, how fns are offered, whose permissions its runs use, the systems that may mint session tokens for it
+ * (picked), the browser origins allowed (typed), and whether it is on. Rules are edited on its page; a new MCP starts exposing nothing.
  */
 import type { ActorId, HubMcpInput, HubMcpView, McpToolMode } from '@harness/core';
 import { HubMcpInput as McpInput } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import { UiBanner, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, UiSwitch, UiTextarea, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import HubPicker from '../../components/pickers/HubPicker.vue';
+import { UiBanner, UiButton, UiChipInput, UiDialog, UiInput, UiSegmented, UiSelect, UiSwitch, UiTextarea, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { emptyRules, slugOf, TOOL_MODE_WORDS } from '../logic/mcps.ts';
 
 const props = withDefaults(defineProps<{
@@ -30,8 +31,8 @@ const instructions = ref('');
 const toolMode = ref<McpToolMode>('each');
 /** The person its runs use ('' until one is chosen). */
 const user = ref<ActorId>('');
-const grantees = ref('');
-const origins = ref('');
+const grantees = ref<readonly string[]>([]);
+const origins = ref<readonly string[]>([]);
 const enabled = ref(true);
 const tried = ref(false);
 
@@ -44,8 +45,8 @@ watch(open, (isOpen) => {
   instructions.value = m?.instructions ?? '';
   toolMode.value = m?.toolMode ?? 'each';
   user.value = m?.user ?? props.me ?? '';
-  grantees.value = m?.grantees.join(', ') ?? '';
-  origins.value = m?.origins.join(', ') ?? '';
+  grantees.value = m?.grantees ?? [];
+  origins.value = m?.origins ?? [];
   enabled.value = m?.enabled ?? true;
   tried.value = false;
 }, { immediate: true });
@@ -53,12 +54,12 @@ watch(name, (value) => { if (!slugEdited.value) { slug.value = slugOf(value) ?? 
 
 const MODES: readonly SegmentOption<McpToolMode>[] = (['each', 'static'] as const).map((mode) => ({ value: mode, label: TOOL_MODE_WORDS[mode].label }));
 const people = computed<SelectOption<ActorId>[]>(() => [{ value: '', label: 'Choose a person' }, ...props.people.map((p) => ({ value: p.id, label: p.name }))]);
-const list = (text: string): string[] => text.split(',').map((s) => s.trim()).filter((s) => s !== '');
+const readOrigin = (text: string): string | undefined => (text === '' ? undefined : text);
 
 /** The input the fields make, checked with the hub's own schema. */
 const checked = computed(() => McpInput.safeParse({
   name: name.value.trim(), slug: slug.value.trim(), instructions: instructions.value.trim(), toolMode: toolMode.value, user: user.value,
-  grantees: list(grantees.value), origins: list(origins.value), enabled: enabled.value, rules: props.mcp?.rules ?? emptyRules(),
+  grantees: grantees.value, origins: origins.value, enabled: enabled.value, rules: props.mcp?.rules ?? emptyRules(),
 }));
 const problemOf = (field: keyof HubMcpInput): string => {
   if (!tried.value || checked.value.success) { return ''; }
@@ -87,8 +88,11 @@ function save(): void {
         <p class="hint">{{ TOOL_MODE_WORDS[toolMode].about }}</p>
       </div>
       <UiSelect v-model="user" :options="people" label="Runs as" hint="Its runs use this person's permissions, budgets and approvals." required :error="problemOf('user')" data-testid="mcp-user" />
-      <UiInput v-model="grantees" label="Systems that may mint session tokens" placeholder="claude" hint="Comma separated. A grantee's runs get short-lived tokens for their own sessions." :error="problemOf('grantees')" />
-      <UiInput v-model="origins" label="Browser origins" placeholder="https://claude.ai" hint="Comma separated. None allows only requests with no Origin header." />
+      <HubPicker
+        v-model="grantees" source="system" label="Systems that may mint session tokens" placeholder="Search systems" hint="A grantee's runs get short-lived tokens for their own sessions."
+        :error="problemOf('grantees')" testid="mcp-grantees"
+      />
+      <UiChipInput v-model="origins" label="Browser origins" placeholder="https://claude.ai" hint="Enter adds one. None allows only requests with no Origin header." :read="readOrigin" refusal="Type an origin." />
       <UiSwitch v-model="enabled" label="On" description="Off refuses every call and keeps its settings." />
       <UiBanner v-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
       <!-- Enter in a field submits the form; the visible button is in the footer, outside it -->

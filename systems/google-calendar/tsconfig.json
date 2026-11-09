@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "../../.types/system-google-calendar", "tsBuildInfoFile": "../../.types/system-google-calendar.tsbuildinfo", "types": ["node"] },
+  "include": ["shared", "server"],
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }]
+}

@@ -162,6 +162,13 @@ export function visible(page: Page, id: string): Promise<boolean> {
   }));
 }
 
+/** Type into a picker (`UiPicker`, by its test id), wait for an option to show, and pick the first with Enter. */
+export async function pickIn(page: Page, id: string, text: string): Promise<void> {
+  await page.type(`${tid(id)} input`, text);
+  await page.waitForSelector('[data-testid="picker-option"]', { timeout: 15_000, visible: true });
+  await page.keyboard.press('Enter');
+}
+
 /** The text of the first element with a test id. */
 export async function textOf(page: Page, id: string): Promise<string> {
   const handle = await find(page, id);

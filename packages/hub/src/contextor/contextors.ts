@@ -54,8 +54,8 @@ export function contextCost(record: ContextRecord, detail: Detail, input: Pick<C
 }
 
 /** Whether a person (in a session) may see a context item: switched on, a system the session uses, memory in scope. */
-export function visible(record: ContextRecord, input: Pick<ContextorInput, 'session' | 'user'>): boolean {
-  if (record.disabled === true || (record.decl.weight ?? 1) <= 0) return false;
+export function visible(record: ContextRecord, input: Pick<ContextorInput, 'session' | 'user' | 'access'>): boolean {
+  if (record.disabled === true || (record.decl.weight ?? 1) <= 0 || !input.access.seesContext(record)) return false;
   if (input.session !== undefined && !allowsSystem(input.session, record.system)) return false;
   return seesOrigin(record.origin, { actor: input.user, session: input.session?.id });
 }
@@ -72,7 +72,7 @@ export function dynamicAsk(input: Pick<ContextorInput, 'session' | 'user' | 'per
 }
 
 /** The context records of names a person may see, in order, each once, dynamic ones with their system's text. */
-export async function contextsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'user' | 'person' | 'commands'>): Promise<ContextRecord[]> {
+export async function contextsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'user' | 'person' | 'commands' | 'access'>): Promise<ContextRecord[]> {
   const records: ContextRecord[] = [];
   for (const name of unique(names)) {
     const parsed = QualifiedName.safeParse(name);
@@ -83,12 +83,12 @@ export async function contextsOf(deps: ContextorDeps, names: readonly string[], 
 }
 
 /** The fn views of names the session may use, in order, each once. */
-export async function viewsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session'>): Promise<FnView[]> {
+export async function viewsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'access'>): Promise<FnView[]> {
   const views: FnView[] = [];
   for (const name of unique(names)) {
     const parsed = QualifiedName.safeParse(name);
     const view = parsed.success ? await deps.views.view(parsed.data) : undefined;
-    if (view !== undefined && usable(view.record, input.session)) views.push(view);
+    if (view !== undefined && usable(view.record, input.session, input.access)) views.push(view);
   }
   return views;
 }
@@ -417,7 +417,7 @@ export class GraphContextorImpl implements Contextor {
         continue;
       }
       const view = await this.#deps.views.view(parsed.data);
-      if (view !== undefined && usable(view.record, input.session) && (forced.has(name) || forModel(view.record.decl.visibility))) {
+      if (view !== undefined && usable(view.record, input.session, input.access) && (forced.has(name) || forModel(view.record.decl.visibility))) {
         out.push({ kind: 'fn', name: parsed.data, view });
       }
     }

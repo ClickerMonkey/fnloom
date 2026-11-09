@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "google-calendar",
+  "version": "0.1.0",
+  "description": "Each person connects their Google Calendar; the chat can see their events and, as they allow, create, change and delete them.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "instances": "one"
+}

@@ -41,7 +41,7 @@ describe('assemble', () => {
       },
     };
     const { builds } = assemble(r.hub, r.api, modules, extras);
-    expect(builds()).toHaveLength(10);
+    expect(builds()).toHaveLength(12);
     expect(seenActor).toBe('act_hub');
   });
 

@@ -24,7 +24,9 @@ const props = withDefaults(defineProps<{
   nav?: boolean;
   /** What is shown may be behind (a reconnect's catch-up is still being retried). */
   stale?: boolean;
-}>(), { waiting: 0, nav: false, stale: false });
+  /** Debug mode is on: the thread shows the messages and parts it hides. */
+  debug?: boolean;
+}>(), { waiting: 0, nav: false, stale: false, debug: false });
 
 const emit = defineEmits<{ sessions: []; nav: []; rename: [title: string]; action: [action: HeaderAction] }>();
 const titleBox = ref<TitleHandle | null>(null);
@@ -39,6 +41,7 @@ const overflow = computed<MenuItem<HeaderAction>[]>(() => [
   ] : []),
   { kind: 'separator' },
   { value: 'shortcuts', label: 'Keyboard shortcuts', icon: 'keyboard', hint: '?' },
+  { value: 'debug', label: props.debug ? 'Leave debug mode' : 'Debug: show hidden messages', icon: 'code' },
   { value: 'archive', label: props.archived ? 'Restore' : 'Archive', icon: 'archive' },
   { value: 'delete', label: 'Delete chat…', icon: 'trash', danger: true },
 ]);
@@ -58,6 +61,7 @@ function choose(action: HeaderAction): void {
       <UiBadge v-if="status === 'running'" tone="accent" live data-testid="session-status">Working</UiBadge>
       <UiBadge v-else-if="status === 'paused'" tone="warn" data-testid="session-status">Paused</UiBadge>
       <UiBadge v-if="waiting > 0" tone="warn" data-testid="needs-you">{{ waiting }} waiting</UiBadge>
+      <UiBadge v-if="debug" tone="accent" data-testid="debug-badge" title="Hidden messages and parts are shown">Debug</UiBadge>
       <UiBadge v-if="stale" live data-testid="catching-up" title="Some updates may have been missed while offline; fetching them again.">Catching up…</UiBadge>
     </div>
     <div class="tools">

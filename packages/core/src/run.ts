@@ -146,8 +146,12 @@ export const FnError = z.object({
 });
 export type FnError = z.infer<typeof FnError>;
 
-/** Why a run's input was refused: its JSON didn't parse, it didn't fit the fn's args type, or the fn's own checks failed. */
-export const INPUT_PROBLEM_SOURCES = ['json', 'schema', 'validation'] as const;
+/**
+ * Why a run's input was refused: its JSON didn't parse, it didn't fit the fn's args type, or the fn's own checks failed.
+ * Build 4 (fn validation hooks): `unavailable`, the fn's input hook said it can't run now; `result`, its output hook
+ * refused the result and asked for another try.
+ */
+export const INPUT_PROBLEM_SOURCES = ['json', 'schema', 'validation', 'unavailable', 'result'] as const;
 export const InputProblemSource = z.enum(INPUT_PROBLEM_SOURCES);
 export type InputProblemSource = z.infer<typeof InputProblemSource>;
 

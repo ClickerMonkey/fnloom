@@ -19,7 +19,7 @@ async function world() {
 describe('suggestions for a sent message', () => {
   it('by score: the best over the threshold are used, the rest say why not, and the message carries the record', async () => {
     const w = await world();
-    const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'read the readme' });
+    const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'read the readme', actor: w.admin.id });
     expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/read', 'fs/guide']);
     expect(decided.record).toEqual({
       by: 'score', threshold: 0.15, items: [
@@ -43,7 +43,7 @@ describe('suggestions for a sent message', () => {
       runs: [], status: 'done', replyAll: false, answerers: [], createdAt: 0,
     });
     w.llm.answers = ['```json\n{"picks":[{"name":"fs/guide","reason":"explains files"}],"declined":[{"name":"fs/read","reason":"nothing to read yet"}]}\n```'];
-    const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'how do files work' });
+    const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'how do files work', actor: w.admin.id });
     expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/guide']);
     expect(decided.record).toMatchObject({ by: 'decision', threshold: 0.3, call: 'mdl_1' });
     expect(decided.record?.items).toEqual([
@@ -64,7 +64,7 @@ describe('suggestions for a sent message', () => {
     const w = await world();
     await w.chat.suggestions.set(SuggestDecision.parse({ enabled: true, model: { model: { model: 'tiny' } }, cap: 1 }), w.admin.id);
     w.llm.answers = ['not json at all'];
-    const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'files' });
+    const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'files', actor: w.admin.id });
     expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/read']);
     expect(decided.record?.items.slice(0, 2)).toEqual([
       { used: true, kind: 'fn', name: 'fs/read', score: 0.9 },
@@ -76,7 +76,7 @@ describe('suggestions for a sent message', () => {
   it('is off by default, and records nothing for a message with no candidates', async () => {
     const w = await chatWorld();
     expect((await w.chat.suggestions.setting()).value).toMatchObject({ enabled: false, messages: 3 });
-    expect(await w.chat.suggestions.decide({ session: w.session.id, text: 'hello' })).toEqual({ suggestions: [] });
+    expect(await w.chat.suggestions.decide({ session: w.session.id, text: 'hello', actor: w.admin.id })).toEqual({ suggestions: [] });
   });
 });
 

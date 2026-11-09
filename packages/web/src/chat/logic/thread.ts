@@ -4,10 +4,52 @@
  * text of a message (for copying and reply quotes) and the parts to send again when retrying or editing. Pure, so it
  * is tested alone.
  */
-import type { ActorId, ChatMessage, Link, MessageId, MessagePart, OutgoingPart, RunId, TurnId } from '@harness/core';
+import { INPUT_ANSWER_TAG, type ActorId, type ChatMessage, type Link, type MessageId, type MessagePart, type ModelCallId, type OutgoingPart, type RunId, type TurnId } from '@harness/core';
 
 /** A mention in a message. */
 export type MentionPart = Extract<MessagePart, { type: 'mention' }>;
+
+/** An input form's answers, as a message carries them. */
+export type InputAnswerPart = Extract<MessagePart, { type: 'input-answer' }>;
+
+/** The parts the chat hides: added for the model (by the hub or a hook), or a form's answers. */
+const HIDDEN_PARTS = new Set<MessagePart['type']>(['extra', 'hook', 'input-answer']);
+
+/** Whether the chat hides a part (it still goes to the model). */
+export function isHiddenPart(part: MessagePart): boolean {
+  return HIDDEN_PARTS.has(part.type);
+}
+
+/**
+ * Whether a person's message shows nothing: every part is hidden (a form's answers, what the hub added), so it has no
+ * words and no files. Such a message is left out of the thread unless the chat is in debug mode.
+ */
+export function isHiddenMessage(message: Pick<ChatMessage, 'role' | 'parts'>): boolean {
+  return message.role === 'user' && message.parts.every(isHiddenPart);
+}
+
+/** The answers sent to each input form, by the run that asked (the first answer wins). */
+export function inputAnswers(messages: readonly ChatMessage[]): ReadonlyMap<RunId, InputAnswerPart> {
+  const answers = new Map<RunId, InputAnswerPart>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type === 'input-answer' && !answers.has(part.run)) { answers.set(part.run, part); }
+    }
+  }
+  return answers;
+}
+
+/** An input form's answers as the model reads them (`<input-answer title="…">…</input-answer>`). */
+export function inputAnswerText(part: Pick<InputAnswerPart, 'title' | 'text'>): string {
+  return `<${INPUT_ANSWER_TAG} title="${part.title.replaceAll('"', '&quot;')}">${part.text}</${INPUT_ANSWER_TAG}>`;
+}
+
+/** What the thread shows besides the plain messages. */
+export interface ThreadOptions {
+  /** Show the messages the chat hides (debug mode). */
+  readonly debug?: boolean;
+  readonly locale?: string;
+}
 
 /** One row of the thread. */
 export type ThreadItem =
@@ -16,7 +58,16 @@ export type ThreadItem =
    * A person's message. `carried` are the messages that carry what its `!` runs attached (the hub posts them by the
    * system that ran the fn); they show under the message's own run cards, not as an answer of their own.
    */
-  | { readonly kind: 'user'; readonly key: string; readonly message: ChatMessage; readonly mine: boolean; readonly carried: readonly ChatMessage[] }
+  | {
+    readonly kind: 'user'; readonly key: string; readonly message: ChatMessage; readonly mine: boolean; readonly carried: readonly ChatMessage[];
+    /** Only parts the chat hides (shown in debug mode alone). */
+    readonly hidden: boolean;
+  }
+  /**
+   * The model re-read the whole chat for the answer below (no prompt cache hit, where earlier calls had one): a wavy
+   * rule across the thread with the time of the call behind it.
+   */
+  | { readonly kind: 'cache-miss'; readonly key: string; readonly call: ModelCallId; readonly at: number }
   | { readonly kind: 'answer'; readonly key: string; readonly turn: TurnId; readonly author: ActorId; readonly messages: readonly ChatMessage[]; readonly streaming: boolean; readonly failed: boolean }
   /** A note; an undo note carries the messages of the turn it undid, which the thread no longer shows in place. */
   | { readonly kind: 'note'; readonly key: string; readonly message: ChatMessage; readonly undone: readonly ChatMessage[] };
@@ -63,7 +114,8 @@ export function invocationCarriers(messages: readonly ChatMessage[]): ReadonlyMa
  * its note keeps them, so a retry or an edit reads as the question asked once. What a `!` run attached rides with the
  * message that ran it (`carried`), so each run shows once, under the person who ran it.
  */
-export function threadItems(messages: readonly ChatMessage[], me: ActorId | undefined, now: number, locale?: string): ThreadItem[] {
+export function threadItems(messages: readonly ChatMessage[], me: ActorId | undefined, now: number, options: ThreadOptions = {}): ThreadItem[] {
+  const { debug = false, locale } = options;
   const items: ThreadItem[] = [];
   const undone = undoneTurns(messages);
   const carriers = invocationCarriers(messages);
@@ -74,6 +126,8 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
   const closeAnswer = (): void => {
     if (answer === undefined) { return; }
     const first = answer.messages[0];
+    const missed = answer.messages.find((m) => m.cacheMiss !== undefined)?.cacheMiss;
+    if (missed !== undefined && first !== undefined) { items.push({ kind: 'cache-miss', key: `c-${first.id}`, call: missed.call, at: missed.at }); }
     if (first !== undefined) {
       items.push({
         kind: 'answer', key: `a-${first.id}`, turn: answer.turn, author: answer.author, messages: answer.messages,
@@ -87,6 +141,8 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
       hidden.set(message.turn, [...(hidden.get(message.turn) ?? []), message]);
       continue;
     }
+    const hiddenMessage = isHiddenMessage(message);
+    if (hiddenMessage && !debug) { continue; }
     const start = dayStart(message.createdAt);
     if (start !== day) {
       closeAnswer();
@@ -105,7 +161,7 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
     }
     closeAnswer();
     items.push(message.role === 'user'
-      ? { kind: 'user', key: `u-${message.id}`, message, mine: message.author === me, carried: carriers.get(message.id) ?? [] }
+      ? { kind: 'user', key: `u-${message.id}`, message, mine: message.author === me, carried: carriers.get(message.id) ?? [], hidden: hiddenMessage }
       : { kind: 'note', key: `n-${message.id}`, message, undone: hidden.get(message.turn) ?? [] });
   }
   closeAnswer();
@@ -137,7 +193,8 @@ export function resendParts(parts: readonly MessagePart[]): OutgoingPart[] {
       case 'command': out.push({ type: 'command', context: part.context, args: part.args }); break;
       case 'file': out.push({ type: 'file', ref: part.ref, name: part.name }); break;
       // the rest are added by the hub or the agent, never sent by a person
-      case 'reasoning': case 'invocation': case 'extra': case 'hook': case 'attachment': case 'link': break;
+      // a form's answers belong to the run that asked, which a resend doesn't repeat
+      case 'reasoning': case 'invocation': case 'extra': case 'hook': case 'input-answer': case 'attachment': case 'link': break;
     }
   }
   return out;
@@ -171,7 +228,7 @@ export function splitParts(parts: readonly MessagePart[]): { readonly shown: Mes
   const shown: MessagePart[] = [];
   const added: MessagePart[] = [];
   for (const part of parts) {
-    if (part.type === 'extra' || part.type === 'hook') { added.push(part); } else { shown.push(part); }
+    if (isHiddenPart(part)) { added.push(part); } else { shown.push(part); }
   }
   return { shown, added };
 }

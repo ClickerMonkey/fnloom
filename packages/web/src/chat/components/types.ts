@@ -20,7 +20,7 @@ export interface RenderView<K extends RenderKind = RenderKind> {
 export type MessageAction = 'copy' | 'reply' | 'edit' | 'retry' | 'undo' | 'details' | 'tree' | 'link';
 
 /** What the chat header's tools and overflow menu offer. */
-export type HeaderAction = 'rename' | 'tree' | 'undo' | 'settings' | 'people' | 'archive' | 'delete' | 'shortcuts';
+export type HeaderAction = 'rename' | 'tree' | 'undo' | 'settings' | 'people' | 'archive' | 'delete' | 'shortcuts' | 'debug';
 
 /** One approval as the tray shows it. */
 export interface ApprovalView {

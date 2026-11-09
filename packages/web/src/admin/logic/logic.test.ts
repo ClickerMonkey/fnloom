@@ -114,7 +114,7 @@ describe('forms', () => {
   });
 
   it('builds a policy from its draft and round-trips one', () => {
-    const made = policyBody({ ...policyDraft(), description: 'Writes ask', subject: 'group', subjectValue: 'act_eng', fn: 'fs/*', tags: 'write, delete', effect: 'ask', approver: 'group', approverValue: 'act_eng', quorum: '2', priority: '3' });
+    const made = policyBody({ ...policyDraft(), description: 'Writes ask', subject: 'group', subjectValue: 'act_eng', fn: 'fs/*', tags: ['write', 'delete'], effect: 'ask', approver: 'group', approverValue: 'act_eng', quorum: '2', priority: '3' });
     expect(made).toEqual({ ok: true, value: {
       description: 'Writes ask', subject: { group: 'act_eng' }, target: { fn: 'fs/*', tags: ['write', 'delete'] },
       decision: { effect: 'ask', approver: { by: 'group', group: 'act_eng', quorum: 2 } }, priority: 3,
@@ -137,6 +137,18 @@ describe('forms', () => {
     expect(providerBody('openrouter', {})).toEqual({ ok: false, problems: { apiKey: 'Required.' } });
     expect(providerBody('openai', { apiKey: 'sk', baseURL: 'nope' })).toEqual({ ok: false, problems: { baseURL: 'Enter a web address.' } });
     expect(providerBody('openai', { apiKey: ' sk ', baseURL: '' })).toEqual({ ok: true, value: { provider: 'openai', apiKey: 'sk' } });
+  });
+
+  it('shows the AWS sign-in chosen and gathers its fields under auth', () => {
+    expect(providerFields('aws', 'keys').map((f) => [f.name, f.secret, f.required])).toEqual([
+      ['region', false, true], ['accessKeyId', false, true], ['secretAccessKey', true, true], ['sessionToken', true, false], ['profilePrefix', false, false],
+    ]);
+    expect(providerFields('aws', 'apiKey').map((f) => f.name)).toEqual(['region', 'apiKey', 'profilePrefix']);
+    expect(providerBody('aws', { region: 'us-east-1' }, 'apiKey')).toEqual({ ok: false, problems: { apiKey: 'Required.' } });
+    expect(providerBody('aws', { accessKeyId: 'AKIA' }, 'keys')).toEqual({ ok: false, problems: { region: 'Required.', secretAccessKey: 'Required.' } });
+    expect(providerBody('aws', { region: ' eu-west-1 ', apiKey: 'bedrock-key', accessKeyId: 'ignored' }, 'apiKey')).toEqual({
+      ok: true, value: { provider: 'aws', region: 'eu-west-1', auth: { kind: 'apiKey', apiKey: 'bedrock-key' } },
+    });
   });
 
   it('takes install fields from the source schema and needs them all', () => {

@@ -11,6 +11,7 @@ import {
   type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView,
 } from '@harness/core';
 import type { z } from 'zod';
+import type { AccessScope, AccessService } from '../access/index.ts';
 import type { HubServices } from '../boot/index.ts';
 import { systemView } from '../api/web/systems.ts';
 import type { ColumnFilter, Order, ScalarKey, Table, Where } from '../store/index.ts';
@@ -187,8 +188,13 @@ function callTokens(call: ModelCall): number | undefined {
 }
 
 /** Every list's source over the hub's services. */
-export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, settings: QueryEnv): ListSources {
+export function listSources(hub: Pick<HubServices, 'store' | 'catalog'> & { readonly access: Pick<AccessService, 'scope'> }, settings: QueryEnv): ListSources {
   const { store } = hub;
+  /** The rows of a scan the viewer may see, by the access scope made for them. */
+  const seen = async <Row>(viewer: QueryViewer, scan: Promise<Scan<Row>>, sees: (access: AccessScope, row: Row) => boolean): Promise<Scan<Row>> => {
+    const [access, read] = await Promise.all([hub.access.scope(viewer.id), scan]);
+    return { ...read, rows: read.rows.filter((row) => sees(access, row)) };
+  };
   const max = settings.HARNESS_QUERY_SCAN;
   const page = settings.HARNESS_QUERY_PAGE;
   /** The sessions a viewer owns (a member's model calls are those of their sessions), and whether the read was cut. */
@@ -198,11 +204,11 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
   return {
     resources: new RowsSource({
       list: 'resources', page,
-      load: (_viewer, query) => newest(
+      load: (viewer, query) => seen(viewer, newest(
         store.table('resources'),
         { ...column('system', oneOf(allowed(query.filters, 'system', SystemName))), ...column('seenAt', bound(query.filters, 'seenAt')) },
         scanOrder('resources', query, { seenAt: 'seenAt' }, [['seenAt', 'desc']]), max,
-      ),
+      ), (access, row) => access.seesUri(row.uri)),
       search: (r) => r.uri,
       fields: {
         name: (r) => r.stat.name, system: (r) => r.system, family: (r) => familyOf(r.stat.format, r.stat.mime), source: (r) => r.source?.from ?? 'system',
@@ -292,11 +298,11 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'>, setting
     }),
     contexts: new RowsSource({
       list: 'contexts', page,
-      load: (viewer, query) => mapped(newest(
+      load: (viewer, query) => seen(viewer, newest(
         store.table('context'),
         { ...column('system', oneOf(allowed(query.filters, 'system', SystemName))), ...column('updatedAt', bound(query.filters, 'updatedAt')) },
         scanOrder('contexts', query, { updatedAt: 'updatedAt' }, [['updatedAt', 'desc']]), max,
-      ), (rows) => rows.filter((record) => seesOrigin(record.origin, { actor: viewer.id }))),
+      ), (access, record) => seesOrigin(record.origin, { actor: viewer.id }) && access.seesContext(record)),
       search: (c) => c.decl.description,
       fields: {
         name: (c) => c.name, system: (c) => c.system, origin: (c) => c.origin?.type ?? 'system', tags: (c) => c.decl.tags, disabled: (c) => c.disabled === true,

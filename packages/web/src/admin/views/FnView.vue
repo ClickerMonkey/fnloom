@@ -5,6 +5,7 @@
  * cost, tokens), its runs and its typical time per day, and its latest runs (each opens in the runs browser, with a
  * link to all of them). Live: a settled run updates it.
  */
+import AccessControl from '../../components/access/AccessControl.vue';
 import { QualifiedName } from '@harness/core';
 import { computed, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -87,6 +88,7 @@ onBeforeUnmount(() => { store.close(); });
             <UiCard><DayBars title="Typical time per day" :bars="timeBars" :format="formatDuration" testid="fn-time-chart" /></UiCard>
           </div>
         </LoadState>
+        <AccessControl :target="{ kind: 'fn', fn: name }" />
         <UiCard class="runs" title="Latest runs" flush compact data-testid="fn-recent">
           <template #actions><UiButton size="sm" variant="ghost" icon="arrow-right" data-testid="fn-runs" @click="router.push(links.fnRuns(name))">All its runs</UiButton></template>
           <p v-if="store.recent.problem.value !== ''" class="problem" role="alert">{{ store.recent.problem.value }}</p>

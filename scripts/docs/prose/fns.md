@@ -45,3 +45,20 @@ outcome built with the ctx helpers (**Outcomes**):
 
 Fns can also be added and removed while the system runs: `running.add(name, fn({ … }), impl)` returns the new fn's
 typed ref, and `running.remove(ref)` removes it (**The server**).
+
+**Validation hooks.** `validate: { input, output }` adds checks the hub asks the system for around a run. `input(ctx,
+args, state)` runs before the run starts: `{ ok: false, reason }` means the fn can't run now, and the model reads "Not
+available now: reason" (it isn't an error, and the fn isn't run). `output(ctx, args, result, state)` runs after it is
+done: `{ ok: false, action: 'retry', reason }` asks the model to try again (a few times a turn), `action: 'stop'` fails
+the run with the reason shown to the person. `ctx` is the system context with the run and, for output, the attempt;
+`state` is the session state fields the fn declares, as they are now.
+
+```ts
+buy: fn({
+  description: 'Buy an item.', args: g.obj({ count: g.num({ whole: true }) }), returns: g.obj({ total: g.num() }),
+  validate: {
+    input: (_ctx, args) => (args.count > 0 ? { ok: true } : { ok: false, reason: 'Buy at least one.' }),
+    output: (ctx, _args, result) => (result.total <= 100 ? { ok: true } : { ok: false, action: ctx.attempt > 1 ? 'stop' : 'retry', reason: 'Too expensive.' }),
+  },
+}),
+```

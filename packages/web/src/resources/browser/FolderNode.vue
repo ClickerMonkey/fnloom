@@ -1,9 +1,10 @@
 <script setup lang="ts">
-/** One folder in the folder tree: its twist, its name and count, and its subfolders once it is open. */
+/** One folder in the folder tree: its twist, its name and count, and its subfolders once it is open. A web crawl's folder reads as its site and time. */
 import type { ResourceFacet } from '@harness/core';
 import { computed } from 'vue';
 import type { Loaded } from '../../state/loaded.ts';
-import { UiIcon } from '../../ui/index.ts';
+import { UiIcon, fullTime } from '../../ui/index.ts';
+import { crawlLabel, crawlOf, isCrawlRoot } from '../logic/crawls.ts';
 
 const props = defineProps<{
   folder: ResourceFacet;
@@ -16,6 +17,7 @@ const emit = defineEmits<{ toggle: [value: string]; choose: [value: string] }>()
 const open = computed(() => props.expanded.has(props.folder.value));
 const loaded = computed(() => props.folders.get(props.folder.value));
 const children = computed(() => loaded.value?.value.value ?? []);
+const crawl = computed(() => (isCrawlRoot(props.folder.value) ? crawlOf(props.folder.value) : undefined));
 </script>
 
 <template>
@@ -25,7 +27,7 @@ const children = computed(() => loaded.value?.value.value ?? []);
         <UiIcon :name="open ? 'chevron-down' : 'chevron-right'" :size="14" />
       </button>
       <button type="button" class="node" :class="{ chosen: under === folder.value }" :aria-current="under === folder.value ? 'true' : undefined" data-testid="folder-node" @click="emit('choose', folder.value)">
-        <UiIcon name="folder" :size="16" /><span class="label">{{ folder.label }}</span><span class="count">{{ folder.count.toLocaleString() }}</span>
+        <UiIcon :name="crawl === undefined ? 'folder' : 'globe'" :size="16" /><span class="label" :title="crawl === undefined ? undefined : `Crawled ${crawl.host}, ${fullTime(crawl.at)}`">{{ crawl === undefined ? folder.label : crawlLabel(crawl) }}</span><span class="count">{{ folder.count.toLocaleString() }}</span>
       </button>
     </div>
     <ul v-if="open" class="level">

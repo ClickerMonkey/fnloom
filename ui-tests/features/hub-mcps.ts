@@ -4,7 +4,7 @@
  * trying it with its secret, and its activity, each tab in the URL. The MCP made here is deleted afterwards.
  */
 import { HubMcpId } from '@harness/core';
-import { BUILD_2_VIEWPORTS, check, feature, find, inEachScheme, open, settle, show, tid } from '../kit.ts';
+import { BUILD_2_VIEWPORTS, check, feature, find, inEachScheme, open, pickIn, settle, show, tid } from '../kit.ts';
 
 export default feature({
   id: 'hub-mcps', ref: 'build-2 3.11', title: 'Hub MCPs', viewports: BUILD_2_VIEWPORTS,
@@ -32,8 +32,7 @@ export default feature({
       const id = HubMcpId.parse(new URL(page.url()).pathname.split('/')[3]);
 
       // rules: include the fs system, see the preview, save
-      await page.type(tid('mcp-include-systems-input'), 'fs');
-      await page.click(tid('mcp-include-systems-add'));
+      await pickIn(page, 'mcp-include-systems-input', 'fs');
       await find(page, 'rules-changed');
       await page.waitForFunction(() => (document.querySelector('[data-testid="mcp-preview"] [data-group="fns"] .count')?.textContent ?? '0') !== '0', { timeout: 15_000 });
       await ctx.shot('rules');

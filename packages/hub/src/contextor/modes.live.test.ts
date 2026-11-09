@@ -4,6 +4,7 @@
  * run is of that fn, not a wrapper. A rate-limited or unavailable model is skipped with a note. Run with
  * `npm run test:live`.
  */
+import { openScope } from '../access/index.ts';
 import { agent, fn, g, hub } from '@harness/sdk';
 import { liveModels } from '@harness/sdk/server/testing';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -44,7 +45,7 @@ describe('the static toolset on a free OpenRouter model (live)', () => {
         log: r.log, clock: () => r.time.now, probes: () => undefined,
       });
       registerContextorFns(r.module.hubFns, {
-        store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store), contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined),
+        store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store), contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined), access: (actor) => Promise.resolve(openScope(actor)),
       });
       const opened: string[] = [];
       r.connect('vault').behaviour.run = (request) => { opened.push(JSON.stringify(request.args)); return Promise.resolve({ status: 'done', result: `The secret word is ${SECRET}.` }); };

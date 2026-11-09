@@ -102,7 +102,7 @@
   /* Layers. */
   --z-sticky: 10;
   --z-drawer: 40;
-  --z-popover: 50;
+  --z-popover: 65; /* above dialogs: a picker or menu opened inside a dialog shows over it */
   --z-dialog: 60;
   --z-toast: 70;
 

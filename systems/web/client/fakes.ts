@@ -32,7 +32,7 @@ export function fakeWebSystem(online = true): FakeWebSystem {
     return new Promise<RunId>((resolve, reject) => { pending = { resolve, reject }; });
   };
   return {
-    system: { online, send: {}, run: { search: ask('search'), read: ask('read'), fetch_raw: ask('fetch_raw') } },
+    system: { online, send: {}, run: { search: ask('search'), read: ask('read'), crawl: ask('crawl'), fetch_raw: ask('fetch_raw') } },
     started,
     start: () => {
       const run = mintId('run');

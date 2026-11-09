@@ -8,7 +8,8 @@
  */
 import type { ListOptions, NumOptions, TextOptions } from '@aeye/gin';
 import { computed } from 'vue';
-import { UiBadge, UiButton, UiIconButton, UiInput, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import { usePickerSources } from '../../components/pickers/sources.ts';
+import { UiBadge, UiButton, UiIconButton, UiInput, UiPicker, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import {
   blankShape, boundOf, boundText, changeKind, constraintText, freshName, kindLabel, literalAs, literalKind, moveAt, PICKABLE_KINDS, removeAt, replaceAt,
   withOption, type FieldShape, type LiteralKind, type PickableKind, type ShapeProblem, type TypeShape,
@@ -53,6 +54,9 @@ function setList<K extends keyof ListOptions>(key: K, value: Exclude<ListOptions
 function setAlpha(on: boolean): void {
   if (props.shape.kind === 'color') { emit('update', { ...props.shape, options: withOption(props.shape.options, 'hasAlpha', on ? true : undefined) }); }
 }
+/** The hub's named types to refer to; a name as typed is taken too (a type defined alongside). */
+const typeSource = usePickerSources().source('type');
+const asTyped = (text: string): string | undefined => (text.trim() === '' ? undefined : text.trim());
 function setName(name: string): void {
   if (props.shape.kind === 'ref' || props.shape.kind === 'named') { emit('update', { ...props.shape, name }); }
 }
@@ -141,7 +145,13 @@ function addEnumValue(): void {
     <div v-else-if="!readonly && shape.kind === 'color'" class="options">
       <UiSwitch :model-value="shape.options.hasAlpha === true" label="With alpha" @update:model-value="setAlpha($event)" />
     </div>
-    <div v-else-if="!readonly && (shape.kind === 'ref' || shape.kind === 'named')" class="options">
+    <div v-else-if="!readonly && shape.kind === 'ref'" class="options">
+      <UiPicker
+        :model-value="shape.name === '' ? [] : [shape.name]" :source="typeSource" :max="1" :custom="asTyped" code label="Type name" placeholder="fs/Entry"
+        @update:model-value="setName($event[0] ?? '')"
+      />
+    </div>
+    <div v-else-if="!readonly && shape.kind === 'named'" class="options">
       <UiInput :model-value="shape.name" label="Type name" placeholder="fs/Entry" size="sm" @update:model-value="setName" />
     </div>
     <div v-else-if="!readonly && shape.kind === 'literal'" class="options">

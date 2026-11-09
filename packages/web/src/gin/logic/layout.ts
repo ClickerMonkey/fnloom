@@ -293,6 +293,12 @@ export function layoutExpr(def: ExprDef, tools: ExprTools, width = CODE_WIDTH): 
   return new Layout(tools, width).lines(def, '', 0, true);
 }
 
+/** How wide a node is on one line, in characters, or undefined when it never sits on one (blocks, defines, loops). */
+export function flatWidth(def: ExprDef, tools: ExprTools): number | undefined {
+  const flat = new Layout(tools, CODE_WIDTH).flat(def, '');
+  return flat === undefined ? undefined : widthOf(flat.tokens);
+}
+
 /** The plain text of laid-out lines (for tests and copying). */
 export function codeText(lines: readonly CodeLine[]): string {
   return lines.map((l) => `${' '.repeat(l.depth * INDENT)}${l.tokens.map((t) => t.text).join('')}`).join('\n');

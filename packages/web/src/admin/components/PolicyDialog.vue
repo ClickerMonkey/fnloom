@@ -5,7 +5,8 @@
  */
 import { ActorKind, type Policy } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import { UiBanner, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, UiTextarea, optionsOf, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import HubPicker from '../../components/pickers/HubPicker.vue';
+import { UiBanner, UiButton, UiChipInput, UiDialog, UiInput, UiSegmented, UiSelect, UiTextarea, onePicked, optionsOf, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { policyBody, policyDraft, type ApproverKind, type PolicyBody, type PolicyDraft, type SubjectKind } from '../logic/forms.ts';
 import { ACTOR_KIND_WORDS } from '../logic/policies.ts';
 import type { ActorOption } from '../state/actors.ts';
@@ -26,6 +27,8 @@ const effects: readonly SegmentOption<PolicyDraft['effect']>[] = optionsOf({ all
 const approvers = optionsOf({ 'turn-user': "The message's sender", actor: 'A person', group: 'A group', judge: 'A judge fn', hub: 'The hub' } satisfies Record<ApproverKind, string>);
 const pick = (options: readonly ActorOption[]): readonly SelectOption<string>[] => [{ value: '', label: 'Choose…' }, ...options.map((o) => ({ value: o.id, label: o.name }))];
 
+/** Words as typed taken as a value (a glob, a kind, a tag). */
+const asTyped = (text: string): string | undefined => (text === '' ? undefined : text);
 const draft = ref<PolicyDraft>(policyDraft());
 const tried = ref(false);
 const checked = computed(() => policyBody(draft.value));
@@ -58,10 +61,10 @@ function save(): void {
       <fieldset class="group">
         <legend>Which fns</legend>
         <div class="grid">
-          <UiInput v-model="draft.fn" label="Name or pattern" placeholder="fs/*" />
-          <UiInput v-model="draft.system" label="System" placeholder="Any" :error="errorOf('target')" />
-          <UiInput v-model="draft.kind" label="Kind" placeholder="native, or hub/llm" />
-          <UiInput v-model="draft.tags" label="Tags" placeholder="write, delete" hint="Comma-separated; all must match." />
+          <HubPicker :model-value="onePicked(draft.fn)" source="fn" :max="1" :custom="asTyped" label="Name or pattern" placeholder="fs/* or a fn" @update:model-value="draft.fn = $event[0] ?? ''" />
+          <HubPicker :model-value="onePicked(draft.system)" source="system" :max="1" label="System" placeholder="Any" :error="errorOf('target')" @update:model-value="draft.system = $event[0] ?? ''" />
+          <HubPicker :model-value="onePicked(draft.kind)" source="kind" :max="1" :custom="asTyped" label="Kind" placeholder="native, or hub/llm" @update:model-value="draft.kind = $event[0] ?? ''" />
+          <UiChipInput v-model="draft.tags" label="Tags" placeholder="write" hint="All must match." :read="asTyped" />
         </div>
       </fieldset>
 
@@ -74,7 +77,10 @@ function save(): void {
           <UiSelect v-if="draft.approver === 'actor'" v-model="draft.approverValue" :options="pick(people)" label="Person" :error="errorOf('decision')" />
           <UiSelect v-if="draft.approver === 'group'" v-model="draft.approverValue" :options="pick(groups)" label="Group" :error="errorOf('decision')" />
           <UiInput v-if="draft.approver === 'group'" v-model="draft.quorum" type="number" label="Answers needed" placeholder="1" />
-          <UiInput v-if="draft.approver === 'judge'" v-model="draft.approverValue" label="Judge fn" placeholder="hub/judge" :error="errorOf('decision')" />
+          <HubPicker
+            v-if="draft.approver === 'judge'" :model-value="onePicked(draft.approverValue)" source="fn" :max="1" label="Judge fn" placeholder="Search fns" :error="errorOf('decision')"
+            @update:model-value="draft.approverValue = $event[0] ?? ''"
+          />
         </div>
       </fieldset>
 

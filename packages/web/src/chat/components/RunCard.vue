@@ -12,7 +12,7 @@ import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
 import { MAIN_INSTANCE, isSettled } from '@harness/core';
-import { argSummary, invalidLine, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runResult, runText, shownStatus, type RunView } from '../logic/runs.ts';
+import { argSummary, invalidLine, invalidSummary, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runResult, runStopped, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
@@ -35,7 +35,9 @@ const summary = computed(() => argSummary(props.run.args));
 /** The args summary on the line: left out while the fn's renderer, open below, shows them. */
 const about = computed(() => (props.view !== undefined && !props.collapsed ? '' : summary.value));
 const words = computed(() => runText(props.run));
-const error = computed(() => runError(props.run));
+/** Why its fn's output hook stopped it: said as a stop, not an error. */
+const stopped = computed(() => runStopped(props.run));
+const error = computed(() => (stopped.value === undefined ? runError(props.run) : undefined));
 /** Refused input the agent retries: said softly, never as a failure. */
 const invalid = computed(() => runInvalid(props.run));
 const result = computed(() => runResult(props.run));
@@ -55,15 +57,16 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 
 <template>
   <article
-    class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true }]" data-testid="run-card" :data-run="run.id" :data-fn="run.fn" :data-status="status"
+    class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true, stopped: stopped !== undefined }]" data-testid="run-card" :data-run="run.id" :data-fn="run.fn" :data-status="status"
     :aria-label="`${label}: ${words}`"
   >
     <header class="line">
       <button type="button" class="summary" :title="byline === '' ? undefined : byline" :aria-expanded="collapsed ? 'false' : 'true'" @click="emit('open')">
         <RunDot :status="status" />
         <span class="label">{{ label }}</span>
-        <span v-if="error" class="about error-text" :title="error.message">{{ error.message }}</span>
-        <span v-else-if="invalid" class="about retried-text" data-testid="run-retried" :title="invalidLine(invalid)">Retried · {{ invalidLine(invalid) }}</span>
+        <span v-if="stopped !== undefined" class="about stopped-text" data-testid="run-stopped" :title="stopped">Stopped · {{ stopped }}</span>
+        <span v-else-if="error" class="about error-text" :title="error.message">{{ error.message }}</span>
+        <span v-else-if="invalid" class="about retried-text" data-testid="run-retried" :title="invalidLine(invalid)">{{ invalidSummary(invalid) }}</span>
         <span v-else-if="about !== ''" class="about" :title="about">{{ about }}</span>
       </button>
       <span class="metrics">
@@ -96,6 +99,9 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 /* refused input the agent retries: quiet, dashed, never red */
 .run-card.status-invalid-input { border-style: dashed; background: transparent; }
 .run-card.status-invalid-input .label { color: var(--text-dim); }
+/* a result its fn's own check stopped: the reason is for the person, in a calm warning, not an error */
+.run-card.stopped { border-color: var(--warn-soft); }
+.stopped-text { color: var(--warn); }
 .run-card.status-awaiting-approval, .run-card.asking { border-color: var(--warn-soft); }
 .run-card.status-done { animation: ui-rise-in var(--medium) var(--ease); }
 @keyframes card-glow { 0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); } 50% { box-shadow: 0 0 0 1px var(--accent-soft); } }

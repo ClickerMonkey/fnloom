@@ -18,6 +18,8 @@ import { contextDetailAtMost, contextText, unique, visible } from './contextors.
 import type { ContextorServices, FnViewSource } from './index.ts';
 import { limitsFor } from './limits.ts';
 import type { McpScope } from '../mcp/index.ts';
+import type { AccessScope } from '../access/index.ts';
+import { seesContextNamed } from '../access/scope.ts';
 import { fnCard, listedLine } from './render.ts';
 import { forModel, modelMayUse } from './views.ts';
 
@@ -55,6 +57,21 @@ export interface ContextorFnDeps {
   readonly views: () => FnViewSource;
   /** The scope of the hub MCP a run's caller is (its `mcp` actor), or undefined for any other caller. */
   readonly mcpScope: (caller: ActorId) => Promise<FnScope | undefined>;
+  /** What the run's person may see and use. */
+  readonly access: (actor: ActorId) => Promise<AccessScope>;
+}
+
+/** Whether a person may see what a `find` hit names. */
+async function seesHit(deps: ContextorFnDeps, access: AccessScope, kind: FindKind, key: string): Promise<boolean> {
+  if (kind === 'resource') return access.seesUri(parseSectionIndexKey(key).uri);
+  const name = QualifiedName.safeParse(key);
+  if (!name.success) return false;
+  const system = splitName(name.data).system;
+  switch (kind) {
+    case 'fn': return access.seesFn({ name: name.data, system });
+    case 'context': return seesContextNamed(access, (n) => deps.catalog().context(n), name.data);
+    case 'type': return access.seesSystem(system);
+  }
 }
 
 /** The session a run is in, if any. */
@@ -75,6 +92,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
   fns.register(hub.fns.find, async (args, ctx) => {
     const session = await sessionOf(deps, ctx);
     const scope = await deps.mcpScope(ctx.request.run.caller);
+    const access = await deps.access(ctx.request.run.user.id);
     const kinds = (args.kinds ?? FIND_KINDS).map((kind) => INDEX_KIND[kind]);
     const limit = args.limit ?? FIND_LIMIT;
     // through an MCP, hits outside its scope are dropped, so ask for more
@@ -83,7 +101,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     const out: Array<{ name: string; kind: FindKind; description: string; loaded: boolean }> = [];
     for (const hit of hits) {
       const kind = FIND_KIND[hit.kind];
-      if (kind === undefined || (scope !== undefined && !inScope(scope, kind, hit.key))) continue;
+      if (kind === undefined || (scope !== undefined && !inScope(scope, kind, hit.key)) || !(await seesHit(deps, access, kind, hit.key))) continue;
       const description = await describe(deps, kind, hit.key, hit.text);
       if (description !== undefined) out.push({ name: kind === 'resource' ? resourceName(hit.key) : hit.key, kind, description, loaded: loaded.has(hit.key) });
       if (out.length >= limit) break;
@@ -99,14 +117,15 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     if (!name.success) throw new InvalidArgs([{ path: 'name', message: `${args.name} is not a name (system/name); use find to look for one` }]);
     const nothing = new InvalidArgs([{ path: 'name', message: `there is no fn, context or type named ${name.data}; use find to look for one` }]);
     if (scope !== undefined && !scope.fns.has(name.data) && !scope.context.has(name.data) && !scope.types.has(name.data)) throw nothing;
+    const access = await deps.access(ctx.request.run.user.id);
     const view = await deps.views().view(name.data);
     if (view !== undefined) {
-      if (!modelMayUse(view.record, session)) throw new InvalidArgs([{ path: 'name', message: `${name.data} can't be used here` }]);
+      if (!modelMayUse(view.record, session, access)) throw new InvalidArgs([{ path: 'name', message: `${name.data} can't be used here` }]);
       return { name: name.data, kind: 'fn' as const, detail, text: fnCard(view, detail, 'native') };
     }
     const found = await deps.catalog().context(name.data);
     const user = ctx.request.run.user;
-    if (found !== undefined && visible(found, { session, user: user.id })) {
+    if (found !== undefined && visible(found, { session, user: user.id, access })) {
       const context = detail === 'full' ? await deps.contextor().dynamic.resolve(found, { session: session?.id, actor: user.id, user }) : found;
       return { name: name.data, kind: 'context' as const, detail, text: contextText(context, contextDetailAtMost(context, detail)) };
     }
@@ -120,6 +139,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
 
   fns.register(hub.fns.load, async (args, ctx) => {
     const session = await requireSession(deps, ctx);
+    const access = await deps.access(ctx.request.run.user.id);
     const refused: Array<{ name: string; reason: string }> = [];
     const tools: QualifiedName[] = [];
     const context: QualifiedName[] = [];
@@ -129,12 +149,12 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
       if (!allowsSystem(session, splitName(name.data).system)) { refused.push({ name: given, reason: 'this session does not use that system' }); continue; }
       const fn = await deps.catalog().fn(name.data);
       if (fn !== undefined) {
-        if (modelMayUse(fn, session)) tools.push(name.data);
+        if (modelMayUse(fn, session, access)) tools.push(name.data);
         else refused.push({ name: given, reason: fn.disabled ? 'switched off' : !forModel(fn.decl.visibility) ? 'not for the model' : 'unavailable now' });
         continue;
       }
       const item = await deps.catalog().context(name.data);
-      if (item !== undefined && visible(item, { session, user: ctx.request.run.user.id })) context.push(name.data);
+      if (item !== undefined && visible(item, { session, user: ctx.request.run.user.id, access })) context.push(name.data);
       else refused.push({ name: given, reason: 'no fn or context has that name' });
     }
     if (tools.length > 0 || context.length > 0) {

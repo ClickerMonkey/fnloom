@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "input",
+  "version": "0.1.0",
+  "description": "Ask the person for input with forms in the chat, made to fit what is needed, and keep good forms for next time.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "client": { "entry": "client/index.ts" },
+  "instances": "one"
+}

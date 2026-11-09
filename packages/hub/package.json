@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@aeye/ai": "file:../../../aits/packages/ai",
+    "@aeye/aws": "file:../../../aits/packages/aws",
     "@aeye/core": "file:../../../aits/packages/core",
     "@aeye/gin": "file:../../../aits/packages/gin",
     "@aeye/models": "file:../../../aits/packages/models",

@@ -8,6 +8,8 @@ import {
   type SessionEvent, type SessionId,
 } from '@harness/core';
 import { fakeCaller, memoryStore } from '../../test/fakes.ts';
+import { fakeConnectionsApi } from '../../test/connections.ts';
+import { fakePickerApi } from '../../test/pickers.ts';
 import type { FileSender, SessionEvents } from '../api.ts';
 import { ChatStore, type ChatDeps } from '../state/chat.ts';
 import type { Previews } from '../state/uploads.ts';
@@ -177,6 +179,8 @@ export function fakeChatApi() {
     deleteSession: fakeCaller<'deleteSession'>(() => Promise.resolve({ deleted: true })),
     state: fakeCaller<'state'>(() => Promise.resolve({ system: SystemName.parse('fs'), fields: [] })),
     previewSelection: fakeCaller<'previewSelection'>(() => Promise.resolve(selectionReport())),
+    ...fakePickerApi(),
+    ...fakeConnectionsApi(),
   };
 }
 

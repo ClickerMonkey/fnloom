@@ -81,3 +81,21 @@ describe('the hub AI over stored providers', () => {
     expect(await r.module.llm.models()).toEqual([]);
   });
 });
+
+describe('the AWS Bedrock provider', () => {
+  const keys: Record<string, string> = { sec_sk: 'secret-key', sec_st: 'session', sec_ak: 'bedrock-key' };
+  const reveal = (id: SecretIdType): Promise<string> => Promise.resolve(keys[id] ?? '');
+
+  it('is built with an access key pair (and session token) revealed from the vault', async () => {
+    const provider = await buildProvider({
+      provider: 'aws', region: 'eu-west-1', profilePrefix: 'eu.', auth: { kind: 'keys', accessKeyId: 'AKID', secretAccessKey: SecretId.parse('sec_sk'), sessionToken: SecretId.parse('sec_st') },
+    }, reveal, 4_096);
+    expect(provider.name).toBe('aws-bedrock');
+    expect(provider.config).toEqual({ region: 'eu-west-1', modelPrefix: 'eu.', credentials: { accessKeyId: 'AKID', secretAccessKey: 'secret-key', sessionToken: 'session' } });
+  });
+
+  it('is built with a Bedrock API key', async () => {
+    const provider = await buildProvider({ provider: 'aws', region: 'us-east-1', auth: { kind: 'apiKey', apiKey: SecretId.parse('sec_ak') } }, reveal, 4_096);
+    expect(provider.config).toEqual({ region: 'us-east-1', apiKey: 'bedrock-key' });
+  });
+});

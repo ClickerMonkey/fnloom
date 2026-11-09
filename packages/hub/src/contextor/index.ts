@@ -28,6 +28,7 @@ import type { Logger } from '@ayepi/log';
 import type { LlmPayload } from '@harness/sdk';
 import type { z } from 'zod';
 import type { Catalog, FnSignature } from '../catalog/index.ts';
+import type { AccessScope } from '../access/index.ts';
 import type { Search } from '../index/index.ts';
 import type { InstanceRouter } from '../link/index.ts';
 import type { ContextorEnv } from './env.ts';
@@ -185,6 +186,8 @@ export interface ModeContext {
 /** Who a call is checked for: the session (its systems) and the person. */
 export interface CallScope {
   readonly session: Session | undefined;
+  /** What the person may see and use. */
+  readonly access: AccessScope;
 }
 
 /** How fns reach the model and how its calls come back. One implementation per `ChatModeConfig` variant. */
@@ -225,6 +228,8 @@ export interface ContextorInput {
   readonly session: Session | undefined;
   /** The person the prompt is for (memory scoped to them is theirs). */
   readonly user: ActorId;
+  /** What that person may see and use: the systems, fns, context and resources shared with them. */
+  readonly access: AccessScope;
   /** The turn the prompt is for, when there is one (previews have none). */
   readonly turn: TurnId | undefined;
   readonly agent: FnRecord;
@@ -290,6 +295,8 @@ export interface ContextorDeps {
   readonly settings: ContextorEnv;
   readonly log: Logger;
   readonly clock: () => number;
+  /** What a person may see and use (the access module). */
+  readonly access: (actor: ActorId) => Promise<AccessScope>;
 }
 
 /** Fn views, built once per fn version, and named types as cards show them. */
@@ -327,6 +334,8 @@ export interface PlannedPrompt {
   readonly mode: ChatMode;
   readonly ctx: ModeContext;
   readonly session: Session | undefined;
+  /** What the person it was planned for may see and use. */
+  readonly access: AccessScope;
 }
 
 /** What the agent loop asks for each iteration. */
@@ -360,6 +369,7 @@ export interface PromptPlanner {
 /** Who a run's exposed fns are shown to: the session, its agent and the model. */
 export interface ExposedTo {
   readonly session: Session | undefined;
+  readonly access: AccessScope;
   readonly agent: FnRecord;
   readonly model: string;
 }

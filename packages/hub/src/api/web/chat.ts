@@ -25,9 +25,12 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   const scope = session === undefined ? 'all' : (await visibleSession(hub, session, user)).systems;
   const systems = (await collect((cursor) => hub.store.table('systems').find({ order: [['name', 'asc']], limit: PAGE, cursor })))
     .filter((s) => s.status !== 'removed');
-  const usable = new Set(systems.filter((s) => s.status === 'connected' && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
-  const rendering = systems.filter((s) => s.enabled.renderers && allows(scope, s.name));
-  const [mentions, contexts, made, fns, models, manifests, types, dictate] = await Promise.all([
+  const access = await hub.access.scope(user.id);
+  // a system shared with someone else is as good as absent here
+  const seen = systems.filter((s) => access.seesSystem(s.name));
+  const usable = new Set(seen.filter((s) => s.status === 'connected' && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
+  const rendering = seen.filter((s) => s.enabled.renderers && allows(scope, s.name));
+  const [mentions, declared, madeAll, fnsAll, models, manifests, types, dictate] = await Promise.all([
     hub.catalog.entries('mentions'),
     hub.catalog.entries('context'),
     // memory and context made from resources aren't in any manifest; a person sees the ones in their reach
@@ -38,6 +41,9 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     hub.catalog.entries('types'),
     hub.models.roles.get('dictate'),
   ]);
+  const fns = fnsAll.filter((f) => access.mayUse(f));
+  const contexts = declared.filter((c) => access.seesContext({ name: c.name, system: c.system }));
+  const made = madeAll.filter((c) => access.seesContext(c));
   const dictation = dictationOf(dictate);
   // a type's methods run on a value, from its mention's hover card, so they aren't offered as free `!` fns
   const methods = new Set(types.flatMap((t) => t.decl.methods.map((method) => `${t.name}.${method}`)));
@@ -63,7 +69,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     clients: manifests.flatMap(({ system, manifest }) => (manifest?.client === undefined ? [] : [{
       system, url: clientUrl(system, manifest.client.hash, manifest.client.entry), hash: manifest.client.hash,
     }])),
-    systems: systems.filter((s) => allows(scope, s.name)).map((s) => ({ name: s.name, status: s.status, enabled: s.enabled.functions })),
+    systems: seen.filter((s) => allows(scope, s.name)).map((s) => ({ name: s.name, status: s.status, enabled: s.enabled.functions })),
     // the picker offers models that chat: an embedding or rerank model can't answer
     models: models.filter((model) => model.capabilities.includes('chat') && !model.capabilities.some((c) => c === 'embedding' || c === 'rerank')),
   };

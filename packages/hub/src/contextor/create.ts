@@ -11,7 +11,8 @@ import { ModelResolver } from '../execution/models.ts';
 import type { HubSettings } from '../boot/env.ts';
 import type { Search } from '../index/index.ts';
 import type { Logger } from '@ayepi/log';
-import type { ManifestSection, ModelInfo, SystemName } from '@harness/core';
+import type { ActorId, ManifestSection, ModelInfo, SystemName } from '@harness/core';
+import { openScope, type AccessScope } from '../access/index.ts';
 import type { InstanceRouter } from '../link/index.ts';
 import type { ModelRoles } from '../models/index.ts';
 import type { HubStore } from '../store/index.ts';
@@ -44,6 +45,8 @@ export interface ContextorModuleInput {
   readonly roles?: Pick<ModelRoles, 'resolve'>;
   /** Dynamic context's text from its system (default: none fetched, so dynamic items show their summary). */
   readonly dynamic?: DynamicContext;
+  /** What a person may see and use (default: everything, for tests and the hub's own work). */
+  readonly access?: (actor: ActorId) => Promise<AccessScope>;
 }
 
 /** Build the contextor's services. */
@@ -60,7 +63,8 @@ export function createContextor(input: ContextorModuleInput): ContextorServices 
   });
   const instances = input.instances ?? { connected: () => [] };
   const dynamic = input.dynamic ?? NO_DYNAMIC_CONTEXT;
-  const planner = new HubPromptPlanner({ store, catalog, search, views, graph, instances, dynamic, settings, log, clock, limits, tokens, models: input.models, resolver });
+  const access = input.access ?? ((actor: ActorId) => Promise.resolve(openScope(actor)));
+  const planner = new HubPromptPlanner({ store, catalog, search, views, graph, instances, dynamic, access, settings, log, clock, limits, tokens, models: input.models, resolver });
   return { planner, limits, tokens, graph, views, dynamic };
 }
 

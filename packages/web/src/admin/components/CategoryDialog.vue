@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
  * Making or changing a model category: a name, what it is for, and its models in order (agents start with the first
- * and move down when quality demands it). Models are added from the providers' lists and reordered with buttons.
+ * and move down when quality demands it). Models are added by searching the providers' lists and reordered with buttons.
  */
 import type { ModelCategory } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import { UiBanner, UiButton, UiDialog, UiIconButton, UiInput, UiSelect, UiTextarea, type SelectOption } from '../../ui/index.ts';
+import { listSource, UiBanner, UiButton, UiDialog, UiIconButton, UiInput, UiPicker, UiTextarea } from '../../ui/index.ts';
 import { categoryBody, categoryDraft, type CategoryBody, type CategoryDraft } from '../logic/forms.ts';
 
 const props = withDefaults(defineProps<{ category?: ModelCategory | undefined; models: readonly string[]; busy?: boolean; problem?: string }>(), { category: undefined, busy: false, problem: '' });
@@ -13,21 +13,16 @@ const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ save: [body: CategoryBody] }>();
 
 const draft = ref<CategoryDraft>(categoryDraft());
-const adding = ref('');
 const tried = ref(false);
 const checked = computed(() => categoryBody(draft.value));
 const errorOf = (field: keyof CategoryBody): string => (tried.value && !checked.value.ok ? checked.value.problems[field] ?? '' : '');
-const choices = computed<readonly SelectOption<string>[]>(() => [
-  { value: '', label: 'Choose a model…' },
-  ...props.models.filter((m) => !draft.value.models.includes(m)).map((m) => ({ value: m, label: m })),
-]);
+/** The providers' models not in the category yet, to search. */
+const source = computed(() => listSource(props.models.filter((m) => !draft.value.models.includes(m)).map((m) => ({ value: m, label: m }))));
 
-watch(open, (isOpen) => { if (isOpen) { draft.value = categoryDraft(props.category); adding.value = ''; tried.value = false; } });
-watch(adding, (model) => {
-  if (model === '') { return; }
-  draft.value = { ...draft.value, models: [...draft.value.models, model] };
-  adding.value = '';
-});
+watch(open, (isOpen) => { if (isOpen) { draft.value = categoryDraft(props.category); tried.value = false; } });
+function addModel(model: string | undefined): void {
+  if (model !== undefined) { draft.value = { ...draft.value, models: [...draft.value.models, model] }; }
+}
 
 function move(index: number, by: -1 | 1): void {
   const models = [...draft.value.models];
@@ -65,7 +60,7 @@ function save(): void {
             </span>
           </li>
         </ol>
-        <UiSelect v-model="adding" :options="choices" label="Add a model" hide-label :error="errorOf('models')" />
+        <UiPicker :model-value="[]" :source="source" label="Add a model" hide-label placeholder="Search models to add" :error="errorOf('models')" testid="category-add" @update:model-value="addModel($event[0])" />
       </div>
       <UiBanner v-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
     </form>

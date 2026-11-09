@@ -33,7 +33,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'fns',
     title: 'Fns',
     exports: [
-      'fn', 'FnInput', 'FnExampleOf', 'FnDef', 'AnyFnDef', 'FnTypes', 'NativeFnTypes', 'TypesOf', 'Deps', 'FnRef', 'AnyFnRef',
+      'fn', 'FnInput', 'FnExampleOf', 'FnDef', 'AnyFnDef', 'FnTypes', 'NativeFnTypes', 'TypesOf', 'Deps', 'FnRef', 'AnyFnRef', 'FnValidators', 'ValidateCtx',
       'DEFAULT_STATUS', 'StatusTemplates', 'StatusForms', 'RunPhase', 'StatusInput', 'CheckedStatus', 'CheckedTemplate', 'OneTokens', 'ManyTokens', 'PathsOf', 'TokensOf',
     ],
   },
@@ -68,6 +68,7 @@ export const OUTLINE: readonly Topic[] = [
   { id: 'hooks', title: 'Hooks', exports: ['hook', 'HookDef', 'HookImpl', 'HookContribution', 'hookBlock', 'HookRef', 'AnyHookRef'] },
   { id: 'mentions', title: 'Mentions', exports: ['mention', 'MentionDef', 'MentionImpl', 'MentionOption', 'MentionCtx', 'MentionRef'] },
   { id: 'actions', title: 'Actions', exports: ['action', 'ActionDef', 'ActionImpl', 'ActionCtx', 'ActionRef'] },
+  { id: 'providers', title: 'Model providers', exports: ['provider', 'ProviderInput', 'ProviderDef', 'ProviderImpl', 'ProviderRef'] },
   {
     id: 'resources',
     title: 'Resources, embedders and sectioners',
@@ -130,7 +131,8 @@ export const OUTLINE: readonly Topic[] = [
     reach: false,
     reference: true,
     exports: [
-      'manifestOf', 'manifestBody', 'fnDecl', 'canonicalJson', 'sha256', 'ManifestOptions',
+      'manifestOf', 'manifestBody', 'fnDecl', 'validationOf', 'providerDecl', 'canonicalJson', 'sha256', 'ManifestOptions',
+      'ProviderServer', 'ProviderServerParts', 'providerErrorKind',
       'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'AUTO_PAIR_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
       'OutcomeJournal', 'FileJournal', 'contentHash', 'contentHasher', 'ContentHasher', 'StateConflict', 'LinkGap', 'InvalidValue',
       'LinkTransport', 'LinkSocket', 'WsLinkTransport', 'HubAccess', 'HubLink', 'NodeFiles', 'FilesFactory', 'FilesScope', 'fileUri', 'uriInstance', 'mimeOf', 'NodeProcess', 'ProcessControl',

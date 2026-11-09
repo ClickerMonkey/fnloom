@@ -2,6 +2,7 @@
  * The context pages: the URL and the drafts (pure), the store on fakes (list, item, links, memory, making from a
  * resource, live changes), the components alone, and both pages mounted in the app at a desktop and a phone width.
  */
+import { pickIn } from '../test/pickers.ts';
 import { QualifiedName, ResourceUri, type LinkTarget } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -240,18 +241,14 @@ describe('the context components', () => {
   });
 
   it('the link dialog checks its draft before it emits', async () => {
-    const wrapper = mount(LinkDialog, { props: { open: true, from: GUIDE }, attachTo: document.body });
+    const wrapper = mount(LinkDialog, { props: { open: true, from: GUIDE }, attachTo: document.body, global: { provide: { [STORES]: fakeStores().stores } } });
     await flushPromises();
     const save = document.querySelector<HTMLButtonElement>('[data-testid="link-save"]');
     save?.click();
     await flushPromises();
     expect(wrapper.emitted('save')).toBeUndefined();
     expect(document.body.textContent).toContain('Give a name.');
-    const input = document.querySelector<HTMLInputElement>('[data-testid="link-target"] input, input[data-testid="link-target"]');
-    if (input === null) { throw new Error('no target input'); }
-    input.value = 'fs/shell';
-    input.dispatchEvent(new Event('input'));
-    await flushPromises();
+    await pickIn(document.querySelector('[data-testid="link-target"]') ?? document.body, 'shell');
     save?.click();
     await flushPromises();
     expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ kind: 'context', target: 'fs/shell', relation: 'related', weight: 0.5 });
@@ -338,11 +335,7 @@ describe('the context pages', () => {
       expect(app.findAll('[data-testid="links-in"] [data-testid="context-link"]')).toHaveLength(2);
       await app.get('[data-testid="add-link"]').trigger('click');
       await flushPromises();
-      const input = document.querySelector<HTMLInputElement>('[data-testid="link-target"] input, input[data-testid="link-target"]');
-      if (input === null) { throw new Error('no target input'); }
-      input.value = 'fs/shell';
-      input.dispatchEvent(new Event('input'));
-      await flushPromises();
+      await pickIn(document.querySelector('[data-testid="link-target"]') ?? document.body, 'shell');
       document.querySelector<HTMLButtonElement>('[data-testid="link-save"]')?.click();
       await flushPromises();
       await flushPromises();

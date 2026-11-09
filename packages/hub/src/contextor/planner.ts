@@ -140,14 +140,14 @@ export class HubPromptPlanner implements PromptPlanner {
   }
 
   interpret(call: ModelCallOut, prompt: PlannedPrompt): Promise<CallPlan> {
-    return prompt.mode.interpret(call, prompt.rendered, { session: prompt.session });
+    return prompt.mode.interpret(call, prompt.rendered, { session: prompt.session, access: prompt.access });
   }
 
   async exposed(exposures: readonly Exposure[], to: ExposedTo): Promise<string> {
     const chosen: ChosenFn[] = [];
     for (const exposure of exposures) {
       const view = await this.#deps.views.view(exposure.fn);
-      if (view !== undefined && usable(view.record, to.session)) chosen.push({ view, detail: exposure.detail, activation: 1 });
+      if (view !== undefined && usable(view.record, to.session, to.access)) chosen.push({ view, detail: exposure.detail, activation: 1 });
     }
     if (chosen.length === 0) return '';
     const { mode, ctx } = await this.#mode(to.session, to.agent, to.model);
@@ -202,8 +202,9 @@ export class HubPromptPlanner implements PromptPlanner {
     const shown = (names: readonly string[]): string[] => names.filter((name) => !mode.replaces.has(name));
     const asked = await this.#asked(planning.turn, currentExchange?.messages ?? []);
 
+    const access = await this.#deps.access(planning.user);
     const input = {
-      session, user: planning.user, turn: planning.turn?.id, agent, payload, query, history, current: fitted.messages,
+      session, user: planning.user, access, turn: planning.turn?.id, agent, payload, query, history, current: fitted.messages,
       always: { context: [...payload.context, ...(await this.#alwaysFor(agent.name, { actor: planning.user, session: session?.id }))], fns: shown(payload.tools) },
       loaded: { context: session?.context ?? [], fns: shown(session?.tools ?? []) },
       ...asked, asked: { ...asked.asked, fns: shown(asked.asked.fns) }, person: planning.turn?.user,
@@ -233,7 +234,7 @@ export class HubPromptPlanner implements PromptPlanner {
     if (planning.keep && session !== undefined && planning.turn !== undefined && choice.contextor.type === 'graph') await this.#keep(session.id, planning.turn.id, report);
     return {
       model, context: assembled.context, messages: assembled.messages, tools: rendered.tools, maxTokens: plan.output + plan.reasoning, contextWindow: view.limits.contextWindow,
-      estimate: assembled.estimate, rendered, report, mode, ctx, session, ...(selection.considered === undefined ? {} : { considered: selection.considered }),
+      estimate: assembled.estimate, rendered, report, mode, ctx, session, access: input.access, ...(selection.considered === undefined ? {} : { considered: selection.considered }),
     };
   }
 

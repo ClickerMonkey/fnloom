@@ -12,7 +12,7 @@
  * or the hub's own rule (`ApprovalDeciders`) settles it, and a decider that fails denies it.
  */
 import {
-  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type FnMatch, type FnRecord, type Json, type Policy, type PolicyDecision, type QualifiedName,
+  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type Approver, type FnMatch, type FnRecord, type Json, type Policy, type PolicyDecision, type QualifiedName,
   type Remember, type Run, type RunId, type SessionId, type Verdict,
 } from '@harness/core';
 import { messageOf } from './errors.ts';
@@ -127,15 +127,17 @@ export class HubPolicyEngine implements PolicyEngine {
     this.#deciders = deciders;
   }
 
-  async decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId }): Promise<RunDecision> {
+  async decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver }): Promise<RunDecision> {
     const { store, clock, catalog } = this.#deps;
     const fn = await catalog.fn(input.fn);
     if (fn === undefined) return { effect: 'deny', reason: `no fn ${input.fn}` };
     const actor = await this.#facts(input.actor);
     const chosen = choosePolicy(await allRows(store.table('policies')), fn, actor, clock());
-    const decision = chosen?.decision ?? fallback(fn);
+    const policy = chosen?.decision ?? fallback(fn);
+    if (policy.effect === 'deny') return policy;
+    // a per-person fn kept on 'ask first' asks whatever the policies allow
+    const decision = input.ask === undefined ? policy : { effect: 'ask' as const, approver: input.ask };
     if (decision.effect === 'allow') return decision;
-    if (decision.effect === 'deny') return decision;
     const remembered = input.session === undefined ? undefined : await this.#rememberedForSession(fn.name, input.actor, input.session);
     if (remembered !== undefined) return remembered;
     if (decision.approver.by === 'turn-user' && input.caller === input.turnUser) return { effect: 'allow' };
@@ -143,7 +145,7 @@ export class HubPolicyEngine implements PolicyEngine {
       id: mintId('approval', this.#deps.random),
       run: input.run,
       fn: input.fn,
-      ...(chosen === undefined ? {} : { policy: chosen.id }),
+      ...(chosen === undefined || input.ask !== undefined ? {} : { policy: chosen.id }),
       approver: decision.approver,
       status: 'pending',
       decisions: [],

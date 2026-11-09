@@ -32,6 +32,7 @@ import { legacyOf, LlmPage, ResourcePage, RunPage } from './mockQuery.ts';
 import { declaredStatusLogger } from './mockLog.ts';
 import { EMPTY_ZIP, MOCK_EXPORTS, MockBuild2 } from './mockBuild2.ts';
 import { MockBuild3 } from './mockBuild3.ts';
+import { MockBuild4, readAccess, readActors } from './mockBuild4.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
 import { MOCK_FILES, MOCK_UPLOADS, MockResources } from './mockResources.ts';
@@ -115,6 +116,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const admin = new MockAdmin(chat, Date.now);
   const library = new MockResources(Date.now());
   const build2 = new MockBuild2(admin, chat, Date.now);
+  const build4 = new MockBuild4(admin, owner);
   const graph = new ContextGraphDouble(owner(), Date.now);
   /** A system as the admin pages get it, with its instances. */
   const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name) });
@@ -272,6 +274,16 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       suggestDecision: () => build3.decision,
       setSuggestDecision: ({ data }) => build3.setDecision(data),
       previewSuggestions: () => build3.preview(),
+      // build 4: pickers and visibility (a hub with more than one person, so the controls show)
+      pick: ({ data }) => build4.pick(data),
+      accessInfo: () => ({ multiUser: true }),
+      access: ({ data }) => data.targets.map((target) => build4.access(readAccess(target))),
+      setAccess: ({ data }) => build4.setAccess(readAccess(data.target), { visibility: data.sharing.visibility, with: readActors(data.sharing.with) }),
+      // build 4: the calendar each person connects
+      connectPages: () => build4.connectPages(),
+      connect: () => build4.connect(),
+      updateConnection: ({ data }) => build4.updateConnection(data),
+      disconnect: ({ data }) => build4.disconnect(data.connection),
       // the context graph: every item, one item with its links, memory, links drawn by people, context from a resource
       contexts: ({ data }) => graph.list(data),
       contextItem: ({ data }) => graph.item(data.name),
@@ -300,6 +312,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'previewSelection', 'modelLimits', 'setModelLimits', 'modelRoles', 'setModelRole', 'clearModelRole', 'modelCalls', 'modelCall', 'fnMetrics', 'fnMetricsDays',
     'mcps', 'mcp', 'createMcp', 'updateMcp', 'rotateMcpSecret', 'deleteMcp', 'previewMcp', 'mcpSessions', 'pairing', 'instances', 'installPackage', 'removeInstance', 'exportSystemData',
     'autoPairs', 'revokeAutoPair', 'suggestDecision', 'setSuggestDecision', 'previewSuggestions',
+    'pick', 'accessInfo', 'access', 'setAccess', 'connectPages', 'connect', 'updateConnection', 'disconnect',
     'contexts', 'contextItem', 'remember', 'updateMemory', 'forget', 'linkContext', 'unlinkContext',
   ] as const;
   // system names must match their pattern, which the generator can't read from a regex

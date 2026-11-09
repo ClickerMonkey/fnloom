@@ -1,4 +1,4 @@
-/** Numbers people read in the chat: money, durations, sizes and token counts. Pure, so they are tested alone. */
+/** Numbers and times people read in the chat: money, durations, sizes, token counts and the cache-miss rule's time. Pure, so they are tested alone. */
 
 /** Dollars, exact below a cent: "$0", "$0.00042" (two significant digits), "$0.03", "$12.40", "$240". */
 export function formatCost(usd: number): string {
@@ -39,3 +39,16 @@ export function formatTokens(count: number): string {
 
 /** Shorten text to `max` characters on a word boundary (core's, shared with the hub). */
 export { clamp } from '@harness/core';
+
+/** What the wavy rule over an answer that read no prompt cache says when hovered. */
+export const CACHE_MISS_TIP = 'The model re-read the whole chat (no cache hit)';
+
+/** The cache-miss rule's label: the call's time ("14:05"), with its date when it isn't today ("Mon 3 Nov, 14:05"). */
+export function cacheMissLabel(at: number, now: number, locale?: string): string {
+  const date = new Date(at);
+  const time = date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+  if (date.toDateString() === new Date(now).toDateString()) { return time; }
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  const day = date.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+  return `${day}, ${time}`;
+}

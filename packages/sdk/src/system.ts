@@ -13,10 +13,11 @@ import { kindFn, type AnyFnDef, type FnDef, type FnTypes, type TypesOf } from '.
 import type { FnImpl } from './impl.ts';
 import { g, type GinType, type Infer } from './gin.ts';
 import type {
-  ActionRef, AttachmentRef, ContextRef, EmbedderRef, FnRef, HookRef, KindRef, MentionRef, Methods, MethodRefs, SectionerRef, SettingRef, TypeRef,
+  ActionRef, AttachmentRef, ContextRef, EmbedderRef, FnRef, HookRef, KindRef, MentionRef, Methods, MethodRefs, ProviderRef, SectionerRef, SettingRef, TypeRef,
 } from './refs.ts';
 import { entriesOf, mapValues, type Simplify } from './util.ts';
 import type { ResourceProvider } from './resources.ts';
+import type { ProviderDef, ProviderImpl } from './providers.ts';
 
 /** Everything a contract can hold, by section. */
 export interface ContractShape {
@@ -33,18 +34,20 @@ export interface ContractShape {
   embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
   actions: Record<string, ActionDef<unknown, unknown, object>>;
+  /** Model providers it brings (`provider()`), served by its implementation. */
+  providers: Record<string, ProviderDef>;
 }
 
 /** The sections of a contract other than `config`. */
 export type ContractSection = Exclude<keyof ContractShape, 'config'>;
 
 /** The contract sections, in the order the manifest lists them. */
-export const CONTRACT_SECTIONS = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'embedders', 'sectioners', 'actions'] as const satisfies readonly ContractSection[];
+export const CONTRACT_SECTIONS = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'embedders', 'sectioners', 'actions', 'providers'] as const satisfies readonly ContractSection[];
 
 /** A contract with nothing in it yet. Its config is the empty object. */
 export interface EmptyContract {
   config: GinType<{}>;
-  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {};
+  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {}; providers: {};
 }
 
 /** A contract with more sections merged in: `config` is replaced, every other section adds to what was declared. */
@@ -70,6 +73,7 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
+  readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
 }
 
 /**
@@ -100,7 +104,7 @@ export type ConfigOf<C extends ContractShape> = Infer<C['config']>;
 type AnyRefs = { -readonly [K in ContractSection]: Record<string, unknown> };
 
 const EMPTY_SECTIONS = (): { [K in ContractSection]: {} } => ({
-  types: {}, settings: {}, attachments: {}, kinds: {}, fns: {}, context: {}, hooks: {}, mentions: {}, embedders: {}, sectioners: {}, actions: {},
+  types: {}, settings: {}, attachments: {}, kinds: {}, fns: {}, context: {}, hooks: {}, mentions: {}, embedders: {}, sectioners: {}, actions: {}, providers: {},
 });
 
 /** The ref of a named type: a gin extension registered in `g` under its qualified name, carrying display and methods. */
@@ -145,6 +149,7 @@ function refsOf(system: string, part: Partial<ContractShape>): AnyRefs {
     embedders: part.embedders === undefined ? out.embedders : mapValues(part.embedders, (def, key) => ({ ref: 'embedder', name: q(key), dimensions: def.dimensions })),
     sectioners: part.sectioners === undefined ? out.sectioners : mapValues(part.sectioners, (_def, key) => ({ ref: 'sectioner', name: q(key) })),
     actions: part.actions === undefined ? out.actions : mapValues(part.actions, (def, key) => ({ ref: 'action', name: q(key), input: def.input, returns: def.returns })),
+    providers: part.providers === undefined ? out.providers : mapValues(part.providers, (_def, key) => ({ ref: 'provider', name: q(key) })),
   };
 }
 
@@ -247,6 +252,7 @@ export type SystemImpl<C extends ContractShape> =
   Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
   Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
+  Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
   {
     /** Resources this system serves. */
     readonly resources?: ResourceProvider;

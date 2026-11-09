@@ -1,11 +1,14 @@
 /**
  * The model providers the hub AI calls, built from the stored `ProviderRecord`s with their keys revealed from the
- * secret vault: `@aeye/openai` for OpenAI (and OpenAI-compatible base URLs), `@aeye/openrouter` for OpenRouter, and a
- * local Ollama through `@aeye/openai` with its native API for abilities and served windows (`contextor/ollama.ts`). The
- * bootstrap OpenRouter key in the model env slice only seeds the first record, when none is stored yet; after that the
- * records are the one source. The hub AI is rebuilt whenever a record changes (`reload`).
+ * secret vault: `@aeye/openai` for OpenAI (and OpenAI-compatible base URLs), `@aeye/openrouter` for OpenRouter,
+ * `@aeye/aws` for Amazon Bedrock (an access key pair or a Bedrock API key), and a local Ollama through `@aeye/openai`
+ * with its native API for abilities and served windows (`contextor/ollama.ts`). The bootstrap OpenRouter key in the
+ * model env slice only seeds the first record, when none is stored yet; after that the records are the one source.
+ * The hub AI is rebuilt whenever a record changes, and whenever a system that brings providers connects or leaves
+ * (`reload`); those come from `SystemProviderSource` (`models/remote.ts`).
  */
 import type { Provider, Providers } from '@aeye/ai';
+import { AWSBedrockProvider } from '@aeye/aws';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import type { Logger } from '@ayepi/log';
@@ -25,6 +28,13 @@ export async function buildProvider(config: ProviderConfig, key: (id: SecretId) 
     case 'openai': return new OpenAIProvider({ apiKey: await key(config.apiKey), ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }) });
     case 'openrouter': return new OpenRouterProvider({ apiKey: await key(config.apiKey), defaultParams: { appName: APP_NAME } });
     case 'ollama': return new OllamaProvider({ ...config, cap: ollamaCap });
+    case 'aws': {
+      const { auth } = config;
+      const credentials = auth.kind === 'apiKey'
+        ? { apiKey: await key(auth.apiKey) }
+        : { credentials: { accessKeyId: auth.accessKeyId, secretAccessKey: await key(auth.secretAccessKey), ...(auth.sessionToken === undefined ? {} : { sessionToken: await key(auth.sessionToken) }) } };
+      return new AWSBedrockProvider({ region: config.region, ...credentials, ...(config.profilePrefix === undefined ? {} : { modelPrefix: config.profilePrefix }) });
+    }
   }
 }
 
@@ -35,8 +45,10 @@ export function openRouterProviders(apiKey: string | undefined): Providers {
 
 /** Where the hub AI's providers come from when they can change while the hub runs. */
 export interface ProviderSource {
-  /** The providers of every usable stored record, by kind. */
+  /** The providers it has now, by their key on the hub AI. */
   load(): Promise<Providers>;
+  /** Hear when `load` would give a different set (the hub AI is rebuilt then). Returns how to stop listening. */
+  watch?(changed: () => void): () => void;
 }
 
 /** What the stored providers need. */

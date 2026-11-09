@@ -4,10 +4,11 @@
  */
 import {
   messageOf,
-  type Audience, type Display, type FnError, type FnLimits, type InvalidInput, type Json, type Operations, type ProgressDecl, type ProgressWire,
+  type Audience, type Display, type FnError, type FnLimits, type FnValidation, type InputVerdict, type InvalidInput, type Json, type Operations, type OutputVerdict, type ProgressDecl, type ProgressWire,
   type StatusTemplates, type StepStatus, type Usd,
 } from '@harness/core';
 import { encodeValue, json, type GinType } from './gin.ts';
+import type { ValidateCtx } from './ctx.ts';
 import type { AnyFnRef, AnyKindRef, KindRef } from './refs.ts';
 import type { StatusInput } from './status.ts';
 import { orDefault, type Simplify } from './util.ts';
@@ -135,6 +136,26 @@ function checkedExamples<A>(what: string, args: GinType<A>, examples: readonly F
   });
 }
 
+// ─── Validation hooks ─────────────────────────────────────────────────────────
+
+/**
+ * A fn's validation hooks, run in its system when the hub asks (`validate` on the system link). `input` runs before
+ * a run starts: a refusal tells the caller the fn can't run now and why (it is not an error). `output` runs after a
+ * run is done: `retry` gives the model the reason and asks it to try again; `stop` fails the run with the reason
+ * shown to the person. Both get the session state fields the fn declares, as they are now.
+ */
+export interface FnValidators<A, R, St extends object> {
+  input?(ctx: ValidateCtx, args: A, state: Readonly<Partial<St>>): InputVerdict | Promise<InputVerdict>;
+  output?(ctx: ValidateCtx, args: A, result: R, state: Readonly<Partial<St>>): OutputVerdict | Promise<OutputVerdict>;
+}
+
+/** Which hooks a fn's validators declare, for its manifest (`FnDecl.validate`); `undefined` when it has none. */
+export function validationOf(validators: { readonly input?: unknown; readonly output?: unknown } | undefined): FnValidation | undefined {
+  if (validators === undefined) { return undefined; }
+  const declared = { input: validators.input !== undefined, output: validators.output !== undefined };
+  return declared.input || declared.output ? declared : undefined;
+}
+
 /** A fn's deps by local name: `{ stat: fs.fns.stat }`. */
 export type Deps = Record<string, AnyFnRef>;
 
@@ -163,6 +184,8 @@ export interface FnDef<T extends FnTypes> {
   readonly tags: readonly string[];
   /** Example calls, checked against its args type. */
   readonly examples: readonly FnExampleOf<T['args']>[];
+  /** Its validation hooks, run in its system before and after a run. */
+  readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -210,6 +233,11 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   tags?: string[];
   /** Example calls (args of its own args type), shown to agents on its card and when they get its args wrong. */
   examples?: FnExampleOf<NoInfer<A>>[];
+  /**
+   * Checks the hub runs before a run starts (`input`) and after it is done (`output`):
+   * `{ input: (ctx, args, state) => args.path === '' ? { ok: false, reason: 'No file is open.' } : { ok: true } }`.
+   */
+  validate?: FnValidators<NoInfer<A>, NoInfer<R>, NoInfer<St>>;
 }
 
 /** The types of a native fn. */
@@ -250,6 +278,7 @@ export function fn<
     visibility: def.visibility ?? 'both',
     tags: def.tags ?? [],
     examples: checkedExamples(def.description, def.args, def.examples),
+    validate: def.validate,
   };
 }
 
@@ -309,6 +338,7 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     visibility: def.visibility ?? 'both',
     tags: def.tags ?? [],
     examples: def.args === undefined ? (def.examples ?? []) : checkedExamples(def.description, def.args, def.examples),
+    validate: undefined,
   };
 }
 

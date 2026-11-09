@@ -126,7 +126,42 @@ export const INPUT_PROBLEM_WORDS = {
   json: 'The input wasn’t valid JSON',
   schema: 'The input didn’t fit the fn’s args',
   validation: 'The fn’s own checks refused the input',
+  unavailable: 'Not available now',
+  result: 'The fn refused its result',
 } as const satisfies Record<InputProblemSource, string>;
+
+/**
+ * A refused run on its card's line, softly: a fn that can't run now says so (the agent was told why), a refused
+ * result says it was sent back, and anything else reads as retried.
+ */
+export function invalidSummary(invalid: InvalidInput): string {
+  switch (invalid.source) {
+    case 'unavailable': return invalidLine(invalid);
+    case 'result': return `Sent back · ${invalidLine(invalid)}`;
+    case 'json': case 'schema': case 'validation': return `Retried · ${invalidLine(invalid)}`;
+  }
+}
+
+/** What happened after a refusal, for the run's details. */
+export function invalidAfter(source: InputProblemSource): string {
+  switch (source) {
+    case 'unavailable': return 'The agent was told why it can’t run now. This is not a failure.';
+    case 'result': return 'The agent was told why and asked to try again. This is not a failure.';
+    case 'json': case 'schema': case 'validation': return 'The agent was told why and can try again. This is not a failure.';
+  }
+}
+
+/**
+ * The `FnError.code` of a run its fn's output hook stopped (the hub's `OUTPUT_REFUSED`): the person reads the reason,
+ * shown as a stop, not an error.
+ */
+export const OUTPUT_REFUSED_CODE = 'output-refused';
+
+/** Why a fn's output hook stopped a run, when it did. */
+export function runStopped(run: RunView): string | undefined {
+  const error = runError(run);
+  return error?.code === OUTPUT_REFUSED_CODE ? error.message : undefined;
+}
 
 /** A refused input in one line: what was wrong and its first problem ("The input didn’t fit the fn’s args: path: required"). */
 export function invalidLine(invalid: InvalidInput): string {

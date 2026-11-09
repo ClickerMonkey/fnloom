@@ -274,7 +274,7 @@ describe('the components', () => {
     expect(view.text()).toContain('Hi {name}');
     const edit = mount(GinExprView, { props: { modelValue: def, scope: { name: g.text().toJSON() } } });
     await flushPromises();
-    await edit.find('textarea').setValue('Bye {name}');
+    await edit.find('input[aria-label="Template"]').setValue('Bye {name}');
     expect(edit.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ kind: 'template', template: 'Bye {name}' });
   });
 
@@ -298,5 +298,19 @@ describe('the components', () => {
     expect(edit.find('.problem.warning').exists()).toBe(false);
     await notes.trigger('click');
     expect(edit.find('.problem.warning, .problem.info').exists()).toBe(true);
+  });
+  it('edits a wrapped expression as code: its keyword opens its menu, and a block grows a line', async () => {
+    const def: ExprDef = { kind: 'block', lines: [{ kind: 'if', ifs: [{ condition: { kind: 'new', type: { name: 'bool' }, value: true }, body: { kind: 'new', type: { name: 'num' }, value: 2 } }] }] };
+    const edit = mount(GinExprView, { props: { modelValue: def, scope: {} }, attachTo: document.body });
+    await flushPromises();
+    expect(edit.findAll('.gin-expr-node.block label').filter((label) => label.element.closest('.sr-only') === null)).toHaveLength(0);
+    await edit.get('.add-line').trigger('click');
+    expect(edit.emitted('update:modelValue')?.at(-1)?.[0]).toMatchObject({ kind: 'block', lines: [{ kind: 'if' }, { kind: 'new' }] });
+    await edit.get('.kw-menu').trigger('click');
+    await flushPromises();
+    const addBranch = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent.includes('Add else if'));
+    addBranch?.click();
+    expect(edit.emitted('update:modelValue')?.at(-1)?.[0]).toMatchObject({ kind: 'block', lines: [{ kind: 'if', ifs: [{}, {}] }] });
+    edit.unmount();
   });
 });

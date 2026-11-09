@@ -61,6 +61,7 @@ export const ROUTES = {
   resources: 'resources',
   context: 'context',
   contextItem: 'context-item',
+  connect: 'connect',
   settings: 'settings',
   design: 'design',
   notFound: 'not-found',
@@ -85,6 +86,8 @@ export type ChatsView = z.infer<typeof ChatsView>;
  */
 const CHAT_QUERY = z.object({
   q: z.string(), chats: ChatsView,
+  /** Debug mode: the thread shows the messages and parts it hides. */
+  debug: z.literal('1'),
   run: RunId, llm: LlmInteractionId, details: TurnId, resource: ResourceUri, panel: ChatPanel,
   [TAB_KEYS.run]: RunTab, [TAB_KEYS.llm]: LlmCallTab,
 }).partial();
@@ -109,6 +112,8 @@ export const QUERIES = {
   [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
   [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']) }).partial(),
   [ROUTES.pair]: z.object({ code: z.string() }).partial(),
+  /** Why connecting failed, as the hub's redirect back from the provider says. */
+  [ROUTES.connect]: z.object({ problem: z.string() }).partial(),
 } as const satisfies Partial<Record<RouteName, z.ZodObject>>;
 
 /** The pages that take a query. */
@@ -185,6 +190,8 @@ export const links = {
   mcp: (id: HubMcpId, tab: McpTab = 'rules'): RouteLocationRaw => ({ name: ROUTES.mcp, params: tab === 'rules' ? { id } : { id, tab } }),
   /** The page a system's pairing QR code opens: approve it with its instance and config. */
   pair: (pairing: PairingId, code?: string): RouteLocationRaw => ({ name: ROUTES.pair, params: { pairing }, ...queryOf(ROUTES.pair, { code }) }),
+  /** A per-person system's page (`/connect/google-calendar`): connect your own account and choose what it may do. */
+  connect: (system: SystemName): RouteLocationRaw => ({ name: ROUTES.connect, params: { system } }),
   settings: (section: SettingsSection = 'appearance'): RouteLocationRaw => ({ name: ROUTES.settings, params: { section } }),
   design: (section: DesignSection = 'actions'): RouteLocationRaw => ({ name: ROUTES.design, params: { section } }),
 } as const;
@@ -225,6 +232,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
   { path: '/context/:system/:local(.+)', name: ROUTES.contextItem, component: () => import('../pages/ContextItemPage.vue'), meta: { title: 'Context' } },
   { path: '/pair/:pairing', name: ROUTES.pair, component: () => import('../pages/PairPage.vue'), meta: { title: 'Pair a system', admin: true } },
+  { path: '/connect/:system', name: ROUTES.connect, component: () => import('../pages/ConnectPage.vue'), meta: { title: 'Connect' } },
   { path: '/inbox', name: ROUTES.inbox, component: () => import('../pages/InboxPage.vue'), meta: { title: 'Inbox' } },
   {
     path: '/admin', component: () => import('../admin/views/AdminLayout.vue'), meta: { admin: true },

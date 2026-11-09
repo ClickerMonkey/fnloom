@@ -15,6 +15,8 @@ import {
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
+  type ProviderChat, type ProviderChunk, type ProviderEmbed, type ProviderEmbedResult, type ValidateAnswer, type ValidateRequest,
+  type ConnectFinish, type ConnectResult, type ConnectStart, type RunConnection,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -28,6 +30,7 @@ import { contextorEnv } from '../contextor/env.ts';
 import { createExecution, type ExecutionModule, type LlmSource } from './create.ts';
 import { executionEnv } from './env.ts';
 import type { ExecutionDeps, ExecutionSettings } from './ports.ts';
+import { openScope } from '../access/index.ts';
 
 export { settle };
 
@@ -203,24 +206,47 @@ export class TestCatalog implements Catalog {
   entries(): Promise<never[]> { return Promise.resolve([]); }
 }
 
+/** A provider stream that says nothing. */
+async function* noChunks(): AsyncGenerator<ProviderChunk> {
+  yield await Promise.resolve<ProviderChunk>({ type: 'done', usage: { input: 0, output: 0 } });
+}
+
 /** What a fake system does with the hub's requests, set per test. */
 export interface SystemBehaviour {
   run: (request: RunRequest, signal: AbortSignal) => Promise<OutcomeWire>;
   control: (input: { run: string; action: RunControlAction }) => { accepted: boolean; reason?: string };
   undo: (input: { fn: string; payload: Json }) => UndoOutcome;
   handler: (input: { handler: string; args: Json; key: string }) => { ok: true; value: Json } | { ok: false; error: { class: 'caller'; message: string } };
+  /** A fn's validation hooks (build 4). */
+  validate: (input: ValidateRequest) => ValidateAnswer;
+  /** Its providers' chat calls (build 4). */
+  providerChat: (input: ProviderChat) => AsyncIterable<ProviderChunk>;
+  /** Its providers' embedding calls (build 4). */
+  providerEmbed: (input: ProviderEmbed) => ProviderEmbedResult;
+  /** Per-person connections (build 4): where to send the person, what came back, and revoking. */
+  connectStart: (input: ConnectStart) => { url: string };
+  connectFinish: (input: ConnectFinish) => ConnectResult;
+  disconnect: (input: Pick<RunConnection, 'id' | 'owner' | 'credentials'>) => void;
 }
 
 /** A system connected to the rig over an in-process socket, serving `systemLinkSpec` for real. */
 export class TestSystem {
   readonly name: SystemName;
   readonly requests: RunRequest[] = [];
+  readonly validations: ValidateRequest[] = [];
+  readonly chats: ProviderChat[] = [];
   readonly children: Array<{ parent: string; key: string; run: string; update?: unknown }> = [];
   readonly behaviour: SystemBehaviour = {
     run: (request) => Promise.resolve({ status: 'done', result: { echo: request.args } }),
     control: () => ({ accepted: true }),
     undo: () => ({ status: 'undone', summary: 'put back' }),
     handler: (input) => ({ ok: true, value: `${input.handler}:yes` }),
+    validate: () => ({ ok: true }),
+    providerChat: () => noChunks(),
+    providerEmbed: (input) => ({ vectors: input.texts.map(() => [0]) }),
+    connectStart: (input) => ({ url: `https://accounts.example/auth?state=${encodeURIComponent(input.state)}` }),
+    connectFinish: () => ({ account: { label: 'ada@example.com' }, credentials: { access: 'a1', refresh: 'r1' } }),
+    disconnect: () => undefined,
   };
   conn: WsConn | undefined;
   readonly #controller = new AbortController();
@@ -237,7 +263,12 @@ export class TestSystem {
       paired: notHere, check: notHere, context: notHere, roots: notHere, list: notHere, stat: notHere, read: notHere, sections: notHere, watch: notHere,
       content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
       form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere,
-      validate: notHere, providerChat: notHere, providerEmbed: notHere, connectStart: notHere, connectFinish: notHere, disconnect: notHere,
+      validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
+      providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
+      providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),
+      connectStart: ({ data }) => this.behaviour.connectStart(data),
+      connectFinish: ({ data }) => this.behaviour.connectFinish(data),
+      disconnect: ({ data }) => { this.behaviour.disconnect(data); },
     })]);
     let deliver: (frame: string) => void = () => undefined;
     const states = new Set<(state: 'closed' | 'connecting' | 'open') => void>();
@@ -286,7 +317,11 @@ export async function executionRig(options: {
   settings?: ExecutionSettings; active?: boolean; llm?: LlmSource; search?: Pick<Search, 'search'>;
   /** How runs pick a fleet instance (default: the system's `main`, as with one connected instance). */
   instances?: ExecutionDeps['instances'];
+  /** What people may see and use (default: everything). */
+  access?: ExecutionDeps['access'];
+  connections?: ExecutionDeps['connections'];
 } = {}) {
+  const rigAccess = options.access;
   const store = await testStore();
   const bus = new RecordingBus();
   const { log, records } = memoryLog();
@@ -308,6 +343,7 @@ export async function executionRig(options: {
   const contextor = createContextor({
     store, catalog, search: options.search ?? { search: () => Promise.resolve([]) }, settings: contextorEnv.parse(), modelSettings: { HARNESS_DEFAULT_MODEL: 'test-model' },
     models: () => module.llm.models(), log, clock, probes: () => undefined,
+    ...(rigAccess === undefined ? {} : { access: (actor: ActorId) => rigAccess.scope(actor) }),
   });
 
   const module: ExecutionModule = createExecution({
@@ -317,6 +353,8 @@ export async function executionRig(options: {
     instances: options.instances ?? { route: ({ system }) => Promise.resolve({ instance: { system, instance: MAIN_INSTANCE } }) },
     config: { current: (system) => Promise.resolve(configs.get(system)) },
     roles: { resolve: () => Promise.resolve(undefined) },
+    access: options.access ?? { scope: (actor) => Promise.resolve(openScope(actor)) },
+    connections: options.connections ?? { forRun: () => Promise.reject(new Error('no connections in this rig')) },
     presence: { active: () => Promise.resolve(presence.active) },
     turns: {
       begin: async (input) => {

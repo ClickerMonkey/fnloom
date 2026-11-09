@@ -1,6 +1,7 @@
 /** The shell's navigation entries: what the sidebar lists, and which one is the current page. */
 import type { UserView } from '@harness/core';
 import type { RouteLocationNormalizedLoaded, RouteLocationRaw } from 'vue-router';
+import type { ConnectNav } from '../connect/logic.ts';
 import type { IconName } from '../ui/index.ts';
 import { links, ROUTES, type RouteName } from './routes.ts';
 
@@ -48,12 +49,21 @@ export interface NavCounts {
   readonly admin: number;
 }
 
-/** The entries for this user on this route. */
-export function navEntries(route: Pick<RouteLocationNormalizedLoaded, 'name'>, user: UserView | undefined, counts: NavCounts): NavEntry[] {
+/** The route the entries are for: its name, and its params when it has any (a connect page's system). */
+export type NavRoute = Pick<RouteLocationNormalizedLoaded, 'name'> & Partial<Pick<RouteLocationNormalizedLoaded, 'params'>>;
+
+/** The entries for this user on this route; `connect` adds the per-person systems' pages after Context. */
+export function navEntries(route: NavRoute, user: UserView | undefined, counts: NavCounts, connect: readonly ConnectNav[] = []): NavEntry[] {
   const current = isRouteName(route.name) ? route.name : undefined;
-  return NAV.filter((spec) => !spec.adminOnly || user?.role === 'admin').map((spec) => ({
+  const fixed = NAV.filter((spec) => !spec.adminOnly || user?.role === 'admin').map((spec): NavEntry => ({
     id: spec.id, to: spec.to, label: spec.label, icon: spec.icon,
     active: current !== undefined && spec.routes.includes(current),
     count: spec.id === 'inbox' ? counts.inbox : spec.id === 'admin' ? counts.admin : 0,
   }));
+  const pages = connect.map((page): NavEntry => ({
+    id: `connect-${page.system}`, to: links.connect(page.system), label: page.title, icon: page.icon,
+    active: current === ROUTES.connect && route.params?.['system'] === page.system, count: 0,
+  }));
+  const at = fixed.findIndex((entry) => entry.id === 'context') + 1;
+  return [...fixed.slice(0, at), ...pages, ...fixed.slice(at)];
 }

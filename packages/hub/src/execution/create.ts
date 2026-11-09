@@ -23,6 +23,7 @@ import { ModelResolver } from './models.ts';
 import { RunDeciders } from './deciders.ts';
 import { HubPolicyEngine } from './policies.ts';
 import { StoredProviders, type ProviderSource } from './providers.ts';
+import { JoinedProviderSource, SystemProviderSource } from '../models/remote.ts';
 import type { ProviderService } from './index.ts';
 import type { ExecutionDeps, LlmEngine } from './ports.ts';
 import { ExecutionQueues, type QueuePorts } from './queues.ts';
@@ -40,13 +41,15 @@ export type LlmSource =
   | { readonly providers: Providers; readonly models?: ModelInfo[] }
   | { readonly engine: (hooks: HubAiHooks) => LlmEngine };
 
-/** The engine an `LlmSource` gives, and how its providers are reloaded. */
-function engineOf(source: LlmSource, hooks: HubAiHooks, log: ExecutionInput['log']): { engine: LlmEngine; providers: ProviderService } {
-  if ('engine' in source) return { engine: source.engine(hooks), providers: { reload: () => Promise.resolve() } };
+/** The engine an `LlmSource` gives, how its providers are reloaded, and how to hear that they changed. */
+function engineOf(source: LlmSource, hooks: HubAiHooks, log: ExecutionInput['log']): { engine: LlmEngine; providers: ProviderService; watch: (changed: () => void) => () => void } {
+  const still = (): (() => void) => () => {};
+  if ('engine' in source) return { engine: source.engine(hooks), providers: { reload: () => Promise.resolve() }, watch: still };
   const models = source.models === undefined ? {} : { models: source.models };
   const engine = new SwitchingLlm((providers) => new AeyeLlm(createHubAi({ providers, hooks, log, ...models })), 'providers' in source ? source.providers : {});
-  if (!('stored' in source)) return { engine, providers: { reload: () => Promise.resolve() } };
-  return { engine, providers: { reload: async () => { await engine.use(await source.stored.load()); } } };
+  if (!('stored' in source)) return { engine, providers: { reload: () => Promise.resolve() }, watch: still };
+  const { stored } = source;
+  return { engine, providers: { reload: async () => { await engine.use(await stored.load()); } }, watch: (changed) => stored.watch?.(changed) ?? still() };
 }
 
 /** What the module is built from. */
@@ -91,7 +94,7 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
   const runs: HubRunService = new HubRunService({ ...input, policies, ledger, queues });
   policies.decideWith(new RunDeciders({ store: input.store, runs, ledger }));
   const hooks = new HubAiHooks({ ...input, ledger, recorder, costs: runs, calls: input.calls, modelLimit: modelLimiter(input.settings, input.ports.rate) });
-  const { engine, providers } = engineOf(input.llm, hooks, input.log);
+  const { engine, providers, watch: watchProviders } = engineOf(input.llm, hooks, input.log);
   const models = new ModelResolver(input);
   const agents: HubAgentLoop = new HubAgentLoop({ ...input, runs, queues, llm: engine, models });
   const hubFns = new HubFns();
@@ -109,6 +112,9 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
     linkHandlers: executionLinkHandlers({ ...input, runs, gateway: llm, handlers }),
     async start() {
       await providers.reload();
+      stops.push(watchProviders(() => {
+        void providers.reload().catch((error: unknown) => { input.log.error('providers.reload-failed', { error: messageOf(error) }); });
+      }));
       queues.start();
       stops.push(runs.onSettled((run) => {
         void input.metrics.settled(run).catch((error: unknown) => { input.log.error('fn.metrics.failed', { run: run.id, fn: run.fn, error: messageOf(error) }); });
@@ -145,6 +151,11 @@ export const EXECUTION_LINK_SPEC = spec({
     llm: hubLinkSpec.endpoints.llm,
   },
 });
+
+/** The providers connected systems bring, over their links. */
+function systemProviders(hub: HubServices): SystemProviderSource {
+  return new SystemProviderSource({ link: hub.link.connections, catalog: hub.catalog, bus: hub.bus, log: hub.log });
+}
 
 /**
  * The hub's providers: its stored records, keys revealed from the api module's vault (reached lazily), seeded once
@@ -223,11 +234,13 @@ export function executionModule(options: {
       instances: hub.link.instances,
       config: hub.link.config,
       roles: { resolve: (role) => hub.models.roles.resolve(role) },
+      access: { scope: (actor) => hub.access.scope(actor) },
+      connections: { forRun: (connection) => hub.connections.forRun(connection) },
       ...chatPorts(hub),
       ...contextorPorts(hub),
       ...metricsPorts(hub),
       ports: hub.store.ports,
-      llm: options.llm?.(hub) ?? { stored: storedProviders(hub, hubActor) },
+      llm: options.llm?.(hub) ?? { stored: new JoinedProviderSource([storedProviders(hub, hubActor), systemProviders(hub)]) },
     });
     options.hubFns?.(module, hub);
     return {

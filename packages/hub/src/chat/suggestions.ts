@@ -6,10 +6,12 @@
  * record. If it fails or answers nonsense, the score decides and the items it left out say so (`failed`).
  */
 import {
-  messageOf, SuggestDecision, type ActorId, type LlmMessage, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,
+  messageOf, splitName, SuggestDecision, type ActorId, type LlmMessage, type QualifiedName, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,
   type SuggestionOutcome, type SuggestionRecord,
 } from '@harness/core';
 import { z } from 'zod';
+import type { AccessScope } from '../access/index.ts';
+import { seesContextNamed } from '../access/scope.ts';
 import type { ChatDeps } from './deps.ts';
 import type { DecidedSuggestions, SuggestionDecider } from './index.ts';
 import { plainText } from './turns.ts';
@@ -48,10 +50,23 @@ function used(item: Suggestion, note?: string): SuggestionOutcome {
 
 /** The suggestions decider over the index's candidates, the hub options table and the LLM gateway. */
 export class HubSuggestions implements SuggestionDecider {
-  readonly #deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'settings' | 'log' | 'clock'>;
+  readonly #deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'settings' | 'log' | 'clock' | 'access' | 'catalog'>;
 
-  constructor(deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'settings' | 'log' | 'clock'>) {
+  constructor(deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'settings' | 'log' | 'clock' | 'access' | 'catalog'>) {
     this.#deps = deps;
+  }
+
+  /** The names among candidates a person may see. */
+  async #seen(access: AccessScope, items: ReadonlyArray<Pick<Suggestion, 'kind' | 'name'>>): Promise<ReadonlySet<string>> {
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (item.kind === 'fn' ? access.mayUse({ name: item.name, system: splitName(item.name).system }) : await this.#seesContext(access, item.name)) seen.add(item.name);
+    }
+    return seen;
+  }
+
+  async #seesContext(access: AccessScope, name: QualifiedName): Promise<boolean> {
+    return seesContextNamed(access, (n) => this.#deps.catalog.context(n), name);
   }
 
   async setting(): Promise<SuggestDecisionView> {
@@ -66,14 +81,17 @@ export class HubSuggestions implements SuggestionDecider {
     return { value: row.value, setBy: row.setBy, updatedAt: row.updatedAt };
   }
 
-  async decide(input: { session: SessionId; text: string }): Promise<DecidedSuggestions> {
+  async decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions> {
     const limit = this.#deps.settings.model.HARNESS_SUGGESTIONS;
     if (limit === 0 || input.text.trim() === '') { return { suggestions: [] }; }
     const decision = (await this.setting()).value;
     const on = decision.enabled && decision.model !== undefined;
     const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: (on ? Math.max(decision.candidates, limit) : limit) * 2 });
-    const hidden = found.hidden.map((item) => skipped(item, 'rule'));
-    const offered = [...found.offered].sort((a, b) => b.score - a.score);
+    // what the person may not see is never suggested, nor named among what was left out
+    const access = await this.#deps.access.scope(input.actor);
+    const sees = await this.#seen(access, [...found.offered, ...found.hidden]);
+    const hidden = found.hidden.filter((item) => sees.has(item.name)).map((item) => skipped(item, 'rule'));
+    const offered = found.offered.filter((item) => sees.has(item.name)).sort((a, b) => b.score - a.score);
     if (!on) { return this.#byScore(offered, limit, hidden); }
     return this.#byModel(input, decision, offered, hidden);
   }

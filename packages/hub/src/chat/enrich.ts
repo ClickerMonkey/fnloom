@@ -4,7 +4,7 @@
  * systems adds its own blocks, in hook order. Every addition is a tagged block, so the model tells it from the
  * person's words.
  */
-import { splitName, type ChatMessage, type HookBlock, type HookInput, type Link, type MessagePart, type Session, type SuggestionRecord, type TurnId, type UserInfo } from '@harness/core';
+import { INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type HookBlock, type HookInput, type Link, type MessagePart, type Session, type SuggestionRecord, type TurnId, type UserInfo } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
 import type { CatalogEntry } from '../catalog/index.ts';
@@ -33,7 +33,7 @@ export class HubMessageEnricher implements MessageEnricher {
   async enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord }> {
     // the graph contextor chooses context and fns for each prompt itself, so its sessions get no suggestion blocks
     const suggest = !(await this.#graph(input.session));
-    const [suggested, hooks] = await Promise.all([suggest ? this.#suggestions(input.session, input.text) : NO_SUGGESTIONS, this.#hooks(input)]);
+    const [suggested, hooks] = await Promise.all([suggest ? this.#suggestions(input.session, input.text, input.user.id) : NO_SUGGESTIONS, this.#hooks(input)]);
     const parts = [this.#localTime(input.user), ...suggested.parts, ...hooks];
     return suggested.record === undefined ? { parts } : { parts, suggestions: suggested.record };
   }
@@ -80,6 +80,8 @@ export class HubMessageEnricher implements MessageEnricher {
           blocks.push(`<attachment name="${escapeAttribute(part.attachment)}" title="${escapeAttribute(part.title)}">${escapeBody(JSON.stringify(part.data))}</attachment>`);
           break;
         case 'link': inline.push(linkTag(part.link)); break;
+        // a form's answers: the model reads them, the chat shows the message only in debug mode
+        case 'input-answer': blocks.push(`<${INPUT_ANSWER_TAG} title="${escapeAttribute(part.title)}">${escapeBody(part.text)}</${INPUT_ANSWER_TAG}>`); break;
       }
     }
     return [inline.join(''), ...blocks].filter((s) => s !== '').join('\n\n');
@@ -104,10 +106,10 @@ export class HubMessageEnricher implements MessageEnricher {
   }
 
   /** The suggested context and fns as the extras the LLM reads, and the record of every candidate. */
-  async #suggestions(session: Session, text: string): Promise<{ parts: MessagePart[]; record?: SuggestionRecord }> {
+  async #suggestions(session: Session, text: string, actor: ActorId): Promise<{ parts: MessagePart[]; record?: SuggestionRecord }> {
     let decided: Awaited<ReturnType<SuggestionDecider['decide']>>;
     try {
-      decided = await this.#decider.decide({ session: session.id, text });
+      decided = await this.#decider.decide({ session: session.id, text, actor });
     } catch (error) {
       this.#deps.log.warn('chat.suggest.failed', { session: session.id, error: messageOf(error) });
       return { parts: [] };

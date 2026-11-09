@@ -150,8 +150,8 @@ export interface PolicyDraft {
   fn: string;
   system: string;
   kind: string;
-  /** Comma-separated. */
-  tags: string;
+  /** Tags that must all match. */
+  tags: string[];
   effect: Policy['decision']['effect'];
   reason: string;
   approver: ApproverKind;
@@ -172,7 +172,7 @@ export function policyDraft(policy?: Policy): PolicyDraft {
     fn: policy?.target.fn ?? '',
     system: policy?.target.system ?? '',
     kind: policy?.target.kind ?? '',
-    tags: policy?.target.tags?.join(', ') ?? '',
+    tags: [...(policy?.target.tags ?? [])],
     effect: decision?.effect ?? 'ask',
     reason: decision?.effect === 'deny' ? decision.reason : '',
     approver: approver?.by ?? 'turn-user',
@@ -186,7 +186,7 @@ export function policyDraft(policy?: Policy): PolicyDraft {
 export function policyBody(draft: PolicyDraft): Checked<PolicyBody, Extract<keyof PolicyBody, string>> {
   const value = draft.subjectValue.trim();
   const subject = draft.subject === 'everyone' ? { everyone: true } : { [draft.subject]: value };
-  const tags = draft.tags.split(',').map((t) => t.trim()).filter((t) => t !== '');
+  const tags = draft.tags.map((t) => t.trim()).filter((t) => t !== '');
   const target = present({ fn: draft.fn.trim(), system: draft.system.trim(), kind: draft.kind.trim(), tags: tags.length === 0 ? undefined : tags });
   const approverValue = draft.approverValue.trim();
   const approver = draft.approver === 'actor' ? { by: 'actor', actor: approverValue }
@@ -221,18 +221,35 @@ export function categoryBody(draft: CategoryDraft): Checked<CategoryBody, Extrac
 
 /** The provider kinds, from the input schema. */
 export type ProviderKindInput = ProviderInput['provider'];
-/** Every field any provider takes, besides its kind. */
-export type ProviderField = Exclude<KeysOfUnion<ProviderInput>, 'provider'>;
+/** The AWS provider's ways to sign in: an access key pair or a Bedrock API key. */
+export type AwsAuthKind = Extract<ProviderInput, { provider: 'aws' }>['auth']['kind'];
+/** The AWS sign-in choices, in the order the form offers them. */
+export const AWS_AUTH = [{ value: 'keys', label: 'Access keys' }, { value: 'apiKey', label: 'API key' }] as const satisfies readonly { readonly value: AwsAuthKind; readonly label: string }[];
+/** Every field any provider takes, besides its kind: AWS's sign-in fields are flattened into the form. */
+export type ProviderField = Exclude<KeysOfUnion<ProviderInput>, 'provider' | 'auth'> | Exclude<KeysOfUnion<Extract<ProviderInput, { provider: 'aws' }>['auth']>, 'kind'>;
+
+/** One provider field: its label, whether it is a secret, and an optional hint. */
+interface ProviderFieldInfo {
+  readonly label: string;
+  readonly secret: boolean;
+  readonly hint?: string;
+  readonly placeholder?: string;
+}
 
 /** Every provider field's label, and whether it is a secret. Adding a field to `ProviderInput` breaks this until it is named. */
 export const PROVIDER_FIELDS = {
   apiKey: { label: 'API key', secret: true },
   baseURL: { label: 'Base URL', secret: false },
   contextWindow: { label: 'Context window (tokens)', secret: false },
-} as const satisfies Record<ProviderField, { readonly label: string; readonly secret: boolean }>;
+  region: { label: 'Region', secret: false, placeholder: 'us-east-1' },
+  accessKeyId: { label: 'Access key ID', secret: false },
+  secretAccessKey: { label: 'Secret access key', secret: true },
+  sessionToken: { label: 'Session token', secret: true, hint: 'Only for temporary credentials.' },
+  profilePrefix: { label: 'Inference profile prefix', secret: false, placeholder: 'us.', hint: 'Left empty, one is picked for the region.' },
+} as const satisfies Record<ProviderField, ProviderFieldInfo>;
 
 /** Every provider kind's name. */
-export const PROVIDER_NAME = { openai: 'OpenAI', openrouter: 'OpenRouter', ollama: 'Ollama' } as const satisfies Record<ProviderKindInput, string>;
+export const PROVIDER_NAME = { openai: 'OpenAI', openrouter: 'OpenRouter', ollama: 'Ollama', aws: 'Amazon Bedrock' } as const satisfies Record<ProviderKindInput, string>;
 
 const isProviderField = (key: string): key is ProviderField => key in PROVIDER_FIELDS;
 
@@ -243,22 +260,54 @@ function providerSchema(kind: ProviderKindInput) {
   return schema;
 }
 
-/** The fields a provider kind takes, in schema order, with whether each is required. */
-export function providerFields(kind: ProviderKindInput): readonly { readonly name: ProviderField; readonly label: string; readonly secret: boolean; readonly required: boolean }[] {
-  const shape: Readonly<Record<string, z.ZodType>> = providerSchema(kind).shape;
-  return Object.entries(shape).flatMap(([name, field]) => (isProviderField(name)
+/** The schema of one AWS sign-in choice. */
+function awsAuthSchema(auth: AwsAuthKind) {
+  const shape = providerSchema('aws').shape;
+  if (!('auth' in shape)) { throw new Error('The AWS provider input has no sign-in'); }
+  const schema = shape.auth.options.find((option) => option.shape.kind.value === auth);
+  if (schema === undefined) { throw new Error(`No AWS sign-in schema for ${auth}`); }
+  return schema;
+}
+
+/** One field the form shows. */
+export interface ProviderFormField extends ProviderFieldInfo {
+  readonly name: ProviderField;
+  readonly required: boolean;
+}
+
+/** A shape's named fields, in order, with whether each is required. */
+function fieldsOf(shape: Readonly<Record<string, z.ZodType>>): ProviderFormField[] {
+  return Object.entries(shape).flatMap(([name, field]): ProviderFormField[] => (isProviderField(name)
     ? [{ name, ...PROVIDER_FIELDS[name], required: !field.safeParse(undefined).success }]
     : []));
 }
 
-/** A provider's fields as typed, to the body `configureProvider` takes. */
-export function providerBody(kind: ProviderKindInput, fields: Readonly<Partial<Record<ProviderField, string>>>): Checked<ProviderInput, ProviderField> {
-  const values = present(Object.fromEntries(providerFields(kind).map((f) => [f.name, fields[f.name]?.trim()])));
-  const checked = checkForm(providerSchema(kind), { provider: kind, ...values });
+/** The fields a provider kind takes, in schema order, with whether each is required. AWS shows the chosen sign-in's fields after the region. */
+export function providerFields(kind: ProviderKindInput, auth: AwsAuthKind = 'keys'): readonly ProviderFormField[] {
+  const shape: Readonly<Record<string, z.ZodType>> = providerSchema(kind).shape;
+  if (kind !== 'aws') { return fieldsOf(shape); }
+  const top = fieldsOf(shape);
+  return [...top.filter((f) => f.name === 'region'), ...fieldsOf(awsAuthSchema(auth).shape), ...top.filter((f) => f.name !== 'region')];
+}
+
+/** A provider's fields as typed, to the body `configureProvider` takes (AWS's sign-in fields gathered under `auth`). */
+export function providerBody(kind: ProviderKindInput, fields: Readonly<Partial<Record<ProviderField, string>>>, auth: AwsAuthKind = 'keys'): Checked<ProviderInput, ProviderField> {
+  const values = (from: readonly ProviderFormField[]): Record<string, unknown> => present(Object.fromEntries(from.map((f) => [f.name, fields[f.name]?.trim()])));
+  const authFields = kind === 'aws' ? fieldsOf(awsAuthSchema(auth).shape) : [];
+  const own = providerFields(kind, auth).filter((f) => !authFields.includes(f));
+  const candidate = kind === 'aws' ? { provider: kind, ...values(own), auth: { kind: auth, ...values(authFields) } } : { provider: kind, ...values(own) };
+  const checked = checkForm(providerSchema(kind), candidate);
   if (checked.ok) { return { ok: true, value: checked.value }; }
   const problems: FieldProblems<ProviderField> = {};
-  for (const [key, message] of Object.entries(checked.problems)) { if (isProviderField(key)) { problems[key] = message; } }
+  const found = kind === 'aws' && 'auth' in checked.problems ? { ...checked.problems, ...authProblems(auth, candidate) } : checked.problems;
+  for (const [key, message] of Object.entries(found)) { if (isProviderField(key)) { problems[key] = message; } }
   return { ok: false, problems };
+}
+
+/** The AWS sign-in's problems, one per field. */
+function authProblems(auth: AwsAuthKind, candidate: Readonly<Record<string, unknown>>): Readonly<Record<string, string | undefined>> {
+  const checked = checkForm(awsAuthSchema(auth), candidate['auth']);
+  return checked.ok ? {} : checked.problems;
 }
 
 // ─── Installing and pairing ───────────────────────────────────────────────────

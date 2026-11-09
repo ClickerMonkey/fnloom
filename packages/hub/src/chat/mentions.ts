@@ -5,11 +5,14 @@
  */
 import type { Peer } from '@ayepi/core';
 import {
-  ResourceUri, splitName, SystemName, type Asker, type Json, type MentionHover, type MentionOption, type MessagePart, type OutgoingPart, type QualifiedName, type Session,
+  ResourceUri, splitName, SystemName, type ActorId, type Asker, type Json, type MentionHover, type MentionOption, type MessagePart, type OutgoingPart, type QualifiedName, type Session,
   type SystemLinkSpec,
 } from '@harness/core';
 import { hub, parseValue } from '@harness/sdk';
+import type { AccessScope } from '../access/index.ts';
+import { seesContextNamed } from '../access/scope.ts';
 import { isHubName } from '../catalog/availability.ts';
+import { parseSectionIndexKey } from '../index/indexer.ts';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import type { MentionAsk, MentionProvider, MentionRequest, MentionService } from './index.ts';
@@ -21,10 +24,25 @@ const HUB_RESULTS = 10;
 
 /** The hub's own mention providers: fns, context and resources, from the catalog and the index. */
 export class HubMentions implements MentionProvider {
-  readonly #deps: Pick<ChatDeps, 'catalog' | 'search' | 'store'>;
+  readonly #deps: Pick<ChatDeps, 'catalog' | 'search' | 'store' | 'access'>;
 
-  constructor(deps: Pick<ChatDeps, 'catalog' | 'search' | 'store'>) {
+  constructor(deps: Pick<ChatDeps, 'catalog' | 'search' | 'store' | 'access'>) {
     this.#deps = deps;
+  }
+
+  /** Whether the asker may see what a hub mention names (a fn, a context item or a resource). */
+  async #sees(access: AccessScope, kind: 'fn' | 'context' | 'resource', key: string): Promise<boolean> {
+    if (kind === 'resource') return access.seesUri(key);
+    const name = asQualified(key);
+    if (name === undefined) return false;
+    if (kind === 'fn') return access.seesFn({ name, system: splitName(name).system });
+    return seesContextNamed(access, (n) => this.#deps.catalog.context(n), name);
+  }
+
+  /** The options the asker may see, in order. */
+  async #seen(access: AccessScope, kind: 'fn' | 'context' | 'resource', options: ReadonlyArray<{ key: string; option: MentionOption }>): Promise<MentionOption[]> {
+    const seen = await Promise.all(options.map(async (o) => ((await this.#sees(access, kind, o.key)) ? o.option : undefined)));
+    return seen.filter((o) => o !== undefined);
   }
 
   serves(provider: QualifiedName): boolean {
@@ -34,34 +52,36 @@ export class HubMentions implements MentionProvider {
   async search(ask: MentionAsk, query: string): Promise<MentionOption[]> {
     const session = await this.#deps.store.table('sessions').get(ask.session);
     const systems = session === undefined ? [] : searchSystems(session);
+    const access = await this.#deps.access.scope(ask.actor);
     switch (ask.provider) {
       case hub.mentions.fns.name: {
         if (query.trim() === '') {
           const fns = await this.#deps.catalog.fns({ available: true });
-          return fns.filter((f) => session !== undefined && allowsSystem(session, f.system)).slice(0, HUB_RESULTS)
+          return fns.filter((f) => session !== undefined && allowsSystem(session, f.system) && access.mayUse(f)).slice(0, HUB_RESULTS)
             .map((f) => ({ label: f.name, hint: f.decl.description, target: { fn: f.name } }));
         }
         const hits = await this.#deps.search.search({ text: query, kinds: ['fn'], limit: HUB_RESULTS, systems });
-        return hits.map((h) => ({ label: h.key, hint: h.text, target: { fn: h.key } }));
+        return this.#seen(access, 'fn', hits.map((h) => ({ key: h.key, option: { label: h.key, hint: h.text, target: { fn: h.key } } })));
       }
       case hub.mentions.context.name: {
         const hits = await this.#deps.search.search({ text: query, kinds: ['context'], limit: HUB_RESULTS, systems });
-        return hits.map((h) => ({ label: h.key, hint: h.text, target: { context: h.key } }));
+        return this.#seen(access, 'context', hits.map((h) => ({ key: h.key, option: { label: h.key, hint: h.text, target: { context: h.key } } })));
       }
       case hub.mentions.resources.name: {
         const hits = await this.#deps.search.search({ text: query, kinds: ['section'], limit: HUB_RESULTS, systems });
-        return hits.map((h) => ({ label: resourceLabel(h.key), hint: h.text, target: resourceTarget(h.key) }));
+        return this.#seen(access, 'resource', hits.map((h) => ({ key: parseSectionIndexKey(h.key).uri, option: { label: resourceLabel(h.key), hint: h.text, target: resourceTarget(h.key) } })));
       }
       default: return [];
     }
   }
 
   async hover(ask: MentionAsk, target: Json): Promise<MentionHover | undefined> {
+    const access = await this.#deps.access.scope(ask.actor);
     switch (ask.provider) {
       case hub.mentions.fns.name: {
         const { fn } = parseValue(hub.mentions.fns.target, target);
         const record = await this.#deps.catalog.fn(qualified(fn));
-        if (record === undefined) { return undefined; }
+        if (record === undefined || !access.seesFn(record)) { return undefined; }
         return {
           title: record.name,
           subtitle: `${record.system} · ${record.decl.kind === 'native' ? 'native' : record.decl.kind}`,
@@ -72,10 +92,11 @@ export class HubMentions implements MentionProvider {
       case hub.mentions.context.name: {
         const { context } = parseValue(hub.mentions.context.target, target);
         const record = await this.#deps.catalog.context(qualified(context));
-        return record === undefined ? undefined : { title: record.name, subtitle: record.system, body: record.decl.description };
+        return record === undefined || !access.seesContext(record) ? undefined : { title: record.name, subtitle: record.system, body: record.decl.description };
       }
       case hub.mentions.resources.name: {
         const { uri, section } = parseValue(hub.mentions.resources.target, target);
+        if (!access.seesUri(uri)) { return undefined; }
         const resource = ResourceUri.safeParse(uri);
         const subtitle = section === undefined ? uri : `${uri} § ${section}`;
         return { title: resourceLabel(uri), subtitle, ...(resource.success ? { open: { resource: resource.data, title: resourceLabel(uri) } } : {}) };
@@ -85,21 +106,23 @@ export class HubMentions implements MentionProvider {
   }
 
   async text(ask: MentionAsk, target: Json): Promise<string> {
+    const access = await this.#deps.access.scope(ask.actor);
     switch (ask.provider) {
       case hub.mentions.fns.name: {
         const { fn } = parseValue(hub.mentions.fns.target, target);
         const record = await this.#deps.catalog.fn(qualified(fn));
-        if (record === undefined) { return `The fn ${fn}, which the hub does not know.`; }
+        if (record === undefined || !access.seesFn(record)) { return `The fn ${fn}, which the hub does not know.`; }
         const available = record.available === true ? '' : ` It can't be used now: ${record.available.detail}.`;
         return `The fn ${record.name} of the ${record.system} system: ${record.decl.description}${available}`;
       }
       case hub.mentions.context.name: {
         const { context } = parseValue(hub.mentions.context.target, target);
         const record = await this.#deps.catalog.context(qualified(context));
-        return record === undefined ? `The context ${context}, which the hub does not know.` : `The context ${record.name} of the ${record.system} system: ${record.decl.description}`;
+        return record === undefined || !access.seesContext(record) ? `The context ${context}, which the hub does not know.` : `The context ${record.name} of the ${record.system} system: ${record.decl.description}`;
       }
       case hub.mentions.resources.name: {
         const { uri, section } = parseValue(hub.mentions.resources.target, target);
+        if (!access.seesUri(uri)) { return `The resource ${uri}, which the hub does not know.`; }
         return section === undefined ? `The resource ${uri}.` : `The section "${section}" of the resource ${uri}.`;
       }
       default: throw new ChatError('not-found', `The hub has no mention provider ${ask.provider}.`);
@@ -142,11 +165,11 @@ export class LinkedMentions implements MentionProvider {
 
 /** Mentions across the hub's own providers and every system's, limited to what a session allows. */
 export class ChatMentions implements MentionService {
-  readonly #deps: Pick<ChatDeps, 'store' | 'catalog' | 'log'>;
+  readonly #deps: Pick<ChatDeps, 'store' | 'catalog' | 'log' | 'access'>;
   readonly #people: People;
   readonly #providers: readonly MentionProvider[];
 
-  constructor(deps: Pick<ChatDeps, 'store' | 'catalog' | 'log'>, people: People, providers: readonly MentionProvider[]) {
+  constructor(deps: Pick<ChatDeps, 'store' | 'catalog' | 'log' | 'access'>, people: People, providers: readonly MentionProvider[]) {
     this.#deps = deps;
     this.#people = people;
     this.#providers = providers;
@@ -154,13 +177,13 @@ export class ChatMentions implements MentionService {
 
   async search(request: MentionRequest, query: string): Promise<MentionOption[]> {
     const session = await this.#session(request);
-    const provider = await this.#provider(session, request.provider);
+    const provider = await this.#provider(session, request.provider, request.actor);
     return provider.search(await this.#ask(request), query);
   }
 
   async hover(request: MentionRequest, target: Json): Promise<MentionHover | undefined> {
     const session = await this.#session(request);
-    const provider = await this.#provider(session, request.provider);
+    const provider = await this.#provider(session, request.provider, request.actor);
     await this.#check(request.provider, target);
     return provider.hover(await this.#ask(request), target);
   }
@@ -168,7 +191,7 @@ export class ChatMentions implements MentionService {
   async resolve(input: { session: Session; asker: Asker; parts: readonly OutgoingPart[] }): Promise<MessagePart[]> {
     return Promise.all(input.parts.map(async (part): Promise<MessagePart> => {
       if (part.type !== 'mention') { return part; }
-      const provider = await this.#provider(input.session, part.provider);
+      const provider = await this.#provider(input.session, part.provider, input.asker.actor);
       await this.#check(part.provider, part.target);
       try {
         return { ...part, text: await provider.text({ ...input.asker, provider: part.provider }, part.target) };
@@ -190,9 +213,9 @@ export class ChatMentions implements MentionService {
   }
 
   /** The source for a provider the session allows and that can be used now. */
-  async #provider(session: Session, name: QualifiedName): Promise<MentionProvider> {
+  async #provider(session: Session, name: QualifiedName, actor: ActorId): Promise<MentionProvider> {
     const { system } = splitName(name);
-    if (!allowsSystem(session, system)) { throw new ChatError('unavailable', `The ${system} system is not enabled in this session.`); }
+    if (!allowsSystem(session, system) || !(await this.#deps.access.scope(actor)).seesSystem(system)) { throw new ChatError('unavailable', `The ${system} system is not enabled in this session.`); }
     const available = await this.#deps.catalog.availability(name);
     if (available !== true) { throw new ChatError('unavailable', `The mention provider ${name} can't be used now: ${available.detail}.`); }
     const provider = this.#providers.find((p) => p.serves(name));

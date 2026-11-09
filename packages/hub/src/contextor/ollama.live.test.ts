@@ -6,6 +6,7 @@
  * question must be chosen. Then the static toolset runs a fn the model names through `run`. Skipped when Ollama or
  * the model isn't there. Run with `npm run test:live`.
  */
+import { openScope } from '../access/index.ts';
 import { agent, fn, g, hub } from '@harness/sdk';
 import { OLLAMA_BASE_URL, type LlmMessage, type RunSettled } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -101,7 +102,7 @@ async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTa
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store),
-    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined),
+    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined), access: (actor) => Promise.resolve(openScope(actor)),
   });
   const fs = r.connect('fs');
   fs.behaviour.run = () => Promise.resolve({ status: 'done', result: 'line one\nline two\nline three' });

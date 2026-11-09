@@ -151,7 +151,7 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
     <UiInput v-else-if="node.kind === 'duration'" :model-value="text" :label="label" :hint="hint" :error="error" :required="required" :hide-label="inline" :size="inline ? 'sm' : 'md'" placeholder="2s" @update:model-value="setText" />
 
     <div v-else-if="node.kind === 'bool'" class="switch-row">
-      <UiSwitch :model-value="bool" :label="label" :description="hint" @update:model-value="emit('update', { kind: 'bool', value: $event })" />
+      <UiSwitch :model-value="bool" :label="label" :description="hint" :hide-label="inline" @update:model-value="emit('update', { kind: 'bool', value: $event })" />
     </div>
 
     <UiField v-else-if="node.kind === 'enum'" v-slot="field" :label="label" :hint="hint" :error="error" :required="required" :hide-label="inline">

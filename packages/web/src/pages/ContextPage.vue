@@ -17,13 +17,12 @@ import FromResourceDialog from '../context/components/FromResourceDialog.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
 import ListSearch from '../components/query/ListSearch.vue';
 import { filterOf, isFiltered, type MemoryDraft } from '../context/logic/context.ts';
-import { hubListQuery, namesOf, useListQuery } from '../state/query.ts';
+import { hubListQuery, useListQuery } from '../state/query.ts';
 import { useStores } from '../state/stores.ts';
 import { UiButton } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { context, resources, toasts, chat } = useStores();
-const suggestFns = namesOf(chat.listValues, 'fns', 'name');
+const { context, resources, toasts } = useStores();
 const finder = resources.search();
 const router = useRouter();
 const now = useNow();
@@ -65,7 +64,7 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
       <UiButton icon="file" data-testid="context-from-resource" @click="making = true">From a resource</UiButton>
       <UiButton variant="primary" icon="plus" data-testid="context-remember" @click="remembering = true">Context</UiButton>
     </template>
-    <ListSearch v-model="search" list="contexts" label="context" placeholder="Search names and descriptions, or filter" :count="items.length" :more="context.list.hasMore.value" data-testid="context-filters" />
+    <ListSearch v-model="search" list="contexts" label="context" placeholder="Search names and descriptions, or filter" :count="items.length" :more="context.list.hasMore.value" :partial="context.list.partial.value" data-testid="context-filters" />
     <LoadState
       :loading="context.list.loading.value && !context.list.loaded.value" :problem="context.list.problem.value" :ready="context.list.loaded.value" :empty="items.length === 0"
       :empty-title="filtered ? 'Nothing matches' : 'No context yet'"
@@ -79,7 +78,7 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
         <UiButton variant="ghost" :loading="context.list.loadingMore.value" data-testid="more" @click="context.list.more()">Show more</UiButton>
       </div>
     </LoadState>
-    <MemoryDialog v-model:open="remembering" :suggest-fns="suggestFns" :busy="context.remembering.busy.value" :problem="context.remembering.problem.value" @save="remember" />
+    <MemoryDialog v-model:open="remembering" :busy="context.remembering.busy.value" :problem="context.remembering.problem.value" @save="remember" />
     <FromResourceDialog
       v-model:open="making" :busy="context.making.busy.value" :problem="context.making.problem.value"
       :found="finder.found.value.value ?? []" :finding="finder.found.loading.value" :find-problem="finder.found.problem.value" @find="finder.search($event)" @save="fromResource"

@@ -63,7 +63,7 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     mcpsPlugin(hub, systems, ops),
     packagingPlugin(hub, systems, ops),
     ...build3Plugins(hub, systems, reads),
-    ...build4Plugins(systems),
+    ...build4Plugins(hub, systems),
     eventsPlugin(hub, auth),
   ];
 }

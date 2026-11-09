@@ -9,7 +9,7 @@
  */
 import { fixture } from './fixture.ts';
 import {
-  splitName, Approval, ChatCapabilities, ChatMessage, LlmInteraction, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, type Json, type MessagePart, type OutgoingPart,
+  splitName, Approval, ChatCapabilities, ChatMessage, LlmInteraction, ModelCallId, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, type Json, type MessagePart, type OutgoingPart,
   type QualifiedName, type RunUpdate, type SessionEvent, type SessionId, type SessionSummary, type TreeNode, type TurnId,
 } from '@harness/core';
 import type { z } from 'zod';
@@ -354,7 +354,7 @@ export class MockChat {
     return call;
   }
 
-  #add(id: SessionId, fields: Pick<ChatMessage, 'turn' | 'author' | 'role' | 'status' | 'parts'> & Partial<Pick<ChatMessage, 'runs' | 'replyTo' | 'createdAt'>>): ChatMessage {
+  #add(id: SessionId, fields: Pick<ChatMessage, 'turn' | 'author' | 'role' | 'status' | 'parts'> & Partial<Pick<ChatMessage, 'runs' | 'replyTo' | 'createdAt' | 'cacheMiss'>>): ChatMessage {
     const message = fixture(ChatMessage, { id: mintId('message'), session: id, runs: [], replyAll: false, answerers: [], createdAt: this.#now(), ...fields });
     this.messages.set(id, [...(this.messages.get(id) ?? []), message]);
     this.#emit(id, { type: 'message', message });
@@ -399,6 +399,17 @@ export class MockChat {
       ],
     });
     this.#add(router.id, { turn: mintId('turn'), author: 'act_hub', role: 'note', status: 'done', createdAt: now - 3_600_000, parts: [{ type: 'text', text: 'notes went offline. Its fns are unavailable until it reconnects.' }] });
+    // build 4: a form's answers (hidden unless in debug mode), then an answer whose call missed the prompt cache
+    const later = mintId('turn');
+    const form = RunId.parse('run_trip_form');
+    this.#add(router.id, {
+      turn: later, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 1_900_000,
+      parts: [{ type: 'input-answer', run: form, title: 'Route groups', value: { groups: ['chat'], keepMounted: true }, text: 'Groups: chat\nKeep mounted: yes' }],
+    });
+    this.#add(router.id, {
+      turn: later, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 1_800_000, cacheMiss: { call: ModelCallId.parse('mdl_cache_miss'), at: now - 1_800_000 },
+      parts: [{ type: 'text', text: 'Thanks. I kept the chat routes in one group and left the page mounted between sessions.' }],
+    });
     this.#add(notes.id, { turn: mintId('turn'), author: this.#owner(), role: 'user', status: 'done', createdAt: now - DAY - 3_600_000, parts: [{ type: 'text', text: 'Sum up Thursday’s meeting notes.' }] });
   }
 }

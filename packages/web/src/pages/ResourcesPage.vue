@@ -8,6 +8,9 @@
  * viewer beside the list on roomy screens or in a sheet, with its mode, page and line in the URL too. Live: resource
  * changes refresh what is shown.
  */
+import AccessControl from '../components/access/AccessControl.vue';
+import CrawlSummary from '../resources/browser/CrawlSummary.vue';
+import { crawlOf, isCrawlRoot } from '../resources/logic/crawls.ts';
 import { ResourceUri, sortOf, type QualifiedName, type ResourceRecord, type ResourceStat } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -77,6 +80,23 @@ function sortBy(next: BrowserSort): void {
 const showGroups = computed(() => view.value === 'groups' && query.value.in === undefined);
 const inLabel = computed(() => browser.facets.value.find((f) => f.value === query.value.in)?.label ?? query.value.in ?? '');
 const crumbs = computed(() => crumbsOf(query.value.under ?? ''));
+/** The root being browsed (a top folder of the tree), whose sharing shows; undefined below or above the roots. */
+const rootUri = computed(() => {
+  const under = query.value.under ?? '';
+  const isRoot = isCrawlRoot(under) || browser.folders.value.get('')?.value.value?.some((folder) => folder.value === under) === true;
+  return isRoot ? under.replace(/\/$/, '') : undefined;
+});
+/** The web crawl being browsed (its folder or one inside it), with how many pages it kept when the tree knows. */
+const crawl = computed(() => crawlOf(query.value.under ?? ''));
+const crawlPages = computed(() => {
+  const at = crawl.value?.root;
+  if (at === undefined) { return undefined; }
+  const parent = at.replace(/[^/]+\/$/, '');
+  const counted = browser.folders.value.get(parent)?.value.value?.find((folder) => folder.value === at)?.count;
+  // the tree may not be open (a phone): the list counts them once it holds every page of the crawl
+  const listed = query.value.under === at && ![query.value.q, query.value.form, query.value.missing, query.value.in].some((v) => v !== undefined && v !== '') && browser.list.loaded.value && !browser.list.hasMore.value ? records.value.length : undefined;
+  return counted ?? listed;
+});
 const peek = (record: ResourceRecord) => browser.peek(record).value.value;
 
 // ─── The opened resource ──────────────────────────────────────────────────
@@ -199,7 +219,7 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
       <section class="main" aria-label="Resources">
         <div class="toolbar" role="search" aria-label="Filter resources">
           <!-- one row: the search bar with the sort, then what the layout adds (grouping, card size) beside the layout switch -->
-          <ListSearch v-model="search" list="resources" label="resources" placeholder="Search names, addresses and contents" :count="showGroups ? undefined : records.length" :more="browser.list.hasMore.value" data-testid="resource-search">
+          <ListSearch v-model="search" list="resources" label="resources" placeholder="Search names, addresses and contents" :count="showGroups ? undefined : records.length" :more="browser.list.hasMore.value" :partial="browser.list.partial.value" data-testid="resource-search">
             <UiSelect v-if="view === 'groups'" v-model="group" class="pick" :options="GROUPS" label="Group" hide-label size="sm" data-testid="resource-grouping" />
             <UiSegmented v-if="view === 'grid'" v-model="size" :options="SIZES" label="Card size" />
             <UiSegmented v-model="view" :options="VIEWS" label="Layout" icon-only data-testid="resource-view" />
@@ -217,6 +237,9 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
             <UiButton size="sm" variant="ghost" icon="x" @click="url.set({ in: '' })">{{ view === 'groups' ? 'Back to groups' : 'Every group' }}</UiButton>
           </template>
         </nav>
+
+        <CrawlSummary v-if="crawl !== undefined" :crawl="crawl" :pages="crawlPages" />
+        <AccessControl v-if="rootUri !== undefined" :target="{ kind: 'root', uri: rootUri }" title="Sharing this root" />
 
         <div v-if="browser.selectedCount.value > 0" class="bulk" role="toolbar" aria-label="Selected resources" data-testid="bulk-bar">
           <span class="bulk-count">{{ browser.selectedCount.value }} selected</span>

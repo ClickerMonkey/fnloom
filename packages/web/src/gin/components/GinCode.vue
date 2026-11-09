@@ -5,10 +5,11 @@
  * on the line where their node starts.
  */
 import type { ExprDef } from '@aeye/gin';
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, inject, ref } from 'vue';
+import { useCodeWidth } from '../codeWidth.ts';
 import { UiIcon } from '../../ui/index.ts';
 import type { ExprProblem } from '../logic/expr.ts';
-import { CODE_WIDTH, layoutExpr, type CodeLine } from '../logic/layout.ts';
+import { layoutExpr, type CodeLine } from '../logic/layout.ts';
 import { EXPR_TOOLS, sharedExprTools } from '../state.ts';
 import GinNote from './GinNote.vue';
 
@@ -18,21 +19,10 @@ const props = withDefaults(defineProps<{
 }>(), { problems: () => [] });
 
 const tools = inject(EXPR_TOOLS, sharedExprTools, true);
-/** Characters that fit across the box (at most `CODE_WIDTH`, at least 24), so a phone wraps sooner than a desktop. */
-const width = ref(CODE_WIDTH);
 const root = ref<HTMLElement | null>(null);
 const probe = ref<HTMLElement | null>(null);
-let observer: ResizeObserver | undefined;
-function measure(): void {
-  const char = (probe.value?.getBoundingClientRect().width ?? 0) / 10;
-  const box = root.value?.clientWidth ?? 0;
-  if (char > 0 && box > 0) { width.value = Math.max(24, Math.min(CODE_WIDTH, Math.floor(box / char) - 3)); }
-}
-onMounted(() => {
-  measure();
-  if (typeof ResizeObserver !== 'undefined' && root.value) { observer = new ResizeObserver(measure); observer.observe(root.value); }
-});
-onBeforeUnmount(() => observer?.disconnect());
+/** Characters that fit across the box, so a phone wraps sooner than a desktop. */
+const width = useCodeWidth(root, probe);
 const lines = computed(() => layoutExpr(props.def, tools, width.value));
 const notesOf = (line: CodeLine): string[] => line.marks.map((m) => m.note).filter((n) => n !== '');
 const problemsOf = (line: CodeLine): ExprProblem[] => props.problems.filter((p) => line.marks.some((m) => m.path === p.path));

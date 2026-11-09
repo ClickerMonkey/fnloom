@@ -13,7 +13,7 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelInfo, ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice,
+  ModelInfo, ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
@@ -81,7 +81,7 @@ export type RunDecision = { effect: 'allow' } | { effect: 'deny'; reason: string
  * running a fn themselves is not asked. `ask` records an approval for `run` and publishes it with its approvers.
  */
 export interface PolicyEngine {
-  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId }): Promise<RunDecision>;
+  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver }): Promise<RunDecision>;
   answer(approval: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval>;
 }
 

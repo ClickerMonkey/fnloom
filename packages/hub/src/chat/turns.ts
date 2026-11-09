@@ -9,6 +9,9 @@ import {
   ACTIVE_RUN_STATUSES, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
   type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type UserInfo,
 } from '@harness/core';
+import type { AccessScope } from '../access/index.ts';
+import { seesContextNamed } from '../access/scope.ts';
+import { cacheMissOf } from './cache.ts';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
@@ -41,6 +44,14 @@ export function plainText(parts: readonly MessagePart[]): string {
   }).join('').trim();
 }
 
+/** The parts people never see in the chat (unless it is in debug mode): what the hub adds, and a form's answers. */
+const HIDDEN_PARTS: ReadonlySet<MessagePart['type']> = new Set(['reasoning', 'extra', 'hook', 'input-answer']);
+
+/** Whether a message has nothing a person sees: only hidden parts and no files (the chat shows it in debug mode only). */
+export function hiddenMessage(message: Pick<ChatMessage, 'parts'>): boolean {
+  return message.parts.every((part) => HIDDEN_PARTS.has(part.type));
+}
+
 /** How a settled run ends its turn. */
 function turnEndOf(settled: RunSettled): TurnEnd {
   switch (settled.status) {
@@ -64,10 +75,10 @@ export interface TurnParts {
 
 /** Turns on the store. */
 export class StoreTurnService implements TurnService {
-  readonly #deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog'>;
+  readonly #deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog' | 'access'>;
   readonly #parts: TurnParts;
 
-  constructor(deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog'>, parts: TurnParts) {
+  constructor(deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog' | 'access'>, parts: TurnParts) {
     this.#deps = deps;
     this.#parts = parts;
   }
@@ -76,7 +87,8 @@ export class StoreTurnService implements TurnService {
     if (!input.parts.some((part) => part.type !== 'text' || part.text.trim() !== '')) { throw new ChatError('invalid', 'A message needs something in it.'); }
     const { session, user, asker } = await this.#begin(input.session, input.author, input.client);
     const repliedTo = input.replyTo === undefined ? undefined : await this.#repliedTo(session, input.replyTo);
-    const commanded = await this.#commands(session, input.parts);
+    const access = await this.#deps.access.scope(input.author);
+    const commanded = await this.#commands(session, input.parts, access);
     const turn = mintId('turn', this.#deps.random);
     const parts = await this.#parts.mentions.resolve({ session, asker, parts: input.parts });
     const text = plainText(parts);
@@ -100,7 +112,7 @@ export class StoreTurnService implements TurnService {
     });
     this.#deps.log.info('chat.turn.sent', { session: session.id, turn, message: message.id, answerers: answerers.length, parts: message.parts.length });
     this.#deps.bus.publish('message', { message });
-    await this.#parts.sessions.save(session.id, this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts), commanded));
+    await this.#parts.sessions.save(session.id, this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts, access), commanded));
     await this.#notifyMessage(session, message, repliedTo);
     await this.#wake(session, record, answerers);
     return { turn, message };
@@ -109,7 +121,10 @@ export class StoreTurnService implements TurnService {
   async invoke(input: { session: SessionId; author: ActorId; fn: QualifiedName; args: Json; client: ClientInfo }): Promise<{ turn: TurnId; run: RunId }> {
     const { session, user, asker } = await this.#begin(input.session, input.author, input.client);
     const fn = await this.#deps.catalog.fn(input.fn);
-    if (fn === undefined) { throw new ChatError('not-found', `No fn ${input.fn}.`); }
+    const access = await this.#deps.access.scope(input.author);
+    if (fn === undefined || !access.seesFn(fn)) { throw new ChatError('not-found', `No fn ${input.fn}.`); }
+    const connection = access.connection(fn);
+    if (connection?.state === 'missing') { throw new ChatError('unavailable', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`); }
     if (!allowsSystem(session, fn.system)) { throw new ChatError('unavailable', `The ${fn.system} system is not enabled in this session.`); }
     if (fn.available !== true) { throw new ChatError('unavailable', `${input.fn} can't be used now: ${fn.available.detail}.`); }
     const turn = mintId('turn', this.#deps.random);
@@ -225,7 +240,11 @@ export class StoreTurnService implements TurnService {
     if (row.role !== 'assistant') { throw new ChatError('conflict', 'Only an assistant message is finished.'); }
     const streamed = this.#parts.streams.close(message);
     const reasoning: MessagePart[] = streamed === undefined || streamed.reasoning === '' ? [] : [{ type: 'reasoning', text: streamed.reasoning }];
-    const finished = await this.#deps.store.table('messages').update(message, { parts: [...reasoning, ...parts, ...row.parts.filter(isAttached)], status });
+    const cacheMiss = await cacheMissOf(this.#deps, row).catch((error: unknown) => {
+      this.#deps.log.warn('chat.cache-miss.failed', { message, error: messageOf(error) });
+      return undefined;
+    });
+    const finished = await this.#deps.store.table('messages').update(message, { parts: [...reasoning, ...parts, ...row.parts.filter(isAttached)], status, ...(cacheMiss === undefined ? {} : { cacheMiss }) });
     this.#deps.bus.publish('message', { message: finished });
     const session = await this.#deps.store.table('sessions').get(row.session);
     const repliedTo = row.replyTo === undefined ? undefined : await this.#deps.store.table('messages').get(row.replyTo);
@@ -322,12 +341,12 @@ export class StoreTurnService implements TurnService {
    * The context each `/command` pulls in. Refused unless the context exists, has that command, belongs to a system the
    * session enables, can be used now, and every required argument is given.
    */
-  async #commands(session: Session, parts: readonly OutgoingPart[]): Promise<QualifiedName[]> {
+  async #commands(session: Session, parts: readonly OutgoingPart[], access: AccessScope): Promise<QualifiedName[]> {
     const names: QualifiedName[] = [];
     for (const part of parts) {
       if (part.type !== 'command') { continue; }
       const context = await this.#deps.catalog.context(part.context);
-      if (context?.decl.command === undefined) { throw new ChatError('not-found', `No command for ${part.context}.`); }
+      if (context?.decl.command === undefined || !access.seesContext(context)) { throw new ChatError('not-found', `No command for ${part.context}.`); }
       if (!allowsSystem(session, context.system)) { throw new ChatError('unavailable', `The ${context.system} system is not enabled in this session.`); }
       const available = await this.#deps.catalog.availability(part.context);
       if (available !== true) { throw new ChatError('unavailable', `/${context.decl.command.name} can't be used now: ${available.detail}.`); }
@@ -339,13 +358,15 @@ export class StoreTurnService implements TurnService {
   }
 
   /** The fns and context hooks asked to load, kept to what the session allows and can use now. */
-  async #loads(session: Session, extras: readonly MessagePart[]): Promise<{ tools: QualifiedName[]; context: QualifiedName[] }> {
+  async #loads(session: Session, extras: readonly MessagePart[], access: AccessScope): Promise<{ tools: QualifiedName[]; context: QualifiedName[] }> {
     const asked = extras.flatMap((p) => (p.type === 'hook' ? p.blocks : [])).flatMap((b) => (b.type === 'load' ? [b] : []));
-    const usable = async (names: readonly QualifiedName[]): Promise<QualifiedName[]> => {
-      const checked = await Promise.all(names.map(async (name) => allowsSystem(session, splitName(name).system) && (await this.#deps.catalog.availability(name)) === true));
+    const usable = async (names: readonly QualifiedName[], sees: (name: QualifiedName) => Promise<boolean>): Promise<QualifiedName[]> => {
+      const checked = await Promise.all(names.map(async (name) => allowsSystem(session, splitName(name).system) && (await this.#deps.catalog.availability(name)) === true && await sees(name)));
       return names.filter((_, i) => checked[i] === true);
     };
-    return { tools: await usable(asked.flatMap((b) => b.fns ?? [])), context: await usable(asked.flatMap((b) => b.context ?? [])) };
+    const seesFn = (name: QualifiedName): Promise<boolean> => Promise.resolve(access.mayUse({ name, system: splitName(name).system }));
+    const seesContext = (name: QualifiedName): Promise<boolean> => seesContextNamed(access, (n) => this.#deps.catalog.context(n), name);
+    return { tools: await usable(asked.flatMap((b) => b.fns ?? []), seesFn), context: await usable(asked.flatMap((b) => b.context ?? []), seesContext) };
   }
 
   /** Wake each answering agent; any agent run still busy in the session goes to the background first. */
@@ -386,6 +407,8 @@ export class StoreTurnService implements TurnService {
    * chose `all` hears of the message. The author is never told of their own message.
    */
   async #notifyMessage(session: Session, message: ChatMessage, repliedTo: ChatMessage | undefined): Promise<void> {
+    // a message only the model reads (a form's answers) is no news to anyone
+    if (hiddenMessage(message)) { return; }
     await this.#notifyReply(session, message, repliedTo);
     const repliedAuthor = repliedTo?.author;
     for (const person of peopleOf(session)) {

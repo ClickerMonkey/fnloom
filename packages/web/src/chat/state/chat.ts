@@ -4,6 +4,9 @@
  * so switching back is instant and drafts stay). `app/wire.ts` builds it from the real callers; tests build it from
  * fakes. Pages reach it through `useStores().chat`.
  */
+import { AccessStore } from '../../state/access.ts';
+import { ConnectionsStore } from '../../connect/store.ts';
+import { PickerStore } from '../../state/pickers.ts';
 import type { ListValuesCaller } from '../../state/query.ts';
 import { SessionId, type ActorId, type ClientInfo, type ContentRef, type RunId } from '@harness/core';
 import { ref, shallowRef } from 'vue';
@@ -59,6 +62,12 @@ export function browserClient(now: () => number = Date.now): ClientInfo {
 export class ChatStore {
   /** A list field's values in the data, for every search box's suggestions. */
   readonly listValues: ListValuesCaller;
+  /** Every picker's source (fns, context, systems, people, models, resources, types). */
+  readonly pickers: PickerStore;
+  /** Visibility: whether the hub has more than one person, and who may use a thing. */
+  readonly access: AccessStore;
+  /** The per-person systems' pages (a calendar each person connects), for the nav and the connect page. */
+  readonly connections: ConnectionsStore;
   readonly sessions: SessionListStore;
   readonly capabilities: CapabilitiesStore;
   readonly inspector: Inspector;
@@ -83,6 +92,9 @@ export class ChatStore {
   constructor(deps: ChatDeps) {
     this.#deps = deps;
     this.listValues = deps.api.listValues;
+    this.pickers = new PickerStore(deps.api);
+    this.access = new AccessStore(deps.api);
+    this.connections = new ConnectionsStore(deps.api);
     this.sessions = new SessionListStore(deps.api, deps.userEvents);
     this.capabilities = new CapabilitiesStore(deps.api, deps.userEvents);
     this.inspector = new Inspector(deps.api);

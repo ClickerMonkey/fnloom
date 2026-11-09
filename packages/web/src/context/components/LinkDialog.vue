@@ -6,7 +6,8 @@
  */
 import { DECLARABLE_RELATIONS, HUB_RESOURCE_ROOT, type DeclarableRelation, type LinkTargetKind, type QualifiedName } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import { UiBanner, UiButton, UiDialog, UiField, UiInput, UiSegmented, UiSelect, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import HubPicker from '../../components/pickers/HubPicker.vue';
+import { UiBanner, UiButton, UiDialog, UiField, UiInput, UiSegmented, UiSelect, onePicked, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { emptyLinkDraft, linkRequest, RELATION_WORDS, TARGET_WORDS, type LinkDraft } from '../logic/context.ts';
 
 const props = withDefaults(defineProps<{ from: QualifiedName; busy?: boolean; problem?: string }>(), { busy: false, problem: '' });
@@ -15,7 +16,9 @@ const emit = defineEmits<{ save: [draft: LinkDraft] }>();
 
 const KINDS: readonly SegmentOption<LinkTargetKind>[] = (['context', 'fn', 'type', 'resource'] as const).map((kind) => ({ value: kind, label: TARGET_WORDS[kind].label, icon: TARGET_WORDS[kind].icon }));
 const RELATIONS: readonly SelectOption<DeclarableRelation>[] = DECLARABLE_RELATIONS.map((relation) => ({ value: relation, label: RELATION_WORDS[relation].label }));
-const PLACEHOLDER = { context: 'fs/guide', fn: 'fs/read', type: 'fs/path', resource: `${HUB_RESOURCE_ROOT}uploads/notes.md` } as const satisfies Record<LinkTargetKind, string>;
+const PLACEHOLDER = { context: 'Search context', fn: 'Search fns', type: 'Search types', resource: `Search, or paste ${HUB_RESOURCE_ROOT}…` } as const satisfies Record<LinkTargetKind, string>;
+/** A resource address pasted whole is taken as typed. */
+const asAddress = (text: string): string | undefined => (text.includes('://') ? text : undefined);
 
 const kind = ref<LinkTargetKind>('context');
 const target = ref('');
@@ -49,9 +52,9 @@ function save(): void {
         <span class="label">Links to</span>
         <UiSegmented v-model="kind" :options="KINDS" label="Links to" data-testid="link-kind" />
       </div>
-      <UiInput
-        v-model="target" :label="kind === 'resource' ? 'Resource address' : 'Name'" :placeholder="PLACEHOLDER[kind]" :error="targetError"
-        autofocus data-testid="link-target"
+      <HubPicker
+        :key="kind" :model-value="onePicked(target)" :source="kind" :max="1" :custom="kind === 'resource' ? asAddress : undefined" :label="kind === 'resource' ? 'Resource' : TARGET_WORDS[kind].label"
+        :placeholder="PLACEHOLDER[kind]" :error="targetError" testid="link-target" @update:model-value="target = $event[0] ?? ''"
       />
       <UiInput v-if="kind === 'resource'" v-model="section" label="Section" hint="Optional: a heading or symbol of the resource." placeholder="Usage" />
       <UiSelect v-model="relation" :options="RELATIONS" label="How they relate" :hint="RELATION_WORDS[relation].about" data-testid="link-relation" />

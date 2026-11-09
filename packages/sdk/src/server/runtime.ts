@@ -8,7 +8,7 @@ import {
   EXPORT_NOT_READY, systemLinkSpec,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
-  type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo,
+  type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest,
 } from '@harness/core';
 import type { ActionCtx, AskerCtx, SystemCtx, UndoCtx } from '../ctx.ts';
 import { hookBlock, type KindCheckCtx, type MentionCtx } from '../declare.ts';
@@ -17,6 +17,7 @@ import type { ConfigOf, ContractShape } from '../system.ts';
 import type { LocalContent } from './content.ts';
 import { HubLlm } from './llm.ts';
 import type { ScopedLog } from './log.ts';
+import { ProviderServer } from './providers.ts';
 import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
@@ -114,10 +115,17 @@ export class SystemRuntime<C extends ContractShape> {
   readonly #parts: RuntimeParts<C>;
   readonly #log: ScopedLog;
   readonly #watches = new Map<string, () => void>();
+  readonly #providers: ProviderServer;
 
   constructor(parts: RuntimeParts<C>) {
     this.#parts = parts;
     this.#log = parts.env.log;
+    this.#providers = new ProviderServer({
+      defs: parts.table.contract.defs.providers,
+      impls: parts.table.impl.providers ?? {},
+      ctx: () => this.systemCtx(),
+      configVersion: () => parts.config.current?.version,
+    });
   }
 
   /** The system's context for hooks, mentions, actions, context, events and lifecycle events. */
@@ -209,9 +217,9 @@ export class SystemRuntime<C extends ContractShape> {
       },
       export: ({ data }) => this.#export(data.timeout),
       // Build 4 stubs (design lane): the platform lane replaces these with fn validation, providers and connections.
-      validate: () => ({ ok: true }),
-      providerChat: buildFourStub,
-      providerEmbed: buildFourStub,
+      validate: ({ data, signal }) => this.#validate(data, signal),
+      providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
+      providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       connectStart: buildFourStub,
       connectFinish: buildFourStub,
       disconnect: buildFourStub,
@@ -278,6 +286,28 @@ export class SystemRuntime<C extends ContractShape> {
       env.log.warn('undo.failed', { fn: data.fn, error: messageOf(error) });
       return { status: 'failed', error: thrownError(error) };
     }
+  }
+
+  /**
+   * Run a fn's validation hook: its args (and for output, its result) checked against its types, its declared session
+   * state as it is now, and the system context with the run. A fn without the hook asked for passes.
+   */
+  async #validate(data: ValidateRequest, signal: AbortSignal): Promise<ValidateAnswer> {
+    const { table, env } = this.#parts;
+    const target = table.target(data.fn, 'native');
+    if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }
+    if (target.kind === 'kind') { return { ok: true }; }
+    const { def } = target;
+    const hooks = def.validate;
+    if (hooks === undefined) { return { ok: true }; }
+    const argsType = target.kind === 'method' ? target.argsType : def.args;
+    const args = decodeOrThrow(argsType, data.args, 'The args');
+    const stateType = stateRecordType(def.state);
+    const state = stateType === undefined ? {} : await new LinkState(env.hub, { run: data.run.id }, stateType, { retries: env.stateRetries, signal }).get();
+    const ctx = { ...this.systemCtx(signal), run: data.run, attempt: data.phase === 'output' ? data.attempt : 1 };
+    if (data.phase === 'input') { return await hooks.input?.(ctx, args, state) ?? { ok: true }; }
+    const result = decodeOrThrow(def.returns, data.result, 'The result');
+    return await hooks.output?.(ctx, args, result, state) ?? { ok: true };
   }
 
   #undoCtx(run: RunInfo): UndoCtx {

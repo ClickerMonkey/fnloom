@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
  * One side of an MCP's rules (what it includes, or what it excludes): for each part (systems, fns, types, context,
- * resources) its entries as chips to remove, and a field to add one, with suggestions from the catalog. An entry is
- * checked as it is added (a fn glob, a #tag, a URI prefix on system@instance); a bad one says why and isn't added.
+ * resources) its entries as chips to remove, and a picker to add one: search the hub, or type a glob, #tag or prefix
+ * and press Enter. An entry is checked as it is added (a fn glob, a #tag, a URI prefix on system@instance); a bad one says why and isn't added.
  * A fn rule's condition (`FnMatch.when`, a gin predicate over its args) opens in gin's expression editor.
  */
-import type { Json, McpSelector } from '@harness/core';
-import { computed, ref, useId } from 'vue';
-import { UiButton, UiIconButton } from '../../ui/index.ts';
+import type { Json, McpSelector, PickSource } from '@harness/core';
+import { computed, ref } from 'vue';
+import HubPicker from '../../components/pickers/HubPicker.vue';
+import { UiIconButton } from '../../ui/index.ts';
 import { addEntry, entryText, removeEntry, SELECTOR_PARTS, SELECTOR_WORDS, setFnCondition, type SelectorPart } from '../logic/mcps.ts';
 import FnConditionDialog from './FnConditionDialog.vue';
 
@@ -15,20 +16,16 @@ const props = withDefaults(defineProps<{
   title: string;
   about: string;
   selector: McpSelector;
-  /** Names to suggest for each part (systems, fns, types, context the catalog has). */
-  suggestions?: Partial<Record<SelectorPart, readonly string[]>>;
   tone?: 'include' | 'exclude';
   testid: string;
-}>(), { suggestions: () => ({}), tone: 'include' });
+}>(), { tone: 'include' });
 const emit = defineEmits<{ change: [selector: McpSelector] }>();
 
-const id = useId();
-const drafts = ref<Partial<Record<SelectorPart, string>>>({});
+/** What each part's picker searches. */
+const SOURCES = { systems: 'system', fns: 'fn', types: 'type', context: 'context', resources: 'resource' } as const satisfies Record<SelectorPart, PickSource>;
+/** Anything typed is offered as an entry; adding it checks it. */
+const asTyped = (text: string): string | undefined => (text === '' ? undefined : text);
 const problems = ref<Partial<Record<SelectorPart, string>>>({});
-
-function typed(part: SelectorPart, event: Event): void {
-  if (event.target instanceof HTMLInputElement) { drafts.value = { ...drafts.value, [part]: event.target.value }; }
-}
 
 /** The fn rule whose condition is open, by its index; -1 for none. */
 const conditionOf = ref(-1);
@@ -40,11 +37,11 @@ function saveCondition(when: Json | undefined): void {
   conditionOf.value = -1;
 }
 
-function add(part: SelectorPart): void {
-  const result = addEntry(props.selector, part, drafts.value[part] ?? '');
+function add(part: SelectorPart, entry: string | undefined): void {
+  if (entry === undefined) { return; }
+  const result = addEntry(props.selector, part, entry);
   if (!result.ok) { problems.value = { ...problems.value, [part]: result.problem }; return; }
   problems.value = { ...problems.value, [part]: '' };
-  drafts.value = { ...drafts.value, [part]: '' };
   emit('change', result.value);
 }
 </script>
@@ -71,15 +68,10 @@ function add(part: SelectorPart): void {
           <UiIconButton size="sm" icon="x" :label="`Remove ${text}`" @click="emit('change', removeEntry(selector, part, i))" />
         </li>
       </ul>
-      <form class="add" @submit.prevent="add(part)">
-        <input
-          :value="drafts[part] ?? ''" class="field" :placeholder="SELECTOR_WORDS[part].placeholder" :list="`${id}-${part}`" :aria-label="`Add to ${SELECTOR_WORDS[part].label}`"
-          :aria-invalid="problems[part] ? 'true' : undefined" :data-testid="`${testid}-${part}-input`"
-          @input="typed(part, $event)"
-        >
-        <datalist :id="`${id}-${part}`"><option v-for="name in suggestions[part] ?? []" :key="name" :value="name" /></datalist>
-        <UiButton type="submit" size="sm" icon="plus" :data-testid="`${testid}-${part}-add`">Add</UiButton>
-      </form>
+      <HubPicker
+        :model-value="[]" :source="SOURCES[part]" :custom="asTyped" :label="`Add to ${SELECTOR_WORDS[part].label}`" hide-label :placeholder="SELECTOR_WORDS[part].placeholder"
+        :testid="`${testid}-${part}-input`" @update:model-value="add(part, $event[0])"
+      />
       <p v-if="problems[part]" class="problem" role="alert">{{ problems[part] }}</p>
     </div>
     <FnConditionDialog v-model:open="conditionOpen" :match="conditionMatch" :title="conditionTitle" @save="saveCondition" />
@@ -101,12 +93,5 @@ function add(part: SelectorPart): void {
 .chip code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 .include .chip { background: var(--accent-soft); }
 .conditioned { color: var(--accent); }
-.add { display: flex; gap: var(--space-2); }
-.field {
-  flex: 1; min-width: 0; height: var(--control-sm); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius);
-  background: var(--surface); color: var(--text); font: inherit; font-size: var(--text-sm);
-}
-.field:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
-.field[aria-invalid='true'] { border-color: var(--danger); }
 .problem { margin: 0; color: var(--danger); font-size: var(--text-xs); }
 </style>

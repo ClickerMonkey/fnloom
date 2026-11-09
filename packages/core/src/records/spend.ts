@@ -4,6 +4,7 @@ import {
   ActorId, BudgetId, Duration, LedgerId, LlmInteractionId, ModelCallId, ModelCategoryId, Priority, PriorityRuleId, ProviderId, QualifiedName,
   ReservationId, RunId, SecretId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
+import { awsProviderVariant } from '../system-providers.ts';
 
 /** Where a local Ollama listens by default. */
 export const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
@@ -23,6 +24,8 @@ export function providerVariants<S extends z.ZodType<string>>(secret: S) {
      * `contextWindow` is the window its models are served with when their Modelfiles set no `num_ctx`.
      */
     z.object({ provider: z.literal('ollama'), baseURL: z.url().default(OLLAMA_BASE_URL), contextWindow: z.number().int().min(256).optional() }),
+    /** Amazon Bedrock (`@aeye/aws`): a region and an access key pair or a Bedrock API key. */
+    awsProviderVariant(secret),
   ]);
 }
 

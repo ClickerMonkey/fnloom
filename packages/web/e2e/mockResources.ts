@@ -73,6 +73,13 @@ export class MockResources {
       system: 'hub', ago: 1,
       versions: { markdown: fixture(ConvertedVersion, { kind: 'markdown', converter: 'htmlConverter@2', from: 'html', title: 'Release notes', text: '# Release notes\n\nThe **fs** system can watch folders.\n\n- Faster search\n- Live runs\n' }) },
     });
+    // build 4: a web crawl keeps its pages under one folder named for the site and the time
+    for (const [path, title] of [['docs/intro', 'Introduction'], ['docs/install', 'Install'], ['docs/guides/pairing', 'Pairing a system'], ['blog/launch', 'We launched']] as const) {
+      add(`${HUB_RESOURCE_ROOT}web/crawls/docs.example.com-20261108-1430/docs.example.com/${path}`, { name: title, format: 'html', mime: 'text/html', type: 'page' }, utf8(HTML), {
+        system: 'hub', ago: 0.3,
+        versions: { markdown: fixture(ConvertedVersion, { kind: 'markdown', converter: 'htmlConverter@2', from: 'html', title, text: `# ${title}\n\nFrom docs.example.com.\n` }) },
+      });
+    }
     add(`${HUB_RESOURCE_ROOT}uploads/2026-11-07/walkthrough.wav`, { name: 'walkthrough.wav', format: 'audio', mime: 'audio/wav' }, wav(), {
       system: 'hub', ago: 0.2, made: { transcript: '[0:00] Welcome to the harness walkthrough.\n[0:00.4] First, pair a system.\n[0:00.8] Then ask the chat to read a file.' },
     });

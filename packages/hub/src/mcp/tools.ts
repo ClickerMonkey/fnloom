@@ -15,6 +15,7 @@ import type { Logger } from '@ayepi/log';
 import { type InstanceName, Json, QualifiedName, READ_TAG, type FnRecord, type HubMcp, type HubMcpId } from '@harness/core';
 import { mcpToolNameOf } from '@harness/sdk/server';
 import { z } from 'zod';
+import type { AccessService } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { RunArgs, STATIC_HUB_FNS, staticToolOf } from '../contextor/modes.ts';
 import type { McpRunner } from './calls.ts';
@@ -29,6 +30,8 @@ export interface HubMcpToolsDeps {
   readonly scopes: () => Pick<McpScopes, 'scope'>;
   readonly catalog: () => Pick<Catalog, 'fns' | 'signature'>;
   readonly runner: Pick<McpRunner, 'call'>;
+  /** Visibility: only fns the MCP's person may use are listed. */
+  readonly access: () => Pick<AccessService, 'scope'>;
   readonly log: Logger;
 }
 
@@ -135,10 +138,12 @@ export class HubMcpTools implements McpToolSource {
     return this.#deps.runner.call(record, name.data, parsed.data, caller, signal, on);
   }
 
-  /** The exposed fns' records, by name. */
+  /** The exposed fns' records the MCP's person may use (visibility, and a connection for a per-person fn), by name. */
   async #exposed(): Promise<FnRecord[]> {
-    const scope = await this.#deps.scopes().scope(this.#mcp);
+    const [scope, record] = await Promise.all([this.#deps.scopes().scope(this.#mcp), this.#deps.registry().record(this.#mcp)]);
     const names = [...scope.fns];
-    return names.length === 0 ? [] : (await this.#deps.catalog().fns({ names })).sort((a, b) => a.name.localeCompare(b.name));
+    if (names.length === 0 || record === undefined) return [];
+    const access = await this.#deps.access().scope(record.user);
+    return (await this.#deps.catalog().fns({ names })).filter((fn) => access.mayUse(fn)).sort((a, b) => a.name.localeCompare(b.name));
   }
 }

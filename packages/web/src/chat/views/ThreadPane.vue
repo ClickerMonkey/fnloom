@@ -3,7 +3,9 @@
  * One open chat, wired to its stores: the header, the thread (messages, answers with their runs, notes, day
  * separators), the composer and everything around it (approvals and questions, the `!` form, background work,
  * suggestions while writing, the meta row). It turns what the person does into store calls and URL moves, and
- * leaves drawing to the components. Panels (a run, the tree, an LLM call) open through the URL, by emitting.
+ * leaves drawing to the components. Panels (a run, the tree, an LLM call) open through the URL, by emitting. It also
+ * gives systems' input forms what they need (sending answers, the gin value editor, whether the hub has many people),
+ * marks answers the model wrote without its prompt cache, and in debug mode shows the messages the chat hides.
  */
 import {
   ResourceUri, splitName, type Display, type QualifiedName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
@@ -18,6 +20,7 @@ import ApprovalTray from '../components/ApprovalTray.vue';
 import AssistantAnswer from '../components/AssistantAnswer.vue';
 import BackgroundStrip from '../components/BackgroundStrip.vue';
 import BudgetCard from '../components/BudgetCard.vue';
+import CacheMissRule from '../components/CacheMissRule.vue';
 import ChatHeader from '../components/ChatHeader.vue';
 import ChatScroller from '../components/ChatScroller.vue';
 import Composer from '../components/Composer.vue';
@@ -36,6 +39,8 @@ import UserMessage from '../components/UserMessage.vue';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import { isTouch } from '../dom.ts';
 import { GIN_INPUTS } from '../../gin/registry.ts';
+import GinValueView from '../../gin/GinValueView.vue';
+import { ACCESS_INFO, INPUT_ANSWERS, threadInputAnswers, VALUE_EDITOR } from '../state/input-host.ts';
 import { mentionToken, methodArgs, methodsOf, placeholderFor, type DraftMention, type MethodOffer } from '../logic/composer.ts';
 import { clamp } from '../logic/format.ts';
 import { agentName, fnLabel, humanize, localName } from '../logic/labels.ts';
@@ -55,10 +60,12 @@ const props = withDefaults(defineProps<{
   /** The header carries the app's navigation button (the app's top bar is hidden). */
   nav?: boolean;
   flash?: MessageId | undefined;
-}>(), { narrow: false, nav: false, flash: undefined });
+  /** Debug mode: show the messages and parts the chat hides. */
+  debug?: boolean;
+}>(), { narrow: false, nav: false, flash: undefined, debug: false });
 const emit = defineEmits<{
   run: [id: RunId]; llm: [id: LlmInteractionId]; details: [turn: TurnId]; tree: [turn: TurnId]; resource: [uri: ResourceUri];
-  panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: []; remove: [];
+  panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: []; remove: []; debug: [on: boolean];
 }>();
 
 const { chat, toasts, session: auth, connection } = useStores();
@@ -79,7 +86,7 @@ let noteTimer: ReturnType<typeof setTimeout> | undefined;
 const me = computed(() => auth.user.value?.id);
 const record = computed(() => thread.session.value);
 const agent = computed(() => (record.value === undefined ? 'Agent' : agentName(record.value.agent)));
-const items = computed(() => threadItems(thread.messages.value, me.value, now.value));
+const items = computed(() => threadItems(thread.messages.value, me.value, now.value, { debug: props.debug }));
 
 /** A participant's name: you, the agent, or someone. */
 function nameOf(actor: string): string {
@@ -114,6 +121,11 @@ function attachmentView(part: Extract<MessagePart, { type: 'attachment' }>): Ren
 }
 
 provide(GIN_INPUTS, (type) => chat.renderers.inputView(type));
+provide(INPUT_ANSWERS, threadInputAnswers(thread));
+// eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ValueEditorProps
+provide(VALUE_EDITOR, GinValueView);
+provide(ACCESS_INFO, { get multiUser() { return chat.access.multiUser.value; } });
+void chat.access.load();
 
 /** A budget raise is being saved. */
 const raisingBudget = ref(false);
@@ -385,6 +397,7 @@ function header(action: HeaderAction): void {
     case 'shortcuts': emit('shortcuts'); return;
     case 'archive': void archive(); return;
     case 'delete': emit('remove'); return;
+    case 'debug': emit('debug', !props.debug); return;
     case 'rename': return;
   }
 }
@@ -448,7 +461,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
   <div class="pane" :class="{ dropping }" data-testid="thread-pane" @dragover.prevent="dropping = caps.can.value.upload" @dragleave.self="dropping = false" @drop.prevent="onDrop">
     <ChatHeader
       :title="record?.title ?? ''" :status="record?.status" :people="people" :compact="compact" :can-undo="thread.canUndo.value" :has-turn="thread.lastTurn.value !== undefined"
-      :archived="record?.archived ?? false" :waiting="waiting" :nav="nav" :stale="thread.stale.value" @sessions="emit('sessions')" @nav="emit('nav')" @rename="rename" @action="header"
+      :archived="record?.archived ?? false" :waiting="waiting" :nav="nav" :stale="thread.stale.value" :debug="debug" @sessions="emit('sessions')" @nav="emit('nav')" @rename="rename" @action="header"
     />
 
     <div v-if="thread.status.value === 'loading' && thread.messages.value.length === 0" class="loading" data-testid="thread-loading" aria-busy="true">
@@ -466,10 +479,12 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       </template>
       <template #item="{ item }">
         <div v-if="item.kind === 'day'" class="day" role="separator" data-testid="day-separator"><span>{{ item.label }}</span></div>
+        <CacheMissRule v-else-if="item.kind === 'cache-miss'" :at="item.at" :now="now" />
         <UserMessage
           v-else-if="item.kind === 'user'" :message="item.message" :mine="item.mine" :author-name="nameOf(item.message.author)" :now="now" :command-name="commandName"
           :suggestions="messageSuggestions(item.message, record)" :actions="userActions(item.mine)" :quote="quoteOf(item.message)" :flash="flash === item.message.id"
           :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)" :carried="item.carried" :attachment-view="attachmentView"
+          :hidden="item.hidden"
           @action="act($event, [item.message])" @quote="quote(item.message)" @mention-hover="showCard" @mention-leave="hideCard" @mention-open="showCard"
           @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)" @background="thread.toBackground($event)" @link="openLink"
         />

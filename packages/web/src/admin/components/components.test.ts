@@ -1,3 +1,4 @@
+import { pickIn } from '../../test/pickers.ts';
 import { ActorId, type Json } from '@harness/core';
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -270,7 +271,7 @@ describe('dialogs', () => {
   it('CategoryDialog adds, orders and removes models', async () => {
     const dialog = mount(CategoryDialog, { ...inBody, props: { open: false, category: category(), models: ['openai/gpt-oss-20b:free', 'b/model', 'c/model'] } });
     await reveal(dialog);
-    await choose(field('Add a model'), 'b/model');
+    await pickIn(field('Add a model'), 'b/model');
     expect(all('.item code').map((c) => c.textContent)).toEqual(['openai/gpt-oss-20b:free', 'b/model']);
     find('.item:nth-child(2) [aria-label="Move up"]').click();
     await nextTick();
@@ -312,7 +313,7 @@ describe('dialogs', () => {
     const dialog = mount(PolicyDialog, { ...inBody, props: { open: false, people, groups } });
     await reveal(dialog);
     await type(field('What it is for'), 'No shell');
-    await type(field('Name or pattern'), 'fs/shell');
+    await pickIn(field('Name or pattern'), 'fs/shell');
     const deny = all('[role=radio]').find((r) => r.textContent.trim() === 'Deny');
     deny?.click();
     await flushPromises();

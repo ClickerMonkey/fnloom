@@ -5,7 +5,7 @@ import { WorkDelayError } from '@ayepi/work';
 import { BudgetId, ModelCategoryId, RunId, SystemName, TurnId, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { RecordingBus, testStore, memoryLog } from '../testing.ts';
-import { HUB_PURPOSE, HubAiHooks } from './ai.ts';
+import { cacheSupportOf, HUB_PURPOSE, HubAiHooks } from './ai.ts';
 import { StoreModelCallLog } from '../metrics/calls.ts';
 import { BudgetRefused, causeOf, LlmRateLimited } from './errors.ts';
 import { InteractionRecorder } from './interactions.ts';
@@ -205,5 +205,14 @@ describe('providers', () => {
   it('list the models the hub AI can pick from', async () => {
     const rig = await executionRig();
     expect(await rig.module.llm.models()).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'test-model', name: 'Test model', capabilities: ['chat', 'streaming', 'tools', 'json', 'structured'] })]));
+  });
+});
+
+describe('cacheSupportOf', () => {
+  it('say yes for a cached-input price, no for prices without one, unknown with no prices', () => {
+    expect(cacheSupportOf({ pricing: { text: { input: 1, output: 2, cached: 0.1 } } })).toBe('yes');
+    expect(cacheSupportOf({ pricing: { text: { input: 1, output: 2 } } })).toBe('no');
+    expect(cacheSupportOf({ pricing: {} })).toBe('unknown');
+    expect(cacheSupportOf(undefined)).toBe('unknown');
   });
 });

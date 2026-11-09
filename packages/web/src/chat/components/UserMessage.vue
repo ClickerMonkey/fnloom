@@ -4,14 +4,15 @@
  * avatar when it is someone else's. A reply shows a small quote that jumps to the original. A long message (a
  * pasted log) collapses after a few lines behind Show more. What the hub and hooks added for the model sits under it
  * behind a small icon in the meta row, beside the icons for what the index suggested (with counts, only when any). Runs the person started with `!` show
- * as live run cards under it. The action bar sits in the margin.
+ * as live run cards under it. The action bar sits in the margin. A message the chat hides (only a form's answers or
+ * what the hub added) shows only in debug mode, as a dashed bubble listing what the model read.
  */
 import type { ChatMessage, Link, MessagePart, QualifiedName, RunId } from '@harness/core';
 import { computed, onMounted, ref } from 'vue';
 import { UiAvatar, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
 import type { MessageSuggestions, SuggestionItem } from '../logic/session.ts';
 import type { RunView } from '../logic/runs.ts';
-import { splitParts, type MentionPart } from '../logic/thread.ts';
+import { inputAnswerText, splitParts, type MentionPart } from '../logic/thread.ts';
 import AttachmentCard from './AttachmentCard.vue';
 import LinkCard from './LinkCard.vue';
 import MessageActions from './MessageActions.vue';
@@ -43,7 +44,12 @@ const props = withDefaults(defineProps<{
   carried?: readonly ChatMessage[];
   /** An attachment's renderer and its props, when its system has one. */
   attachmentView?: (part: Attachment) => RenderView<'attachment'> | undefined;
-}>(), { quote: undefined, flash: false, clampLines: 8, runs: () => [], viewOf: () => undefined, collapsed: () => false, carried: () => [], attachmentView: () => undefined });
+  /** Only hidden parts (shown in debug mode alone): drawn as a dashed bubble of what the model read. */
+  hidden?: boolean;
+}>(), {
+  quote: undefined, flash: false, clampLines: 8, runs: () => [], viewOf: () => undefined, collapsed: () => false, carried: () => [], attachmentView: () => undefined,
+  hidden: false,
+});
 
 const emit = defineEmits<{
   action: [action: MessageAction];
@@ -67,13 +73,16 @@ const split = computed(() => splitParts(props.message.parts));
 const onlyRuns = computed(() => split.value.shown.length > 0
   && split.value.shown.every((part) => part.type === 'invocation' && props.runs.some((run) => run.id === part.run)));
 /** What else went to the model with the message; the suggestions are left out, as their chips beside the time list them. */
-const added = computed(() => split.value.added.flatMap((part: MessagePart) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : []))
-  .filter((block) => block.type !== 'suggest-context' && block.type !== 'suggest-fns'));
-const addedText = computed(() => added.value.map((block) => {
-  switch (block.type) {
-    case 'text': return `<${block.tag}> ${block.text}`;
-    case 'load': return `Loaded: ${[...(block.context ?? []), ...(block.fns ?? [])].join(', ')}`;
-  }
+const addedText = computed(() => split.value.added.flatMap((part: MessagePart): string[] => {
+  if (part.type === 'input-answer') { return [inputAnswerText(part)]; }
+  if (part.type !== 'extra' && part.type !== 'hook') { return []; }
+  return part.blocks.flatMap((block): string[] => {
+    switch (block.type) {
+      case 'text': return [`<${block.tag}> ${block.text}`];
+      case 'load': return [`Loaded: ${[...(block.context ?? []), ...(block.fns ?? [])].join(', ')}`];
+      case 'suggest-context': case 'suggest-fns': return [];
+    }
+  });
 }));
 const showAdded = ref(false);
 const body = ref<HTMLElement | null>(null);
@@ -102,7 +111,11 @@ onMounted(() => {
         <span class="quote-author">{{ quote.author }}</span>
         <span class="quote-text">{{ quote.excerpt }}</span>
       </button>
-      <div v-if="!onlyRuns" class="bubble" :class="{ clamped: long && !expanded, failed: message.status === 'failed' }" :style="{ '--lines': clampLines }">
+      <div v-if="hidden" class="bubble hidden-bubble" data-testid="hidden-message">
+        <span class="hidden-label"><UiIcon name="eye" :size="12" /> Hidden from the chat · the model read</span>
+        <pre v-for="(line, i) in addedText" :key="i" class="hidden-line">{{ line }}</pre>
+      </div>
+      <div v-else-if="!onlyRuns" class="bubble" :class="{ clamped: long && !expanded, failed: message.status === 'failed' }" :style="{ '--lines': clampLines }">
         <div ref="body" class="body">
           <PartList
             :parts="split.shown" :command-name="commandName"
@@ -128,7 +141,7 @@ onMounted(() => {
         <time class="time" :datetime="new Date(message.createdAt).toISOString()" :title="fullTime(message.createdAt)">{{ relativeTime(message.createdAt, now) }}</time>
         <SuggestionChips :suggestions="suggestions" @use="(item, kind) => emit('suggestion', item, kind)" />
         <button
-          v-if="added.length > 0" type="button" class="added-toggle touch-target" data-testid="added-for-model" title="Added for the model"
+          v-if="addedText.length > 0 && !hidden" type="button" class="added-toggle touch-target" data-testid="added-for-model" title="Added for the model"
           aria-label="Added for the model" :aria-expanded="showAdded ? 'true' : 'false'" @click="showAdded = !showAdded"
         >
           <UiIcon name="layers" :size="14" />
@@ -136,7 +149,7 @@ onMounted(() => {
         <button type="button" class="more-tap" aria-label="More actions" @click="touchMore = !touchMore"><UiIcon name="more" :size="16" /></button>
         <MessageActions class="actions" :actions="actions" @action="emit('action', $event)" />
       </div>
-      <ul v-if="showAdded && added.length > 0" class="added-list" data-testid="added-list">
+      <ul v-if="showAdded && addedText.length > 0 && !hidden" class="added-list" data-testid="added-list">
         <li v-for="(line, i) in addedText" :key="i">{{ line }}</li>
       </ul>
     </div>
@@ -167,6 +180,9 @@ onMounted(() => {
 }
 .mine .bubble { background: var(--accent); color: var(--on-accent); border-bottom-right-radius: var(--radius-sm); }
 .user-message:not(.mine) .bubble { border-bottom-left-radius: var(--radius-sm); }
+.bubble.hidden-bubble { gap: var(--space-1); border: 1px dashed var(--border-strong); background: transparent; color: var(--text-dim); font-size: var(--text-sm); }
+.hidden-label { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-faint); font-size: var(--text-xs); }
+.hidden-line { margin: 0; font: var(--text-xs) var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble.failed { box-shadow: inset 0 0 0 1px var(--danger); }
 .body { min-width: 0; }
 .clamped .body { max-height: calc(var(--lines) * 1lh); overflow: hidden; mask-image: linear-gradient(to bottom, #000 60%, transparent); }

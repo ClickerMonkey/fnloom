@@ -3,6 +3,7 @@
  * fed by fixtures, a link whose systems answer with a handler per endpoint, and recording run, agent, limit, search
  * and push fakes. `chatRig` wires them into a full `ChatDeps` over a real in-memory store. Tests only.
  */
+import { StoreAccessService } from '../access/service.ts';
 import { ApiError, type CallReturn, type Peer, type PeerCallArgs, type PeerKeys, type WsConn } from '@ayepi/core';
 import {
   GinTypeDef, IDS, MAIN_INSTANCE, noFnStats, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
@@ -357,6 +358,10 @@ export async function chatRig() {
   const deps: ChatDeps = {
     settings: { chat: chatEnv.parse(), queue: { HARNESS_ACTIVE_WINDOW: 120_000 }, model: { HARNESS_SUGGESTIONS: 6 } },
     log, clock: () => now, random, bus, store, catalog, link, runs, agents, limits, search: index, suggest: index, llm, push, hubActor: actorId('act_hub'),
+    // the real visibility over the rig's store, with no per-person systems
+    access: new StoreAccessService({
+      store, bus, clock: () => now, catalog, hubActor: actorId('act_hub'), gate: () => Promise.resolve({ fn: () => undefined }), systemOf: () => undefined,
+    }),
   };
   const admin: UserActor = { id: actorId('act_admin'), kind: 'user', name: 'Ada', email: 'ada@example.com', role: 'admin', about: '', createdAt: 0, disabled: false };
   return {

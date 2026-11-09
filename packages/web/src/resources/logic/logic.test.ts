@@ -2,6 +2,7 @@ import { FormRecord, ResourceRecord, type FormKind, type ResourceStat } from '@h
 import { describe, expect, it } from 'vitest';
 import { actionsFor, bulkActions, contextConfirm, isMake, madeBy, webAddress } from './actions.ts';
 import { columnSort, crumbsOf, folderQuery, groupQuery, hubQuery, mergeFacets, nameOf, patchQuery, readQuery, sortFor } from './browse.ts';
+import { crawlLabel, crawlOf, isCrawlRoot } from './crawls.ts';
 import { familyOfStat, languageOf } from './formats.ts';
 import { matchPaths, parseJson, pathsTo, treeRows, valueAt } from './json-tree.ts';
 import { delimiterOf, nextSort, parseDelimited, viewRows } from './tables.ts';
@@ -97,6 +98,18 @@ describe('the browser URL', () => {
     expect(crumbsOf('fs://work/docs/plans/')).toEqual([
       { label: 'All resources', under: '' }, { label: 'fs://work', under: 'fs://work/' }, { label: 'docs', under: 'fs://work/docs/' }, { label: 'plans', under: 'fs://work/docs/plans/' },
     ]);
+  });
+
+  it('reads a web crawl from its folder and names it by site and time', () => {
+    const root = 'hub://web/crawls/docs.example.com-20261108-1430/';
+    expect(crawlOf(`${root}docs.example.com/guide/intro`)).toEqual({ root, host: 'docs.example.com', at: Date.UTC(2026, 10, 8, 14, 30) });
+    expect(isCrawlRoot(root)).toBe(true);
+    expect(isCrawlRoot(`${root}docs.example.com/`)).toBe(false);
+    expect(crawlOf('hub://web/example.com/crawls/page')).toBeUndefined();
+    const crawl = crawlOf(root);
+    if (crawl === undefined) { throw new Error('no crawl'); }
+    expect(crawlLabel(crawl, 'en-GB')).toMatch(/^docs\.example\.com · 8 Nov, \d{1,2}:30/);
+    expect(crumbsOf(`${root}docs.example.com/`).map((c) => c.label)).toEqual(['All resources', 'hub://web', 'crawls', crawlLabel(crawl), 'docs.example.com']);
   });
 
   it('reads the column sort from the query and merges facets', () => {

@@ -32,6 +32,8 @@ import { metricsModule } from '../metrics/create.ts';
 import { modelsModule } from '../models/create.ts';
 import { resourcesModule } from '../resources/create.ts';
 import { registerResourceFns } from '../resources/fns.ts';
+import { accessModule } from '../access/create.ts';
+import { connectionsModule } from '../connections/create.ts';
 
 /** What the production modules can be given instead of their defaults (tests, the e2e hub). */
 export interface ModuleSeams {
@@ -110,7 +112,7 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
     settings: { chat: settings.chatEnv, queue: settings.queueEnv, model: settings.modelEnv },
     log: hub.log, clock: hub.clock, bus: hub.bus, store: hub.store, catalog: hub.catalog, link: hub.link.connections,
     runs: hub.execution.runs, agents: hub.execution.agents, limits: hub.execution.limits,
-    search: hub.index.search, suggest: hub.index.suggest, llm: hub.execution.llm, push: hub.api.push, hubActor,
+    search: hub.index.search, suggest: hub.index.suggest, llm: hub.execution.llm, push: hub.api.push, hubActor, access: { scope: (actor) => hub.access.scope(actor) },
   });
   let stop: (() => void) | undefined;
   return {
@@ -138,10 +140,10 @@ export function registerHubContract(module: { readonly hubFns: ExecutionModule['
     const mcp = (await hub.store.table('mcps').find({ where: { actor: caller }, limit: 1 })).items[0];
     return mcp === undefined ? undefined : hub.mcp.scopes.scope(mcp.id);
   };
-  registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm, mcpScope });
+  registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm, mcpScope, access: (actor) => hub.access.scope(actor) });
   registerContextorFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions,
-    contextor: () => hub.contextor, views: () => hub.contextor.views, mcpScope,
+    contextor: () => hub.contextor, views: () => hub.contextor.views, mcpScope, access: (actor) => hub.access.scope(actor),
   });
 }
 
@@ -156,6 +158,7 @@ export function hubModules(seams: ModuleSeams = {}): HubModules {
     }),
     chat: chatModule,
     ...BUILD_2_MODULES,
+    ...BUILD_4_MODULES,
   };
 }
 
@@ -167,3 +170,9 @@ export const BUILD_2_MODULES = {
   metrics: metricsModule,
   models: modelsModule,
 } as const satisfies Pick<HubModules, 'contextor' | 'resources' | 'mcp' | 'metrics' | 'models'>;
+
+/** Build 4's modules: visibility and per-person connections. */
+export const BUILD_4_MODULES = {
+  access: accessModule,
+  connections: connectionsModule,
+} as const satisfies Pick<HubModules, 'access' | 'connections'>;

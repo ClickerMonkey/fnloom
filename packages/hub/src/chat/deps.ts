@@ -7,6 +7,7 @@ import type { ActorId, IdRandom } from '@harness/core';
 import type { PushService } from '../api/index.ts';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
+import type { AccessService } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { AgentLoop, LimitResolver, LlmGateway, RunService } from '../execution/index.ts';
 import type { Search, Suggester } from '../index/index.ts';
@@ -42,4 +43,6 @@ export interface ChatDeps {
   readonly push: Pick<PushService, 'send'>;
   /** The hub's own actor: the author of notes the hub writes into a session. */
   readonly hubActor: ActorId;
+  /** What each person may see and use. */
+  readonly access: Pick<AccessService, 'scope'>;
 }

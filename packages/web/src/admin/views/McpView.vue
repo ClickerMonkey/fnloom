@@ -22,7 +22,6 @@ import McpDialog from '../components/McpDialog.vue';
 import McpPreview from '../components/McpPreview.vue';
 import McpSelectorEditor from '../components/McpSelectorEditor.vue';
 import SecretDialog from '../components/SecretDialog.vue';
-import type { SelectorPart } from '../logic/mcps.ts';
 import { TOOL_MODE_WORDS } from '../logic/mcps.ts';
 import { McpTab } from '../sections.ts';
 
@@ -48,17 +47,6 @@ const tabs = computed<readonly TabItem<McpTab>[]>(() => [
   { value: 'connect', label: 'Connect' },
   { value: 'activity', label: 'Activity', count: view.value?.sessions ?? 0 },
 ]);
-
-/** The catalog's names, to suggest in the rule editors. */
-const suggestions = computed<Partial<Record<SelectorPart, readonly string[]>>>(() => {
-  const preview = store.preview.value.value;
-  return {
-    systems: (admin.systems.list.value.value ?? []).map((s) => s.name),
-    fns: [...(preview?.fns ?? []), ...(preview?.reach ?? [])],
-    types: [...(preview?.types ?? []), ...(preview?.closure ?? [])],
-    context: preview?.context ?? [],
-  };
-});
 
 watch(id, (mcp) => { if (mcp !== undefined) { void store.open(mcp); void admin.actors.load(); void admin.systems.load(true); } }, { immediate: true });
 watch(tab, (current) => { if (current === 'activity') { void store.loadSessions(); } }, { immediate: true });
@@ -126,11 +114,11 @@ async function remove(): Promise<void> {
         <div v-if="tab === 'rules' && draft" class="rules" data-testid="mcp-rules">
           <div class="editors">
             <McpSelectorEditor
-              title="Include" about="What it exposes. An empty side exposes nothing." :selector="draft.include" :suggestions="suggestions" testid="mcp-include"
+              title="Include" about="What it exposes. An empty side exposes nothing." :selector="draft.include" testid="mcp-include"
               @change="change('include', $event)"
             />
             <McpSelectorEditor
-              title="Exclude" about="Taken out of what is included." :selector="draft.exclude" :suggestions="suggestions" tone="exclude" testid="mcp-exclude"
+              title="Exclude" about="Taken out of what is included." :selector="draft.exclude" tone="exclude" testid="mcp-exclude"
               @change="change('exclude', $event)"
             />
             <div v-if="store.changed.value" class="save-bar" data-testid="rules-changed">

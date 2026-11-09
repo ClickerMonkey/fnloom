@@ -16,6 +16,8 @@ import type { AnyFnDef, FnTypes, Handlers, Outcome, ProgressDef, UntypedFn } fro
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef } from '../refs.ts';
 import type { ResourceProvider } from '../resources.ts';
+import type { ProviderImpl } from '../providers.ts';
+import type { Provider } from '@aeye/ai';
 import type { AnyContract, ContractShape, EventHandlers, Lifecycle, SystemImpl } from '../system.ts';
 import { expectType, type Equal } from '../util.ts';
 
@@ -118,6 +120,7 @@ export interface ImplTable {
   readonly sectioners?: Readonly<Record<string, SectionerImpl>>;
   readonly actions?: Readonly<Record<string, (input: unknown, ctx: ActionCtx<Record<string, unknown>>) => Promise<unknown>>>;
   readonly resources?: ResourceProvider;
+  readonly providers?: Readonly<Record<string, (ctx: SystemCtx) => Provider>>;
   readonly events?: { readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx) => Promise<void> };
   readonly lifecycle?: RuntimeLifecycle;
 }
@@ -149,6 +152,7 @@ expectType<Equal<RuntimeSection<'embedders'>, AuthorSection<EmbedderImpl>>>(true
 expectType<Equal<RuntimeSection<'sectioners'>, AuthorSection<SectionerImpl>>>(true);
 expectType<Equal<RuntimeSection<'actions'>, AuthorSection<ActionImpl<unknown, unknown, Record<string, unknown>, object>>>>(true);
 expectType<Equal<RuntimeSection<'resources'>, Erased<ResourceProvider>>>(true);
+expectType<Equal<RuntimeSection<'providers'>, AuthorSection<ProviderImpl<object>>>>(true);
 expectType<Equal<RuntimeSection<'events'>, Erased<EventHandlers<object>>>>(true);
 expectType<Equal<RuntimeSection<'lifecycle'>, Erased<Lifecycle<object>>>>(true);
 expectType<Equal<keyof RuntimeFnCtx, keyof FnCtx<FnTypes, object>>>(true);

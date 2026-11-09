@@ -240,6 +240,16 @@ export interface Resume<S> {
 }
 
 /**
+ * What a fn's validation hooks get (`fn({ validate })`): the system's context, the run being checked (who it is for,
+ * its session and time), and for an output check which attempt this is (1 for the first result).
+ */
+export interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+  readonly run: RunInfo;
+  /** The attempt whose result is checked; 1 for an input check. */
+  readonly attempt: number;
+}
+
+/**
  * What a run gets besides its args. Typed by its fn: only its deps can be called, only its handlers exist, only its
  * progress steps can be reported, and the outcome helpers take its result, undo and resume types.
  */

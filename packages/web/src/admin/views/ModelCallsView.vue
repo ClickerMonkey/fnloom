@@ -62,7 +62,7 @@ useLive(() => { void calls.list.refresh(); }, BROWSER_REFRESH);
       @more="calls.list.more()" @retry="calls.list.load()"
     >
       <template #filters>
-        <ListSearch v-model="search" list="modelCalls" label="model calls" :count="items.length" :more="calls.list.hasMore.value">
+        <ListSearch v-model="search" list="modelCalls" label="model calls" :count="items.length" :more="calls.list.hasMore.value" :partial="calls.list.partial.value">
           <!-- the run the list was opened for (from the run inspector): shown, so it can be cleared -->
           <UiButton v-if="filter.run" size="sm" variant="secondary" icon="x" class="scope" data-testid="filter-run" @click="run = ''">Run {{ run }}</UiButton>
         </ListSearch>

@@ -12,6 +12,7 @@ import {
 } from '@harness/core';
 import { z } from 'zod';
 import { hubListQuery, readListQuery, withPage } from '../../state/query.ts';
+import { crawlLabel, crawlOf, isCrawlRoot } from './crawls.ts';
 
 /** How the browser lays resources out. */
 export const BrowserView = z.enum(['list', 'grid', 'groups']);
@@ -146,7 +147,8 @@ export function crumbsOf(under: string): Crumb[] {
   let at = scheme;
   parts.forEach((part, i) => {
     at = i === 0 ? `${at}${part}` : `${at}/${part}`;
-    crumbs.push({ label: i === 0 ? `${scheme}${part}` : part, under: `${at}/` });
+    const crawl = isCrawlRoot(`${at}/`) ? crawlOf(`${at}/`) : undefined;
+    crumbs.push({ label: i === 0 ? `${scheme}${part}` : crawl === undefined ? part : crawlLabel(crawl), under: `${at}/` });
   });
   return crumbs;
 }

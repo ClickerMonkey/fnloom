@@ -4,6 +4,7 @@
  * it, and says which one is missing otherwise), the real api services, and the web API plugins installed in an ayepi
  * server with a typed in-process caller. Tests only.
  */
+import { openScope } from '../../access/index.ts';
 import { client as apiClient, server, spec, type AnySpec, type ApiClient, type Server } from '@ayepi/core';
 import type { LogRecord } from '@ayepi/log';
 import { createPluginHost, type PluginHost } from '@ayepi/plugin';
@@ -54,6 +55,8 @@ export interface Fakes {
   contextor?: { [K in keyof HubServices['contextor']]?: Partial<HubServices['contextor'][K]> };
   resources?: { [K in keyof HubServices['resources']]?: Partial<HubServices['resources'][K]> };
   mcp?: { [K in keyof HubServices['mcp']]?: Partial<HubServices['mcp'][K]> };
+  access?: Partial<HubServices['access']>;
+  connections?: Partial<HubServices['connections']>;
   metrics?: { [K in keyof HubServices['metrics']]?: Partial<HubServices['metrics'][K]> };
   models?: { [K in keyof HubServices['models']]?: Partial<HubServices['models'][K]> };
 }
@@ -209,6 +212,8 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
     mcp: group('mcp', keysOf<HubServices['mcp']>({ registry: true, scopes: true, endpoints: true, tokens: true }), fakes.mcp),
     metrics: group('metrics', keysOf<HubServices['metrics']>({ calls: true, fns: true }), fakes.metrics),
     models: group('models', keysOf<HubServices['models']>({ roles: true, gateway: true }), fakes.models),
+    access: fake<HubServices['access']>('access', { scope: (actor) => Promise.resolve(openScope(actor)), ...fakes.access }),
+    connections: fake<HubServices['connections']>('connections', fakes.connections),
   };
 }
 
@@ -227,6 +232,8 @@ export function fakeModules(fakes: Fakes = {}): HubModules {
     mcp: () => ({ services: services.mcp }),
     metrics: () => ({ services: services.metrics }),
     models: () => ({ services: services.models }),
+    access: () => ({ services: services.access }),
+    connections: () => ({ services: services.connections }),
   };
 }
 

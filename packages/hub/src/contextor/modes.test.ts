@@ -1,4 +1,5 @@
-import { InstanceName, QualifiedName, SystemName, type Json } from '@harness/core';
+import { InstanceName, mintId, QualifiedName, SystemName, type Json } from '@harness/core';
+import { openScope } from '../access/index.ts';
 import { describe, expect, it } from 'vitest';
 import { contextorEnv } from './env.ts';
 import type { ContextorDeps, FnView, RenderedIteration, Selection } from './index.ts';
@@ -17,7 +18,7 @@ async function rig(machines: readonly InstanceName[]) {
   if (view === undefined) throw new Error('no view');
   const asked: SystemName[] = [];
   const instances: ContextorDeps['instances'] = { connected: (system) => { asked.push(system); return system === SystemName.parse('fs') ? machines : []; } };
-  const deps: ContextorDeps = { catalog: r.catalog, dynamic: r.dynamic, search: r.search, views: r.views, graph: r.graph, instances, settings: contextorEnv.parse(), log: r.log, clock: () => r.time.now };
+  const deps: ContextorDeps = { catalog: r.catalog, dynamic: r.dynamic, search: r.search, views: r.views, graph: r.graph, instances, settings: contextorEnv.parse(), log: r.log, clock: () => r.time.now, access: (actor) => Promise.resolve(openScope(actor)) };
   return { view, instances, asked, deps };
 }
 
@@ -73,7 +74,7 @@ describe('fleet choices in the chat modes', () => {
     const two = await rig([LAPTOP, DESK]);
     const mode = new StaticChatMode({ type: 'static', protocol: 'native', placement: 'system-end', loadDetail: 'signature' }, two.deps);
     const rendered: RenderedIteration = { tools: [], systemEnd: '', tail: undefined, protocol: 'native', fns: new Map(), fleet: new Set() };
-    const plan = await mode.interpret({ type: 'tool', id: 'c1', name: 'run', args: { fn: 'fs/read', args: { path: 'a' }, on: 'laptop' } }, rendered, { session: undefined });
+    const plan = await mode.interpret({ type: 'tool', id: 'c1', name: 'run', args: { fn: 'fs/read', args: { path: 'a' }, on: 'laptop' } }, rendered, { session: undefined, access: openScope(mintId('actor')) });
     expect(plan).toEqual({ type: 'run', fn: READ, args: { path: 'a' }, on: LAPTOP });
   });
 });

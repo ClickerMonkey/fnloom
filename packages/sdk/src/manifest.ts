@@ -8,8 +8,9 @@ import {
   type TypeDecl,
 } from '@harness/core';
 import type { AnyContextDef, AnyTypeDef, ContextLinkTarget } from './declare.ts';
-import { progressDecl, type AnyFnDef, type Handlers } from './fn.ts';
+import { progressDecl, validationOf, type AnyFnDef, type Handlers } from './fn.ts';
 import { encodeValue, referencesOf, wireType } from './gin.ts';
+import { providerDecl } from './providers.ts';
 import type { AnyContract, ContractShape } from './system.ts';
 import { entriesOf } from './util.ts';
 
@@ -57,7 +58,13 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     ...(def.examples.length === 0 ? {} : {
       examples: def.examples.map((example) => ({ args: encodeValue(def.args, example.args), ...(example.note === undefined ? {} : { note: example.note }) })),
     }),
+    ...withValidation(validationOf(def.validate)),
   };
+}
+
+/** A fn's `validate` field, when it declares hooks. */
+function withValidation(validate: FnDecl['validate']): Pick<FnDecl, 'validate'> {
+  return validate === undefined ? {} : { validate };
 }
 
 /** What a context link points at, on the wire. */
@@ -172,6 +179,7 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     events: SYSTEM_EVENT_TYPES.filter((e) => options.events?.includes(e) ?? false),
     resources: options.resources ?? false,
     ...(options.client === undefined ? {} : { client: options.client }),
+    ...(Object.keys(defs.providers).length === 0 ? {} : { providers: entriesOf(defs.providers).map(([name, def]) => providerDecl(name, def)) }),
     config: wireType(defs.config),
     requires: referencedSystems(contract.name, defs).map((s) => SystemName.parse(s)),
   };

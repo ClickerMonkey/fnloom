@@ -4,6 +4,7 @@
  * the facts about it, its process when the hub runs it (start, stop, restart, upgrade, and how it last exited), and
  * reimporting or removing it.
  */
+import AccessControl from '../../components/access/AccessControl.vue';
 import type { SystemEnabled, SystemView } from '@harness/core';
 import { computed, ref } from 'vue';
 import { UiBadge, UiButton, UiCard, UiCodeBlock, UiInput, UiSwitch, fullTime, relativeTime } from '../../ui/index.ts';
@@ -64,6 +65,7 @@ const blocked = computed(() => props.acting !== undefined);
         </div>
       </UiCard>
 
+      <AccessControl :target="{ kind: 'system', system: system.name }" />
       <UiCard v-if="installed" title="Process" :subtitle="source">
         <template #actions><StatusBadge :look="INSTALLED_STATUS_LOOK[installed.status]" /></template>
         <div class="process">

@@ -38,7 +38,7 @@ export const mcpModule: ModuleFactory<'mcp'> = ({ hub }) => {
     serverInfo: { name: HUB_INFO.name, version: HUB_INFO.version },
     list: async () => (await hub.store.table('mcps').find({ where: { enabled: true }, limit: MAX_MCPS })).items,
     parts: (mcp) => ({
-      tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => hub.catalog, runner, log: hub.log }),
+      tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => hub.catalog, runner, log: hub.log, access: () => hub.access }),
       resources: new HubMcpResources(mcp.id, sources),
       prompts: new HubMcpPrompts(mcp.id, sources),
     }),

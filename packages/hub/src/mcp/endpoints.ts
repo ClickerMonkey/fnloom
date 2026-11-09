@@ -127,6 +127,8 @@ export class HubMcpEndpoints implements McpEndpoints {
       this.#deps.bus.subscribe('catalog.changed', refresh),
       this.#deps.bus.subscribe('system.status', refresh),
       this.#deps.bus.subscribe('resources.roots', refresh),
+      // visibility or a person's connections changed: what each MCP's person may use may have too
+      this.#deps.bus.subscribe('capabilities.changed', refresh),
     ];
     return () => {
       for (const stop of stops) stop();

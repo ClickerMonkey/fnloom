@@ -5,14 +5,15 @@
  * answered here too, so every mode and contextor asks the same question the same way.
  */
 import type { Audience, FnRecord, QualifiedName, Session, TypeRecord } from '@harness/core';
+import type { AccessScope } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { GinScopes } from '../catalog/scope.ts';
 import { allowsSystem } from '../chat/support.ts';
 import type { FnView, FnViewSource } from './index.ts';
 
-/** Whether a session (or an agent outside one) may use a fn now. */
-export function usable(record: FnRecord, session: Pick<Session, 'systems'> | undefined): boolean {
-  return !record.disabled && record.available === true && (session === undefined || allowsSystem(session, record.system));
+/** Whether a session (or an agent outside one) may use a fn now, for a person who may see it. */
+export function usable(record: FnRecord, session: Pick<Session, 'systems'> | undefined, access: AccessScope): boolean {
+  return !record.disabled && record.available === true && (session === undefined || allowsSystem(session, record.system)) && access.mayUse(record);
 }
 
 /** Whether an audience (a fn's `visibility`, a context item's `suggest`) includes the model. */
@@ -24,8 +25,8 @@ export function forModel(audience: Audience): boolean {
  * Whether the model may run a fn by name (static `run`, `load`, `inspect`): usable here, and meant for the model. A fn
  * of visibility `none` (the hub's own, such as `web/fetch_raw`) or `user` is never run for the model, whatever it names.
  */
-export function modelMayUse(record: FnRecord, session: Pick<Session, 'systems'> | undefined): boolean {
-  return usable(record, session) && forModel(record.decl.visibility);
+export function modelMayUse(record: FnRecord, session: Pick<Session, 'systems'> | undefined, access: AccessScope): boolean {
+  return usable(record, session, access) && forModel(record.decl.visibility);
 }
 
 /** A named type's definition as a card shows it. */

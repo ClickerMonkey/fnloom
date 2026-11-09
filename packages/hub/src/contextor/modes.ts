@@ -257,7 +257,7 @@ export class StaticChatMode implements ChatMode {
     if (own !== undefined) return { type: 'run', fn: own, args, ...(on === undefined ? {} : { on }) };
     const qualified = QualifiedName.safeParse(name);
     const view = qualified.success ? await this.#deps.views.view(qualified.data) : undefined;
-    if (view === undefined || !modelMayUse(view.record, scope.session)) {
+    if (view === undefined || !modelMayUse(view.record, scope.session, scope.access)) {
       const near = await this.#near(name, scope);
       const hint = near.length === 0 ? 'Use find to look for one.' : `The nearest: ${near.join(', ')}.`;
       return invalid(qualified.success ? qualified.data : undefined, 'schema', [{ path: 'fn', message: `no fn named ${name} can run here` }], `There is no fn ${name} you can run here. ${hint}`);

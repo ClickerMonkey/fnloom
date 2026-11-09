@@ -78,7 +78,7 @@ function openTree(): void {
       :panel-title="record ? fnLabel(record.fn) : 'Run'" :panel-subtitle="record?.fn ?? ''" @more="runs.list.more()" @retry="runs.list.load()"
     >
       <template #filters>
-        <ListSearch v-model="search" list="runs" label="runs" :count="items.length" :more="runs.list.hasMore.value" />
+        <ListSearch v-model="search" list="runs" label="runs" :count="items.length" :more="runs.list.hasMore.value" :partial="runs.list.partial.value" />
       </template>
       <BrowserRow
         v-for="run in items" :key="run.id" :title="fnLabel(run.fn)" :detail="argSummary(run.args) || run.fn" :at="run.createdAt" :now="now"

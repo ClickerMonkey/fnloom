@@ -5,12 +5,14 @@
  * switch), and the count at the right. No card around it. When the bar is narrow (a phone, a side panel) the box takes
  * its own row and the sort, the page's additions and the count share the row under it. A session filter's pill shows
  * the chat's title, not its id. Mounted outside the app (no stores) it still searches, without the data's values and
- * names. The query is `v-model` (the page keeps it in the URL with `useListQuery`).
+ * names. The query is `v-model` (the page keeps it in the URL with `useListQuery`). When the hub's answer is `partial`
+ * (it stopped at its scan bound), the count reads as a lower bound and a line under the bar says to narrow the filters.
  */
 import { LIST_FIELDS, type ListName, type Sort } from '@harness/core';
 import { computed, ref } from 'vue';
 import { fieldsOf, formatFigure, valuesOf } from '../../state/query.ts';
 import { useStoresIfAny } from '../../state/stores.ts';
+import UiIcon from '../../ui/UiIcon.vue';
 import UiSearch from '../../ui/UiSearch.vue';
 import UiSort from '../../ui/UiSort.vue';
 import type { SearchQuery, ValueNamer, ValueOption } from '../../ui/search.ts';
@@ -25,7 +27,9 @@ const props = withDefaults(defineProps<{
   more?: boolean;
   /** Leave the sort button out (a list sorted only one way). */
   noSort?: boolean;
-}>(), { placeholder: undefined, count: undefined, more: false, noSort: false });
+  /** The hub stopped reading at its scan bound: more rows may match than it found. */
+  partial?: boolean;
+}>(), { placeholder: undefined, count: undefined, more: false, noSort: false, partial: false });
 const model = defineModel<SearchQuery>({ required: true });
 defineSlots<{ default?: () => unknown }>();
 const box = ref<{ focus: () => void } | null>(null);
@@ -48,7 +52,7 @@ const sort = computed({
     model.value = next === undefined ? rest : { ...rest, sort: [...next] };
   },
 });
-const countText = computed(() => (props.count === undefined ? '' : `${props.count.toLocaleString()}${props.more ? '+' : ''}`));
+const countText = computed(() => (props.count === undefined ? '' : `${props.count.toLocaleString()}${props.more || props.partial ? '+' : ''}`));
 </script>
 
 <template>
@@ -59,6 +63,9 @@ const countText = computed(() => (props.count === undefined ? '' : `${props.coun
       <span v-if="countText" class="count" :aria-label="`${countText} ${label}`" data-testid="list-count">{{ countText }}</span>
     </div>
     <div v-if="$slots['default']" class="extra"><slot /></div>
+    <p v-if="partial" class="partial" role="status" data-testid="list-partial">
+      <UiIcon name="info" :size="14" />More rows than scanned; narrow the filters.
+    </p>
   </div>
 </template>
 
@@ -73,5 +80,6 @@ const countText = computed(() => (props.count === undefined ? '' : `${props.coun
   .side { flex: 1 1 auto; margin-left: 0; }
   .side .count { margin-left: auto; }
 }
+.partial { display: flex; flex-basis: 100%; align-items: center; gap: var(--space-1); margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
 .count { min-width: 2ch; color: var(--text-faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-align: right; }
 </style>

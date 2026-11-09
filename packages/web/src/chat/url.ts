@@ -4,7 +4,8 @@
  * `?details=` for an answer's turn, `?resource=`, `?panel=settings|people|model`) and a message (`#m-:id`). Every value is
  * read through its schema, so a bad URL reads as nothing open. Opening a panel adds a history entry, so Back closes
  * it before it leaves the session; closing one goes back when that is where it came from. The list of chats keeps its
- * search (`?q=`) and view (`?chats=archived`) in the URL as well; moving between chats keeps them.
+ * search (`?q=`) and view (`?chats=archived`) in the URL as well, and debug mode (`?debug=1`, the hidden messages
+ * shown); moving between chats keeps them.
  */
 import { MessageId, SessionId, TurnId } from '@harness/core';
 import { computed } from 'vue';
@@ -26,6 +27,9 @@ export type PanelValue<K extends PanelKey> = z.output<(typeof PANEL_KEYS)[K]>;
 
 /** The query keys that belong to the list of chats, kept when moving between chats. */
 export const LIST_KEYS = { search: 'q', view: 'chats' } as const satisfies Record<string, QueryKey<typeof ROUTES.session>>;
+
+/** The query key of debug mode, kept when moving between chats too. */
+export const DEBUG_KEY = 'debug' satisfies QueryKey<typeof ROUTES.session>;
 
 /** The panel on top, when several are open: an LLM call over a run, a run over a turn's details, and so on. */
 export const PANEL_ORDER = ['llm', 'run', 'details', 'resource', 'panel'] as const satisfies readonly PanelKey[];
@@ -73,8 +77,9 @@ export function useChatUrl() {
   const message = computed(() => hashMessage(route.hash));
   const search = computed(() => one(route.query[LIST_KEYS.search]) ?? '');
   const archived = computed(() => read(ChatsView, route.query[LIST_KEYS.view]) === 'archived');
-  /** The list's part of the query, to carry from chat to chat. */
-  const listQuery = (): LocationQuery => Object.fromEntries(Object.values(LIST_KEYS).flatMap((key) => {
+  const debug = computed(() => read(CHAT.debug.unwrap(), route.query[DEBUG_KEY]) === '1');
+  /** The list's part of the query and debug mode, to carry from chat to chat. */
+  const listQuery = (): LocationQuery => Object.fromEntries([...Object.values(LIST_KEYS), DEBUG_KEY].flatMap((key) => {
     const value = one(route.query[key]);
     return value === undefined ? [] : [[key, value]];
   }));
@@ -120,12 +125,19 @@ export function useChatUrl() {
     void router.replace({ query, hash: route.hash });
   }
 
+  /** Turn debug mode on or off (replacing the entry, like the list's filters). */
+  function setDebug(on: boolean): void {
+    const query: LocationQuery = { ...route.query };
+    if (on) { query[DEBUG_KEY] = '1'; } else { Reflect.deleteProperty(query, DEBUG_KEY); }
+    void router.replace({ query, hash: route.hash });
+  }
+
   /** Point the URL at a message (Copy link and quotes use the same form). */
   function showMessage(id: MessageId): void {
     void router.replace({ query: route.query, hash: `#m-${id}` });
   }
 
-  return { session, treeTurn, run, llm, details, resource, panel, message, search, archived, top, open, close, openTree, go, setList, showMessage };
+  return { session, treeTurn, run, llm, details, resource, panel, message, search, archived, debug, top, open, close, openTree, go, setList, setDebug, showMessage };
 }
 
 /** The chat's URL state. */

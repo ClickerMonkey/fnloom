@@ -26,7 +26,7 @@ export function build3Plugins(hub: HubServices, systems: ReturnType<typeof syste
         setSuggestDecision: ({ data, user }) => suggestions.set(data, user.id),
         previewSuggestions: async ({ data, user }) => {
           await visibleSession(hub, data.session, user);
-          const decided = await suggestions.decide({ session: data.session, text: data.text });
+          const decided = await suggestions.decide({ session: data.session, text: data.text, actor: user.id });
           return decided.record ?? { by: 'score', items: [] };
         },
       })),

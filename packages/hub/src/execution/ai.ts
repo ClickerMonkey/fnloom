@@ -11,7 +11,7 @@
 import type { BaseRequest, BaseResponse, Request, Response, Streamer, Usage } from '@aeye/core';
 import { AI, type EmbeddingRequest, type ImageGenerationRequest, type ModelInfo, type Providers, type SpeechRequest, type TranscriptionRequest } from '@aeye/ai';
 import { models as knownModels, strictSupport } from '@aeye/models';
-import { compact, ProviderKind, type LlmInteractionId, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
+import { compact, ProviderKind, type CacheSupport, type LlmInteractionId, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import type { ModelCallLog, OpenModelCall } from '../metrics/index.ts';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
@@ -28,6 +28,8 @@ import { requestToWire, responseToWire, tokensOf, usageToWire } from './wire.ts'
 export interface CallModel {
   readonly id: string;
   readonly provider: string;
+  /** Whether it reads a prompt cache, from its model info (`cacheSupportOf`); `unknown` when not said. */
+  readonly caching?: CacheSupport | undefined;
 }
 
 /** A call between its start and its end. */
@@ -44,6 +46,16 @@ interface OpenCall {
   readonly held: { readonly reservation: ReservationId; readonly site: CallSite } | undefined;
   /** The whole request and response, for chat calls a run makes. */
   readonly interaction: LlmInteractionId | undefined;
+}
+
+/**
+ * Whether a model reads a prompt cache, from what its model info says: `yes` with a cached-input price, `no` when
+ * it has text prices but none for cached input, `unknown` without prices (a model no list knows, a local one).
+ */
+export function cacheSupportOf(model: Pick<ModelInfo, 'pricing'> | undefined): CacheSupport {
+  const text = model?.pricing.text;
+  if (text?.cached !== undefined) return 'yes';
+  return text?.input !== undefined || text?.output !== undefined ? 'no' : 'unknown';
 }
 
 /** True for a chat request (the hooks also see embedding and other requests, which carry no messages). */
@@ -153,7 +165,8 @@ export class HubAiHooks {
   async #finish(call: OpenCall, end: CallEnd): Promise<void> {
     const { scope, record, media } = call;
     const { modality } = media;
-    const units = unitsOf(media, end.response, end.usage);
+    const measured = unitsOf(media, end.response, end.usage);
+    const units = measured.modality === 'chat' ? { ...measured, caching: call.model.caching ?? 'unknown' } : measured;
     const wire = usageToWire(end.usage);
     const tokens = units.modality === 'chat' ? tokensOf(wire) : units.modality === 'embed' ? units.tokens ?? 0 : 0;
     if (scope !== undefined && call.held !== undefined) {
@@ -217,7 +230,7 @@ export function createHubAi(input: HubAiInput) {
         // the pinned provider's own record of the model when it lists one (its prices), else the same model under it
         return { ...selected, model: ctx.ai.registry.getModel(`${pinned}/${selected.model.id}`) ?? { ...selected.model, provider: pinned }, provider };
       },
-      beforeRequest: (ctx, request, selected, _usage, estimate) => hooks.before(ctx, request, { id: selected.model.id, provider: selected.model.provider }, estimate),
+      beforeRequest: (ctx, request, selected, _usage, estimate) => hooks.before(ctx, request, { id: selected.model.id, provider: selected.model.provider, caching: cacheSupportOf(selected.model) }, estimate),
       afterRequest: (ctx, _request, response, complete, _selected, usage, cost) => settle(hooks.after(ctx, response, complete, ctx.signal?.aborted === true, usage, cost), 'afterRequest'),
       onError: (type, message, error, ctx) => {
         log.warn('llm.error', { type, message });

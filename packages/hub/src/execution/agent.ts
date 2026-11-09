@@ -23,6 +23,7 @@ import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contex
 import { AUTO_MODEL } from '../contextor/limits.ts';
 import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
+import { OUTPUT_REFUSED } from './executors.ts';
 import { rows } from './pages.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type RunInput } from './index.ts';
 import type { ModelResolver } from './models.ts';
@@ -284,10 +285,14 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const model = metadata.model ?? AUTO_MODEL;
     if (state.pending.length > 0) {
       // Answered and saved at once, so a job that runs again (after a rate limit) never answers twice.
-      const replies = await this.#replies(state.pending, { session, agent: fn, model });
+      const replies = await this.#replies(state.pending, { session, agent: fn, model, access: await this.#deps.access.scope(turn.user.id) });
       await conversation.answer(state.anchor, replies.messages);
       state = { ...state, pending: [], failures: replies.allFailed ? state.failures + 1 : 0, ...this.#saved(conversation) };
       await store.table('runs').update(run.id, { resume: Json.parse(state) });
+      if (replies.stopped !== undefined) {
+        await this.#fail(run, state, replies.stopped);
+        return { failed: replies.stopped };
+      }
       if (state.failures >= this.#deps.settings.execution.HARNESS_AGENT_TOOL_FAILURES) {
         const failed = fnError('fatal', `${run.fn} stopped: its tool calls failed ${state.failures} times in a row.`, 'tool-failures');
         await this.#fail(run, state, failed);
@@ -598,9 +603,11 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
   /**
    * The replies for an iteration's calls, in call order: a tool message for a native call, a `<result>` user message
    * for a block. Refused input is answered with what was wrong and doesn't count as a failure; a run's exposed fns
-   * follow its result. `allFailed` says whether every call failed.
+   * follow its result. `allFailed` says whether every call failed; `stopped` is set when a fn's output hook stopped a
+   * call (the agent run ends with that reason).
    */
-  async #replies(pending: readonly PendingCall[], prompt: ExposedTo | undefined): Promise<{ messages: LlmMessage[]; allFailed: boolean }> {
+  async #replies(pending: readonly PendingCall[], prompt: ExposedTo | undefined): Promise<{ messages: LlmMessage[]; allFailed: boolean; stopped?: FnError }> {
+    let stopped: FnError | undefined;
     let failed = 0;
     const messages = await Promise.all(pending.map(async (call): Promise<LlmMessage> => {
       const reply = (status: string, content: string): LlmMessage => (call.block === true
@@ -617,10 +624,11 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       const settled: RunSettled = child === undefined ? { status: 'failed', error: fnError('fatal', 'the run is gone') }
         : isSettled(child.status) ? settledOf(outcome, child.id) : { status: 'background', run: child.id };
       if (settled.status === 'failed') failed += 1;
+      if (settled.status === 'failed' && settled.error.code === OUTPUT_REFUSED) stopped ??= settled.error;
       const exposed = outcome?.status === 'done' && outcome.expose !== undefined && prompt !== undefined ? await this.#deps.planner.exposed(outcome.expose, prompt) : '';
       return reply(settled.status, exposed === '' ? settledReply(settled) : `${settledReply(settled)}\n\n${exposed}`);
     }));
-    return { messages, allFailed: pending.length > 0 && failed === pending.length };
+    return { messages, allFailed: pending.length > 0 && failed === pending.length, ...(stopped === undefined ? {} : { stopped }) };
   }
 
   /** The assistant message a session's agent answers into, opened on its first iteration. */
@@ -680,7 +688,14 @@ type ModelCalls = Array<{ readonly toolCallId: string; readonly block: boolean; 
 
 /** What the model reads for input the hub refused: each problem, by where it was. */
 export function invalidReply(invalid: InvalidInput): string {
-  return `The input was not accepted; fix it and try again:\n${problemLines(invalid.problems)}`;
+  const messages = invalid.problems.map((p) => p.message).join('\n');
+  switch (invalid.source) {
+    // the fn's input hook: not the model's mistake, so it isn't asked to fix anything
+    case 'unavailable': return `Not available now: ${messages}`;
+    // the fn's output hook refused the result; its message already asks for another try
+    case 'result': return messages;
+    case 'json': case 'schema': case 'validation': return `The input was not accepted; fix it and try again:\n${problemLines(invalid.problems)}`;
+  }
 }
 
 /** The index of the last assistant message with tool calls. */

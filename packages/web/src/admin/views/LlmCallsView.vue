@@ -55,7 +55,7 @@ useLive(() => { void llm.list.refresh(); }, BROWSER_REFRESH);
       :panel-title="call ? call.model : 'LLM call'" :panel-subtitle="call ? `${call.provider} · step ${call.iteration + 1}` : ''" @more="llm.list.more()" @retry="llm.list.load()"
     >
       <template #filters>
-        <ListSearch v-model="search" list="llmCalls" label="LLM calls" :count="items.length" :more="llm.list.hasMore.value" />
+        <ListSearch v-model="search" list="llmCalls" label="LLM calls" :count="items.length" :more="llm.list.hasMore.value" :partial="llm.list.partial.value" />
       </template>
       <BrowserRow
         v-for="item in items" :key="item.id" :title="item.model" :detail="`${item.provider}${item.system ? ` · for ${item.system}` : ''} · step ${item.iteration + 1}`"

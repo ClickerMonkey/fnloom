@@ -2,6 +2,7 @@
  * Build 2's admin components: the role and limits dialogs, the MCP rule editor, preview, connect panel and secret
  * dialog, the model call details, the day bars, the instance list and the package drop.
  */
+import { pickIn } from '../../test/pickers.ts';
 import { SystemName } from '@harness/core';
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -79,18 +80,15 @@ describe('model roles and limits', () => {
 
 describe('hub MCPs', () => {
   it('McpSelectorEditor adds checked entries and removes them', async () => {
-    const editor = mount(McpSelectorEditor, { ...inBody, props: { title: 'Include', about: '', selector: { systems: [SystemName.parse('fs')] }, testid: 'inc', suggestions: { systems: ['fs', 'notes'] } } });
+    const editor = mount(McpSelectorEditor, { ...inBody, props: { title: 'Include', about: '', selector: { systems: [SystemName.parse('fs')] }, testid: 'inc' } });
     expect(editor.text()).toContain('fs');
-    await set('[data-testid=inc-types-input]', 'nope');
-    await click('[data-testid=inc-types-add]');
+    await pickIn(find('[data-testid=inc-types-input]'), 'nope');
     expect(editor.text()).toContain('Write a qualified name');
     expect(editor.emitted('change')).toBeUndefined();
-    await set('[data-testid=inc-fns-input]', 'fs/* #read');
-    await click('[data-testid=inc-fns-add]');
+    await pickIn(find('[data-testid=inc-fns-input]'), 'fs/* #read');
     expect(editor.emitted('change')?.[0]).toEqual([{ systems: ['fs'], fns: [{ fn: 'fs/*', tags: ['read'] }] }]);
     await editor.get('[data-part=systems] button').trigger('click');
     expect(editor.emitted('change')?.[1]).toEqual([{}]);
-    expect(editor.findAll('datalist option')).toHaveLength(2);
     editor.unmount();
   });
 

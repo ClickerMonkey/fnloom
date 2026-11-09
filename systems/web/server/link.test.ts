@@ -11,6 +11,7 @@ import { Json, ResourceReadResult, ResourceRecord, mintId, type OutcomeWire, typ
 import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { web } from '../shared/index.ts';
 import { webEnv } from './env.ts';
 import { createWebImpl, fetchSettings, searchCredits, type WebServer } from './impl.ts';
@@ -166,8 +167,25 @@ describe('web over the link', () => {
     expect(hub.calls.at(-1)?.args).toEqual({ uri: 'hub://resources/web/article', maxChars: settings.WEB_READ_CHARS });
   });
 
+  it('crawls a site into one folder, hands the hub the page it fetched, and reports the root', async () => {
+    let fetchedBack: Json = null;
+    hub.onCall = async (): Promise<RunSettled> => {
+      fetchedBack = done(await hub.run('web/fetch_raw', { url: 'https://example.com/' }));
+      return { status: 'done', result: pageRecord('https://example.com/', 'https://example.com/', false) };
+    };
+    const result = done(await hub.run('web/crawl', { url: 'https://example.com/', maxPages: 500 }));
+    expect(result).toMatchObject({ count: 1, root: 'hub://resources/web', moreSkipped: 0 });
+    const asked = hub.calls.find((call) => call.fn === 'hub/resource_import')?.args;
+    const { input } = z.object({ input: z.object({ url: z.string(), folder: z.string() }).strict() }).parse(asked);
+    expect(input.url).toBe('https://example.com/');
+    expect(input.folder).toMatch(/^crawls\/example\.com-\d{8}-\d{4}$/);
+    expect(fetchedBack).toMatchObject({ title: 'An article' });
+    expect(fetchFn.seen.filter((r) => r.url === 'https://example.com/')).toHaveLength(1);
+    expect(server.held.size).toBe(0);
+  });
+
   it('refuses something that is not a URL as invalid input, without asking the hub or the network', async () => {
-    for (const fn of ['web/read', 'web/fetch_raw'] as const) {
+    for (const fn of ['web/read', 'web/fetch_raw', 'web/crawl'] as const) {
       expect(await hub.run(fn, { url: 'not a url' })).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'url' }] } });
       expect(await hub.run(fn, { url: 'ftp://example.com/file' })).toMatchObject({ status: 'invalid-input' });
     }

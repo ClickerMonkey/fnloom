@@ -1,3 +1,4 @@
+import { openScope } from '../access/index.ts';
 import { fn, g, hub } from '@harness/sdk';
 import { ActorId, INVALID_INPUT_CODE, QualifiedName, SessionId, TypeRecord, type ContextRecord, type Json, type RunSettled } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -44,7 +45,7 @@ async function started(options: { scope?: FnScope } = {}) {
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => catalog, search: () => search, sessions: () => sessionLoader(r.store),
-    contextor: () => contextor, views: () => new CatalogFnViews(catalog), mcpScope: (caller) => Promise.resolve(caller === MCP_CALLER ? options.scope : undefined),
+    contextor: () => contextor, views: () => new CatalogFnViews(catalog), mcpScope: (caller) => Promise.resolve(caller === MCP_CALLER ? options.scope : undefined), access: (actor) => Promise.resolve(openScope(actor)),
   });
   await r.module.start();
   await r.session({ tools: ['fs/read'] });

@@ -31,6 +31,9 @@ export const ValidateRequest = z.discriminatedUnion('phase', [
 ]);
 export type ValidateRequest = z.infer<typeof ValidateRequest>;
 
-/** The system's answer to `validate`, by phase. */
-export const ValidateAnswer = z.union([InputVerdict, OutputVerdict]);
+/**
+ * The system's answer to `validate`, by phase. The output verdict is tried first: an input refusal has no `action`,
+ * and trying it first would strip the `action` from an output one.
+ */
+export const ValidateAnswer = z.union([OutputVerdict, InputVerdict]);
 export type ValidateAnswer = z.infer<typeof ValidateAnswer>;

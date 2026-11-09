@@ -31,6 +31,7 @@ export function secretsOf(config: ProviderConfig): SecretId[] {
   switch (config.provider) {
     case 'openai': case 'openrouter': return [config.apiKey];
     case 'ollama': return [];
+    case 'aws': return config.auth.kind === 'apiKey' ? [config.auth.apiKey] : [config.auth.secretAccessKey, ...(config.auth.sessionToken === undefined ? [] : [config.auth.sessionToken])];
   }
 }
 
@@ -51,6 +52,13 @@ async function sealProvider(hub: Pick<HubServices, 'api'>, input: ProviderInput,
     case 'openai': return { provider: 'openai', apiKey: await seal(input.apiKey), ...(input.baseURL === undefined ? {} : { baseURL: input.baseURL }) };
     case 'openrouter': return { provider: 'openrouter', apiKey: await seal(input.apiKey) };
     case 'ollama': return input;
+    case 'aws': {
+      const { auth } = input;
+      const sealed: Extract<ProviderConfig, { provider: 'aws' }>['auth'] = auth.kind === 'apiKey'
+        ? { kind: 'apiKey', apiKey: await seal(auth.apiKey) }
+        : { kind: 'keys', accessKeyId: auth.accessKeyId, secretAccessKey: await seal(auth.secretAccessKey), ...(auth.sessionToken === undefined ? {} : { sessionToken: await seal(auth.sessionToken) }) };
+      return { provider: 'aws', region: input.region, auth: sealed, ...(input.profilePrefix === undefined ? {} : { profilePrefix: input.profilePrefix }) };
+    }
   }
 }
 

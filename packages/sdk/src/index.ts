@@ -10,7 +10,8 @@ export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens
 export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, type GinType, type Infer, type LoadedTypes } from './gin.ts';
 export { ginOf, ginAs, toolArgsOf } from './zod-gin.ts';
 export {
-  fn, handler, linear, steps, noProgress, progressDecl, kindFn,
+  fn, handler, linear, steps, noProgress, progressDecl, kindFn, validationOf,
+  type FnValidators,
   type FnDef, type AnyFnDef, type FnTypes, type FnInput, type FnExampleOf, type NativeFnTypes, type KindFnInput, type KindFnTypes, type UntypedFn, type TypesOf, type Deps,
   type HandlerDef, type Handlers, type HandlerFn, type HandlerArgs, type HandlersInRun, type HasRequiredHandlers,
   type ProgressDef, type NoProgress, type LinearProgress, type StepsProgress, type ProgressReporter, type ProgressState, type Outcome,
@@ -24,16 +25,17 @@ export {
 } from './declare.ts';
 export type {
   FnRef, AnyFnRef, TypeRef, AnyTypeRef, Methods, MethodName, MethodArgs, MethodRefs, KindRef, AnyKindRef, ContextRef, AnyContextRef,
-  SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, EmbedderRef, SectionerRef, ActionRef,
+  SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, EmbedderRef, SectionerRef, ActionRef, ProviderRef,
 } from './refs.ts';
 export {
   Suspended, CallFailed, HandlerFailed,
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
-  type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
+  type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
   type ForwardModality, type ModelInput, type ModelOutput,
 } from './ctx.ts';
 export type { FnImpl } from './impl.ts';
 export type { ResourceProvider } from './resources.ts';
+export { provider, providerDecl, type ProviderDef, type ProviderInput, type ProviderImpl } from './providers.ts';
 export {
   system, CONTRACT_SECTIONS,
   type ContractShape, type ContractSection, type EmptyContract, type Merge, type SystemRefs, type SystemContract, type AnyContract, type ConfigOf,

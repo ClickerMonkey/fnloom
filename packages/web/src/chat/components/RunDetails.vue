@@ -11,7 +11,7 @@ import { UiBanner, UiButton, UiCodeBlock, UiSkeleton, UiTabs, fullTime, type Tab
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { humanize } from '../logic/labels.ts';
 import { isSettled } from '@harness/core';
-import { argSummary, INPUT_PROBLEM_WORDS, resultBrief, runElapsed, runError, runInvalid, runResult, statusDetail, STATUS_LOOK, type RunView } from '../logic/runs.ts';
+import { argSummary, INPUT_PROBLEM_WORDS, invalidAfter, resultBrief, runElapsed, runError, runInvalid, runResult, statusDetail, STATUS_LOOK, type RunView } from '../logic/runs.ts';
 import type { RunTab as Tab } from '../logic/inspect.ts';
 import GinValueView from '../../gin/GinValueView.vue';
 import RunDot from './RunDot.vue';
@@ -93,7 +93,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
         <template #default="{ value }">
           <div v-if="value === 'overview'" class="pane">
             <section v-if="invalid" class="invalid" data-testid="run-invalid">
-              <p class="invalid-title">{{ INPUT_PROBLEM_WORDS[invalid.source] }}. The agent was told why and can try again; this is not a failure.</p>
+              <p class="invalid-title">{{ INPUT_PROBLEM_WORDS[invalid.source] }}. {{ invalidAfter(invalid.source) }}</p>
               <ul class="problems">
                 <li v-for="(issue, i) in invalid.problems" :key="i"><code v-if="issue.path !== ''" class="path">{{ issue.path }}</code> {{ issue.message }}</li>
               </ul>

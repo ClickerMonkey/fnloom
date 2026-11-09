@@ -2,6 +2,7 @@
  * The notifications inbox: the list (all, or only unread), paged; the unread count for the bell; live arrivals from
  * the user's event channel (shown only while no search narrows the list); and marking read, shown at once and put back if the hub refuses.
  */
+import { partialOf } from './loaded.ts';
 import type { ListQuery, Notification, NotificationId, NotificationListQuery, UserEvent } from '@harness/core';
 import { z } from 'zod';
 import { computed, ref, shallowRef } from 'vue';
@@ -36,6 +37,8 @@ export class InboxStore {
   /** Whether the first page has arrived. */
   readonly loaded = ref(false);
   readonly problem = ref('');
+  /** The hub stopped at its scan bound for this search: more notifications may match. */
+  readonly partial = ref(false);
   readonly #hasMore = ref(false);
   /** Whether there are older notifications to fetch. */
   readonly hasMore = computed(() => this.#hasMore.value);
@@ -69,6 +72,7 @@ export class InboxStore {
       this.items.value = page.items;
       this.#cursor = page.cursor;
       this.#hasMore.value = page.cursor !== undefined;
+      this.partial.value = partialOf(page);
       this.loaded.value = true;
     } catch (error) {
       this.problem.value = problemText(error, "Couldn't load notifications.");

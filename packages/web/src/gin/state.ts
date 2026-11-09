@@ -11,7 +11,7 @@
 import type { Expr, ExprDef, Registry, Type, TypeDef } from '@aeye/gin';
 import type { GinExprDef, GinTypeDef, Json } from '@harness/core';
 import { g } from '@harness/sdk';
-import { computed, ref, shallowRef, type ComputedRef, type InjectionKey, type ShallowRef } from 'vue';
+import { computed, ref, shallowRef, type ComputedRef, type InjectionKey, type Ref, type ShallowRef } from 'vue';
 import { ExprTools, viewOf, type ExprProblem, type ExprView } from './logic/expr.ts';
 import { draftOf, encode, formOf, issueProblems, type Draft, type Encoded, type FormNode, type FormProblem } from './logic/form.ts';
 import { checkShape, shapeOf, type CheckedShape, type TypeShape } from './logic/typedef.ts';
@@ -197,6 +197,15 @@ export class ExprEditor {
 
 /** Where expression components find gin's tools (the expression view provides its own). */
 export const EXPR_TOOLS: InjectionKey<ExprTools> = Symbol('harness.exprTools');
+
+/**
+ * The node of an expression being worked on (its path, `''` for the root): the innermost node under the pointer or
+ * holding focus. Only it shows its menu button and step tools, so the code stays quiet. The expression view provides it.
+ */
+export const EXPR_ACTIVE: InjectionKey<Ref<string | undefined>> = Symbol('harness.exprActive');
+
+/** How many characters of code fit across the expression editor (it provides it, measured; nodes wrap past it). */
+export const EXPR_WIDTH: InjectionKey<Ref<number>> = Symbol('harness.exprWidth');
 
 let shared: ExprTools | undefined;
 /** The tools over the browser's registry (`g`), made once on first use. */

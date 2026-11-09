@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core';
-import { IDS, LIST_FIELDS, noFnStats, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
+import { IDS, LIST_FIELDS, noFnStats, type ActorId, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { chatWorld, FixtureCatalog, makeRun } from '../chat/testing.ts';
 import { testStore } from '../testing.ts';
@@ -7,6 +7,10 @@ import { queryEnv } from './env.ts';
 import { evaluate, passes } from './evaluate.ts';
 import { HubQuery } from './service.ts';
 import { listSources } from './sources.ts';
+import { openScope } from '../access/index.ts';
+
+/** Everything visible to everyone. */
+const OPEN_ACCESS = { scope: (actor: ActorId) => Promise.resolve(openScope(actor)) };
 
 const admin = { id: IDS.actor.parse('act_admin'), role: 'admin' as const };
 const member = { id: IDS.actor.parse('act_bo'), role: 'member' as const };
@@ -55,7 +59,7 @@ describe('the lists', () => {
   async function rig() {
     const store = await testStore();
     const catalog = new FixtureCatalog();
-    const lists = new HubQuery(listSources({ store, catalog }, queryEnv.parse()));
+    const lists = new HubQuery(listSources({ store, catalog, access: OPEN_ACCESS }, queryEnv.parse()));
     const turn = IDS.turn.parse('trn_1');
     await store.table('runs').insert(makeRun({ id: IDS.run.parse('run_a'), fn: 'fs/read', turn, actor: admin.id, status: 'done', cost: 0.002, createdAt: 1 }));
     await store.table('runs').insert(makeRun({ id: IDS.run.parse('run_b'), fn: 'fs/write', turn, actor: member.id, status: 'failed', cost: 0.2, createdAt: 2 }));
@@ -80,7 +84,7 @@ describe('the lists', () => {
     const { store } = await rig();
     const turn = IDS.turn.parse('trn_1');
     for (let i = 0; i < 100; i++) { await store.table('runs').insert(makeRun({ id: IDS.run.parse(`run_n${i}`), fn: 'fs/read', turn, actor: admin.id, status: 'done', createdAt: 10 + i })); }
-    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog() }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
+    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog(), access: OPEN_ACCESS }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
     const result = await lists.query({ list: 'runs', query: { filters: [{ field: 'fn', op: 'is', value: 'fs/write' }] } }, admin);
     expect(result).toMatchObject({ total: 1, items: [{ id: 'run_b' }] });
   });
@@ -89,7 +93,7 @@ describe('the lists', () => {
     const { store } = await rig();
     const turn = IDS.turn.parse('trn_1');
     for (let i = 0; i < 100; i++) { await store.table('runs').insert(makeRun({ id: IDS.run.parse(`run_n${i}`), fn: 'fs/read', turn, actor: admin.id, status: 'done', cost: 0.01, createdAt: 10 + i })); }
-    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog() }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
+    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog(), access: OPEN_ACCESS }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
     const run = async (query: ListQuery) => lists.query({ list: 'runs', query }, admin);
     // the oldest runs, past the newest 100, by a date bound and by a cost sort
     expect(await run({ filters: [{ field: 'createdAt', op: 'lt', value: 3 }] })).toMatchObject({ total: 2, items: [{ id: 'run_b' }, { id: 'run_a' }] });
@@ -117,7 +121,7 @@ describe('the lists', () => {
 
   it('serves the fns catalogue with stats, and a member only the model calls of their own sessions', async () => {
     const w = await chatWorld();
-    const lists = new HubQuery(listSources(w, queryEnv.parse()));
+    const lists = new HubQuery(listSources({ ...w, access: w.deps.access }, queryEnv.parse()));
     for (const [name, failed] of [['read', 0], ['write', 2]] as const) {
       const record = w.catalog.addFn('fs', { name, description: `${name} things` });
       await w.store.table('fns').put({ ...record, stats: { ...noFnStats(), outcomes: { done: 3, failed, 'invalid-input': 0, cancelled: 0 } } });

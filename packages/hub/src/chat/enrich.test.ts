@@ -1,6 +1,7 @@
 import { IDS, SystemName, type ChatMessage, type HookDecl, type UserInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { hookTag } from './enrich.ts';
+import { hiddenMessage } from './turns.ts';
 import { chatWorld, gin } from './testing.ts';
 
 const turn = IDS.turn.parse('trn_1');
@@ -103,6 +104,14 @@ describe('the text the LLM gets', () => {
       '<local_time>\n<now>Saturday 09:30</now>\n</local_time>',
       '<git_branch>\n<branch>main</branch>\nLoaded: git/guide, git/log\n</git_branch>',
     ].join('\n\n'));
+  });
+
+  it('gives the model a form\'s answers in their hidden tag, and nothing a person would see', async () => {
+    const w = await world();
+    const parts = [{ type: 'input-answer' as const, run: IDS.run.parse('run_9'), title: 'Trip <plan>', value: { days: 3 }, text: 'days: 3\ncity: Rome & Paris' }];
+    expect(w.chat.enrich.render(message(parts))).toBe('<input-answer title="Trip &lt;plan&gt;">days: 3\ncity: Rome &amp; Paris</input-answer>');
+    expect(hiddenMessage({ parts })).toBe(true);
+    expect(hiddenMessage({ parts: [...parts, { type: 'text', text: 'and this' }] })).toBe(false);
   });
 
   it('writes every other part as a tag', async () => {

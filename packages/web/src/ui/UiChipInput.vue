@@ -1,11 +1,11 @@
 <script setup lang="ts" generic="T extends string">
 /**
  * A short list of names typed into one box: each name shows as a removable chip, Enter or a comma adds what is typed
- * (when `read` accepts it; otherwise its problem shows), Backspace in an empty box removes the last. While typing,
- * `suggest` (when given) offers matching names to pick from.
+ * (when `read` accepts it; otherwise its problem shows), Backspace in an empty box removes the last. Free text (tags);
+ * names of things on the hub use a picker (`HubPicker`).
  */
 import { ref, useId, watch } from 'vue';
-import { UiIcon } from '../../ui/index.ts';
+import UiIcon from './UiIcon.vue';
 
 const props = withDefaults(defineProps<{
   modelValue: readonly T[];
@@ -16,21 +16,15 @@ const props = withDefaults(defineProps<{
   read: (text: string) => T | undefined;
   /** What a refused name is told. */
   refusal?: string;
-  /** Names matching what is typed. */
-  suggest?: ((prefix: string) => Promise<readonly string[]>) | undefined;
   testid?: string;
-}>(), { placeholder: '', hint: '', refusal: 'That isn’t a name.', suggest: undefined, testid: '' });
+}>(), { placeholder: '', hint: '', refusal: 'That isn’t a name.', testid: '' });
 
 const emit = defineEmits<{ 'update:modelValue': [names: T[]] }>();
 const id = useId();
 const typed = ref('');
 const problem = ref('');
-const offered = ref<readonly string[]>([]);
 
-watch(typed, async (text) => {
-  problem.value = '';
-  offered.value = props.suggest === undefined || text.trim() === '' ? [] : await props.suggest(text.trim());
-});
+watch(typed, () => { problem.value = ''; });
 
 function add(): void {
   const text = typed.value.trim().replace(/,$/, '');
@@ -50,7 +44,7 @@ function key(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="name-list" :data-testid="testid || undefined">
+  <div class="ui-chip-input" :data-testid="testid || undefined">
     <label class="label" :for="id">{{ label }}</label>
     <div class="box" :class="{ bad: problem !== '' }">
       <span v-for="(name, i) in modelValue" :key="name" class="chip">
@@ -58,28 +52,29 @@ function key(event: KeyboardEvent): void {
         <button type="button" class="drop" :aria-label="`Remove ${name}`" @click="remove(i)"><UiIcon name="x" :size="12" /></button>
       </span>
       <input
-        :id="id" v-model="typed" class="type" :list="`${id}-names`" :placeholder="modelValue.length === 0 ? placeholder : ''" autocomplete="off"
+        :id="id" v-model="typed" class="type" :placeholder="modelValue.length === 0 ? placeholder : ''" autocomplete="off"
         :aria-invalid="problem !== '' ? 'true' : undefined" :aria-describedby="`${id}-note`" @keydown="key" @blur="add"
       >
-      <datalist :id="`${id}-names`"><option v-for="name in offered" :key="name" :value="name" /></datalist>
     </div>
     <p v-if="problem !== '' || hint !== ''" :id="`${id}-note`" class="note" :class="{ bad: problem !== '' }">{{ problem || hint }}</p>
   </div>
 </template>
 
 <style scoped>
-.name-list { display: grid; gap: var(--space-1); min-width: 0; }
+/* sized like UiPicker (and every UiField), so the two sit level in a form grid */
+.ui-chip-input { display: grid; align-content: start; gap: 6px; min-width: 0; }
 .label { font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .box {
-  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-height: 36px; padding: 3px var(--space-2);
-  border: 1px solid var(--border-strong, var(--border)); border-radius: var(--radius); background: var(--surface);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: var(--control); padding: 3px var(--space-2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface);
 }
-.box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.box:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
 .box.bad { border-color: var(--danger); }
-.chip { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 6px; border-radius: 5px; background: var(--surface-2); font-size: var(--text-xs); }
-.drop { display: inline-grid; place-items: center; padding: 2px; border: 0; border-radius: 4px; background: none; color: var(--text-faint); cursor: pointer; }
+.chip { display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 2px 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); font-size: var(--text-xs); }
+.drop { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-dim); cursor: pointer; }
 .drop:hover { color: var(--danger); }
-.type { flex: 1 1 8rem; min-width: 6rem; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; font-size: var(--text-sm); }
-.note { margin: 0; color: var(--text-faint); font-size: var(--text-xs); }
+.type { flex: 1 1 6rem; min-width: 4rem; height: 26px; padding: 0; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; font-size: var(--text-sm); }
+.type::placeholder { color: var(--text-faint); }
+.note { margin: 0; color: var(--text-faint); font-size: var(--text-sm); line-height: var(--leading-tight); }
 .note.bad { color: var(--danger); }
 </style>

@@ -57,7 +57,7 @@ async function readAll(): Promise<void> {
     <template #actions>
       <UiButton v-if="inbox.unread.value > 0" icon="check" data-testid="read-all" @click="readAll">Mark all read</UiButton>
     </template>
-    <ListSearch v-model="search" list="notifications" label="notifications" :count="inbox.items.value.length" :more="inbox.hasMore.value">
+    <ListSearch v-model="search" list="notifications" label="notifications" :count="inbox.items.value.length" :more="inbox.hasMore.value" :partial="inbox.partial.value">
       <UiSegmented v-model="filter" :options="shows" label="Show" data-testid="inbox-filter" />
     </ListSearch>
     <UiCard flush>

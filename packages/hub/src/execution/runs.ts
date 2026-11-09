@@ -163,6 +163,13 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (fn === undefined) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
     if (fn.disabled) throw new RunRefused(fnError('caller', `${input.fn} is turned off.`, 'disabled'));
     if (fn.available !== true) throw new RunRefused(fnError('retry', `${input.fn} is unavailable: ${fn.available.detail}`, 'unavailable'));
+    const turn = await store.table('turns').get(input.turn);
+    if (turn === undefined) throw new RunRefused(fnError('fatal', `There is no turn ${input.turn}.`, 'not-found'));
+    // a fn the turn's person may not see is as good as missing to them; a per-person fn needs a connection to act as
+    const access = await this.#deps.access.scope(turn.user.id);
+    if (!access.seesFn(fn)) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
+    const connection = access.connection(fn);
+    if (connection?.state === 'missing') throw new RunRefused(fnError('retry', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`, 'unavailable'));
     const parent = input.parent === undefined ? undefined : await store.table('runs').get(input.parent);
     if (input.parent !== undefined && parent === undefined) throw new RunRefused(fnError('fatal', `There is no parent run ${input.parent}.`, 'not-found'));
     if (parent !== undefined) {
@@ -182,8 +189,6 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       : undefined;
     const invalid = checked ?? (routed !== undefined && 'invalid' in routed ? routed.invalid : undefined);
     const instance = routed !== undefined && 'instance' in routed ? routed.instance.instance : undefined;
-    const turn = await store.table('turns').get(input.turn);
-    if (turn === undefined) throw new RunRefused(fnError('fatal', `There is no turn ${input.turn}.`, 'not-found'));
 
     const id = mintId('run', this.#deps.random);
     const { operations } = fn.decl;
@@ -230,6 +235,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     }
     const decision = await this.#deps.policies.decide({
       fn: fn.name, actor: input.actor, turnUser: turn.user.id, args: input.args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
+      // a per-person fn its person keeps on 'ask first' waits for the connection's owner
+      ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
     });
     if (decision.effect === 'deny') {
       await this.settle(id, { status: 'failed', error: fnError('caller', `Not allowed: ${decision.reason}`, 'denied') });
@@ -588,7 +595,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(resume === undefined ? {} : { resume }),
       deadline: deadline.at,
       configVersion: configured?.version ?? 0,
+      ...(await this.#connection(fn, turn)),
     };
+  }
+
+  /** The connection a per-person fn's run acts as, credentials revealed; nothing for any other fn. */
+  async #connection(fn: FnRecord, turn: Turn): Promise<Pick<RunRequest, 'connection'>> {
+    const gate = (await this.#deps.access.scope(turn.user.id)).connection(fn);
+    return gate?.state === 'ready' ? { connection: await this.#deps.connections.forRun(gate.connection) } : {};
   }
 
   /** Who and when a run is for. */

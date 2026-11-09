@@ -2,6 +2,7 @@
  * The chat modes and contextors in the agent loop: the execution rig's real loop, runs and scripted model, with the
  * real planner over the rig's store and catalog.
  */
+import { openScope } from '../access/index.ts';
 import type { Message, Request } from '@aeye/core';
 import { agent, fn, g, hub } from '@harness/sdk';
 import { ActorId, SystemName, type LlmMessage, type LlmRequest, type RunId, type RunSettled, type Turn } from '@harness/core';
@@ -50,7 +51,7 @@ async function started(options: Parameters<typeof executionRig>[0] = {}) {
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store),
-    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined),
+    contextor: () => contextor, views: () => new CatalogFnViews(r.catalog), mcpScope: () => Promise.resolve(undefined), access: (actor) => Promise.resolve(openScope(actor)),
   });
   const fs = r.connect('fs');
   fs.behaviour.run = (request) => Promise.resolve({ status: 'done', result: request.fn === 'read' ? 'line 1\nline 2\nline 3' : 'no match' });

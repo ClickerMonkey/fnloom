@@ -6,6 +6,8 @@
  */
 import type { SessionEvent, SessionId } from '@harness/core';
 import type { Hub } from '../api/client.ts';
+import { connectionsApi } from '../api/connections.ts';
+import { pickerApi } from '../api/pickers.ts';
 
 /** The cache tag of the session list, cleared by anything that changes a session. */
 export const SESSIONS_TAG = 'sessions';
@@ -65,6 +67,8 @@ export function chatApi(hub: Hub) {
     state: hub.caller('state', { dedupe: true }),
     /** What the session's contextor would put in the prompt for a draft, without calling the model; only the latest counts. */
     previewSelection: hub.caller('previewSelection', { lastOnly: true }),
+    ...pickerApi(hub),
+    ...connectionsApi(hub),
   };
 }
 

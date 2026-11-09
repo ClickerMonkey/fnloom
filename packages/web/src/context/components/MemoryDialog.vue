@@ -8,28 +8,26 @@
  */
 import { Audience, QualifiedName, type ContextRecord } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import { UiBanner, UiButton, UiDialog, UiIcon, UiInput, UiSegmented, UiSelect, UiTextarea, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import { UiBanner, UiButton, UiChipInput, UiDialog, UiIcon, UiInput, UiSegmented, UiSelect, UiTextarea, onePicked, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import {
   AUDIENCE_WORDS, changedOptions, memoryDraft, memoryRequest, optionsRequest, PLAIN_OPTIONS, type BrowserScope, type ContextOptionsDraft, type MemoryDraft,
 } from '../logic/context.ts';
-import NameListInput from './NameListInput.vue';
+import HubPicker from '../../components/pickers/HubPicker.vue';
 
 const props = withDefaults(defineProps<{
   /** The memory being changed; a new one when absent. */
   memory?: Pick<ContextRecord, 'origin' | 'decl'> | undefined;
   busy?: boolean;
   problem?: string;
-  /** Fn names matching what is typed, for the fn fields. */
-  suggestFns?: ((prefix: string) => Promise<readonly string[]>) | undefined;
-}>(), { memory: undefined, busy: false, problem: '', suggestFns: undefined });
+}>(), { memory: undefined, busy: false, problem: '' });
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ save: [draft: MemoryDraft] }>();
 
 const SCOPES: readonly SegmentOption<BrowserScope>[] = [{ value: 'user', label: 'Only me', icon: 'user' }, { value: 'everyone', label: 'Everyone', icon: 'users' }];
 const AUDIENCES: readonly SelectOption<Audience>[] = Audience.options.map((value) => ({ value, label: AUDIENCE_WORDS[value] }));
-const readFn = (text: string): QualifiedName | undefined => { const parsed = QualifiedName.safeParse(text); return parsed.success ? parsed.data : undefined; };
+/** The picked fns as full names (a picker only offers full names; anything else is left out). */
+const fnNames = (values: readonly string[]): QualifiedName[] => values.flatMap((value) => { const parsed = QualifiedName.safeParse(value); return parsed.success ? [parsed.data] : []; });
 const readTag = (text: string): string | undefined => (text === '' ? undefined : text);
-const FN_REFUSAL = 'A fn’s full name, like fs/read.';
 
 const title = ref('');
 const text = ref('');
@@ -85,21 +83,21 @@ function save(): void {
         <span class="dim">{{ changed === 0 ? 'fns, command, weight and more' : `${changed} changed` }}</span>
       </button>
       <div v-if="advanced" class="advanced" data-testid="memory-options">
-        <NameListInput
-          :model-value="options.fns" label="Tied fns" hint="Offered whenever this is loaded." placeholder="fs/read" :read="readFn" :refusal="FN_REFUSAL" :suggest="suggestFns"
-          testid="memory-fns" @update:model-value="set('fns', $event)"
+        <HubPicker
+          :model-value="options.fns" source="fn" label="Tied fns" hint="Offered whenever this is loaded." placeholder="Search fns" testid="memory-fns"
+          @update:model-value="set('fns', fnNames($event))"
         />
-        <NameListInput
-          :model-value="options.suggestFns" label="Suggested fns" hint="Suggested alongside it." placeholder="fs/search" :read="readFn" :refusal="FN_REFUSAL" :suggest="suggestFns"
-          @update:model-value="set('suggestFns', $event)"
+        <HubPicker :model-value="options.suggestFns" source="fn" label="Suggested fns" hint="Suggested alongside it." placeholder="Search fns" @update:model-value="set('suggestFns', fnNames($event))" />
+        <HubPicker
+          :model-value="options.alwaysFor" source="fn" label="Always for" hint="Agent fns whose prompts always carry it." placeholder="Search agent fns"
+          @update:model-value="set('alwaysFor', fnNames($event))"
         />
-        <NameListInput
-          :model-value="options.alwaysFor" label="Always for" hint="Agent fns whose prompts always carry it." placeholder="hub/chat" :read="readFn" :refusal="FN_REFUSAL" :suggest="suggestFns"
-          @update:model-value="set('alwaysFor', $event)"
-        />
-        <NameListInput :model-value="options.tags" label="Tags" placeholder="style" :read="readTag" @update:model-value="set('tags', $event)" />
+        <UiChipInput :model-value="options.tags" label="Tags" placeholder="style" :read="readTag" @update:model-value="set('tags', $event)" />
         <UiInput :model-value="options.command" label="Command" placeholder="/tabs" hint="Loads it from the composer." data-testid="memory-command" @update:model-value="set('command', $event)" />
-        <UiInput :model-value="options.parent" label="Parent" placeholder="fs/guide" hint="Its place in a hierarchy." @update:model-value="set('parent', $event)" />
+        <HubPicker
+          :model-value="onePicked(options.parent)" source="context" :max="1" label="Parent" placeholder="Search context" hint="Its place in a hierarchy."
+          testid="memory-parent" @update:model-value="set('parent', $event[0] ?? '')"
+        />
         <UiInput v-model="weight" type="number" label="Weight" hint="0 leaves it out, 1 is plain, up to 2." />
         <UiInput :model-value="options.summary" label="Summary" placeholder="The title" hint="The short form agents see first." @update:model-value="set('summary', $event)" />
         <UiSelect :model-value="options.visible" :options="AUDIENCES" label="Listed for" @update:model-value="set('visible', $event)" />

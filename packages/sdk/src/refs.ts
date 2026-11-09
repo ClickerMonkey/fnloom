@@ -104,6 +104,12 @@ export interface EmbedderRef<N extends QualifiedName> {
   readonly dimensions: number;
 }
 
+/** A handle to a model provider a system brings; the hub registers it under this name. */
+export interface ProviderRef<N extends QualifiedName> {
+  readonly ref: 'provider';
+  readonly name: N;
+}
+
 /** A handle to a sectioner. */
 export interface SectionerRef<N extends QualifiedName> {
   readonly ref: 'sectioner';

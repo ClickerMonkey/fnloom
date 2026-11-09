@@ -27,7 +27,7 @@ watch(filter, (value, before) => { if (JSON.stringify(value) !== JSON.stringify(
 <template>
   <AppPage title="Fns" description="Every fn of every system, and how its runs have gone.">
     <div class="fns-page">
-      <ListSearch v-model="search" list="fns" label="fns" :count="fns.items.value.length" :more="fns.hasMore.value" />
+      <ListSearch v-model="search" list="fns" label="fns" :count="fns.items.value.length" :more="fns.hasMore.value" :partial="fns.partial.value" />
       <LoadState
         :loading="fns.loading.value" :problem="fns.problem.value" :ready="fns.loaded.value" :empty="fns.items.value.length === 0" :lines="8"
         empty-icon="fn" :empty-title="narrowed ? 'No fns match' : 'No fns yet'" :empty-body="narrowed ? 'Try a wider filter.' : 'Fns show here as systems pair.'" @retry="fns.load()"

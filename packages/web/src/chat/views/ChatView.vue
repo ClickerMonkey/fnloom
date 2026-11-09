@@ -134,7 +134,7 @@ async function remove(): Promise<void> {
 /** The list's state and moves, the same wherever it is drawn (its column, the drawer, the page on a phone). */
 const listBind = computed(() => ({
   items: sessions.listed(url.session.value), search: sessions.search.value, archived: sessions.archived.value, loading: sessions.loading.value, loaded: sessions.loaded.value,
-  problem: sessions.problem.value, hasMore: sessions.hasMore.value, loadingMore: sessions.loadingMore.value, creating: sessions.creating.value, now: now.value,
+  problem: sessions.problem.value, hasMore: sessions.hasMore.value, partial: sessions.partial.value, loadingMore: sessions.loadingMore.value, creating: sessions.creating.value, now: now.value,
 }));
 const listOn = {
   open, create, search, archived: showArchived, rename, archive, remove: askRemove, more: () => { void sessions.loadMore(); }, retry: () => { void sessions.load(); },
@@ -278,6 +278,7 @@ onBeforeUnmount(() => {
     <main class="main">
       <ThreadPane
         v-if="url.session.value" ref="pane" :key="url.session.value" :session="url.session.value" :compact="compact" :narrow="roomy && panelOpen" :nav="shellCompact" :flash="url.message.value"
+        :debug="url.debug.value" @debug="url.setDebug($event)"
         @run="url.open('run', $event)" @llm="url.open('llm', $event)" @details="url.open('details', $event)" @tree="url.openTree($event)"
         @resource="url.open('resource', $event)" @panel="url.open('panel', $event)" @sessions="listOpen = true" @nav="layout.drawerOpen.value = true" @new-chat="create"
         @message="showMessage" @shortcuts="shortcutsOpen = true" @remove="url.session.value && askRemove(url.session.value)"

@@ -102,7 +102,7 @@ export interface DecidedSuggestions {
  * (`hubOptions['suggestDecision']`) when it is on. Its picks and refusals, with reasons, become the message's record.
  */
 export interface SuggestionDecider {
-  decide(input: { session: SessionId; text: string }): Promise<DecidedSuggestions>;
+  decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions>;
   /** The decision model setting (off by default). */
   setting(): Promise<SuggestDecisionView>;
   set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView>;

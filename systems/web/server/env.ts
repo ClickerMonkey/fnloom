@@ -45,6 +45,16 @@ export const webEnv = env({
   WEB_CHROME: z.string().min(1).optional(),
   /** The most options one `@` search for pages shows. */
   WEB_MENTION_LIMIT: z.number().int().min(1).default(10),
+  /** The most pages one crawl keeps, whatever the caller asks. */
+  WEB_CRAWL_MAX_PAGES: z.number().int().min(1).default(100),
+  /** The most links one crawl looks at (kept or left out) before it stops queueing more. */
+  WEB_CRAWL_MAX_LINKS: z.number().int().min(1).default(2_000),
+  /** Left-out pages a crawl's result lists; the rest are counted. */
+  WEB_CRAWL_SKIPPED_SHOWN: z.number().int().min(0).default(30),
+  /** How long a page a crawl fetched waits for the hub to fetch it back (through `web/fetch_raw`) before it is fetched again. */
+  WEB_CRAWL_CACHE_TTL: z.number().int().min(1_000).default(120_000),
+  /** The robots.txt user-agent token crawls are matched by (groups for `*` apply too). */
+  WEB_ROBOTS_AGENT: z.string().min(1).default('harness-web'),
   /** Recently read pages the `@` mention offers. */
   WEB_RECENT_PAGES: z.number().int().min(0).default(50),
 }).add(systemState('web'));

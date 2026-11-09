@@ -9,6 +9,7 @@
  * rather than saving another, and the list leaves blanks out unless one is open, so trying the button leaves nothing
  * behind.
  */
+import { partialOf } from '../../state/loaded.ts';
 import { SessionSummary, type Filter, type ListQuery, type QualifiedName, type Session, type SessionId, type UserEvent } from '@harness/core';
 import { hubListQuery, readListQuery, withPage } from '../../state/query.ts';
 import { computed, ref, shallowRef } from 'vue';
@@ -54,6 +55,8 @@ export class SessionListStore {
   readonly loaded = ref(false);
   readonly problem = ref('');
   readonly creating = ref(false);
+  /** The hub stopped at its scan bound for this search: more chats may match. */
+  readonly partial = ref(false);
   readonly #hasMore = ref(false);
   readonly hasMore = computed(() => this.#hasMore.value);
 
@@ -88,6 +91,7 @@ export class SessionListStore {
       this.items.value = page.items;
       this.#cursor = page.cursor;
       this.#hasMore.value = page.cursor !== undefined;
+      this.partial.value = partialOf(page);
       this.loaded.value = true;
       this.loading.value = false;
     } catch (error) {

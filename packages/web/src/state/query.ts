@@ -84,7 +84,3 @@ export function valuesOf(caller: ListValuesCaller, list: ListName): (field: stri
   return async (field, prefix) => caller.call({ list, field, limit: 8, ...(prefix === '' ? {} : { prefix }) });
 }
 
-/** A list field's values in the data matching what is typed, as text (a name picker's suggestions). */
-export function namesOf(caller: ListValuesCaller, list: ListName, field: string): (prefix: string) => Promise<readonly string[]> {
-  return async (prefix) => (await caller.call({ list, field, limit: 8, prefix })).map((option) => String(option.value));
-}

@@ -10,7 +10,8 @@
  * it weren't there, and a listing leaves them out. Services are read when a fn runs, never while registering.
  */
 import { reject } from '@ayepi/core';
-import { ResourceOutlineArgs, ResourceSendArgs, type ActorId, type QualifiedName } from '@harness/core';
+import { ResourceOutlineArgs, ResourceSendArgs, splitName, type ActorId, type QualifiedName } from '@harness/core';
+import type { AccessScope } from '../access/index.ts';
 import { hub, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, toolArgsOf } from '@harness/sdk';
 import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 import type { LlmGateway } from '../execution/index.ts';
@@ -28,6 +29,8 @@ export interface ResourceFnDeps {
   readonly llm: () => Pick<LlmGateway, 'models'>;
   /** What the hub MCP a run's caller acts as exposes; none when the caller is no MCP's actor. */
   readonly mcpScope: (caller: ActorId) => Promise<ReachScope | undefined>;
+  /** What the run's person may see (resource roots and context shared with them). */
+  readonly access: (actor: ActorId) => Promise<AccessScope>;
 }
 
 /** A model that takes only text, for a send made outside any LLM call. */
@@ -51,8 +54,8 @@ interface Reach {
 
 /** What the caller of a run may reach. */
 async function reachOf(deps: ResourceFnDeps, ctx: HubFnCtx): Promise<Reach> {
-  const scope = await deps.mcpScope(ctx.request.run.caller);
-  const resource = (uri: string): boolean => scope === undefined || scope.allowsResource(uri);
+  const [scope, access] = await Promise.all([deps.mcpScope(ctx.request.run.caller), deps.access(ctx.request.run.user.id)]);
+  const resource = (uri: string): boolean => (scope === undefined || scope.allowsResource(uri)) && access.seesUri(uri);
   return {
     resource,
     needResource: (uri) => {
@@ -60,7 +63,8 @@ async function reachOf(deps: ResourceFnDeps, ctx: HubFnCtx): Promise<Reach> {
       return uri;
     },
     needContext: (name) => {
-      if (scope !== undefined && !scope.context.has(name)) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
+      const seen = access.seesSystem(splitName(name).system) && access.sees({ kind: 'context', context: name });
+      if ((scope !== undefined && !scope.context.has(name)) || !seen) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
       return name;
     },
   };

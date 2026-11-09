@@ -14,6 +14,8 @@ import type { Catalog } from '../catalog/index.ts';
 import type { ApproverDirectory, SessionService, TurnService } from '../chat/index.ts';
 import type { ConfigService, InstanceRouter, LinkService } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
+import type { AccessService } from '../access/index.ts';
+import type { ConnectionService } from '../connections/index.ts';
 import type { ExecutionEnv } from './env.ts';
 import type { FnMetricsService, ModelCallLog } from '../metrics/index.ts';
 import type { ModelRoles } from '../models/index.ts';
@@ -56,6 +58,10 @@ export interface ExecutionDeps extends ExecutionBase {
   readonly metrics: Pick<FnMetricsService, 'settled'>;
   /** The model roles, for the `chat` role's model when an agent names none. */
   readonly roles: Pick<ModelRoles, 'resolve'>;
+  /** What the person a run is for may see and use (a fn they can't is refused as missing). */
+  readonly access: Pick<AccessService, 'scope'>;
+  /** The credentials a per-person fn's run acts with. */
+  readonly connections: Pick<ConnectionService, 'forRun'>;
 }
 
 /** One run to execute: the stored run, its fn and the request its executor gets. */

@@ -7,7 +7,7 @@
  */
 import type { RenderMode as LibraryRenderMode } from '@aeye/resources';
 import { RawPage as CoreRawPage } from '@harness/core';
-import { type Infer, type ValueOf, context, fn, g, ginAs, hub, mention, system, type } from '@harness/sdk';
+import { type Infer, type ValueOf, context, fn, g, ginAs, hub, linear, mention, system, type } from '@harness/sdk';
 
 const renderModes = ['auto', 'always', 'never'] as const satisfies readonly LibraryRenderMode[];
 /**
@@ -26,6 +26,37 @@ export const SEARCH_TOPICS = ['general', 'news'] as const;
 export const SEARCH_LIMIT_MAX = 20;
 /** Most characters one read returns (the hub's read limit). */
 export const READ_CHARS_MAX = 200_000;
+
+/** Most link levels one crawl follows from its start page. */
+export const CRAWL_DEPTH_MAX = 3;
+/** Pages one crawl reads when the caller asks for no number. */
+export const CRAWL_PAGES_DEFAULT = 25;
+
+/** Why a crawl left a page out. */
+export const CRAWL_SKIP_REASONS = ['robots', 'excluded', 'not-included', 'other-site', 'not-a-page', 'failed', 'limit'] as const;
+
+/** A page a crawl kept, as a hub resource. */
+export const CrawledPage = g.obj({ url: g.text(), uri: g.text(), title: g.text(), depth: g.num({ min: 0, whole: true }) });
+
+/** A page a crawl left out, and why. */
+export const SkippedPage = g.obj({
+  url: g.text(),
+  reason: g.enum(CRAWL_SKIP_REASONS),
+  /** What went wrong, for `failed`. */
+  detail: g.optional(g.text()),
+});
+
+/** What `web/crawl` gives: the root every page is kept under, the pages, and what was left out. */
+export const CrawlResult = g.obj({
+  /** The resource folder this crawl's pages are under: browse, search or make context from it. */
+  root: g.text(),
+  /** How many pages were kept. */
+  count: g.num({ min: 0, whole: true }),
+  pages: g.list(CrawledPage),
+  /** Pages left out, up to the system's list limit; `moreSkipped` counts the rest. */
+  skipped: g.list(SkippedPage),
+  moreSkipped: g.num({ min: 0, whole: true }),
+});
 
 /** A web page: where it is and what it is called. */
 export const Page = type({
@@ -130,6 +161,29 @@ export const web = system('web', { description: 'Search the web and read web pag
         },
         tags: ['read', 'web'],
       }),
+      crawl: fn({
+        description: 'Crawl a site from a start page: follow its links a few levels deep and keep every page as a hub resource under one folder, so the pages can be searched and made into context.',
+        instructions: 'Use it when a question needs a whole site or section (docs, a blog), not one page. Keep `maxPages` small and narrow with `include` (`/docs/**`). Then search the pages under `root`, or read them with hub/resource_read. The site\'s robots.txt is respected.',
+        args: g.obj({
+          url: url(),
+          depth: g.field(g.optional(g.num({ min: 0, max: CRAWL_DEPTH_MAX, whole: true })), { docs: 'How many links away from the start page to go: 0 is the start page only. Default 1.' }),
+          sameSite: g.field(g.optional(g.bool()), { docs: 'Only follow links on the start page\'s site (default true).' }),
+          maxPages: g.field(g.optional(g.num({ min: 1, whole: true })), { docs: `The most pages to keep (default ${CRAWL_PAGES_DEFAULT}; the system caps it).` }),
+          include: g.field(g.optional(g.list(g.text({ minLength: 1 }))), { docs: 'Only follow links whose path matches one of these globs (`/docs/**`, `*.html`); a glob with `://` matches the whole URL.' }),
+          exclude: g.field(g.optional(g.list(g.text({ minLength: 1 }))), { docs: 'Never follow links matching one of these globs.' }),
+          render: g.field(g.optional(RenderMode), { docs: 'Run pages in the headless browser first: `auto` (default), `always` or `never`.' }),
+        }),
+        returns: CrawlResult,
+        progress: linear,
+        deps: { importResource: hub.fns.resource_import },
+        status: {
+          active: { one: 'Crawling {args.url}…', many: 'Crawling {n} sites…' },
+          retry: { one: 'Crawling {args.url} again…', many: 'Retrying {n} crawls…' },
+          done: { one: 'Crawled {output.count} pages from {args.url}', many: 'Crawled {n} sites' },
+          failed: { one: 'Crawling {args.url} failed', many: '{n} crawls failed' },
+        },
+        tags: ['read', 'web'],
+      }),
       fetch_raw: fn({
         description: 'Fetch a URL\'s raw content for the hub: its bytes by ref, type, final URL and status. Script-built pages are rendered first.',
         args: g.obj({ url: url(), render: g.optional(RenderMode) }),
@@ -152,8 +206,9 @@ export const web = system('web', { description: 'Search the web and read web pag
           'Use web/search to find pages, then web/read the one or two that answer best; snippets alone are often out of context.',
           'Answer from what the pages say, and cite each URL you used.',
           'A page you read is kept as a hub resource: read more of it with hub/resource_read and its uri instead of reading the URL again.',
+          'For a whole site or section, web/crawl keeps its pages under one folder; search them rather than reading each one.',
         ].join(' '),
-        fns: [fns.search, fns.read],
+        fns: [fns.search, fns.read, fns.crawl],
         tags: ['web'],
       }),
     },
@@ -172,6 +227,12 @@ export type SearchHitValue = Infer<typeof SearchHit>;
 export type SearchResultsValue = Infer<typeof SearchResults>;
 /** What `web/read` gives. */
 export type ReadResultValue = Infer<typeof ReadResult>;
+/** What `web/crawl` gives. */
+export type CrawlResultValue = Infer<typeof CrawlResult>;
+/** A page a crawl left out. */
+export type SkippedPageValue = Infer<typeof SkippedPage>;
+/** Why a crawl left a page out. */
+export type CrawlSkipReason = (typeof CRAWL_SKIP_REASONS)[number];
 /** What `web/fetch_raw` gives. */
 export type RawPageValue = Infer<typeof RawPage>;
 /** A web page. */

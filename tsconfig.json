@@ -29,6 +29,12 @@
       "path": "systems/template"
     },
     {
+      "path": "systems/google-calendar"
+    },
+    {
+      "path": "systems/input"
+    },
+    {
       "path": "scripts"
     },
     {

@@ -24,19 +24,20 @@ _Every code sample is a compiled file of the repository, so it is correct for th
 13. [Hooks](#13-hooks)
 14. [Mentions](#14-mentions)
 15. [Actions](#15-actions)
-16. [Resources, embedders and sectioners](#16-resources-embedders-and-sectioners)
-17. [The hub contract](#17-the-hub-contract)
-18. [The server: serve and the implementation](#18-the-server-serve-and-the-implementation)
-19. [The run context and services](#19-the-run-context-and-services)
-20. [Calling other fns](#20-calling-other-fns)
-21. [Config, events, lifecycle and data](#21-config-events-lifecycle-and-data)
-22. [The client: renderers, inputs and resource views](#22-the-client-renderers-inputs-and-resource-views)
-23. [Packaging: system.json, build, pack, install](#23-packaging-systemjson-build-pack-install)
-24. [Testing](#24-testing)
-25. [Common mistakes](#25-common-mistakes)
-26. [Worked examples](#26-worked-examples)
-27. [Runtime internals](#27-runtime-internals)
-28. [Core types](#28-core-types)
+16. [Model providers](#16-model-providers)
+17. [Resources, embedders and sectioners](#17-resources-embedders-and-sectioners)
+18. [The hub contract](#18-the-hub-contract)
+19. [The server: serve and the implementation](#19-the-server-serve-and-the-implementation)
+20. [The run context and services](#20-the-run-context-and-services)
+21. [Calling other fns](#21-calling-other-fns)
+22. [Config, events, lifecycle and data](#22-config-events-lifecycle-and-data)
+23. [The client: renderers, inputs and resource views](#23-the-client-renderers-inputs-and-resource-views)
+24. [Packaging: system.json, build, pack, install](#24-packaging-systemjson-build-pack-install)
+25. [Testing](#25-testing)
+26. [Common mistakes](#26-common-mistakes)
+27. [Worked examples](#27-worked-examples)
+28. [Runtime internals](#28-runtime-internals)
+29. [Core types](#29-core-types)
 
 ## 1. Start here
 
@@ -639,6 +640,7 @@ interface SystemRefs<N extends string, C extends ContractShape> {
   readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
+  readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
 }
 ```
 
@@ -663,6 +665,8 @@ interface ContractShape {
   embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
   actions: Record<string, ActionDef<unknown, unknown, object>>;
+  /** Model providers it brings (`provider()`), served by its implementation. */
+  providers: Record<string, ProviderDef>;
 }
 ```
 
@@ -683,7 +687,7 @@ const · `import { CONTRACT_SECTIONS } from '@harness/sdk'`
 The contract sections, in the order the manifest lists them.
 
 ```ts
-const CONTRACT_SECTIONS: readonly ["types", "settings", "attachments", "kinds", "fns", "context", "hooks", "mentions", "embedders", "sectioners", "actions"];
+const CONTRACT_SECTIONS: readonly ["types", "settings", "attachments", "kinds", "fns", "context", "hooks", "mentions", "embedders", "sectioners", "actions", "providers"];
 ```
 
 #### `EmptyContract`
@@ -695,7 +699,7 @@ A contract with nothing in it yet. Its config is the empty object.
 ```ts
 interface EmptyContract {
   config: GinType<{}>;
-  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {};
+  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {}; providers: {};
 }
 ```
 
@@ -1499,6 +1503,23 @@ add: {
 Fns can also be added and removed while the system runs: `running.add(name, fn({ … }), impl)` returns the new fn's
 typed ref, and `running.remove(ref)` removes it (**The server**).
 
+**Validation hooks.** `validate: { input, output }` adds checks the hub asks the system for around a run. `input(ctx,
+args, state)` runs before the run starts: `{ ok: false, reason }` means the fn can't run now, and the model reads "Not
+available now: reason" (it isn't an error, and the fn isn't run). `output(ctx, args, result, state)` runs after it is
+done: `{ ok: false, action: 'retry', reason }` asks the model to try again (a few times a turn), `action: 'stop'` fails
+the run with the reason shown to the person. `ctx` is the system context with the run and, for output, the attempt;
+`state` is the session state fields the fn declares, as they are now.
+
+```ts
+buy: fn({
+  description: 'Buy an item.', args: g.obj({ count: g.num({ whole: true }) }), returns: g.obj({ total: g.num() }),
+  validate: {
+    input: (_ctx, args) => (args.count > 0 ? { ok: true } : { ok: false, reason: 'Buy at least one.' }),
+    output: (ctx, _args, result) => (result.total <= 100 ? { ok: true } : { ok: false, action: ctx.attempt > 1 ? 'stop' : 'retry', reason: 'Too expensive.' }),
+  },
+}),
+```
+
 ### Reference: fns
 
 #### `fn`
@@ -1555,6 +1576,11 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   tags?: string[];
   /** Example calls (args of its own args type), shown to agents on its card and when they get its args wrong. */
   examples?: FnExampleOf<NoInfer<A>>[];
+  /**
+   * Checks the hub runs before a run starts (`input`) and after it is done (`output`):
+   * `{ input: (ctx, args, state) => args.path === '' ? { ok: false, reason: 'No file is open.' } : { ok: true } }`.
+   */
+  validate?: FnValidators<NoInfer<A>, NoInfer<R>, NoInfer<St>>;
 }
 ```
 
@@ -1605,6 +1631,8 @@ interface FnDef<T extends FnTypes> {
   readonly tags: readonly string[];
   /** Example calls, checked against its args type. */
   readonly examples: readonly FnExampleOf<T['args']>[];
+  /** Its validation hooks, run in its system before and after a run. */
+  readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -1708,6 +1736,41 @@ type AnyFnRef = FnRef<QualifiedName, unknown, unknown, Handlers>;
 ```
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
+
+#### `FnValidators`
+
+interface · `import { FnValidators } from '@harness/sdk'`
+
+A fn's validation hooks, run in its system when the hub asks (`validate` on the system link). `input` runs before
+a run starts: a refusal tells the caller the fn can't run now and why (it is not an error). `output` runs after a
+run is done: `retry` gives the model the reason and asks it to try again; `stop` fails the run with the reason
+shown to the person. Both get the session state fields the fn declares, as they are now.
+
+```ts
+interface FnValidators<A, R, St extends object> {
+  input?(ctx: ValidateCtx, args: A, state: Readonly<Partial<St>>): InputVerdict | Promise<InputVerdict>;
+  output?(ctx: ValidateCtx, args: A, result: R, state: Readonly<Partial<St>>): OutputVerdict | Promise<OutputVerdict>;
+}
+```
+
+Refers to: [`InputVerdict`](#core-inputverdict), [`OutputVerdict`](#core-outputverdict).
+
+#### `ValidateCtx`
+
+interface · `import { ValidateCtx } from '@harness/sdk'`
+
+What a fn's validation hooks get (`fn({ validate })`): the system's context, the run being checked (who it is for,
+its session and time), and for an output check which attempt this is (1 for the first result).
+
+```ts
+interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+  readonly run: RunInfo;
+  /** The attempt whose result is checked; 1 for an input check. */
+  readonly attempt: number;
+}
+```
+
+Refers to: [`RunInfo`](#core-runinfo).
 
 #### `DEFAULT_STATUS`
 
@@ -3580,7 +3643,100 @@ interface ActionRef<N extends QualifiedName, I, R> {
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
-## 16. Resources, embedders and sectioners
+## 16. Model providers
+
+A system can bring **model providers**: models whose calls run in the system (a GPU box, a private API, a gateway the
+hub can't reach). Declare each in the contract with `provider({ description, models })`: every model's id, abilities
+(aeye capability names such as `chat`, `tools`, `vision`, `embedding`), context window, prices in USD per million
+tokens, and whether it reads a prompt cache. The implementation gives a function that makes the aeye `Provider` for the
+current config (made again when the config changes).
+
+```ts
+// shared/
+.with({ providers: { local: provider({ description: 'Models on our GPU box.', models: [
+  { id: 'small', capabilities: ['chat', 'tools', 'streaming'], contextWindow: 32_768, pricing: { input: 0, output: 0 }, caching: false },
+] }) } })
+// server/
+serve(contract, { providers: { local: (ctx) => new OpenAIProvider({ apiKey: ctx.config.key, baseURL: ctx.config.url }) } }, options);
+```
+
+While the system is connected the hub registers each provider as `<system>/<provider>` (here `gpu/local`), so its models
+can be picked like any other; chat calls stream over the link and embeddings are answered by the provider's `embed`. A
+call for a model the contract doesn't declare is refused. The hub prices and records every call from the declared
+prices, as it does for its own providers.
+
+### Reference: model providers
+
+#### `provider`
+
+function · `import { provider } from '@harness/sdk'`
+
+Declare a provider: `provider({ description: 'Models on our GPU box', models: [{ id: 'small', capabilities: ['chat'],
+contextWindow: 8192, pricing: { input: 0, output: 0 }, caching: false }] })`. Each model is checked now, so a wrong
+one fails as the contract is built.
+
+```ts
+function provider(def: ProviderInput): ProviderDef;
+```
+
+#### `ProviderInput`
+
+interface · `import { ProviderInput } from '@harness/sdk'`
+
+What `provider()` takes.
+
+```ts
+interface ProviderInput {
+  description: string;
+  /** Every model it serves. A call for any other model is refused. */
+  models: ProviderModelDecl[];
+}
+```
+
+Refers to: [`ProviderModelDecl`](#core-providermodeldecl).
+
+#### `ProviderDef`
+
+interface · `import { ProviderDef } from '@harness/sdk'`
+
+A provider as the contract declares it.
+
+```ts
+interface ProviderDef {
+  readonly description: string;
+  readonly models: readonly ProviderModelDecl[];
+}
+```
+
+Refers to: [`ProviderModelDecl`](#core-providermodeldecl).
+
+#### `ProviderImpl`
+
+type · `import { ProviderImpl } from '@harness/sdk'`
+
+The implementation of a declared provider: make the aeye `Provider` for the current config. It is made again when
+the config changes, and kept otherwise.
+
+```ts
+type ProviderImpl<Cfg = unknown> = (ctx: SystemCtx<Cfg>) => Provider;
+```
+
+#### `ProviderRef`
+
+interface · `import { ProviderRef } from '@harness/sdk'`
+
+A handle to a model provider a system brings; the hub registers it under this name.
+
+```ts
+interface ProviderRef<N extends QualifiedName> {
+  readonly ref: 'provider';
+  readonly name: N;
+}
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
+## 17. Resources, embedders and sectioners
 
 ### Resources
 
@@ -3782,7 +3938,7 @@ function sectionKeys(paths: readonly (readonly string[])[]): SectionKey[];
 
 Refers to: [`SectionKey`](#core-sectionkey).
 
-## 17. The hub contract
+## 18. The hub contract
 
 The hub is a system too, named `hub`, declared with the same SDK as the contract `hub` (`import { hub } from
 '@harness/sdk'`). Systems use it like any other contract: depend on its fns (`deps: { ask: hub.fns.ask_user }`), give
@@ -4153,7 +4309,8 @@ This is the hub contract as the SDK declares it now:
     input: or<obj{
       url: text,
       render?: enum<text>{auto, always, never},
-      name?: text
+      name?: text,
+      folder?: text{minLength=1}
     }, obj{
       content: obj{hash: text, size: num{whole=true, min=0}, mime: text},
       name: text{minLength=1},
@@ -4214,20 +4371,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/configure_provider`: Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted. Tags: `admin`.
 
   ```text
-  (obj{
-    input: or<obj{
-      provider: literal<text>{value="openai"},
-      apiKey: text{minLength=1},
-      baseURL?: text
-    }, obj{
-      provider: literal<text>{value="openrouter"},
-      apiKey: text{minLength=1}
-    }, obj{
-      provider: literal<text>{value="ollama"},
-      baseURL?: text,
-      contextWindow?: num{whole=true, min=256}
-    }>
-  }) => obj{models: num{whole=true}}
+  (obj{ input … }) => obj{models: num{whole=true}}
   ```
 - `hub/set_model_category`: Add a model category (a named, ordered list of models), or change the one with this id. Tags: `admin`.
 
@@ -4730,7 +4874,7 @@ A failure, as a gin type (the same shape as core's `FnError`).
 const FnErrorType: ObjType<{ class: "retry" | "caller" | "fatal"; message: string; code?: string | undefined; data?: z.core.util.JSONType | undefined; }>;
 ```
 
-## 18. The server: serve and the implementation
+## 19. The server: serve and the implementation
 
 `serve(contract, impl, options, host?)` (from `@harness/sdk/server`) connects to the hub, pairs the first time, sends the
 manifest (or nothing when the hub already has this version of it), and serves the implementation over the link. It
@@ -4973,6 +5117,7 @@ Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] ext
 Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
 Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
 Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
+Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
 {
   /** Resources this system serves. */
   readonly resources?: ResourceProvider;
@@ -5311,7 +5456,7 @@ Turns text into a QR code drawn with UTF-8 block characters.
 type QrRenderer = (text: string) => Promise<string>;
 ```
 
-## 19. The run context and services
+## 20. The run context and services
 
 Every implementation gets a context (`ctx`) typed by what it implements.
 
@@ -5843,7 +5988,7 @@ function wireRequest(request: Request): LlmRequest;
 
 Refers to: [`LlmRequest`](#core-llmrequest).
 
-## 20. Calling other fns
+## 21. Calling other fns
 
 A fn calls another fn (of its own system, another system or the hub) by declaring it as a **dep** with its ref, then
 calling it through `ctx.fns`. Nothing else can be called, and the args, result and handlers are typed by the ref:
@@ -6017,7 +6162,7 @@ class HandlerFailed extends Error {
 
 Refers to: [`FnError`](#core-fnerror).
 
-## 21. Config, events, lifecycle and data
+## 22. Config, events, lifecycle and data
 
 ### Config
 
@@ -6146,7 +6291,7 @@ type EventHandlers<Cfg> = {
 
 Refers to: [`SystemEvent`](#core-systemevent).
 
-## 22. The client: renderers, inputs and resource views
+## 23. The client: renderers, inputs and resource views
 
 A system can draw its things in the chat with **Vue 3 components**. `client(contract, renderers)` in `client/index.ts`
 (default export) registers them, and each component's props are typed by the contract, so a component with the wrong
@@ -6710,7 +6855,7 @@ interface InputMount extends Mount<'input'> {
 
 Refers to: [`Json`](#core-json).
 
-## 23. Packaging: system.json, build, pack, install
+## 24. Packaging: system.json, build, pack, install
 
 ### `system.json`
 
@@ -7002,7 +7147,7 @@ interface BuiltEntries {
 }
 ```
 
-## 24. Testing
+## 25. Testing
 
 Test a system end to end without a network with **`FakeHub`** (`@harness/sdk/server/testing`): a hub in memory that
 serves the real link spec, so the system under test runs its real link, handshake, runtime and wire checks. Only the
@@ -7350,7 +7495,7 @@ class MemoryJournal implements OutcomeJournal {
 
 Refers to: [`OutcomeWire`](#core-outcomewire), [`RunId`](#core-runid).
 
-## 25. Common mistakes
+## 26. Common mistakes
 
 ### Mistakes the compiler refuses
 
@@ -7675,7 +7820,7 @@ reason given. If you see one of these errors, the fix is in the reason.
 - **Vague descriptions.** The LLM picks fns by their description and fills args from their types and docs: say exactly
   what the fn does and give examples for args that are easy to get wrong.
 
-## 26. Worked examples
+## 27. Worked examples
 
 ### The notes system, whole
 
@@ -9127,7 +9272,7 @@ export type FileTargetValue = Infer<typeof FileTarget>;
 export type PreviousValue = Infer<typeof Previous>;
 ```
 
-## 27. Runtime internals
+## 28. Runtime internals
 
 The rest of what the SDK exports: the pieces `serve` is built from (the manifest builder, keys, the outcome journal, the
 link transport, the LLM wire, the MCP face, files and process control, client bundles). A system rarely uses these
@@ -9169,6 +9314,26 @@ A fn declaration on the wire. `name` is local (`read`, `Entry.reveal`).
 function fnDecl(name: string, def: AnyFnDef): FnDecl;
 ```
 
+#### `validationOf`
+
+function · `import { validationOf } from '@harness/sdk'`
+
+Which hooks a fn's validators declare, for its manifest (`FnDecl.validate`); `undefined` when it has none.
+
+```ts
+function validationOf(validators: { readonly input?: unknown; readonly output?: unknown; } | undefined): FnValidation | undefined;
+```
+
+#### `providerDecl`
+
+function · `import { providerDecl } from '@harness/sdk'`
+
+A provider declaration on the wire.
+
+```ts
+function providerDecl(name: SystemProviderDecl["name"], def: ProviderDef): SystemProviderDecl;
+```
+
 #### `canonicalJson`
 
 function · `import { canonicalJson } from '@harness/sdk'`
@@ -9207,6 +9372,51 @@ interface ManifestOptions {
   resources?: boolean;
   client?: ClientAssets;
 }
+```
+
+#### `ProviderServer`
+
+class · `import { ProviderServer } from '@harness/sdk/server'`
+
+Serves `providerChat` and `providerEmbed` with the system's own aeye providers.
+
+```ts
+class ProviderServer {
+  constructor(parts: ProviderServerParts);
+  /** Stream a chat call: the provider's chunks, then the usage it reported. */
+  chat(data: ProviderChat, signal: AbortSignal): AsyncGenerator<ProviderChunk>;
+  /** Embed texts with an embedding model of a provider. */
+  embed(data: ProviderEmbed, signal: AbortSignal): Promise<ProviderEmbedResult>;
+}
+```
+
+#### `ProviderServerParts`
+
+interface · `import { ProviderServerParts } from '@harness/sdk/server'`
+
+What the provider server needs.
+
+```ts
+interface ProviderServerParts {
+  /** The contract's provider declarations by local name. */
+  readonly defs: Readonly<Record<string, ProviderDef>>;
+  /** The implementation's provider factories by local name. */
+  readonly impls: Readonly<Record<string, (ctx: SystemCtx) => Provider>>;
+  /** The system context now, on the system's own signal (throws when there is no valid config). */
+  readonly ctx: () => SystemCtx;
+  /** The current config version; a provider is made again when it changes. */
+  readonly configVersion: () => number | undefined;
+}
+```
+
+#### `providerErrorKind`
+
+function · `import { providerErrorKind } from '@harness/sdk/server'`
+
+How an error from a provider reads on the wire: what kind of failure it is, by aeye's error names.
+
+```ts
+function providerErrorKind(error: unknown): Extract<ProviderChunk, { type: "error"; }>["kind"];
 ```
 
 #### `KeyStore`
@@ -9999,7 +10209,7 @@ interface RedirectProblems {
 }
 ```
 
-## 28. Core types
+## 29. Core types
 
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
@@ -10369,6 +10579,21 @@ type InputProblem = {
 };
 ```
 
+#### <a id="core-inputverdict"></a>`InputVerdict`
+
+const, type · declared in `packages/core/src/validation.ts`
+
+The answer of an input check.
+
+```ts
+type InputVerdict = {
+  ok: true;
+} | {
+  ok: false;
+  reason: string;
+};
+```
+
 #### <a id="core-instancename"></a>`InstanceName`
 
 const, type · declared in `packages/core/src/primitives.ts`
@@ -10389,7 +10614,7 @@ problems back to the agent and the chat shows the run softly as "Retried". A rea
 
 ```ts
 type InvalidInput = {
-  source: "schema" | "json" | "validation";
+  source: "result" | "schema" | "unavailable" | "json" | "validation";
   problems: {
     path: string;
     message: string;
@@ -10611,7 +10836,7 @@ type LlmForwardChunk = {
       name: string;
       arguments: string;
     } | undefined;
-    finishReason?: "length" | "refusal" | "stop" | "tool_calls" | "content_filter" | undefined;
+    finishReason?: "length" | "stop" | "refusal" | "tool_calls" | "content_filter" | undefined;
     refusal?: string | undefined;
     usage?: {
       input: number;
@@ -10828,6 +11053,10 @@ type Manifest = {
       args: z.core.util.JSONType;
       note?: string | undefined;
     }[] | undefined;
+    validate?: {
+      input: boolean;
+      output: boolean;
+    } | undefined;
   }[];
   context: {
     name: string;
@@ -10920,6 +11149,40 @@ type Manifest = {
       size: number;
       hash: string;
     }[];
+  } | undefined;
+  providers?: {
+    name: string;
+    description: string;
+    models: {
+      id: string;
+      capabilities: string[];
+      contextWindow: number;
+      pricing: {
+        input: number;
+        output: number;
+        cached?: number | undefined;
+        cacheWrite?: number | undefined;
+      };
+      caching: boolean;
+      name?: string | undefined;
+      maxOutput?: number | undefined;
+    }[];
+  }[] | undefined;
+  connect?: {
+    title: string;
+    description: string;
+    how: {
+      flow: "oauth";
+    } | {
+      flow: "form";
+      form: TypeDef<any>;
+    };
+    settings: TypeDef<any>;
+    fns: Record<string, {
+      on: boolean;
+      ask: boolean;
+    }>;
+    icon?: string | undefined;
   } | undefined;
 };
 ```
@@ -11049,6 +11312,10 @@ type ManifestPatch = {
         args: z.core.util.JSONType;
         note?: string | undefined;
       }[] | undefined;
+      validate?: {
+        input: boolean;
+        output: boolean;
+      } | undefined;
     }[] | undefined;
     context?: {
       name: string;
@@ -11371,7 +11638,7 @@ type OutcomeWire = {
 } | {
   status: "invalid-input";
   invalid: {
-    source: "schema" | "json" | "validation";
+    source: "result" | "schema" | "unavailable" | "json" | "validation";
     problems: {
       path: string;
       message: string;
@@ -11398,6 +11665,22 @@ type OutcomeWire = {
   partial?: z.core.util.JSONType | undefined;
   undo?: z.core.util.JSONType | undefined;
   cost?: number | undefined;
+};
+```
+
+#### <a id="core-outputverdict"></a>`OutputVerdict`
+
+const, type · declared in `packages/core/src/validation.ts`
+
+The answer of an output check: fine, try again (the model gets `reason`), or stop the run (the person sees `reason`).
+
+```ts
+type OutputVerdict = {
+  ok: true;
+} | {
+  ok: false;
+  action: "retry" | "stop";
+  reason: string;
 };
 ```
 
@@ -11449,6 +11732,30 @@ type ProgressDecl = {
 } | {
   type: "steps";
   steps: Record<string, string>;
+};
+```
+
+#### <a id="core-providermodeldecl"></a>`ProviderModelDecl`
+
+const, type · declared in `packages/core/src/system-providers.ts`
+
+One model a system's provider serves. `capabilities` are aeye `ModelCapability` names (`chat`, `tools`, `vision`,
+`json`, `embedding`, ...); the hub keeps only those aeye knows. `caching`: whether the model reads a prompt cache.
+
+```ts
+type ProviderModelDecl = {
+  id: string;
+  capabilities: string[];
+  contextWindow: number;
+  pricing: {
+    input: number;
+    output: number;
+    cached?: number | undefined;
+    cacheWrite?: number | undefined;
+  };
+  caching: boolean;
+  name?: string | undefined;
+  maxOutput?: number | undefined;
 };
 ```
 
@@ -11774,6 +12081,12 @@ type RunRequest = {
       run: string;
     }>;
     reason: "restart" | "resumed";
+  } | undefined;
+  connection?: {
+    id: string;
+    owner: string;
+    credentials: z.core.util.JSONType;
+    settings: z.core.util.JSONType;
   } | undefined;
 };
 ```

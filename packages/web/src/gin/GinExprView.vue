@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
  * A gin expression, viewed or edited by one flag (`readonly`). Viewed, it reads as code (`GinCode`: one line per
- * statement, comments behind info icons, gin's problems marked on their lines). Edited, it is a dense tree of its
- * nodes (each with an editor for its kind), with the code a tab away. Either way the header says what it evaluates to
+ * statement, comments behind info icons, gin's problems marked on their lines). Edited, it reads as the same code with
+ * its names, text and values as inputs in place (`GinExprNode`), and the plain code a tab away. The node under the
+ * pointer or holding focus is the active one, which alone shows its menu button and step tools. Either way the header says what it evaluates to
  * (gin's `typeOf`, with the variables in `scope` typed) and how many problems gin found. Each edit is emitted as the
  * new definition (`update:modelValue`), problems and all, so a half-made expression is never lost.
  */
@@ -12,7 +13,8 @@ import { computed, inject, provide, ref, watch } from 'vue';
 import { UiBanner, UiSegmented, type SegmentOption } from '../ui/index.ts';
 import GinCode from './components/GinCode.vue';
 import GinExprNode from './components/GinExprNode.vue';
-import { ExprEditor, EXPR_TOOLS, sharedExprTools } from './state.ts';
+import { useCodeWidth } from './codeWidth.ts';
+import { ExprEditor, EXPR_ACTIVE, EXPR_TOOLS, EXPR_WIDTH, sharedExprTools } from './state.ts';
 import { GIN_TYPES, LOCAL_TYPES } from './types.ts';
 
 const props = withDefaults(defineProps<{
@@ -28,6 +30,28 @@ const types = inject(GIN_TYPES, LOCAL_TYPES);
 const tools = inject(EXPR_TOOLS, sharedExprTools, true);
 provide(EXPR_TOOLS, tools);
 const editor = new ExprEditor(tools, types);
+const active = ref<string | undefined>(undefined);
+provide(EXPR_ACTIVE, active);
+const code = ref<HTMLElement | null>(null);
+const probe = ref<HTMLElement | null>(null);
+// a few characters more than the code view keeps free, for the icons at the ends of lines
+provide(EXPR_WIDTH, useCodeWidth(code, probe, 6));
+
+/** Make the innermost node around an event's target the active one. */
+function activate(event: Event): void {
+  const node = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-testid="gin-expr-node"]') : null;
+  if (node !== null) { active.value = node.dataset['path'] ?? ''; }
+}
+function hover(event: PointerEvent): void {
+  if (event.pointerType === 'mouse') { activate(event); }
+}
+/**
+ * The pointer leaving the code ends the active node while nothing holds focus. Focus elsewhere keeps it: it may be in
+ * the node's own menu or comment box, which open outside the code.
+ */
+function leave(): void {
+  if (document.activeElement === null || document.activeElement === document.body) { active.value = undefined; }
+}
 
 type Show = 'tree' | 'code';
 const SHOWS: readonly SegmentOption<Show>[] = [{ value: 'tree', label: 'Edit' }, { value: 'code', label: 'Code' }];
@@ -55,7 +79,10 @@ function update(def: ExprDef): void {
     <UiBanner v-if="editor.unreadable.value !== ''" tone="danger">{{ editor.unreadable.value }}</UiBanner>
     <p v-if="!modelValue" class="dim">No expression.</p>
     <GinCode v-else-if="readonly || show === 'code'" :def="modelValue" :problems="editor.problems.value" />
-    <GinExprNode v-else :def="modelValue" :problems="editor.problems.value" :scope="editor.scope.value" :label="label" @update="update" />
+    <div v-else ref="code" class="code" @focusin="activate" @pointerdown="activate" @pointerover="hover" @pointerleave="leave">
+      <span ref="probe" class="probe" aria-hidden="true">0000000000</span>
+      <GinExprNode :def="modelValue" :problems="editor.problems.value" :scope="editor.scope.value" :label="label" @update="update" />
+    </div>
   </div>
 </template>
 
@@ -65,6 +92,9 @@ function update(def: ExprDef): void {
 .result { color: var(--text-dim); font: var(--text-xs) var(--mono); overflow-wrap: anywhere; }
 .show { margin-left: auto; }
 .dim { margin: 0; color: var(--text-faint); }
+/* the editor reads as code: monospace, on the code background, scrolling sideways before it overlaps */
+.probe { position: absolute; visibility: hidden; white-space: pre; }
+.code { position: relative; min-width: 0; padding: var(--space-2) var(--space-3); overflow-x: auto; border-radius: var(--radius); background: var(--code-bg); font: var(--text-sm)/1.55 var(--mono); }
 .count { font-weight: var(--weight-medium); }
 .count.danger { color: var(--danger); }
 .count.warn { color: var(--warn); }

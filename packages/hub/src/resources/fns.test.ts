@@ -1,3 +1,4 @@
+import { openScope } from '../access/index.ts';
 import { fn, hub, type AnyFnRef } from '@harness/sdk';
 import { QualifiedName, ResourceUri, type Json, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -32,7 +33,7 @@ async function started(scope: () => ReachScope | undefined = () => undefined) {
     content: { parts: () => Promise.resolve([{ type: 'text', content: 'the text', name: 'a.md' }]) },
   };
   for (const name of NAMES) { addHubFn(r, hub.fns[name]); }
-  registerResourceFns(r.module.hubFns, { resources: () => services, store: () => r.store, llm: () => ({ models: () => Promise.resolve([]) }), mcpScope: () => Promise.resolve(scope()) });
+  registerResourceFns(r.module.hubFns, { resources: () => services, store: () => r.store, llm: () => ({ models: () => Promise.resolve([]) }), mcpScope: () => Promise.resolve(scope()), access: (actor) => Promise.resolve(openScope(actor)) });
   await r.session({});
   await r.module.start();
   return { r, resources, turn: await r.turn({ session: SESSION, text: 'hello' }) };

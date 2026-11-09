@@ -11,6 +11,7 @@ import {
 import { fn, g } from '@harness/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '../bus/memory.ts';
+import { openScope } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { RunInput } from '../execution/index.ts';
 import { ALICE_INFO, OPEN_LIMITS, TestCatalog } from '../execution/testing.ts';
@@ -106,7 +107,7 @@ async function hub(settings: { ask?: number; total?: number; rate?: number; idle
     registry: () => registry, tokens: () => tokens, bus, clock, log, maxBody: 1_048_576, idleTimeout: settings.idle ?? 1_800_000, serverInfo: { name: 'harness', version: 'test' },
     list: async () => (await store.table('mcps').find({ limit: 50 })).items,
     parts: (mcp) => ({
-      tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => catalog, runner, log }),
+      tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => catalog, runner, log, access: () => ({ scope: (actor) => Promise.resolve(openScope(actor)) }) }),
       resources: new HubMcpResources(mcp.id, sources),
       prompts: new HubMcpPrompts(mcp.id, sources),
     }),

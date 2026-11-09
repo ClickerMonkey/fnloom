@@ -21,6 +21,8 @@ export default defineConfig({
     proxy: {
       '/api': { target: hub, changeOrigin: true },
       '/_files': { target: hub, changeOrigin: true },
+      // the redirect back from a provider's sign-in (a calendar): the hub answers it, then sends the person to /connect/<system>
+      '/connect/callback': { target: hub, changeOrigin: true },
       '/ws': { target: hub.replace('http', 'ws'), ws: true },
     },
   },

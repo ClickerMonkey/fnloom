@@ -21,10 +21,12 @@ const props = withDefaults(defineProps<{
   loaded: boolean;
   problem?: string;
   hasMore: boolean;
+  /** The hub stopped at its scan bound for this search: more chats may match. */
+  partial?: boolean;
   loadingMore: boolean;
   creating: boolean;
   now: number;
-}>(), { current: undefined, problem: '' });
+}>(), { current: undefined, problem: '', partial: false });
 
 const emit = defineEmits<{
   open: [id: SessionId];
@@ -54,7 +56,7 @@ defineExpose({ focusSearch: () => { searchBox.value?.focus(); } });
       <UiButton variant="primary" icon="plus" block :loading="creating" data-testid="new-chat" @click="emit('create')">New chat</UiButton>
       <ListSearch
         ref="searchBox" v-model="query" list="sessions" label="chats" :placeholder="archived ? 'Search archived chats' : 'Search chats'"
-        :count="loaded ? items.length : undefined" :more="hasMore"
+        :count="loaded ? items.length : undefined" :more="hasMore" :partial="partial"
       >
         <UiIconButton
           icon="archive" :pressed="archived" :label="archived ? 'Show active chats' : 'Show archived chats'" data-testid="show-archived"

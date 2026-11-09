@@ -6,7 +6,7 @@
  * light and dark.
  */
 import { QualifiedName } from '@harness/core';
-import { BUILD_2_VIEWPORTS, check, feature, find, inEachScheme, open, settle, show, tid } from '../kit.ts';
+import { BUILD_2_VIEWPORTS, check, feature, find, inEachScheme, open, pickIn, settle, show, tid } from '../kit.ts';
 
 /** The item page's path for a context name. */
 const pathOf = (name: string): string => `/context/${name}`;
@@ -51,7 +51,7 @@ export default feature({
       await page.click(tid('add-link'));
       await find(page, 'link-form');
       await page.click(`${tid('link-kind')} [role="radio"]:nth-child(2)`);
-      await page.type(`${tid('link-target')} input`, 'fs/read');
+      await pickIn(page, 'link-target', 'fs/read');
       await page.select(`${tid('link-relation')} select`, 'suggests');
       await settle(page);
       await ctx.shot('add-link');
