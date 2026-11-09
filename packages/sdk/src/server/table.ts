@@ -5,9 +5,9 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, RunConnection, RunInfo, ShareRule, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
-import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, FnCall, FnCtx, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, FnCtx, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
   ActionImpl, AnyTypeDef, ContextImpl, EmbedderImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
@@ -44,7 +44,7 @@ export interface OutcomeHelpers {
 }
 
 /** What every run context has besides its calls, handlers and progress. */
-export interface RuntimeRunBase extends Services, OutcomeHelpers {
+export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Decisions {
   readonly config: unknown;
   readonly run: RunInfo;
   readonly budget: BudgetInfo;
@@ -78,6 +78,7 @@ export interface RuntimeKindCtx extends RuntimeRunBase {
 
 export interface RuntimeFnImpl {
   run(args: unknown, ctx: RuntimeFnCtx): Promise<AnyOutcome>;
+  preview?(args: unknown, ctx: PreviewCtx): Promise<PreviewAnswer>;
   undo?(payload: unknown, ctx: UndoCtx): Promise<UndoOutcome>;
 }
 
@@ -91,6 +92,7 @@ export interface RuntimeKindImpl {
   describe(payload: unknown, ctx: KindCheckCtx): Promise<KindDescription>;
   run(payload: unknown, args: Json, ctx: RuntimeKindCtx): Promise<Outcome<UntypedFn>>;
   undo?(payload: unknown, undo: Json, ctx: UndoCtx): Promise<UndoOutcome>;
+  preview?(payload: unknown, args: Json, ctx: PreviewCtx): Promise<PreviewAnswer>;
 }
 
 /** What dynamic context gets: the system context and who is asking (the session only when there is one). */
@@ -200,11 +202,13 @@ export class SystemTable {
   constructor(contract: AnyContract, impl: ImplTable) {
     this.contract = contract;
     this.impl = impl;
+    for (const [local, def] of Object.entries(contract.defs.fns)) { checkPreview(contract.name, local, def, impl.fns?.[local]); }
   }
 
   /** Add a fn at runtime; native fns bring their implementation. */
   add(local: string, def: AnyFnDef, impl: RuntimeFnImpl | undefined): void {
     if (local in this.contract.defs.fns || this.#added.has(local)) { throw new Error(`fn ${local} already exists in ${this.contract.name}`); }
+    checkPreview(this.contract.name, local, def, impl);
     this.#added.set(local, { def, impl });
     this.#changed();
   }
@@ -263,6 +267,13 @@ export class SystemTable {
     const impl = this.impl.fns?.[local] ?? this.#added.get(local)?.impl;
     if (def === undefined || impl === undefined || def.kind !== 'native') { return `fn ${local} is not a native fn implemented here`; }
     return { kind: 'native', local, def, impl };
+  }
+}
+
+/** A native fn that asks for approval with a preview must implement `preview`. */
+function checkPreview(system: string, local: string, def: AnyFnDef, impl: RuntimeFnImpl | undefined): void {
+  if (def.kind === 'native' && def.approval?.preview === true && impl !== undefined && impl.preview === undefined) {
+    throw new Error(`${system}/${local} asks for approval with a preview, so its implementation needs a preview(args, ctx).`);
   }
 }
 

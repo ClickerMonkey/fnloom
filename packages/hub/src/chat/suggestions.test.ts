@@ -92,3 +92,23 @@ describe('candidateFor', () => {
     expect(candidateFor(pool, 'fs/read')).toBe(pool[2]);
   });
 });
+
+describe('the decision model for systems', () => {
+  const request = {
+    run: IDS.run.parse('run_1'), question: 'overdue invoices by customer', max: 1,
+    candidates: [{ id: 'db.overdue', text: 'Lists overdue invoices per customer.', score: 0.82 }, { id: 'db.all', text: 'Every invoice.', score: 0.4 }],
+  };
+
+  it('is off until the admin turns the decision model on, then picks known ids only, best first, up to max', async () => {
+    const w = await world();
+    expect(await w.chat.suggestions.forSystem(request)).toEqual({ by: 'off' });
+    await w.chat.suggestions.set(SuggestDecision.parse({ enabled: true, model: { model: { model: 'tiny' } } }), w.admin.id);
+    w.llm.answers = ['{"picked":[{"id":"made-up"},{"id":"db.overdue","why":"same question"},{"id":"db.all"}]}'];
+    expect(await w.chat.suggestions.forSystem(request)).toEqual({ by: 'decision', picked: [{ id: 'db.overdue', why: 'same question' }] });
+    expect(JSON.stringify(w.llm.asked[0]?.request.messages)).toContain('overdue invoices by customer');
+    w.llm.answers = ['{"picked":[],"note":"none groups by customer"}'];
+    expect(await w.chat.suggestions.forSystem(request)).toEqual({ by: 'decision', picked: [], note: 'none groups by customer' });
+    w.llm.answers = ['no json here'];
+    expect(await w.chat.suggestions.forSystem(request)).toMatchObject({ by: 'failed' });
+  });
+});

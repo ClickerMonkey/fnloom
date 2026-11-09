@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * A system's config, as a form made from its config type: each field checked as it is typed, the whole value
- * confirmed by gin before it is sent, and the hub's own problems (it checks again) listed if it refuses.
+ * confirmed by gin before it is sent, and the hub's own problems (it checks again) listed if it refuses. Secret fields
+ * are password inputs that read "Saved" while the hub keeps their value; leaving one alone keeps it.
  */
 import type { Json } from '@harness/core';
 import { UiBanner, UiCard, UiEmpty, fullTime, relativeTime } from '../../ui/index.ts';
@@ -17,7 +18,9 @@ withDefaults(defineProps<{
   now: number;
   busy?: boolean;
   problems?: readonly string[];
-}>(), { version: undefined, setAt: undefined, busy: false, problems: () => [] });
+  /** Dot paths of the config's secret fields. */
+  secrets?: readonly string[];
+}>(), { version: undefined, setAt: undefined, busy: false, problems: () => [], secrets: () => [] });
 const emit = defineEmits<{ save: [value: Json] }>();
 </script>
 
@@ -32,7 +35,7 @@ const emit = defineEmits<{ save: [value: Json] }>();
         <p class="lead">The hub refused this config:</p>
         <ul class="problems"><li v-for="problem in problems" :key="problem">{{ problem }}</li></ul>
       </UiBanner>
-      <GinForm :key="version ?? 0" :type="type" :initial="value" submit-label="Save config" :busy="busy" :cancellable="false" label="Config" @submit="emit('save', $event)" />
+      <GinForm :key="version ?? 0" :type="type" :initial="value" submit-label="Save config" :busy="busy" :cancellable="false" :secrets="secrets" label="Config" @submit="emit('save', $event)" />
     </div>
   </UiCard>
 </template>

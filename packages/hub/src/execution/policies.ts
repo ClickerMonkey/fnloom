@@ -12,8 +12,8 @@
  * or the hub's own rule (`ApprovalDeciders`) settles it, and a decider that fails denies it.
  */
 import {
-  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type Approver, type FnMatch, type FnRecord, type Json, type Policy, type PolicyDecision, type QualifiedName,
-  type Remember, type Run, type RunId, type SessionId, type Verdict,
+  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type Approver, type FnMatch, type FnRecord, type Policy, type PolicyDecision, type QualifiedName,
+  type Remember, type Run, type SessionId, type Verdict,
 } from '@harness/core';
 import { messageOf } from './errors.ts';
 import { AGENT_KIND, type PolicyEngine, type RunDecision } from './index.ts';
@@ -103,6 +103,15 @@ function compareKeys(a: readonly number[], b: readonly number[]): number {
   return 0;
 }
 
+/** Who answers a fn that always asks when no policy names anyone: the turn's person. */
+const TURN_USER: Approver = { by: 'turn-user' };
+
+/** What the policies are asked about one run. */
+export type DecideInput = Parameters<PolicyEngine['decide']>[0];
+
+/** A run a system proposed, to wait for its approver with the preview it worked out. */
+export type ProposeApproval = Parameters<PolicyEngine['propose']>[0];
+
 /** Who decides an approval that names no person. Built after the run service, since a judge is run like any fn. */
 export interface ApprovalDeciders {
   /** Who the decisions are recorded as. */
@@ -127,7 +136,7 @@ export class HubPolicyEngine implements PolicyEngine {
     this.#deciders = deciders;
   }
 
-  async decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver }): Promise<RunDecision> {
+  async decide(input: DecideInput): Promise<RunDecision> {
     const { store, clock, catalog } = this.#deps;
     const fn = await catalog.fn(input.fn);
     if (fn === undefined) return { effect: 'deny', reason: `no fn ${input.fn}` };
@@ -135,26 +144,44 @@ export class HubPolicyEngine implements PolicyEngine {
     const chosen = choosePolicy(await allRows(store.table('policies')), fn, actor, clock());
     const policy = chosen?.decision ?? fallback(fn);
     if (policy.effect === 'deny') return policy;
+    const always = fn.decl.approval;
     // a per-person fn kept on 'ask first' asks whatever the policies allow
-    const decision = input.ask === undefined ? policy : { effect: 'ask' as const, approver: input.ask };
+    const asked = input.ask === undefined ? policy : { effect: 'ask' as const, approver: input.ask };
+    // a fn that always asks asks even when allowed, unless its approvals may be remembered and a policy allows it
+    const decision = always !== undefined && asked.effect === 'allow' && !(always.remember && chosen !== undefined)
+      ? { effect: 'ask' as const, approver: TURN_USER }
+      : asked;
     if (decision.effect === 'allow') return decision;
-    const remembered = input.session === undefined ? undefined : await this.#rememberedForSession(fn.name, input.actor, input.session);
+    const remembered = input.session === undefined || always?.remember === false ? undefined : await this.#rememberedForSession(fn.name, input.actor, input.session);
     if (remembered !== undefined) return remembered;
-    if (decision.approver.by === 'turn-user' && input.caller === input.turnUser) return { effect: 'allow' };
+    if (always === undefined && decision.approver.by === 'turn-user' && input.caller === input.turnUser) return { effect: 'allow' };
     const approval: Approval = {
       id: mintId('approval', this.#deps.random),
       run: input.run,
       fn: input.fn,
-      ...(chosen === undefined || input.ask !== undefined ? {} : { policy: chosen.id }),
+      ...(chosen?.decision.effect !== 'ask' || input.ask !== undefined ? {} : { policy: chosen.id }),
       approver: decision.approver,
       status: 'pending',
       decisions: [],
       createdAt: clock(),
+      ...(input.preview === undefined ? {} : { preview: input.preview }),
     };
-    await store.table('approvals').insert(approval);
-    await this.#publish(approval, input.turnUser, input.session);
+    return { effect: 'ask', approval: await this.#ask(approval, input.turnUser, input.session) };
+  }
+
+  propose(input: ProposeApproval): Promise<Approval> {
+    return this.#ask({
+      id: mintId('approval', this.#deps.random), run: input.run, fn: input.fn, approver: input.approver, status: 'pending', decisions: [],
+      createdAt: this.#deps.clock(), preview: input.preview, proposed: true,
+    }, input.turnUser, input.session);
+  }
+
+  /** Store a new approval, tell its approvers, and have a judge or the hub decide it when it names no person. */
+  async #ask(approval: Approval, turnUser: ActorId, session: SessionId | undefined): Promise<Approval> {
+    await this.#deps.store.table('approvals').insert(approval);
+    await this.#publish(approval, turnUser, session);
     if (approval.approver.by === 'judge' || approval.approver.by === 'hub') this.#decideWithout(approval);
-    return { effect: 'ask', approval };
+    return approval;
   }
 
   async answer(id: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval> {
@@ -168,7 +195,9 @@ export class HubPolicyEngine implements PolicyEngine {
     const turnUser = turn?.user.id ?? run.actor;
     const approvers = await this.#deps.approvers.approvers(approval.approver, turnUser);
     if (!approvers.includes(input.by)) throw new Error(`${input.by} can't answer approval ${id}`);
-    return this.#record(approval, run, turnUser, input);
+    // a fn whose approvals may not be remembered (writes, schema changes) is asked about every time
+    const remember = (await this.#deps.catalog.fn(approval.fn))?.decl.approval?.remember === false ? 'once' : input.remember;
+    return this.#record(approval, run, turnUser, { ...input, remember });
   }
 
   /**

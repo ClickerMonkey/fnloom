@@ -14,13 +14,13 @@ import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
-  type ConnectResult, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
+  type ConnectResult, type DecideAnswer, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
-import type { SystemPlace } from '../ctx.ts';
+import type { Decisions, Proposals, SystemPlace } from '../ctx.ts';
 import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
 import { MemoryJournal } from './journal.ts';
@@ -39,6 +39,15 @@ export type SystemBody<K extends keyof SystemLinkSpec['endpoints']> = SystemLink
  * writes data makes its own temporary folder and spreads it over this.
  */
 export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.harness-test/data', cacheDir: '.harness-test/cache' };
+
+/**
+ * `ctx.propose` and `ctx.decide` for a hand-made test context that has no hub: proposing fails (the test didn't
+ * expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
+ */
+export const NO_ASKS: Proposals & Decisions = {
+  propose: () => Promise.reject(new Error('This test context proposes no runs; serve against FakeHub to record them.')),
+  decide: () => Promise.resolve({ by: 'off' }),
+};
 
 /** The person fake runs are for. */
 export const TEST_USER: UserInfo = {
@@ -216,6 +225,10 @@ export class FakeHub {
   readonly models: ModelForward[] = [];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
   readonly pairingInfos: PairingInfo[] = [];
+  /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
+  readonly proposals: Array<HubBody<'propose'> & ProposedRun> = [];
+  /** What systems asked the decision model (`decide`). */
+  readonly decisions: Array<HubBody<'decide'>> = [];
 
   // ─── What the hub holds ─────────────────────────────────────────────────────
   /** Paired keys by system name. */
@@ -247,6 +260,8 @@ export class FakeHub {
    * transcript. Each answer has a fresh `ModelCall` id and a small cost.
    */
   onModel: (forward: ModelForward) => Promise<ModelForwardResult> = (forward) => Promise.resolve(this.#modelAnswer(forward));
+  /** Answers `ctx.decide`. Default: `off` (no decision model), so the system goes by its scores. */
+  onDecide: (request: HubBody<'decide'>) => Promise<DecideAnswer> = () => Promise.resolve({ by: 'off' });
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }> = () => Promise.resolve({ accepted: true });
 
@@ -393,6 +408,11 @@ export class FakeHub {
   /** A person disconnected (`disconnect`). */
   disconnect(body: SystemBody<'disconnect'>): Promise<void> {
     return this.peer().call('disconnect', body);
+  }
+
+  /** Ask the connected system what a run would do (`preview`), as the hub does before an approval. */
+  preview(body: SystemBody<'preview'>): Promise<PreviewAnswer> {
+    return this.peer().call('preview', body);
   }
 
   /** Run a fn on the connected system and wait for its outcome. */
@@ -550,9 +570,17 @@ export class FakeHub {
         connectionUpdate: ({ data }) => { this.connectionUpdates.push(data); },
         shareFn: ({ data }) => { this.shares.push(data); },
         usableFns: ({ data }) => ({ fns: data.fns.filter((fn) => this.usable(data.run, fn)) }),
-        // build 5 design stubs (platform lane): the fake hub does not propose runs yet, and has no decision model
-        propose: () => { throw new Error('not served yet (build 5, platform lane)'); },
-        decide: () => ({ by: 'off' as const }),
+        propose: ({ data }) => {
+          const known = this.proposals.find((p) => p.key === data.key);
+          if (known !== undefined) { return { run: known.run, approval: known.approval }; }
+          const made = { run: mintId('run'), approval: mintId('approval') };
+          this.proposals.push({ ...data, ...made });
+          return made;
+        },
+        decide: async ({ data }) => {
+          this.decisions.push(data);
+          return await this.onDecide(data);
+        },
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);

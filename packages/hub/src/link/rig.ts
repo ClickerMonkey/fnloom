@@ -3,6 +3,7 @@
  * the way boot makes it (the link plugin installed on a server with the module's peers), and fake systems that
  * connect to it over an in-process socket and serve `systemLinkSpec`. Tests only.
  */
+import { AesSecretVault, SecretBox } from '../api/secrets.ts';
 import { client, implement, reject, server, spec, type ApiClient, type ClientWs, type Serves, type WsConn } from '@ayepi/core';
 import { createPluginHost } from '@ayepi/plugin';
 import {
@@ -30,7 +31,7 @@ export const RIG_SETTINGS: SystemsSettings = {
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2,
   },
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
-  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000, HARNESS_INDEX_RETRY: 50, HARNESS_INDEX_RETRY_MOST: 200 },
+  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000, HARNESS_INDEX_EMBED_BATCH: 8, HARNESS_INDEX_RETRY: 50, HARNESS_INDEX_RETRY_MOST: 200 },
   search: { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 },
 };
 
@@ -46,14 +47,15 @@ export async function linkRig(options: { embedding?: LinkEmbedding; publicUrl?: 
   const clock = () => time.now;
   const embedding: LinkEmbedding = options.embedding ?? { embed: (texts) => Promise.resolve({ vectors: texts.map(() => [1, 0, 0]), cost: 0 }) };
   const content = new MemoryContent();
+  const vault = new AesSecretVault({ store, box: new SecretBox('a-key-that-is-long-enough-for-the-hub-0123'), clock });
   const settings: SystemsSettings = options.publicUrl === undefined ? RIG_SETTINGS : { ...RIG_SETTINGS, packaging: { ...RIG_SETTINGS.packaging, HARNESS_PUBLIC_URL: options.publicUrl } };
   const systems = buildSystems({
-    store, bus, log, clock, settings, embedding, launcher: noLauncher, content: () => content,
+    store, bus, log, clock, settings, embedding, launcher: noLauncher, content: () => content, secrets: () => vault,
     tokens: new JwtSystemTokens({ secret: 's'.repeat(32), ttl: 60_000 }),
   });
   const app = server(spec({ endpoints: {} }), [], { peers: systems.connections.peers });
   await createPluginHost(app).install(systems.plugin);
-  return { ...systems, links: systems.connections, store, bus, log, records, time, app, content };
+  return { ...systems, links: systems.connections, store, bus, log, records, time, app, content, vault };
 }
 
 export type LinkRig = Awaited<ReturnType<typeof linkRig>>;

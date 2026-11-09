@@ -17,9 +17,9 @@ import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from 
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
 import { PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
 import { DecideAnswer, DecideRequest } from './decisions.ts';
-import { FnKindName, HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
+import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
-  ActorId, DeliveryId, Duration, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
+  ActorId, DeliveryId, Duration, FnKindName, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
 import { TypeDefinitions } from './records/systems.ts';
 import { SystemEvent } from './system-events.ts';

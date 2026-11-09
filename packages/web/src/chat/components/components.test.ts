@@ -211,8 +211,8 @@ describe('AssistantAnswer', () => {
 
 describe('ApprovalTray', () => {
   const items = [
-    { id: ApprovalId.parse('apr_1'), fn: 'fs/write_file' as const, description: 'Write a file', args: { path: 'README.md', content: 'x'.repeat(400) } },
-    { id: ApprovalId.parse('apr_2'), fn: 'fs/delete' as const, description: '', args: undefined },
+    { id: ApprovalId.parse('apr_1'), fn: 'fs/write_file' as const, description: 'Write a file', args: { path: 'README.md', content: 'x'.repeat(400) }, rememberable: true },
+    { id: ApprovalId.parse('apr_2'), fn: 'fs/delete' as const, description: '', args: undefined, rememberable: true },
   ];
 
   it('asks about the oldest first, clamps long args, and remembers the chosen answer', async () => {

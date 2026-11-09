@@ -6,7 +6,7 @@
  * record. If it fails or answers nonsense, the score decides and the items it left out say so (`failed`).
  */
 import {
-  messageOf, SuggestDecision, type ActorId, type LlmMessage, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,
+  messageOf, SuggestDecision, type ActorId, type DecideAnswer, type DecideRequest, type LlmMessage, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,
   type SuggestionOutcome, type SuggestionRecord,
 } from '@harness/core';
 import { z } from 'zod';
@@ -132,6 +132,23 @@ export class HubSuggestions implements SuggestionDecider {
     }
   }
 
+  async forSystem(request: DecideRequest): Promise<DecideAnswer> {
+    const decision = (await this.setting()).value;
+    if (!decision.enabled || decision.model === undefined) { return { by: 'off' }; }
+    try {
+      const answer = await this.#deps.llm.chat(
+        { request: { messages: systemDecisionPrompt(request), temperature: 0 }, ...(await this.#model(decision)), priority: 'interactive' },
+        { purpose: SYSTEM_DECISION_PURPOSE, run: request.run }, AbortSignal.timeout(this.#deps.settings.chat.HARNESS_SUGGEST_DECISION_TIMEOUT),
+      );
+      const decided = systemDecision(request, answer.value);
+      this.#deps.log.info('decide.decided', { run: request.run, candidates: request.candidates.length, picked: decided.picked.length, call: answer.call });
+      return decided;
+    } catch (error) {
+      this.#deps.log.warn('decide.failed', { run: request.run, error: messageOf(error) });
+      return { by: 'failed', message: messageOf(error) };
+    }
+  }
+
   /** The decision model, and the kind of provider it is pinned to (the gateway's name for it), as the gateway takes them. */
   async #model(decision: SuggestDecision): Promise<{ model?: ModelChoice; provider?: string }> {
     if (decision.model === undefined) { return {}; }
@@ -177,4 +194,40 @@ export function prompt(messages: readonly string[], pool: readonly Suggestion[],
     { role: 'system', content: system },
     { role: 'user', content: `User messages:\n${recent}\n\nCandidates:\n${candidates}` },
   ];
+}
+
+/** The purpose a system's decision calls are recorded under. */
+export const SYSTEM_DECISION_PURPOSE = 'decide';
+
+/** What the decision model answers a system: the ids it picks, best first, and why it picked none. */
+const SystemDecisionAnswer = z.object({
+  picked: z.array(z.object({ id: z.string(), why: z.string().optional() })),
+  note: z.string().optional(),
+});
+
+/** The decision model's prompt for a system's question: the candidates by id with their scores, and the JSON to answer with. */
+export function systemDecisionPrompt(request: DecideRequest): LlmMessage[] {
+  const system = [
+    'You decide whether something that already exists answers what is wanted, so it is reused instead of made again.',
+    `Pick at most ${request.max} candidates that fully answer what is wanted, best first; pick none when none does, and say why in "note".`,
+    'Answer with JSON only: {"picked":[{"id":"...","why":"..."}],"note":"..."}. Use each candidate\'s id exactly as given; keep each reason under 15 words.',
+  ].join('\n');
+  const candidates = request.candidates.map((item) => `- id ${JSON.stringify(item.id)} (score ${item.score.toFixed(2)}): ${item.text}`).join('\n');
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: `Wanted: ${request.question}\n\nCandidates:\n${candidates}` },
+  ];
+}
+
+/** Read the decision model's answer to a system: only ids among the candidates, each once, at most `max`. */
+export function systemDecision(request: DecideRequest, text: string): Extract<DecideAnswer, { by: 'decision' }> {
+  const parsed = SystemDecisionAnswer.safeParse(answerJson(text));
+  if (!parsed.success) { throw new Error('the decision model did not answer the JSON asked for'); }
+  const ids = new Set(request.candidates.map((item) => item.id));
+  const picked: Array<{ id: string; why?: string }> = [];
+  for (const pick of parsed.data.picked) {
+    if (!ids.has(pick.id) || picked.some((p) => p.id === pick.id) || picked.length >= request.max) { continue; }
+    picked.push(pick.why === undefined ? { id: pick.id } : { id: pick.id, why: pick.why });
+  }
+  return { by: 'decision', picked, ...(parsed.data.note === undefined || picked.length > 0 ? {} : { note: parsed.data.note }) };
 }

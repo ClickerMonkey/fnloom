@@ -13,7 +13,7 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelInfo, ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver,
+  ModelInfo, ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposedRun, ProposeRun, SystemName,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
@@ -24,6 +24,14 @@ import type { SpendReader } from './spend.ts';
 export const AGENT_KIND = hub.kinds.llm.name;
 /** The kind of fn the agent loop runs. */
 export type AgentKind = typeof AGENT_KIND;
+
+/**
+ * Who answers a run a system proposed outside any run (`ProposalApprover` `admins`): the group named by the hub's own
+ * actor, which the approver directory reads as every enabled admin (core's `Approver` has no admins variant yet).
+ */
+export function adminsApprover(hubActor: ActorId): Approver {
+  return { by: 'group', group: hubActor };
+}
 
 /** A request to run a fn: from an agent's tool call, a person's `!`, or a run's child call. */
 export interface RunInput {
@@ -58,6 +66,12 @@ export interface RunInput {
 export interface RunService {
   /** Create a run. It may wait for approval first; the result settles when the run does (or goes to the background). */
   start(input: RunInput): Promise<{ run: RunId; settled: Promise<RunSettled> }>;
+  /**
+   * Add a run a system proposed (`propose` on the hub link): a run of one of its own fns that waits for approval with
+   * the preview it worked out. With `parent` (a run of the same system) it is that run's child and its person answers;
+   * without one it is the system's own run in a turn made for it, and the admins answer. The same key gives the same run.
+   */
+  propose(input: ProposeRun & { system: SystemName; instance: InstanceName }): Promise<ProposedRun>;
   get(run: RunId): Promise<Run | undefined>;
   cancel(run: RunId, by: ActorId): Promise<{ accepted: boolean; reason?: string }>;
   pause(run: RunId, by: ActorId): Promise<{ accepted: boolean; reason?: string }>;
@@ -81,7 +95,14 @@ export type RunDecision = { effect: 'allow' } | { effect: 'deny'; reason: string
  * running a fn themselves is not asked. `ask` records an approval for `run` and publishes it with its approvers.
  */
 export interface PolicyEngine {
-  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver }): Promise<RunDecision>;
+  /**
+   * A fn that always asks (`FnDecl.approval`) asks even when a policy or the fallback allows it (a deny still wins);
+   * only an explicit allow policy stands in when its approvals may be remembered. `preview` is kept on the approval.
+   */
+  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver; preview?: ApprovalPreview }): Promise<RunDecision>;
+  /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
+  propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId }): Promise<Approval>;
+  /** Answer an approval. For a fn whose approvals may not be remembered, any `remember` counts as `once`. */
   answer(approval: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval>;
 }
 

@@ -12,7 +12,7 @@ import type {
   ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
   MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
   Session, SessionControls, SessionId, Suggestion, SuggestDecision, SuggestDecisionView, SuggestionRecord, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
-  Compact, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
+  Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
 } from '@harness/core';
 
 /** Sessions. */
@@ -106,6 +106,12 @@ export interface SuggestionDecider {
   /** The decision model setting (off by default). */
   setting(): Promise<SuggestDecisionView>;
   set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView>;
+  /**
+   * Build 5: the decision model chooses for a system (`decide` on the hub link) between reusing something it has and
+   * making something new. `off` when the model is off; `failed` when its call fails or answers nonsense. The call is
+   * a model call of the asking run.
+   */
+  forSystem(request: DecideRequest): Promise<DecideAnswer>;
 }
 
 /** What is added to a user message before the LLM sees it: local time and suggestions (the hub's), then system hooks. */

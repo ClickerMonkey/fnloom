@@ -16,7 +16,7 @@ import {
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
   type ProviderChat, type ProviderChunk, type ProviderEmbed, type ProviderEmbedResult, type ValidateAnswer, type ValidateRequest,
-  type ConnectFinish, type ConnectResult, type ConnectStart, type RunConnection,
+  type ConnectFinish, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -193,6 +193,7 @@ export class TestCatalog implements Catalog {
 
   importManifest(): never { throw new Error('not in execution tests'); }
   importPatch(): never { throw new Error('not in execution tests'); }
+  forgetInstance(): never { throw new Error('not in execution tests'); }
   refreshAvailability(): never { throw new Error('not in execution tests'); }
   /** No kind records here: runs of kind fns are worded by their fn's status templates or the defaults. */
   kind(): ReturnType<Catalog['kind']> { return Promise.resolve(undefined); }
@@ -227,6 +228,8 @@ export interface SystemBehaviour {
   connectStart: (input: ConnectStart) => { url: string };
   connectFinish: (input: ConnectFinish) => ConnectResult;
   disconnect: (input: Pick<RunConnection, 'id' | 'owner' | 'credentials'>) => void;
+  /** What a run of a fn that always asks would do (build 5). */
+  preview: (input: PreviewRequest) => PreviewAnswer;
 }
 
 /** A system connected to the rig over an in-process socket, serving `systemLinkSpec` for real. */
@@ -234,6 +237,7 @@ export class TestSystem {
   readonly name: SystemName;
   readonly requests: RunRequest[] = [];
   readonly validations: ValidateRequest[] = [];
+  readonly previews: PreviewRequest[] = [];
   readonly chats: ProviderChat[] = [];
   readonly children: Array<{ parent: string; key: string; run: string; update?: unknown }> = [];
   readonly behaviour: SystemBehaviour = {
@@ -247,6 +251,7 @@ export class TestSystem {
     connectStart: (input) => ({ url: `https://accounts.example/auth?state=${encodeURIComponent(input.state)}` }),
     connectFinish: () => ({ account: { label: 'ada@example.com' }, credentials: { access: 'a1', refresh: 'r1' } }),
     disconnect: () => undefined,
+    preview: () => ({ preview: { title: 'Do it', parts: [], irreversible: false } }),
   };
   conn: WsConn | undefined;
   readonly #controller = new AbortController();
@@ -262,7 +267,8 @@ export class TestSystem {
       child: ({ data }) => { this.children.push(data); },
       paired: notHere, check: notHere, context: notHere, roots: notHere, list: notHere, stat: notHere, read: notHere, sections: notHere, watch: notHere,
       content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
-      form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere, preview: notHere,
+      form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere,
+      preview: ({ data }) => { this.previews.push(data); return this.behaviour.preview(data); },
       validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
       providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
       providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),

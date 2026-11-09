@@ -9,7 +9,7 @@ import {
 } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { fakeCaller } from '../../test/fakes.ts';
-import { fakeSender, llmCall, run, T0 } from '../../chat/test/fakes.ts';
+import { approval, fakeSender, llmCall, run, T0 } from '../../chat/test/fakes.ts';
 import type { McpProbe, ProbeResult } from '../probe.ts';
 import type { SystemLogEvents } from '../api.ts';
 import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView, SuggestDecision } from '@harness/core';
@@ -225,6 +225,9 @@ export function fakeAdmin(options: { api?: FakeAdminApi } = {}) {
     background: fakeCaller<'background'>(() => Promise.resolve({ accepted: true })),
     undoTurn: fakeCaller<'undoTurn'>(({ turn }) => Promise.resolve({ turn, undone: [], failed: [], notUndoable: [] })),
     resource: fakeCaller<'resource'>(({ uri }) => Promise.resolve({ stat: { uri, name: 'harness.md', type: 'file' as const, format: 'markdown', version: '1' }, text: { inline: '# Harness' } })),
+    types: fakeCaller<'types'>(({ names }) => Promise.resolve({ types: [], missing: names })),
+    approvals: fakeCaller<'approvals'>(() => Promise.resolve([])),
+    approve: fakeCaller<'approve'>(({ approval: id, approve }) => Promise.resolve(approval({ id, status: approve ? 'approved' : 'denied' }))),
   };
   const user = channel<UserEvent>();
   const logs = channel<{ system: SystemName; line: OutputLine }>();

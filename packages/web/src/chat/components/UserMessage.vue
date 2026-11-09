@@ -132,7 +132,7 @@ onMounted(() => {
         />
         <template v-for="output in outputs" :key="output.key">
           <AttachmentCard
-            v-if="output.part.type === 'attachment'" :title="output.part.title" :attachment="output.part.attachment" :data="output.part.data" :view="attachmentView(output.part)"
+            v-if="output.part.type === 'attachment'" :view-key="output.key" :title="output.part.title" :attachment="output.part.attachment" :data="output.part.data" :view="attachmentView(output.part)"
           />
           <LinkCard v-else :link="output.part.link" @open="emit('link', $event)" />
         </template>

@@ -3,7 +3,7 @@
  * caller's handlers, controlling its children, its progress, operations and undo payload, and the LLM forward. A system may only act on its own runs.
  * The link module installs these on the link server; `ChildRelay` tells a calling system about its child runs.
  */
-import type { HandlerFor } from '@ayepi/core';
+import { reject as refuse, type HandlerFor } from '@ayepi/core';
 import { isSettled, type HubLinkSpec, type Run, type RunId, type RunSettled, type RunUpdate, type SystemName } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
@@ -16,11 +16,11 @@ import type { HubRunService } from './runs.ts';
 export type LinkHandler<K extends keyof HubLinkSpec['endpoints']> = HandlerFor<HubLinkSpec, HubLinkSpec['endpoints'][K]>;
 
 /** The endpoints execution serves (the link module serves the handshake, contract, resources, embeddings and logs). */
-export type ExecutionLinkEndpoints = 'call' | 'handle' | 'control' | 'progress' | 'allow' | 'undoWith' | 'llm';
+export type ExecutionLinkEndpoints = 'call' | 'handle' | 'control' | 'progress' | 'allow' | 'undoWith' | 'llm' | 'propose';
 
 /** What the handlers use. */
 export interface LinkHandlerDeps extends Pick<ExecutionDeps, 'store' | 'log'> {
-  readonly runs: Pick<HubRunService, 'get' | 'start' | 'cancel' | 'pause' | 'progress' | 'allow' | 'undoWith'>;
+  readonly runs: Pick<HubRunService, 'get' | 'start' | 'cancel' | 'pause' | 'progress' | 'allow' | 'undoWith' | 'propose'>;
   readonly gateway: Pick<LlmGateway, 'forward'>;
   readonly handlers: Pick<HandlerRelay, 'handle'>;
 }
@@ -92,6 +92,14 @@ export function executionLinkHandlers(deps: LinkHandlerDeps): { [K in ExecutionL
       return deps.handlers.handle(data, signal);
     },
     llm: ({ data, link, signal }) => gateway.forward({ ...data, system: link.system }, signal),
+    propose: async ({ data, link }) => {
+      try {
+        return await runs.propose({ ...data, system: link.system, instance: link.instance });
+      } catch (error) {
+        const refused = causeOf(error, RunRefused);
+        throw refused === undefined ? error : refuse(refused.error.code === 'not-found' ? 404 : 400, 'PROPOSAL_REFUSED', refused.error.message);
+      }
+    },
   };
 }
 

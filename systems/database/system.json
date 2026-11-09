@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "database",
+  "version": "0.1.0",
+  "description": "Query and change SQL databases (SQLite, Postgres, SQL Server): every table is a type, and every query asked for is kept as a fn for next time.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": { "better-sqlite3": "^12.4.1", "pg": "^8.16.3", "mssql": "^11.0.1" } },
+  "client": { "entry": "client/index.ts" },
+  "instances": "many"
+}

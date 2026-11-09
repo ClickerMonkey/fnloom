@@ -40,6 +40,7 @@ import { FleetRouter } from './router.ts';
 import { MemorySystemOutput } from './output.ts';
 import { PeerResourceRouter } from './resources.ts';
 import { InstanceKeeper } from './status.ts';
+import { ConfigSecretKeeper, type ConfigVault } from './config-secrets.ts';
 import { ProcessSupervisor } from './supervisor.ts';
 import { StoreSystemAdmin } from './systems.ts';
 
@@ -67,6 +68,8 @@ export interface SystemsOptions {
   readonly installer?: Installer;
   /** The hub's content store, where uploaded package zips and data exports live (looked up when used). */
   readonly content: () => PackageContent;
+  /** The hub's secrets, where config secret fields are sealed (the api module's, looked up when used). */
+  readonly secrets: () => ConfigVault;
   /** The typed callers of connected systems, shared with the hub link server (default a new registry). */
   readonly peers?: Peers<SystemLinkSpec>;
   /** Replace how systems' embed requests are answered (tests); default the index's document embedder. */
@@ -94,6 +97,7 @@ export function buildSystems(options: SystemsOptions) {
   const describer = new LinkKindDescriber(connections);
   const catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
   const instances = new InstanceKeeper({ store, bus, catalog, links: connections });
+  const configSecrets = new ConfigSecretKeeper(options.secrets);
   const autoPairs = new StoreAutoPairs({
     store, log, clock, rate: store.ports.rate, limit: settings.packaging.HARNESS_AUTO_PAIR_LIMIT, window: settings.packaging.HARNESS_AUTO_PAIR_WINDOW,
     expiry: settings.packaging.HARNESS_AUTO_PAIR_EXPIRY,
@@ -102,8 +106,9 @@ export function buildSystems(options: SystemsOptions) {
     store, bus, log, clock, instances, autoPairs, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,
     check: (system, type, value) => catalog.check(system, type, value),
     configType: async (system) => (await catalog.manifest(system))?.config,
+    configSecrets: async (system) => (await catalog.manifest(system))?.configSecrets, secrets: configSecrets,
   });
-  const config = new StoreConfigService({ log, clock, catalog, bus, links: connections, instances });
+  const config = new StoreConfigService({ log, clock, catalog, bus, links: connections, instances, secrets: configSecrets });
   const resources = new PeerResourceRouter({ links: connections, catalog, bus, log, maxChunk: settings.link.HARNESS_MAX_CHUNK });
   const admin = new StoreSystemAdmin({ store, log, catalog, links: connections, instances, autoPairs, stopTimeout: settings.link.HARNESS_STOP_TIMEOUT });
   const router = new FleetRouter({ links: connections, resources, store, instances });
@@ -129,8 +134,7 @@ export function buildSystems(options: SystemsOptions) {
   });
   const sectioning = new Sectioning({ store, catalog, router: resources });
   const indexer = new StoreIndexer({ store, bus, log, clock, catalog, embedders, batcher, router: resources, sectioning, document, maxText: settings.index.HARNESS_INDEX_MAX_TEXT, maxCrawl: settings.index.HARNESS_INDEX_CRAWL_MAX,
-    // a chunk fills every background batch running at once
-    chunk: settings.model.HARNESS_EMBED_BATCH * settings.index.HARNESS_EMBED_BACKGROUND,
+    chunk: settings.index.HARNESS_INDEX_EMBED_BATCH,
     retry: { first: settings.index.HARNESS_INDEX_RETRY, most: settings.index.HARNESS_INDEX_RETRY_MOST },
   });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, settings.search);
@@ -138,7 +142,7 @@ export function buildSystems(options: SystemsOptions) {
   const suggest = new IndexSuggester({ store, catalog, search });
 
   const packages = new HubPackages({
-    content: options.content, supervisor, admin, instances, links: connections, exportTimeout: settings.link.HARNESS_STOP_TIMEOUT, log, clock,
+    content: options.content, supervisor, admin, instances, links: connections, config, exportTimeout: settings.link.HARNESS_STOP_TIMEOUT, log, clock,
     maxBytes: settings.packaging.HARNESS_PACKAGE_MAX,
   });
 

@@ -91,7 +91,7 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
     run: (job, signal): Promise<void> => runs.execute(job, signal),
     llm: (job, signal): Promise<void> => agents.handle(job, signal),
   });
-  const runs: HubRunService = new HubRunService({ ...input, policies, ledger, queues });
+  const runs: HubRunService = new HubRunService({ ...input, policies, ledger, queues, limits });
   policies.decideWith(new RunDeciders({ store: input.store, runs, ledger }));
   const hooks = new HubAiHooks({ ...input, ledger, recorder, costs: runs, calls: input.calls, modelLimit: modelLimiter(input.settings, input.ports.rate) });
   const { engine, providers, watch: watchProviders } = engineOf(input.llm, hooks, input.log);
@@ -149,6 +149,7 @@ export const EXECUTION_LINK_SPEC = spec({
     allow: hubLinkSpec.endpoints.allow,
     undoWith: hubLinkSpec.endpoints.undoWith,
     llm: hubLinkSpec.endpoints.llm,
+    propose: hubLinkSpec.endpoints.propose,
   },
 });
 

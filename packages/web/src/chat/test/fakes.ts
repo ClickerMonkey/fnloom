@@ -167,6 +167,8 @@ export function fakeChatApi() {
     mentionHover: fakeCaller<'mentionHover'>(() => Promise.resolve(({ hover: { title: 'harness.md', subtitle: 'docs/', fields: [{ label: 'Size', value: '12 KB' }] } }))),
     waiting: fakeCaller<'waiting'>(() => Promise.resolve({ approvals: [], handlers: [] })),
     approve: fakeCaller<'approve'>(({ approval: id, approve }) => Promise.resolve(approval({ id, status: approve ? 'approved' : 'denied' }))),
+    approvals: fakeCaller<'approvals'>(({ runs }) => Promise.resolve(runs.map((r) => approval({ run: r })))),
+    contributions: fakeCaller<'contributions'>(() => Promise.resolve([])),
     answer: fakeCaller<'answer'>(() => Promise.resolve(undefined)),
     setBudget: fakeCaller<'setBudget'>(({ id }) => Promise.resolve({ id: id ?? 'bgt_new' })),
     presence: fakeCaller<'presence'>(() => Promise.resolve(undefined)),

@@ -31,15 +31,16 @@ export {
   Suspended, CallFailed, HandlerFailed,
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
-  type ForwardModality, type ModelInput, type ModelOutput,
+  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions,
 } from './ctx.ts';
+export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
 export type { FnImpl } from './impl.ts';
 export type { ResourceProvider } from './resources.ts';
 export { provider, providerDecl, type ProviderDef, type ProviderInput, type ProviderImpl } from './providers.ts';
 export {
   system, CONTRACT_SECTIONS,
   type ContractShape, type ContractSection, type EmptyContract, type Merge, type SystemRefs, type SystemContract, type AnyContract, type ConfigOf,
-  type ConnectImpl, type EventHandlers, type Lifecycle, type SystemImpl,
+  type ConnectImpl, type EventHandlers, type Lifecycle, type SystemImpl, type SystemInfo, type RegistryDef,
 } from './system.ts';
 export {
   hub, ADMIN_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, FIND_KINDS, LlmPayloadType, ModelChoiceType, ChatModeType, ContextorType, FnErrorType,
@@ -52,6 +53,6 @@ export {
   type InputAnswer, type InputAnswers, type ValueEditorProps, type ShareEditorProps,
   type Renderer, type Delivery, type FnView, type SystemClient, type WithSystem, type AttachmentView, type InputView, type MentionView, type ResourceView,
   type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type WireViews, type Mount, type InputMount, type ClientRenderers, type ClientModule, type ResourceViewerProps,
-  type ResourceViewerEntry, type ResourceViewerMode, type BareViewer,
+  type ResourceViewerEntry, type ResourceViewerMode, type BareViewer, type VisualView, type VisualEntry,
 } from './client.ts';
 export { expectType, type Equal, type Simplify } from './util.ts';

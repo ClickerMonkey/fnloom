@@ -2,15 +2,16 @@
 /**
  * The inbox: every notification (or only the unread ones), searched and sorted by the hub (both in the URL), paged. Opening one
  * marks it read and goes where it leads. A push's click lands here with `?open=<id>`, which opens that notification
- * the same way once the list has it.
+ * the same way once the list has it. Runs waiting for the person's approval show first, as cards answered in place.
  */
-import type { Notification } from '@harness/core';
+import type { Approval, Notification, RunId } from '@harness/core';
 import { computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { ROUTES, notificationTarget } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
+import InboxApprovals from '../components/inbox/InboxApprovals.vue';
 import NotificationList from '../components/inbox/NotificationList.vue';
 import ListSearch from '../components/query/ListSearch.vue';
 import { InboxFilter } from '../state/inbox.ts';
@@ -47,6 +48,18 @@ async function open(notification: Notification): Promise<void> {
   await router.push(await notificationTarget(notification.link, (run) => chat.sessionOfRun(run)));
 }
 
+/** The runs the unresolved approval notifications point at. */
+const waitingRuns = computed<RunId[]>(() => inbox.items.value.flatMap((n) => (n.reason === 'approval-needed' && n.resolved === undefined && 'run' in n.link ? [n.link.run] : [])));
+watch(waitingRuns, (runs) => { void chat.approvals.load(runs); }, { immediate: true });
+const waiting = computed(() => waitingRuns.value.flatMap((run) => { const found = chat.approvals.byRun.value.get(run); return found === undefined ? [] : [found]; }));
+
+async function decide(approval: Approval, approve: boolean, reason: string): Promise<void> {
+  if (!(await chat.approvals.decide(approval, approve, reason))) { toasts.error("Couldn't send your answer", chat.approvals.problem.value); return; }
+  const read = inbox.items.value.filter((n) => !n.read && 'run' in n.link && n.link.run === approval.run).map((n) => n.id);
+  if (read.length > 0) { void inbox.markRead(read); }
+  toasts.ok(approve ? 'Approved' : 'Denied');
+}
+
 async function readAll(): Promise<void> {
   if (await inbox.markAllRead()) { toasts.ok('All caught up'); }
 }
@@ -57,6 +70,7 @@ async function readAll(): Promise<void> {
     <template #actions>
       <UiButton v-if="inbox.unread.value > 0" icon="check" data-testid="read-all" @click="readAll">Mark all read</UiButton>
     </template>
+    <InboxApprovals :items="waiting" @decide="decide" />
     <ListSearch v-model="search" list="notifications" label="notifications" :count="inbox.items.value.length" :more="inbox.hasMore.value" :partial="inbox.partial.value">
       <UiSegmented v-model="filter" :options="shows" label="Show" data-testid="inbox-filter" />
     </ListSearch>

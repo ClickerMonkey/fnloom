@@ -16,6 +16,8 @@ import { useRouter } from 'vue-router';
 import { useStores } from '../../state/stores.ts';
 import { copyText, UiButton, UiEmpty, UiPopover, UiSkeleton } from '../../ui/index.ts';
 import { useTicker } from '../clock.ts';
+import { isRememberable } from '../../components/approvals/rules.ts';
+import { RESULTS_HOST } from '../../components/results/builtin.ts';
 import ApprovalTray from '../components/ApprovalTray.vue';
 import AssistantAnswer from '../components/AssistantAnswer.vue';
 import BackgroundStrip from '../components/BackgroundStrip.vue';
@@ -128,6 +130,7 @@ provide(VALUE_EDITOR, GinValueView);
 provide(ACCESS_INFO, { get multiUser() { return chat.access.multiUser.value; } });
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ShareEditorProps
 provide(SHARE_EDITOR, ShareEditor);
+provide(RESULTS_HOST, chat.visuals);
 void chat.access.load();
 
 /** A budget raise is being saved. */
@@ -373,7 +376,7 @@ function useDraftSuggestion(item: { kind: 'fn' | 'context'; name: QualifiedName 
 // ── approvals, questions and the header ───────────────────────────────────────
 
 const approvals = computed<ApprovalView[]>(() => thread.approvals.value.map((a) => ({
-  id: a.id, fn: a.fn, description: caps.invocation(a.fn)?.description ?? '', args: thread.runs.value.get(a.run)?.args,
+  id: a.id, fn: a.fn, description: caps.invocation(a.fn)?.description ?? '', args: thread.runs.value.get(a.run)?.args, preview: a.preview, rememberable: isRememberable(a),
 })));
 watch(() => thread.approvals.value.map((a) => a.run), (runs) => { for (const run of runs) { void thread.ensureRun(run); } }, { immediate: true });
 

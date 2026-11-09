@@ -72,3 +72,12 @@ buy: fn({
   },
 }),
 ```
+
+**Approval.** `approval: {}` makes every run of a fn wait for the person's approval, whatever the policies say (use it
+for writes and schema changes). By default (`preview: true`) the hub first asks the implementation's
+`preview(args, ctx)` what the run would do and shows it on the approval card: return `{ preview: { title, parts,
+irreversible } }` (parts: `text`, `code`, `table`, `type-diff`), or `{ refused: 'why' }` to fail the run as invalid
+input. A preview gets a `PreviewCtx` (the system context, the waiting run and its person) and must not change
+anything. `remember: false` (the default) means the person can't say "don't ask again". A kind does the same from
+`describe` (`approval`) and `preview(payload, args, ctx)`. Serving a fn that asks for a preview without implementing
+one throws.

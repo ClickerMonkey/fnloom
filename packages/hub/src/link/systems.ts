@@ -48,11 +48,13 @@ export class StoreSystemAdmin implements SystemAdmin {
     return { fnsUnavailable: before.length };
   }
 
-  /** Mark one instance removed and ask it to stop. Its key no longer proves it; it must pair again. */
+  /** Mark one instance removed, drop the types and fns it owns, and ask it to stop. Its key no longer proves it; it must pair again. */
   async removeInstance(ref: InstanceRef, by: ActorId): Promise<void> {
     const { links, instances, autoPairs, log, stopTimeout } = this.#options;
     await instances.sync(ref, { status: 'removed' });
     await autoPairs.revokeInstance(ref, by);
+    // what the instance owned (a database's table types and saved query fns) goes with it
+    await this.#options.catalog.forgetInstance(ref.system, ref.instance);
     const connection = links.connection(ref.system, ref.instance);
     if (connection !== undefined) {
       try {

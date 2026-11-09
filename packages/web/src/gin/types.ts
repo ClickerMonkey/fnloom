@@ -123,5 +123,8 @@ export class TypeLibrary implements TypeSource {
 /** Where forms find the browser's type library; without one they know only the types built into `g`. */
 export const GIN_TYPES: InjectionKey<TypeSource> = Symbol('harness.formTypes');
 
+/** The dot paths of a form's secret text fields (a config's `configSecrets`): drawn as password inputs. */
+export const GIN_SECRETS: InjectionKey<ReadonlySet<string>> = Symbol('harness.formSecrets');
+
 /** The library forms use when none is provided: the types built into `g`. */
 export const LOCAL_TYPES: TypeSource = new TypeLibrary();

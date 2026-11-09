@@ -2,9 +2,8 @@
 import { z } from 'zod';
 import { GinTypeDef } from '../gin.ts';
 import { LlmChunk, LlmRequest, LlmUsage } from '../llm.ts';
-import { FnKindName } from '../manifest.ts';
 import {
-  ActorId, ConnectionId, DeliveryId, HandlerCallId, InstanceName, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
+  ActorId, ConnectionId, DeliveryId, FnKindName, HandlerCallId, InstanceName, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
 import { RunText } from '../status.ts';

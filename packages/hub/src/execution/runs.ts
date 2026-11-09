@@ -14,6 +14,7 @@ import {
   compact, INVALID_INPUT_CODE, isSettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
+  type ApprovalPreview, type Approver, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, qualify,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -21,7 +22,8 @@ import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './
 import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from './pages.ts';
 import { SystemGone } from './executors.ts';
-import { AGENT_KIND, type Ledger, type PolicyEngine, type RunInput, type RunService } from './index.ts';
+import { adminsApprover, AGENT_KIND, type Ledger, type LimitResolver, type PolicyEngine, type RunInput, type RunService } from './index.ts';
+import { hubActorOf } from './deciders.ts';
 import type { ControlAnswer, ExecutionDeps, RunCosts, RunEvents, RunExecutor, RunSettler } from './ports.ts';
 import type { ExecutionQueues } from './queues.ts';
 import { timeInfo } from './time.ts';
@@ -103,6 +105,9 @@ export function suppliedHandlers(fn: FnRecord, parent: Run | undefined, named: r
   return parent === undefined || parent.kind === AGENT_KIND ? Object.keys(fn.decl.handlers) : named.filter((name) => name in fn.decl.handlers);
 }
 
+/** The key prefix of a run a system proposed (`propose`), apart from the keys of the calls it makes. */
+export const PROPOSED_KEY = 'propose:';
+
 /** A promise with its resolver. */
 interface Waiter {
   readonly promise: Promise<RunSettled>;
@@ -117,8 +122,10 @@ function waiter(): Waiter {
 
 /** What the run service uses besides the other modules. */
 export interface RunServiceDeps extends ExecutionDeps {
-  readonly policies: Pick<PolicyEngine, 'decide'>;
+  readonly policies: Pick<PolicyEngine, 'decide' | 'propose'>;
   readonly ledger: Pick<Ledger, 'remaining'>;
+  /** The limits of a turn the hub makes for a run a system proposed outside any run. */
+  readonly limits: Pick<LimitResolver, 'resolve'>;
   readonly queues: Pick<ExecutionQueues, 'enqueueRun' | 'cancel' | 'slot'>;
 }
 
@@ -146,7 +153,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     this.#deadlines = new DeadlineTimers(deps.clock);
     deps.bus.subscribe('approval', ({ approval }) => {
       if (approval.status === 'pending') return;
-      void this.#approved(approval.run, approval.status === 'approved', approval.decisions.at(-1)?.reason).catch((error: unknown) => {
+      void this.#approved(approval.run, approval.status === 'approved', approval.decisions.at(-1)).catch((error: unknown) => {
         deps.log.error('run.approval-failed', { run: approval.run, error: messageOf(error) });
       });
     });
@@ -185,7 +192,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const system = SystemName.parse(executingSystem(fn));
     // the one place a system's run is given its instance: a fleet with no clear pick is refused input the caller can fix
     const routed = checked === undefined && executorKind(fn) === 'system'
-      ? await this.#deps.instances.route({ system, args: input.args, on: input.on, session: input.session })
+      ? await this.#deps.instances.route({ system, args: input.args, on: input.on, session: input.session, routing: fn.decl.routing })
       : undefined;
     const invalid = checked ?? (routed !== undefined && 'invalid' in routed ? routed.invalid : undefined);
     const instance = routed !== undefined && 'instance' in routed ? routed.instance.instance : undefined;
@@ -234,8 +241,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       await this.settle(id, { status: 'invalid-input', invalid });
       return { run: id, settled };
     }
+    const preview = fn.decl.approval?.preview === true ? await this.#preview(run, turn.user) : undefined;
+    if (preview !== undefined && 'refused' in preview) {
+      await this.settle(id, preview.refused);
+      return { run: id, settled };
+    }
     const decision = await this.#deps.policies.decide({
       fn: fn.name, actor: input.actor, turnUser: turn.user.id, args: input.args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
+      ...(preview === undefined ? {} : { preview: preview.preview }),
       // a per-person fn its person keeps on 'ask first' waits for the connection's owner
       ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
     });
@@ -248,6 +261,90 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     }
     if (input.background) await this.background(id);
     return { run: id, settled };
+  }
+
+  /**
+   * What a run of a fn that always asks would do, from its system (`preview` on the system link), before anyone is
+   * asked; or how the run settles instead: invalid input with the system's reason, or a retryable failure when the
+   * system can't be reached.
+   */
+  async #preview(run: Run, user: UserInfo): Promise<{ preview: ApprovalPreview } | { refused: OutcomeWire }> {
+    const connection = this.#deps.link.connection(run.system, run.instance);
+    const away = (why: string): { refused: OutcomeWire } => ({ refused: { status: 'failed', error: fnError('retry', `${run.fn} can't show what it would do: ${why}`, 'unavailable') } });
+    if (connection === undefined) return away(`${run.system} is not connected`);
+    try {
+      const answer = await connection.peer.call('preview', { run: run.id, fn: splitName(run.fn).local, args: run.args, user }, { signal: connection.signal });
+      if ('preview' in answer) return answer;
+      return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: answer.refused }] } } };
+    } catch (error) {
+      return away(messageOf(error));
+    }
+  }
+
+  async propose(input: ProposeRun & { system: SystemName; instance: InstanceName }): Promise<ProposedRun> {
+    const { catalog, store, clock } = this.#deps;
+    const name = qualify(input.system, input.fn);
+    const fn = await catalog.fn(name);
+    if (fn?.system !== input.system) throw new RunRefused(fnError('caller', `There is no fn ${name}.`, 'not-found'));
+    const parent = input.parent === undefined ? undefined : await store.table('runs').get(input.parent);
+    if (input.parent !== undefined && parent?.system !== input.system) throw new RunRefused(fnError('caller', `Run ${input.parent} is not ${input.system}'s.`, 'not-found'));
+    const key = `${PROPOSED_KEY}${input.key}`;
+    const existing = parent === undefined ? await this.#proposedBefore(name, key) : await this.#child(parent.id, key);
+    if (existing !== undefined) return this.#proposal(existing);
+    const invalid = invalidArgs((await catalog.signature(name)).argsSchema.safeParse(input.args));
+    if (invalid !== undefined) throw new RunRefused(fnError('caller', `The args don't fit ${name}: ${invalid.problems.map(problemLine).join('; ')}`, INVALID_INPUT_CODE));
+    const hubActor = await hubActorOf(store);
+    const turn = parent === undefined ? await this.#systemTurn(input.system) : await this.#turn(parent);
+    const id = mintId('run', this.#deps.random);
+    const { operations } = fn.decl;
+    const run: Run = {
+      id, fn: name, fnVersion: fn.version, kind: fn.decl.kind, system: input.system, instance: input.instance, root: parent?.root ?? id, turn: turn.id,
+      ...(parent?.session === undefined ? {} : { session: parent.session }),
+      ...(parent === undefined ? {} : { parent: parent.id }),
+      key, actor: parent?.actor ?? turn.actor, caller: turn.actor, args: input.args, status: 'awaiting-approval',
+      allowed: { cancel: operations.cancel, pause: operations.pause, background: operations.background },
+      cost: 0, totalCost: 0, priority: parent?.priority ?? turn.limits.priority, background: false, attempt: 1, errors: [], stateChanges: [], createdAt: clock(),
+    };
+    const text = await this.#wording.text(run, { status: 'awaiting-approval' }, fn);
+    await store.table('runs').insert(text === undefined ? run : { ...run, text });
+    if (parent === undefined) await store.table('turns').update(turn.id, { root: id });
+    this.#publish(run, statusUpdate('awaiting-approval', text));
+    this.#deps.log.info('run.proposed', { run: id, fn: name, parent: parent?.id ?? null, approver: input.approver });
+    const approver: Approver = input.approver === 'admins' ? adminsApprover(hubActor) : { by: 'turn-user' };
+    const approval = await this.#deps.policies.propose({
+      run: id, fn: name, approver, preview: input.preview, turnUser: turn.user.id, ...(run.session === undefined ? {} : { session: run.session }),
+    });
+    return { run: id, approval: approval.id };
+  }
+
+  /** A run proposed outside any run under this key, if one was. */
+  async #proposedBefore(fn: Run['fn'], key: string): Promise<Run | undefined> {
+    // the same key may also name a child proposed under some run, so look past those
+    for await (const run of rows(this.#deps.store.table('runs'), { where: { fn, key } })) {
+      if (run.parent === undefined) { return run; }
+    }
+    return undefined;
+  }
+
+  /** A proposed run and its approval. */
+  async #proposal(run: Run): Promise<ProposedRun> {
+    const page = await this.#deps.store.table('approvals').find({ where: { run: run.id }, order: [['createdAt', 'desc']], limit: 1 });
+    const approval = page.items[0];
+    if (approval === undefined) throw new Error(`proposed run ${run.id} has no approval`);
+    return { run: run.id, approval: approval.id };
+  }
+
+  /** A turn of a system's own, for a run it proposed outside any run; it ends when the run settles. */
+  async #systemTurn(system: SystemName): Promise<Turn> {
+    const { store, clock } = this.#deps;
+    const actor = (await store.table('systems').get(system))?.actor;
+    if (actor === undefined) throw new RunRefused(fnError('fatal', `${system} has no actor to propose as.`, 'not-found'));
+    const user: UserInfo = { id: actor, name: system, email: '', role: 'member', groups: [], timeZone: 'UTC', locale: 'en' };
+    const limits = await this.#deps.limits.resolve({ user, requested: 'background' });
+    const now = clock();
+    return store.table('turns').insert({
+      id: mintId('turn', this.#deps.random), actor, user, time: timeInfo(now, user.timeZone), status: 'running', limits, cost: 0, errors: { max: 1 }, createdAt: now,
+    });
   }
 
   get(run: RunId): Promise<Run | undefined> {
@@ -584,7 +681,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const reason = this.#resumes.get(run.id);
     this.#resumes.delete(run.id);
     const resume = reason === undefined ? undefined : { state: run.resume ?? null, calls: await this.#finishedCalls(run.id), reason };
-    const configured = run.system === HUB_SYSTEM ? undefined : await config.current(run.system);
+    const configured = run.system === HUB_SYSTEM ? undefined : await config.current(run.system, run.instance);
     return {
       run: info,
       fn: splitName(fn.name).local,
@@ -696,14 +793,18 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   /** An approval was answered: queue the run, or fail it. */
-  async #approved(id: RunId, approved: boolean, reason: string | undefined): Promise<void> {
+  async #approved(id: RunId, approved: boolean, decided: { by: ActorId; reason?: string | undefined } | undefined): Promise<void> {
     const run = await this.get(id);
     if (run?.status !== 'awaiting-approval') return;
     if (approved) {
       this.#enqueue(await this.#moveTo(run, { status: 'queued', approvedAt: this.#deps.clock() }));
-    } else {
-      await this.settle(id, { status: 'failed', error: fnError('caller', reason === undefined ? 'The person refused this.' : `The person refused this: ${reason}`, 'denied') });
+      return;
     }
+    // the caller (a model, most often) hears who declined and why, so it can say so or ask differently
+    const who = decided === undefined ? undefined : (await this.#deps.store.table('actors').get(decided.by))?.name;
+    const reason = decided?.reason?.trim() ?? '';
+    const message = `Declined by ${who ?? 'the approver'}${reason === '' ? ' (no reason given).' : `: ${reason}`}`;
+    await this.settle(id, { status: 'failed', error: fnError('caller', message, 'denied') });
   }
 
   async #addToAncestors(run: Run, cost: Usd): Promise<void> {
@@ -719,7 +820,10 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
 
   /** A turn's root agent run settled: the turn has ended (chat settles the turns of fns people run themselves). */
   async #settleTurn(run: Run): Promise<void> {
-    if (run.parent !== undefined || run.session === undefined || run.kind !== AGENT_KIND) return;
+    if (run.parent !== undefined) return;
+    // a system's own turn, made for a run it proposed, ends with that run
+    const proposed = run.session === undefined && run.key.startsWith(PROPOSED_KEY);
+    if (!proposed && (run.session === undefined || run.kind !== AGENT_KIND)) return;
     const status = run.status === 'done' || run.status === 'undone' ? 'done' : run.status === 'cancelled' ? 'cancelled' : 'failed';
     await this.#deps.turns.settle(run.turn, status);
   }

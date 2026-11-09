@@ -8,7 +8,7 @@ import {
   EXPORT_NOT_READY, systemLinkSpec,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
-  type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest,
+  type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest, type PreviewAnswer, type PreviewRequest,
 } from '@harness/core';
 import type { ActionCtx, AskerCtx, SystemCtx, UndoCtx } from '../ctx.ts';
 import { hookBlock, type KindCheckCtx, type MentionCtx } from '../declare.ts';
@@ -22,6 +22,7 @@ import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
 import type { RunRegistry } from './runs.ts';
+import { proposals } from './asks.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { SystemTable } from './table.ts';
 import { decode, decodeOrThrow, encodeOrThrow, messageOf, thrownError, withTimeout } from './wire.ts';
@@ -107,9 +108,6 @@ export interface AskerWire {
   time: TimeInfo;
 }
 
-/** Build 5 design stub (platform lane replaces it): a system link endpoint the SDK does not serve yet. */
-const buildFiveStub = (): never => { throw new Error('not served yet (build 5, platform lane)'); };
-
 /** Answers the hub's calls on the system link. */
 export class SystemRuntime<C extends ContractShape> {
   readonly #parts: RuntimeParts<C>;
@@ -142,6 +140,7 @@ export class SystemRuntime<C extends ContractShape> {
       types: new HubTypes(env.hub, signal),
       log: this.#log,
       signal,
+      ...proposals({ system: env.system, hub: env.hub, signal }),
     };
   }
 
@@ -217,7 +216,7 @@ export class SystemRuntime<C extends ContractShape> {
       },
       export: ({ data }) => this.#export(data.timeout),
       validate: ({ data, signal }) => this.#validate(data, signal),
-      preview: buildFiveStub,
+      preview: ({ data, signal }) => this.#preview(data, signal),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),
@@ -285,6 +284,30 @@ export class SystemRuntime<C extends ContractShape> {
     } catch (error) {
       env.log.warn('undo.failed', { fn: data.fn, error: messageOf(error) });
       return { status: 'failed', error: thrownError(error) };
+    }
+  }
+
+  /**
+   * What a run waiting for approval would do: the fn's (or its kind's) `preview`. A fn with no preview to give
+   * refuses, since the hub only asks for fns that declared one.
+   */
+  async #preview(data: PreviewRequest, signal: AbortSignal): Promise<PreviewAnswer> {
+    const target = this.#parts.table.target(data.fn, data.kind ?? 'native');
+    if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }
+    const ctx = { ...this.systemCtx(signal), run: data.run, user: data.user };
+    switch (target.kind) {
+      case 'native': {
+        const preview = target.impl.preview;
+        if (preview === undefined) { return { refused: `${data.fn} has no preview.` }; }
+        return await preview(decodeOrThrow(target.def.args, data.args, 'The args'), ctx);
+      }
+      case 'kind': {
+        const preview = target.impl.preview;
+        if (preview === undefined) { return { refused: `Fns of kind ${target.kindName} have no preview.` }; }
+        return await preview(decodeOrThrow(target.def.payload, data.payload, 'The payload'), data.args, ctx);
+      }
+      case 'method':
+        return { refused: `Method ${data.fn} has no preview.` };
     }
   }
 

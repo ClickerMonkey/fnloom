@@ -5,7 +5,7 @@
 import {
   messageOf,
   type Audience, type Display, type FnError, type FnLimits, type FnValidation, type InputVerdict, type InvalidInput, type Json, type Operations, type OutputVerdict, type ProgressDecl, type ProgressWire,
-  type StatusTemplates, type StepStatus, type Usd,
+  type StatusTemplates, type StepStatus, type Usd, type FnApproval,
 } from '@harness/core';
 import { encodeValue, json, type GinType } from './gin.ts';
 import type { ValidateCtx } from './ctx.ts';
@@ -186,6 +186,8 @@ export interface FnDef<T extends FnTypes> {
   readonly examples: readonly FnExampleOf<T['args']>[];
   /** Its validation hooks, run in its system before and after a run. */
   readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
+  /** Every run waits for approval; with `preview`, its implementation's `preview` says what the run would do. */
+  readonly approval: FnApproval | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -238,6 +240,12 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
    * `{ input: (ctx, args, state) => args.path === '' ? { ok: false, reason: 'No file is open.' } : { ok: true } }`.
    */
   validate?: FnValidators<NoInfer<A>, NoInfer<R>, NoInfer<St>>;
+  /**
+   * Every run waits for the person's approval, whatever the policies say (writes, schema changes). `preview`
+   * (default true) has the hub ask the implementation's `preview(args, ctx)` what the run would do first;
+   * `remember` (default false) lets the person say "don't ask again".
+   */
+  approval?: { preview?: boolean; remember?: boolean };
 }
 
 /** The types of a native fn. */
@@ -279,6 +287,7 @@ export function fn<
     tags: def.tags ?? [],
     examples: checkedExamples(def.description, def.args, def.examples),
     validate: def.validate,
+    approval: def.approval === undefined ? undefined : { preview: def.approval.preview ?? true, remember: def.approval.remember ?? false },
   };
 }
 
@@ -339,6 +348,7 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     tags: def.tags ?? [],
     examples: def.args === undefined ? (def.examples ?? []) : checkedExamples(def.description, def.args, def.examples),
     validate: undefined,
+    approval: undefined,
   };
 }
 

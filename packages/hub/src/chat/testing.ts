@@ -97,7 +97,7 @@ export class FixtureCatalog implements Catalog {
   async availability(name: QualifiedName): Promise<Availability> { return Promise.resolve(this.unavailable.get(name) ?? true); }
   async check(system: SystemName, type: GinTypeDef, value: unknown): Promise<string[]> { return Promise.resolve(this.checker(system, type, value)); }
 
-  importManifest = refuse; importPatch = refuse; reimport = refuse; refreshAvailability = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
+  importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
   signature = (): Promise<FnSignature> => refuse();
 }
 
@@ -212,6 +212,8 @@ export class FakeRuns implements RunService {
     this.#store = store;
     this.#ids = ids;
   }
+
+  propose(): Promise<never> { return Promise.reject(new Error('proposals are not in chat tests')); }
 
   async start(input: RunInput): Promise<{ run: RunId; settled: Promise<RunSettled> }> {
     this.started.push(input);

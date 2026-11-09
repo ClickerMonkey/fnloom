@@ -313,6 +313,17 @@ export function withFilter(query: SearchQuery, filter: Filter, at?: number): Sea
   return { ...query, filters };
 }
 
+/** Whether a query holds a filter equal to `filter`. */
+export function hasFilter(query: SearchQuery, filter: Filter): boolean {
+  return (query.filters ?? []).some((f) => JSON.stringify(f) === JSON.stringify(filter));
+}
+
+/** A query with `filter` taken out when it holds it, else added: a quick filter's toggle. */
+export function toggledFilter(query: SearchQuery, filter: Filter): SearchQuery {
+  const at = (query.filters ?? []).findIndex((f) => JSON.stringify(f) === JSON.stringify(filter));
+  return at === -1 ? withFilter(query, filter) : withoutFilter(query, at);
+}
+
 /** A query without the filter at `at`. */
 export function withoutFilter(query: SearchQuery, at: number): SearchQuery {
   const filters = (query.filters ?? []).filter((_, i) => i !== at);

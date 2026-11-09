@@ -54,6 +54,10 @@ export function chatApi(hub: Hub) {
     mentionHover: hub.caller('mentionHover', { cache: { ttl: 30_000 }, dedupe: true }),
     waiting: hub.caller('waiting'),
     approve: hub.caller('approve'),
+    /** The approvals of some runs, with what each would do (the inbox's approval cards). */
+    approvals: hub.caller('approvals', { dedupe: true }),
+    /** Which systems contribute to a registry (the result views' visuals), cleared with the capabilities. */
+    contributions: hub.caller('contributions', { cache: { ttl: 60_000, tags: [CAPABILITIES_TAG] }, dedupe: true }),
     /** Raise a used-up budget (admins): the run waiting on it goes on at its next check. */
     setBudget: hub.caller('setBudget'),
     answer: hub.caller('answer'),

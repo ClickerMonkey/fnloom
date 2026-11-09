@@ -24,3 +24,8 @@ compile-time tests are the source of **Common mistakes**.
 
 **Before you finish:** `npm run typecheck` (every project, the new system included once it is in the root
 `tsconfig.json` references), `npx vitest run systems/<name>`, and `npm run lint`.
+
+A context you build by hand (for a unit test of a lifecycle hook or a fn without the fake hub) needs `ctx.propose`
+and `ctx.decide`: spread `NO_ASKS` beside `TEST_PLACE`. Proposing then fails and the decision model answers `off`;
+`FakeHub` records proposals (`hub.proposals`), answers `decide` with `hub.onDecide`, and asks a system for a preview
+with `hub.preview(...)`.

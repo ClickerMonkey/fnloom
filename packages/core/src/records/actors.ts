@@ -1,9 +1,8 @@
 /** Actors (users, groups, agents, systems), sign-in, settings, policies and approvals. */
 import { z } from 'zod';
 import {
-  ActorId, ActorKind, ApprovalId, AuthSessionId, HubMcpId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
+  ActorId, ActorKind, ApprovalId, AuthSessionId, FnKindName, HubMcpId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
 } from '../primitives.ts';
-import { FnKindName } from '../manifest.ts';
 import { ApprovalPreview } from '../approvals.ts';
 
 const actorBase = {

@@ -18,7 +18,7 @@ import type { Logger } from '@ayepi/log';
 import {
   MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceRecord,
   type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
-  type SystemRecord, type Timestamp, type AutoPairChoice,
+  type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { allRows } from '../catalog/rows.ts';
@@ -27,6 +27,7 @@ import type { HubStore } from '../store/index.ts';
 import type { AutoPairService } from './auto-pair.ts';
 import type { PairingChoice, PairingService } from './index.ts';
 import { fingerprint, pairingCode, randomToken, sha256Hex } from './keys.ts';
+import type { ConfigSecretKeeper } from './config-secrets.ts';
 import type { InstanceKeeper } from './status.ts';
 
 /** What pairing needs. */
@@ -42,6 +43,10 @@ export interface PairingOptions {
   readonly check: (system: SystemName, type: GinTypeDef, value: Json) => Promise<string[]>;
   /** The config type of a system whose contract the hub has (it wins over what a waiting system said). */
   readonly configType: (system: SystemName) => Promise<GinTypeDef | undefined>;
+  /** The secret fields of a system's config, from its contract when the hub has it. */
+  readonly configSecrets: (system: SystemName) => Promise<readonly ConfigPath[] | undefined>;
+  /** Seals the secret fields of a config chosen at approval. */
+  readonly secrets: ConfigSecretKeeper;
   /** The hub as phones reach it (`HARNESS_PUBLIC_URL`); unset, links use the address the system dialed. */
   readonly publicUrl?: string | undefined;
   /** How long a pairing request waits for an admin. */
@@ -67,6 +72,8 @@ export class StorePairingService implements PairingService {
   readonly #options: PairingOptions;
   /** Sockets waiting on a request, with the origin they dialed (for links made later). */
   readonly #waiting = new Map<PairingId, { peer: Peer<SystemLinkSpec>; origin: string }>();
+  /** The secret fields a waiting system named (`PairingInfo.configSecrets`), for a config chosen before its contract comes. */
+  readonly #secretPaths = new Map<PairingId, readonly ConfigPath[]>();
 
   constructor(options: PairingOptions) {
     this.#options = options;
@@ -138,6 +145,7 @@ export class StorePairingService implements PairingService {
     if (waiting?.peer !== peer) { throw refuse(403, 'NOT_YOUR_PAIRING', 'only the socket that started a pairing may describe it'); }
     const { replaces: _before, ...request } = await this.#open(info.pairing);
     const rekeys = await this.#rekeys({ system: request.name, instance: info.instance }, request.keyFingerprint);
+    if (info.configSecrets !== undefined) { this.#secretPaths.set(info.pairing, info.configSecrets); }
     const updated = await this.#options.store.table('pairings').put({
       ...request, description: info.description, instance: info.instance, ...(info.configType === undefined ? {} : { configType: info.configType }),
       ...(rekeys ? { replaces: request.name } : {}),
@@ -267,7 +275,7 @@ export class StorePairingService implements PairingService {
    * carries it.
    */
   async #pair(
-    request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'> & Partial<Pick<PairingRequest, 'instance' | 'configType' | 'replaces'>>,
+    request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'> & Partial<Pick<PairingRequest, 'id' | 'instance' | 'configType' | 'replaces'>>,
     by: ActorId,
     choice: PairingChoice,
   ): Promise<InstanceRecord> {
@@ -281,7 +289,10 @@ export class StorePairingService implements PairingService {
     if (!shown && existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== request.keyFingerprint) {
       throw refuse(409, 'INSTANCE_TAKEN', `${instanceLabel(ref)} is another machine's instance: pick a name of its own`);
     }
-    const config = choice.config === undefined ? undefined : await this.#checked(ref, choice.config, request.configType);
+    const paths = await this.#options.configSecrets(ref.system) ?? (request.id === undefined ? undefined : this.#secretPaths.get(request.id)) ?? [];
+    const sealing = choice.config === undefined ? undefined : await this.#options.secrets.seal(ref, choice.config, existing?.config?.value, paths, by);
+    if (sealing !== undefined) { await this.#checked(ref, sealing.plain, request.configType); }
+    const config = sealing?.sealed;
     await this.#system(request.name, request.version, now);
     const keyed = { keyFingerprint: request.keyFingerprint, publicKey: request.publicKey, pairedAt: now, pairedBy: by, address: request.address };
     const fresh: InstanceRecord = { ...ref, description: '', status: 'disconnected', version: request.version, manifestHash: '', ...keyed };
@@ -289,6 +300,8 @@ export class StorePairingService implements PairingService {
     const saved = await instances.sync(ref, (current) => ({
       ...current, ...keyed, ...configured, status: current.status === 'removed' ? 'disconnected' : current.status,
     }), fresh);
+    await sealing?.release();
+    if (request.id !== undefined) { this.#secretPaths.delete(request.id); }
     log.info('pairing.paired', { system: ref.system, instance: ref.instance, by, replaced: existing !== undefined, configured: config !== undefined });
     return saved;
   }

@@ -80,6 +80,10 @@ export const sdkEnv = env({
   HARNESS_CONFIG_VERSIONS: z.number().int().min(1).default(8),
   /** Largest resource text sent inline; longer text is served by content ref. */
   HARNESS_INLINE_TEXT: z.number().int().min(1_024).default(256_000),
+  /** Tokens (about four characters each) of rows a result block shows the model; the person always sees them all. */
+  HARNESS_RESULT_SAMPLE_TOKENS: z.number().int().min(0).default(1_500),
+  /** The most characters of one text cell in a result block's sample; longer text is cut. */
+  HARNESS_RESULT_CELL_CHARS: z.number().int().min(20).default(300),
   /** Bytes of content kept for the hub to fetch by ref. */
   HARNESS_CONTENT_CACHE: z.number().int().min(1_024).default(64_000_000),
   /** Which copy of the system this process is: `main` unless it is one of a fleet. */

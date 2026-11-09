@@ -176,6 +176,10 @@ export const QualifiedName = z.templateLiteral([z.string().regex(SYSTEM_NAME_PAT
 /** A name qualified by its system. The parameters narrow it to one system or one local name. */
 export type QualifiedName<S extends string = string, N extends string = string> = `${S}/${N}`;
 
+/** A fn's kind: `native` for a fn the system implements, else the qualified name of the kind that runs it. */
+export const FnKindName = z.union([z.literal('native'), QualifiedName]);
+export type FnKindName = z.infer<typeof FnKindName>;
+
 /** Join a system and a local name. */
 export function qualify<const S extends string, const N extends string>(system: S, local: N): QualifiedName<S, N> {
   return `${system}/${local}`;

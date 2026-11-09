@@ -65,7 +65,7 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     packagingPlugin(hub, systems, ops),
     ...build3Plugins(hub, systems, reads),
     ...build4Plugins(hub, systems),
-    ...build5Plugins(systems),
+    ...build5Plugins(hub, systems),
     eventsPlugin(hub, auth),
   ];
 }

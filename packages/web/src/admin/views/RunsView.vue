@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /**
  * The runs browser: every run, searched, filtered and sorted by the hub (the query in the URL), kept live while it is
- * open. A run opens beside the list with its full record (`?run=`), linking on to its LLM call and its tree.
+ * open. A run opens beside the list with its full record (`?run=`), linking on to its LLM call and its tree. "Needs
+ * approval" narrows it to the runs waiting for one; such a run opens with its approval card (what it will do, Approve
+ * or Deny) above its record.
  */
 import { RunId } from '@harness/core';
 import { computed, watch } from 'vue';
@@ -18,8 +20,10 @@ import { fnLabel } from '../../chat/logic/labels.ts';
 import { STATUS_LOOK, argSummary, runElapsed } from '../../chat/logic/runs.ts';
 import { useStores } from '../../state/stores.ts';
 import ListSearch from '../../components/query/ListSearch.vue';
-import { hubListQuery, useListQuery } from '../../state/query.ts';
-import { UiBadge } from '../../ui/index.ts';
+import ApprovalCard from '../../components/approvals/ApprovalCard.vue';
+import { NEEDS_APPROVAL, hubListQuery, useListQuery } from '../../state/query.ts';
+import { UiBadge, UiButton } from '../../ui/index.ts';
+import { hasFilter, toggledFilter } from '../../ui/search.ts';
 import { useNow } from '../../ui/now.ts';
 import BrowserFrame from '../components/BrowserFrame.vue';
 import BrowserRow from '../components/BrowserRow.vue';
@@ -27,6 +31,7 @@ import { BROWSER_REFRESH } from '../logic/browsers.ts';
 
 const { admin, toasts } = useStores();
 const runs = admin.runs;
+const desk = admin.runApprovals;
 const router = useRouter();
 const now = useNow(1_000);
 const query = useRouteQuery(ROUTES.runs);
@@ -38,6 +43,9 @@ const filter = computed(() => hubListQuery(search.value));
 const narrowed = computed(() => Object.keys(filter.value).some((key) => key !== 'sort'));
 const items = computed(() => runs.list.items.value);
 const record = computed(() => runs.opened.value.value);
+const waitingOnly = computed(() => hasFilter(search.value, NEEDS_APPROVAL));
+/** The opened run's pending approval, while it still waits. */
+const approval = computed(() => (record.value?.status === 'awaiting-approval' ? desk.byRun.value.get(record.value.id) : undefined));
 const panel = computed({ get: () => opened.value !== '', set: (open) => { if (!open) { opened.value = ''; } } });
 
 watch(filter, (value, before) => { if (JSON.stringify(value) !== JSON.stringify(before)) { void runs.list.load(value); } }, { immediate: true });
@@ -45,7 +53,17 @@ watch(opened, (id) => {
   const run = RunId.safeParse(id);
   if (run.success) { void runs.open(run.data); } else { runs.close(); }
 }, { immediate: true });
+watch(() => (record.value?.status === 'awaiting-approval' ? record.value.id : undefined), (run) => { if (run !== undefined) { void desk.load([run]); } }, { immediate: true });
 useLive(() => { void runs.list.refresh(); if (record.value !== undefined && runs.openedId.value !== undefined && record.value.endedAt === undefined) { void runs.open(runs.openedId.value); } }, BROWSER_REFRESH);
+
+async function decide(approve: boolean, reason: string): Promise<void> {
+  const waiting = approval.value;
+  if (waiting === undefined) { return; }
+  if (!(await desk.decide(waiting, approve, reason))) { toasts.error(desk.problem.value); return; }
+  toasts.ok(approve ? 'Approved' : 'Denied');
+  void runs.open(waiting.run);
+  void runs.list.refresh();
+}
 
 async function background(): Promise<void> {
   const run = record.value;
@@ -78,7 +96,12 @@ function openTree(): void {
       :panel-title="record ? fnLabel(record.fn) : 'Run'" :panel-subtitle="record?.fn ?? ''" @more="runs.list.more()" @retry="runs.list.load()"
     >
       <template #filters>
-        <ListSearch v-model="search" list="runs" label="runs" :count="items.length" :more="runs.list.hasMore.value" :partial="runs.list.partial.value" />
+        <ListSearch v-model="search" list="runs" label="runs" :count="items.length" :more="runs.list.hasMore.value" :partial="runs.list.partial.value">
+          <UiButton
+            size="sm" :variant="waitingOnly ? 'secondary' : 'ghost'" icon="shield" :aria-pressed="waitingOnly" data-testid="needs-approval"
+            @click="search = toggledFilter(search, NEEDS_APPROVAL)"
+          >Needs approval</UiButton>
+        </ListSearch>
       </template>
       <BrowserRow
         v-for="run in items" :key="run.id" :title="fnLabel(run.fn)" :detail="argSummary(run.args) || run.fn" :at="run.createdAt" :now="now"
@@ -96,6 +119,10 @@ function openTree(): void {
         </template>
       </BrowserRow>
       <template #panel>
+        <ApprovalCard
+          v-if="approval" class="panel-approval" :ident="approval.id" :fn="approval.fn" description="" :args="record?.args" :preview="approval.preview"
+          :rememberable="false" @decide="(approve, _remember, reason) => decide(approve, reason)"
+        />
         <RunDetails
           v-model:tab="runTab" :run="record" :record="record" :loading="runs.opened.loading.value" :problem="runs.opened.problem.value" :now="now"
           @llm="router.push(links.llmCalls({ call: $event }))" @run="opened = $event" @tree="openTree" @background="background" @undo="undo" @retry="runs.openedId.value && runs.open(runs.openedId.value)"
@@ -104,3 +131,7 @@ function openTree(): void {
     </BrowserFrame>
   </AppPage>
 </template>
+
+<style scoped>
+.panel-approval { margin-bottom: var(--space-3); }
+</style>

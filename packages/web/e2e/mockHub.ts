@@ -25,7 +25,7 @@ import {
   type ActorId, type NotificationReason, type Tokens, type UserEvent,
 } from '@harness/core';
 import { z } from 'zod';
-import { hubWebSpec, PageRequest } from '@harness/core';
+import { hubWebSpec, PageRequest, SystemName } from '@harness/core';
 import { logger, type Logger } from '@ayepi/log';
 import { MockAdmin } from './mockAdmin.ts';
 import { legacyOf, LlmPage, ModelCallPage, ResourcePage, RunPage, SessionPage } from './mockQuery.ts';
@@ -35,6 +35,9 @@ import { MockBuild3 } from './mockBuild3.ts';
 import { MockBuild4, readAccess, readActors } from './mockBuild4.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
+import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
+import { systemView } from '../src/admin/test/fakes.ts';
+import { instanceView } from '../src/admin/test/build2.ts';
 import { MOCK_FILES, MOCK_UPLOADS, MockResources } from './mockResources.ts';
 import { ContextGraphDouble } from '../src/context/test/graph.ts';
 
@@ -91,7 +94,7 @@ class MockState {
 }
 
 const SAMPLE: readonly Pick<z.input<typeof Notification>, 'reason' | 'title' | 'body' | 'link'>[] = [
-  { reason: 'approval-needed', title: 'Approve writing 3 files', body: 'fs/write wants to change src/app.ts, src/main.ts and README.md.', link: { approval: 'apr_1' } },
+  { reason: 'approval-needed', title: 'Approve writing 3 files', body: 'fs/write wants to change src/app.ts, src/main.ts and README.md.', link: { run: 'run_orders_write' } },
   { reason: 'turn-finished', title: 'Your refactor is done', body: 'Renamed 14 symbols across 6 files. All tests pass.', link: { session: 'ses_refactor' } },
   { reason: 'pairing-requested', title: 'A system wants to pair', body: 'notes (v0.3.1) on ws://192.168.50.20 asked to connect.', link: { pairing: 'par_notes' } },
   { reason: 'replied', title: 'Chat agent replied', body: 'Here is the summary of the meeting notes you asked for.', link: { session: 'ses_meeting' } },
@@ -118,6 +121,14 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const build2 = new MockBuild2(admin, chat, Date.now);
   const build4 = new MockBuild4(admin, owner);
   const graph = new ContextGraphDouble(owner(), Date.now);
+  // build 5: the database system, one instance (`shop`) with its tables and saved queries
+  const shopConfig = { value: SHOP_CONFIG, version: 3, setBy: owner(), setAt: Date.now() - 86_400_000 };
+  const DATABASE = SystemName.parse('database');
+  admin.systems.set(DATABASE, systemView({
+    name: 'database', description: 'Query and change SQL databases: every table is a type, every query asked for is kept as a fn.', status: 'connected', version: '0.1.0',
+    fns: 5, configType: DATABASE_CONFIG_TYPE, config: shopConfig, defaultInstance: 'shop',
+  }));
+  build2.instances.set(DATABASE, [instanceView({ system: 'database', instance: 'shop', description: 'Shop orders (Postgres)', version: '0.1.0', config: shopConfig })]);
   /** A system as the admin pages get it, with its instances. */
   const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name) });
   /** Tell every signed-in browser about a change (set once the app exists). */
@@ -188,6 +199,8 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       mentions: ({ data }) => chat.mentions(data.query),
       mentionHover: ({ data }) => chat.hover(data.target),
       waiting: ({ data }) => chat.waiting(data.session),
+      approvals: ({ data }) => chat.approvalsOf(data.runs),
+      contributions: () => [],
       approve: ({ data }) => chat.approve(data.approval, data.approve),
       presence: () => undefined,
       systems: () => admin.list().map(withInstances),
@@ -208,7 +221,11 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       stopSystem: ({ data }) => admin.process(data.system, 'stopped'),
       upgradeSystem: ({ data }) => admin.upgrade(data.system, data.version),
       reimport: () => admin.reimport(),
-      systemFns: ({ data }) => admin.fns(data.system),
+      systemFns: ({ data }) => (data.system === 'database' ? shopFns(Date.now()) : admin.fns(data.system)),
+      types: ({ data }) => {
+        const known = shopTypes(Date.now()).filter((type) => data.names.includes(type.name));
+        return { types: known, missing: data.names.filter((name) => !known.some((type) => type.name === name)) };
+      },
       systemLogs: ({ data }) => admin.output(data.system, data.limit),
       providers: () => admin.providers,
       configureProvider: ({ data }) => admin.saveProvider(data.provider),
@@ -305,8 +322,8 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   // the endpoints `real` answers; server() fails to compile unless these and the generated rest cover every endpoint once
   const realNames = [
     'setup', 'createAdmin', 'signIn', 'refresh', 'signOut', 'me', 'notifications', 'readNotifications',
-    'capabilities', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
-    'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'presence',
+    'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
+    'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
     'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',

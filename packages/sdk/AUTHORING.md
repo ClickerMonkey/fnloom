@@ -585,6 +585,13 @@ contract is built.
 
 The whole notes contract is in **Worked examples**. Keep `shared/` free of Node imports: other systems and the browser import it.
 
+**Registries, contributions and secrets.** `system(name, info)` also takes (`SystemInfo`): `registries`, the
+registries this system hosts by local name (`RegistryDef`: a description and the gin type of the data each entry
+draws); `contributes`, the entries this system adds to any registry (`{ registry: 'database/query-visuals', name:
+'map', label: 'Map' }`), whose components are in its client bundle; and `configSecrets`, the dot paths of its config's
+secret text fields (`connection.password`), which the hub seals and only `configure` carries in plain. A secret path
+that is not a text field of the config fails the manifest.
+
 ### Reference: the contract
 
 #### `system`
@@ -594,7 +601,7 @@ function · `import { system } from '@harness/sdk'`
 Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes.
 
 ```ts
-function system<const N extends string>(name: N, info: { description: string; }): SystemContract<N, EmptyContract>;
+function system<const N extends string>(name: N, info: SystemInfo): SystemContract<N, EmptyContract>;
 ```
 
 #### `SystemContract`
@@ -613,12 +620,20 @@ export const fs = system('fs', { description: 'Files and a shell.' })
 ```ts
 interface SystemContract<N extends string, C extends ContractShape> extends SystemRefs<N, C> {
   readonly description: string;
+  /** Registries it hosts, by local name. */
+  readonly registries: Readonly<Record<string, RegistryDef>>;
+  /** Entries it adds to registries, its own or another system's. */
+  readonly contributes: readonly ContributionDecl[];
+  /** The dot paths of its config's secret text fields. */
+  readonly configSecrets: readonly ConfigPath[];
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
   with<const P extends Partial<ContractShape>>(part: P | ((self: SystemRefs<N, C>) => P)): SystemContract<N, Merge<C, P>>;
 }
 ```
+
+Refers to: [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl).
 
 #### `SystemRefs`
 
@@ -745,6 +760,45 @@ A system's config type: what it needs before it can be used. The value is in eve
 
 ```ts
 type ConfigOf<C extends ContractShape> = Infer<C['config']>;
+```
+
+#### `SystemInfo`
+
+interface · `import { SystemInfo } from '@harness/sdk'`
+
+What `system()` takes besides its name.
+
+```ts
+interface SystemInfo {
+  description: string;
+  /**
+   * Registries this system hosts, by local name. Any system, this one included, adds entries from its client bundle
+   * (`client({ visuals })`) and lists them in `contributes`.
+   */
+  registries?: Record<string, RegistryDef>;
+  /** Entries this system adds to registries (`{ registry: 'database/query-visuals', name: 'map', label: 'Map' }`). */
+  contributes?: ContributionDecl[];
+  /**
+   * The dot paths of its config's secret text fields (`connection.password`). The hub seals them when the config is
+   * saved and only `configure` carries the plain value. Each must be a text field of the config type.
+   */
+  configSecrets?: ConfigPath[];
+}
+```
+
+Refers to: [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl).
+
+#### `RegistryDef`
+
+interface · `import { RegistryDef } from '@harness/sdk'`
+
+A registry a system hosts: what it is for and the data each entry is drawn with (a `ResultTable` for query visuals).
+
+```ts
+interface RegistryDef {
+  readonly description: string;
+  readonly data: GinType;
+}
 ```
 
 ## 4. Types with gin
@@ -1542,6 +1596,15 @@ buy: fn({
 }),
 ```
 
+**Approval.** `approval: {}` makes every run of a fn wait for the person's approval, whatever the policies say (use it
+for writes and schema changes). By default (`preview: true`) the hub first asks the implementation's
+`preview(args, ctx)` what the run would do and shows it on the approval card: return `{ preview: { title, parts,
+irreversible } }` (parts: `text`, `code`, `table`, `type-diff`), or `{ refused: 'why' }` to fail the run as invalid
+input. A preview gets a `PreviewCtx` (the system context, the waiting run and its person) and must not change
+anything. `remember: false` (the default) means the person can't say "don't ask again". A kind does the same from
+`describe` (`approval`) and `preview(payload, args, ctx)`. Serving a fn that asks for a preview without implementing
+one throws.
+
 ### Reference: fns
 
 #### `fn`
@@ -1603,6 +1666,12 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
    * `{ input: (ctx, args, state) => args.path === '' ? { ok: false, reason: 'No file is open.' } : { ok: true } }`.
    */
   validate?: FnValidators<NoInfer<A>, NoInfer<R>, NoInfer<St>>;
+  /**
+   * Every run waits for the person's approval, whatever the policies say (writes, schema changes). `preview`
+   * (default true) has the hub ask the implementation's `preview(args, ctx)` what the run would do first;
+   * `remember` (default false) lets the person say "don't ask again".
+   */
+  approval?: { preview?: boolean; remember?: boolean };
 }
 ```
 
@@ -1655,12 +1724,14 @@ interface FnDef<T extends FnTypes> {
   readonly examples: readonly FnExampleOf<T['args']>[];
   /** Its validation hooks, run in its system before and after a run. */
   readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
+  /** Every run waits for approval; with `preview`, its implementation's `preview` says what the run would do. */
+  readonly approval: FnApproval | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnLimits`](#core-fnlimits), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnLimits`](#core-fnlimits), [`Operations`](#core-operations).
 
 #### `AnyFnDef`
 
@@ -1793,6 +1864,22 @@ interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
 ```
 
 Refers to: [`RunInfo`](#core-runinfo).
+
+#### `PreviewCtx`
+
+interface · `import { PreviewCtx } from '@harness/sdk'`
+
+What a `preview` gets: the system context, the run waiting for approval and whom it is for. A preview must not
+change anything: it reads what the run would touch and says so.
+
+```ts
+interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+  readonly run: RunId;
+  readonly user: UserInfo;
+}
+```
+
+Refers to: [`RunId`](#core-runid), [`UserInfo`](#core-userinfo).
 
 #### `DEFAULT_STATUS`
 
@@ -2403,7 +2490,140 @@ tidy: {
 },
 ```
 
+**Results with rows.** A fn whose result is rows gives the rows to the person (an attachment holding a
+`ResultTable`) and the model a `ResultBlock`: `resultBlock(table, { fn: { name, signature }, args })` from
+`@harness/sdk/server` says what the person sees and that the model shouldn't repeat it, lists the columns, the row
+count, the total when counted, whether there are more rows with the exact call for the next page (`nextPage`), the
+sort, and a `sample` of the first rows within `HARNESS_RESULT_SAMPLE_TOKENS` (long text cut at
+`HARNESS_RESULT_CELL_CHARS`), with a `sampleNote` saying how much is there. `ResultBlockType` is its gin form for
+`returns`.
+
 ### Reference: outcomes: done, invalid input, failed, paused, cancelled, undo
+
+#### `ResultBlock`
+
+const, type · `import { ResultBlock } from '@harness/sdk'`
+
+The result block: everything the model needs to talk about rows the person is shown.
+
+```ts
+type ResultBlock = {
+  shown: string;
+  columns: {
+    name: string;
+    nullable: boolean;
+    kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+  }[];
+  rowCount: number;
+  truncated: boolean;
+  sort: {
+    column: string;
+    dir: "asc" | "desc";
+  }[];
+  sample: Record<string, z.core.util.JSONType>[];
+  fn: {
+    name: string;
+    signature: string;
+  };
+  total?: number | undefined;
+  nextPage?: {
+    offset: number;
+    limit: number;
+    call: string;
+  } | undefined;
+  sampleNote?: string | undefined;
+};
+```
+
+Refers to: [`Json`](#core-json), [`ResultSort`](#core-resultsort).
+
+#### `ResultBlockType`
+
+const · `import { ResultBlockType } from '@harness/sdk'`
+
+The result block as a gin type, for a fn's `returns`.
+
+```ts
+const ResultBlockType = ginAs(ResultBlock);
+```
+
+#### `ResultColumnInfo`
+
+const, type · `import { ResultColumnInfo } from '@harness/sdk'`
+
+A result column as the model reads it.
+
+```ts
+type ResultColumnInfo = {
+  name: string;
+  nullable: boolean;
+  kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+};
+```
+
+Refers to: [`ResultColumn`](#core-resultcolumn).
+
+#### `ResultFn`
+
+const, type · `import { ResultFn } from '@harness/sdk'`
+
+A fn and how to call it again.
+
+```ts
+type ResultFn = {
+  name: string;
+  signature: string;
+};
+```
+
+#### `NextPage`
+
+const, type · `import { NextPage } from '@harness/sdk'`
+
+How to read the next rows.
+
+```ts
+type NextPage = {
+  offset: number;
+  limit: number;
+  call: string;
+};
+```
+
+#### `resultBlock`
+
+function · `import { resultBlock } from '@harness/sdk/server'`
+
+The result block for rows shown to the person.
+
+```ts
+function resultBlock(table: ResultTable, options: ResultBlockOptions): ResultBlock;
+```
+
+Refers to: [`ResultTable`](#core-resulttable).
+
+#### `ResultBlockOptions`
+
+interface · `import { ResultBlockOptions } from '@harness/sdk/server'`
+
+What `resultBlock` needs besides the rows.
+
+```ts
+interface ResultBlockOptions {
+  /** The fn that read the rows, and its signature, to call it again. */
+  readonly fn: ResultFn;
+  /** The args it was called with; the next page's call is these with the next `offset` and `limit`. */
+  readonly args?: Readonly<Record<string, Json>>;
+  /** What the person sees the rows as (default `a table`), for the sentence the model reads. */
+  readonly visual?: string;
+  /** The sample's token budget. Default: `HARNESS_RESULT_SAMPLE_TOKENS`. */
+  readonly budget?: number;
+  /** The most characters of one text cell in the sample. Default: `HARNESS_RESULT_CELL_CHARS`. */
+  readonly cellChars?: number;
+}
+```
+
+Refers to: [`Json`](#core-json).
 
 #### `Outcome`
 
@@ -2679,10 +2899,12 @@ interface KindImpl<P, Cfg = unknown> {
   describe(payload: P, ctx: KindCheckCtx): Promise<KindDescription>;
   run(payload: P, args: Json, ctx: KindRunCtx<Cfg>): Promise<Outcome<UntypedFn>>;
   undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
+  /** What a run of a payload's fn would do, for a fn `describe` gave an `approval` with a preview (a write query). */
+  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
 }
 ```
 
-Refers to: [`Json`](#core-json), [`KindDescription`](#core-kinddescription), [`UndoOutcome`](#core-undooutcome).
+Refers to: [`Json`](#core-json), [`KindDescription`](#core-kinddescription), [`PreviewAnswer`](#core-previewanswer), [`UndoOutcome`](#core-undooutcome).
 
 #### `KindCheckCtx`
 
@@ -4191,6 +4413,7 @@ This is the hub contract as the SDK declares it now:
         title?: text,
         subtitle?: text
       },
+      instance?: text,
       name: text,
       system: text,
       references: list<text>,
@@ -4869,7 +5092,7 @@ const · `import { ChatModeType } from '@harness/sdk'`
 A chat mode's settings, as a gin type: core's `ChatModeConfig` input (defaults may be left out).
 
 ```ts
-const ChatModeType: GinType<{ type: "tools"; } | { type: "static"; protocol?: "text" | "auto" | "native" | undefined; placement?: "system-end" | "tail" | undefined; loadDetail?: "listed" | "signature" | "full" | undefined; }>;
+const ChatModeType: GinType<{ type: "tools"; } | { type: "static"; protocol?: "text" | "auto" | "native" | undefined; placement?: "system-end" | "tail" | undefined; loadDetail?: "signature" | "listed" | "full" | undefined; }>;
 ```
 
 Refers to: [`ChatModeConfig`](#core-chatmodeconfig).
@@ -5156,15 +5379,16 @@ Refers to: [`ConnectDecl`](#core-connectdecl).
 
 type · `import { FnImpl } from '@harness/sdk'`
 
-The implementation of a native fn. `undo` is required exactly when the fn declares an undo type.
+The implementation of a native fn. `undo` is required exactly when the fn declares an undo type; `preview` when it
+declares `approval` with a preview (checked when the system serves): what a run would do, or why it can't go ahead.
 
 ```ts
 type FnImpl<T extends FnTypes, Cfg = unknown> =
-{ run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>> } &
+{ run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>; preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer> } &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
-Refers to: [`UndoOutcome`](#core-undooutcome).
+Refers to: [`PreviewAnswer`](#core-previewanswer), [`UndoOutcome`](#core-undooutcome).
 
 #### `ConnectImpl`
 
@@ -5541,6 +5765,14 @@ name and current config, `llm`, `resources`, `types`, `log`, a `signal`, and the
 actions and dynamic context also get who is asking (`AskerCtx`: `session`, `user`, `time`); actions also get the run
 services, the delivery and session state. An undo gets an `UndoCtx`: config, run info, signal and the services.
 
+**Proposed runs and the decision model.** `ctx.propose(fn, args, { preview, approver?, key? })` (`Proposals`, on run
+and system contexts) adds a run of one of this system's own fns that waits for approval, with the preview already
+worked out: from a run it is that run's child and waits for its person (`approver: 'person'`), from anywhere else
+(a schema change found at start) for an admin (`'admins'`). Pass a fn ref for typed args, or a runtime fn's local name
+with JSON args. The same `key` (by default a hash of the fn, the args and the proposing run) never makes a second run.
+`ctx.decide(question, candidates, { max })` (`Decisions`, runs only) asks the admin's decision model to pick
+candidates to reuse (each `{ id, text, score }`); `by: 'off'` or `'failed'` means go by the scores yourself.
+
 ### Reference: the run context and services
 
 #### `FnCtx`
@@ -5551,7 +5783,7 @@ What a run gets besides its args. Typed by its fn: only its deps can be called, 
 progress steps can be reported, and the outcome helpers take its result, undo and resume types.
 
 ```ts
-interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
+interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
@@ -5649,7 +5881,7 @@ interface · `import { SystemCtx } from '@harness/sdk'`
 What hooks, mentions, actions, dynamic context, events and lifecycle events get.
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace {
+interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -5881,6 +6113,76 @@ interface Log {
 ```
 
 Refers to: [`Json`](#core-json).
+
+#### `Proposals`
+
+interface · `import { Proposals } from '@harness/sdk'`
+
+Adding a run that waits for approval. The run is of one of this system's own fns; the hub makes it, shows the
+preview to its approver, and runs it like any queued run once approved. A decline settles it `cancelled` with the
+reason. Inside a run the new run is that run's child, in its turn and session.
+
+```ts
+interface Proposals {
+  /** Propose a run of a fn of this system's contract, with typed args. */
+  propose<A>(fn: FnRef<QualifiedName, A, unknown, Handlers>, args: NoInfer<A>, options: ProposeOptions): Promise<ProposedRun>;
+  /** Propose a run of a fn this system added at runtime, by local name, with its args as JSON. */
+  propose(fn: string, args: Json, options: ProposeOptions): Promise<ProposedRun>;
+}
+```
+
+Refers to: [`Json`](#core-json), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname).
+
+#### `ProposeOptions`
+
+interface · `import { ProposeOptions } from '@harness/sdk'`
+
+What a proposed run waits on.
+
+```ts
+interface ProposeOptions {
+  /** What the run would do, as whoever approves it sees it: the SQL, the rows it touches, a type diff. */
+  readonly preview: ApprovalPreview;
+  /**
+   * Who answers: the person of the run proposing it (the default inside a run), or an admin (the default, and the
+   * only choice, outside a run, such as a schema change found at start).
+   */
+  readonly approver?: ProposalApprover;
+  /** Makes a retried proposal the same run. Default: a hash of the fn, its args and the proposing run. */
+  readonly key?: string;
+}
+```
+
+Refers to: [`ApprovalPreview`](#core-approvalpreview), [`ProposalApprover`](#core-proposalapprover).
+
+#### `Decisions`
+
+interface · `import { Decisions } from '@harness/sdk'`
+
+Asking the admin's decision model to choose: reuse one of the candidates (a saved query, a saved form) or make
+something new. The answer is `off` when no decision model is set and `failed` when its call failed; go by the
+candidates' own scores then. The call is a model call of this run.
+
+```ts
+interface Decisions {
+  decide(question: string, candidates: readonly DecideCandidate[], options?: DecideOptions): Promise<DecideAnswer>;
+}
+```
+
+Refers to: [`DecideAnswer`](#core-decideanswer), [`DecideCandidate`](#core-decidecandidate).
+
+#### `DecideOptions`
+
+interface · `import { DecideOptions } from '@harness/sdk'`
+
+What `decide` takes besides the question and candidates.
+
+```ts
+interface DecideOptions {
+  /** The most it may pick (default 1: the one to reuse, or none). */
+  readonly max?: number;
+}
+```
 
 #### `harnessAi`
 
@@ -6479,6 +6781,14 @@ files and CSS included, keeping `vue` and `@harness/sdk` external so renderers s
 as `serve`'s `client` option and the system uploads the bundle when it connects; `harness system build` does the same
 for a packaged system.
 
+**Visuals for a registry.** A system adds components to a registry (its own or another system's, such as
+`database/query-visuals`) with `client(contract, { visuals: { 'database/query-visuals': { pie: { match, component } } } })`
+(`VisualEntry`). `match(table)` gets the `ResultTable` and answers a `VisualFit`: whether it can draw it and a score
+from 0 to 1 for how much of the data it shows well (the table scores 0, so any other fit beats it). Keep it cheap and
+pure. The component gets `VisualView` (`table`) and `system`. Each visual must be listed in the contract's
+`contributes`, or `client()` throws; the chat's runtime lists the visuals that fit (`visuals(registry, table)`), best
+first, and leaves out one whose `match` throws.
+
 ### Reference: the client: renderers, inputs and resource views
 
 #### `client`
@@ -6513,8 +6823,15 @@ interface ClientRenderers<C extends ContractShape> {
    * component replaces the hub's preview; `{ component, mode: 'tab', label }` adds a mode beside it.
    */
   resources?: Readonly<Record<string, BareViewer<Renderer<ResourceView & WithSystem<C>>> | ResourceViewerEntry<Renderer<ResourceView & WithSystem<C>>>>>;
+  /**
+   * Visuals this system adds to registries, by registry (`database/query-visuals`) and name. Each must be listed in
+   * the contract's `contributes`, which is how the hub and the web app know to load this bundle for that registry.
+   */
+  visuals?: Readonly<Record<QualifiedName, Readonly<Record<string, VisualEntry<C>>>>>;
 }
 ```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `ClientModule`
 
@@ -7025,6 +7342,37 @@ interface InputMount extends Mount<'input'> {
 
 Refers to: [`Json`](#core-json).
 
+#### `VisualView`
+
+interface · `import { VisualView } from '@harness/sdk'`
+
+The props of a visual (an entry of a registry such as `database/query-visuals`): the rows to draw.
+
+```ts
+interface VisualView {
+  table: ResultTable;
+}
+```
+
+Refers to: [`ResultTable`](#core-resulttable).
+
+#### `VisualEntry`
+
+interface · `import { VisualEntry } from '@harness/sdk'`
+
+One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
+score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
+every result the person sees.
+
+```ts
+interface VisualEntry<C extends ContractShape> {
+  match(table: ResultTable): VisualFit;
+  component: Renderer<VisualView & WithSystem<C>>;
+}
+```
+
+Refers to: [`ResultTable`](#core-resulttable), [`VisualFit`](#core-visualfit).
+
 ## 24. Packaging: system.json, build, pack, install
 
 ### `system.json`
@@ -7401,6 +7749,11 @@ compile-time tests are the source of **Common mistakes**.
 **Before you finish:** `npm run typecheck` (every project, the new system included once it is in the root
 `tsconfig.json` references), `npx vitest run systems/<name>`, and `npm run lint`.
 
+A context you build by hand (for a unit test of a lifecycle hook or a fn without the fake hub) needs `ctx.propose`
+and `ctx.decide`: spread `NO_ASKS` beside `TEST_PLACE`. Proposing then fails and the decision model answers `off`;
+`FakeHub` records proposals (`hub.proposals`), answers `decide` with `hub.onDecide`, and asks a system for a preview
+with `hub.preview(...)`.
+
 ### Reference: testing
 
 #### `FakeHub`
@@ -7440,6 +7793,10 @@ class FakeHub {
   readonly models: ModelForward[];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
   readonly pairingInfos: PairingInfo[];
+  /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
+  readonly proposals: Array<HubBody<'propose'> & ProposedRun>;
+  /** What systems asked the decision model (`decide`). */
+  readonly decisions: Array<HubBody<'decide'>>;
   /** Paired keys by system name. */
   readonly keys: Map<string, string>;
   /** Session state by owner (`run:<id>` / `delivery:<id>`). */
@@ -7463,6 +7820,8 @@ class FakeHub {
   * transcript. Each answer has a fresh `ModelCall` id and a small cost.
   */
   onModel: (forward: ModelForward) => Promise<ModelForwardResult>;
+  /** Answers `ctx.decide`. Default: `off` (no decision model), so the system goes by its scores. */
+  onDecide: (request: HubBody<'decide'>) => Promise<DecideAnswer>;
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }>;
   constructor(options: FakeHubOptions = {});
@@ -7496,6 +7855,8 @@ class FakeHub {
   connectFinish(body: SystemBody<"connectFinish">): Promise<ConnectResult>;
   /** A person disconnected (`disconnect`). */
   disconnect(body: SystemBody<"disconnect">): Promise<void>;
+  /** Ask the connected system what a run would do (`preview`), as the hub does before an approval. */
+  preview(body: SystemBody<"preview">): Promise<PreviewAnswer>;
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<OutcomeWire>;
   /** Store content (as an upload would) and return its ref. */
@@ -7503,7 +7864,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -7572,6 +7933,17 @@ writes data makes its own temporary folder and spreads it over this.
 
 ```ts
 const TEST_PLACE: SystemPlace;
+```
+
+#### `NO_ASKS`
+
+const · `import { NO_ASKS } from '@harness/sdk/server/testing'`
+
+`ctx.propose` and `ctx.decide` for a hand-made test context that has no hub: proposing fails (the test didn't
+expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
+
+```ts
+const NO_ASKS: Proposals & Decisions;
 ```
 
 #### `HubBody`
@@ -10452,6 +10824,60 @@ type AllowedOperations = {
 };
 ```
 
+#### <a id="core-approvalpreview"></a>`ApprovalPreview`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+What a run would do, worked out before it is approved.
+
+```ts
+type ApprovalPreview = {
+  title: string;
+  parts: ({
+    type: "text";
+    text: string;
+  } | {
+    type: "code";
+    language: string;
+    code: string;
+    title?: string | undefined;
+  } | {
+    type: "table";
+    title: string;
+    table: {
+      columns: {
+        name: string;
+        kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+        nullable: boolean;
+        label?: string | undefined;
+        type?: TypeDef<any> | undefined;
+        ref?: `${string}/${string}` | undefined;
+      }[];
+      rows: z.core.util.JSONType[][];
+      offset: number;
+      truncated: boolean;
+      sort: {
+        column: string;
+        dir: "asc" | "desc";
+      }[];
+      limit?: number | undefined;
+      total?: number | undefined;
+    };
+  } | {
+    type: "type-diff";
+    name: string;
+    changes: string[];
+    breaks: {
+      fn: string;
+      why: string;
+    }[];
+    before?: TypeDef<any> | undefined;
+    after?: TypeDef<any> | undefined;
+  })[];
+  irreversible: boolean;
+};
+```
+
 #### <a id="core-audience"></a>`Audience`
 
 const, type · declared in `packages/core/src/primitives.ts`
@@ -10502,8 +10928,18 @@ type ChatModeConfig = {
   type: "static";
   protocol: "text" | "auto" | "native";
   placement: "system-end" | "tail";
-  loadDetail: "listed" | "signature" | "full";
+  loadDetail: "signature" | "listed" | "full";
 };
+```
+
+#### <a id="core-configpath"></a>`ConfigPath`
+
+const, type · declared in `packages/core/src/config-secrets.ts`
+
+A config field path: object keys joined with dots (`connection.password`). Array items are not addressed.
+
+```ts
+type ConfigPath = string;
 ```
 
 #### <a id="core-configvalue"></a>`ConfigValue`
@@ -10670,6 +11106,61 @@ type ContextorConfig = {
 };
 ```
 
+#### <a id="core-contributiondecl"></a>`ContributionDecl`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+One entry a system adds to a registry (`Manifest.contributes`). Its component and match logic are in the system's
+client bundle, under the same registry and name; this declaration tells the hub and the web app which bundles to load.
+
+```ts
+type ContributionDecl = {
+  registry: `${string}/${string}`;
+  name: string;
+  label: string;
+  description?: string | undefined;
+  icon?: string | undefined;
+};
+```
+
+#### <a id="core-decideanswer"></a>`DecideAnswer`
+
+const, type · declared in `packages/core/src/decisions.ts`
+
+The answer. `decision`: the model's picks, best first (none means make something new), with its reasons.
+`off`: no decision model is set, so go by the scores. `failed`: it was set but its call failed, so go by the scores.
+
+```ts
+type DecideAnswer = {
+  by: "decision";
+  picked: {
+    id: string;
+    why?: string | undefined;
+  }[];
+  note?: string | undefined;
+  call?: string | undefined;
+} | {
+  by: "off";
+} | {
+  by: "failed";
+  message: string;
+};
+```
+
+#### <a id="core-decidecandidate"></a>`DecideCandidate`
+
+const, type · declared in `packages/core/src/decisions.ts`
+
+One thing the model may pick: the system's own id for it, what it is in words, and the system's score for it.
+
+```ts
+type DecideCandidate = {
+  id: string;
+  text: string;
+  score: number;
+};
+```
+
 #### <a id="core-declarablerelation"></a>`DeclarableRelation`
 
 const, type · declared in `packages/core/src/context-graph.ts`
@@ -10701,7 +11192,7 @@ type DeliveryStatus = "queued" | "done" | "failed" | "expired" | "delivered";
 const, type · declared in `packages/core/src/modes.ts`
 
 ```ts
-type Detail = "listed" | "signature" | "full";
+type Detail = "signature" | "listed" | "full";
 ```
 
 #### <a id="core-display"></a>`Display`
@@ -10731,6 +11222,20 @@ const, type · declared in `packages/core/src/run.ts`
 
 ```ts
 type ErrorClass = "retry" | "caller" | "fatal";
+```
+
+#### <a id="core-fnapproval"></a>`FnApproval`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+A fn whose every run waits for approval (`FnDecl.approval`). `preview`: the hub asks the system for a preview first.
+`remember`: whether the person may say "don't ask again" for it (never for writes and schema changes).
+
+```ts
+type FnApproval = {
+  preview: boolean;
+  remember: boolean;
+};
 ```
 
 #### <a id="core-fnerror"></a>`FnError`
@@ -10923,7 +11428,7 @@ problems back to the agent and the chat shows the run softly as "Retried". A rea
 
 ```ts
 type InvalidInput = {
-  source: "result" | "schema" | "unavailable" | "json" | "validation";
+  source: "json" | "result" | "schema" | "unavailable" | "validation";
   problems: {
     path: string;
     message: string;
@@ -11014,6 +11519,10 @@ type KindDescription = {
     cost?: number | undefined;
   } | undefined;
   display?: "message" | "card" | "hidden" | undefined;
+  approval?: {
+    preview: boolean;
+    remember: boolean;
+  } | undefined;
 };
 ```
 
@@ -11172,7 +11681,7 @@ type LlmForwardChunk = {
 } | {
   type: "error";
   message: string;
-  kind: "model" | "limit" | "provider" | "tool";
+  kind: "limit" | "model" | "provider" | "tool";
 };
 ```
 
@@ -11260,6 +11769,7 @@ type Manifest = {
       subtitle?: string | undefined;
     };
     methods: string[];
+    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
   }[];
   settings: {
     name: string;
@@ -11365,6 +11875,16 @@ type Manifest = {
     validate?: {
       input: boolean;
       output: boolean;
+    } | undefined;
+    approval?: {
+      preview: boolean;
+      remember: boolean;
+    } | undefined;
+    routing?: {
+      to: "instance";
+      instance: string & z.core.$brand<"InstanceName">;
+    } | {
+      to: "any";
     } | undefined;
   }[];
   context: {
@@ -11493,6 +12013,19 @@ type Manifest = {
     }>;
     icon?: string | undefined;
   } | undefined;
+  registries?: {
+    name: string;
+    description: string;
+    data: TypeDef<any>;
+  }[] | undefined;
+  contributes?: {
+    registry: `${string}/${string}`;
+    name: string;
+    label: string;
+    description?: string | undefined;
+    icon?: string | undefined;
+  }[] | undefined;
+  configSecrets?: string[] | undefined;
 };
 ```
 
@@ -11519,6 +12052,7 @@ type ManifestPatch = {
         subtitle?: string | undefined;
       };
       methods: string[];
+      instance?: (string & z.core.$brand<"InstanceName">) | undefined;
     }[] | undefined;
     settings?: {
       name: string;
@@ -11624,6 +12158,16 @@ type ManifestPatch = {
       validate?: {
         input: boolean;
         output: boolean;
+      } | undefined;
+      approval?: {
+        preview: boolean;
+        remember: boolean;
+      } | undefined;
+      routing?: {
+        to: "instance";
+        instance: string & z.core.$brand<"InstanceName">;
+      } | {
+        to: "any";
       } | undefined;
     }[] | undefined;
     context?: {
@@ -12063,12 +12607,12 @@ type OutcomeWire = {
   cost?: number | undefined;
   expose?: {
     fn: `${string}/${string}`;
-    detail: "listed" | "signature" | "full";
+    detail: "signature" | "listed" | "full";
   }[] | undefined;
 } | {
   status: "invalid-input";
   invalid: {
-    source: "result" | "schema" | "unavailable" | "json" | "validation";
+    source: "json" | "result" | "schema" | "unavailable" | "validation";
     problems: {
       path: string;
       message: string;
@@ -12146,6 +12690,65 @@ type PairingInfo = {
   description: string;
   instance: string & z.core.$brand<"InstanceName">;
   configType?: TypeDef<any> | undefined;
+  configSecrets?: string[] | undefined;
+};
+```
+
+#### <a id="core-previewanswer"></a>`PreviewAnswer`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+The system's answer: the preview, or why the run can't go ahead at all (it then fails as invalid input).
+
+```ts
+type PreviewAnswer = {
+  preview: {
+    title: string;
+    parts: ({
+      type: "text";
+      text: string;
+    } | {
+      type: "code";
+      language: string;
+      code: string;
+      title?: string | undefined;
+    } | {
+      type: "table";
+      title: string;
+      table: {
+        columns: {
+          name: string;
+          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+          nullable: boolean;
+          label?: string | undefined;
+          type?: TypeDef<any> | undefined;
+          ref?: `${string}/${string}` | undefined;
+        }[];
+        rows: z.core.util.JSONType[][];
+        offset: number;
+        truncated: boolean;
+        sort: {
+          column: string;
+          dir: "asc" | "desc";
+        }[];
+        limit?: number | undefined;
+        total?: number | undefined;
+      };
+    } | {
+      type: "type-diff";
+      name: string;
+      changes: string[];
+      breaks: {
+        fn: string;
+        why: string;
+      }[];
+      before?: TypeDef<any> | undefined;
+      after?: TypeDef<any> | undefined;
+    })[];
+    irreversible: boolean;
+  };
+} | {
+  refused: string;
 };
 ```
 
@@ -12163,6 +12766,29 @@ type ProgressDecl = {
 } | {
   type: "steps";
   steps: Record<string, string>;
+};
+```
+
+#### <a id="core-proposalapprover"></a>`ProposalApprover`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Who answers a proposed run: the person of the run that proposed it, or an admin.
+
+```ts
+type ProposalApprover = "person" | "admins";
+```
+
+#### <a id="core-proposedrun"></a>`ProposedRun`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+The run the hub made, waiting, and its approval.
+
+```ts
+type ProposedRun = {
+  run: string;
+  approval: string;
 };
 ```
 
@@ -12366,6 +12992,65 @@ An absolute URI. A system serves the URIs under its roots.
 
 ```ts
 type ResourceUri = `${string}://${string}`;
+```
+
+#### <a id="core-resultcolumn"></a>`ResultColumn`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+One column of a result: its name, label, kind, and its gin type when the source knows a more exact one.
+
+```ts
+type ResultColumn = {
+  name: string;
+  kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+  nullable: boolean;
+  label?: string | undefined;
+  type?: TypeDef<any> | undefined;
+  ref?: `${string}/${string}` | undefined;
+};
+```
+
+#### <a id="core-resultsort"></a>`ResultSort`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+A sort a result was read with.
+
+```ts
+type ResultSort = {
+  column: string;
+  dir: "asc" | "desc";
+};
+```
+
+#### <a id="core-resulttable"></a>`ResultTable`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+Rows as the person sees them: columns once, then each row as an array in column order. `total` is there when the
+source counted it; `truncated` says more rows exist past `offset + rows.length`.
+
+```ts
+type ResultTable = {
+  columns: {
+    name: string;
+    kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+    nullable: boolean;
+    label?: string | undefined;
+    type?: TypeDef<any> | undefined;
+    ref?: `${string}/${string}` | undefined;
+  }[];
+  rows: z.core.util.JSONType[][];
+  offset: number;
+  truncated: boolean;
+  sort: {
+    column: string;
+    dir: "asc" | "desc";
+  }[];
+  limit?: number | undefined;
+  total?: number | undefined;
+};
 ```
 
 #### <a id="core-runconnection"></a>`RunConnection`
@@ -12887,6 +13572,7 @@ type TypeDefinitions = {
     system: string & z.core.$brand<"SystemName">;
     references: `${string}/${string}`[];
     updatedAt: number;
+    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
   }[];
   missing: `${string}/${string}`[];
 };
@@ -12960,5 +13646,19 @@ type UserInfo = {
   }[];
   timeZone: string;
   locale: string;
+};
+```
+
+#### <a id="core-visualfit"></a>`VisualFit`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+What a visual's match logic answers for some data: whether it can draw it at all, and how much of it it shows well,
+from 0 (shows it, poorly) to 1 (shows all of it as well as it can be shown). The table always fits with score 0.
+
+```ts
+type VisualFit = {
+  fits: boolean;
+  score: number;
 };
 ```

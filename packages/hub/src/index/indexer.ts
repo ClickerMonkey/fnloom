@@ -48,7 +48,7 @@ export interface IndexerOptions {
   readonly maxText: number;
   /** The most resources one crawl of a root looks at. */
   readonly maxCrawl: number;
-  /** Rows embedded and saved together (enough to keep the background lane's batches busy). */
+  /** Rows embedded and saved together (`HARNESS_INDEX_EMBED_BATCH`): one embedder call's worth per chunk at most. */
   readonly chunk: number;
   /** How long after a failed embedding a backfill is tried again, at first and at most (it doubles between). */
   readonly retry: { readonly first: number; readonly most: number };
@@ -100,6 +100,8 @@ export function parseSectionIndexKey(key: string): { uri: string; section: strin
 export class StoreIndexer implements Indexer {
   readonly #options: IndexerOptions;
   readonly #serial = new Serial();
+  /** Embedding, one call of `#embed` at a time. */
+  readonly #embedding = new Serial();
   #reader: IndexReader | undefined;
   /** The backfill waiting to try again after a failed embedding, and how long the next wait is. */
   #retry: { timer: NodeJS.Timeout | undefined; wait: number };
@@ -277,11 +279,17 @@ export class StoreIndexer implements Indexer {
   }
 
   /**
-   * Embed rows with the document embedder, if it is connected, a chunk at a time: each chunk's vectors are saved
-   * (and its rows marked embedded) as it finishes. A row given a vector of the wrong size is left out. A failure keeps
-   * the chunks already saved, leaves the rest, and tries a backfill again later.
+   * Embed rows with the document embedder, if it is connected, a bounded chunk at a time (`chunk`,
+   * `HARNESS_INDEX_EMBED_BATCH`): each chunk's vectors are saved (and its rows marked embedded) as it lands. Embedding
+   * runs one call of this at a time, so a catch-up and the upserts beside it never flood the embedder, and a row
+   * embedded meanwhile is skipped. A row given a vector of the wrong size is left out. A failure keeps the chunks
+   * already saved, leaves the rest (the next backfill starts from the first unsaved row), and backs off.
    */
-  async #embed(rows: readonly IndexEntry[]): Promise<void> {
+  #embed(rows: readonly IndexEntry[]): Promise<void> {
+    return this.#embedding.run(() => this.#embedNow(rows));
+  }
+
+  async #embedNow(rows: readonly IndexEntry[]): Promise<void> {
     const { store, embedders, batcher, document, log, chunk } = this.#options;
     const active = embedders.active();
     if (active === undefined || rows.length === 0) { return; }
@@ -290,7 +298,9 @@ export class StoreIndexer implements Indexer {
     try {
       await this.#sized(dimensions);
       for (; done < rows.length; done += chunk) {
-        const part = rows.slice(done, done + chunk);
+        const part = (await Promise.all(rows.slice(done, done + chunk).map((r) => store.table('index').get(r))))
+          .filter((r): r is IndexEntry => r !== undefined && r.vectorHash !== r.hash);
+        if (part.length === 0) { continue; }
         const vectors = await batcher.embed(name, part.map((r) => r.text), 'background');
         const good = part.flatMap((row, i) => {
           const vector = vectors[i];

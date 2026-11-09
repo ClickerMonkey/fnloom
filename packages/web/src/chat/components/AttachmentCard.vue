@@ -1,12 +1,15 @@
 <script setup lang="ts">
 /**
- * A typed attachment a fn added to an answer: drawn by its system's attachment renderer (the fs diff view), or by
- * default as its title and a short look at its data.
+ * A typed attachment a fn added to an answer: drawn by its system's attachment renderer (the fs diff view); when it has
+ * none and its data is a result table (a query's rows), by the result view with its system's query visuals
+ * (`<system>/query-visuals`); else as its title and a short look at its data.
  */
-import type { Json, QualifiedName } from '@harness/core';
+import { QualifiedName, ResultTable, type Json } from '@harness/core';
 import { computed, ref } from 'vue';
 import { UiIcon } from '../../ui/index.ts';
-import { fnLabel } from '../logic/labels.ts';
+import ResultBlock from '../../components/results/ResultBlock.vue';
+import { QUERY_VISUALS } from '../../components/results/visuals.ts';
+import { fnLabel, systemOf } from '../logic/labels.ts';
 import RendererHost from './RendererHost.vue';
 import type { RenderView } from './types.ts';
 
@@ -15,10 +18,14 @@ const props = withDefaults(defineProps<{
   attachment: QualifiedName;
   data: Json;
   view?: RenderView<'attachment'> | undefined;
-}>(), { view: undefined });
+  /** Where a result view keeps the visual the person picked (the message part's key). */
+  viewKey?: string;
+}>(), { view: undefined, viewKey: '' });
 
 const open = ref(false);
 const peek = computed(() => JSON.stringify(props.data, null, 2));
+const table = computed(() => { const parsed = ResultTable.safeParse(props.data); return parsed.success ? parsed.data : undefined; });
+const registry = computed(() => QualifiedName.parse(`${systemOf(props.attachment)}/${QUERY_VISUALS}`));
 </script>
 
 <template>
@@ -29,6 +36,7 @@ const peek = computed(() => JSON.stringify(props.data, null, 2));
       <span class="kind">{{ fnLabel(attachment) }}</span>
     </header>
     <RendererHost v-if="view" :view="view" :label="title" @inspect="open = true" />
+    <ResultBlock v-else-if="table" :table="table" :title="title" :registry="registry" :view-key="viewKey" />
     <template v-else>
       <pre class="peek" :class="{ open }">{{ peek }}</pre>
       <button v-if="peek.split('\n').length > 6" type="button" class="toggle" @click="open = !open">{{ open ? 'Show less' : 'Show all' }}</button>

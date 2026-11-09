@@ -3,7 +3,8 @@
  * One fn's page (`/admin/systems/:name/fns/:fn`): what it is and whether it can be used now, its metrics over a period
  * in the URL (`?days=7|30|90`) as a strip (runs, retried input apart from failures, typical and p95 time, waiting,
  * cost, tokens), its runs and its typical time per day, and its latest runs (each opens in the runs browser, with a
- * link to all of them). Live: a settled run updates it.
+ * link to all of them), and for a fn of a kind (a database's saved query) what it runs. Live: a settled run updates it.
+ * A fn routed to one fleet instance leads back to that instance.
  */
 import AccessControl from '../../components/access/AccessControl.vue';
 import { QualifiedName } from '@harness/core';
@@ -18,7 +19,7 @@ import { fnLabel } from '../../chat/logic/labels.ts';
 import { argSummary, runElapsed, STATUS_LOOK } from '../../chat/logic/runs.ts';
 import RunDot from '../../chat/components/RunDot.vue';
 import { useStores } from '../../state/stores.ts';
-import { UiBadge, UiButton, UiCard, UiEmpty, UiIcon, UiSegmented, type SegmentOption } from '../../ui/index.ts';
+import { UiBadge, UiButton, UiCard, UiCodeBlock, UiEmpty, UiIcon, UiSegmented, type SegmentOption } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import BrowserRow from '../components/BrowserRow.vue';
 import DayBars from '../components/DayBars.vue';
@@ -48,6 +49,12 @@ const now = useNow(30_000);
 const recent = computed(() => store.recent.value.value ?? []);
 const dayWindow = computed(() => ({ period: period.value, now: now.value }));
 const runBars = computed(() => dayBars(store.daily.value.value ?? [], 'runs', dayWindow.value));
+const back = computed(() => {
+  const r = record.value;
+  if (r === undefined) { return undefined; }
+  return r.decl.routing?.to === 'instance' ? links.instance(r.system, r.decl.routing.instance, 'fns') : links.system(r.system, 'fns');
+});
+const payload = computed(() => (record.value?.decl.payload === undefined ? '' : JSON.stringify(record.value.decl.payload, null, 2)));
 const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time', dayWindow.value));
 
 watch([name, period], ([fn, d]) => { if (fn !== undefined) { void store.open(fn, d); } }, { immediate: true });
@@ -57,8 +64,8 @@ onBeforeUnmount(() => { store.close(); });
 <template>
   <AppPage :title="name ? fnLabel(name) : 'Fn'" :description="record?.decl.description ?? ''" keep-title>
     <template #crumb>
-      <RouterLink v-if="record" :to="links.system(record.system, 'fns')" class="crumb" data-testid="back-to-system">
-        <UiIcon name="chevron-left" :size="14" />{{ record.system }}
+      <RouterLink v-if="record && back" :to="back" class="crumb" data-testid="back-to-system">
+        <UiIcon name="chevron-left" :size="14" />{{ record.decl.routing?.to === 'instance' ? `${record.system}@${record.decl.routing.instance}` : record.system }}
       </RouterLink>
     </template>
     <LoadState :loading="store.record.loading.value" :problem="store.record.problem.value" :ready="record !== undefined" :empty="false" :lines="6" @retry="name && store.open(name, period)">
@@ -88,6 +95,9 @@ onBeforeUnmount(() => { store.close(); });
             <UiCard><DayBars title="Typical time per day" :bars="timeBars" :format="formatDuration" testid="fn-time-chart" /></UiCard>
           </div>
         </LoadState>
+        <UiCard v-if="payload !== ''" title="What it runs" :subtitle="`A ${record.decl.kind} fn`" data-testid="fn-payload">
+          <UiCodeBlock :code="payload" language="json" :max-height="360" />
+        </UiCard>
         <AccessControl :target="{ kind: 'fn', fn: name }" />
         <UiCard class="runs" title="Latest runs" flush compact data-testid="fn-recent">
           <template #actions><UiButton size="sm" variant="ghost" icon="arrow-right" data-testid="fn-runs" @click="router.push(links.fnRuns(name))">All its runs</UiButton></template>

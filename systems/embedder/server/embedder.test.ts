@@ -1,7 +1,7 @@
 import type { Json } from '@harness/core';
 import { expectType, parseValue, type Equal, type Log } from '@harness/sdk';
 import { HubLlm, type HubAccess } from '@harness/sdk/server';
-import { TEST_PLACE } from '@harness/sdk/server/testing';
+import { NO_ASKS, TEST_PLACE } from '@harness/sdk/server/testing';
 import { describe, expect, it } from 'vitest';
 import { GEMMA_DIMENSIONS, embedderSystem, type GemmaTask } from '../shared/index.ts';
 import { embedderEnv } from './env.ts';
@@ -174,7 +174,7 @@ describe('the embedder implementation', () => {
 
   /** A hub that is never reached, so the real `HubLlm` over it fails every call: the embedder uses no LLM. */
   const unreachable: HubAccess = { ready: () => Promise.reject(new Error('unused')), now: () => undefined, limits: () => ({ maxFrame: 262_144, maxChunk: 131_072, heartbeat: 15_000 }) };
-  const ctx = (config: EmbedderConfig, log: Log) => ({ ...TEST_PLACE, system: 'embedder', config, log, signal: new AbortController().signal, llm: new HubLlm({ hub: unreachable }), resources: { stat: () => Promise.reject(new Error('unused')), text: () => Promise.reject(new Error('unused')), links: () => Promise.reject(new Error('unused')), sections: () => Promise.reject(new Error('unused')), search: () => Promise.reject(new Error('unused')) }, types: { definitions: () => Promise.reject(new Error('unused')) } });
+  const ctx = (config: EmbedderConfig, log: Log) => ({ ...TEST_PLACE, ...NO_ASKS, system: 'embedder', config, log, signal: new AbortController().signal, llm: new HubLlm({ hub: unreachable }), resources: { stat: () => Promise.reject(new Error('unused')), text: () => Promise.reject(new Error('unused')), links: () => Promise.reject(new Error('unused')), sections: () => Promise.reject(new Error('unused')), search: () => Promise.reject(new Error('unused')) }, types: { definitions: () => Promise.reject(new Error('unused')) } });
 
   it('embeds documents and queries with their task, caching queries', async () => {
     const fake = new FakeClient();

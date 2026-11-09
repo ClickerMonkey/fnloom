@@ -14,7 +14,7 @@ import type { Peer } from '@ayepi/core';
 import type {
   ActorId, AutoPairChoice, ConfigValue, ContentRef, ImportReport, InstallSource, InstalledSystem, InstanceName, InstanceRecord, InstanceRef, InvalidInput, Json, LinkSession,
   Page, PairingId, PairingRequest, QualifiedName, ReadWant, ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section,
-  SessionId, StopReason, SystemEnabled, SystemLinkSpec, SystemName, Timestamp,
+  FnRouting, SessionId, StopReason, SystemEnabled, SystemLinkSpec, SystemName, Timestamp,
 } from '@harness/core';
 
 export type { SystemOutput } from './output.ts';
@@ -178,6 +178,8 @@ export interface RouteAsk {
   readonly args: Json;
   readonly on?: InstanceName | undefined;
   readonly session?: SessionId | undefined;
+  /** The fn's own routing (`FnDecl.routing`): always one instance, or whichever is first available. */
+  readonly routing?: FnRouting | undefined;
 }
 
 /** An instance a session is pinned to, or no pin for that system. */

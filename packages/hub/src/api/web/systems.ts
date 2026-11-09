@@ -5,12 +5,18 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { systemsSlice, adminOnly, SystemView, type SystemRecord } from '@harness/core';
+import { systemsSlice, adminOnly, SystemView, type InstanceRecord, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { knownSystem, type AdminOperations } from '../admin-ops.ts';
 import { type FullHandlers } from './access.ts';
 import { allRows } from '../../catalog/rows.ts';
 import { defaultInstanceOf } from '../../link/status.ts';
+import { maskSecrets } from '../../link/config-secrets.ts';
+
+/** An instance as the admin pages see it: its config's secret fields as `SECRET_KEPT`. */
+export function maskedInstance(record: InstanceRecord): InstanceRecord {
+  return record.config === undefined ? record : { ...record, config: { ...record.config, value: maskSecrets(record.config.value) } };
+}
 
 /** How many pairing requests the admin list shows at most. */
 const MAX_PAIRINGS = 500;
@@ -25,7 +31,8 @@ export async function systemView(hub: Pick<HubServices, 'catalog' | 'store'>, re
   const [fns, manifest, rows] = await Promise.all([
     hub.catalog.fns({ system: record.name }), hub.catalog.manifest(record.name), allRows(hub.store.table('instances'), { system: record.name }),
   ]);
-  const instances = rows.sort((a, b) => a.instance.localeCompare(b.instance));
+  // a sealed secret field reads as SECRET_KEPT; sending that back keeps it
+  const instances = rows.sort((a, b) => a.instance.localeCompare(b.instance)).map(maskedInstance);
   const main = instances.find((i) => i.instance === defaultInstanceOf(record, instances));
   return SystemView.parse({
     ...record, keyFingerprint: main?.keyFingerprint ?? '', config: main?.config, installed: main?.installed, pairedAt: main?.pairedAt, pairedBy: main?.pairedBy,

@@ -44,7 +44,7 @@ export async function visibleSession(hub: Pick<HubServices, 'chat'>, session: Se
 }
 
 /** Whether the person may see what happened in a session (or, outside a session, what they started). */
-async function mayView(hub: Pick<HubServices, 'chat'>, user: Viewer, where: { session?: SessionId | undefined; actor: string }): Promise<boolean> {
+export async function mayView(hub: Pick<HubServices, 'chat'>, user: Viewer, where: { session?: SessionId | undefined; actor: string }): Promise<boolean> {
   if (user.role === 'admin') { return true; }
   if (where.session !== undefined) { return (await hub.chat.sessions.get(where.session, user.id)) !== undefined; }
   return where.actor === user.id;

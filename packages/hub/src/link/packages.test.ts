@@ -33,7 +33,7 @@ beforeEach(async () => {
     launcher, installer, settings: { systemsDir: dir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour: 2 },
   });
   packages = new HubPackages({
-    content: () => rig.content, supervisor, admin: rig.admin, instances: rig.instances, links: rig.links, exportTimeout: 200, log: rig.log,
+    content: () => rig.content, supervisor, admin: rig.admin, instances: rig.instances, links: rig.links, config: rig.config, exportTimeout: 200, log: rig.log,
     clock: () => rig.time.now, maxBytes: 1e7,
   });
 });

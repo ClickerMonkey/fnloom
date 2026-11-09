@@ -16,7 +16,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'contract',
     title: 'The contract',
-    exports: ['system', 'SystemContract', 'SystemRefs', 'ContractShape', 'ContractSection', 'CONTRACT_SECTIONS', 'EmptyContract', 'Merge', 'AnyContract', 'ConfigOf'],
+    exports: ['system', 'SystemContract', 'SystemRefs', 'ContractShape', 'ContractSection', 'CONTRACT_SECTIONS', 'EmptyContract', 'Merge', 'AnyContract', 'ConfigOf', 'SystemInfo', 'RegistryDef'],
   },
   {
     id: 'gin',
@@ -33,7 +33,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'fns',
     title: 'Fns',
     exports: [
-      'fn', 'FnInput', 'FnExampleOf', 'FnDef', 'AnyFnDef', 'FnTypes', 'NativeFnTypes', 'TypesOf', 'Deps', 'FnRef', 'AnyFnRef', 'FnValidators', 'ValidateCtx',
+      'fn', 'FnInput', 'FnExampleOf', 'FnDef', 'AnyFnDef', 'FnTypes', 'NativeFnTypes', 'TypesOf', 'Deps', 'FnRef', 'AnyFnRef', 'FnValidators', 'ValidateCtx', 'PreviewCtx',
       'DEFAULT_STATUS', 'StatusTemplates', 'StatusForms', 'RunPhase', 'StatusInput', 'CheckedStatus', 'CheckedTemplate', 'OneTokens', 'ManyTokens', 'PathsOf', 'TokensOf',
     ],
   },
@@ -49,7 +49,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'outcomes',
     title: 'Outcomes: done, invalid input, failed, paused, cancelled, undo',
-    exports: ['Outcome', 'Resume', 'Suspended', 'ACTIVE_RUN_STATUSES', 'SETTLED_RUN_STATUSES', 'isSettled', 'isUnsettled', 'ActiveRunStatus', 'SettledRunStatus'],
+    exports: ['ResultBlock', 'ResultBlockType', 'ResultColumnInfo', 'ResultFn', 'NextPage', 'resultBlock', 'ResultBlockOptions', 'Outcome', 'Resume', 'Suspended', 'ACTIVE_RUN_STATUSES', 'SETTLED_RUN_STATUSES', 'isSettled', 'isUnsettled', 'ActiveRunStatus', 'SettledRunStatus'],
   },
   {
     id: 'kinds-agents',
@@ -96,6 +96,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'The run context and services',
     exports: [
       'FnCtx', 'Services', 'SystemCtx', 'SystemPlace', 'UndoCtx', 'AskerCtx', 'BudgetInfo', 'RunStatusView', 'Llm', 'ForwardModality', 'ModelInput', 'ModelOutput', 'Files', 'Resources', 'Types', 'Log',
+      'Proposals', 'ProposeOptions', 'Decisions', 'DecideOptions',
       'harnessAi', 'harnessAiOf', 'HarnessAi', 'HarnessProvider', 'HarnessProviderConfig', 'HarnessMetadata', 'HubLlm', 'HubLlmError', 'HubModels', 'HUB_MODEL', 'wireRequest',
     ],
   },
@@ -107,7 +108,7 @@ export const OUTLINE: readonly Topic[] = [
     exports: [
       'client', 'ClientRenderers', 'ClientModule', 'Renderer', 'FnView', 'FnViewOf', 'AttachmentView', 'AttachmentViewOf', 'InputView', 'InputViewOf', 'MentionView', 'ResourceView',
       'SystemClient', 'WithSystem', 'Delivery', 'ResourceViewerEntry', 'BareViewer', 'ResourceViewerMode', 'RESOURCE_VIEWER_MODES', 'RESOURCE_VIEWER', 'ResourceViewerProps', 'INPUT_ANSWERS', 'VALUE_EDITOR', 'ACCESS_INFO', 'SHARE_EDITOR', 'ShareEditorProps', 'InputAnswer', 'InputAnswers', 'ValueEditorProps', 'buildClient', 'BuildClientOptions', 'sharedModules', 'inlineCss', 'SHARED_IMPORTS',
-      'AnyViews', 'WireViews', 'Mount', 'InputMount',
+      'AnyViews', 'WireViews', 'Mount', 'InputMount', 'VisualView', 'VisualEntry',
     ],
   },
   {
@@ -121,7 +122,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'testing',
     title: 'Testing',
-    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal'],
+    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal'],
   },
   { id: 'mistakes', title: 'Common mistakes', exports: [] },
   { id: 'examples', title: 'Worked examples', exports: [] },

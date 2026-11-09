@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import type { AccessInfo, DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, MessagePart, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, ShareRule, TypeDisplay } from '@harness/core';
+import type { AccessInfo, DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, MessagePart, QualifiedName, ResourceStat, ResourceUri, ResultTable, RunId, RunStatus, SectionKey, ShareRule, TypeDisplay, VisualFit } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -171,6 +171,21 @@ export interface InputMount extends Mount<'input'> {
   encode(value: unknown): Json | undefined;
 }
 
+/** The props of a visual (an entry of a registry such as `database/query-visuals`): the rows to draw. */
+export interface VisualView {
+  table: ResultTable;
+}
+
+/**
+ * One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
+ * score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
+ * every result the person sees.
+ */
+export interface VisualEntry<C extends ContractShape> {
+  match(table: ResultTable): VisualFit;
+  component: Renderer<VisualView & WithSystem<C>>;
+}
+
 /** A system's renderers, typed by its contract. Every renderer also gets `system` to send its system actions. */
 export interface ClientRenderers<C extends ContractShape> {
   /** How calls of a fn are drawn in the chat. */
@@ -187,6 +202,11 @@ export interface ClientRenderers<C extends ContractShape> {
    * component replaces the hub's preview; `{ component, mode: 'tab', label }` adds a mode beside it.
    */
   resources?: Readonly<Record<string, BareViewer<Renderer<ResourceView & WithSystem<C>>> | ResourceViewerEntry<Renderer<ResourceView & WithSystem<C>>>>>;
+  /**
+   * Visuals this system adds to registries, by registry (`database/query-visuals`) and name. Each must be listed in
+   * the contract's `contributes`, which is how the hub and the web app know to load this bundle for that registry.
+   */
+  visuals?: Readonly<Record<QualifiedName, Readonly<Record<string, VisualEntry<C>>>>>;
 }
 
 /**
@@ -201,6 +221,13 @@ export interface ClientModule<C extends ContractShape = ContractShape> {
 
 /** Declare a system's renderers in `client/`. */
 export function client<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, renderers: ClientRenderers<C>): ClientModule<C> {
+  for (const [registry, entries] of Object.entries(renderers.visuals ?? {})) {
+    for (const name of Object.keys(entries)) {
+      if (!contract.contributes.some((c) => c.registry === registry && c.name === name)) {
+        throw new Error(`system ${contract.name}: visual ${registry} ${name} is not in the contract's contributes.`);
+      }
+    }
+  }
   return { system: contract.name, contract, renderers };
 }
 

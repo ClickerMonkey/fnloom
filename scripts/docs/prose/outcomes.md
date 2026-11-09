@@ -40,3 +40,11 @@ call the fn is waiting on rejects with `Suspended` (let it propagate; never catc
 key, so they aren't made again), and `ctx.resume.reason` says whether a person resumed it or the hub restarted.
 
 <!-- include: scripts/docs/example/server/impl.ts#impl-tidy -->
+
+**Results with rows.** A fn whose result is rows gives the rows to the person (an attachment holding a
+`ResultTable`) and the model a `ResultBlock`: `resultBlock(table, { fn: { name, signature }, args })` from
+`@harness/sdk/server` says what the person sees and that the model shouldn't repeat it, lists the columns, the row
+count, the total when counted, whether there are more rows with the exact call for the next page (`nextPage`), the
+sort, and a `sample` of the first rows within `HARNESS_RESULT_SAMPLE_TOKENS` (long text cut at
+`HARNESS_RESULT_CELL_CHARS`), with a `sampleNote` saying how much is there. `ResultBlockType` is its gin form for
+`returns`.

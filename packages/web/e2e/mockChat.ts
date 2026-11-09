@@ -8,8 +8,10 @@
  * (the session's chat mode and contextor, set in its settings). It is a stand-in for building the UI, not a hub.
  */
 import { fixture } from './fixture.ts';
+import { LATEST_ORDERS, ORDERS_BY_CITY, WAITING_WRITE, WRITE_PREVIEW } from './mockBuild5.ts';
+import { PROPOSED_CHANGE, RESCAN_PREVIEW } from './mockDatabase.ts';
 import {
-  splitName, Approval, ChatCapabilities, ChatMessage, LlmInteraction, ModelCallId, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, type Json, type MessagePart, type OutgoingPart,
+  splitName, Approval, ChatCapabilities, ChatMessage, LlmInteraction, ModelCallId, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, Json, type MessagePart, type OutgoingPart,
   type QualifiedName, type RunUpdate, type SessionEvent, type SessionId, type SessionSummary, type TreeNode, type TurnId,
 } from '@harness/core';
 import type { z } from 'zod';
@@ -168,6 +170,12 @@ export class MockChat {
   /** What waits on the person in a session: its runs' pending approvals (the mock asks no handler questions). */
   waiting(session: SessionId): { approvals: Approval[]; handlers: [] } {
     return { approvals: [...this.approvals.values()].map((w) => w.approval).filter((a) => this.runs.get(a.run)?.session === session), handlers: [] };
+  }
+
+  /** The pending approvals of some runs, with their previews (the inbox's cards). */
+  approvalsOf(runs: readonly RunId[]): Approval[] {
+    const wanted = new Set<string>(runs);
+    return [...this.approvals.values()].map((w) => w.approval).filter((a) => wanted.has(a.run));
   }
 
   approve(id: ApprovalId, approve: boolean): Approval {
@@ -365,6 +373,38 @@ export class MockChat {
     this.messages.set(id, (this.messages.get(id) ?? []).map((m) => (m.id === message ? change(m) : m)));
   }
 
+  /** Build 5: query results as the database system attaches them, and a write waiting for approval with its preview. */
+  #seedQueries(now: number): void {
+    const shop = this.create('Orders this month');
+    this.sessions.set(shop.id, { ...shop, updatedAt: now - 60_000 });
+    const turn = mintId('turn');
+    this.#add(shop.id, { turn, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 300_000, parts: [{ type: 'text', text: 'Which cities ordered most this month, and what came in last?' }] });
+    this.#add(shop.id, {
+      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 290_000,
+      parts: [
+        { type: 'text', text: 'Oslo leads with 128 orders, then Lima and Rome. The latest orders are below; 312 in all.' },
+        { type: 'attachment', attachment: 'database/result', title: 'Orders by city', data: Json.parse(ORDERS_BY_CITY) },
+        { type: 'attachment', attachment: 'database/result', title: 'Latest orders', data: Json.parse(LATEST_ORDERS) },
+      ],
+    });
+    const write = fixture(Run, {
+      id: WAITING_WRITE, fn: 'database/shop.refund_orders', fnVersion: '1', kind: 'database/query', system: 'database', root: WAITING_WRITE, turn, session: shop.id, key: WAITING_WRITE,
+      actor: this.#owner(), caller: AGENT, args: { ids: [1037, 1033] }, status: 'awaiting-approval', allowed: { cancel: true, pause: false, background: false }, cost: 0, totalCost: 0,
+      priority: 'interactive', background: false, attempt: 1, errors: [], stateChanges: [], createdAt: now - 280_000,
+    });
+    this.runs.set(write.id, write);
+    const approval = fixture(Approval, { id: 'apr_orders_write', run: write.id, fn: write.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: now - 280_000, preview: WRITE_PREVIEW });
+    this.approvals.set(approval.id, { approval, resume: () => { this.#settle(shop.id, write.id, 'done'); } });
+    // a rescan of the shop database found a change that breaks a saved query: proposed for an admin
+    const rescan = fixture(Run, {
+      ...write, id: PROPOSED_CHANGE, fn: 'database/apply_type_changes', kind: 'native', root: PROPOSED_CHANGE, key: PROPOSED_CHANGE, instance: 'shop', args: { scan: 'scan_7f1c' },
+      createdAt: now - 3_600_000,
+    });
+    this.runs.set(rescan.id, rescan);
+    const proposal = fixture(Approval, { id: 'apr_shop_rescan', run: rescan.id, fn: rescan.fn, approver: { by: 'hub' }, status: 'pending', decisions: [], createdAt: rescan.createdAt, preview: RESCAN_PREVIEW, proposed: true });
+    this.approvals.set(proposal.id, { approval: proposal, resume: () => { this.#settle(shop.id, rescan.id, 'done'); } });
+  }
+
   #seed(): void {
     const now = this.#now();
     const router = this.create('Refactor the router');
@@ -373,6 +413,7 @@ export class MockChat {
     this.sessions.set(router.id, { ...router, id: router.id, updatedAt: now - 120_000 });
     this.sessions.set(notes.id, { ...notes, updatedAt: now - DAY - 3_600_000 });
     this.sessions.set(budget.id, { ...budget, updatedAt: now - 3 * DAY });
+    this.#seedQueries(now);
     const turn = mintId('turn');
     const refused = this.#refused(router.id, turn, 'fs/read_file', RunId.parse('run_agent'));
     this.runs.set(refused.id, { ...refused, startedAt: now - DAY - 62_000, endedAt: now - DAY - 62_000 });

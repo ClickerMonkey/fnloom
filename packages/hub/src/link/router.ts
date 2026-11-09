@@ -3,6 +3,8 @@
  * choice. With several, the pick is, in order: an explicit `on`; the instance serving a resource URI found in the
  * args (`file://laptop/…`); the session's pinned instance (`/on laptop`); the system's default instance when it is
  * connected. With none connected, the call goes to the system's default instance (`InstanceKeeper.defaultOf`). Otherwise the call is refused as invalid input naming the choices, which an agent retries with `on`.
+ * A fn's own routing comes first (build 5): `instance` always goes to that instance; `any` takes the first of `on`, the
+ * pin, the default instance and any connected one, and is never refused as ambiguous.
  */
 import {
   MAIN_INSTANCE, ResourceUri, type InstanceName, type InstanceRef, type InvalidInput, type Json, type SessionId, type SystemName,
@@ -74,6 +76,9 @@ export class FleetRouter implements InstanceRouter {
     const { system } = input;
     const choices = this.connected(system);
     const pick = (instance: InstanceName) => ({ instance: { system, instance } });
+    // a fn an instance owns always runs there, waiting for it like the default instance when it is away
+    if (input.routing?.to === 'instance') { return pick(input.routing.instance); }
+    if (input.routing?.to === 'any') { return pick(await this.#first(system, choices, input)); }
     if (input.on !== undefined) { return choices.includes(input.on) || choices.length === 0 ? pick(input.on) : { invalid: ambiguous(system, choices, input.on) }; }
     const only = choices.length === 1 ? choices[0] : undefined;
     if (only !== undefined) { return pick(only); }
@@ -86,6 +91,18 @@ export class FleetRouter implements InstanceRouter {
     if (pinned !== undefined && choices.includes(pinned)) { return pick(pinned); }
     if (record?.defaultInstance !== undefined && choices.includes(record.defaultInstance)) { return pick(record.defaultInstance); }
     return { invalid: ambiguous(system, choices) };
+  }
+
+  /**
+   * For a fn any instance may run: `on` (waited for when away, since the caller chose it), else the session's pin, the
+   * default, any connected one (or the default when none is).
+   */
+  async #first(system: SystemName, choices: readonly InstanceName[], input: RouteAsk): Promise<InstanceName> {
+    if (input.on !== undefined) { return input.on; }
+    const fallback = await this.#instances.defaultOf(system) ?? MAIN_INSTANCE;
+    const pinned = input.session === undefined ? undefined : this.#pins.get(input.session)?.get(system);
+    const wanted = [pinned, (await this.#store.table('systems').get(system))?.defaultInstance, fallback];
+    return wanted.find((name) => name !== undefined && choices.includes(name)) ?? choices[0] ?? fallback;
   }
 
   /** The one instance the resource URIs in the args belong to (by the root serving them, else their authority). */

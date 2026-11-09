@@ -16,7 +16,7 @@ import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
 import { InboxFilter } from '../state/inbox.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
-import { queryParam } from '../state/query.ts';
+import { NEEDS_APPROVAL, queryParam } from '../state/query.ts';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -169,6 +169,10 @@ export const links = {
   runs: (query: RouteQuery<typeof ROUTES.runs> = {}): RouteLocationRaw => ({ name: ROUTES.runs, ...queryOf(ROUTES.runs, query) }),
   /** The runs of one fn. */
   fnRuns: (fn: QualifiedName): RouteLocationRaw => links.runs({ q: queryParam('runs', { filters: [{ field: 'fn', op: 'is', value: fn }] }) }),
+  /** The runs waiting for an approval, of one system when it is given. */
+  waitingRuns: (system?: SystemName): RouteLocationRaw => links.runs({
+    q: queryParam('runs', { filters: [NEEDS_APPROVAL, ...(system === undefined ? [] : [{ field: 'system', op: 'is' as const, value: system }])] }),
+  }),
   /** The fns catalogue narrowed to one system's fns. */
   systemFns: (system: SystemName): RouteLocationRaw => links.fns({ q: queryParam('fns', { filters: [{ field: 'system', op: 'is', value: system }] }) }),
   /** The LLM calls browser; `query` narrows it (`q`) or opens one (`call`). */
@@ -212,7 +216,7 @@ export async function notificationTarget(link: NotificationLink, sessionOf: Sess
   if ('session' in link) { return links.session(link.session); }
   if ('system' in link) { return links.system(link.system); }
   if ('pairing' in link) { return links.systems({ pairing: link.pairing }); }
-  if ('approval' in link) { return links.runs({ q: queryParam('runs', { filters: [{ field: 'status', op: 'is', value: 'awaiting-approval' }] }) }); }
+  if ('approval' in link) { return links.waitingRuns(); }
   const session = await sessionOf(link.run).catch(() => undefined);
   return session === undefined ? links.runs({ run: link.run }) : links.session(session);
 }

@@ -2,10 +2,12 @@
 /**
  * One instance of a system (`/admin/systems/:name/instances/:instance`), its tab in the URL: the overview (what it
  * said about itself, status, version, address, key, pairing and last sighting, its process when the hub runs it, and
- * removing it), its own config (checked against the system's config type), and its data (the folders the hub gives it
- * and an export of its data folder as a zip, its config's secrets only when asked).
+ * removing it), its own config (checked against the system's config type; secret fields as password inputs), the types
+ * and fns it owns (a database's tables and saved queries) with the changes its system proposed waiting above the
+ * types, each with its diff to approve or decline, and its data (the folders the hub gives it and an export of its data
+ * folder as a zip, its config's secrets only when asked).
  */
-import { InstanceName, SystemName, type Json } from '@harness/core';
+import { InstanceName, SystemName, type Approval, type Json } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
@@ -15,15 +17,20 @@ import { formatBytes } from '../../chat/logic/format.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBanner, UiButton, UiCard, UiIcon, UiSwitch, UiTabs, fullTime, relativeTime, type TabItem } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
+import InboxApprovals from '../../components/inbox/InboxApprovals.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
+import FnList from '../components/FnList.vue';
+import InstanceTypes from '../components/InstanceTypes.vue';
 import LoadState from '../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import SystemConfig from '../components/SystemConfig.vue';
+import { keptSecrets } from '../logic/instances.ts';
 import { INSTALLED_STATUS_LOOK, SYSTEM_STATUS_LOOK } from '../logic/systems.ts';
 import { InstanceTab } from '../sections.ts';
 
 const { admin, toasts } = useStores();
 const store = admin.instance;
+const parts = admin.instanceParts;
 const route = useRoute();
 const router = useRouter();
 const now = useNow();
@@ -43,6 +50,8 @@ const title = computed(() => (key.value === undefined ? 'Instance' : `${key.valu
 const tabs = computed<readonly TabItem<InstanceTab>[]>(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'config', label: 'Config' },
+  { value: 'types', label: 'Types', count: parts.proposals.value.length },
+  { value: 'fns', label: 'Fns', count: parts.fns.value.value?.length ?? 0 },
   { value: 'data', label: 'Data' },
 ]);
 
@@ -59,9 +68,17 @@ const facts = computed<readonly Fact[]>(() => {
   return list;
 });
 
-watch(key, (k) => { if (k !== undefined) { void store.open(k); void admin.actors.load(); } }, { immediate: true });
+const secrets = computed(() => keptSecrets(view.value?.config?.value));
+const proposals = computed(() => parts.proposals.value);
+
+watch(key, (k) => { if (k !== undefined) { void store.open(k); void parts.open(k); void admin.actors.load(); } }, { immediate: true });
 watch(tab, () => { problems.value = []; });
-onBeforeUnmount(() => { store.close(); });
+onBeforeUnmount(() => { store.close(); parts.close(); });
+
+async function decide(approval: Approval, approve: boolean, reason: string): Promise<void> {
+  if (!(await parts.decide(approval, approve, reason))) { toasts.error("Couldn't send your answer", parts.desk.problem.value); return; }
+  toasts.ok(approve ? 'Approved' : 'Declined');
+}
 
 async function save(config: Json): Promise<void> {
   const result = await store.configure(config);
@@ -97,6 +114,12 @@ async function remove(): Promise<void> {
           <span class="dim">v{{ view.version }}</span>
         </div>
         <UiTabs v-model="tab" :tabs="tabs" label="Instance" />
+        <UiBanner v-if="tab === 'overview' && proposals.length > 0" tone="warn" data-testid="instance-waiting">
+          <div class="row">
+            <span>{{ proposals.length === 1 ? 'A change it found waits' : `${proposals.length} changes it found wait` }} for your approval.</span>
+            <RouterLink :to="links.instance(key.system, key.instance, 'types')">Review</RouterLink>
+          </div>
+        </UiBanner>
         <div v-if="tab === 'overview'" class="overview" data-testid="instance-overview">
           <UiCard title="Details">
             <dl class="facts">
@@ -120,8 +143,23 @@ async function remove(): Promise<void> {
         </div>
         <SystemConfig
           v-else-if="tab === 'config'" :type="store.configType.value.value" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
-          :needs-config="view.config === undefined" :now="now" :busy="store.config.busy.value" :problems="problems" @save="save"
+          :needs-config="view.config === undefined" :now="now" :busy="store.config.busy.value" :problems="problems" :secrets="secrets" @save="save"
         />
+        <div v-else-if="tab === 'types'" class="stack" data-testid="instance-types-tab">
+          <InboxApprovals :items="proposals" @decide="decide" />
+          <LoadState
+            :loading="parts.types.loading.value || parts.fns.loading.value" :problem="parts.types.problem.value || parts.waitingRuns.problem.value" :ready="parts.types.value.value !== undefined"
+            :empty="(parts.types.value.value ?? []).length === 0" empty-icon="braces" empty-title="No types yet" empty-body="Types it makes (a database's tables) show here once it reports them." :lines="4" @retry="parts.open(key)"
+          >
+            <InstanceTypes :types="parts.types.value.value ?? []" :changing="parts.changing.value" />
+          </LoadState>
+        </div>
+        <LoadState
+          v-else-if="tab === 'fns'" :loading="parts.fns.loading.value" :problem="parts.fns.problem.value" :ready="parts.fns.value.value !== undefined"
+          :empty="(parts.fns.value.value ?? []).length === 0" empty-icon="fn" empty-title="No fns of its own" empty-body="Fns it adds while running (a database's saved queries) show here." :lines="4" @retry="parts.open(key)"
+        >
+          <FnList :fns="parts.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" />
+        </LoadState>
         <div v-else class="overview" data-testid="instance-data">
           <UiCard title="Folders" subtitle="The hub keeps these outside the package, so upgrades and rollbacks keep them.">
             <dl v-if="view.dirs" class="facts">
@@ -158,6 +196,7 @@ dd { margin: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
 .dim { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .export { display: grid; gap: var(--space-3); }
+.stack { display: grid; gap: var(--space-4); min-width: 0; }
 .download { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
 .crumb { display: inline-flex; align-items: center; gap: 2px; margin-left: -2px; color: var(--text-dim); font-weight: var(--weight-medium); text-decoration: none; }
 .crumb:hover { color: var(--accent); }

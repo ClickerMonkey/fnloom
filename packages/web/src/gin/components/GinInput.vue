@@ -7,11 +7,12 @@
  * definition when the browser holds it, else JSON). It draws the draft it is given and
  * emits the changed draft; problems show under the field they belong to.
  */
-import { Json } from '@harness/core';
+import { Json, SECRET_KEPT } from '@harness/core';
 import { computed, inject, useId } from 'vue';
 import { UiButton, UiField, UiIconButton, UiInput, UiSegmented, UiSwitch, UiTextarea } from '../../ui/index.ts';
 import { eventValue } from '../../chat/dom.ts';
 import { GIN_INPUTS } from '../registry.ts';
+import { GIN_SECRETS } from '../types.ts';
 import { constraintHint, draftOf, encode, problemAt, type Draft, type FormNode, type FormProblem } from '../logic/form.ts';
 
 const props = withDefaults(defineProps<{
@@ -41,6 +42,10 @@ const hint = computed(() => (props.inline ? '' : fullHint.value));
 const text = computed(() => (props.draft.kind === 'text' ? props.draft.text : ''));
 /** Inputs of type number hand back numbers (Vue casts them); the draft keeps the text. */
 const setText = (value: string | number): void => { emit('update', { kind: 'text', text: String(value) }); };
+/** A secret field: a password input that reads "Saved" while the hub keeps its value; typing replaces it. */
+const secrets = inject(GIN_SECRETS, new Set<string>());
+const secret = computed(() => secrets.has(props.path));
+const kept = computed(() => text.value === SECRET_KEPT);
 const bool = computed(() => props.draft.kind === 'bool' && props.draft.value);
 const items = computed(() => (props.draft.kind === 'items' ? props.draft.items : []));
 const entries = computed(() => (props.draft.kind === 'entries' ? props.draft.entries : []));
@@ -144,6 +149,10 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
   <div class="gin-input" :class="[`kind-${node.kind}`, { inline }]" :data-path="path" :title="inline && fullHint !== '' ? fullHint : undefined" data-testid="gin-input">
     <template v-if="node.kind === 'text'">
       <UiTextarea v-if="node.multiline" :model-value="text" :label="label" :hint="hint" :error="error" :required="required" :rows="3" @update:model-value="setText" />
+      <UiInput
+        v-else-if="secret" type="password" :model-value="kept ? '' : text" :placeholder="kept ? 'Saved' : ''" :label="label" :hint="hint" :error="error" :required="required"
+        :hide-label="inline" :size="inline ? 'sm' : 'md'" autocomplete="new-password" data-secret @update:model-value="setText"
+      />
       <UiInput v-else :model-value="text" :label="label" :hint="hint" :error="error" :required="required" :hide-label="inline" :size="inline ? 'sm' : 'md'" @update:model-value="setText" />
     </template>
 

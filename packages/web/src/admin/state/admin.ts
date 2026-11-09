@@ -10,11 +10,13 @@ import type { ChatApi, FileSender } from '../../chat/api.ts';
 import type { McpProbe } from '../probe.ts';
 import type { AdminApi, SystemLogEvents } from '../api.ts';
 import { ActorsDirectory } from './actors.ts';
+import { ApprovalDesk } from '../../chat/state/approvals.ts';
 import type { FnRecord, ListQuery } from '@harness/core';
 import { Paged } from '../../state/loaded.ts';
 import { BROWSER_PAGE, llmBrowser, modelCallsBrowser, resourcesBrowser, runsBrowser, type LlmBrowser, type ModelCallsBrowser, type ResourcesBrowser, type RunsBrowser } from './browsers.ts';
 import { FnStore } from './fn.ts';
 import { InstanceStore } from './instance.ts';
+import { InstancePartsStore } from './instance-parts.ts';
 import { McpStore, McpsStore } from './mcps.ts';
 import { PackagesStore } from './packages.ts';
 import { PairingPageStore } from './pairing.ts';
@@ -29,7 +31,7 @@ import { SystemsStore } from './systems.ts';
 /** What the admin stores are built from. */
 export interface AdminDeps {
   readonly api: AdminApi;
-  readonly chat: Pick<ChatApi, 'run' | 'llmCall' | 'resource' | 'background' | 'undoTurn'>;
+  readonly chat: Pick<ChatApi, 'run' | 'llmCall' | 'resource' | 'background' | 'undoTurn' | 'types' | 'approvals' | 'approve'>;
   readonly userEvents: UserEvents;
   readonly systemLogs: SystemLogEvents;
   /** Sends package zips and data exports to the hub's presigned upload. */
@@ -49,10 +51,14 @@ export class AdminStore {
   readonly policies: PoliciesStore;
   readonly settings: ActorSettingsStore;
   readonly runs: RunsBrowser;
+  /** The approvals of runs opened in the runs browser, answered from the run's panel. */
+  readonly runApprovals: ApprovalDesk;
   readonly llm: LlmBrowser;
   readonly modelCalls: ModelCallsBrowser;
   readonly fn: FnStore;
   readonly instance: InstanceStore;
+  /** What an instance owns: its fns, types and the changes its system proposed. */
+  readonly instanceParts: InstancePartsStore;
   readonly packages: PackagesStore;
   readonly mcps: McpsStore;
   readonly mcp: McpStore;
@@ -76,10 +82,12 @@ export class AdminStore {
     this.policies = new PoliciesStore(api);
     this.settings = new ActorSettingsStore(api);
     this.runs = runsBrowser(api, deps.chat);
+    this.runApprovals = new ApprovalDesk(deps.chat);
     this.llm = llmBrowser(api, deps.chat);
     this.modelCalls = modelCallsBrowser(api, deps.chat);
     this.fn = new FnStore(api, deps.userEvents);
     this.instance = new InstanceStore(api, deps.userEvents);
+    this.instanceParts = new InstancePartsStore(api, deps.chat);
     this.packages = new PackagesStore(api, deps.sender);
     this.mcps = new McpsStore(api);
     this.mcp = new McpStore(api, deps.probe);

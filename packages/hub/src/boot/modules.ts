@@ -7,7 +7,9 @@
  * The catalog, link and index modules are one build (`buildSystems`): each of their factories returns its part of it.
  */
 import type { Logger } from '@ayepi/log';
-import type { ActorId } from '@harness/core';
+import { hubLinkSpec, type ActorId } from '@harness/core';
+import { reject, spec } from '@ayepi/core';
+import { plugin } from '@ayepi/plugin';
 import { hub, manifestOf } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { createChat } from '../chat/chat.ts';
@@ -70,6 +72,7 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       launcher: seams.launcher ?? new NodeLauncher({ baseEnv: process.env, nodeArgs: process.execArgv }),
       ...(seams.installer === undefined ? {} : { installer: seams.installer }),
       content: () => hub.api.content,
+      secrets: () => hub.api.secrets,
       calls: () => hub.metrics.calls,
     });
     builds.set(context, built);
@@ -105,6 +108,9 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
   };
 }
 
+/** The slice of the hub link chat serves: a system's question to the decision model (`decide`). */
+export const DECIDE_LINK_SPEC = spec({ endpoints: { decide: hubLinkSpec.endpoints.decide } });
+
 /** The chat module over the other modules' services. */
 const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
   const { settings } = hub;
@@ -118,6 +124,13 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
   return {
     services: chat,
     hooks: { work: { up: () => { stop = chat.start(); return Promise.resolve(); }, pre: () => { stop?.(); return Promise.resolve(); } } },
+    linkPlugins: [plugin({ name: 'decide', spec: DECIDE_LINK_SPEC }).handlers(() => ({
+      decide: async ({ data, link }) => {
+        // the call is charged to the run, so it must be one of the asking system's
+        if ((await hub.store.table('runs').get(data.run))?.system !== link.system) { throw reject(403, 'NOT_YOUR_RUN', `run ${data.run} is not ${link.system}'s`); }
+        return chat.suggestions.forSystem(data);
+      },
+    }))],
   };
 };
 

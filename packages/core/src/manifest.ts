@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { DeclaredLink } from './context-graph.ts';
 import { GinTypeDef } from './gin.ts';
-import { ActorKind, Audience, LocalName, Duration, InstanceName, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
+import { ActorKind, Audience, LocalName, Duration, FnKindName, InstanceName, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
 import { SectionMatch, Link } from './resources.ts';
 import { Display, FnLimits, Operations, ProgressDecl, TimeInfo, UserInfo } from './run.ts';
 import { StatusTemplates } from './status.ts';
@@ -99,8 +99,6 @@ export const FnRouting = z.discriminatedUnion('to', [
 ]);
 export type FnRouting = z.infer<typeof FnRouting>;
 
-export const FnKindName = z.union([z.literal('native'), QualifiedName]);
-export type FnKindName = z.infer<typeof FnKindName>;
 
 /** One example call of a fn: its args, and what the example shows. */
 export const FnExample = z.object({ args: Json, note: z.string().optional() });
@@ -330,6 +328,8 @@ export const KindDescription = z.object({
   status: StatusTemplates.optional(),
   limits: FnLimits.optional(),
   display: Display.optional(),
+  /** Build 5: every run of this payload's fn waits for approval (a write query), as `FnDecl.approval`. */
+  approval: FnApproval.optional(),
 });
 export type KindDescription = z.infer<typeof KindDescription>;
 

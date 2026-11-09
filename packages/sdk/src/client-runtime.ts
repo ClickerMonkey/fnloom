@@ -19,9 +19,9 @@
  * This module is browser code: it imports Vue and the SDK's contract builders, nothing from Node.
  */
 import { ObjType } from '@aeye/gin';
-import { DeliveryStatus, qualify, type DeliveryId, type Json, type QualifiedName, type RunId } from '@harness/core';
+import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultTable, type RunId, type VisualFit } from '@harness/core';
 import { reactive, type Component } from 'vue';
-import type { AnyViews, ClientModule, Delivery, InputMount, Mount, ResourceViewerEntry, ResourceViewerMode, SystemClient, WireViews } from './client.ts';
+import type { AnyViews, ClientModule, Delivery, InputMount, Mount, ResourceViewerEntry, ResourceViewerMode, SystemClient, VisualView, WireViews, WithSystem } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
 import type { ContractShape } from './system.ts';
 
@@ -138,8 +138,26 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
   };
 }
 
+/** A visual that fits some data, as a registry's result view lists it: who adds it, its name, its fit, and how to mount it. */
+export interface VisualOption {
+  readonly system: string;
+  readonly name: string;
+  readonly fit: VisualFit;
+  readonly component: Component;
+  readonly props: VisualView & WithSystem<ContractShape>;
+}
+
+/** One loaded visual, with its contract types erased. */
+interface LoadedVisual {
+  readonly system: string;
+  readonly name: string;
+  match(table: ResultTable): VisualFit;
+  readonly component: Component;
+}
+
 /** The chat's registry of system renderers. */
 export class ClientRuntime {
+  readonly #visuals = new Map<QualifiedName, readonly LoadedVisual[]>();
   readonly #bridge: ClientBridge;
   readonly #modules = new Map<string, Registered>();
   readonly #viewers = new Map<string, readonly SystemResourceViewer[]>();
@@ -154,6 +172,12 @@ export class ClientRuntime {
     this.#modules.set(module.system, erase(module));
     for (const key of this.#clients.keys()) { if (key === module.system || key.startsWith(`${module.system} `)) { this.#clients.delete(key); } }
     for (const [format, list] of this.#viewers) { this.#viewers.set(format, list.filter((viewer) => viewer.system !== module.system)); }
+    for (const [registry, list] of this.#visuals) { this.#visuals.set(registry, list.filter((visual) => visual.system !== module.system)); }
+    for (const [registry, entries] of Object.entries(module.renderers.visuals ?? {})) {
+      const added = Object.entries(entries).map(([name, entry]): LoadedVisual => ({ system: module.system, name, match: (table) => entry.match(table), component: entry.component }));
+      const key = QualifiedName.parse(registry);
+      this.#visuals.set(key, [...(this.#visuals.get(key) ?? []), ...added]);
+    }
     const viewers: Readonly<Record<string, AnyRenderer | ResourceViewerEntry<AnyRenderer>>> = module.renderers.resources ?? {};
     for (const [format, registered] of Object.entries(viewers)) {
       const viewer: SystemResourceViewer = isViewerEntry(registered)
@@ -170,6 +194,25 @@ export class ClientRuntime {
     if (!isClientModule(module)) { throw new Error(`${url} is not a system client module (its default export should be client(contract, renderers)).`); }
     this.register(module);
     return module;
+  }
+
+  /**
+   * The visuals of a registry that fit a result, best fit first (the table, scoring lowest, comes last). A visual
+   * whose match throws is left out, so one broken contribution can't take the result view down.
+   */
+  visuals(registry: QualifiedName, table: ResultTable): VisualOption[] {
+    const fitting: VisualOption[] = [];
+    for (const visual of this.#visuals.get(registry) ?? []) {
+      let fit: VisualFit;
+      try {
+        fit = visual.match(table);
+      } catch (error) {
+        console.warn('client.visual.match-failed', { registry, system: visual.system, name: visual.name, error });
+        continue;
+      }
+      if (fit.fits) { fitting.push({ system: visual.system, name: visual.name, fit, component: visual.component, props: { table, system: this.systemClient(visual.system) } }); }
+    }
+    return fitting.sort((a, b) => b.fit.score - a.fit.score);
   }
 
   /** The systems with a registered module. */

@@ -5,7 +5,7 @@
 import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
-  Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo,
+  Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, ProposalApprover, ProposedRun,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -109,8 +109,59 @@ export interface Services extends SystemPlace {
   readonly log: Log;
 }
 
+// ─── Runs that wait for a person, and the decision model ────────────────────────
+
+/** What a proposed run waits on. */
+export interface ProposeOptions {
+  /** What the run would do, as whoever approves it sees it: the SQL, the rows it touches, a type diff. */
+  readonly preview: ApprovalPreview;
+  /**
+   * Who answers: the person of the run proposing it (the default inside a run), or an admin (the default, and the
+   * only choice, outside a run, such as a schema change found at start).
+   */
+  readonly approver?: ProposalApprover;
+  /** Makes a retried proposal the same run. Default: a hash of the fn, its args and the proposing run. */
+  readonly key?: string;
+}
+
+/**
+ * Adding a run that waits for approval. The run is of one of this system's own fns; the hub makes it, shows the
+ * preview to its approver, and runs it like any queued run once approved. A decline settles it `cancelled` with the
+ * reason. Inside a run the new run is that run's child, in its turn and session.
+ */
+export interface Proposals {
+  /** Propose a run of a fn of this system's contract, with typed args. */
+  propose<A>(fn: FnRef<QualifiedName, A, unknown, Handlers>, args: NoInfer<A>, options: ProposeOptions): Promise<ProposedRun>;
+  /** Propose a run of a fn this system added at runtime, by local name, with its args as JSON. */
+  propose(fn: string, args: Json, options: ProposeOptions): Promise<ProposedRun>;
+}
+
+/** What `decide` takes besides the question and candidates. */
+export interface DecideOptions {
+  /** The most it may pick (default 1: the one to reuse, or none). */
+  readonly max?: number;
+}
+
+/**
+ * Asking the admin's decision model to choose: reuse one of the candidates (a saved query, a saved form) or make
+ * something new. The answer is `off` when no decision model is set and `failed` when its call failed; go by the
+ * candidates' own scores then. The call is a model call of this run.
+ */
+export interface Decisions {
+  decide(question: string, candidates: readonly DecideCandidate[], options?: DecideOptions): Promise<DecideAnswer>;
+}
+
+/**
+ * What a `preview` gets: the system context, the run waiting for approval and whom it is for. A preview must not
+ * change anything: it reads what the run would touch and says so.
+ */
+export interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+  readonly run: RunId;
+  readonly user: UserInfo;
+}
+
 /** What hooks, mentions, actions, dynamic context, events and lifecycle events get. */
-export interface SystemCtx<Cfg = unknown> extends SystemPlace {
+export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -253,7 +304,7 @@ export interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
  * What a run gets besides its args. Typed by its fn: only its deps can be called, only its handlers exist, only its
  * progress steps can be reported, and the outcome helpers take its result, undo and resume types.
  */
-export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
+export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */

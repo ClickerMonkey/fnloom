@@ -124,6 +124,7 @@ export {
   type PairingDisplay, type PairingShown, type PairingQrMode, type QrRenderer,
 } from './pairing.ts';
 export { LinkGap, InvalidValue } from './wire.ts';
+export { resultBlock, type ResultBlockOptions } from './results.ts';
 export { readClientBundle, CLIENT_ENTRY, type ClientBundle } from './assets.ts';
 export {
   PackageManifestError, parsePackageManifest, readPackageManifest, findPackageManifest, packageProblems, checkPackage, builtPackageManifest,

@@ -5,12 +5,12 @@
  */
 import type {
   ActorKind, Audience, DeclarableRelation, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat,
-  ResourceUri, Section, SectionKey,
+  ResourceUri, Section, SectionKey, PreviewAnswer,
   SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
 } from '@harness/core';
 import { sectionKeys as structuralKeys } from '@aeye/resources/section-keys';
 import { SectionKey as SectionKeySchema } from '@harness/core';
-import type { ActionCtx, AskerCtx, FnCall, FnCtx, SystemCtx, UndoCtx } from './ctx.ts';
+import type { ActionCtx, AskerCtx, FnCall, FnCtx, PreviewCtx, SystemCtx, UndoCtx } from './ctx.ts';
 import type { FnTypes, Outcome, UntypedFn } from './fn.ts';
 import { g, type GinType } from './gin.ts';
 import type { AnyContextRef, AnyFnRef, AnyTypeRef, Methods, TypeRef } from './refs.ts';
@@ -123,6 +123,8 @@ export interface KindImpl<P, Cfg = unknown> {
   describe(payload: P, ctx: KindCheckCtx): Promise<KindDescription>;
   run(payload: P, args: Json, ctx: KindRunCtx<Cfg>): Promise<Outcome<UntypedFn>>;
   undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
+  /** What a run of a payload's fn would do, for a fn `describe` gave an `approval` with a preview (a write query). */
+  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────

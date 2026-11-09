@@ -18,7 +18,8 @@
     "systems/web",
     "systems/template",
     "systems/input",
-    "systems/google-calendar"
+    "systems/google-calendar",
+    "systems/database"
   ],
   "scripts": {
     "typecheck": "vue-tsc -b",

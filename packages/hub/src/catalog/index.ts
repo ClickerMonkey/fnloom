@@ -8,7 +8,7 @@
  */
 import type { Type } from '@aeye/gin';
 import type {
-  ActorId, Availability, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
+  ActorId, Availability, InstanceName, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
   QualifiedName, SectionDecl, SystemName, TypeRecord,
 } from '@harness/core';
 import type { z } from 'zod';
@@ -39,9 +39,16 @@ export interface CatalogEntry<S extends ManifestSection> {
 
 /** What the catalog knows and works out. */
 export interface Catalog {
-  /** Import a whole manifest: add, update and remove what changed; refuse what is invalid or incompatible. */
-  importManifest(manifest: Manifest): Promise<ImportReport>;
-  importPatch(system: SystemName, patch: ManifestPatch): Promise<ImportReport>;
+  /**
+   * Import a whole manifest: add, update and remove what changed; refuse what is invalid or incompatible. `from` is the
+   * instance that sent it: types and fns another instance owns (`TypeDecl.instance`, `FnDecl.routing` to an instance)
+   * are left as they are, whatever it says about them.
+   */
+  importManifest(manifest: Manifest, from?: InstanceName): Promise<ImportReport>;
+  /** Apply a patch to the stored manifest; `from` as for `importManifest`. */
+  importPatch(system: SystemName, patch: ManifestPatch, from?: InstanceName): Promise<ImportReport>;
+  /** An instance was removed: drop the types and fns it owns. */
+  forgetInstance(system: SystemName, instance: InstanceName): Promise<ImportReport>;
   /** Import the stored manifest again: re-check every entry and ask kinds to describe their fns afresh. */
   reimport(system: SystemName): Promise<ImportReport>;
   /** A system connected, disconnected, was configured or removed: recompute availability of everything it touches. */

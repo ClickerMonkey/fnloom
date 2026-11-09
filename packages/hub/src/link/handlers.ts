@@ -119,13 +119,13 @@ export class LinkHandshake {
       },
       manifest: async ({ data, link }) => {
         if (data.name !== link.system) { throw refuse(403, 'WRONG_SYSTEM', `this link is ${link.system}, not ${data.name}`); }
-        const report = await catalog.importManifest(data);
+        const report = await catalog.importManifest(data, link.instance);
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', { description: data.description, version: data.version });
         if (data.resources) { await resources.refresh(link.system, link.instance); }
         return report;
       },
       patch: async ({ data, link }) => {
-        const report = await catalog.importPatch(link.system, data);
+        const report = await catalog.importPatch(link.system, data, link.instance);
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', {});
         return report;
       },

@@ -124,7 +124,7 @@ function toggleReasoning(id: MessageId): void {
                 />
               </template>
             </div>
-            <AttachmentCard v-else-if="piece.kind === 'attachment'" :title="piece.part.title" :attachment="piece.part.attachment" :data="piece.part.data" :view="attachmentView(piece.part)" />
+            <AttachmentCard v-else-if="piece.kind === 'attachment'" :view-key="`${message.id}-${piece.key}`" :title="piece.part.title" :attachment="piece.part.attachment" :data="piece.part.data" :view="attachmentView(piece.part)" />
             <LinkCard v-else-if="piece.kind === 'link'" :link="piece.link" @open="emit('link', $event)" />
           </template>
         </template>

@@ -45,3 +45,11 @@ follow light and dark themes, and keep them responsive (`min-width: 0`, wrapping
 files and CSS included, keeping `vue` and `@harness/sdk` external so renderers share the chat's copies. Pass `outDir`
 as `serve`'s `client` option and the system uploads the bundle when it connects; `harness system build` does the same
 for a packaged system.
+
+**Visuals for a registry.** A system adds components to a registry (its own or another system's, such as
+`database/query-visuals`) with `client(contract, { visuals: { 'database/query-visuals': { pie: { match, component } } } })`
+(`VisualEntry`). `match(table)` gets the `ResultTable` and answers a `VisualFit`: whether it can draw it and a score
+from 0 to 1 for how much of the data it shows well (the table scores 0, so any other fit beats it). Keep it cheap and
+pure. The component gets `VisualView` (`table`) and `system`. Each visual must be listed in the contract's
+`contributes`, or `client()` throws; the chat's runtime lists the visuals that fit (`visuals(registry, table)`), best
+first, and leaves out one whose `match` throws.

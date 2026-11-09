@@ -11,6 +11,14 @@ import { rows } from './pages.ts';
 import type { ApprovalDeciders } from './policies.ts';
 import type { ExecutionBase } from './ports.ts';
 
+/** The hub's own actor, which decisions without a person are recorded as. */
+export async function hubActorOf(store: ExecutionBase['store']): Promise<ActorId> {
+  for await (const actor of rows(store.table('actors'), { where: { kind: 'system' } })) {
+    if (actor.kind === 'system' && actor.system === HUB_SYSTEM) return actor.id;
+  }
+  throw new Error('the hub has no actor to decide as');
+}
+
 /** What the deciders need. */
 export interface DecidersDeps extends Pick<ExecutionBase, 'store'> {
   readonly runs: Pick<RunService, 'start'>;
@@ -25,11 +33,8 @@ export class RunDeciders implements ApprovalDeciders {
     this.#deps = deps;
   }
 
-  async actor(): Promise<ActorId> {
-    for await (const actor of rows(this.#deps.store.table('actors'), { where: { kind: 'system' } })) {
-      if (actor.kind === 'system' && actor.system === HUB_SYSTEM) return actor.id;
-    }
-    throw new Error('the hub has no actor to decide as');
+  actor(): Promise<ActorId> {
+    return hubActorOf(this.#deps.store);
   }
 
   async judge(judge: QualifiedName, approval: Approval, run: Run): Promise<Verdict> {

@@ -126,7 +126,10 @@ async function act(action: SystemAction, version?: string): Promise<void> {
     <template #crumb>
       <RouterLink :to="links.systems()" class="crumb" data-testid="back-to-systems"><UiIcon name="chevron-left" :size="14" />Systems</RouterLink>
     </template>
-    <template v-if="view" #actions><StatusBadge :look="SYSTEM_STATUS_LOOK[view.status]" /></template>
+    <template v-if="view" #actions>
+      <RouterLink v-if="name !== undefined" :to="links.waitingRuns(name)" class="waiting" data-testid="system-waiting-runs"><UiIcon name="shield" :size="14" />Waiting runs</RouterLink>
+      <StatusBadge :look="SYSTEM_STATUS_LOOK[view.status]" />
+    </template>
     <LoadState :loading="store.view.loading.value" :problem="store.view.problem.value" :ready="view !== undefined" :empty="false" :lines="8" @retry="name && store.open(name)">
       <template v-if="view">
         <UiTabs v-model="tab" :tabs="tabs" label="System" />
@@ -183,6 +186,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
 .instances { display: grid; gap: var(--space-3); }
 .config-tab { display: grid; gap: var(--space-4); }
 .search-fns { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-sm); }
+.waiting { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }
 .sub { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .bar .dim { flex: 1 1 280px; }

@@ -62,9 +62,9 @@ class RecentSet {
 
 /** Who answers an approval, as people. */
 export class StoreApprovers implements ApproverDirectory {
-  readonly #deps: Pick<ChatDeps, 'store'>;
+  readonly #deps: Pick<ChatDeps, 'store' | 'hubActor'>;
 
-  constructor(deps: Pick<ChatDeps, 'store'>) {
+  constructor(deps: Pick<ChatDeps, 'store' | 'hubActor'>) {
     this.#deps = deps;
   }
 
@@ -72,7 +72,14 @@ export class StoreApprovers implements ApproverDirectory {
     switch (approver.by) {
       case 'turn-user': return [turnUser];
       case 'actor': return [approver.actor];
-      case 'group': return (await readAll(this.#deps.store.table('memberships'), { where: { group: approver.group } }, MAX_AUDIENCE)).map((m) => m.user);
+      case 'group': {
+        // the hub's own actor as a group stands for every enabled admin (a run a system proposed outside any run)
+        if (approver.group === this.#deps.hubActor) {
+          const users = await readAll(this.#deps.store.table('actors'), { where: { kind: 'user' } }, MAX_AUDIENCE);
+          return users.flatMap((user) => (user.kind === 'user' && user.role === 'admin' && !user.disabled ? [user.id] : []));
+        }
+        return (await readAll(this.#deps.store.table('memberships'), { where: { group: approver.group } }, MAX_AUDIENCE)).map((m) => m.user);
+      }
       // a judge or the hub decides by itself (the policy engine's deciders), so no person answers
       case 'judge': case 'hub': return [];
     }

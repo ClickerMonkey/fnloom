@@ -1,7 +1,7 @@
 import { LIST_FIELDS } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import {
-  buildFilter, findField, parseNumber, pillText, readFilter, readQuery, sortText, suggest, typing, withFilter, withSort, withText, withoutFilter, words, writeQuery,
+  buildFilter, findField, hasFilter, parseNumber, pillText, readFilter, readQuery, sortText, suggest, typing, withFilter, toggledFilter, withSort, withText, withoutFilter, words, writeQuery,
   type SearchQuery,
 } from './search.ts';
 
@@ -73,6 +73,19 @@ describe('the written form', () => {
     expect(parseNumber('1.5kb')).toBe(1_536);
     expect(parseNumber('12k')).toBe(12_000);
     expect(parseNumber('2 parsecs')).toBeUndefined();
+  });
+});
+
+describe('quick filters', () => {
+  it('toggles a filter on and off without touching the rest of the query', () => {
+    const waiting = { field: 'status', op: 'is', value: 'awaiting-approval' } as const;
+    const start: SearchQuery = { text: 'read', filters: [{ field: 'fn', op: 'is', value: 'fs/read' }] };
+    const on = toggledFilter(start, waiting);
+    expect(hasFilter(on, waiting)).toBe(true);
+    expect(on.filters).toHaveLength(2);
+    expect(toggledFilter(on, waiting)).toEqual(start);
+    expect(toggledFilter({}, waiting)).toEqual({ filters: [waiting] });
+    expect(toggledFilter({ filters: [waiting] }, waiting)).toEqual({});
   });
 });
 

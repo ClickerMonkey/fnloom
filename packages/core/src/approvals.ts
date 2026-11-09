@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
-import { ApprovalId, Json, LocalName, RunId } from './primitives.ts';
+import { ApprovalId, FnKindName, Json, LocalName, RunId } from './primitives.ts';
 import { ResultTable } from './registries.ts';
 import { UserInfo } from './run.ts';
 
@@ -58,7 +58,16 @@ export const FnApproval = z.object({ preview: z.boolean(), remember: z.boolean()
 export type FnApproval = z.infer<typeof FnApproval>;
 
 /** The hub asks a fn's system what a run would do (`preview` on the system link). */
-export const PreviewRequest = z.object({ run: RunId, fn: LocalName, args: Json, user: UserInfo });
+export const PreviewRequest = z.object({
+  run: RunId,
+  fn: LocalName,
+  args: Json,
+  user: UserInfo,
+  /** The fn's kind; absent or `native` for a native fn. */
+  kind: FnKindName.optional(),
+  /** A kind fn's payload, since the kind's system works out the preview from it. */
+  payload: Json.optional(),
+});
 export type PreviewRequest = z.infer<typeof PreviewRequest>;
 
 /** The system's answer: the preview, or why the run can't go ahead at all (it then fails as invalid input). */

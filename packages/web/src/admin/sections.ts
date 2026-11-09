@@ -21,7 +21,7 @@ export const LimitsTab = z.enum(['budgets', 'priorities', 'resolved']);
 export type LimitsTab = z.infer<typeof LimitsTab>;
 
 /** One instance's tabs (a fleet's copy of a system). */
-export const InstanceTab = z.enum(['overview', 'config', 'data']);
+export const InstanceTab = z.enum(['overview', 'config', 'types', 'fns', 'data']);
 export type InstanceTab = z.infer<typeof InstanceTab>;
 
 /** One hub MCP's tabs. */

@@ -11,7 +11,7 @@ import { EXPORT_NOT_READY, MAIN_INSTANCE, PACKAGE_FORMAT, instanceLabel, package
 import type { ContentStore } from '../api/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { InstanceKeeper } from './status.ts';
-import type { LinkService, Packages } from './index.ts';
+import type { ConfigService, LinkService, Packages } from './index.ts';
 import { PackageError, readExport, readPackage, readTree, sealExport, unzip, writeTree, zip, ZipError, type DataExport, type ZipEntry } from './package/index.ts';
 import type { ZipSource } from './process.ts';
 import type { ProcessSupervisor } from './supervisor.ts';
@@ -27,6 +27,8 @@ export interface PackagesOptions {
   readonly admin: StoreSystemAdmin;
   readonly instances: InstanceKeeper;
   readonly links: LinkService;
+  /** Configs with their secrets revealed, for an export made with secrets. */
+  readonly config: Pick<ConfigService, 'current'>;
   /** How long a connected instance gets to quiesce before its data is copied. */
   readonly exportTimeout: number;
   readonly log: Logger;
@@ -117,7 +119,7 @@ export class HubPackages implements Packages {
     const folder = await this.#quiesced(input.ref, record.dirs.data);
     const data = await readTree(folder).catch((): ZipEntry[] => []);
     // the config goes only when asked for; an instance with no config yet has none to carry
-    const config = input.withSecrets ? record.config?.value : undefined;
+    const config = input.withSecrets ? (await this.#options.config.current(input.ref.system, input.ref.instance))?.value : undefined;
     const exported: DataExport = {
       info: {
         format: PACKAGE_FORMAT, system: record.system, instance: record.instance, version: record.version, exportedAt: clock(), exportedBy: input.by,

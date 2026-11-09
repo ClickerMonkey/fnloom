@@ -10,7 +10,7 @@ import type { HubServices } from '../../boot/index.ts';
 import { allRows } from '../../catalog/rows.ts';
 import { knownSystem, type AdminOperations } from '../admin-ops.ts';
 import { type FullHandlers } from './access.ts';
-import type { systemsPlugin } from './systems.ts';
+import { maskedInstance, type systemsPlugin } from './systems.ts';
 
 /** The packaging plugin. Requires the systems plugin, which binds `adminOnly`. */
 export function packagingPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>, ops: AdminOperations) {
@@ -21,7 +21,7 @@ export function packagingPlugin(hub: HubServices, systems: ReturnType<typeof sys
       instances: async ({ data }) => {
         await knownSystem(hub, data.system);
         const rows = await allRows(store.table('instances'), { system: data.system });
-        return rows.sort((a, b) => a.instance.localeCompare(b.instance)).map((row) => InstanceView.parse(row));
+        return rows.sort((a, b) => a.instance.localeCompare(b.instance)).map((row) => InstanceView.parse(maskedInstance(row)));
       },
       installPackage: ({ data, user }) => ops.install_package(data, user.id),
       removeInstance: ({ data, user }) => ops.remove_instance(data, user.id),

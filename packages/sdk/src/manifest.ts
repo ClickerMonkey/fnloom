@@ -5,7 +5,7 @@
 import {
   DeclaredLink, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
   type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
-  type TypeDecl,
+  type TypeDecl, type GinTypeDef,
 } from '@harness/core';
 import type { AnyContextDef, AnyTypeDef, ContextLinkTarget } from './declare.ts';
 import { progressDecl, validationOf, type AnyFnDef, type Handlers } from './fn.ts';
@@ -59,6 +59,7 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
       examples: def.examples.map((example) => ({ args: encodeValue(def.args, example.args), ...(example.note === undefined ? {} : { note: example.note }) })),
     }),
     ...withValidation(validationOf(def.validate)),
+    ...(def.approval === undefined ? {} : { approval: { ...def.approval } }),
   };
 }
 
@@ -183,7 +184,31 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     ...(Object.keys(defs.providers).length === 0 ? {} : { providers: entriesOf(defs.providers).map(([name, def]) => providerDecl(name, def)) }),
     config: wireType(defs.config),
     requires: referencedSystems(contract.name, defs).map((s) => SystemName.parse(s)),
+    ...(Object.keys(contract.registries).length === 0 ? {} : {
+      registries: entriesOf(contract.registries).map(([name, def]) => ({ name, description: def.description, data: wireType(def.data) })),
+    }),
+    ...(contract.contributes.length === 0 ? {} : { contributes: contract.contributes.map((c) => ({ ...c })) }),
+    ...(contract.configSecrets.length === 0 ? {} : { configSecrets: checkedSecrets(contract.name, wireType(defs.config), contract.configSecrets) }),
   };
+}
+
+/** The config's secret paths, checked: each must name a text field (optional or nullable allowed) of the config type. */
+export function checkedSecrets(system: string, config: GinTypeDef, paths: readonly string[]): string[] {
+  for (const path of paths) {
+    let at: GinTypeDef | undefined = config;
+    for (const key of path.split('.')) { at = at === undefined ? undefined : unwrapped(at).props?.[key]?.type; }
+    if (at === undefined || unwrapped(at).name !== 'text') {
+      throw new Error(`system ${system}: config secret '${path}' must be a text field of the config.`);
+    }
+  }
+  return [...paths];
+}
+
+/** A type def without its `optional` / `nullable` wrappers. */
+function unwrapped(def: GinTypeDef): GinTypeDef {
+  let at = def;
+  while ((at.name === 'optional' || at.name === 'nullable') && at.generic?.['T'] !== undefined) { at = at.generic['T']; }
+  return at;
 }
 
 /** A `connect` declaration, checked: every fn it switches must be one of the system's fns. */

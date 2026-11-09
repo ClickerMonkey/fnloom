@@ -533,7 +533,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
    */
   async #showPairing(hub: HubLink, pairing: PairingId, shown: PairingShown): Promise<void> {
     try {
-      await hub.call('pairingInfo', { pairing, description: this.#contract.description, instance: shown.instance, configType: wireType(this.#contract.defs.config) });
+      await hub.call('pairingInfo', { pairing, description: this.#contract.description, instance: shown.instance, configType: wireType(this.#contract.defs.config), ...(this.#contract.configSecrets.length === 0 ? {} : { configSecrets: [...this.#contract.configSecrets] }) });
     } catch (error) {
       this.#log.warn('system.pairing-info-failed', { error: messageOf(error) });
     }

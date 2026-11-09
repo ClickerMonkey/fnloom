@@ -11,6 +11,7 @@ import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { ConfigService, LinkService } from './index.ts';
+import type { ConfigSecretKeeper } from './config-secrets.ts';
 import type { InstanceKeeper } from './status.ts';
 
 /** What config needs. */
@@ -21,6 +22,8 @@ export interface ConfigOptions {
   readonly bus: EventBus;
   readonly links: LinkService;
   readonly instances: InstanceKeeper;
+  /** Seals the config's secret fields (`Manifest.configSecrets`) and reveals them for the system. */
+  readonly secrets: ConfigSecretKeeper;
 }
 
 /** The config value a row holds, as the link carries it. */
@@ -40,15 +43,20 @@ export class StoreConfigService implements ConfigService {
 
   async current(system: SystemName, instance?: InstanceName): Promise<ConfigValue | undefined> {
     const ref = await this.#ref(system, instance);
-    return ref === undefined ? undefined : configOf(await this.#options.instances.get(ref));
+    return ref === undefined ? undefined : this.#plain(configOf(await this.#options.instances.get(ref)));
   }
 
   async set(system: SystemName, value: Json, by: ActorId, instance?: InstanceName): Promise<{ version: number } | { problems: string[] }> {
     const ref = await this.#ref(system, instance);
     if (ref === undefined) { return { problems: [`${system} has no instance${instance === undefined ? '' : ` ${instance}`}`] }; }
-    const problems = await this.check(system, value);
+    const before = (await this.#options.instances.get(ref))?.config?.value;
+    const paths = (await this.#options.catalog.manifest(system))?.configSecrets ?? [];
+    const { plain, sealed, release } = await this.#options.secrets.seal(ref, value, before, paths, by);
+    const problems = await this.check(system, plain);
     if (problems.length > 0) { return { problems }; }
-    return this.#write(ref, value, by);
+    const written = await this.#write(ref, { plain, sealed }, by);
+    await release();
+    return written;
   }
 
   /** The problems of a value for a system's config type (none when it fits). */
@@ -70,14 +78,14 @@ export class StoreConfigService implements ConfigService {
    * refuses is dropped and logged. Returns the config the instance has afterwards.
    */
   async applyPending(ref: InstanceRef, by: ActorId): Promise<ConfigValue | undefined> {
-    const current = configOf(await this.#options.instances.get(ref));
+    const current = await this.current(ref.system, ref.instance);
     if (await this.#options.catalog.manifest(ref.system) === undefined) { return current; }
     const key = instanceLabel(ref);
     const waiting = this.#waiting.get(key);
     if (waiting !== undefined) {
       this.#waiting.delete(key);
       const set = await this.set(ref.system, waiting.value, waiting.by, ref.instance);
-      if ('version' in set) { return { value: waiting.value, version: set.version }; }
+      if ('version' in set) { return this.current(ref.system, ref.instance); }
       this.#options.log.warn('config.preset.refused', { system: ref.system, instance: ref.instance, problems: set.problems });
     }
     if (current !== undefined || (await this.check(ref.system, {})).length > 0) { return current; }
@@ -91,17 +99,27 @@ export class StoreConfigService implements ConfigService {
     return name === undefined ? undefined : { system, instance: name };
   }
 
-  /** Store a checked value as the next version (taken inside the keeper's write, so two sets get two versions). */
-  async #write(ref: InstanceRef, value: Json, by: ActorId): Promise<{ version: number }> {
-    let change: ConfigValue & { previous?: Json } = { value, version: 0 };
+  /** A stored config with its secrets revealed, as the system is sent it. */
+  async #plain(config: ConfigValue | undefined): Promise<ConfigValue | undefined> {
+    return config === undefined ? undefined : { value: await this.#options.secrets.unseal(config.value), version: config.version };
+  }
+
+  /**
+   * Store a checked value, sealed, as the next version (taken inside the keeper's write, so two sets get two
+   * versions), and send the system the plain value with the plain previous one.
+   */
+  async #write(ref: InstanceRef, value: { plain: Json; sealed: Json }, by: ActorId): Promise<{ version: number }> {
+    let version = 0;
+    let previous: Json | undefined;
     await this.#options.instances.sync(ref, (current) => {
-      const previous = current.config?.value;
-      change = { value, version: (current.config?.version ?? 0) + 1, ...(previous === undefined ? {} : { previous }) };
-      return { ...current, config: { value, version: change.version, setBy: by, setAt: this.#options.clock() } };
+      previous = current.config?.value;
+      version = (current.config?.version ?? 0) + 1;
+      return { ...current, config: { value: value.sealed, version, setBy: by, setAt: this.#options.clock() } };
     });
-    this.#options.log.info('config.set', { system: ref.system, instance: ref.instance, version: change.version, by });
-    this.#push(ref, change);
-    return { version: change.version };
+    this.#options.log.info('config.set', { system: ref.system, instance: ref.instance, version, by });
+    const plainBefore = previous === undefined ? undefined : await this.#options.secrets.unseal(previous);
+    this.#push(ref, { value: value.plain, version, ...(plainBefore === undefined ? {} : { previous: plainBefore }) });
+    return { version };
   }
 
   /**

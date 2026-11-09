@@ -3,7 +3,7 @@
  * written form a person types into the search box (`status:failed cost>0.01 sort:-cost read`), so a link, a refresh
  * and Back all restore it. The hub filters and sorts; the page sends `queryOf(...)` with its list call.
  */
-import { LIST_FIELDS, type FieldDecl, type ListName, type ListQuery, type ListValuesQuery, type FieldValueOption } from '@harness/core';
+import { LIST_FIELDS, type FieldDecl, type Filter, type ListName, type ListQuery, type ListValuesQuery, type FieldValueOption } from '@harness/core';
 import { computed, type WritableComputedRef } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { formatBytes, formatCost, formatDuration, formatTokens } from '../chat/logic/format.ts';
@@ -11,6 +11,9 @@ import { readQuery, writeQuery, type NumberFormat, type SearchFields, type Searc
 
 /** The URL key every list's query lives in. */
 export const QUERY_KEY = 'q';
+
+/** The runs list's quick filter for runs waiting for an approval. */
+export const NEEDS_APPROVAL: Filter = { field: 'status', op: 'is', value: 'awaiting-approval' };
 
 /** A list's fields, as the search box takes them. */
 export function fieldsOf(list: ListName): SearchFields {

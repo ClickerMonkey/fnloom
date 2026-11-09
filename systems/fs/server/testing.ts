@@ -11,7 +11,7 @@ import {
   type ProgressReporter, type SessionState, type SettingRef, type SystemCtx, type UndoCtx,
 } from '@harness/sdk';
 import { HubLlm, type HubAccess } from '@harness/sdk/server';
-import { TEST_PLACE } from '@harness/sdk/server/testing';
+import { NO_ASKS, TEST_PLACE } from '@harness/sdk/server/testing';
 import type { CommandRun, FsConfig, Git, GitStatus, Opener, Restarter, Shell } from './index.ts';
 import { normalize } from './paths.ts';
 
@@ -127,6 +127,7 @@ export function fnCtx<T extends FnTypes>(parts: FnParts<T>, options: FakeOptions
   const run = runInfo();
   const ctx: FnCtx<T, FsConfig> = {
     ...services(options, recorded),
+    ...NO_ASKS,
     ...parts,
     config: options.config,
     run,
@@ -163,7 +164,7 @@ export function undoCtx(options: FakeOptions): { ctx: UndoCtx<FsConfig> } & Reco
 export function systemCtx(options: FakeOptions): SystemCtx<FsConfig> & { session: ReturnType<typeof mintId<'session'>>; user: typeof user; time: TimeInfo } & Recorded {
   const recorded = record();
   const all = services(options, recorded);
-  return { ...recorded, ...TEST_PLACE, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
+  return { ...recorded, ...TEST_PLACE, ...NO_ASKS, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
 }
 
 /** The outcome of a run, narrowed to `done`, failing the test otherwise. */

@@ -28,3 +28,10 @@ holds the declarations themselves; `SystemImpl<(typeof notes)['defs']>` is the i
 contract is built.
 
 The whole notes contract is in **Worked examples**. Keep `shared/` free of Node imports: other systems and the browser import it.
+
+**Registries, contributions and secrets.** `system(name, info)` also takes (`SystemInfo`): `registries`, the
+registries this system hosts by local name (`RegistryDef`: a description and the gin type of the data each entry
+draws); `contributes`, the entries this system adds to any registry (`{ registry: 'database/query-visuals', name:
+'map', label: 'Map' }`), whose components are in its client bundle; and `configSecrets`, the dot paths of its config's
+secret text fields (`connection.password`), which the hub seals and only `configure` carries in plain. A secret path
+that is not a text field of the config fails the manifest.

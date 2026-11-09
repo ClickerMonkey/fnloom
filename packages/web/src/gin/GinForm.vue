@@ -4,12 +4,12 @@
  * offered). Submit is enabled once the value checks out; problems show under each field as the person types.
  */
 import type { Json } from '@harness/core';
-import { computed, inject, shallowRef, watch } from 'vue';
+import { computed, inject, provide, shallowRef, watch } from 'vue';
 import { UiButton } from '../ui/index.ts';
 import GinInput from './components/GinInput.vue';
 import { problemAt } from './logic/form.ts';
 import { FormState } from './state.ts';
-import { GIN_TYPES, LOCAL_TYPES } from './types.ts';
+import { GIN_SECRETS, GIN_TYPES, LOCAL_TYPES } from './types.ts';
 
 const props = withDefaults(defineProps<{
   /** The gin type definition. */
@@ -20,10 +20,13 @@ const props = withDefaults(defineProps<{
   cancellable?: boolean;
   /** The label of the value when it isn't an object. */
   label?: string;
-}>(), { initial: undefined, submitLabel: 'Submit', busy: false, cancellable: true, label: 'Value' });
+  /** Dot paths of secret text fields: password inputs that read "Saved" while the hub keeps the value (`SECRET_KEPT`). */
+  secrets?: readonly string[];
+}>(), { initial: undefined, submitLabel: 'Submit', busy: false, cancellable: true, label: 'Value', secrets: () => [] });
 
 const emit = defineEmits<{ submit: [value: Json]; cancel: [] }>();
 const types = inject(GIN_TYPES, LOCAL_TYPES);
+provide(GIN_SECRETS, new Set(props.secrets));
 const form = shallowRef(new FormState(props.type, props.initial, types));
 /** Load the named types the type refers to; once they arrive, the form knows their shapes and gin can check them. */
 async function load(type: unknown): Promise<void> {

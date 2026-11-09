@@ -13,6 +13,7 @@ import { ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import type { KeyValueStore } from '../../state/persisted.ts';
 import type { ChatApi, FileSender, SessionEvents } from '../api.ts';
+import { ApprovalDesk } from './approvals.ts';
 import { CapabilitiesStore } from './capabilities.ts';
 import { TypeLibrary } from '../../gin/types.ts';
 import { CollapseStore } from './collapse.ts';
@@ -26,6 +27,7 @@ import { SelectionPreview } from './preview.ts';
 import { DraftSuggestions } from './suggest.ts';
 import { THREAD_SETTINGS, ThreadStore, type ThreadSettings } from './thread.ts';
 import { sendFile, UploadQueue, type Previews } from './uploads.ts';
+import { VisualHost } from './visuals.ts';
 import { RecordedDictation, SpeechDictation, VoiceStore, type DictationEngines, type Recorder, type SpeechRecognizerFactory } from './voice.ts';
 
 /** What the chat is built from. */
@@ -76,6 +78,10 @@ export class ChatStore {
   readonly collapse: CollapseStore;
   readonly renderers: RendererHub;
   readonly mentions: MentionCards;
+  /** The query visuals result views draw with, and the one picked per message. */
+  readonly visuals: VisualHost;
+  /** Approvals answered outside a chat (the inbox). */
+  readonly approvals: ApprovalDesk;
   /** Chat titles read for ids the list doesn't hold (a search pill's session), by id. */
   readonly #titles = shallowRef<ReadonlyMap<string, string>>(new Map());
   /** The ids already asked for (not reactive: asking happens while a view reads a title). */
@@ -106,6 +112,8 @@ export class ChatStore {
       online: (system) => this.capabilities.online(system),
       ...deps.renderers,
     });
+    this.visuals = new VisualHost({ api: deps.api, renderers: this.renderers, prepare: () => this.prepareRenderers() });
+    this.approvals = new ApprovalDesk(deps.api);
   }
 
   /** Listen to the user channel for list and capability changes. */

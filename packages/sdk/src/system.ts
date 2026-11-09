@@ -3,7 +3,7 @@
  * call can use the refs declared before it. The implementation's type (`SystemImpl`) is computed from the contract,
  * so everything declared must be implemented and nothing undeclared can be.
  */
-import { ConnectDecl, SystemName, qualify, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
+import { ConfigPath, ConnectDecl, ContributionDecl, SystemName, qualify, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
 import type { SystemCtx } from './ctx.ts';
 import type {
   ActionDef, ActionImpl, AnyContextDef, AnyTypeDef, AttachmentDef, ContextDef, ContextImpl, EmbedderDef, EmbedderImpl, HookDef, HookImpl,
@@ -96,6 +96,12 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
  */
 export interface SystemContract<N extends string, C extends ContractShape> extends SystemRefs<N, C> {
   readonly description: string;
+  /** Registries it hosts, by local name. */
+  readonly registries: Readonly<Record<string, RegistryDef>>;
+  /** Entries it adds to registries, its own or another system's. */
+  readonly contributes: readonly ContributionDecl[];
+  /** The dot paths of its config's secret text fields. */
+  readonly configSecrets: readonly ConfigPath[];
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
@@ -114,6 +120,32 @@ type AnyRefs = { -readonly [K in ContractSection]: Record<string, unknown> };
 const EMPTY_SECTIONS = (): { [K in ContractSection]: {} } => ({
   types: {}, settings: {}, attachments: {}, kinds: {}, fns: {}, context: {}, hooks: {}, mentions: {}, embedders: {}, sectioners: {}, actions: {}, providers: {},
 });
+
+/** A registry a system hosts: what it is for and the data each entry is drawn with (a `ResultTable` for query visuals). */
+export interface RegistryDef {
+  readonly description: string;
+  readonly data: GinType;
+}
+
+/** What `system()` takes besides its name. */
+export interface SystemInfo {
+  description: string;
+  /**
+   * Registries this system hosts, by local name. Any system, this one included, adds entries from its client bundle
+   * (`client({ visuals })`) and lists them in `contributes`.
+   */
+  registries?: Record<string, RegistryDef>;
+  /** Entries this system adds to registries (`{ registry: 'database/query-visuals', name: 'map', label: 'Map' }`). */
+  contributes?: ContributionDecl[];
+  /**
+   * The dot paths of its config's secret text fields (`connection.password`). The hub seals them when the config is
+   * saved and only `configure` carries the plain value. Each must be a text field of the config type.
+   */
+  configSecrets?: ConfigPath[];
+}
+
+/** The parts of a contract that are not declaration sections. */
+type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' | 'registries' | 'contributes' | 'configSecrets'>;
 
 /** The ref of a named type: a gin extension registered in `g` under its qualified name, carrying display and methods. */
 function typeRef(system: string, local: string, def: AnyTypeDef): TypeRef<QualifiedName, unknown, Methods> {
@@ -174,10 +206,10 @@ function clashes(defs: ContractShape, part: Partial<ContractShape>): string[] {
   return problems;
 }
 
-function assemble<N extends string, C extends ContractShape>(name: N, description: string, defs: C, refs: AnyRefs): SystemContract<N, C> {
+function assemble<N extends string, C extends ContractShape>(name: N, extras: ContractExtras, defs: C, refs: AnyRefs): SystemContract<N, C> {
   const contract = {
     name,
-    description,
+    ...extras,
     defs,
     ...refs,
     with<const P extends Partial<ContractShape>>(part: P | ((self: SystemRefs<N, C>) => P)): SystemContract<N, Merge<C, P>> {
@@ -194,7 +226,7 @@ function assemble<N extends string, C extends ContractShape>(name: N, descriptio
         mergedRefs[section] = { ...refs[section], ...more[section] };
       }
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `merged` holds every section of C with P's added: exactly Merge<C, P>
-      return assemble(name, description, merged as Merge<C, P>, mergedRefs);
+      return assemble(name, extras, merged as Merge<C, P>, mergedRefs);
     },
   };
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the refs were built from `defs` section by section, which is what SystemRefs<N, C> maps
@@ -203,10 +235,16 @@ function assemble<N extends string, C extends ContractShape>(name: N, descriptio
 }
 
 /** Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. */
-export function system<const N extends string>(name: N, info: { description: string }): SystemContract<N, EmptyContract> {
+export function system<const N extends string>(name: N, info: SystemInfo): SystemContract<N, EmptyContract> {
   SystemName.parse(name);
   const defs: EmptyContract = { config: g.obj({}), connect: undefined, ...EMPTY_SECTIONS() };
-  return assemble(name, info.description, defs, EMPTY_SECTIONS());
+  const extras: ContractExtras = {
+    description: info.description,
+    registries: { ...info.registries },
+    contributes: (info.contributes ?? []).map((c) => ContributionDecl.parse(c)),
+    configSecrets: (info.configSecrets ?? []).map((p) => ConfigPath.parse(p)),
+  };
+  return assemble(name, extras, defs, EMPTY_SECTIONS());
 }
 
 // ─── Implementing a system ────────────────────────────────────────────────────

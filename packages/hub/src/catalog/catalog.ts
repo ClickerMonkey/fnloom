@@ -9,7 +9,7 @@ import {
   Json, noFnStats, QualifiedName, qualify, splitName,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl, type SystemName,
-  type TypeDecl, type TypeRecord,
+  type InstanceName, type TypeDecl, type TypeRecord,
 } from '@harness/core';
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
@@ -48,6 +48,28 @@ function eachSection(make: <S extends ManifestSection>(section: S) => Array<Sect
 
 /** The empty report. */
 const emptyReport = (): ImportReport => ({ added: [], updated: [], removed: [], refused: [] });
+
+/** The fleet instance a type belongs to, if one does. */
+export const typeOwner = (decl: TypeDecl): InstanceName | undefined => decl.instance;
+
+/** The fleet instance a fn belongs to (one routed to it always), if one does. */
+export const fnOwner = (decl: FnDecl): InstanceName | undefined => (decl.routing?.to === 'instance' ? decl.routing.instance : undefined);
+
+/** One owned section of a manifest from `from`: the others' entries kept from before, its own and the shared ones as sent. */
+function ownedSection<D extends { name: string }>(before: readonly D[], sent: readonly D[], from: InstanceName, owner: (decl: D) => InstanceName | undefined): D[] {
+  const kept = before.filter((decl) => { const own = owner(decl); return own !== undefined && own !== from; });
+  const taken = new Set(kept.map((decl) => decl.name));
+  const mine = sent.filter((decl) => { const own = owner(decl); return !taken.has(decl.name) && (own === undefined || own === from); });
+  return [...mine, ...kept];
+}
+
+/**
+ * A manifest as an instance of a fleet sent it, joined with what the system's other instances own: their types and fns
+ * stay as they were, and anything it says about them (an update, a removal, a claim to own one) is ignored.
+ */
+export function fromInstance(before: Manifest | undefined, sent: Manifest, from: InstanceName): Manifest {
+  return { ...sent, types: ownedSection(before?.types ?? [], sent.types, from, typeOwner), fns: ownedSection(before?.fns ?? [], sent.fns, from, fnOwner) };
+}
 
 /** Running numbers for a fn that has never run. */
 
@@ -185,11 +207,15 @@ export class StoreCatalog implements Catalog {
 
   // ─── Importing ────────────────────────────────────────────────────────────
 
-  importManifest(manifest: Manifest): Promise<ImportReport> {
-    return this.#serial.run(() => this.#import(manifest, false));
+  importManifest(manifest: Manifest, from?: InstanceName): Promise<ImportReport> {
+    return this.#serial.run(async () => {
+      if (from === undefined) { return this.#import(manifest, false); }
+      await this.#load();
+      return this.#import(fromInstance(this.#manifests.get(manifest.name), manifest, from), false);
+    });
   }
 
-  importPatch(system: SystemName, patch: ManifestPatch): Promise<ImportReport> {
+  importPatch(system: SystemName, patch: ManifestPatch, from?: InstanceName): Promise<ImportReport> {
     return this.#serial.run(async () => {
       await this.#load();
       const previous = this.#manifests.get(system);
@@ -202,7 +228,20 @@ export class StoreCatalog implements Catalog {
         const replacing = new Set(replaced.map((decl) => decl.name));
         return [...lists[section].filter((decl) => !removed.has(decl.name) && !replacing.has(decl.name)), ...replaced];
       });
-      return this.#import({ ...previous, ...sections, hash: patch.hash }, false);
+      const next: Manifest = { ...previous, ...sections, hash: patch.hash };
+      return this.#import(from === undefined ? next : fromInstance(previous, next, from), false);
+    });
+  }
+
+  forgetInstance(system: SystemName, instance: InstanceName): Promise<ImportReport> {
+    return this.#serial.run(async () => {
+      await this.#load();
+      const previous = this.#manifests.get(system);
+      if (previous === undefined) { return emptyReport(); }
+      const types = previous.types.filter((decl) => typeOwner(decl) !== instance);
+      const fns = previous.fns.filter((decl) => fnOwner(decl) !== instance);
+      if (types.length === previous.types.length && fns.length === previous.fns.length) { return emptyReport(); }
+      return this.#import({ ...previous, types, fns }, false);
     });
   }
 

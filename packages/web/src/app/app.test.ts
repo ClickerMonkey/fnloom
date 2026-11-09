@@ -1,4 +1,4 @@
-import { LlmInteractionId, MessageId, NotificationLink, QualifiedName, RunId, SessionId } from '@harness/core';
+import { LlmInteractionId, MessageId, NotificationLink, QualifiedName, RunId, SessionId, SystemName } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -54,6 +54,7 @@ describe('routes', () => {
     expect(await at({ system: 'fs' })).toMatchObject({ name: ROUTES.system, params: { name: 'fs' } });
     expect(await at({ pairing: 'par_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'par_1' } });
     expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.runs, query: { q: 'status:awaiting-approval' } });
+    expect(links.waitingRuns(SystemName.parse('database'))).toEqual({ name: ROUTES.runs, query: { q: 'status:awaiting-approval system:database' } });
     expect(await at({ run: 'run_1' })).toEqual({ name: ROUTES.runs, query: { run: 'run_1' } });
     expect(await at({ run: 'run_chat' })).toEqual({ name: ROUTES.session, params: { session: 'ses_9' } });
     expect(await notificationTarget(NotificationLink.parse({ run: 'run_x' }), () => Promise.reject(new Error('gone')))).toEqual({ name: ROUTES.runs, query: { run: 'run_x' } });
