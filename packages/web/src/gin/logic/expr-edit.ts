@@ -75,11 +75,15 @@ function scalarValue(view: Extract<ExprView, { kind: 'new' }>): boolean {
   return view.value === undefined || view.value === null || typeof view.value !== 'object';
 }
 
+/** The characters a problem mark (the note or error icon behind a node) takes on an edited line. */
+export const MARK_WIDTH = 3;
+
 /**
  * How a node is drawn at an indent depth: blocks, defines, switches and loops always wrap, as does a function with a
- * condition and a literal that isn't a plain value; anything else stays on one line while its code fits `width`.
+ * condition and a literal that isn't a plain value; anything else stays on one line while its code and its `marks`
+ * (problem icons) fit `width`. An inline node never wraps, so this alone decides where lines break.
  */
-export function editShape(def: ExprDef, tools: ExprTools, depth: number, width = CODE_WIDTH): EditShape {
+export function editShape(def: ExprDef, tools: ExprTools, depth: number, width = CODE_WIDTH, marks = 0): EditShape {
   const parsed = tools.parse(def);
   if (!parsed.ok) { return 'inline'; }
   const view = viewOf(parsed.value);
@@ -90,7 +94,7 @@ export function editShape(def: ExprDef, tools: ExprTools, depth: number, width =
     case 'get': case 'set': case 'if': case 'template': case 'flow': case 'native': break;
   }
   const flat = flatWidth(def, tools);
-  return flat !== undefined && depth * 2 + flat <= width ? 'inline' : 'block';
+  return flat !== undefined && depth * 2 + flat + marks * MARK_WIDTH <= width ? 'inline' : 'block';
 }
 
 const kw = (text: string, menu = false): EditPiece => ({ kind: 'keyword', text, menu });

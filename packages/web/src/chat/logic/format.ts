@@ -42,6 +42,8 @@ export { clamp } from '@harness/core';
 
 /** What the wavy rule over an answer that read no prompt cache says when hovered. */
 export const CACHE_MISS_TIP = 'The model re-read the whole chat (no cache hit)';
+/** The words on the cache-miss rule itself, before its time, so it reads without the tooltip (phones have none). */
+export const CACHE_MISS_WORDS = 'Re-read the chat, no cache';
 
 /** The cache-miss rule's label: the call's time ("14:05"), with its date when it isn't today ("Mon 3 Nov, 14:05"). */
 export function cacheMissLabel(at: number, now: number, locale?: string): string {

@@ -1,6 +1,6 @@
-import { openScope } from '../access/index.ts';
+import { openScope, type AccessScope } from '../access/index.ts';
 import { fn, hub, type AnyFnRef } from '@harness/sdk';
-import { QualifiedName, ResourceUri, type Json, type Turn } from '@harness/core';
+import { QualifiedName, ResourceUri, type ActorId, type Json, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { RunInput } from '../execution/index.ts';
@@ -24,7 +24,7 @@ function addHubFn(r: ExecutionRig, ref: AnyFnRef): void {
 }
 
 /** The rig, its fns registered; while `scope` gives one, every run's caller acts as a hub MCP with that scope. */
-async function started(scope: () => ReachScope | undefined = () => undefined) {
+async function started(scope: () => ReachScope | undefined = () => undefined, access: (actor: ActorId) => AccessScope = openScope) {
   const r = await executionRig();
   rig = r;
   const resources = await resourcesRig();
@@ -33,7 +33,7 @@ async function started(scope: () => ReachScope | undefined = () => undefined) {
     content: { parts: () => Promise.resolve([{ type: 'text', content: 'the text', name: 'a.md' }]) },
   };
   for (const name of NAMES) { addHubFn(r, hub.fns[name]); }
-  registerResourceFns(r.module.hubFns, { resources: () => services, store: () => r.store, llm: () => ({ models: () => Promise.resolve([]) }), mcpScope: () => Promise.resolve(scope()), access: (actor) => Promise.resolve(openScope(actor)) });
+  registerResourceFns(r.module.hubFns, { resources: () => services, store: () => r.store, llm: () => ({ models: () => Promise.resolve([]) }), mcpScope: () => Promise.resolve(scope()), access: (actor) => Promise.resolve(access(actor)) });
   await r.session({});
   await r.module.start();
   return { r, resources, turn: await r.turn({ session: SESSION, text: 'hello' }) };
@@ -80,6 +80,29 @@ describe('the resource hub fns', () => {
     const { r, turn } = await started();
     const settled = await call(r, turn, 'resource_read', { uri: 'not a uri' });
     expect(settled.status).not.toBe('done');
+  });
+});
+
+describe('context made from a resource', () => {
+  it('reads as missing once its resource is under a root the person may not see', async () => {
+    const uri = ResourceUri.parse('file://main/private/plan.md');
+    const hide = { private: false };
+    const sees = (at: string): boolean => !(hide.private && at.startsWith('file://main/private'));
+    const { r, resources, turn } = await started(undefined, (actor) => ({
+      ...openScope(actor), seesUri: sees, seesContext: (record) => record.origin?.type !== 'resource' || sees(record.origin.uri),
+    }));
+    resources.raw.serve({ stat: statOf(uri, { format: 'markdown' }), bytes: bytes('# Plan\nsecret plan\n') });
+    const made = await call(r, turn, 'context_from_resource', { uri });
+    const { created } = z.object({ created: z.array(QualifiedName) }).parse(made.status === 'done' ? made.result : {});
+    const name = created[0];
+    if (name === undefined) throw new Error('no context made');
+    // the run reads records from the hub store; this rig keeps the resource module's apart
+    for (const made of created) { const record = await resources.store.table('context').get(made); if (record !== undefined) await r.store.table('context').insert(record); }
+    expect(await call(r, turn, 'context_get', { name })).toMatchObject({ status: 'done' });
+    hide.private = true;
+    const hidden = await call(r, turn, 'context_get', { name });
+    expect(hidden.status).not.toBe('done');
+    expect(JSON.stringify(hidden)).not.toContain('secret plan');
   });
 });
 

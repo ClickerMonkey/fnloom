@@ -7,6 +7,7 @@ import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { accessSlice, connectionsSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
+import { CONNECT_CALLBACK_PATH } from '../../connections/service.ts';
 import type { FullHandlers } from './access.ts';
 import type { systemsPlugin } from './systems.ts';
 
@@ -28,9 +29,14 @@ export function connectionsPlugin(hub: Pick<HubServices, 'connections' | 'access
         const [pages, scope] = await Promise.all([hub.connections.pages(user.id), hub.access.scope(user.id)]);
         return pages.filter((page) => scope.seesSystem(page.system));
       },
-      connect: async ({ data, user }) => {
+      connect: async ({ data, user, cookie }) => {
         if (!(await hub.access.scope(user.id)).seesSystem(data.system)) { throw reject(404, 'NOT_FOUND', `${data.system} has no per-person connections`); }
-        return hub.connections.connect(user.id, data.system, data.form);
+        const started = await hub.connections.connect(user.id, data.system, data.form);
+        if (!('binding' in started)) return started;
+        // ties the provider's sign-in to this browser: the callback finishes only where this cookie is
+        const { binding } = started;
+        cookie(binding.cookie, binding.value, { path: CONNECT_CALLBACK_PATH, maxAge: binding.maxAge, httpOnly: true, sameSite: 'Lax', secure: binding.secure });
+        return { url: started.url };
       },
       updateConnection: ({ data, user }) => hub.connections.update(user.id, data),
       disconnect: async ({ data, user }) => ({ ok: await hub.connections.disconnect(user.id, data.connection) }),

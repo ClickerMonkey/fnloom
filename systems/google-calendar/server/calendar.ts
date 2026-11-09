@@ -3,7 +3,7 @@
  * refuses them, each refresh handed back to the hub), their settings, and the event operations the fns run, with
  * Google's events turned into this system's `Event` values and the fns' args into Google's fields.
  */
-import { Json, type ConnectionUpdate, type RunConnection } from '@harness/core';
+import { Json, type ActorId, type ConnectionUpdate, type RunConnection } from '@harness/core';
 import { parseValue } from '@harness/sdk';
 import { z } from 'zod';
 import { ConnectionSettings, type ConnectionSettingsValue, type EventValue } from '../shared/index.ts';
@@ -86,6 +86,8 @@ export interface CalendarSessionDeps {
   readonly api: GoogleApi;
   readonly client: OAuthClient;
   readonly connection: RunConnection;
+  /** The person the run is for: anyone but the connection's owner reaches only the calendars the owner chose. */
+  readonly caller: ActorId;
   readonly now: () => number;
   /** Refresh this long before the access token runs out. */
   readonly skew: number;
@@ -108,16 +110,33 @@ export class CalendarSession {
     this.settings = settingsOf(deps.connection.settings);
   }
 
-  /** The calendars to read: the one asked for, else the person's chosen ones, else their primary. */
+  /** The calendars to read: the one asked for, else the owner's chosen ones, else their primary. Throws `forbidden` for one the caller may not reach. */
   calendarsFor(asked: string | undefined): string[] {
-    if (asked !== undefined) { return [asked]; }
+    if (asked !== undefined) { return [this.#reachable(asked)]; }
+    return this.#chosen();
+  }
+
+  /** The calendar an event is in or goes to: the one asked for, else the owner's default. Throws `forbidden` for one the caller may not reach. */
+  calendarFor(asked: string | undefined): string {
+    return this.#reachable(asked ?? this.#default());
+  }
+
+  #chosen(): string[] {
     const chosen = this.settings.calendars ?? [];
     return chosen.length > 0 ? chosen : ['primary'];
   }
 
-  /** Where a new event goes. */
-  calendarFor(asked: string | undefined): string {
-    return asked ?? this.settings.defaultCalendar ?? 'primary';
+  #default(): string {
+    return this.settings.defaultCalendar ?? 'primary';
+  }
+
+  /**
+   * A calendar the caller may reach: the owner reaches any their token does; someone the connection is shared with
+   * reaches only the calendars the owner chose on the Calendar page and their default one.
+   */
+  #reachable(calendar: string): string {
+    if (this.#deps.caller === this.#deps.connection.owner || calendar === this.#default() || this.#chosen().includes(calendar)) { return calendar; }
+    throw new GoogleProblem('forbidden', `The calendar ${calendar} isn't one its owner shares; use one of: ${[...new Set([...this.#chosen(), this.#default()])].join(', ')}.`);
   }
 
   /** Run a Google call with a fresh token; a refused token is refreshed once and the call tried again. */

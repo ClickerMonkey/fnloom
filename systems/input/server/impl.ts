@@ -4,7 +4,7 @@
  * `save_form` keeps a form and adds it as an `input/form` fn at runtime; the `form` kind runs those fns. Every input
  * fn returns the form, which the chat draws; nothing here waits for the answers.
  */
-import { qualify, type ActorId, type QualifiedName, type UserInfo } from '@harness/core';
+import { qualify, type ActorId, type QualifiedName, type ShareRule, type UserInfo, type Visibility } from '@harness/core';
 import { encodeValue, g, parseValue, wireType, type AnyFnDef, type Llm, type SystemImpl } from '@harness/sdk';
 import { Asked, WAIT_FOR_ANSWERS, input, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
 import { formProblems, quickForms } from '../shared/forms.ts';
@@ -12,9 +12,11 @@ import type { FormAuthor } from './author.ts';
 import type { InputSettings } from './env.ts';
 import type { FormStore, SavedRecord } from './store.ts';
 
-/** Adds fns at runtime (the running system's `add`). */
+/** Adds and removes fns at runtime (the running system's `add` and `remove`). */
 export interface RuntimeFns {
   add(name: string, def: AnyFnDef): Promise<void>;
+  /** Take back a fn `add` added (a save that couldn't be kept to its person). */
+  remove(name: string): Promise<void>;
 }
 
 /** Everything the implementation is built from. */
@@ -56,9 +58,12 @@ export function slugOf(name: string): string {
   return slug === '' || /^[0-9]/.test(slug) ? `form_${slug}` : slug;
 }
 
-/** Whether a person may reuse a saved form: their own, or a public one. (Shared forms reach others through the hub's access.) */
+/**
+ * Whether a person may reuse a saved form's content in `get_input`: their own, a public one, or a shared one naming
+ * them. (A form shared with a group reaches its members as a fn, through the hub's access, which knows the groups.)
+ */
 export function mayUse(record: SavedRecord, user: Pick<UserInfo, 'id'>): boolean {
-  return record.owner === user.id || record.visibility === 'public';
+  return record.owner === user.id || record.visibility === 'public' || (record.visibility === 'shared' && record.with.includes(user.id));
 }
 
 /**
@@ -118,16 +123,31 @@ function formFn(record: SavedRecord): AnyFnDef {
 export function createInputImpl(deps: InputDeps): InputServer {
   const s = deps.settings;
 
-  async function save(args: { name: string; description: string; form: InputFormValue; visibility?: SavedRecord['visibility'] | undefined }, owner: ActorId, llm: Llm): Promise<SavedRecord> {
+  /**
+   * Save a form: add its fn, hand it to its person with who may use it (`share`), and only then keep it. A fn with no
+   * access row is public, so until the hub has the person's rule the kind refuses to run it (it isn't kept yet), and
+   * when the hub refuses the rule the fn is taken back, so a private form is never left open to everyone.
+   */
+  async function save(
+    args: { name: string; description: string; form: InputFormValue; visibility: Visibility; with: readonly ActorId[] },
+    owner: ActorId, llm: Llm, share: (name: string, rule: ShareRule) => Promise<void>,
+  ): Promise<SavedRecord> {
     const records = await deps.store.all();
     const name = freeName(slugOf(args.name), records);
     const record: SavedRecord = {
-      name, title: args.name.trim(), description: args.description.trim(), form: args.form, owner, visibility: args.visibility ?? 'private',
+      name, title: args.name.trim(), description: args.description.trim(), form: args.form, owner, visibility: args.visibility,
+      with: args.visibility === 'shared' ? [...new Set(args.with)] : [],
       vector: await embedOne(llm, matchText({ title: args.name, description: args.description })), savedAt: deps.now(),
     };
     const runtime = deps.runtime();
     if (runtime === undefined) { throw new Error('The input system is not serving yet.'); }
     await runtime.add(name, formFn(record));
+    try {
+      await share(name, { visibility: record.visibility, with: record.with });
+    } catch (error) {
+      await runtime.remove(name);
+      throw error;
+    }
     await deps.store.put(record);
     return record;
   }
@@ -169,9 +189,10 @@ export function createInputImpl(deps: InputDeps): InputServer {
         async run(args, ctx) {
           const problems = formProblems(args.form.type);
           if (problems.length > 0) { return ctx.invalid([{ path: 'form.type', message: problems.join(' ') }]); }
-          const record = await save(args, ctx.run.user.id, ctx.llm);
+          const visibility = args.visibility ?? 'private';
+          if (visibility === 'shared' && (args.with ?? []).length === 0) { return ctx.invalid([{ path: 'with', message: 'Name the people or groups to share it with.' }]); }
           // the person who saved it owns the new fn on the hub, which then keeps it to whom they chose
-          await ctx.shareFn(record.name, { visibility: record.visibility, with: [] });
+          const record = await save({ ...args, visibility, with: args.with ?? [] }, ctx.run.user.id, ctx.llm, (name, rule) => ctx.shareFn(name, rule));
           ctx.log.info('input.saved', { form: record.name, visibility: record.visibility });
           return ctx.done({ fn: qualify(input.name, record.name), name: record.title });
         },
@@ -186,7 +207,12 @@ export function createInputImpl(deps: InputDeps): InputServer {
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: false },
         }),
-        run: (payload, _args, ctx) => Promise.resolve(ctx.done(encodeValue(Asked, asked(parseValue(input.kinds.form.payload, payload), ctx.run.fn)))),
+        async run(payload, _args, ctx) {
+          // a form is kept only once the hub has who may use it; until then (or if that failed) it is not offered
+          const kept = (await deps.store.all()).some((record) => qualify(input.name, record.name) === ctx.run.fn);
+          if (!kept) { return ctx.fail('caller', 'This form is still being saved, or its saving failed; try again in a moment.', { code: 'form-unsaved' }); }
+          return ctx.done(encodeValue(Asked, asked(parseValue(input.kinds.form.payload, payload), ctx.run.fn)));
+        },
       },
     },
   };

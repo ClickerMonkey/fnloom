@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import type { AccessInfo, DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, MessagePart, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, TypeDisplay } from '@harness/core';
+import type { AccessInfo, DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, MessagePart, QualifiedName, ResourceStat, ResourceUri, RunId, RunStatus, SectionKey, ShareRule, TypeDisplay } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -251,3 +251,16 @@ export const INPUT_ANSWERS: InjectionKey<InputAnswers> = Symbol.for('harness.inp
 export const VALUE_EDITOR: InjectionKey<Component<ValueEditorProps>> = Symbol.for('harness.valueEditor');
 /** Whether the hub has more than one person (a reactive getter), so a renderer offers who may use what it saves. */
 export const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>> = Symbol.for('harness.accessInfo');
+
+/** The props of the chat's visibility editor, as a renderer binds them (`v-model` over the rule). */
+export interface ShareEditorProps {
+  modelValue: ShareRule;
+  /** The editor's label ("Who can use it" when absent). */
+  label?: string;
+}
+
+/**
+ * The chat's visibility editor: Only me, Me and chosen people (with the hub's people-and-groups picker), or Everyone,
+ * the same control as everywhere else in the app. The chat provides it on a hub with more than one person.
+ */
+export const SHARE_EDITOR: InjectionKey<Component<ShareEditorProps>> = Symbol.for('harness.shareEditor');

@@ -6,7 +6,8 @@
  *   and the model reads in `<input-answer>` tags), and says whether a run's form was answered already.
  * - `VALUE_EDITOR`: the chat's gin value editor, used for a form when it is there.
  * - `ACCESS_INFO`: whether the hub has more than one person, so the save step offers who may use the form.
+ * - `SHARE_EDITOR`: the app's visibility editor (with its people-and-groups picker), which that step draws.
  *
  * Without them the renderer still draws the form with its own fields, and says it can't send the answers.
  */
-export { ACCESS_INFO, INPUT_ANSWERS, VALUE_EDITOR, type InputAnswer, type InputAnswers, type ValueEditorProps } from '@harness/sdk';
+export { ACCESS_INFO, INPUT_ANSWERS, SHARE_EDITOR, VALUE_EDITOR, type InputAnswer, type InputAnswers, type ShareEditorProps, type ValueEditorProps } from '@harness/sdk';

@@ -73,4 +73,16 @@ describe('pick', () => {
     expect(await values('type')).toEqual(['fs/Entry']);
     expect(await values('kind')).toEqual(['native', 'input/form']);
   });
+
+  it('lists the memories of another person only where their scope reaches the asker', async () => {
+    const deps = await world();
+    const BEN = ActorId.parse('act_ben');
+    const memory = (name: string, scope: { to: 'user'; user: ActorId } | { to: 'everyone' }) => ({
+      ...new FixtureCatalog().addContext('hub', { name, description: `About ${name}.` }), origin: { type: 'memory' as const, scope, author: BEN },
+    });
+    await deps.store.table('context').insert(memory('bens-diary', { to: 'user', user: BEN }));
+    await deps.store.table('context').insert(memory('team-notes', { to: 'everyone' }));
+    expect((await pick(deps, ADA, { source: 'context', text: '' })).map((o) => o.value)).toEqual(['hub/team-notes']);
+    expect((await pick(deps, BEN, { source: 'context', text: '' })).map((o) => o.value).sort()).toEqual(['hub/bens-diary', 'hub/team-notes']);
+  });
 });

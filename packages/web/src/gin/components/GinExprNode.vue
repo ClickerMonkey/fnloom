@@ -16,7 +16,7 @@ import { UiCodeBlock, UiIcon, UiIconButton, UiMenu } from '../../ui/index.ts';
 import GinTypeView from '../GinTypeView.vue';
 import GinValueView from '../GinValueView.vue';
 import { canRemove, childOf, editRows, editShape, GROW_ACTIONS, isGrowAction, nodeMenu, type EditPiece, type EditShape, type NodeAction } from '../logic/expr-edit.ts';
-import { EXPR_KINDS, FLOW_ACTIONS, problemsAt, removalOf, viewOf, withChild, withList, withScalar, type ExprChild, type ExprKind, type ExprList, type ExprProblem, type ListEdit, type ScalarEdit } from '../logic/expr.ts';
+import { EXPR_KINDS, FLOW_ACTIONS, marksWithin, problemsAt, removalOf, viewOf, withChild, withList, withScalar, type ExprChild, type ExprKind, type ExprList, type ExprProblem, type ListEdit, type ScalarEdit } from '../logic/expr.ts';
 import { CODE_WIDTH } from '../logic/layout.ts';
 import { EXPR_ACTIVE, EXPR_TOOLS, EXPR_WIDTH, sharedExprTools } from '../state.ts';
 import GinIdent from './GinIdent.vue';
@@ -49,7 +49,7 @@ const width = inject(EXPR_WIDTH, ref(CODE_WIDTH));
 
 const parsed = computed(() => tools.parse(props.def));
 const view = computed(() => (parsed.value.ok ? viewOf(parsed.value.value) : undefined));
-const shape = computed<EditShape>(() => (props.inline ? 'inline' : editShape(props.def, tools, props.depth, width.value)));
+const shape = computed<EditShape>(() => (props.inline ? 'inline' : editShape(props.def, tools, props.depth, width.value, marksWithin(props.problems, props.path))));
 const rows = computed(() => (view.value === undefined ? [] : editRows(view.value, shape.value, props.statement)));
 const menu = computed(() => (view.value === undefined ? [] : nodeMenu(view.value, props.removable)));
 /** Whether a keyword opens the menu, so the node needs no menu button. */
@@ -228,10 +228,11 @@ function childProps(piece: Extract<EditPiece, { kind: 'child' }>, indent: boolea
 </template>
 
 <style scoped>
-/* one line: tokens flow and wrap like text; wrapped: one row per line of code */
-.gin-expr-node.inline { display: inline-flex; flex-wrap: wrap; align-items: center; min-width: 0; max-width: 100%; }
+/* one line: its tokens stay on it (the shape chose one line only where it fits; past that the code scrolls); wrapped: one row per line of code */
+.gin-expr-node.inline { display: inline-flex; flex-wrap: nowrap; white-space: nowrap; align-items: center; min-width: 0; }
 .gin-expr-node.block { display: grid; min-width: 0; }
-.row { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; min-height: 1.75em; }
+/* rows as far apart as the read-only code's lines, so editing and viewing read as the same code */
+.row { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; min-height: 1.55em; }
 .inline > .row { display: contents; }
 .row.ind { padding-left: 2ch; border-left: 1px solid var(--border); margin-left: 0.5ch; }
 /* a wrapped child on a line takes the lines below it */

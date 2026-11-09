@@ -2,7 +2,7 @@
  * One person's view of visibility: the stored rows, the groups they are in and their per-person connections, checked
  * without further reads.
  */
-import { accessKey, splitName, SystemName, type QualifiedName, type AccessRecord, type AccessTarget, type ActorId, type Sharing, type ShareRule } from '@harness/core';
+import { accessKey, seesOrigin, splitName, SystemName, type QualifiedName, type SessionId, type AccessRecord, type AccessTarget, type ActorId, type Sharing, type ShareRule } from '@harness/core';
 import type { AccessScope, ConnectionGate, ContextRef, FnConnection, FnRef } from './index.ts';
 
 /** Whether a sharing lets a person (in these groups) in. */
@@ -101,10 +101,18 @@ function systemName(system: string): SystemName | undefined {
 }
 
 /**
- * Whether a person may see a context item by name: by its record when the catalog has one (a resource-made item
- * follows its resource too), else by its name and system alone.
+ * Whether a person may see a context item: its access (a resource-made item follows its resource too) and, for a
+ * memory, its scope (`seesOrigin`; a session-scoped memory needs the session it is asked from).
  */
-export async function seesContextNamed(access: AccessScope, lookup: (name: QualifiedName) => Promise<ContextRef | undefined>, name: QualifiedName): Promise<boolean> {
+export function seesContextAs(access: AccessScope, record: ContextRef, session?: SessionId): boolean {
+  return seesOrigin(record.origin, { actor: access.actor, session }) && access.seesContext(record);
+}
+
+/**
+ * Whether a person may see a context item by name: by its record when the catalog has one (`seesContextAs`), else by
+ * its name and system alone.
+ */
+export async function seesContextNamed(access: AccessScope, lookup: (name: QualifiedName) => Promise<ContextRef | undefined>, name: QualifiedName, session?: SessionId): Promise<boolean> {
   const record = await lookup(name);
-  return access.seesContext(record ?? { name, system: splitName(name).system, origin: undefined });
+  return seesContextAs(access, record ?? { name, system: splitName(name).system, origin: undefined }, session);
 }

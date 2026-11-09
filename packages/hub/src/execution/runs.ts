@@ -206,6 +206,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       key: input.key,
       actor: input.actor,
       caller: input.caller,
+      ...(connection?.state === 'ready' ? { connection: connection.connection.id } : {}),
       ...(input.llmCall === undefined ? {} : { llmCall: input.llmCall }),
       ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
       args: input.args,
@@ -344,7 +345,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       await this.#moveTo(run, { status: 'queued' });
       this.#deps.log.warn('run.system-gone', { run: run.id, system: run.system });
     } else {
-      await this.settle(run.id, { status: 'failed', error: fnError('retry', messageOf(error), 'executor') });
+      await this.settle(run.id, { status: 'failed', error: error instanceof RunRefused ? error.error : fnError('retry', messageOf(error), 'executor') });
     }
   }
 
@@ -595,14 +596,22 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(resume === undefined ? {} : { resume }),
       deadline: deadline.at,
       configVersion: configured?.version ?? 0,
-      ...(await this.#connection(fn, turn)),
+      ...(await this.#connection(run, fn, turn)),
     };
   }
 
-  /** The connection a per-person fn's run acts as, credentials revealed; nothing for any other fn. */
-  async #connection(fn: FnRecord, turn: Turn): Promise<Pick<RunRequest, 'connection'>> {
+  /**
+   * The connection a per-person fn's run acts as, credentials revealed; nothing for any other fn. It is the one pinned
+   * when the run started, so the account approved is the account used: if that one is gone, off or no longer shared,
+   * the run fails rather than act as another.
+   */
+  async #connection(run: Run, fn: FnRecord, turn: Turn): Promise<Pick<RunRequest, 'connection'>> {
     const gate = (await this.#deps.access.scope(turn.user.id)).connection(fn);
-    return gate?.state === 'ready' ? { connection: await this.#deps.connections.forRun(gate.connection) } : {};
+    if (gate === undefined) return {};
+    if (gate.state !== 'ready' || gate.connection.id !== run.connection) {
+      throw new RunRefused(fnError('retry', `${fn.name} was started to act as an account that is no longer connected or shared with you; ask again.`, 'unavailable'));
+    }
+    return { connection: await this.#deps.connections.forRun(gate.connection) };
   }
 
   /** Who and when a run is for. */

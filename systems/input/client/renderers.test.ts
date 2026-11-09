@@ -2,7 +2,7 @@
  * The form card: its own fields for a form, sending the answers as one `input-answer` (and refusing missing required
  * fields), showing "Answered" with the values, the chat's value editor when given, and saving the form.
  */
-import { mintId, type RunId } from '@harness/core';
+import { mintId, type RunId, type ShareRule } from '@harness/core';
 import type { SystemClient } from '@harness/sdk';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import type { AskedValue, InputContract } from '../shared/index.ts';
 import { quickForms } from '../shared/forms.ts';
 import { checkAnswers, controlOf } from './form.ts';
 import FormCard from './FormCard.vue';
-import { ACCESS_INFO, INPUT_ANSWERS, VALUE_EDITOR, type InputAnswer, type InputAnswers } from './host.ts';
+import { ACCESS_INFO, INPUT_ANSWERS, SHARE_EDITOR, VALUE_EDITOR, type InputAnswer, type InputAnswers } from './host.ts';
 
 const TRIP: AskedValue = {
   form: {
@@ -77,7 +77,8 @@ describe('FormCard', () => {
     const card = mount(FormCard, { props: { run: mintId('run'), result: TRIP, system }, global: { provide: { [ACCESS_INFO]: { multiUser: true } } } });
     await card.find('button.link').trigger('click');
     expect(card.find<HTMLInputElement>('input[maxlength="60"]').element.value).toBe('Trip details');
-    await card.findAll('.segment')[2]?.trigger('click');
+    expect(card.findAll('.segment').map((segment) => segment.text())).toEqual(['Only me', 'Everyone']);
+    await card.findAll('.segment')[1]?.trigger('click');
     await card.find('form.save-form').trigger('submit');
     await flushPromises();
     expect(saved).toEqual([{ name: 'Trip details', description: 'Where you go.', form: TRIP.form, visibility: 'public' }]);
@@ -85,6 +86,30 @@ describe('FormCard', () => {
 
     const reused = mount(FormCard, { props: { run: mintId('run'), result: { ...TRIP, saved: 'input/trip' }, system } });
     expect(reused.find('.save').exists()).toBe(false);
+  });
+
+  it('saves a form for chosen people through the app share editor, and refuses sharing with nobody', async () => {
+    const { system, saved } = fakeSystem();
+    const ben = mintId('actor');
+    let pick: ShareRule = { visibility: 'shared', with: [] };
+    // the app's editor: here a button that sets the rule the test picks
+    const Share = defineComponent({
+      props: { modelValue: { type: Object, required: true } },
+      emits: ['update:modelValue'],
+      setup: (_props, { emit }) => () => h('button', { type: 'button', class: 'share', onClick: () => { emit('update:modelValue', pick); } }, 'share'),
+    });
+    const card = mount(FormCard, { props: { run: mintId('run'), result: TRIP, system }, global: { provide: { [ACCESS_INFO]: { multiUser: true }, [SHARE_EDITOR]: Share } } });
+    await card.find('button.link').trigger('click');
+    expect(card.find('.segments').exists()).toBe(false);
+    await card.find('button.share').trigger('click');
+    await card.find('form.save-form').trigger('submit');
+    expect(card.find('.save-form [role="alert"]').text()).toContain('people or groups');
+    expect(saved).toEqual([]);
+    pick = { visibility: 'shared', with: [ben] };
+    await card.find('button.share').trigger('click');
+    await card.find('form.save-form').trigger('submit');
+    await flushPromises();
+    expect(saved).toEqual([{ name: 'Trip details', description: 'Where you go.', form: TRIP.form, visibility: 'shared', with: [ben] }]);
   });
 
   it('shows nothing but the error for a result that is not a form', () => {

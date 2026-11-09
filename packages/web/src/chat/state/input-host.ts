@@ -7,7 +7,7 @@ import { computed } from 'vue';
 import { inputAnswers } from '../logic/thread.ts';
 import type { ThreadStore } from './thread.ts';
 
-export { ACCESS_INFO, INPUT_ANSWERS, VALUE_EDITOR, type InputAnswer, type InputAnswers, type ValueEditorProps } from '@harness/sdk';
+export { ACCESS_INFO, INPUT_ANSWERS, SHARE_EDITOR, VALUE_EDITOR, type InputAnswer, type InputAnswers, type ShareEditorProps, type ValueEditorProps } from '@harness/sdk';
 
 /** The answers service over one thread: answers go out as hidden user messages, and are read back from its messages. */
 export function threadInputAnswers(thread: Pick<ThreadStore, 'send' | 'messages' | 'problem'>): InputAnswers {

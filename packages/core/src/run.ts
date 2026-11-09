@@ -247,7 +247,8 @@ export const OutcomeWire = z.discriminatedUnion('status', [
     /** Fns the result shows the agent (`ctx.expose`): their cards follow the tool reply, and they stay near the top of the next selection. */
     expose: z.array(Exposure).optional(),
   }),
-  z.object({ status: z.literal('invalid-input'), invalid: InvalidInput, cost: Usd.optional() }),
+  // `undo`: a result its output hook refused after the fn ran (its effects happened, so they stay undoable)
+  z.object({ status: z.literal('invalid-input'), invalid: InvalidInput, undo: Json.optional(), cost: Usd.optional() }),
   z.object({ status: z.literal('paused'), resume: Json, cost: Usd.optional() }),
   z.object({ status: z.literal('failed'), error: FnError, undo: Json.optional(), cost: Usd.optional() }),
   z.object({ status: z.literal('cancelled'), partial: Json.optional(), undo: Json.optional(), cost: Usd.optional() }),

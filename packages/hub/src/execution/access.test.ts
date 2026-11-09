@@ -65,4 +65,21 @@ describe('visibility at a run start', () => {
     const { run } = await asking.module.runs.start({ ...input(await asking.turn(), 'cal/list_events'), caller: AGENT });
     expect((await asking.module.runs.get(run))?.status).toBe('awaiting-approval');
   });
+
+  it('acts as the connection chosen at the start, failing rather than act as another one after approval', async () => {
+    const asks = { state: 'ready' as const, connection: CONNECTION, option: { on: true, ask: true } };
+    let gate: FnConnection = asks;
+    const r = await started(scope([], (record) => (isCal(record) ? gate : undefined)));
+    const cal = r.connect('cal');
+    const { settled } = await r.module.runs.start({ ...input(await r.turn(), 'cal/list_events'), caller: AGENT });
+    // while it waits, the person's own connection goes and someone else's shared one is now the one in reach
+    gate = { ...asks, connection: { ...CONNECTION, id: ConnectionId.parse('cnx_2'), owner: AGENT } };
+    const approval = r.bus.of('approval')[0]?.approval;
+    if (approval === undefined) throw new Error('expected an approval');
+    await r.module.policies.answer(approval.id, { by: ALICE, approve: true, remember: 'once' });
+    const outcome = await settled;
+    expect(outcome.status).toBe('failed');
+    expect(JSON.stringify(outcome)).toMatch(/no longer connected or shared/);
+    expect(cal.requests).toHaveLength(0);
+  });
 });

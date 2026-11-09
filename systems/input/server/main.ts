@@ -4,6 +4,7 @@
  */
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { AnyFnRef } from '@harness/sdk';
 import { buildClient } from '@harness/sdk/build';
 import { loggedHost, placeFolders, serve } from '@harness/sdk/server';
 import { input } from '../shared/index.ts';
@@ -37,7 +38,14 @@ const running = await serve(input, server.impl, {
   ...(settings.HARNESS_PAIRING_TOKEN === undefined ? {} : { pairingToken: settings.HARNESS_PAIRING_TOKEN }),
 }, host);
 running.onStatus((status) => { log.info('input.status', { status }); });
-runtime.current = { add: async (name, def) => { await running.add(name, def); } };
+const added = new Map<string, AnyFnRef>();
+runtime.current = {
+  add: async (name, def) => { added.set(name, await running.add(name, def)); },
+  remove: async (name) => {
+    const ref = added.get(name);
+    if (ref !== undefined) { await running.remove(ref); added.delete(name); }
+  },
+};
 await running.ready();
 log.info('input.restored', { forms: await server.restore() });
 

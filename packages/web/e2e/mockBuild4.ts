@@ -76,7 +76,13 @@ export class MockBuild4 {
     const at = Date.now();
     const made: ConnectionView = {
       id: ConnectionId.parse(`cnx_${at.toString(36)}`), system: CALENDAR, owner: this.#owner(), status: 'connected',
-      account: { label: 'ada@example.com', detail: 'Google' }, settings: {}, fns: {}, share: { visibility: 'private', with: [] }, createdAt: at, updatedAt: at,
+      account: {
+        label: 'ada@example.com', detail: 'Google',
+        choices: {
+          calendars: [{ value: 'primary', label: 'ada@example.com', hint: 'Primary', icon: 'calendar' }, { value: 'team', label: 'Team', icon: 'calendar' }, { value: 'holidays', label: 'Holidays', icon: 'calendar' }],
+          defaultCalendar: [{ value: 'primary', label: 'ada@example.com', hint: 'Primary', icon: 'calendar' }, { value: 'team', label: 'Team', icon: 'calendar' }],
+        },
+      }, settings: {}, fns: {}, share: { visibility: 'private', with: [] }, createdAt: at, updatedAt: at,
     };
     this.#connections = [made, ...this.#connections.filter((c) => c.owner !== made.owner)];
     return { connection: made };

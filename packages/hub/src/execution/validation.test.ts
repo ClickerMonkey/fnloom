@@ -84,4 +84,14 @@ describe('fn validation hooks', () => {
     shop.behaviour.validate = (request) => (request.phase === 'output' ? { ok: false, action: 'stop', reason: 'Card declined' } : { ok: true });
     expect(await outcomeOf(r, input(await r.turn(), 'shop/buy', { count: 1 }))).toMatchObject({ status: 'failed', error: { class: 'fatal', code: OUTPUT_REFUSED, message: 'Card declined' } });
   });
+
+  it('keeps the undo of a result refused for another try, since the fn already ran', async () => {
+    const r = await started();
+    const shop = r.connect('shop');
+    shop.behaviour.run = (request) => Promise.resolve({ status: 'done', result: { echo: request.args }, undo: { order: 'o1' } });
+    shop.behaviour.validate = (request) => (request.phase === 'output' ? { ok: false, action: 'retry', reason: 'Too expensive' } : { ok: true });
+    const tried = await r.module.runs.start(input(await r.turn(), 'shop/buy', { count: 9 }));
+    await tried.settled;
+    expect(await r.module.runs.get(tried.run)).toMatchObject({ status: 'invalid-input', undo: { order: 'o1' } });
+  });
 });

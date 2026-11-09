@@ -35,7 +35,7 @@ export function createCalendarImpl(deps: CalendarDeps): SystemImpl<CalendarContr
     const connection = ctx.connection;
     if (connection === undefined) { return ctx.fail('caller', 'Your Google Calendar isn\'t connected: connect it on the Calendar page first.', { code: 'not-connected' }); }
     try {
-      const calendar = new CalendarSession({ api: deps.api, client: ctx.config, connection, now: deps.now, skew: s.CALENDAR_REFRESH_SKEW, update: (update) => ctx.updateConnection(update.update) });
+      const calendar = new CalendarSession({ api: deps.api, client: ctx.config, connection, caller: ctx.run.user.id, now: deps.now, skew: s.CALENDAR_REFRESH_SKEW, update: (update) => ctx.updateConnection(update.update) });
       return await work(calendar);
     } catch (error) {
       if (!(error instanceof GoogleProblem)) { throw error; }

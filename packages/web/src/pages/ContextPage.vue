@@ -6,7 +6,7 @@
  * it made. Live: a change to any item refreshes the list quietly.
  */
 import type { ContextFromResourceArgs } from '@harness/core';
-import { computed, watch } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
@@ -22,7 +22,7 @@ import { useStores } from '../state/stores.ts';
 import { UiButton } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { context, resources, toasts } = useStores();
+const { context, resources, toasts, chat } = useStores();
 const finder = resources.search();
 const router = useRouter();
 const now = useNow();
@@ -35,6 +35,7 @@ const remembering = computed({ get: () => rememberOpen.value === '1', set: (isOp
 const making = computed({ get: () => fromOpen.value === '1', set: (isOpen) => { fromOpen.value = isOpen ? '1' : ''; } });
 
 const filter = computed(() => filterOf(hubListQuery(search.value)));
+onMounted(() => { void chat.access.load(); });
 watch(() => JSON.stringify(filter.value), () => { void context.show(filter.value); }, { immediate: true });
 context.follow();
 
@@ -78,7 +79,7 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
         <UiButton variant="ghost" :loading="context.list.loadingMore.value" data-testid="more" @click="context.list.more()">Show more</UiButton>
       </div>
     </LoadState>
-    <MemoryDialog v-model:open="remembering" :busy="context.remembering.busy.value" :problem="context.remembering.problem.value" @save="remember" />
+    <MemoryDialog v-model:open="remembering" :multi-user="chat.access.multiUser.value" :busy="context.remembering.busy.value" :problem="context.remembering.problem.value" @save="remember" />
     <FromResourceDialog
       v-model:open="making" :busy="context.making.busy.value" :problem="context.making.problem.value"
       :found="finder.found.value.value ?? []" :finding="finder.found.loading.value" :find-problem="finder.found.problem.value" @find="finder.search($event)" @save="fromResource"

@@ -4,21 +4,22 @@
  * one, else the form's own inputs), and the button. Sending adds the answers as a hidden user message (one
  * `input-answer` part); then the form shows "Answered" with the values. Under a form that wasn't a saved one,
  * "Save this form for next time" keeps it as an `input` fn (name, description and, with more than one person, who
- * may use it).
+ * may use it: the app's visibility editor, people and groups included, or Only me / Everyone without it).
  */
-import type { FnError, Json, RunId, Visibility } from '@harness/core';
+import { VISIBILITY_LABELS, type FnError, type Json, type RunId, type ShareRule, type Visibility } from '@harness/core';
 import type { SystemClient } from '@harness/sdk';
 import { computed, inject, ref, shallowRef } from 'vue';
 import type { InputContract } from '../shared/index.ts';
 import FieldInput from './FieldInput.vue';
 import { answerFor, askedOf, checkAnswers, fieldsOf, shownValue, type FormValues } from './form.ts';
-import { ACCESS_INFO, INPUT_ANSWERS, VALUE_EDITOR } from './host.ts';
+import { ACCESS_INFO, INPUT_ANSWERS, SHARE_EDITOR, VALUE_EDITOR } from './host.ts';
 
 const view = defineProps<{ run: RunId; result?: unknown; error?: FnError | undefined; system: SystemClient<InputContract['defs']> }>();
 
 const answers = inject(INPUT_ANSWERS, undefined);
 const editor = inject(VALUE_EDITOR, undefined);
 const access = inject(ACCESS_INFO, undefined);
+const shareEditor = inject(SHARE_EDITOR, undefined);
 
 const asked = computed(() => askedOf(view.result));
 const fields = computed(() => (asked.value === undefined ? [] : fieldsOf(asked.value.form.type)));
@@ -37,7 +38,7 @@ const answered = computed(() => answers?.answerOf(view.run)?.value ?? sentNow.va
 const saving = ref<'closed' | 'open' | 'busy' | 'saved'>('closed');
 const saveName = ref('');
 const saveDescription = ref('');
-const saveVisibility = ref<Visibility>('private');
+const saveShare = shallowRef<ShareRule>({ visibility: 'private', with: [] });
 const saveProblem = ref('');
 
 async function send(): Promise<void> {
@@ -72,10 +73,15 @@ function openSave(): void {
 async function save(): Promise<void> {
   const form = asked.value;
   if (form === undefined || saveName.value.trim() === '' || saveDescription.value.trim() === '') { saveProblem.value = 'Give it a name and say what it is for.'; return; }
+  const share = saveShare.value;
+  if (share.visibility === 'shared' && share.with.length === 0) { saveProblem.value = 'Choose the people or groups to share it with.'; return; }
   saving.value = 'busy';
   saveProblem.value = '';
   try {
-    await view.system.run.save_form({ name: saveName.value.trim(), description: saveDescription.value.trim(), form: form.form, visibility: saveVisibility.value });
+    await view.system.run.save_form({
+      name: saveName.value.trim(), description: saveDescription.value.trim(), form: form.form, visibility: share.visibility,
+      ...(share.visibility === 'shared' ? { with: share.with } : {}),
+    });
     saving.value = 'saved';
   } catch (error) {
     saveProblem.value = error instanceof Error ? error.message : String(error);
@@ -83,11 +89,11 @@ async function save(): Promise<void> {
   }
 }
 
-const VISIBILITY_CHOICES: ReadonlyArray<{ value: Visibility; label: string }> = [
-  { value: 'private', label: 'Only me' },
-  { value: 'shared', label: 'People I share with' },
-  { value: 'public', label: 'Everyone' },
-];
+/** Without the app's editor there is no people picker, so only the two choices that need none. */
+const PLAIN_CHOICES: readonly Visibility[] = ['private', 'public'];
+function choose(visibility: Visibility): void {
+  saveShare.value = { visibility, with: [] };
+}
 </script>
 
 <template>
@@ -129,15 +135,18 @@ const VISIBILITY_CHOICES: ReadonlyArray<{ value: Visibility; label: string }> = 
         <label class="label" :for="`${run}-save-description`">What it is for</label>
         <input :id="`${run}-save-description`" v-model="saveDescription" class="box" type="text" required>
         <template v-if="access?.multiUser">
-          <span class="label">Who may use it</span>
-          <div class="segments" role="radiogroup" aria-label="Who may use it">
-            <button
-              v-for="choice in VISIBILITY_CHOICES" :key="choice.value" type="button" role="radio" class="segment"
-              :aria-checked="saveVisibility === choice.value" @click="saveVisibility = choice.value"
-            >
-              {{ choice.label }}
-            </button>
-          </div>
+          <component :is="shareEditor" v-if="shareEditor" v-model="saveShare" label="Who can use it" />
+          <template v-else>
+            <span class="label">Who can use it</span>
+            <div class="segments" role="radiogroup" aria-label="Who can use it">
+              <button
+                v-for="choice in PLAIN_CHOICES" :key="choice" type="button" role="radio" class="segment"
+                :aria-checked="saveShare.visibility === choice" @click="choose(choice)"
+              >
+                {{ VISIBILITY_LABELS[choice] }}
+              </button>
+            </div>
+          </template>
         </template>
         <p v-if="saveProblem" class="problem" role="alert">{{ saveProblem }}</p>
         <div class="actions">

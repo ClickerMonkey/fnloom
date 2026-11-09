@@ -4,7 +4,7 @@ import { GinTypeDef } from '../gin.ts';
 import { LlmChunk, LlmRequest, LlmUsage } from '../llm.ts';
 import { FnKindName } from '../manifest.ts';
 import {
-  ActorId, DeliveryId, HandlerCallId, InstanceName, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
+  ActorId, ConnectionId, DeliveryId, HandlerCallId, InstanceName, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
 import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
 import { RunText } from '../status.ts';
@@ -35,6 +35,8 @@ export const Run = z.object({
   key: z.string(),
   actor: ActorId,
   caller: ActorId,
+  /** A per-person fn's connection, chosen when the run started (its 'ask first' decided the approval): the run acts as it. */
+  connection: ConnectionId.optional(),
   /** The LLM call whose tool call made this run. */
   llmCall: LlmInteractionId.optional(),
   toolCallId: z.string().optional(),

@@ -8,7 +8,7 @@ import { ActorId, VISIBILITY_LABELS, type ShareRule, type Visibility } from '@ha
 import { computed } from 'vue';
 import UiPicker from './UiPicker.vue';
 import UiSegmented from './UiSegmented.vue';
-import type { IconName } from './icons.ts';
+import { VISIBILITY_ICONS } from './icons.ts';
 import type { PickerSource } from './picker.ts';
 import type { SegmentOption } from './types.ts';
 
@@ -20,8 +20,7 @@ const props = withDefaults(defineProps<{
 }>(), { label: 'Who can use it', readonly: false });
 const model = defineModel<ShareRule>({ required: true });
 
-const ICONS = { private: 'user', shared: 'users', public: 'globe' } as const satisfies Record<Visibility, IconName>;
-const OPTIONS: readonly SegmentOption<Visibility>[] = (['private', 'shared', 'public'] as const).map((value) => ({ value, label: VISIBILITY_LABELS[value], icon: ICONS[value] }));
+const OPTIONS: readonly SegmentOption<Visibility>[] = (['private', 'shared', 'public'] as const).map((value) => ({ value, label: VISIBILITY_LABELS[value], icon: VISIBILITY_ICONS[value] }));
 
 const visibility = computed({
   get: () => model.value.visibility,
@@ -39,7 +38,7 @@ const withWhom = computed({
   <div class="ui-visibility" data-testid="visibility">
     <div class="row">
       <span class="label">{{ label }}</span>
-      <UiSegmented v-model="visibility" :options="OPTIONS" :label="label" :class="{ locked: readonly }" data-testid="visibility-choice" />
+      <UiSegmented v-model="visibility" :options="OPTIONS" :label="label" class="choice" :class="{ locked: readonly }" data-testid="visibility-choice" />
     </div>
     <UiPicker
       v-if="visibility === 'shared'" v-model="withWhom" :source="people" label="Shared with" placeholder="Add people or groups" :code="false" :disabled="readonly"
@@ -49,8 +48,10 @@ const withWhom = computed({
 </template>
 
 <style scoped>
-.ui-visibility { display: grid; gap: var(--space-2); min-width: 0; }
+.ui-visibility { display: grid; gap: var(--space-2); min-width: 0; container-type: inline-size; }
 .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .label { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+/* too narrow for the three choices on one row (a side card, a phone): they stack, full width, rather than wrap one alone */
+@container (max-width: 28rem) { .choice { flex-direction: column; width: 100%; } }
 .locked { pointer-events: none; opacity: 0.7; }
 </style>

@@ -362,7 +362,7 @@ export class StoreTurnService implements TurnService {
       return names.filter((_, i) => checked[i] === true);
     };
     const seesFn = (name: QualifiedName): Promise<boolean> => Promise.resolve(access.mayUse({ name, system: splitName(name).system }));
-    const seesContext = (name: QualifiedName): Promise<boolean> => seesContextNamed(access, (n) => this.#deps.catalog.context(n), name);
+    const seesContext = (name: QualifiedName): Promise<boolean> => seesContextNamed(access, (n) => this.#deps.catalog.context(n), name, session.id);
     return { tools: await usable(asked.flatMap((b) => b.fns ?? []), seesFn), context: await usable(asked.flatMap((b) => b.context ?? []), seesContext) };
   }
 

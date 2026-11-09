@@ -48,8 +48,8 @@ export {
 export { agent, type AgentInput, type AgentFnTypes, type LlmPayload, type LlmKind } from './agent.ts';
 export { manifestOf, manifestBody, fnDecl, canonicalJson, sha256, type ManifestOptions } from './manifest.ts';
 export {
-  client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO,
-  type InputAnswer, type InputAnswers, type ValueEditorProps,
+  client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO, SHARE_EDITOR,
+  type InputAnswer, type InputAnswers, type ValueEditorProps, type ShareEditorProps,
   type Renderer, type Delivery, type FnView, type SystemClient, type WithSystem, type AttachmentView, type InputView, type MentionView, type ResourceView,
   type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type WireViews, type Mount, type InputMount, type ClientRenderers, type ClientModule, type ResourceViewerProps,
   type ResourceViewerEntry, type ResourceViewerMode, type BareViewer,

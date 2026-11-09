@@ -10,8 +10,9 @@
  * it weren't there, and a listing leaves them out. Services are read when a fn runs, never while registering.
  */
 import { reject } from '@ayepi/core';
-import { ResourceOutlineArgs, ResourceSendArgs, splitName, type ActorId, type QualifiedName } from '@harness/core';
+import { ResourceOutlineArgs, ResourceSendArgs, splitName, type ActorId, type ContextLink, type LinkTarget, type QualifiedName } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
+import { seesContextAs } from '../access/scope.ts';
 import { hub, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, toolArgsOf } from '@harness/sdk';
 import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 import type { LlmGateway } from '../execution/index.ts';
@@ -49,23 +50,40 @@ interface Reach {
   /** The resource's URI, or a refusal that reads as if it weren't there. */
   readonly needResource: <U extends string>(uri: U) => U;
   /** The context item's name, or a refusal that reads as if it weren't there. */
-  readonly needContext: (name: QualifiedName) => QualifiedName;
+  readonly needContext: (name: QualifiedName) => Promise<QualifiedName>;
+  /** Whether a link's end is in reach: a context item, fn, type or resource. */
+  readonly linked: (target: LinkTarget) => Promise<boolean>;
 }
 
 /** What the caller of a run may reach. */
 async function reachOf(deps: ResourceFnDeps, ctx: HubFnCtx): Promise<Reach> {
   const [scope, access] = await Promise.all([deps.mcpScope(ctx.request.run.caller), deps.access(ctx.request.run.user.id)]);
   const resource = (uri: string): boolean => (scope === undefined || scope.allowsResource(uri)) && access.seesUri(uri);
+  const session = ctx.request.run.session;
+  const context = async (name: QualifiedName): Promise<boolean> => {
+    const system = splitName(name).system;
+    const record = await deps.store().table('context').get(name);
+    // the item's own access: a resource-made item follows its resource, a memory its scope
+    return (scope === undefined || scope.context.has(name)) && access.seesSystem(system) && access.sees({ kind: 'context', context: name })
+      && seesContextAs(access, record ?? { name, system, origin: undefined }, session);
+  };
   return {
     resource,
     needResource: (uri) => {
       if (!resource(uri)) { throw reject(404, 'NO_RESOURCE', `there is no resource ${uri}`); }
       return uri;
     },
-    needContext: (name) => {
-      const seen = access.seesSystem(splitName(name).system) && access.sees({ kind: 'context', context: name });
-      if ((scope !== undefined && !scope.context.has(name)) || !seen) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
+    needContext: async (name) => {
+      if (!(await context(name))) { throw reject(404, 'NO_CONTEXT', `there is no context ${name}`); }
       return name;
+    },
+    linked: async (target) => {
+      switch (target.kind) {
+        case 'context': return context(target.name);
+        case 'fn': return access.seesFn({ name: target.name, system: splitName(target.name).system });
+        case 'type': return access.seesSystem(splitName(target.name).system);
+        case 'resource': return resource(target.uri);
+      }
     },
   };
 }
@@ -108,7 +126,20 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
     (await reachOf(deps, ctx)).needResource(body.uri);
     return deps.resources().reader.read(body, askingOf(ctx));
   });
-  fns.register(refs.context_get, async (args, ctx) => deps.resources().context.item((await reachOf(deps, ctx)).needContext(read.context(args).name), askingOf(ctx)));
+  fns.register(refs.context_get, async (args, ctx) => {
+    const reach = await reachOf(deps, ctx);
+    const item = await deps.resources().context.item(await reach.needContext(read.context(args).name), askingOf(ctx));
+    // a link names its other end: only the ends the caller may reach are shown
+    const kept = async (links: readonly ContextLink[], end: (link: ContextLink) => Promise<boolean>): Promise<ContextLink[]> => {
+      const seen = await Promise.all(links.map(end));
+      return links.filter((_, i) => seen[i] === true);
+    };
+    const [links, backlinks] = await Promise.all([
+      kept(item.links, (link) => reach.linked(link.to)),
+      kept(item.backlinks, async (link) => (await deps.store().table('context').get(link.from)) === undefined ? reach.linked({ kind: 'fn', name: link.from }) : reach.linked({ kind: 'context', name: link.from })),
+    ]);
+    return { ...item, links, backlinks };
+  });
   // args arrive checked against the contract's gin types, made from these schemas; parsing adds the brands
   fns.register(refs.resource_outline, async (args, ctx) => deps.resources().reader.outline((await reachOf(deps, ctx)).needResource(ResourceOutlineArgs.parse(args).uri), askingOf(ctx)));
   fns.register(refs.resource_send, async (args, ctx) => {
@@ -134,5 +165,5 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
     return deps.resources().context.fromResource(body, askingOf(ctx));
   });
   fns.register(refs.remember, async (args, ctx) => deps.resources().context.remember(write.remember(args), askingOf(ctx)));
-  fns.register(refs.forget, async (args, ctx) => ({ ok: await deps.resources().context.forget((await reachOf(deps, ctx)).needContext(write.forget(args).name), askingOf(ctx)) }));
+  fns.register(refs.forget, async (args, ctx) => ({ ok: await deps.resources().context.forget(await (await reachOf(deps, ctx)).needContext(write.forget(args).name), askingOf(ctx)) }));
 }

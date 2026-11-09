@@ -49,12 +49,16 @@ describe('input over the link', () => {
   let hub: FakeHub;
   let store: MemoryForms;
   let server: InputServer;
+  const removed: string[] = [];
 
   async function start(): Promise<void> {
     hub = new FakeHub({ config: {} });
     server = createInputImpl({
       settings, store, author: new LlmFormAuthor({ retries: 2, maxFields: 10 }), now: () => 1_000,
-      runtime: () => (running === undefined ? undefined : { add: async (name, def) => { await running?.add(name, def); } }),
+      runtime: () => (running === undefined ? undefined : {
+        add: async (name, def) => { await running?.add(name, def); },
+        remove: async (name) => { removed.push(name); },
+      }),
     });
     running = await serve(input, server.impl, { hub: 'ws://hub.test/link', state: 'unused', version: packageManifest.version }, hub.host());
     await running.ready();
@@ -112,6 +116,11 @@ describe('input over the link', () => {
     expect(done(await hub.run('input/save_form', { name: 'Trip details', description: 'Again.', form: TRIP }))).toEqual({ fn: 'input/trip_details_2', name: 'Trip details' });
     expect(done(await hub.run('input/save_form', { name: 'Ask text', description: 'A clash.', form: TRIP }))).toEqual({ fn: 'input/ask_text_2', name: 'Ask text' });
     expect(await hub.run('input/save_form', { name: 'Bad', description: 'x', form: { ...TRIP, type: { name: 'text' } } })).toMatchObject({ status: 'invalid-input' });
+    // shared names its people; shared with nobody is refused
+    expect(await hub.run('input/save_form', { name: 'Nobody', description: 'x', form: TRIP, visibility: 'shared' })).toMatchObject({ status: 'invalid-input' });
+    // a form fn that isn't kept (still being saved, or its sharing failed) doesn't run
+    expect(await hub.run('input/unkept', {}, { kind: 'input/form', payload: TRIP })).toMatchObject({ status: 'failed', error: { code: 'form-unsaved' } });
+    expect(removed).toEqual([]);
 
     await running?.stop();
     running = undefined;
@@ -123,7 +132,7 @@ describe('input over the link', () => {
 
 describe('input helpers', () => {
   const record = (over: Partial<SavedRecord>): SavedRecord => ({
-    name: 'trip', title: 'Trip details', description: 'd', form: TRIP, owner: TEST_USER.id, visibility: 'private', vector: [1, 0], savedAt: 0, ...over,
+    name: 'trip', title: 'Trip details', description: 'd', form: TRIP, owner: TEST_USER.id, visibility: 'private', with: [], vector: [1, 0], savedAt: 0, ...over,
   });
 
   it('matches by named title, else by cosine above the threshold; only the owner\'s or public forms', () => {
@@ -139,6 +148,8 @@ describe('input helpers', () => {
     const other = { id: mintId('actor') };
     expect(mayUse(record({}), other)).toBe(false);
     expect(mayUse(record({ visibility: 'public' }), other)).toBe(true);
+    expect(mayUse(record({ visibility: 'shared', with: [other.id] }), other)).toBe(true);
+    expect(mayUse(record({ visibility: 'shared', with: [] }), other)).toBe(false);
     expect(slugOf('Trip details!')).toBe('trip_details');
     expect(slugOf('2026 plan')).toBe('form_2026_plan');
   });

@@ -4,7 +4,7 @@
  * the system turns the provider's answer into an account and credentials, and the credentials become a secret owned
  * by the person. A connection's fns act as its owner, for them and for the people it is shared with.
  */
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { reject } from '@ayepi/core';
 import { z } from 'zod';
 import type { Logger } from '@ayepi/log';
@@ -21,7 +21,7 @@ import { allRows } from '../catalog/rows.ts';
 import type { LinkService, SystemConnection } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ConnectionsEnv } from './env.ts';
-import type { CallbackAnswer, ConnectionService } from './index.ts';
+import type { CallbackAnswer, ConnectBinding, ConnectionService, ConnectStart } from './index.ts';
 
 /** Where providers send people back to, under the hub's public URL. */
 export const CONNECT_CALLBACK_PATH = '/connect/callback';
@@ -53,6 +53,10 @@ export function connectionView(row: UserConnection): ConnectionView {
 export class StoreConnectionService implements ConnectionService {
   readonly #deps: ConnectionDeps;
   readonly #key: Buffer;
+  /** Sign-ins whose callback is being finished now. */
+  readonly #claimed = new Set<ConnectionId>();
+  /** The last refresh queued for each connection. */
+  readonly #refreshing = new Map<ConnectionId, Promise<void>>();
 
   constructor(deps: ConnectionDeps) {
     this.#deps = deps;
@@ -72,7 +76,7 @@ export class StoreConnectionService implements ConnectionService {
     return pages;
   }
 
-  async connect(asker: ActorId, system: SystemName, form?: Json): Promise<{ url: string } | { connection: ConnectionView }> {
+  async connect(asker: ActorId, system: SystemName, form?: Json): Promise<ConnectStart> {
     const decl = await this.#decl(system);
     const now = this.#deps.clock();
     const row: UserConnection = {
@@ -93,32 +97,57 @@ export class StoreConnectionService implements ConnectionService {
       }
     }
     await this.#begin(row);
-    const state = this.#sign(row.id, now + this.#deps.settings.HARNESS_CONNECT_WINDOW);
+    const window = this.#deps.settings.HARNESS_CONNECT_WINDOW;
+    const browser = randomBytes(24).toString('base64url');
+    const state = this.#sign(row.id, now + window, sha256(browser));
     try {
-      return await this.#call(system, (c, signal) => c.peer.call('connectStart', { connection: row.id, owner: asker, redirect: this.#redirect, state }, { signal }));
+      const { url } = await this.#call(system, (c, signal) => c.peer.call('connectStart', { connection: row.id, owner: asker, redirect: this.#redirect, state }, { signal }));
+      const binding: ConnectBinding = { cookie: bindingCookie(row.id), value: browser, maxAge: Math.ceil(window / 1000), secure: this.#redirect.startsWith('https:') };
+      return { url, binding };
     } catch (error) {
       await this.#table().remove(row.id);
       throw error;
     }
   }
 
-  async callback(params: Readonly<Record<string, string>>): Promise<CallbackAnswer> {
-    const id = this.#verify(params['state']);
-    const row = id === undefined ? undefined : await this.#table().get(id);
-    if (row?.status !== 'pending') { return { system: row?.system, problem: 'This sign-in link has expired or was already used. Connect again.' }; }
-    if (params['error'] !== undefined) {
-      await this.#finish(row, { problem: params['error_description'] ?? params['error'] });
-      return { system: row.system, problem: params['error_description'] ?? params['error'] };
+  async callback(params: Readonly<Record<string, string>>, cookies: Readonly<Record<string, string>>): Promise<CallbackAnswer> {
+    const state = this.#verify(params['state']);
+    const row = state === undefined ? undefined : await this.#table().get(state.connection);
+    if (state === undefined || row?.status !== 'pending' || this.#claimed.has(row.id)) {
+      return { system: row?.system, problem: 'This sign-in link has expired or was already used. Connect again.' };
     }
+    const cookie = bindingCookie(row.id);
+    const browser = cookies[cookie];
+    if (browser === undefined || !sameText(sha256(browser), state.browser)) {
+      // another browser came back with this state (a consent link passed on): the starter's sign-in stays open
+      this.#deps.log.warn('connection.wrong-browser', { connection: row.id, system: row.system });
+      return { system: row.system, problem: 'This sign-in was started in another browser. Connect again from this one.' };
+    }
+    // claimed before any wait, so a replayed callback can't finish (or fail) the same sign-in twice
+    this.#claimed.add(row.id);
     try {
-      const result = await this.#call(row.system, (c, signal) => c.peer.call('connectFinish', { connection: row.id, owner: row.owner, redirect: this.#redirect, answer: { params: { ...params } } }, { signal }));
-      const finished = await this.#finish(row, result);
-      return { system: row.system, problem: finished.problem };
-    } catch (error) {
-      const problem = error instanceof Error ? error.message : String(error);
-      await this.#finish(row, { problem });
-      return { system: row.system, problem };
+      const problem = await this.#complete(row, params);
+      return { system: row.system, problem, clear: cookie };
+    } finally {
+      this.#claimed.delete(row.id);
     }
+  }
+
+  /** Finish a claimed sign-in: the provider's error, or the system's answer to its code. The problem, if any. */
+  async #complete(row: UserConnection, params: Readonly<Record<string, string>>): Promise<string | undefined> {
+    const refused = params['error'];
+    if (refused !== undefined) {
+      const problem = params['error_description'] ?? refused;
+      await this.#finish(row, { problem });
+      return problem;
+    }
+    let result: ConnectResult;
+    try {
+      result = await this.#call(row.system, (c, signal) => c.peer.call('connectFinish', { connection: row.id, owner: row.owner, redirect: this.#redirect, answer: { params: { ...params } } }, { signal }));
+    } catch (error) {
+      result = { problem: error instanceof Error ? error.message : String(error) };
+    }
+    return (await this.#finish(row, result)).problem;
   }
 
   async update(asker: ActorId, change: ConnectionChange): Promise<ConnectionView> {
@@ -154,7 +183,17 @@ export class StoreConnectionService implements ConnectionService {
     return removed;
   }
 
-  async refreshed(system: SystemName, update: ConnectionUpdate): Promise<void> {
+  refreshed(system: SystemName, update: ConnectionUpdate): Promise<void> {
+    // one at a time per connection: each reads the secret the one before stored, so every replaced secret is removed
+    const before = this.#refreshing.get(update.connection) ?? Promise.resolve();
+    const next = before.catch(() => undefined).then(() => this.#refresh(system, update));
+    const tail = next.catch(() => undefined);
+    this.#refreshing.set(update.connection, tail);
+    void tail.then(() => { if (this.#refreshing.get(update.connection) === tail) this.#refreshing.delete(update.connection); });
+    return next;
+  }
+
+  async #refresh(system: SystemName, update: ConnectionUpdate): Promise<void> {
     const row = await this.#table().get(update.connection);
     if (row?.system !== system) { throw reject(404, 'NOT_FOUND', `${system} has no connection ${update.connection}`); }
     if ('expired' in update.update) {
@@ -254,6 +293,10 @@ export class StoreConnectionService implements ConnectionService {
     const connected = await this.#table().update(row.id, {
       status: 'connected', account: result.account, credentials: secret, problem: undefined, updatedAt: now,
       ...(result.expiresAt === undefined ? {} : { expiresAt: result.expiresAt }),
+    }).catch(async (error: unknown) => {
+      // the row went (a new sign-in replaced it): its secret must not outlive it
+      await this.#deps.secrets.remove(secret);
+      throw error;
     });
     this.#deps.log.info('connection.connected', { connection: row.id, system: row.system });
     this.#changed();
@@ -270,20 +313,23 @@ export class StoreConnectionService implements ConnectionService {
     return text === undefined ? undefined : Json.parse(JSON.parse(text));
   }
 
-  /** `<payload>.<signature>`: the connection and when the state stops working, signed with this start's key. */
-  #sign(connection: ConnectionId, until: number): string {
-    const payload = Buffer.from(JSON.stringify({ c: connection, u: until, n: randomBytes(8).toString('hex') })).toString('base64url');
+  /**
+   * `<payload>.<signature>`: the connection, when the state stops working and the hash of the browser binding, signed
+   * with this start's key.
+   */
+  #sign(connection: ConnectionId, until: number, browser: string): string {
+    const payload = Buffer.from(JSON.stringify({ c: connection, u: until, b: browser })).toString('base64url');
     return `${payload}.${this.#mac(payload)}`;
   }
 
-  #verify(state: string | undefined): ConnectionId | undefined {
+  #verify(state: string | undefined): { connection: ConnectionId; browser: string } | undefined {
     const [payload, signature] = (state ?? '').split('.');
     if (payload === undefined || signature === undefined) return undefined;
     const expected = Buffer.from(this.#mac(payload));
     const given = Buffer.from(signature);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return undefined;
     const parsed = StatePayload.safeParse(parseJson(Buffer.from(payload, 'base64url').toString('utf8')));
-    return parsed.success && parsed.data.u > this.#deps.clock() ? parsed.data.c : undefined;
+    return parsed.success && parsed.data.u > this.#deps.clock() ? { connection: parsed.data.c, browser: parsed.data.b } : undefined;
   }
 
   #mac(payload: string): string {
@@ -292,7 +338,23 @@ export class StoreConnectionService implements ConnectionService {
 }
 
 /** A connect state's signed payload. */
-const StatePayload = z.object({ c: ConnectionId, u: z.number(), n: z.string() });
+const StatePayload = z.object({ c: ConnectionId, u: z.number(), b: z.string() });
+
+/** The binding cookie's name for a sign-in. */
+function bindingCookie(connection: ConnectionId): string {
+  return `harness_connect_${connection}`;
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('base64url');
+}
+
+/** Equal texts, compared in constant time. */
+function sameText(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 /** JSON text's value, or undefined when it isn't JSON. */
 function parseJson(text: string): unknown {

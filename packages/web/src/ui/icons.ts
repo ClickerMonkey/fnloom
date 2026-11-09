@@ -2,6 +2,7 @@
  * The icon set: each icon is the SVG drawing of a 24×24 stroked glyph (round caps and joins). `IconName` is derived
  * from this record, so a component asking for an icon that doesn't exist fails to compile.
  */
+import type { Visibility } from '@harness/core';
 import type { Tone } from './types.ts';
 
 export const ICONS = {
@@ -89,6 +90,9 @@ export const ICONS = {
 
 /** The name of an icon in the set. */
 export type IconName = keyof typeof ICONS;
+
+/** The icon for each sharing choice, wherever who-sees-it is asked. */
+export const VISIBILITY_ICONS = { private: 'user', shared: 'users', public: 'globe' } as const satisfies Record<Visibility, IconName>;
 
 /** The icon that goes with each tone, for banners and toasts. */
 export const TONE_ICON = { neutral: 'info', accent: 'info', ok: 'success', warn: 'warning', danger: 'error' } as const satisfies Record<Tone, IconName>;

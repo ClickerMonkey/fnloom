@@ -5,7 +5,7 @@
  * model ends its turn: the person's answers come back as the next user message, in `<input-answer>` tags the chat
  * hides. A form the person liked is saved as an `input/form` fn (`save_form`), so it is offered by name next time.
  */
-import { GinTypeDef, Visibility } from '@harness/core';
+import { ActorId, GinTypeDef, Visibility } from '@harness/core';
 import { type Infer, context, fn, g, ginAs, kind, system } from '@harness/sdk';
 import { z } from 'zod';
 
@@ -126,6 +126,7 @@ export const input = system('input', { description: 'Ask the person for input wi
           description: g.field(g.text({ minLength: 1 }), { docs: 'What it asks for and when to use it.' }),
           form: InputForm,
           visibility: g.field(g.optional(ginAs(Visibility)), { docs: 'Who may use it: only you (`private`, the default), people you share it with, or everyone.' }),
+          with: g.field(g.optional(ginAs(z.array(ActorId))), { docs: 'With `shared`: the people and groups (actor ids) who may use it.' }),
         }),
         returns: SavedForm,
         // the person saves it from under the form; the model doesn't

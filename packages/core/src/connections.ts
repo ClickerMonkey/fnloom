@@ -9,6 +9,7 @@
 import { z } from 'zod';
 import { ShareRule } from './access.ts';
 import { GinTypeDef } from './gin.ts';
+import { PickOption } from './pickers.ts';
 import { ActorId, ConnectionId, Json, LocalName, SecretId, SystemName, Timestamp } from './primitives.ts';
 
 /** A per-person fn's switches: whether it is on, and whether it must ask before acting. */
@@ -40,8 +41,16 @@ export type ConnectDecl = z.infer<typeof ConnectDecl>;
 export const ConnectionStatus = z.enum(['pending', 'connected', 'expired', 'failed']);
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>;
 
-/** The account a connection is to, as the system names it ("phil@example.com"). */
-export const ConnectionAccount = z.object({ label: z.string(), detail: z.string().optional() });
+/**
+ * The account a connection is to, as the system names it ("phil@example.com"), and, per settings field, the values the
+ * account offers for it (its calendars), read when it connected. The page shows those fields as pickers.
+ */
+export const ConnectionAccount = z.object({
+  label: z.string(),
+  detail: z.string().optional(),
+  /** Per settings field (top-level name): the values to pick from. A field missing here is edited as typed. */
+  choices: z.record(z.string(), z.array(PickOption)).optional(),
+});
 export type ConnectionAccount = z.infer<typeof ConnectionAccount>;
 
 /** The hub's row for a person's connection to a system (table `connections`). */

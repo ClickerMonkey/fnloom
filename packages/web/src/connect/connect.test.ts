@@ -15,7 +15,7 @@ import { STORES } from '../state/stores.ts';
 import { CALENDAR_DECL, calendarConnection, fakeConnectionsApi } from '../test/connections.ts';
 import { fakeStores, tokens } from '../test/fakes.ts';
 import { fakePickerApi } from '../test/pickers.ts';
-import { connectNav, fnRows, pageConnections, withFnOption } from './logic.ts';
+import { connectNav, fnRows, pageConnections, pickedSettings, settingsPicks, withFnOption } from './logic.ts';
 import { ConnectionsStore } from './store.ts';
 
 const CALENDAR = SystemName.parse('calendar');
@@ -49,6 +49,25 @@ describe('connect rules', () => {
     expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'connect-calendar', 'admin', 'settings']);
     expect(entries.find((e) => e.active)?.id).toBe('connect-calendar');
     expect(entries.find((e) => e.id === 'connect-calendar')?.icon).toBe('calendar');
+  });
+});
+
+const CALENDARS = [{ value: 'primary', label: 'Ada', hint: 'Primary' }, { value: 'team', label: 'Team' }];
+
+describe('settings pickers', () => {
+  const settings = { name: 'obj', props: {
+    calendars: { type: { name: 'optional', generic: { T: { name: 'list', generic: { V: { name: 'text' } } } } } },
+    defaultCalendar: { type: { name: 'optional', generic: { T: { name: 'text' } } }, docs: 'Where new events go.' },
+  } };
+
+  it('picks each field from the account’s values, many for a list and one otherwise, only when every field has them', () => {
+    const picks = settingsPicks(settings, { calendars: CALENDARS, defaultCalendar: CALENDARS });
+    expect(picks?.map((pick) => [pick.key, pick.label, pick.many, pick.hint])).toEqual([['calendars', 'Calendars', true, ''], ['defaultCalendar', 'Default calendar', false, 'Where new events go.']]);
+    expect(settingsPicks(settings, { calendars: CALENDARS })).toBeUndefined();
+    expect(settingsPicks(settings, undefined)).toBeUndefined();
+    if (picks === undefined) { throw new Error('no picks'); }
+    expect(pickedSettings(picks, { calendars: ['primary', 'team'], defaultCalendar: ['team'] })).toEqual({ calendars: ['primary', 'team'], defaultCalendar: 'team' });
+    expect(pickedSettings(picks, { calendars: [], defaultCalendar: [] })).toEqual({});
   });
 });
 
@@ -117,5 +136,19 @@ describe('the connect page', () => {
     const multi = await visit({ connections: [own] }, true);
     expect(testid('connection-sharing')).not.toBeNull();
     multi.app.unmount();
+  });
+
+  it('picks the settings from the account’s own calendars and saves each pick', async () => {
+    const own = calendarConnection('act_ada', { account: { label: 'ada@example.com', choices: { defaultCalendar: CALENDARS } } });
+    const { api, app } = await visit({ connections: [own] });
+    const box = testid('settings-defaultCalendar');
+    expect(box).not.toBeNull();
+    box?.querySelector('input')?.dispatchEvent(new Event('focus'));
+    await flushPromises();
+    const team = [...document.querySelectorAll<HTMLElement>('[data-testid="picker-option"]')].find((o) => o.textContent.includes('Team'));
+    team?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await flushPromises();
+    expect(api.updateConnection.calls[0]?.[0].settings).toEqual({ defaultCalendar: 'team' });
+    app.unmount();
   });
 });

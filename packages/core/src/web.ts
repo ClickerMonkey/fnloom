@@ -563,7 +563,8 @@ export const accessSlice = spec({
 export const connectionsSlice = spec({
   endpoints: use(tel, hubAuth).group({
     connectPages: { body: z.object({}), response: z.array(ConnectPage), ws: 'connectPages' },
-    connect: { body: z.object({ system: SystemName, form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect' },
+    // HTTP only: the answer sets the cookie that ties the provider's sign-in to this browser (`/connect/callback` checks it)
+    connect: { body: z.object({ system: SystemName, form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect', httpOnly: true },
     updateConnection: { body: ConnectionChange, response: ConnectionView, ws: 'updateConnection' },
     disconnect: { body: z.object({ connection: ConnectionId }), response: z.object({ ok: z.boolean() }), ws: 'disconnect' },
   }),

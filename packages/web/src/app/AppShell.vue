@@ -17,7 +17,7 @@ import AppTopBar from './AppTopBar.vue';
 import { navEntries } from './nav.ts';
 import { useSignOut } from './signOut.ts';
 import { showFavicon } from './favicon.ts';
-import { links, notificationTarget } from './routes.ts';
+import { links, notificationTarget, ROUTES } from './routes.ts';
 
 const { session, keeper, layout, toasts, inbox, connection, admin, chat } = useStores();
 const signOut = useSignOut();
@@ -29,7 +29,11 @@ const now = useNow();
 const signedIn = session.signedIn;
 const bare = computed(() => route.meta.bare === true || !signedIn.value);
 const entries = computed(() => navEntries(route, session.user.value, { inbox: inbox.unread.value, admin: admin.systems.pending.value }, chat.connections.nav.value));
-const title = computed(() => route.meta.title ?? 'Harness');
+/** The route's name for the page; a connect page takes its system's ("Calendar") once the nav knows it. */
+const title = computed(() => {
+  const page = route.name === ROUTES.connect ? chat.connections.nav.value.find((entry) => entry.system === route.params['system']) : undefined;
+  return page?.title ?? route.meta.title ?? 'Harness';
+});
 /** A page with its own header (an open chat) takes the whole height on a compact screen: one header, not two. */
 const topBar = computed(() => compact.value && route.meta.ownHeader !== true);
 const inboxOpen = shallowRef(false);

@@ -43,7 +43,14 @@ describe('google-calendar over the link', () => {
     expect(new URL(started.url).searchParams.get('state')).toBe('signed-state');
     const result = await hub.connectFinish({ connection: id, owner: TEST_USER.id, redirect: REDIRECT, answer: { params: { code: 'good-code', state: 'signed-state' } } });
     if (!('credentials' in result)) { throw new Error(result.problem); }
-    expect(result.account).toEqual({ label: FAKE_ACCOUNT.email, detail: FAKE_ACCOUNT.name });
+    expect(result.account).toEqual({
+      label: FAKE_ACCOUNT.email, detail: FAKE_ACCOUNT.name,
+      // the account's calendars become the settings pickers
+      choices: {
+        calendars: [{ value: 'primary', label: FAKE_ACCOUNT.email, hint: 'Primary', icon: 'calendar' }, { value: 'work', label: 'Work', icon: 'calendar' }],
+        defaultCalendar: [{ value: 'primary', label: FAKE_ACCOUNT.email, hint: 'Primary', icon: 'calendar' }, { value: 'work', label: 'Work', icon: 'calendar' }],
+      },
+    });
     connection = { id, owner: TEST_USER.id, credentials: result.credentials, settings };
     return connection;
   }
@@ -69,6 +76,15 @@ describe('google-calendar over the link', () => {
 
   it('fails every fn plainly without a connection', async () => {
     expect(await run('google-calendar/list_events', {})).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'not-connected' } });
+  });
+
+  it('keeps someone the connection is shared with to the calendars its owner chose', async () => {
+    connection = { ...await connect({ calendars: ['work'] }), owner: mintId('actor') };
+    done(await run('google-calendar/list_events', { calendar: 'work' }));
+    done(await run('google-calendar/create_event', { title: 'Offsite', start: '2026-11-10' }));
+    expect(await run('google-calendar/list_events', { calendar: 'secret' })).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'forbidden' } });
+    expect(await run('google-calendar/create_event', { title: 'Sneaky', start: '2026-11-10', calendar: 'secret' })).toMatchObject({ status: 'failed', error: { code: 'forbidden' } });
+    expect(google.calls.some((call) => call.includes('secret'))).toBe(false);
   });
 
   it('creates, lists, searches, reads, changes and deletes events as the person', async () => {

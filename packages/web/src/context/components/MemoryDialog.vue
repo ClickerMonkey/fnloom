@@ -1,29 +1,35 @@
 <script setup lang="ts">
 /**
  * Writing a memory, or changing one: a short title (its name comes from it), what to remember, who it is for (only its
- * author, or everyone; fixed once written), and, folded under Advanced, every other context option: the fns tied to
+ * author, or everyone; fixed once written, and asked only on a hub with more than one person), and, folded under Advanced, every other context option: the fns tied to
  * it, the fns suggested with it, the agents that always carry it, a `/command`, its parent, tags, a summary, its weight
  * and who sees and is suggested it. Opened on a memory it starts from that memory. Save sends the draft; a problem
  * shows once Save is pressed.
  */
-import { Audience, QualifiedName, type ContextRecord } from '@harness/core';
+import { Audience, QualifiedName, VISIBILITY_LABELS, type ContextRecord } from '@harness/core';
 import { computed, ref, watch } from 'vue';
 import { UiBanner, UiButton, UiChipInput, UiDialog, UiIcon, UiInput, UiSegmented, UiSelect, UiTextarea, onePicked, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import {
   AUDIENCE_WORDS, changedOptions, memoryDraft, memoryRequest, optionsRequest, PLAIN_OPTIONS, type BrowserScope, type ContextOptionsDraft, type MemoryDraft,
 } from '../logic/context.ts';
 import HubPicker from '../../components/pickers/HubPicker.vue';
+import { VISIBILITY_ICONS } from '../../ui/icons.ts';
 
 const props = withDefaults(defineProps<{
   /** The memory being changed; a new one when absent. */
   memory?: Pick<ContextRecord, 'origin' | 'decl'> | undefined;
   busy?: boolean;
   problem?: string;
-}>(), { memory: undefined, busy: false, problem: '' });
+  /** Whether the hub has more than one person; only then is who it is for asked. */
+  multiUser?: boolean;
+}>(), { memory: undefined, busy: false, problem: '', multiUser: false });
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ save: [draft: MemoryDraft] }>();
 
-const SCOPES: readonly SegmentOption<BrowserScope>[] = [{ value: 'user', label: 'Only me', icon: 'user' }, { value: 'everyone', label: 'Everyone', icon: 'users' }];
+/** The same words and icons as the sharing control (only me is private, everyone public). */
+const SCOPES: readonly SegmentOption<BrowserScope>[] = [
+  { value: 'user', label: VISIBILITY_LABELS.private, icon: VISIBILITY_ICONS.private }, { value: 'everyone', label: VISIBILITY_LABELS.public, icon: VISIBILITY_ICONS.public },
+];
 const AUDIENCES: readonly SelectOption<Audience>[] = Audience.options.map((value) => ({ value, label: AUDIENCE_WORDS[value] }));
 /** The picked fns as full names (a picker only offers full names; anything else is left out). */
 const fnNames = (values: readonly string[]): QualifiedName[] => values.flatMap((value) => { const parsed = QualifiedName.safeParse(value); return parsed.success ? [parsed.data] : []; });
@@ -65,12 +71,12 @@ function save(): void {
 <template>
   <UiDialog
     v-model:open="open" :title="editing ? 'Edit this memory' : 'New context'" width="600px"
-    :description="editing ? 'Changes it in place; who it is for stays as written.' : 'Context the agent can be given when a message is about it.'"
+    :description="editing ? (multiUser ? 'Changes it in place; who it is for stays as written.' : 'Changes it in place.') : 'Context the agent can be given when a message is about it.'"
   >
     <form class="form" data-testid="memory-form" @submit.prevent="save">
       <div class="top">
         <UiInput v-model="title" class="title" label="Title" placeholder="Prefers tabs" hint="Optional: the first words are used when blank." autofocus data-testid="memory-title" />
-        <div v-if="!editing" class="field">
+        <div v-if="!editing && multiUser" class="field">
           <span class="label">Who it is for</span>
           <UiSegmented v-model="scope" :options="SCOPES" label="Who it is for" data-testid="memory-scope" />
         </div>

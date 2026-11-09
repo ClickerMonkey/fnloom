@@ -33,7 +33,7 @@ export const Event = type({
 
 /** A person's own settings for their connection: which calendars to read, and where new events go. */
 export const ConnectionSettings = g.obj({
-  calendars: g.field(g.optional(g.list(g.text({ minLength: 1 }))), { docs: 'The calendars the chat reads (ids). Empty: your primary calendar.' }),
+  calendars: g.field(g.optional(g.list(g.text({ minLength: 1 }))), { docs: 'The calendars the chat reads. Empty: your primary calendar.' }),
   defaultCalendar: g.field(g.optional(g.text({ minLength: 1 })), { docs: 'Where new events go. Default: your primary calendar.' }),
 });
 

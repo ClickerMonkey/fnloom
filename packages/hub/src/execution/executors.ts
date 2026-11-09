@@ -86,7 +86,8 @@ export class SystemExecutor implements RunExecutor {
     if (action === 'retry' && refused < this.#deps.settings.execution.HARNESS_VALIDATE_RETRIES) {
       if (this.#refused.size >= RETRY_COUNTS_KEPT) this.#refused.clear();
       this.#refused.set(key, refused + 1);
-      return { ...refusedResult(verdict.reason), ...cost };
+      // the fn ran: its effects keep their undo, so a refused try can still be taken back
+      return { ...refusedResult(verdict.reason), ...(done.undo === undefined ? {} : { undo: done.undo }), ...cost };
     }
     this.#refused.delete(key);
     return { status: 'failed', error: fnError('fatal', verdict.reason, OUTPUT_REFUSED), ...(done.undo === undefined ? {} : { undo: done.undo }), ...cost };

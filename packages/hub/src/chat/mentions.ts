@@ -5,12 +5,12 @@
  */
 import type { Peer } from '@ayepi/core';
 import {
-  ResourceUri, splitName, SystemName, type ActorId, type Asker, type Json, type MentionHover, type MentionOption, type MessagePart, type OutgoingPart, type QualifiedName, type Session,
+  ResourceUri, splitName, SystemName, type ActorId, type Asker, type Json, type MentionHover, type MentionOption, type MessagePart, type OutgoingPart, type QualifiedName, type Session, type SessionId,
   type SystemLinkSpec,
 } from '@harness/core';
 import { hub, parseValue } from '@harness/sdk';
 import type { AccessScope } from '../access/index.ts';
-import { seesContextNamed } from '../access/scope.ts';
+import { seesContextAs, seesContextNamed } from '../access/scope.ts';
 import { isHubName } from '../catalog/availability.ts';
 import { parseSectionIndexKey } from '../index/indexer.ts';
 import type { ChatDeps } from './deps.ts';
@@ -31,17 +31,17 @@ export class HubMentions implements MentionProvider {
   }
 
   /** Whether the asker may see what a hub mention names (a fn, a context item or a resource). */
-  async #sees(access: AccessScope, kind: 'fn' | 'context' | 'resource', key: string): Promise<boolean> {
+  async #sees(access: AccessScope, session: SessionId, kind: 'fn' | 'context' | 'resource', key: string): Promise<boolean> {
     if (kind === 'resource') return access.seesUri(key);
     const name = asQualified(key);
     if (name === undefined) return false;
     if (kind === 'fn') return access.seesFn({ name, system: splitName(name).system });
-    return seesContextNamed(access, (n) => this.#deps.catalog.context(n), name);
+    return seesContextNamed(access, (n) => this.#deps.catalog.context(n), name, session);
   }
 
   /** The options the asker may see, in order. */
-  async #seen(access: AccessScope, kind: 'fn' | 'context' | 'resource', options: ReadonlyArray<{ key: string; option: MentionOption }>): Promise<MentionOption[]> {
-    const seen = await Promise.all(options.map(async (o) => ((await this.#sees(access, kind, o.key)) ? o.option : undefined)));
+  async #seen(access: AccessScope, session: SessionId, kind: 'fn' | 'context' | 'resource', options: ReadonlyArray<{ key: string; option: MentionOption }>): Promise<MentionOption[]> {
+    const seen = await Promise.all(options.map(async (o) => ((await this.#sees(access, session, kind, o.key)) ? o.option : undefined)));
     return seen.filter((o) => o !== undefined);
   }
 
@@ -61,15 +61,15 @@ export class HubMentions implements MentionProvider {
             .map((f) => ({ label: f.name, hint: f.decl.description, target: { fn: f.name } }));
         }
         const hits = await this.#deps.search.search({ text: query, kinds: ['fn'], limit: HUB_RESULTS, systems });
-        return this.#seen(access, 'fn', hits.map((h) => ({ key: h.key, option: { label: h.key, hint: h.text, target: { fn: h.key } } })));
+        return this.#seen(access, ask.session, 'fn', hits.map((h) => ({ key: h.key, option: { label: h.key, hint: h.text, target: { fn: h.key } } })));
       }
       case hub.mentions.context.name: {
         const hits = await this.#deps.search.search({ text: query, kinds: ['context'], limit: HUB_RESULTS, systems });
-        return this.#seen(access, 'context', hits.map((h) => ({ key: h.key, option: { label: h.key, hint: h.text, target: { context: h.key } } })));
+        return this.#seen(access, ask.session, 'context', hits.map((h) => ({ key: h.key, option: { label: h.key, hint: h.text, target: { context: h.key } } })));
       }
       case hub.mentions.resources.name: {
         const hits = await this.#deps.search.search({ text: query, kinds: ['section'], limit: HUB_RESULTS, systems });
-        return this.#seen(access, 'resource', hits.map((h) => ({ key: parseSectionIndexKey(h.key).uri, option: { label: resourceLabel(h.key), hint: h.text, target: resourceTarget(h.key) } })));
+        return this.#seen(access, ask.session, 'resource', hits.map((h) => ({ key: parseSectionIndexKey(h.key).uri, option: { label: resourceLabel(h.key), hint: h.text, target: resourceTarget(h.key) } })));
       }
       default: return [];
     }
@@ -92,7 +92,7 @@ export class HubMentions implements MentionProvider {
       case hub.mentions.context.name: {
         const { context } = parseValue(hub.mentions.context.target, target);
         const record = await this.#deps.catalog.context(qualified(context));
-        return record === undefined || !access.seesContext(record) ? undefined : { title: record.name, subtitle: record.system, body: record.decl.description };
+        return record === undefined || !seesContextAs(access, record, ask.session) ? undefined : { title: record.name, subtitle: record.system, body: record.decl.description };
       }
       case hub.mentions.resources.name: {
         const { uri, section } = parseValue(hub.mentions.resources.target, target);
@@ -118,7 +118,7 @@ export class HubMentions implements MentionProvider {
       case hub.mentions.context.name: {
         const { context } = parseValue(hub.mentions.context.target, target);
         const record = await this.#deps.catalog.context(qualified(context));
-        return record === undefined || !access.seesContext(record) ? `The context ${context}, which the hub does not know.` : `The context ${record.name} of the ${record.system} system: ${record.decl.description}`;
+        return record === undefined || !seesContextAs(access, record, ask.session) ? `The context ${context}, which the hub does not know.` : `The context ${record.name} of the ${record.system} system: ${record.decl.description}`;
       }
       case hub.mentions.resources.name: {
         const { uri, section } = parseValue(hub.mentions.resources.target, target);

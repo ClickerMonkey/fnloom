@@ -2,7 +2,7 @@
  * The connect pages' rules, kept apart from the views: which connection a page shows, each fn's switches (the
  * person's own, else the system's default), the nav entries the pages add, and plain words for a connection's state.
  */
-import type { ActorId, ConnectionFnOption, ConnectionStatus, ConnectionView, ConnectPage, SystemName } from '@harness/core';
+import type { ActorId, ConnectionAccount, ConnectionFnOption, ConnectionStatus, ConnectionView, ConnectPage, GinTypeDef, Json, PickOption, SystemName } from '@harness/core';
 import { ICONS, type IconName } from '../ui/icons.ts';
 import type { Tone } from '../ui/types.ts';
 
@@ -70,4 +70,51 @@ export interface ConnectNav {
 /** The nav entries the connect pages add, in title order. */
 export function connectNav(pages: readonly ConnectPage[]): ConnectNav[] {
   return pages.map((page) => ({ system: page.system, title: page.decl.title, icon: pageIcon(page) })).sort((a, b) => a.title.localeCompare(b.title));
+}
+
+/** One settings field shown as a picker: its name, what it is for, whether it holds a list, and the values offered. */
+export interface SettingsPick {
+  readonly key: string;
+  /** The field's name in words ("Default calendar"). */
+  readonly label: string;
+  readonly hint: string;
+  /** A list field picks many; any other picks one. */
+  readonly many: boolean;
+  readonly options: readonly PickOption[];
+}
+
+/** A type with an `optional` wrapper taken off. */
+const unwrapped = (type: GinTypeDef): GinTypeDef => (type.name === 'optional' ? type.generic?.['T'] ?? type : type);
+/** A field name in words: `defaultCalendar` → "Default calendar". */
+const fieldWords = (key: string): string => { const words = key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase(); return words.charAt(0).toUpperCase() + words.slice(1); };
+
+/**
+ * The settings as pickers, when the account offers values for every field of the settings object (an account's
+ * calendars); otherwise undefined and the page edits the settings as typed.
+ */
+export function settingsPicks(settings: GinTypeDef, choices: ConnectionAccount['choices']): SettingsPick[] | undefined {
+  const props = settings.name === 'obj' ? settings.props : undefined;
+  if (props === undefined || choices === undefined) { return undefined; }
+  const picks = Object.entries(props).map(([key, prop]): SettingsPick | undefined => {
+    const options = choices[key];
+    if (options === undefined) { return undefined; }
+    return { key, label: fieldWords(key), hint: prop.docs ?? '', many: unwrapped(prop.type).name === 'list', options };
+  });
+  return picks.every((pick) => pick !== undefined) && picks.length > 0 ? picks : undefined;
+}
+
+/** A settings value's field as picker values: a list's strings, or the one string. */
+export function pickedValues(settings: Json, key: string): string[] {
+  const value = typeof settings === 'object' && settings !== null && !Array.isArray(settings) ? settings[key] : undefined;
+  if (Array.isArray(value)) { return value.filter((item): item is string => typeof item === 'string'); }
+  return typeof value === 'string' ? [value] : [];
+}
+
+/** The settings value the pickers hold: a list field as its list, a single field as its value; empty fields left out. */
+export function pickedSettings(picks: readonly SettingsPick[], values: Readonly<Record<string, readonly string[]>>): Record<string, Json> {
+  return Object.fromEntries(picks.flatMap((pick): [string, Json][] => {
+    const picked = values[pick.key] ?? [];
+    if (picked.length === 0) { return []; }
+    return [[pick.key, pick.many ? [...picked] : picked[0] ?? '']];
+  }));
 }

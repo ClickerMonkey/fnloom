@@ -15,16 +15,38 @@ import type { ConnectionGate } from '../access/index.ts';
 export interface CallbackAnswer {
   readonly system: SystemName | undefined;
   readonly problem?: string | undefined;
+  /** The binding cookie to clear, once the sign-in it tied is used up. */
+  readonly clear?: string | undefined;
 }
+
+/**
+ * The cookie that ties a provider sign-in to the browser that started it. The `connect` answer sets it (httpOnly, on
+ * the callback path only) and the signed state carries its hash, so the callback finishes only in that browser: a
+ * consent link handed to someone else can't link their account to the starter's connection.
+ */
+export interface ConnectBinding {
+  readonly cookie: string;
+  readonly value: string;
+  /** Seconds the cookie lives: the connect window. */
+  readonly maxAge: number;
+  /** Send it over HTTPS only (the hub's public URL is https). */
+  readonly secure: boolean;
+}
+
+/** How connecting began: the provider's URL and the browser binding (OAuth), or the finished connection (a form). */
+export type ConnectStart = { readonly url: string; readonly binding: ConnectBinding } | { readonly connection: ConnectionView };
 
 /** Per-person connections. */
 export interface ConnectionService {
   /** Every `connect` system's page, with the asker's own connections to it. */
   pages(asker: ActorId): Promise<ConnectPage[]>;
   /** Begin connecting: the provider's URL to send the person to (OAuth), or the finished connection (a form). */
-  connect(asker: ActorId, system: SystemName, form?: Json): Promise<{ url: string } | { connection: ConnectionView }>;
-  /** The provider sent the person back to `/connect/callback` with these query params. */
-  callback(params: Readonly<Record<string, string>>): Promise<CallbackAnswer>;
+  connect(asker: ActorId, system: SystemName, form?: Json): Promise<ConnectStart>;
+  /**
+   * The provider sent the person back to `/connect/callback` with these query params; `cookies` are the browser's and
+   * must hold the binding `connect` set. Each sign-in finishes once: a replay changes nothing.
+   */
+  callback(params: Readonly<Record<string, string>>, cookies: Readonly<Record<string, string>>): Promise<CallbackAnswer>;
   /** Change the asker's own connection's settings, fn switches or sharing. */
   update(asker: ActorId, change: ConnectionChange): Promise<ConnectionView>;
   /** End the asker's own connection: the system revokes it where it can, then its secret and row go. */

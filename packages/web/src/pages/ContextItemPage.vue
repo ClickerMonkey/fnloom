@@ -7,7 +7,7 @@
  */
 import AccessControl from '../components/access/AccessControl.vue';
 import { QualifiedName, type ContextLink, type LinkTarget } from '@harness/core';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
@@ -23,7 +23,7 @@ import { useStores } from '../state/stores.ts';
 import { fullTime, relativeTime, UiBadge, UiBanner, UiButton, UiCard, UiIcon, UiMarkdown } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { context, session, toasts } = useStores();
+const { context, session, toasts, chat } = useStores();
 const item = context.item;
 const route = useRoute();
 const router = useRouter();
@@ -49,6 +49,7 @@ const admin = computed(() => session.user.value?.role === 'admin');
 const routeOf = (target: LinkTarget) => targetRoute(target, admin.value);
 const navigate = (href: string): void => { void router.push(href); };
 
+onMounted(() => { void chat.access.load(); });
 watch(name, (next) => { if (next !== undefined) { void item.open(next); } }, { immediate: true });
 context.follow();
 onBeforeUnmount(() => { item.close(); });
@@ -109,7 +110,7 @@ async function save(draft: MemoryDraft): Promise<void> {
               <div><dt>Changed</dt><dd><time :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time></dd></div>
             </dl>
           </UiCard>
-          <AccessControl :target="{ kind: 'context', context: record.name }" />
+          <AccessControl :target="{ kind: 'context', context: record.name }" compact />
           <UiCard title="Text" compact>
             <div v-if="view.text !== undefined && view.text !== ''" class="text" data-testid="context-text"><UiMarkdown :source="view.text" :navigate="navigate" /></div>
             <p v-else class="none">Its system writes this text when it is loaded.</p>
@@ -127,7 +128,7 @@ async function save(draft: MemoryDraft): Promise<void> {
       </div>
     </LoadState>
     <LinkDialog v-if="name" v-model:open="linking" :from="name" :busy="item.linking.busy.value" :problem="item.linking.problem.value" @save="addLink" />
-    <MemoryDialog v-model:open="editing" :memory="record" :busy="item.saving.busy.value" :problem="item.saving.problem.value" @save="save" />
+    <MemoryDialog v-model:open="editing" :multi-user="chat.access.multiUser.value" :memory="record" :busy="item.saving.busy.value" :problem="item.saving.problem.value" @save="save" />
     <ConfirmDialog
       v-model:open="forgetting" title="Forget this memory?" body="It is turned off and left out of every selection and search. Its record stays, so the runs that used it still say so."
       confirm="Forget" :busy="item.forgetting.busy.value" @confirm="forget"

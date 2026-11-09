@@ -184,6 +184,11 @@ export function problemsAt(problems: readonly ExprProblem[], path: string, withi
   return problems.filter((p) => p.path === path || (within && (path === '' || p.path.startsWith(`${path}.`))));
 }
 
+/** How many places in or under a node show a problem mark (one icon per path, whatever its count). */
+export function marksWithin(problems: readonly ExprProblem[], path: string): number {
+  return new Set(problemsAt(problems, path, true).map((p) => p.path)).size;
+}
+
 // ─── Children: the slots of a node that hold expressions ────────────────────
 
 /** A slot of a node that holds an expression, by where it is in the node's definition. */

@@ -16,7 +16,9 @@ const props = withDefaults(defineProps<{
   target: AccessTarget;
   label?: string;
   title?: string;
-}>(), { label: 'Who can use it', title: 'Sharing' });
+  /** The tighter card padding, to match compact neighbour cards. */
+  compact?: boolean;
+}>(), { label: 'Who can use it', title: 'Sharing', compact: false });
 
 const access = useStoresIfAny()?.chat.access;
 const people = usePickerSources().people();
@@ -44,7 +46,7 @@ async function save(next: ShareRule): Promise<void> {
 </script>
 
 <template>
-  <UiCard v-if="shown && view !== undefined" :title="title" compact data-testid="access-control">
+  <UiCard v-if="shown && view !== undefined" :title="title" :compact="compact" data-testid="access-control">
     <p v-if="view.problem.value !== ''" class="problem">{{ view.problem.value }}</p>
     <UiVisibility v-else-if="rule !== undefined" v-model="rule" :people="people" :label="label" :readonly="view.value.value?.editable === false" />
     <p v-if="access?.saving.problem.value" class="problem" role="alert">{{ access.saving.problem.value }}</p>

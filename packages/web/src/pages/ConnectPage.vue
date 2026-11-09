@@ -12,7 +12,8 @@ import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import ConnectionFns from '../connect/ConnectionFns.vue';
-import { fnRows, pageConnections, pageIcon, STATUS_WORDS, withFnOption } from '../connect/logic.ts';
+import ConnectionSettingsPicks from '../connect/ConnectionSettingsPicks.vue';
+import { fnRows, pageConnections, pageIcon, settingsPicks, STATUS_WORDS, withFnOption } from '../connect/logic.ts';
 import GinForm from '../gin/GinForm.vue';
 import { useStores } from '../state/stores.ts';
 import { UiBadge, UiBanner, UiButton, UiCard, UiEmpty, UiIcon, UiSkeleton, UiVisibility, relativeTime } from '../ui/index.ts';
@@ -34,6 +35,8 @@ const rows = computed(() => (page.value === undefined ? [] : fnRows(page.value, 
 const isAdmin = computed(() => session.user.value?.role === 'admin');
 /** The account's detail and how long it has been connected, in one line. */
 const accountDetail = computed(() => (own.value === undefined ? '' : [own.value.account?.detail, `since ${relativeTime(own.value.createdAt, now.value)}`].filter((part) => part !== undefined && part !== '').join(' · ')));
+/** The settings as pickers over the account's own values (its calendars), when it offered them. */
+const picks = computed(() => (page.value === undefined ? undefined : settingsPicks(page.value.decl.settings, own.value?.account?.choices)));
 const formFlow = computed(() => (page.value?.decl.how.flow === 'form' ? page.value.decl.how.form : undefined));
 
 /** What each fn does and who shared a connection, read from the pickers once the page knows them. */
@@ -75,10 +78,10 @@ async function setFn(local: string, change: Partial<ConnectionFnOption>): Promis
   await store.update({ connection: own.value.id, fns: withFnOption(rows.value, local, change) });
 }
 
-async function saveSettings(settings: Json): Promise<void> {
+async function saveSettings(settings: Json, quiet = false): Promise<void> {
   if (own.value === undefined) { return; }
   const done = await store.update({ connection: own.value.id, settings });
-  if (done.ok) { toasts.ok('Settings saved'); }
+  if (done.ok && !quiet) { toasts.ok('Settings saved'); }
 }
 
 const share = computed({
@@ -150,7 +153,8 @@ const share = computed({
 
         <div v-if="connected && own !== undefined" class="side">
           <UiCard title="Settings" compact>
-            <GinForm :key="own.id" :type="page.decl.settings" :initial="own.settings" submit-label="Save settings" :busy="store.saving.busy.value" :cancellable="false" label="Settings" @submit="saveSettings" />
+            <ConnectionSettingsPicks v-if="picks !== undefined" :picks="picks" :settings="own.settings" @save="saveSettings($event, true)" />
+            <GinForm v-else :key="own.id" :type="page.decl.settings" :initial="own.settings" submit-label="Save settings" :busy="store.saving.busy.value" :cancellable="false" label="Settings" @submit="saveSettings" />
           </UiCard>
           <UiCard v-if="chat.access.multiUser.value && share !== undefined" title="Sharing" subtitle="People you share with act as you through these fns." compact data-testid="connection-sharing">
             <UiVisibility v-model="share" :people="chat.pickers.people()" label="Who can use it" />

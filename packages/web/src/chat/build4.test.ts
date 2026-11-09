@@ -9,7 +9,7 @@ import { ref, shallowRef } from 'vue';
 import CacheMissRule from './components/CacheMissRule.vue';
 import RunCard from './components/RunCard.vue';
 import UserMessage from './components/UserMessage.vue';
-import { cacheMissLabel, CACHE_MISS_TIP } from './logic/format.ts';
+import { cacheMissLabel, CACHE_MISS_TIP, CACHE_MISS_WORDS } from './logic/format.ts';
 import { invalidSummary, OUTPUT_REFUSED_CODE } from './logic/runs.ts';
 import { messageSuggestions } from './logic/session.ts';
 import { inputAnswers, inputAnswerText, isHiddenMessage, resendParts, threadItems } from './logic/thread.ts';
@@ -78,6 +78,8 @@ describe('the cache-miss rule', () => {
     const rule = mount(CacheMissRule, { props: { at: T0 - 60_000, now: T0 } });
     expect(rule.attributes('title')).toContain(CACHE_MISS_TIP);
     expect(rule.get('time').text()).toBe(cacheMissLabel(T0 - 60_000, T0));
+    // it says what it means without the tooltip, which phones don't show
+    expect(rule.text()).toContain(CACHE_MISS_WORDS);
     expect(rule.findAll('.wave')).toHaveLength(2);
   });
 });

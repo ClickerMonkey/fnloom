@@ -18,6 +18,8 @@ export const SavedRecord = z.object({
   form: InputFormSchema,
   owner: ActorId,
   visibility: Visibility,
+  /** The people and groups a `shared` form was saved for (none otherwise; forms saved before this field have none). */
+  with: z.array(ActorId).default([]),
   /** The embedding of its title and description; empty when embedding failed. */
   vector: z.array(z.number()),
   savedAt: Timestamp,

@@ -268,6 +268,15 @@ describe('the context components', () => {
     wrapper.unmount();
   });
 
+  it('the memory dialog asks who a new memory is for only on a hub with more than one person', async () => {
+    for (const multiUser of [false, true]) {
+      const wrapper = mount(MemoryDialog, { props: { open: true, multiUser }, attachTo: document.body });
+      await flushPromises();
+      expect(document.querySelector('[data-testid="memory-scope"]') !== null).toBe(multiUser);
+      wrapper.unmount();
+    }
+  });
+
   it('the make-from-a-resource dialog emits the checked arguments', async () => {
     const wrapper = mount(FromResourceDialog, { props: { open: true, uri: 'fs://work/README.md' }, attachTo: document.body });
     await flushPromises();

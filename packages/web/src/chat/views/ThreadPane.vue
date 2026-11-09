@@ -40,7 +40,8 @@ import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import { isTouch } from '../dom.ts';
 import { GIN_INPUTS } from '../../gin/registry.ts';
 import GinValueView from '../../gin/GinValueView.vue';
-import { ACCESS_INFO, INPUT_ANSWERS, threadInputAnswers, VALUE_EDITOR } from '../state/input-host.ts';
+import { ACCESS_INFO, INPUT_ANSWERS, SHARE_EDITOR, threadInputAnswers, VALUE_EDITOR } from '../state/input-host.ts';
+import ShareEditor from '../../components/access/ShareEditor.vue';
 import { mentionToken, methodArgs, methodsOf, placeholderFor, type DraftMention, type MethodOffer } from '../logic/composer.ts';
 import { clamp } from '../logic/format.ts';
 import { agentName, fnLabel, humanize, localName } from '../logic/labels.ts';
@@ -125,6 +126,8 @@ provide(INPUT_ANSWERS, threadInputAnswers(thread));
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ValueEditorProps
 provide(VALUE_EDITOR, GinValueView);
 provide(ACCESS_INFO, { get multiUser() { return chat.access.multiUser.value; } });
+// eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ShareEditorProps
+provide(SHARE_EDITOR, ShareEditor);
 void chat.access.load();
 
 /** A budget raise is being saved. */

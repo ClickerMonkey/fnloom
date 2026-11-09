@@ -5,6 +5,7 @@
  */
 import type { ActorId, PickOption, PickQuery, PickSource } from '@harness/core';
 import type { AccessScope, AccessService } from '../../access/index.ts';
+import { seesContextAs } from '../../access/scope.ts';
 import type { Catalog } from '../../catalog/index.ts';
 import type { LlmGateway } from '../../execution/index.ts';
 import type { QueryEnv } from '../../query/env.ts';
@@ -59,7 +60,7 @@ async function optionsOf(deps: PickerDeps, scope: AccessScope, source: PickSourc
     }
     case 'context': {
       const rows = await store.table('context').find({ limit });
-      return rows.items.filter((row) => row.disabled !== true && scope.seesContext(row)).map((row) => ({ value: row.name, label: row.name, hint: row.decl.description }));
+      return rows.items.filter((row) => row.disabled !== true && seesContextAs(scope, row)).map((row) => ({ value: row.name, label: row.name, hint: row.decl.description }));
     }
     case 'system': {
       const rows = await store.table('systems').find({ limit });

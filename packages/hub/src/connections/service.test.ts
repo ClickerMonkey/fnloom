@@ -5,6 +5,7 @@ import { TEST_KEYS, testManifest } from '../api/testing/rig.ts';
 import { linkServer, TestSystem } from '../execution/testing.ts';
 import { memoryLog, RecordingBus, testStore } from '../testing.ts';
 import { connectionsEnv } from './env.ts';
+import type { ConnectStart } from './index.ts';
 import { StoreConnectionService } from './service.ts';
 
 const ADA = ActorId.parse('act_ada');
@@ -35,13 +36,18 @@ async function world(decl: ConnectDecl = DECL) {
 /** The state the hub put in the provider URL. */
 const stateOf = (url: string): string => new URL(url).searchParams.get('state') ?? '';
 
+/** The cookies of the browser that started a sign-in: its binding. */
+const browserOf = (started: ConnectStart): Record<string, string> => ('binding' in started ? { [started.binding.cookie]: started.binding.value } : {});
+
 describe('per-person connections', () => {
   it('connects through the provider redirect, keeps the credentials as the person\'s secret and lists the page', async () => {
     const { service, store, secrets } = await world();
     const started = await service.connect(ADA, CAL);
     if (!('url' in started)) throw new Error('expected a URL');
-    const answer = await service.callback({ state: stateOf(started.url), code: 'c0de' });
-    expect(answer).toEqual({ system: CAL, problem: undefined });
+    const answer = await service.callback({ state: stateOf(started.url), code: 'c0de' }, browserOf(started));
+    expect(answer).toEqual({ system: CAL, problem: undefined, clear: `harness_connect_${(await store.table('connections').find({ limit: 1 })).items[0]?.id ?? ''}` });
+    if (!('binding' in started)) throw new Error('expected a binding');
+    expect(started.binding).toMatchObject({ maxAge: connectionsEnv.parse().HARNESS_CONNECT_WINDOW / 1000, secure: false });
     const [page] = await service.pages(ADA);
     expect(page).toMatchObject({ system: CAL, ready: true, connections: [{ status: 'connected', account: { label: 'ada@example.com' } }] });
     expect(page?.connections[0]).not.toHaveProperty('credentials');
@@ -50,7 +56,7 @@ describe('per-person connections', () => {
     expect(JSON.parse((await secrets.reveal(row?.credentials ?? 'sec_x')) ?? '')).toEqual({ access: 'a1', refresh: 'r1' });
     expect(await service.pages(BEN)).toEqual([{ system: CAL, decl: DECL, ready: true, connections: [] }]);
     // the state works once
-    expect((await service.callback({ state: stateOf(started.url), code: 'again' })).problem).toMatch(/expired or was already used/);
+    expect((await service.callback({ state: stateOf(started.url), code: 'again' }, browserOf(started))).problem).toMatch(/expired or was already used/);
   });
 
   it('connects through a form the system checks, with no redirect', async () => {
@@ -73,9 +79,9 @@ describe('per-person connections', () => {
     const { service, now } = await world();
     const started = await service.connect(ADA, CAL);
     if (!('url' in started)) throw new Error('expected a URL');
-    expect((await service.callback({ state: `${stateOf(started.url)}x`, code: 'c' })).problem).toMatch(/expired/);
+    expect((await service.callback({ state: `${stateOf(started.url)}x`, code: 'c' }, browserOf(started))).problem).toMatch(/expired/);
     now.at += connectionsEnv.parse().HARNESS_CONNECT_WINDOW + 1;
-    expect((await service.callback({ state: stateOf(started.url), code: 'c' })).problem).toMatch(/expired/);
+    expect((await service.callback({ state: stateOf(started.url), code: 'c' }, browserOf(started))).problem).toMatch(/expired/);
   });
 
   it('gates per-person fns: missing until connected, the person\'s switches, then shared connections', async () => {
@@ -84,7 +90,7 @@ describe('per-person connections', () => {
     const remove = { name: QualifiedName.parse('cal/delete_event'), system: 'cal' };
     expect((await service.gate(ADA, new Set())).fn(list)).toEqual({ state: 'missing', page: 'Calendar' });
     const started = await service.connect(ADA, CAL);
-    if ('url' in started) await service.callback({ state: stateOf(started.url), code: 'c' });
+    if ('url' in started) await service.callback({ state: stateOf(started.url), code: 'c' }, browserOf(started));
     const gate = await service.gate(ADA, new Set());
     expect(gate.fn(list)).toMatchObject({ state: 'ready', option: { on: true, ask: false } });
     expect(gate.fn(remove)).toEqual({ state: 'off' });
@@ -102,7 +108,7 @@ describe('per-person connections', () => {
   it('takes refreshed credentials, marks an expired one, and forgets a connection with its secret', async () => {
     const { service, store, secrets, system } = await world();
     const started = await service.connect(ADA, CAL);
-    if ('url' in started) await service.callback({ state: stateOf(started.url), code: 'c' });
+    if ('url' in started) await service.callback({ state: stateOf(started.url), code: 'c' }, browserOf(started));
     const row = (await store.table('connections').find({ where: { owner: ADA }, limit: 1 })).items[0];
     if (row === undefined) throw new Error('no connection');
     await service.refreshed(CAL, { connection: row.id, update: { credentials: { access: 'a2' }, expiresAt: 9 } });
@@ -123,7 +129,7 @@ describe('per-person connections', () => {
     const { service } = await world();
     const started = await service.connect(ADA, CAL);
     if (!('url' in started)) throw new Error('expected a URL');
-    expect(await service.callback({ state: stateOf(started.url), error: 'access_denied', error_description: 'You said no.' })).toEqual({ system: CAL, problem: 'You said no.' });
+    expect(await service.callback({ state: stateOf(started.url), error: 'access_denied', error_description: 'You said no.' }, browserOf(started))).toMatchObject({ system: CAL, problem: 'You said no.' });
     expect((await service.pages(ADA))[0]?.connections[0]).toMatchObject({ status: 'failed', problem: 'You said no.' });
   });
 
@@ -133,7 +139,45 @@ describe('per-person connections', () => {
     const second = await service.connect(ADA, CAL);
     if (!('url' in first) || !('url' in second)) throw new Error('expected URLs');
     expect((await service.pages(ADA))[0]?.connections).toHaveLength(1);
-    expect((await service.callback({ state: stateOf(first.url), code: 'c0de' })).problem).toMatch(/expired/);
-    expect(await service.callback({ state: stateOf(second.url), code: 'c0de' })).toEqual({ system: CAL, problem: undefined });
+    expect((await service.callback({ state: stateOf(first.url), code: 'c0de' }, browserOf(first))).problem).toMatch(/expired/);
+    expect(await service.callback({ state: stateOf(second.url), code: 'c0de' }, browserOf(second))).toMatchObject({ system: CAL, problem: undefined });
+  });
+
+  it('finishes a sign-in only in the browser that started it', async () => {
+    const { service, store } = await world();
+    const started = await service.connect(ADA, CAL);
+    if (!('url' in started)) throw new Error('expected a URL');
+    // the consent link passed to someone else: their browser has no binding, or another sign-in's
+    expect((await service.callback({ state: stateOf(started.url), code: 'bens' }, {})).problem).toMatch(/another browser/);
+    const other = await service.connect(BEN, CAL);
+    expect((await service.callback({ state: stateOf(started.url), code: 'bens' }, browserOf(other))).problem).toMatch(/another browser/);
+    expect((await store.table('connections').find({ where: { owner: ADA }, limit: 1 })).items[0]).toMatchObject({ status: 'pending' });
+    expect((await service.callback({ state: stateOf(started.url), code: 'c0de' }, browserOf(started))).problem).toBeUndefined();
+  });
+
+  it('finishes a sign-in once when its callback comes twice at the same time', async () => {
+    const { service, store, system } = await world();
+    let finishes = 0;
+    system.behaviour.connectFinish = () => {
+      finishes += 1;
+      return { account: { label: 'ada@example.com' }, credentials: { access: 'a1' } };
+    };
+    const started = await service.connect(ADA, CAL);
+    if (!('url' in started)) throw new Error('expected a URL');
+    const [first, again] = await Promise.all([1, 2].map(() => service.callback({ state: stateOf(started.url), code: 'c0de' }, browserOf(started))));
+    expect([first?.problem, again?.problem]).toEqual([undefined, expect.stringMatching(/already used/)]);
+    expect(finishes).toBe(1);
+    expect((await store.table('connections').find({ where: { owner: ADA }, limit: 1 })).items[0]).toMatchObject({ status: 'connected' });
+  });
+
+  it('takes refreshes one at a time, so no replaced secret is left behind', async () => {
+    const { service, store } = await world();
+    const started = await service.connect(ADA, CAL);
+    if ('url' in started) await service.callback({ state: stateOf(started.url), code: 'c' }, browserOf(started));
+    const row = (await store.table('connections').find({ where: { owner: ADA }, limit: 1 })).items[0];
+    if (row === undefined) throw new Error('no connection');
+    await Promise.all(['a2', 'a3', 'a4'].map((access) => service.refreshed(CAL, { connection: row.id, update: { credentials: { access } } })));
+    const secrets = (await store.table('secrets').find({ limit: 10 })).items;
+    expect(secrets.map((secret) => secret.id)).toEqual([(await store.table('connections').get(row.id))?.credentials]);
   });
 });
