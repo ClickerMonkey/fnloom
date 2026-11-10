@@ -1034,6 +1034,48 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **Kinds derive fns:** a fn of a kind needs only what the kind can't work out (usually just its payload);
   the kind's `describe` supplies signature, deps, referenced types and resources, handlers, progress,
   operations, limits and display, and the hub recomputes it when the payload or its references change.
+- **Owner review notes (2026-11-10, build 5)** are standing rules. The verbatim notes are in
+  `docs/plans/build-5-feedback.md`.
+  - **Use the libraries:**
+    - Never re-implement what aeye or ayepi do. For example, the web system uses `@aeye/resources` for fetching,
+      converting and links.
+    - When a library can't do something, report it as a library gap and the owner decides. No workarounds.
+  - **The hub stores everything shared:**
+    - Fns (saved queries and forms included), types, examples, embeddings and enrichment results live in the hub.
+    - Systems keep only their connection config and keys.
+    - Search runs in the hub's database. No system or browser loads a whole set or does vector math in memory.
+    - The hub has one fns/context search endpoint, available on the web API, the system link and as an LLM fn. It
+      does text and semantic search, can order by score, filters by kind, system, instance, visibility, types and
+      mode, and pages its results.
+  - **Anything a contract declares can also be added at runtime:**
+    - This covers fns, types, kinds, resources and roots, context, commands, components (including contributions to
+      another system's registry), examples and providers.
+    - The SDK and link offer one add/update/remove API for all of them.
+    - The hub stores each with the system and instance that defined it, its version history and its visibility, and
+      tells others live.
+    - Static contract entries end in the same records.
+  - **Fns:**
+    - Fns carry real instructions for the model.
+    - Fns can have any number of examples, in their own searchable table. A setting picks how many go into the prompt,
+      and `fn_examples` pages through the rest.
+    - Agent-like fns (`get_input`, `get_query`, `edit_query`) are a prompt with tools, as product's agent kind is.
+  - **Fn facts:**
+    - Each fn records the types it reads and writes, worked out deeply through the fns it uses.
+    - It also records its mode (read, write or delete) and whether it's free.
+    - Each kind estimates cost from a payload (min, typical, max), using run history when there is some.
+    - Run-time stats let the chat warn about long-running fns.
+  - **Chat modes:**
+    - `none`, `read`, `write`, `delete` and `auto`.
+    - `auto` asks a classifier model, which admin sets system-wide.
+    - Approving a run runs it, with no second Run step.
+  - **System builds are self-contained:** they bundle all their JS dependencies so they can be scanned as one
+    artifact.
+  - **Frontend logs and traffic** go to the hub as per-person resources. A new file starts on size, or after 5
+    minutes of quiet.
+  - **Chat shows:**
+    - reasoning, fn calls and content in the exact order the model produced them
+    - consecutive fn calls collapsed into one section, newest first
+    - any fn opened as a modal without leaving the chat, using the same component as the fn page
 - **Name:** plugins are **systems**; the main server is the **hub**, itself a system named `hub`.
 - **Kinds:** code-backed fns are kind `native` (the hub's own fns too), agents are `hub/llm`, and systems
   can add more. A fn declared at runtime belongs to, and runs on, the system that defines its kind, because that
