@@ -98,3 +98,26 @@ build-5.md or build-5-design.md, this file wins.
   - **Fn modal:** from any fn run in chat or elsewhere, open the fn as a modal (summary, stats, runs, examples) without
     leaving the chat, with "open page" for the full page. The fn page and the modal are one reusable component.
   - **Cursor:** fix the double blinking terminal cursor.
+
+## Audit of the hub surface (2026-11-10, binding for build 5's review and fixes)
+
+`docs/reference/hub-surface.md` documents the hub surface at commit 20d4314, before the feedback phase landed. Its
+"Departures" section lists where the code differs from what the owner asked. The review and fix rounds must check every
+departure there and close each one that the feedback phase didn't already fix. Most of all:
+
+- **Visibility on the link:**
+  - `resource` must respect the run's person.
+  - `types` and `content` must check who is asking.
+  - The model must not be offered admin hub fns it may not use.
+- **Model-call recording:** the link's `embed` must record a ModelCall and honour `run`, or be removed in favour of
+  `model`.
+- **Every web operation has a hub fn,** so the chat model can do it too. This includes access, memory updates,
+  context links, suggestion decisions, auto-pair revoke, reimport, and session create/update/delete.
+- **A context's fns come along in every contextor,** and with `load_context`. See `docs/plans/system-install-flow.md`,
+  part 1.
+- **The SDK must not offer what the hub refuses:** `ctx.llm` outside runs, and `ctx.budget.spend` that never reaches
+  the hub.
+- **Declared args the code never reads** are removed: `ask_user.user` and `load.detail`.
+- **Naming:**
+  - Make hub fn and endpoint names consistent.
+  - The `{ input: ... }` wrapper goes.
