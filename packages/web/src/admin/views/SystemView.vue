@@ -27,6 +27,7 @@ import ConnectSetup from '../components/ConnectSetup.vue';
 import SystemConfig from '../components/SystemConfig.vue';
 import SystemOverview from '../components/SystemOverview.vue';
 import { SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
+import { secretFields } from '../logic/instances.ts';
 import { SystemTab } from '../sections.ts';
 
 const { admin, toasts, chat } = useStores();
@@ -152,7 +153,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           />
           <SystemConfig
             :type="view.configType" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
-            :needs-config="view.needsConfig" :now="now" :busy="store.config.busy.value" :problems="problems" @save="save"
+            :needs-config="view.needsConfig" :now="now" :busy="store.config.busy.value" :problems="problems" :secrets="secretFields(view.configSecrets, view.config?.value)" @save="save"
           />
         </div>
         <LoadState

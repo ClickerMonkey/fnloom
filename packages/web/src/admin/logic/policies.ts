@@ -46,6 +46,7 @@ export function approverText(approver: Approver, nameOf: NameOf): string {
     case 'group': return `group ${nameOf(approver.group)}${approver.quorum === undefined ? '' : ` (${approver.quorum} needed)`}`;
     case 'judge': return `the judge ${fnLabel(approver.fn)}`;
     case 'hub': return 'the hub';
+    case 'admins': return 'an admin';
   }
 }
 

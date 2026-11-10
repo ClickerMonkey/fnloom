@@ -7,6 +7,7 @@ import { ActorId, Duration, InstanceName, Json, PairingId, PairingTokenId, Quali
 import { CONTENT_HASH } from '../resources.ts';
 import { FnMetrics, noOutcomes, OutcomeCounts } from '../metrics.ts';
 import { AutoPairChoice } from '../auto-pair.ts';
+import { ConfigSecrets } from '../config-secrets.ts';
 
 /**
  * Where an instance is. `needs-config`: connected, but without a valid config, so it can't be used yet. A system's
@@ -132,6 +133,8 @@ export const PairingRequest = z.object({
   instance: InstanceName.optional(),
   /** Its config type, so the pairing page asks for config at approval. */
   configType: GinTypeDef.optional(),
+  /** Its config's secret fields (`PairingInfo.configSecrets`), sealed when the admin picks a config at approval. */
+  configSecrets: ConfigSecrets.optional(),
   status: z.enum(['pending', 'approved', 'rejected', 'expired']),
   createdAt: Timestamp,
   expiresAt: Timestamp,

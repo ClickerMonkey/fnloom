@@ -3,5 +3,5 @@
   "compilerOptions": { "rootDir": "..", "outDir": "../.types/scripts", "tsBuildInfoFile": "../.types/scripts.tsbuildinfo" },
   "exclude": ["./docs/example/**"],
   "include": ["./**/*.ts", "../e2e/**/*.ts", "../ui-tests/**/*.ts", "../vitest.config.ts", "../eslint.config.ts"],
-  "references": [{ "path": "../packages/core" }, { "path": "../packages/sdk" }, { "path": "../packages/hub" }, { "path": "../packages/cli" }, { "path": "../systems/fs" }, { "path": "../systems/embedder" }, { "path": "../systems/web" }, { "path": "../systems/input" }, { "path": "../systems/google-calendar" }]
+  "references": [{ "path": "../packages/core" }, { "path": "../packages/sdk" }, { "path": "../packages/hub" }, { "path": "../packages/cli" }, { "path": "../systems/fs" }, { "path": "../systems/embedder" }, { "path": "../systems/web" }, { "path": "../systems/input" }, { "path": "../systems/google-calendar" }, { "path": "../systems/database" }]
 }

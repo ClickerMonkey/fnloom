@@ -19,7 +19,7 @@ import { updown, type UpDown } from '@ayepi/updown';
 import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
-  type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type Welcome,
+  type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
 } from '@harness/core';
 import type { Log, SystemPlace } from '../ctx.ts';
 import { wireType } from '../gin.ts';
@@ -308,6 +308,15 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     if (system !== this.name || !this.#table.remove(local)) { throw new Error(`${fn.name} was not added at runtime by ${this.name}.`); }
     const hub = this.#now();
     if (hub !== undefined) { this.#checkReport(await hub.call('patch', await this.#manifestState().remove(local)), fn.name); }
+  }
+
+  async types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void> {
+    this.#table.setTypes(upsert, remove);
+    const hub = this.#now();
+    if (hub === undefined || (upsert.length === 0 && remove.length === 0)) { return; }
+    const report = await hub.call('patch', await this.#manifestState().types(upsert, remove));
+    const refused = report.refused.filter((r) => upsert.some((decl) => r.name === decl.name || r.name === qualify(this.name, decl.name)));
+    if (refused.length > 0) { throw new Error(`The hub refused ${refused.map((r) => `${r.name}: ${r.problems.join('; ')}`).join(' | ')}`); }
   }
 
   async restart(reason: string): Promise<never> {

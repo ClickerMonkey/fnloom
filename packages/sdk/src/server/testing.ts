@@ -14,13 +14,13 @@ import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
-  type ConnectResult, type DecideAnswer, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
+  type ConnectResult, type DecideAnswer, type FleetInstance, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
-import type { Decisions, Proposals, SystemPlace } from '../ctx.ts';
+import type { Decisions, Fleets, Proposals, SystemPlace } from '../ctx.ts';
 import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
 import { MemoryJournal } from './journal.ts';
@@ -44,9 +44,10 @@ export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.har
  * `ctx.propose` and `ctx.decide` for a hand-made test context that has no hub: proposing fails (the test didn't
  * expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
  */
-export const NO_ASKS: Proposals & Decisions = {
+export const NO_ASKS: Proposals & Decisions & Fleets = {
   propose: () => Promise.reject(new Error('This test context proposes no runs; serve against FakeHub to record them.')),
   decide: () => Promise.resolve({ by: 'off' }),
+  fleet: () => Promise.resolve([]),
 };
 
 /** The person fake runs are for. */
@@ -262,6 +263,8 @@ export class FakeHub {
   onModel: (forward: ModelForward) => Promise<ModelForwardResult> = (forward) => Promise.resolve(this.#modelAnswer(forward));
   /** Answers `ctx.decide`. Default: `off` (no decision model), so the system goes by its scores. */
   onDecide: (request: HubBody<'decide'>) => Promise<DecideAnswer> = () => Promise.resolve({ by: 'off' });
+  /** Answers `ctx.fleet`. Default: no instances listed. */
+  onFleet: () => Promise<FleetInstance[]> = () => Promise.resolve([]);
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }> = () => Promise.resolve({ accepted: true });
 
@@ -581,6 +584,7 @@ export class FakeHub {
           this.decisions.push(data);
           return await this.onDecide(data);
         },
+        fleet: () => this.onFleet(),
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);

@@ -6,7 +6,7 @@
  * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
-import type { AutoPairGrant, Duration, QualifiedName } from '@harness/core';
+import type { AutoPairGrant, Duration, QualifiedName, TypeDecl } from '@harness/core';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
@@ -66,6 +66,11 @@ export interface RunningSystem<N extends string> {
   add<const K extends string, T extends FnTypes>(name: K, def: FnDef<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
   /** Remove a fn added at runtime. */
   remove(fn: AnyFnRef): Promise<void>;
+  /**
+   * Add or replace types at runtime (a database's table types, each with its `instance`) and remove types added this
+   * way, by local name. While offline they ride in the next manifest. Throws when the hub refuses one.
+   */
+  types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void>;
   /** Restart the process. It reconnects and the hub imports what changed. */
   restart(reason: string): Promise<never>;
   stop(): Promise<void>;
@@ -125,6 +130,7 @@ export {
 } from './pairing.ts';
 export { LinkGap, InvalidValue } from './wire.ts';
 export { resultBlock, type ResultBlockOptions } from './results.ts';
+export { cosine, embedOne } from './vectors.ts';
 export { readClientBundle, CLIENT_ENTRY, type ClientBundle } from './assets.ts';
 export {
   PackageManifestError, parsePackageManifest, readPackageManifest, findPackageManifest, packageProblems, checkPackage, builtPackageManifest,

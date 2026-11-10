@@ -27,8 +27,8 @@ export class InstanceStore {
   readonly key = shallowRef<InstanceKey | undefined>(undefined);
   /** Every instance of its system (the page lists the others beside it). */
   readonly instances = new Loaded<readonly InstanceView[]>();
-  /** Its system's config type, for the config form. */
-  readonly configType = new Loaded<Json | undefined>();
+  /** Its system's config type and secret fields, for the config form. */
+  readonly configForm = new Loaded<{ readonly type: Json | undefined; readonly secrets: readonly string[] }>();
   readonly config = new Task();
   readonly exporting = new Task();
   readonly removing = new Task();
@@ -47,7 +47,10 @@ export class InstanceStore {
     this.#stop ??= this.#events((event) => { this.#onEvent(event); });
     await Promise.all([
       this.#loadInstances(key.system, same),
-      this.configType.load(async () => (await this.#api.system.call({ system: key.system })).configType, "Couldn't load this system.", same),
+      this.configForm.load(async () => {
+        const system = await this.#api.system.call({ system: key.system });
+        return { type: system.configType, secrets: system.configSecrets ?? [] };
+      }, "Couldn't load this system.", same),
     ]);
   }
 
@@ -56,7 +59,7 @@ export class InstanceStore {
     this.#stop = undefined;
     this.key.value = undefined;
     this.instances.reset();
-    this.configType.reset();
+    this.configForm.reset();
   }
 
   /** Save this instance's config; the hub refuses one that isn't valid for the system's config type, and says why. */

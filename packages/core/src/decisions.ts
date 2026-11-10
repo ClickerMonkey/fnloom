@@ -6,7 +6,7 @@
  * says the decision model is off so the system goes by its scores. The call is a model call of the asking run.
  */
 import { z } from 'zod';
-import { LlmInteractionId, RunId } from './primitives.ts';
+import { ModelCallId, RunId } from './primitives.ts';
 
 /** One thing the model may pick: the system's own id for it, what it is in words, and the system's score for it. */
 export const DecideCandidate = z.object({
@@ -39,7 +39,8 @@ export const DecideAnswer = z.discriminatedUnion('by', [
     picked: z.array(z.object({ id: z.string(), why: z.string().optional() })),
     /** Why it picked nothing, when it didn't. */
     note: z.string().optional(),
-    call: LlmInteractionId.optional(),
+    /** The model call it made, charged to the asking run. */
+    call: ModelCallId.optional(),
   }),
   z.object({ by: z.literal('off') }),
   z.object({ by: z.literal('failed'), message: z.string() }),

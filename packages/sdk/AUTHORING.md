@@ -1672,10 +1672,12 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
    * `remember` (default false) lets the person say "don't ask again".
    */
   approval?: { preview?: boolean; remember?: boolean };
+  /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
+  routing?: FnRouting;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnLimits`](#core-fnlimits), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
 
 #### `FnExampleOf`
 
@@ -1726,12 +1728,14 @@ interface FnDef<T extends FnTypes> {
   readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
   /** Every run waits for approval; with `preview`, its implementation's `preview` says what the run would do. */
   readonly approval: FnApproval | undefined;
+  /** Which instance of a fleet runs it: always one (`{ to: 'instance', instance }`), or the first available (`{ to: 'any' }`). */
+  readonly routing: FnRouting | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnLimits`](#core-fnlimits), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
 
 #### `AnyFnDef`
 
@@ -2625,6 +2629,26 @@ interface ResultBlockOptions {
 
 Refers to: [`Json`](#core-json).
 
+#### `cosine`
+
+function · `import { cosine } from '@harness/sdk/server'`
+
+Cosine similarity of two vectors; 0 when either is empty or their lengths differ.
+
+```ts
+function cosine(a: readonly number[], b: readonly number[]): number;
+```
+
+#### `embedOne`
+
+function · `import { embedOne } from '@harness/sdk/server'`
+
+Embed one text, or nothing when the hub has no embedder for it.
+
+```ts
+function embedOne(llm: Llm, text: string): Promise<number[]>;
+```
+
 #### `Outcome`
 
 type · `import { Outcome } from '@harness/sdk'`
@@ -2999,10 +3023,12 @@ interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
   tags?: string[];
   /** Example calls, of the `args` type when given (JSON otherwise). */
   examples?: FnExampleOf<NoInfer<A>>[];
+  /** For a fleet: always one instance (a saved query of one database), or whichever is first available. */
+  routing?: FnRouting;
 }
 ```
 
-Refers to: [`Audience`](#core-audience).
+Refers to: [`Audience`](#core-audience), [`FnRouting`](#core-fnrouting).
 
 #### `KindFnTypes`
 
@@ -4485,12 +4511,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
   ```text
-  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, instances … }
+  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
   ```
 - `hub/system_fns`: A system's fns, with whether each can be used now and its running numbers. Tags: `read`.
 
@@ -5325,13 +5351,18 @@ interface RunningSystem<N extends string> {
   add<const K extends string, T extends FnTypes>(name: K, def: FnDef<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
   /** Remove a fn added at runtime. */
   remove(fn: AnyFnRef): Promise<void>;
+  /**
+   * Add or replace types at runtime (a database's table types, each with its `instance`) and remove types added this
+   * way, by local name. While offline they ride in the next manifest. Throws when the hub refuses one.
+   */
+  types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void>;
   /** Restart the process. It reconnects and the hub imports what changed. */
   restart(reason: string): Promise<never>;
   stop(): Promise<void>;
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
 
 #### `RunningStatus`
 
@@ -5783,7 +5814,7 @@ What a run gets besides its args. Typed by its fn: only its deps can be called, 
 progress steps can be reported, and the outcome helpers take its result, undo and resume types.
 
 ```ts
-interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions {
+interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
@@ -5878,10 +5909,8 @@ Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
 
 interface · `import { SystemCtx } from '@harness/sdk'`
 
-What hooks, mentions, actions, dynamic context, events and lifecycle events get.
-
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals {
+interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -6183,6 +6212,21 @@ interface DecideOptions {
   readonly max?: number;
 }
 ```
+
+#### `Fleets`
+
+interface · `import { Fleets } from '@harness/sdk'`
+
+This system's fleet: every paired instance, whether it is online, its config (secret fields as `SECRET_KEPT`) and
+the types it owns, so one instance can pick which of them a request is for and forward the call with `on`.
+
+```ts
+interface Fleets {
+  fleet(): Promise<FleetInstance[]>;
+}
+```
+
+Refers to: [`FleetInstance`](#core-fleetinstance).
 
 #### `harnessAi`
 
@@ -7373,6 +7417,49 @@ interface VisualEntry<C extends ContractShape> {
 
 Refers to: [`ResultTable`](#core-resulttable), [`VisualFit`](#core-visualfit).
 
+#### `VisualOption`
+
+interface · `import { VisualOption } from '@harness/sdk'`
+
+A visual that fits a result, as the chat's client runtime finds it among every loaded contribution.
+
+```ts
+interface VisualOption {
+  readonly system: string;
+  readonly name: string;
+  readonly fit: VisualFit;
+  readonly component: Component;
+  readonly props: VisualView & WithSystem<ContractShape>;
+}
+```
+
+Refers to: [`VisualFit`](#core-visualfit).
+
+#### `VisualSource`
+
+interface · `import { VisualSource } from '@harness/sdk'`
+
+The visuals of a registry that fit a result, best fit first and the table last (`ClientRuntime.visuals`).
+
+```ts
+interface VisualSource {
+  visuals(registry: QualifiedName, table: ResultTable): readonly VisualOption[];
+}
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname), [`ResultTable`](#core-resulttable).
+
+#### `VISUALS`
+
+const · `import { VISUALS } from '@harness/sdk'`
+
+Every loaded system's visuals for a registry (the chat provides its client runtime's), so a result view can offer
+visuals other systems contribute. Without it, a view falls back on its own system's visuals.
+
+```ts
+const VISUALS: InjectionKey<VisualSource>;
+```
+
 ## 24. Packaging: system.json, build, pack, install
 
 ### `system.json`
@@ -7822,6 +7909,8 @@ class FakeHub {
   onModel: (forward: ModelForward) => Promise<ModelForwardResult>;
   /** Answers `ctx.decide`. Default: `off` (no decision model), so the system goes by its scores. */
   onDecide: (request: HubBody<'decide'>) => Promise<DecideAnswer>;
+  /** Answers `ctx.fleet`. Default: no instances listed. */
+  onFleet: () => Promise<FleetInstance[]>;
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }>;
   constructor(options: FakeHubOptions = {});
@@ -7864,7 +7953,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -7943,7 +8032,7 @@ const · `import { NO_ASKS } from '@harness/sdk/server/testing'`
 expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
 
 ```ts
-const NO_ASKS: Proposals & Decisions;
+const NO_ASKS: Proposals & Decisions & Fleets;
 ```
 
 #### `HubBody`
@@ -11224,6 +11313,27 @@ const, type · declared in `packages/core/src/run.ts`
 type ErrorClass = "retry" | "caller" | "fatal";
 ```
 
+#### <a id="core-fleetinstance"></a>`FleetInstance`
+
+const, type · declared in `packages/core/src/package.ts`
+
+One instance of a system as its own fleet sees it (`fleet` on the hub link): whether it is online, its config with
+each secret field as `SECRET_KEPT`, and the types it owns (`TypeDecl.instance`), so one instance can choose which
+of them a request is for (a database system picking the database).
+
+```ts
+type FleetInstance = {
+  instance: string & z.core.$brand<"InstanceName">;
+  description: string;
+  online: boolean;
+  config: z.core.util.JSONType;
+  types: {
+    name: `${string}/${string}`;
+    description: string;
+  }[];
+};
+```
+
 #### <a id="core-fnapproval"></a>`FnApproval`
 
 const, type · declared in `packages/core/src/approvals.ts`
@@ -11264,6 +11374,24 @@ type FnLimits = {
   timeout?: number | undefined;
   retries?: number | undefined;
   cost?: number | undefined;
+};
+```
+
+#### <a id="core-fnrouting"></a>`FnRouting`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+Build 5: which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
+fn belongs to it the way `TypeDecl.instance` says. `any`: whichever connected instance the hub picks first (the
+session's pin, then the default), with no ambiguity refusal; the fn forwards with `on` itself when it must.
+Absent: the fleet rules (`FleetRouter`).
+
+```ts
+type FnRouting = {
+  to: "instance";
+  instance: string & z.core.$brand<"InstanceName">;
+} | {
+  to: "any";
 };
 ```
 
@@ -12776,7 +12904,7 @@ const, type · declared in `packages/core/src/approvals.ts`
 Who answers a proposed run: the person of the run that proposed it, or an admin.
 
 ```ts
-type ProposalApprover = "person" | "admins";
+type ProposalApprover = "admins" | "person";
 ```
 
 #### <a id="core-proposedrun"></a>`ProposedRun`
@@ -13547,6 +13675,30 @@ Milliseconds since the epoch.
 
 ```ts
 type Timestamp = number;
+```
+
+#### <a id="core-typedecl"></a>`TypeDecl`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+A named type. Its methods are sent as fns named `Type.method` whose args hold the value as `self`.
+
+```ts
+type TypeDecl = {
+  name: string;
+  description: string;
+  def: TypeDef<any>;
+  display: {
+    label: string;
+    plural?: string | undefined;
+    icon?: string | undefined;
+    color?: string | undefined;
+    title?: string | undefined;
+    subtitle?: string | undefined;
+  };
+  methods: string[];
+  instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+};
 ```
 
 #### <a id="core-typedefinitions"></a>`TypeDefinitions`

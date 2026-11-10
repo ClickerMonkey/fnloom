@@ -1,7 +1,7 @@
 /**
  * Matching by embeddings: cosine similarity, and one text's embedding (empty when the hub has no embedder for it).
  */
-import type { Llm } from '@harness/sdk';
+import type { Llm } from '../ctx.ts';
 
 /** Cosine similarity of two vectors; 0 when either is empty or their lengths differ. */
 export function cosine(a: readonly number[], b: readonly number[]): number {

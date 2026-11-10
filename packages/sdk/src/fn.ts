@@ -5,7 +5,7 @@
 import {
   messageOf,
   type Audience, type Display, type FnError, type FnLimits, type FnValidation, type InputVerdict, type InvalidInput, type Json, type Operations, type OutputVerdict, type ProgressDecl, type ProgressWire,
-  type StatusTemplates, type StepStatus, type Usd, type FnApproval,
+  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnRouting,
 } from '@harness/core';
 import { encodeValue, json, type GinType } from './gin.ts';
 import type { ValidateCtx } from './ctx.ts';
@@ -188,6 +188,8 @@ export interface FnDef<T extends FnTypes> {
   readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
   /** Every run waits for approval; with `preview`, its implementation's `preview` says what the run would do. */
   readonly approval: FnApproval | undefined;
+  /** Which instance of a fleet runs it: always one (`{ to: 'instance', instance }`), or the first available (`{ to: 'any' }`). */
+  readonly routing: FnRouting | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -246,6 +248,8 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
    * `remember` (default false) lets the person say "don't ask again".
    */
   approval?: { preview?: boolean; remember?: boolean };
+  /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
+  routing?: FnRouting;
 }
 
 /** The types of a native fn. */
@@ -288,6 +292,7 @@ export function fn<
     examples: checkedExamples(def.description, def.args, def.examples),
     validate: def.validate,
     approval: def.approval === undefined ? undefined : { preview: def.approval.preview ?? true, remember: def.approval.remember ?? false },
+    routing: def.routing,
   };
 }
 
@@ -310,6 +315,8 @@ export interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplate
   tags?: string[];
   /** Example calls, of the `args` type when given (JSON otherwise). */
   examples?: FnExampleOf<NoInfer<A>>[];
+  /** For a fleet: always one instance (a saved query of one database), or whichever is first available. */
+  routing?: FnRouting;
 }
 
 /** The types of a fn of some kind. Its deps, handlers and progress come from the kind at runtime. */
@@ -349,6 +356,7 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     examples: def.args === undefined ? (def.examples ?? []) : checkedExamples(def.description, def.args, def.examples),
     validate: undefined,
     approval: undefined,
+    routing: def.routing,
   };
 }
 

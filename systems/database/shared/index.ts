@@ -2,7 +2,7 @@
  * The database system's contract (`shared/`). One instance per database (SQLite, Postgres or SQL Server). Every table
  * is a type in the hub (`<instance>.<table>`); every query the chat asks for is kept as a `database/query` fn of its
  * instance (`<instance>.<name>`), so `get_query` finds and reuses it next time. Rows go to the person as a `result`
- * attachment, drawn by the best fitting visual of the `query-visuals` registry; the model gets a `QueryResult` that
+ * attachment, drawn by the best fitting visual of the `query-visuals` registry; the model gets a `ResultBlock` that
  * says so. Writes and schema changes only run once a person approves them.
  */
 import { ResultTable } from '@harness/core';
@@ -113,6 +113,8 @@ export const database = system('database', {
         deps: { query_on: fns.query_on },
         status: status('Finding a query…', 'Ran {output.fn.name}', 'The query failed'),
         tags: ['database', 'query'],
+        // any instance answers: it picks the database and forwards there with `on`
+        routing: { to: 'any' },
       }),
       edit_query: fn({
         description: 'Change a saved query fn by instructions (add a column, another filter, a different order). The old version is kept; the new one runs.',
@@ -122,6 +124,8 @@ export const database = system('database', {
         deps: { edit_on: fns.edit_on },
         status: status('Editing {args.name}…', 'Edited {args.name}', 'Editing {args.name} failed'),
         tags: ['database', 'query'],
+        // any instance answers: it picks the database and forwards there with `on`
+        routing: { to: 'any' },
       }),
       create_table: fn({
         description: 'Make a table from a row type (on a database whose schema may change). Runs only after the person approves the DDL.',
@@ -130,6 +134,8 @@ export const database = system('database', {
         deps: { change_schema: fns.change_schema },
         status: status('Creating {args.table}…', 'Created {args.table}', 'Creating {args.table} failed'),
         tags: ['database', 'schema', 'write'],
+        // any instance answers: it picks the database and forwards there with `on`
+        routing: { to: 'any' },
       }),
       alter_table: fn({
         description: 'Change a table to match a row type: add, drop and change columns (on a database whose schema may change). Runs only after the person approves the steps.',
@@ -138,6 +144,8 @@ export const database = system('database', {
         deps: { change_schema: fns.change_schema },
         status: status('Changing {args.table}…', 'Changed {args.table}', 'Changing {args.table} failed'),
         tags: ['database', 'schema', 'write'],
+        // any instance answers: it picks the database and forwards there with `on`
+        routing: { to: 'any' },
       }),
     },
   }))

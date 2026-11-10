@@ -97,6 +97,8 @@ export const Approver = z.discriminatedUnion('by', [
   z.object({ by: z.literal('turn-user') }),
   z.object({ by: z.literal('actor'), actor: ActorId }),
   z.object({ by: z.literal('group'), group: ActorId, quorum: z.number().int().min(1).optional() }),
+  /** Any enabled admin (a run a system proposed outside any run, such as a schema change found at start). */
+  z.object({ by: z.literal('admins') }),
   /** An agent fn that answers allow or deny with a reason. */
   z.object({ by: z.literal('judge'), fn: QualifiedName }),
   /** The hub decides by itself (a rule, a quota). */

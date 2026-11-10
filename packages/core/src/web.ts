@@ -26,6 +26,7 @@ import { Policy } from './records/actors.ts';
 import { ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs, UpdateMemoryArgs } from './context-graph.ts';
 import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
 import { ModelCall, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
+import { ConfigSecrets } from './config-secrets.ts';
 import { ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
 import { InstanceRecord } from './package.ts';
 import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery, ResourceReadArgs, ResourceReadResult } from './resource-forms.ts';
@@ -90,6 +91,8 @@ export const SystemView = SystemRecord.omit({ keyFingerprint: true, publicKey: t
     fns: z.number().int(),
     needsConfig: z.boolean(),
     configType: Json.optional(),
+    /** Its config's secret fields (`Manifest.configSecrets`): drawn as password inputs. */
+    configSecrets: ConfigSecrets.optional(),
     instances: z.array(InstanceView),
   });
 export type SystemView = z.infer<typeof SystemView>;

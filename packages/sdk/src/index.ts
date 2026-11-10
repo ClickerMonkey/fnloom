@@ -31,7 +31,7 @@ export {
   Suspended, CallFailed, HandlerFailed,
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
-  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions,
+  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets,
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
 export type { FnImpl } from './impl.ts';
@@ -49,10 +49,10 @@ export {
 export { agent, type AgentInput, type AgentFnTypes, type LlmPayload, type LlmKind } from './agent.ts';
 export { manifestOf, manifestBody, fnDecl, canonicalJson, sha256, type ManifestOptions } from './manifest.ts';
 export {
-  client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO, SHARE_EDITOR,
+  client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO, SHARE_EDITOR, VISUALS,
   type InputAnswer, type InputAnswers, type ValueEditorProps, type ShareEditorProps,
   type Renderer, type Delivery, type FnView, type SystemClient, type WithSystem, type AttachmentView, type InputView, type MentionView, type ResourceView,
   type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type WireViews, type Mount, type InputMount, type ClientRenderers, type ClientModule, type ResourceViewerProps,
-  type ResourceViewerEntry, type ResourceViewerMode, type BareViewer, type VisualView, type VisualEntry,
+  type ResourceViewerEntry, type ResourceViewerMode, type BareViewer, type VisualView, type VisualEntry, type VisualOption, type VisualSource,
 } from './client.ts';
 export { expectType, type Equal, type Simplify } from './util.ts';

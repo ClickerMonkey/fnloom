@@ -22,7 +22,7 @@ import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
 import type { RunRegistry } from './runs.ts';
-import { proposals } from './asks.ts';
+import { fleets, proposals } from './asks.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { SystemTable } from './table.ts';
 import { decode, decodeOrThrow, encodeOrThrow, messageOf, thrownError, withTimeout } from './wire.ts';
@@ -141,6 +141,7 @@ export class SystemRuntime<C extends ContractShape> {
       log: this.#log,
       signal,
       ...proposals({ system: env.system, hub: env.hub, signal }),
+      ...fleets(env.hub, signal),
     };
   }
 
@@ -297,14 +298,12 @@ export class SystemRuntime<C extends ContractShape> {
     const ctx = { ...this.systemCtx(signal), run: data.run, user: data.user };
     switch (target.kind) {
       case 'native': {
-        const preview = target.impl.preview;
-        if (preview === undefined) { return { refused: `${data.fn} has no preview.` }; }
-        return await preview(decodeOrThrow(target.def.args, data.args, 'The args'), ctx);
+        if (target.impl.preview === undefined) { return { refused: `${data.fn} has no preview.` }; }
+        return await target.impl.preview(decodeOrThrow(target.def.args, data.args, 'The args'), ctx);
       }
       case 'kind': {
-        const preview = target.impl.preview;
-        if (preview === undefined) { return { refused: `Fns of kind ${target.kindName} have no preview.` }; }
-        return await preview(decodeOrThrow(target.def.payload, data.payload, 'The payload'), data.args, ctx);
+        if (target.impl.preview === undefined) { return { refused: `Fns of kind ${target.kindName} have no preview.` }; }
+        return await target.impl.preview(decodeOrThrow(target.def.payload, data.payload, 'The payload'), data.args, ctx);
       }
       case 'method':
         return { refused: `Method ${data.fn} has no preview.` };

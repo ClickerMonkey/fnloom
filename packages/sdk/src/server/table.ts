@@ -5,9 +5,9 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
-import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, FnCtx, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
   ActionImpl, AnyTypeDef, ContextImpl, EmbedderImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
@@ -44,7 +44,7 @@ export interface OutcomeHelpers {
 }
 
 /** What every run context has besides its calls, handlers and progress. */
-export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Decisions {
+export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Decisions, Fleets {
   readonly config: unknown;
   readonly run: RunInfo;
   readonly budget: BudgetInfo;
@@ -197,6 +197,7 @@ export class SystemTable {
   readonly contract: AnyContract;
   readonly impl: ImplTable;
   readonly #added = new Map<string, { def: AnyFnDef; impl: RuntimeFnImpl | undefined }>();
+  readonly #types = new Map<string, TypeDecl>();
   readonly #listeners = new Set<() => void>();
 
   constructor(contract: AnyContract, impl: ImplTable) {
@@ -228,6 +229,20 @@ export class SystemTable {
 
   #changed(): void {
     for (const listener of [...this.#listeners]) { listener(); }
+  }
+
+  /** Add or replace types at runtime (a database's table types), and remove ones added earlier by local name. */
+  setTypes(upsert: readonly TypeDecl[], remove: readonly string[]): void {
+    for (const name of remove) { this.#types.delete(name); }
+    for (const decl of upsert) {
+      if (decl.name in this.contract.defs.types) { throw new Error(`type ${decl.name} is part of ${this.contract.name}'s contract`); }
+      this.#types.set(decl.name, decl);
+    }
+  }
+
+  /** The types added at runtime, by local name. */
+  addedTypes(): ReadonlyMap<string, TypeDecl> {
+    return this.#types;
   }
 
   /** The fns added at runtime, by local name. */

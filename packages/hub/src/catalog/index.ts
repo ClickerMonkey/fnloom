@@ -63,6 +63,8 @@ export interface Catalog {
   fns(filter: { system?: SystemName; names?: readonly QualifiedName[]; available?: boolean }): Promise<FnRecord[]>;
   kind(name: QualifiedName): Promise<KindRecord | undefined>;
   type(name: QualifiedName): Promise<TypeRecord | undefined>;
+  /** Every type of a system (a fleet's types carry the instance that owns them). */
+  typesOf(system: SystemName): Promise<TypeRecord[]>;
   /** The named types a type refers to, transitively, dependencies first, with any it couldn't find. */
   typeClosure(names: readonly QualifiedName[]): Promise<{ order: QualifiedName[]; missing: QualifiedName[] }>;
   context(name: QualifiedName): Promise<ContextRecord | undefined>;

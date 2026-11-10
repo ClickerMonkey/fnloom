@@ -2,7 +2,7 @@
  * The manifest as it is now: the contract's, plus fns added at runtime. Its hash goes in `hello`, so the hub only asks
  * for the manifest when its copy is stale; runtime changes go as patches carrying the new hash.
  */
-import { Json, Manifest, ManifestPatch, SystemName, splitName, type ClientAssets, type FnDecl, type QualifiedName } from '@harness/core';
+import { Json, Manifest, ManifestPatch, SystemName, splitName, type ClientAssets, type FnDecl, type QualifiedName, type TypeDecl } from '@harness/core';
 import type { AnyFnDef } from '../fn.ts';
 import { canonicalJson, fnDecl, manifestBody, sha256, type ManifestOptions } from '../manifest.ts';
 import type { SystemTable } from './table.ts';
@@ -39,8 +39,11 @@ export class ManifestState {
     for (const [, { def }] of added) {
       for (const system of systemsOf(contract.name, def)) { requires.add(system); }
     }
+    // runtime types replace a contract type of the same name, which the table refuses, so they only add
+    const types = [...body.types, ...this.#table.addedTypes().values()];
     const full = {
       ...body,
+      types,
       fns: [...body.fns, ...added.map(([local, { def }]) => fnDecl(local, def))],
       requires: [...requires].sort().map((system) => SystemName.parse(system)),
     };
@@ -56,6 +59,11 @@ export class ManifestState {
   async upsert(local: string, def: AnyFnDef): Promise<ManifestPatch> {
     const decl: FnDecl = fnDecl(local, def);
     return ManifestPatch.parse({ hash: await this.hash(), upsert: { fns: [decl] }, remove: {} });
+  }
+
+  /** A patch that adds or replaces types and removes others, by local name (as the table now holds them). */
+  async types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<ManifestPatch> {
+    return ManifestPatch.parse({ hash: await this.hash(), upsert: upsert.length === 0 ? {} : { types: [...upsert] }, remove: remove.length === 0 ? {} : { types: [...remove] } });
   }
 
   /** A patch that removes one fn. */

@@ -90,3 +90,35 @@ export const ResultTable = z.object({
   sort: z.array(ResultSort),
 });
 export type ResultTable = z.infer<typeof ResultTable>;
+
+// ─── The built-in query visuals' fits ─────────────────────────────────────────
+// One match logic for the app's own visuals and the database system's, so a result fits the same way everywhere.
+
+/** The table fits every result, with the lowest score. */
+export function tableFit(): VisualFit {
+  return { fits: true, score: TABLE_VISUAL_SCORE };
+}
+
+const BAR_LABEL_KINDS: ReadonlySet<ColumnKind> = new Set(['text', 'date', 'datetime']);
+const BAR_NUMBER_KINDS: ReadonlySet<ColumnKind> = new Set(['integer', 'number']);
+/** The most bars a chart draws before a table reads better. */
+export const BAR_MAX_ROWS = 50;
+
+/**
+ * A bar chart fits one label column (text or a date) plus one number column, 2 to `BAR_MAX_ROWS` rows, every value a
+ * number at or above 0. It shows such data best (0.8), less so when the rows are only part of the result (0.5).
+ */
+export function barFit(table: ResultTable): VisualFit {
+  const [first, second] = table.columns;
+  const no: VisualFit = { fits: false, score: 0 };
+  if (table.columns.length !== 2 || first === undefined || second === undefined) { return no; }
+  if (!BAR_LABEL_KINDS.has(first.kind) || !BAR_NUMBER_KINDS.has(second.kind)) { return no; }
+  if (table.rows.length < 2 || table.rows.length > BAR_MAX_ROWS) { return no; }
+  if (!table.rows.every((row) => typeof row[1] === 'number' && Number.isFinite(row[1]) && row[1] >= 0)) { return no; }
+  return { fits: true, score: table.truncated || table.offset > 0 ? 0.5 : 0.8 };
+}
+
+/** A single value fits one row of one column, the whole result, and shows it best of all (0.9). */
+export function valueFit(table: ResultTable): VisualFit {
+  return table.columns.length === 1 && table.rows.length === 1 && table.offset === 0 && !table.truncated ? { fits: true, score: 0.9 } : { fits: false, score: 0 };
+}

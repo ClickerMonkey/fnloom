@@ -12,7 +12,8 @@ import { WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
 import { ANSWER_FIELD, answerText, formProblems, quickForms } from '../shared/forms.ts';
 import { LlmFormAuthor, readWritten } from './author.ts';
 import { inputEnv } from './env.ts';
-import { bestMatch, cosine, createInputImpl, slugOf, type InputServer } from './impl.ts';
+import { cosine } from '@harness/sdk/server';
+import { bestMatch, createInputImpl, slugOf, type InputServer } from './impl.ts';
 import { MemoryForms, type SavedRecord } from './store.ts';
 
 const packageManifest = SystemPackageManifest.parse(JSON.parse(readFileSync(new URL('../system.json', import.meta.url), 'utf8')));

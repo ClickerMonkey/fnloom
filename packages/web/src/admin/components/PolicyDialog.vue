@@ -24,7 +24,7 @@ const emit = defineEmits<{ save: [body: PolicyBody] }>();
 const subjects = optionsOf({ everyone: 'Everyone', actor: 'One actor', group: 'A group', kind: 'A kind of actor' } satisfies Record<SubjectKind, string>);
 const kinds = ActorKind.options.map((k): SelectOption<string> => ({ value: k, label: ACTOR_KIND_WORDS[k].label }));
 const effects: readonly SegmentOption<PolicyDraft['effect']>[] = optionsOf({ allow: 'Allow', ask: 'Ask', deny: 'Deny' } satisfies Record<PolicyDraft['effect'], string>);
-const approvers = optionsOf({ 'turn-user': "The message's sender", actor: 'A person', group: 'A group', judge: 'A judge fn', hub: 'The hub' } satisfies Record<ApproverKind, string>);
+const approvers = optionsOf({ 'turn-user': "The message's sender", actor: 'A person', group: 'A group', admins: 'Any admin', judge: 'A judge fn', hub: 'The hub' } satisfies Record<ApproverKind, string>);
 const pick = (options: readonly ActorOption[]): readonly SelectOption<string>[] => [{ value: '', label: 'Choose…' }, ...options.map((o) => ({ value: o.id, label: o.name }))];
 
 /** Words as typed taken as a value (a glob, a kind, a tag). */

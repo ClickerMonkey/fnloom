@@ -24,7 +24,7 @@ import InstanceTypes from '../components/InstanceTypes.vue';
 import LoadState from '../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import SystemConfig from '../components/SystemConfig.vue';
-import { keptSecrets } from '../logic/instances.ts';
+import { secretFields } from '../logic/instances.ts';
 import { INSTALLED_STATUS_LOOK, SYSTEM_STATUS_LOOK } from '../logic/systems.ts';
 import { InstanceTab } from '../sections.ts';
 
@@ -68,7 +68,7 @@ const facts = computed<readonly Fact[]>(() => {
   return list;
 });
 
-const secrets = computed(() => keptSecrets(view.value?.config?.value));
+const secrets = computed(() => secretFields(store.configForm.value.value?.secrets, view.value?.config?.value));
 const proposals = computed(() => parts.proposals.value);
 
 watch(key, (k) => { if (k !== undefined) { void store.open(k); void parts.open(k); void admin.actors.load(); } }, { immediate: true });
@@ -142,7 +142,7 @@ async function remove(): Promise<void> {
           </UiCard>
         </div>
         <SystemConfig
-          v-else-if="tab === 'config'" :type="store.configType.value.value" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
+          v-else-if="tab === 'config'" :type="store.configForm.value.value?.type" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
           :needs-config="view.config === undefined" :now="now" :busy="store.config.busy.value" :problems="problems" :secrets="secrets" @save="save"
         />
         <div v-else-if="tab === 'types'" class="stack" data-testid="instance-types-tab">

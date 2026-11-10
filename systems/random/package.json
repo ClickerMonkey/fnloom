@@ -1,0 +1,19 @@
+{
+  "name": "@harness/system-random",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Development only: system.json holds this system's name, version and entries.",
+  "exports": {
+    ".": "./shared/index.ts",
+    "./server": "./server/index.ts",
+    "./client": "./client/index.ts"
+  },
+  "dependencies": {
+    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@harness/core": "*",
+    "@harness/sdk": "*",
+    "vue": "^3.5.22",
+    "zod": "^4.6.7"
+  }
+}

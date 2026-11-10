@@ -142,7 +142,7 @@ export class HubSuggestions implements SuggestionDecider {
       );
       const decided = systemDecision(request, answer.value);
       this.#deps.log.info('decide.decided', { run: request.run, candidates: request.candidates.length, picked: decided.picked.length, call: answer.call });
-      return decided;
+      return { ...decided, call: answer.call };
     } catch (error) {
       this.#deps.log.warn('decide.failed', { run: request.run, error: messageOf(error) });
       return { by: 'failed', message: messageOf(error) };

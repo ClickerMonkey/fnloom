@@ -279,6 +279,26 @@ export const VALUE_EDITOR: InjectionKey<Component<ValueEditorProps>> = Symbol.fo
 /** Whether the hub has more than one person (a reactive getter), so a renderer offers who may use what it saves. */
 export const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>> = Symbol.for('harness.accessInfo');
 
+/** A visual that fits a result, as the chat's client runtime finds it among every loaded contribution. */
+export interface VisualOption {
+  readonly system: string;
+  readonly name: string;
+  readonly fit: VisualFit;
+  readonly component: Component;
+  readonly props: VisualView & WithSystem<ContractShape>;
+}
+
+/** The visuals of a registry that fit a result, best fit first and the table last (`ClientRuntime.visuals`). */
+export interface VisualSource {
+  visuals(registry: QualifiedName, table: ResultTable): readonly VisualOption[];
+}
+
+/**
+ * Every loaded system's visuals for a registry (the chat provides its client runtime's), so a result view can offer
+ * visuals other systems contribute. Without it, a view falls back on its own system's visuals.
+ */
+export const VISUALS: InjectionKey<VisualSource> = Symbol.for('harness.visuals');
+
 /** The props of the chat's visibility editor, as a renderer binds them (`v-model` over the rule). */
 export interface ShareEditorProps {
   modelValue: ShareRule;

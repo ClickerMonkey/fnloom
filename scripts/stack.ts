@@ -1,8 +1,9 @@
 /**
  * Boots the whole harness on this machine: builds the web app, starts the hub (which serves the build), signs in as
- * the single admin account, pairs the fs, embedder, web, input and (when its OAuth client is given) google-calendar
- * systems with one-time pairing tokens the first time, starts them, and configures each with its config. `npm run dev` and the e2e tests both use it; `stop()` stops every
- * process it started.
+ * the single admin account, pairs the fs, embedder, web, input, (when its OAuth client is given) google-calendar and
+ * (when its config is given) database systems with one-time pairing tokens the first time, starts them, and configures
+ * each with its config. `npm run dev` and the e2e tests both use it; `stop()` stops every process it started. With
+ * `restart`, each process is supervised: restarted when it crashes or stops answering, with why in the crash log.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -12,11 +13,13 @@ import { fileURLToPath } from 'node:url';
 import { SystemName, type Json, type SystemView } from '@harness/core';
 import { encodeValue, type ConfigOf } from '@harness/sdk';
 import { SYSTEM_ENV } from '@harness/sdk/server';
+import { database, type DatabaseContract } from '../systems/database/shared/index.ts';
 import { embedderSystem, type EmbedderContract } from '../systems/embedder/shared/index.ts';
 import { fs } from '../systems/fs/shared/index.ts';
 import { googleCalendar, type CalendarContract } from '../systems/google-calendar/shared/index.ts';
 import { input } from '../systems/input/shared/index.ts';
 import { web, type WebContract } from '../systems/web/shared/index.ts';
+import { Supervisor, type SuperviseOptions } from './supervise.ts';
 import { signIn, waitFor, type Credentials, type SignedIn } from './hub-client.ts';
 
 /** The repository root. */
@@ -32,10 +35,12 @@ export interface StackSystems {
   readonly web?: ConfigOf<WebContract['defs']>;
   /** The Google Calendar system's OAuth client; absent, it isn't started (it can't connect anyone without one). */
   readonly calendar?: ConfigOf<CalendarContract['defs']>;
+  /** The database system's config (one database); absent, it isn't started. */
+  readonly database?: ConfigOf<DatabaseContract['defs']>;
 }
 
 /** The process each system runs as: its own name, but `web-system` for the web system (`web` is the app's build). */
-export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system', input: 'input', calendar: 'calendar' } as const satisfies Record<keyof StackSystems | 'input', string>;
+export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system', input: 'input', calendar: 'calendar', database: 'database' } as const satisfies Record<keyof StackSystems | 'input', string>;
 
 /** A process the stack runs. */
 export type ComponentName = 'web' | 'hub' | (typeof SYSTEM_COMPONENTS)[keyof typeof SYSTEM_COMPONENTS];
@@ -62,6 +67,8 @@ export interface StackOptions {
   readonly output: (component: ComponentName, line: string, stream: 'out' | 'err') => void;
   /** How long to wait for the hub and each system. */
   readonly timeout?: number;
+  /** Supervise each process (dev): restart it when it crashes or stops answering, logging why to `<data>/logs/crashes.log`. */
+  readonly restart?: Omit<SuperviseOptions, 'log'>;
 }
 
 /** A running stack. */
@@ -79,6 +86,9 @@ export interface Stack {
 export function lanAddresses(): string[] {
   return Object.values(networkInterfaces()).flat().flatMap((n) => (n?.family === 'IPv4' && !n.internal ? [n.address] : []));
 }
+
+/** How many of a process's last output lines the crash log keeps. */
+const RECENT_LINES = 40;
 
 /** A started child process and the promise of its exit code. */
 export interface Child {
@@ -145,11 +155,33 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const timeout = options.timeout ?? 60_000;
   const data = resolve(ROOT, options.data);
   mkdirSync(data, { recursive: true });
-  const children: Child[] = [];
+  const children: Array<{ stop(): Promise<void> }> = [];
   const stop = async (): Promise<void> => {
     // systems first, so they don't see the hub go away and start reconnecting
-    for (const child of [...children].reverse()) { await halt(child, 10_000); }
+    for (const child of [...children].reverse()) { await child.stop(); }
     children.length = 0;
+  };
+  const crashLog = join(data, 'logs', 'crashes.log');
+  // the last lines each process printed, for the crash log
+  const recent = new Map<ComponentName, string[]>();
+  const output: StackOptions['output'] = (component, line, stream) => {
+    const lines = recent.get(component) ?? [];
+    lines.push(line);
+    if (lines.length > RECENT_LINES) { lines.shift(); }
+    recent.set(component, lines);
+    options.output(component, line, stream);
+  };
+  /** Start a process: supervised when `restart` is set (`alive` says whether it answers), else once. */
+  const launch = (name: ComponentName, args: readonly string[], env: Readonly<Record<string, string>>, alive: () => Promise<boolean>): void => {
+    const start = (): Child => runComponent(name, args, { cwd: ROOT, env, output });
+    if (options.restart === undefined) {
+      const child = start();
+      children.push({ stop: () => halt(child, 10_000) });
+      return;
+    }
+    children.push(new Supervisor<Child>({
+      name, start, alive, exited: (child) => child.exited, halt: (child) => halt(child, 10_000), recent: () => recent.get(name) ?? [],
+    }, { ...options.restart, log: crashLog }));
   };
 
   try {
@@ -162,13 +194,10 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     const lanUrls = lanAddresses().map((address) => `http://${address}:${options.port}`);
     if (options.only.has('hub')) {
       const entry = join(ROOT, 'packages', 'hub', 'src', 'main.ts');
-      children.push(runComponent('hub', options.watch ? [TSX, 'watch', entry] : [TSX, entry], {
-        cwd: ROOT, output: options.output,
-        env: {
-          HARNESS_PORT: String(options.port), HARNESS_HOST: '0.0.0.0', HARNESS_DATA: data, HARNESS_URL: lanUrls[0] ?? url,
-          HARNESS_ADMIN_EMAIL: options.admin.email, HARNESS_ADMIN_PASSWORD: options.admin.password, ...options.hubEnv,
-        },
-      }));
+      launch('hub', options.watch ? [TSX, 'watch', entry] : [TSX, entry], {
+        HARNESS_PORT: String(options.port), HARNESS_HOST: '0.0.0.0', HARNESS_DATA: data, HARNESS_URL: lanUrls[0] ?? url,
+        HARNESS_ADMIN_EMAIL: options.admin.email, HARNESS_ADMIN_PASSWORD: options.admin.password, ...options.hubEnv,
+      }, async () => (await fetch(`${url}/readyz`)).ok);
     }
     await waitFor('the hub to be ready', async () => ((await fetch(`${url}/readyz`)).ok ? true : undefined), { timeout });
     const admin = await signIn(url, options.admin);
@@ -182,6 +211,9 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       ...(options.systems.calendar === undefined ? [] : [{
         name: 'calendar', system: googleCalendar.name, entry: join(ROOT, 'systems', 'google-calendar', 'server', 'main.ts'), config: encodeValue(googleCalendar.defs.config, options.systems.calendar),
       } as const]),
+      ...(options.systems.database === undefined ? [] : [{
+        name: 'database', system: database.name, entry: join(ROOT, 'systems', 'database', 'server', 'main.ts'), config: encodeValue(database.defs.config, options.systems.database),
+      } as const]),
     ] as const satisfies ReadonlyArray<{ name: keyof typeof SYSTEM_COMPONENTS; system?: string; entry: string; config: Json }>;
     for (const system of systems) {
       const component = SYSTEM_COMPONENTS[system.name];
@@ -192,13 +224,13 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       const token = known === undefined || known.status === 'removed'
         ? (await whileBusy(() => admin.hub.call('createPairingToken', { name, expiresIn: 600_000 }), timeout)).token
         : undefined;
-      children.push(runComponent(component, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
-        cwd: ROOT, output: options.output,
-        env: {
-          [SYSTEM_ENV.hub]: link, [SYSTEM_ENV.state]: join(data, 'dev-systems', system.name), ...(token === undefined ? {} : { [SYSTEM_ENV.pairingToken]: token }),
-          ...options.systemEnv,
-        },
-      }));
+      launch(component, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
+        [SYSTEM_ENV.hub]: link, [SYSTEM_ENV.state]: join(data, 'dev-systems', system.name), ...(token === undefined ? {} : { [SYSTEM_ENV.pairingToken]: token }),
+        ...options.systemEnv,
+      }, async () => {
+        const status = (await systemOf(admin, name, timeout))?.status;
+        return status === 'connected' || status === 'needs-config';
+      });
       const seen = await waitFor(`${system.name} to connect`, async () => {
         const view = await systemOf(admin, name, timeout);
         // needs-config only counts once its contract (and so its config type) has arrived

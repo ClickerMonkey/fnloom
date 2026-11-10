@@ -59,6 +59,10 @@ export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery 
   const query = parsed.query;
   const def = query.toJSON();
   const affected = engine.affected(query).types.map((entry) => entry.type);
+  const tables = [...new Set([...engine.references(query).types, ...affected])];
+  // the parser leaves a source it can't resolve alone when nothing reads its fields (`count(*) from products`)
+  const unknown = tables.filter((table) => engine.type(table) === undefined);
+  if (unknown.length > 0) { return { problems: unknown.map((table) => `There is no table ${table} in this database.`), report: parsed.report }; }
   const writes = def.kind === 'insert' || def.kind === 'update' || def.kind === 'delete' || affected.length > 0;
   const scope = engine.globalScope();
   const columns: ResultColumn[] = query.outputFields(engine, scope).map((field) => {
@@ -71,7 +75,7 @@ export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery 
     writes,
     list: !writes && canAutoPaginate(def) && !hasOwnLimit(def),
     params: engine.parameters(query),
-    tables: [...new Set([...engine.references(query).types, ...affected])],
+    tables,
     columns,
   };
 }

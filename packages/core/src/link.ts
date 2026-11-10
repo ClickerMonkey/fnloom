@@ -9,7 +9,7 @@ import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
 import { LlmForward, LlmForwardChunk } from './llm.ts';
 import { ModelForward, ModelForwardResult } from './model-calls.ts';
-import { PairingInfo } from './package.ts';
+import { FleetInstance, PairingInfo } from './package.ts';
 import { AutoPairGrant, AutoPairProof } from './auto-pair.ts';
 import { FnShare, FnUsable } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, RunConnection } from './connections.ts';
@@ -258,6 +258,8 @@ const linked = use(linkTel, linkSession).group({
   propose: { body: ProposeRun, response: ProposedRun, ws: 'po' },
   /** Build 5: ask the admin's decision model to choose between candidates (`ctx.decide`); `off` when none is set. */
   decide: { body: DecideRequest, response: DecideAnswer, ws: 'de' },
+  /** Build 5: every paired instance of the asking system, with its config (secrets kept back) and its own types. */
+  fleet: { body: z.object({}), response: z.array(FleetInstance), ws: 'fl' },
 });
 
 /** What a system calls on the hub. */

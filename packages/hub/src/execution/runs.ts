@@ -22,8 +22,7 @@ import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './
 import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from './pages.ts';
 import { SystemGone } from './executors.ts';
-import { adminsApprover, AGENT_KIND, type Ledger, type LimitResolver, type PolicyEngine, type RunInput, type RunService } from './index.ts';
-import { hubActorOf } from './deciders.ts';
+import { AGENT_KIND, type Ledger, type LimitResolver, type PolicyEngine, type RunInput, type RunService } from './index.ts';
 import type { ControlAnswer, ExecutionDeps, RunCosts, RunEvents, RunExecutor, RunSettler } from './ports.ts';
 import type { ExecutionQueues } from './queues.ts';
 import { timeInfo } from './time.ts';
@@ -241,18 +240,25 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       await this.settle(id, { status: 'invalid-input', invalid });
       return { run: id, settled };
     }
-    const preview = fn.decl.approval?.preview === true ? await this.#preview(run, turn.user) : undefined;
-    if (preview !== undefined && 'refused' in preview) {
-      await this.settle(id, preview.refused);
-      return { run: id, settled };
-    }
+    // the preview is asked for only when an approval is made; a refusal settles the run with the system's reason
+    const previewed: { refused?: OutcomeWire } = {};
+    const preview = fn.decl.approval?.preview === true
+      ? async (): Promise<ApprovalPreview | undefined> => {
+        const answer = await this.#preview(run, fn, turn.user);
+        if ('preview' in answer) return answer.preview;
+        previewed.refused = answer.refused;
+        return undefined;
+      }
+      : undefined;
     const decision = await this.#deps.policies.decide({
       fn: fn.name, actor: input.actor, turnUser: turn.user.id, args: input.args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
-      ...(preview === undefined ? {} : { preview: preview.preview }),
+      ...(preview === undefined ? {} : { preview }),
       // a per-person fn its person keeps on 'ask first' waits for the connection's owner
       ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
     });
-    if (decision.effect === 'deny') {
+    if (previewed.refused !== undefined) {
+      await this.settle(id, previewed.refused);
+    } else if (decision.effect === 'deny') {
       await this.settle(id, { status: 'failed', error: fnError('caller', `Not allowed: ${decision.reason}`, 'denied') });
     } else if (decision.effect === 'ask') {
       await this.#moveTo(run, { status: 'awaiting-approval' }, fn);
@@ -268,12 +274,18 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
    * asked; or how the run settles instead: invalid input with the system's reason, or a retryable failure when the
    * system can't be reached.
    */
-  async #preview(run: Run, user: UserInfo): Promise<{ preview: ApprovalPreview } | { refused: OutcomeWire }> {
-    const connection = this.#deps.link.connection(run.system, run.instance);
+  async #preview(run: Run, fn: FnRecord, user: UserInfo): Promise<{ preview: ApprovalPreview } | { refused: OutcomeWire }> {
+    // a kind fn's preview comes from its kind's system, which works it out from the payload
+    const system = executingSystem(fn);
+    const connection = system === run.system ? this.#deps.link.connection(run.system, run.instance) : this.#deps.link.connection(SystemName.parse(system));
     const away = (why: string): { refused: OutcomeWire } => ({ refused: { status: 'failed', error: fnError('retry', `${run.fn} can't show what it would do: ${why}`, 'unavailable') } });
-    if (connection === undefined) return away(`${run.system} is not connected`);
+    if (connection === undefined) return away(`${system} is not connected`);
     try {
-      const answer = await connection.peer.call('preview', { run: run.id, fn: splitName(run.fn).local, args: run.args, user }, { signal: connection.signal });
+      const answer = await connection.peer.call('preview', {
+        run: run.id, fn: splitName(run.fn).local, args: run.args, user,
+        ...(fn.decl.kind === 'native' ? {} : { kind: fn.decl.kind }),
+        ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
+      }, { signal: connection.signal });
       if ('preview' in answer) return answer;
       return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: answer.refused }] } } };
     } catch (error) {
@@ -293,7 +305,6 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (existing !== undefined) return this.#proposal(existing);
     const invalid = invalidArgs((await catalog.signature(name)).argsSchema.safeParse(input.args));
     if (invalid !== undefined) throw new RunRefused(fnError('caller', `The args don't fit ${name}: ${invalid.problems.map(problemLine).join('; ')}`, INVALID_INPUT_CODE));
-    const hubActor = await hubActorOf(store);
     const turn = parent === undefined ? await this.#systemTurn(input.system) : await this.#turn(parent);
     const id = mintId('run', this.#deps.random);
     const { operations } = fn.decl;
@@ -310,7 +321,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (parent === undefined) await store.table('turns').update(turn.id, { root: id });
     this.#publish(run, statusUpdate('awaiting-approval', text));
     this.#deps.log.info('run.proposed', { run: id, fn: name, parent: parent?.id ?? null, approver: input.approver });
-    const approver: Approver = input.approver === 'admins' ? adminsApprover(hubActor) : { by: 'turn-user' };
+    const approver: Approver = input.approver === 'admins' ? { by: 'admins' } : { by: 'turn-user' };
     const approval = await this.#deps.policies.propose({
       run: id, fn: name, approver, preview: input.preview, turnUser: turn.user.id, ...(run.session === undefined ? {} : { session: run.session }),
     });

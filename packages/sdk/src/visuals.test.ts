@@ -12,7 +12,7 @@ import { system } from './system.ts';
 
 const REGISTRY = 'database/query-visuals';
 const TableView = (view: VisualView) => h('table', String(view.table.rows.length));
-const ValueView = (view: VisualView) => h('strong', String(view.table.rows[0]?.[0]));
+const ValueView = (view: VisualView) => h('strong', JSON.stringify(view.table.rows[0]?.[0] ?? null));
 const BrokenView = () => h('div');
 
 const database = system('database', {

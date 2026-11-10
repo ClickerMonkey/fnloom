@@ -161,6 +161,11 @@ export class StoreCatalog implements Catalog {
     return this.#types.get(name);
   }
 
+  async typesOf(system: SystemName): Promise<TypeRecord[]> {
+    await this.#load();
+    return [...this.#types.values()].filter((type) => type.system === system);
+  }
+
   async typeClosure(names: readonly QualifiedName[]): Promise<{ order: QualifiedName[]; missing: QualifiedName[] }> {
     await this.#load();
     const closure = this.#scopes.closure(names, this.#storedLookup);
@@ -587,6 +592,8 @@ export class StoreCatalog implements Catalog {
       progress: description.progress ?? decl.progress,
       limits: description.limits ?? decl.limits,
       display: description.display ?? decl.display,
+      // a write query asks every time: its kind says so for the payload, over whatever the fn declared
+      ...(description.approval === undefined ? {} : { approval: description.approval }),
       // the fn's own status words win over what its kind says for the payload
       ...(decl.status === undefined && description.status !== undefined ? { status: description.status } : {}),
     });
@@ -617,6 +624,8 @@ export class StoreCatalog implements Catalog {
     return {
       name: qualify(system, decl.name), system, description: decl.description, def: decl.def, display: decl.display,
       references: this.#scopes.references(decl.def), updatedAt: now,
+      // a fleet's type keeps the instance that owns it (a database's table types)
+      ...(decl.instance === undefined ? {} : { instance: decl.instance }),
     };
   }
 

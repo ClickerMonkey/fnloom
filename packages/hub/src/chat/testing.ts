@@ -93,6 +93,7 @@ export class FixtureCatalog implements Catalog {
     return Promise.resolve([...this.fnRecords.values()].filter((f) => (filter.system === undefined || f.system === filter.system) && (filter.available !== true || f.available === true)));
   }
   async type(name: QualifiedName): Promise<TypeRecord | undefined> { return Promise.resolve(this.typeRecords.get(name)); }
+  async typesOf(system: SystemName): Promise<TypeRecord[]> { return Promise.resolve([...this.typeRecords.values()].filter((type) => type.system === system)); }
   async context(name: QualifiedName): Promise<ContextRecord | undefined> { return Promise.resolve(this.contexts.get(name)); }
   async availability(name: QualifiedName): Promise<Availability> { return Promise.resolve(this.unavailable.get(name) ?? true); }
   async check(system: SystemName, type: GinTypeDef, value: unknown): Promise<string[]> { return Promise.resolve(this.checker(system, type, value)); }

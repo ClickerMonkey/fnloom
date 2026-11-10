@@ -7,12 +7,13 @@
  * it is connected and links to its admin page. Signing in comes first and returns here.
  */
 import { InstanceName, PairingId, type AutoPairChoice, type Json } from '@harness/core';
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, provide, reactive, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import GinValueView from '../gin/GinValueView.vue';
+import { GIN_SECRETS } from '../gin/types.ts';
 import AutoPairPicker from '../admin/components/AutoPairPicker.vue';
 import LoadState from '../admin/components/LoadState.vue';
 import { useStores } from '../state/stores.ts';
@@ -28,6 +29,13 @@ const query = useRouteQuery(ROUTES.pair);
 const code = query.text('code');
 const id = computed(() => { const parsed = PairingId.safeParse(route.params['pairing']); return parsed.success ? parsed.data : undefined; });
 const request = computed(() => store.request.value.value);
+// the config's secret fields (the system named them while waiting) are password inputs, as on the config page
+const secretPaths = reactive(new Set<string>());
+provide(GIN_SECRETS, secretPaths);
+watch(() => request.value?.configSecrets, (paths) => {
+  secretPaths.clear();
+  for (const path of paths ?? []) { secretPaths.add(path); }
+}, { immediate: true });
 const phase = computed(() => store.phase.value);
 const instance = ref('');
 const config = shallowRef<Json | undefined>(undefined);

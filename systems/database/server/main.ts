@@ -7,27 +7,30 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AnyFnRef } from '@harness/sdk';
 import { buildClient } from '@harness/sdk/build';
-import { loggedHost, placeFolders, serve } from '@harness/sdk/server';
+import { loggedHost, placeFolders, serve, type RunningSystem } from '@harness/sdk/server';
 import { database } from '../shared/index.ts';
 import { LlmEnricher, LlmQueryAuthor } from './author.ts';
 import { databaseEnv } from './env.ts';
-import { SELF_FLEET, createDatabaseImpl } from './impl.ts';
+import { HUB_FLEET, createDatabaseImpl } from './impl.ts';
 import type { HubSide } from './instance.ts';
 import type { RuntimeFns } from './queries.ts';
 import { FileStore } from './store.ts';
-
 const settings = databaseEnv.parse();
 const { dataDir } = placeFolders(settings.HARNESS_SYSTEM_STATE, settings);
 const instance = settings.HARNESS_INSTANCE;
 const { host, log } = loggedHost(database.name);
 
-// saved queries are added once the system is serving
-const runtime: { current: RuntimeFns | undefined } = { current: undefined };
-// the SDK has no runtime type patch yet: table types are logged, not sent (see the build 5 report)
-const hub: HubSide = {
-  types: (upsert, remove) => {
-    log.warn('database.types-unsent', { upsert: upsert.map((decl) => decl.name), remove: [...remove] });
-    return Promise.resolve();
+// the running system, once `serve()` returns: table types and saved queries wait for it, so nothing here depends on
+// the lifecycle starting only after the hub's welcome
+let resolveRunning: (system: RunningSystem<typeof database.name>) => void = () => undefined;
+const serving = new Promise<RunningSystem<typeof database.name>>((resolve) => { resolveRunning = resolve; });
+const hub: HubSide = { types: async (upsert, remove) => { await (await serving).types(upsert, remove); } };
+const added = new Map<string, AnyFnRef>();
+const runtime: RuntimeFns = {
+  add: async (name, def) => { added.set(name, await (await serving).add(name, def)); },
+  remove: async (name) => {
+    const ref = added.get(name);
+    if (ref !== undefined) { await (await serving).remove(ref); added.delete(name); }
   },
 };
 const server = createDatabaseImpl({
@@ -35,9 +38,9 @@ const server = createDatabaseImpl({
   store: new FileStore(dataDir),
   author: new LlmQueryAuthor({ retries: settings.DATABASE_AUTHOR_RETRIES }),
   enricher: new LlmEnricher({ retries: settings.DATABASE_AUTHOR_RETRIES }),
-  fleet: SELF_FLEET,
+  fleet: HUB_FLEET,
   hub: () => hub,
-  runtime: () => runtime.current,
+  runtime: () => runtime,
   now: () => Date.now(),
 });
 
@@ -45,20 +48,13 @@ const clientFolder = join(settings.HARNESS_SYSTEM_STATE, 'client');
 await buildClient({ entry: fileURLToPath(new URL('../client/index.ts', import.meta.url)), outDir: clientFolder });
 
 log.info('database.serving', { hub: settings.HARNESS_HUB, instance });
-const added = new Map<string, AnyFnRef>();
-runtime.current = {
-  add: async (name, def) => { added.set(name, await running.add(name, def)); },
-  remove: async (name) => {
-    const ref = added.get(name);
-    if (ref !== undefined) { await running.remove(ref); added.delete(name); }
-  },
-};
 const running = await serve(database, server.impl, {
   hub: settings.HARNESS_HUB,
   state: settings.HARNESS_SYSTEM_STATE,
   client: clientFolder,
   ...(settings.HARNESS_PAIRING_TOKEN === undefined ? {} : { pairingToken: settings.HARNESS_PAIRING_TOKEN }),
 }, host);
+resolveRunning(running);
 running.onStatus((status) => { log.info('database.status', { status }); });
 await running.ready();
 

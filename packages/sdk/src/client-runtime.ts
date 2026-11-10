@@ -21,9 +21,11 @@
 import { ObjType } from '@aeye/gin';
 import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultTable, type RunId, type VisualFit } from '@harness/core';
 import { reactive, type Component } from 'vue';
-import type { AnyViews, ClientModule, Delivery, InputMount, Mount, ResourceViewerEntry, ResourceViewerMode, SystemClient, VisualView, WireViews, WithSystem } from './client.ts';
+import type { AnyViews, ClientModule, Delivery, InputMount, Mount, ResourceViewerEntry, ResourceViewerMode, SystemClient, VisualOption, WireViews } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
 import type { ContractShape } from './system.ts';
+
+export type { VisualOption } from './client.ts';
 
 /** How the runtime reaches the hub. The chat implements it with its callers and live state. */
 export interface ClientBridge {
@@ -139,13 +141,6 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
 }
 
 /** A visual that fits some data, as a registry's result view lists it: who adds it, its name, its fit, and how to mount it. */
-export interface VisualOption {
-  readonly system: string;
-  readonly name: string;
-  readonly fit: VisualFit;
-  readonly component: Component;
-  readonly props: VisualView & WithSystem<ContractShape>;
-}
 
 /** One loaded visual, with its contract types erased. */
 interface LoadedVisual {

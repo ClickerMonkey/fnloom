@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { ConfigSecrets } from './config-secrets.ts';
 import { GinTypeDef } from './gin.ts';
-import { ActorId, InstanceName, PairingId, SystemName, Timestamp, type InstanceRef } from './primitives.ts';
+import { ActorId, InstanceName, Json, PairingId, QualifiedName, SystemName, Timestamp, type InstanceRef } from './primitives.ts';
 import { CONTENT_HASH } from './resources.ts';
 import { InstalledSystem, InstanceConfig, SystemStatus } from './records/systems.ts';
 
@@ -95,6 +95,21 @@ export const InstanceRecord = z.object({
   address: z.string().optional(),
 });
 export type InstanceRecord = z.infer<typeof InstanceRecord>;
+
+/**
+ * One instance of a system as its own fleet sees it (`fleet` on the hub link): whether it is online, its config with
+ * each secret field as `SECRET_KEPT`, and the types it owns (`TypeDecl.instance`), so one instance can choose which
+ * of them a request is for (a database system picking the database).
+ */
+export const FleetInstance = z.object({
+  instance: InstanceName,
+  description: z.string(),
+  online: z.boolean(),
+  /** Its config with secret fields as `SECRET_KEPT`; null until one is set. */
+  config: Json,
+  types: z.array(z.object({ name: QualifiedName, description: z.string() })),
+});
+export type FleetInstance = z.infer<typeof FleetInstance>;
 
 /**
  * What a system tells the hub while it waits for pairing, so the pairing page can show it and its config form before

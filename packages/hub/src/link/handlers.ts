@@ -25,6 +25,7 @@ import type { SystemOutput } from './output.ts';
 import { autoPairRefused, type AutoPairMatch, type AutoPairService } from './auto-pair.ts';
 import type { StorePairingService } from './pairing.ts';
 import type { InstanceKeeper } from './status.ts';
+import { maskSecrets } from './config-secrets.ts';
 
 const endpoints = hubLinkSpec.endpoints;
 
@@ -33,6 +34,7 @@ export const LINK_SPEC = spec({
   endpoints: {
     hello: endpoints.hello, prove: endpoints.prove, pairingInfo: endpoints.pairingInfo, manifest: endpoints.manifest, patch: endpoints.patch,
     resourcesChanged: endpoints.resourcesChanged, resource: endpoints.resource, embed: endpoints.embed, log: endpoints.log,
+    fleet: endpoints.fleet,
   },
 });
 export type LinkSpec = typeof LINK_SPEC;
@@ -132,6 +134,14 @@ export class LinkHandshake {
       resourcesChanged: ({ data, link }) => { resources.changed(link, data.changes); },
       resource: ({ data, signal }) => resources.read(data.uri, data.want, signal),
       embed: ({ data, signal }) => embedding.embed(data.texts, signal),
+      fleet: async ({ link }) => {
+        const [rows, types] = await Promise.all([this.#options.instances.of(link.system), catalog.typesOf(link.system)]);
+        return rows.filter((row) => row.status !== 'removed').map((row) => ({
+          instance: row.instance, description: row.description, online: this.#options.links.connection(link.system, row.instance) !== undefined,
+          config: row.config === undefined ? null : maskSecrets(row.config.value),
+          types: types.filter((type) => type.instance === row.instance).map((type) => ({ name: type.name, description: type.description })),
+        }));
+      },
       log: ({ data, link }) => {
         log.log(data.level, data.key, { system: link.system, instance: link.instance, ...data.fields });
         this.#options.output.logged(link.system, data);

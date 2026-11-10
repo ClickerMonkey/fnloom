@@ -72,8 +72,6 @@ export class StorePairingService implements PairingService {
   readonly #options: PairingOptions;
   /** Sockets waiting on a request, with the origin they dialed (for links made later). */
   readonly #waiting = new Map<PairingId, { peer: Peer<SystemLinkSpec>; origin: string }>();
-  /** The secret fields a waiting system named (`PairingInfo.configSecrets`), for a config chosen before its contract comes. */
-  readonly #secretPaths = new Map<PairingId, readonly ConfigPath[]>();
 
   constructor(options: PairingOptions) {
     this.#options = options;
@@ -145,9 +143,9 @@ export class StorePairingService implements PairingService {
     if (waiting?.peer !== peer) { throw refuse(403, 'NOT_YOUR_PAIRING', 'only the socket that started a pairing may describe it'); }
     const { replaces: _before, ...request } = await this.#open(info.pairing);
     const rekeys = await this.#rekeys({ system: request.name, instance: info.instance }, request.keyFingerprint);
-    if (info.configSecrets !== undefined) { this.#secretPaths.set(info.pairing, info.configSecrets); }
     const updated = await this.#options.store.table('pairings').put({
       ...request, description: info.description, instance: info.instance, ...(info.configType === undefined ? {} : { configType: info.configType }),
+      ...(info.configSecrets === undefined ? {} : { configSecrets: info.configSecrets }),
       ...(rekeys ? { replaces: request.name } : {}),
     });
     this.#options.bus.publish('pairing', { pairing: updated });
@@ -275,7 +273,7 @@ export class StorePairingService implements PairingService {
    * carries it.
    */
   async #pair(
-    request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'> & Partial<Pick<PairingRequest, 'id' | 'instance' | 'configType' | 'replaces'>>,
+    request: Pick<PairingRequest, 'name' | 'publicKey' | 'keyFingerprint' | 'version' | 'address'> & Partial<Pick<PairingRequest, 'id' | 'instance' | 'configType' | 'configSecrets' | 'replaces'>>,
     by: ActorId,
     choice: PairingChoice,
   ): Promise<InstanceRecord> {
@@ -289,7 +287,7 @@ export class StorePairingService implements PairingService {
     if (!shown && existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== request.keyFingerprint) {
       throw refuse(409, 'INSTANCE_TAKEN', `${instanceLabel(ref)} is another machine's instance: pick a name of its own`);
     }
-    const paths = await this.#options.configSecrets(ref.system) ?? (request.id === undefined ? undefined : this.#secretPaths.get(request.id)) ?? [];
+    const paths = await this.#options.configSecrets(ref.system) ?? request.configSecrets ?? [];
     const sealing = choice.config === undefined ? undefined : await this.#options.secrets.seal(ref, choice.config, existing?.config?.value, paths, by);
     if (sealing !== undefined) { await this.#checked(ref, sealing.plain, request.configType); }
     const config = sealing?.sealed;
@@ -301,7 +299,6 @@ export class StorePairingService implements PairingService {
       ...current, ...keyed, ...configured, status: current.status === 'removed' ? 'disconnected' : current.status,
     }), fresh);
     await sealing?.release();
-    if (request.id !== undefined) { this.#secretPaths.delete(request.id); }
     log.info('pairing.paired', { system: ref.system, instance: ref.instance, by, replaced: existing !== undefined, configured: config !== undefined });
     return saved;
   }

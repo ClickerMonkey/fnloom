@@ -5,7 +5,7 @@
  * client bundles (`Manifest.contributes`), which replace a built-in one of the same name. The result view shows the
  * best fit first and lets the person switch between all that fit.
  */
-import { TABLE_VISUAL_SCORE, type ColumnKind, type ResultTable, type VisualFit } from '@harness/core';
+import { tableFit, type ResultTable, type VisualFit } from '@harness/core';
 import type { Component } from 'vue';
 import { ICONS, type IconName } from '../../ui/icons.ts';
 import type { ResultPager } from './table.ts';
@@ -43,34 +43,7 @@ export interface FittingVisual {
 /** The table's name: the default visual, always there. */
 export const TABLE_VISUAL = 'table';
 
-/** The table fits every result, with the lowest score. */
-export function tableFit(): VisualFit {
-  return { fits: true, score: TABLE_VISUAL_SCORE };
-}
-
-const LABEL_KINDS: ReadonlySet<ColumnKind> = new Set(['text', 'date', 'datetime', 'time', 'uuid', 'boolean']);
-const NUMBER_KINDS: ReadonlySet<ColumnKind> = new Set(['integer', 'number']);
-/** The most bars a chart draws before a table reads better. */
-export const MAX_BARS = 50;
-
-/**
- * A bar chart fits one label column plus one number column, 2 to `MAX_BARS` rows, every value a number at or above 0.
- * It shows such data best (0.8), less so when the rows are only part of the result (0.5).
- */
-export function barFit(table: ResultTable): VisualFit {
-  const [first, second] = table.columns;
-  const no: VisualFit = { fits: false, score: 0 };
-  if (table.columns.length !== 2 || first === undefined || second === undefined) { return no; }
-  if (!LABEL_KINDS.has(first.kind) || !NUMBER_KINDS.has(second.kind)) { return no; }
-  if (table.rows.length < 2 || table.rows.length > MAX_BARS) { return no; }
-  if (!table.rows.every((row) => typeof row[1] === 'number' && Number.isFinite(row[1]) && row[1] >= 0)) { return no; }
-  return { fits: true, score: table.truncated || table.offset > 0 ? 0.5 : 0.8 };
-}
-
-/** A single value fits one row of one column, and shows it best of all (0.9). */
-export function valueFit(table: ResultTable): VisualFit {
-  return table.columns.length === 1 && table.rows.length === 1 && table.offset === 0 && !table.truncated ? { fits: true, score: 0.9 } : { fits: false, score: 0 };
-}
+export { barFit, tableFit, valueFit } from '@harness/core';
 
 /**
  * The visuals that fit a table, best first and the table last. A contributed visual replaces the app's own of the same

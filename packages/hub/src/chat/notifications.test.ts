@@ -169,5 +169,7 @@ describe('approvers', () => {
     expect((await w.chat.approvers.approvers({ by: 'group', group }, w.admin.id)).sort()).toEqual(['act_a', 'act_b']);
     expect(await w.chat.approvers.approvers({ by: 'judge', fn: 'hub/judge' }, w.admin.id)).toEqual([]);
     expect(await w.chat.approvers.approvers({ by: 'hub' }, w.admin.id)).toEqual([]);
+    // a run a system proposed outside any run: every enabled admin
+    expect(await w.chat.approvers.approvers({ by: 'admins' }, w.admin.id)).toEqual([w.admin.id]);
   });
 });

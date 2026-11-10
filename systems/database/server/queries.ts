@@ -4,9 +4,9 @@
  * the model reads. Reads run straight away, their rows attached for the person; a write is proposed as a run of its
  * fn that waits for the person's approval, with a preview of what it would do.
  */
-import { Json, qualify, type ApprovalPreview, type DecideAnswer, type DecideCandidate, type ProposedRun, type ResultTable, type RunInfo, type ShareRule } from '@harness/core';
+import { InstanceName, Json, qualify, type ApprovalPreview, type DecideAnswer, type DecideCandidate, type ProposedRun, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
 import type { AnyFnDef, Llm, Log, ResultBlock } from '@harness/sdk';
-import { resultBlock } from '@harness/sdk/server';
+import { cosine, embedOne, resultBlock } from '@harness/sdk/server';
 import { database } from '../shared/index.ts';
 import { QueryPayload, SortArg, type QueryAnswer, type QueryHow, type WriteResult } from '../shared/shapes.ts';
 import { WrittenQuery, type QueryAuthor } from './author.ts';
@@ -15,7 +15,6 @@ import type { DatabaseSettings } from './env.ts';
 import type { DatabaseInstance } from './instance.ts';
 import { resultTable } from './results.ts';
 import type { InstanceStore, SavedQuery } from './store.ts';
-import { cosine, embedOne } from './vectors.ts';
 
 /** What running a query needs from the run it is part of. */
 export interface QueryRunCtx {
@@ -39,6 +38,20 @@ export interface RuntimeFns {
 /** Why a request couldn't be answered: the caller's to fix (`invalid`), or a failure. */
 export type QueryProblem = { invalid: string } | { failed: string };
 
+/**
+ * Whether a person may use a database with this audience (`DatabaseConfig.audience`): anyone when it is public; admins
+ * always; otherwise the people and groups it names.
+ */
+export function mayUse(audience: ShareRule, user: UserInfo): boolean {
+  if (audience.visibility === 'public' || user.role === 'admin') { return true; }
+  return audience.visibility === 'shared' && (audience.with.includes(user.id) || user.groups.some((group) => audience.with.includes(group.id)));
+}
+
+/** What a person who may not use a database is told. */
+export function notYours(label: string): { invalid: string } {
+  return { invalid: `You may not use the ${label} database; an admin chooses who may on its config.` };
+}
+
 /** A fn's local name from a saved name (`Overdue invoices!` becomes `overdue_invoices`). */
 export function slugOf(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
@@ -61,6 +74,8 @@ export function queryFn(query: SavedQuery, compiled: CompiledQuery | undefined):
     description: compiled?.writes === true ? `${query.payload.description} (Writes: waits for approval.)` : query.payload.description,
     payload: query.payload,
     tags: ['database', 'query', ...(compiled?.writes === true ? ['write'] : [])],
+    // a saved query reads its own database, so it always runs on that instance
+    routing: { to: 'instance', instance: InstanceName.parse(query.payload.instance) },
   });
 }
 
@@ -101,6 +116,9 @@ export class QueryService {
   async get(request: string, ctx: QueryRunCtx): Promise<QueryAnswer | QueryProblem> {
     const instance = this.instance();
     if (!('db' in instance)) { return instance; }
+    if (!mayUse(instance.config.audience, ctx.run.user)) { return notYours(instance.config.label); }
+    // tables a scan outside a run left plain are enriched now, with this run's model
+    await instance.enrichLater(ctx.llm);
     const reuse = await this.#reusable(instance, request, ctx);
     if (reuse !== undefined) {
       const signature = this.signature(instance, reuse.query);
@@ -119,6 +137,7 @@ export class QueryService {
   async edit(name: string, instructions: string, ctx: QueryRunCtx): Promise<QueryAnswer | QueryProblem> {
     const instance = this.instance();
     if (!('db' in instance)) { return instance; }
+    if (!mayUse(instance.config.audience, ctx.run.user)) { return notYours(instance.config.label); }
     const { stored } = savedQueryName(name, instance.instance);
     const saved = (await this.#store.queries()).find((query) => query.name === stored);
     if (saved === undefined || !(await ctx.usableFns([saved.name])).includes(saved.name)) {

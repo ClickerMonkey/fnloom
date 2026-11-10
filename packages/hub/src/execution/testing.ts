@@ -199,6 +199,7 @@ export class TestCatalog implements Catalog {
   kind(): ReturnType<Catalog['kind']> { return Promise.resolve(undefined); }
   /** No named types here: test fns use plain gin types. */
   type(): ReturnType<Catalog['type']> { return Promise.resolve(undefined); }
+  typesOf(): ReturnType<Catalog['typesOf']> { return Promise.resolve([]); }
   typeClosure(names: readonly QualifiedName[]): ReturnType<Catalog['typeClosure']> { return Promise.resolve({ order: [], missing: [...names] }); }
   declare(): never { throw new Error('not in execution tests'); }
   reimport(): never { throw new Error('not in execution tests'); }

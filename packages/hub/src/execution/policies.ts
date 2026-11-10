@@ -155,6 +155,9 @@ export class HubPolicyEngine implements PolicyEngine {
     const remembered = input.session === undefined || always?.remember === false ? undefined : await this.#rememberedForSession(fn.name, input.actor, input.session);
     if (remembered !== undefined) return remembered;
     if (always === undefined && decision.approver.by === 'turn-user' && input.caller === input.turnUser) return { effect: 'allow' };
+    // only now is the system asked what the run would do: a denied, allowed or remembered run costs no preview
+    const preview = input.preview === undefined ? undefined : await input.preview();
+    if (input.preview !== undefined && preview === undefined) return { effect: 'deny', reason: `${input.fn} can't show what it would do` };
     const approval: Approval = {
       id: mintId('approval', this.#deps.random),
       run: input.run,
@@ -164,7 +167,7 @@ export class HubPolicyEngine implements PolicyEngine {
       status: 'pending',
       decisions: [],
       createdAt: clock(),
-      ...(input.preview === undefined ? {} : { preview: input.preview }),
+      ...(preview === undefined ? {} : { preview }),
     };
     return { effect: 'ask', approval: await this.#ask(approval, input.turnUser, input.session) };
   }
@@ -230,7 +233,7 @@ export class HubPolicyEngine implements PolicyEngine {
       switch (approval.approver.by) {
         case 'judge': return await deciders.judge(approval.approver.fn, approval, run);
         case 'hub': return await deciders.hub(approval, run);
-        case 'turn-user': case 'actor': case 'group': throw new Error(`approval ${approval.id} names people`);
+        case 'turn-user': case 'actor': case 'group': case 'admins': throw new Error(`approval ${approval.id} names people`);
       }
     } catch (error) {
       return { approve: false, reason: `the decision failed: ${messageOf(error)}` };

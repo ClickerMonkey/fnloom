@@ -6,6 +6,7 @@
  */
 import { qualify, type ActorId, type QualifiedName, type ShareRule, type Visibility } from '@harness/core';
 import { encodeValue, g, parseValue, wireType, type AnyFnDef, type Llm, type SystemImpl } from '@harness/sdk';
+import { cosine, embedOne } from '@harness/sdk/server';
 import { Asked, WAIT_FOR_ANSWERS, input, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
 import { formProblems, quickForms } from '../shared/forms.ts';
 import type { FormAuthor } from './author.ts';
@@ -36,22 +37,6 @@ export interface InputServer {
   restore(): Promise<number>;
 }
 
-/** Cosine similarity of two vectors; 0 when either is empty or their lengths differ. */
-export function cosine(a: readonly number[], b: readonly number[]): number {
-  if (a.length === 0 || a.length !== b.length) { return 0; }
-  let dot = 0;
-  let aa = 0;
-  let bb = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    const x = a[i] ?? 0;
-    const y = b[i] ?? 0;
-    dot += x * y;
-    aa += x * x;
-    bb += y * y;
-  }
-  return aa === 0 || bb === 0 ? 0 : dot / Math.sqrt(aa * bb);
-}
-
 /** A fn name from a form's name: `Trip details!` becomes `trip_details`. */
 export function slugOf(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
@@ -77,15 +62,6 @@ function matchText(record: Pick<SavedRecord, 'title' | 'description'>): string {
 /** A text as a literal in a regular expression. */
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** Embed one text, or nothing when the hub has no embedder for it. */
-async function embedOne(llm: Llm, text: string): Promise<number[]> {
-  try {
-    return (await llm.embed([text]))[0] ?? [];
-  } catch {
-    return [];
-  }
 }
 
 /**

@@ -4,7 +4,7 @@
  * sorting), the model's result block, a write and its dry run, rescans that patch or wait for an admin, and DDL from a
  * gin type.
  */
-import { Json } from '@harness/core';
+import { InstanceName, Json, QualifiedName, type FleetInstance } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DatabaseInstance } from './instance.ts';
 import { argsTypeOf, signatureOf, type CompiledQuery } from './compile.ts';
@@ -12,6 +12,7 @@ import { shopInstance } from './fixture.ts';
 import { resultBlock } from '@harness/sdk/server';
 import { resultTable } from './results.ts';
 import type { Enricher } from './author.ts';
+import { HUB_FLEET } from './impl.ts';
 
 const open: DatabaseInstance[] = [];
 afterEach(async () => { await Promise.all(open.splice(0).map((instance) => instance.close())); });
@@ -84,6 +85,9 @@ describe('a SQLite database instance', () => {
     await instance.rescan(undefined);
     const result = instance.compile({ instance: 'main', description: 'x', query: { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'orders', field: 'ghost' } }], from: { kind: 'type', type: 'orders' } }, sorters: [], list: true });
     expect('problems' in result && result.problems.join(' ')).toContain('ghost');
+    // a table this database doesn't have, even when no field of it is read
+    const count = instance.compile({ instance: 'main', description: 'x', query: { kind: 'select', fields: [{ expr: { kind: 'aggregate', function: 'count', args: {} }, as: 'n' }], from: { kind: 'type', type: 'products' } }, sorters: [], list: true });
+    expect('problems' in count && count.problems).toEqual(['There is no table products in this database.']);
   });
 
   it('dry-runs a write without changing anything, then writes it', async () => {
@@ -127,6 +131,23 @@ describe('a SQLite database instance', () => {
     open.push(again.instance);
     await again.instance.rescan(fakeLlm);
     expect(calls).toBe(2);
+  });
+
+  it('leaves tables plain when the model refuses outside a run, and enriches them in the next run', async () => {
+    let refuse = true;
+    const enricher: Enricher = {
+      enrich: () => (refuse ? Promise.reject(new Error('LLM calls from a system must be made inside a run.')) : Promise.resolve({ description: 'Shop data.', columns: {} })),
+    };
+    const { instance, hub } = shopInstance({ config: { enrich: { on: true } }, enricher });
+    open.push(instance);
+    await instance.rescan(fakeLlm);
+    expect(hub.upserts[0]?.sort()).toEqual(['main.customers', 'main.orders']);
+    expect(instance.catalog.table('orders')?.enrichment).toBeUndefined();
+    refuse = false;
+    expect(await instance.enrichLater(fakeLlm)).toBe(2);
+    expect(hub.upserts.at(-1)?.sort()).toEqual(['main.customers', 'main.orders']);
+    expect(instance.catalog.table('orders')?.enrichment?.description).toBe('Shop data.');
+    expect(await instance.enrichLater(fakeLlm)).toBe(0);
   });
 
   it('patches compatible changes and holds back ones that break a saved query', async () => {
@@ -184,3 +205,17 @@ const fakeLlm = {
   transcribe: () => Promise.reject(new Error('unused')),
   speak: () => Promise.reject(new Error('unused')),
 };
+
+describe('the fleet as the hub lists it', () => {
+  it('describes every online, configured instance by its label and table types, this one included', async () => {
+    const member = (instance: string, online: boolean, config: Json, types: FleetInstance['types']): FleetInstance => ({ instance: InstanceName.parse(instance), description: '', online, config, types });
+    const audience = { visibility: 'public', with: [] };
+    const listed = [
+      member('shop', true, { label: 'Shop', audience }, [{ name: QualifiedName.parse('database/shop.customers'), description: 'Customers. Columns: id, name.' }]),
+      member('stock', false, { label: 'Stock', audience }, [{ name: QualifiedName.parse('database/stock.products'), description: 'Products.' }]),
+      member('fresh', true, null, []),
+    ];
+    const members = await HUB_FLEET.members({ instance: 'shop', label: 'Shop', summary: 'unused' }, { fleet: () => Promise.resolve(listed) });
+    expect(members).toEqual([{ instance: 'shop', label: 'Shop', audience, summary: 'Shop: customers (Customers. Columns: id, name.)' }]);
+  });
+});

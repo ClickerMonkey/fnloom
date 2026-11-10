@@ -2,7 +2,7 @@
 import { fn, g } from '@harness/sdk';
 import { ActorId, MAIN_INSTANCE, SystemName, type Approval, type FnApproval, type ProposedRun, type Json, type QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { adminsApprover, type RunInput } from './index.ts';
+import type { RunInput } from './index.ts';
 import { ALICE, executionRig, settle, until, type ExecutionRig } from './testing.ts';
 
 const write = fn({ description: 'Insert rows.', args: g.obj({ table: g.text() }), returns: g.num(), tags: ['read'] });
@@ -123,7 +123,7 @@ describe('runs a system proposes', () => {
     const proposed = await r.module.runs.propose({ fn: 'write', args: { table: 'b' }, key: 'scan-1', approver: 'admins', preview: PREVIEW, system: SystemName.parse('fs'), instance: MAIN_INSTANCE });
     const run = await r.module.runs.get(proposed.run);
     expect(run).toMatchObject({ status: 'awaiting-approval', actor: FS_ACTOR, caller: FS_ACTOR, instance: MAIN_INSTANCE });
-    expect(lastApproval(r).approver).toEqual(adminsApprover(HUB_ACTOR));
+    expect(lastApproval(r).approver).toEqual({ by: 'admins' });
     expect((await r.module.runs.propose({ fn: 'write', args: { table: 'b' }, key: 'scan-1', approver: 'admins', preview: PREVIEW, system: SystemName.parse('fs'), instance: MAIN_INSTANCE })).run).toBe(proposed.run);
     await r.module.runs.cancel(proposed.run, ALICE);
     await until(() => r.chat.settled.some((s) => s.turn === run?.turn), 'the system turn to end');

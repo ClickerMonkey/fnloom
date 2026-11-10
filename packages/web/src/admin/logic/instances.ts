@@ -58,6 +58,14 @@ export function proposedOnly(approvals: readonly Approval[]): Approval[] {
   return approvals.filter((approval) => approval.proposed === true && approval.status === 'pending');
 }
 
+/**
+ * The dot paths a config form draws as password inputs: the fields its system declares secret (`configSecrets`), and
+ * any the hub sends as `SECRET_KEPT` (a saved secret).
+ */
+export function secretFields(declared: readonly string[] | undefined, value: Json | undefined): string[] {
+  return [...new Set([...(declared ?? []), ...keptSecrets(value)])];
+}
+
 /** The dot paths of a config's secret fields that are set: the hub sends each as `SECRET_KEPT`. */
 export function keptSecrets(value: Json | undefined, path = ''): string[] {
   if (value === SECRET_KEPT) { return path === '' ? [] : [path]; }

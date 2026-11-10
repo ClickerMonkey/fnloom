@@ -2,13 +2,15 @@
  * `npm run dev`: builds the web app, then runs the hub (serving that build), the fs system (with this repository as
  * its root), the embedder and input systems, the web system when `TAVILY_API_KEY` is set and the calendar system when
  * `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are, all bound to the LAN and
- * restarting when their source changes. Output is prefixed and coloured per process; Ctrl+C stops them all. Settings
+ * restarting when their source changes, and when they crash or stop answering (after HARNESS_DEV_RESTART_DELAY,
+ * with why in `<HARNESS_DATA>/logs/crashes.log`). Output is prefixed and coloured per process; Ctrl+C stops them all. Settings
  * come from the environment or `.env`:
  *
  *   HARNESS_ADMIN_EMAIL / HARNESS_ADMIN_PASSWORD   the single admin account (required; made on first start)
  *   HARNESS_PORT       hub and web app port (default 4300)
  *   HARNESS_DATA       data folder (default .harness)
- *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder, web-system, input, calendar (default all)
+ *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder, web-system, input, calendar,
+ *                      database (default all but database, which runs a new SQLite file `dev.db` only when listed)
  *   HARNESS_DEV_ROOT   the folder fs serves (default this repository)
  *   HARNESS_EMBEDDER_URL  the EmbeddingGemma service (default http://127.0.0.1:8760)
  *   TAVILY_API_KEY     the web system's search key; without it the web system doesn't run
@@ -34,7 +36,13 @@ const devSettings = mergeEnvs(stackEnv, devEnv);
 devSettings.set({ ...loadEnv({ files: ['.env'] }), ...process.env });
 const settings = devSettings.parse();
 
-const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, calendar: 95 } as const satisfies Record<ComponentName, number>;
+/** The database `npm run dev` pairs when asked: a new SQLite file in its data folder, writable, its schema changeable. */
+const DEV_DATABASE = {
+  label: 'Dev database', connection: { kind: 'sqlite-new', path: 'dev.db' }, data: 'read-write', schema: 'allowed', enrich: { on: false },
+  audience: { visibility: 'private', with: [] },
+} as const satisfies NonNullable<Parameters<typeof startStack>[0]['systems']['database']>;
+
+const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, calendar: 95, database: 96 } as const satisfies Record<ComponentName, number>;
 const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
 
 const only = new Set(settings.HARNESS_DEV_ONLY.split(',').map((s) => s.trim()).filter(isComponent));
@@ -51,9 +59,11 @@ const stack = await startStack({
   build: true,
   watch: true,
   only,
+  restart: { delay: settings.HARNESS_DEV_RESTART_DELAY, every: settings.HARNESS_DEV_CHECK_EVERY, misses: settings.HARNESS_DEV_CHECK_MISSES },
   systems: {
     fs: fsConfig(settings.HARNESS_DEV_ROOT ?? ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL },
     ...(google === undefined ? {} : { calendar: { ...google, hubUrl: `http://127.0.0.1:${settings.HARNESS_PORT}` } }),
+    ...(only.has('database') ? { database: DEV_DATABASE } : {}),
   },
   output: (component, line, stream) => {
     (stream === 'err' ? process.stderr : process.stdout).write(`\u001b[${COLOURS[component]}m${component.padEnd(9)}\u001b[0m ${line}\n`);

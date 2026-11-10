@@ -4,6 +4,7 @@
  * result, kept per message while the app is open (not in the URL).
  */
 import { humanize, type ContributionView, type QualifiedName, type ResultTable } from '@harness/core';
+import type { VisualSource } from '@harness/sdk';
 import { markRaw, shallowRef } from 'vue';
 import { OWN_VISUALS, type ResultsHost } from '../../components/results/builtin.ts';
 import { fittingVisuals, isIconName, type FittingVisual, type Visual } from '../../components/results/visuals.ts';
@@ -24,6 +25,17 @@ export class VisualHost implements ResultsHost {
   readonly #contributions = shallowRef<ReadonlyMap<QualifiedName, readonly ContributionView[]>>(new Map());
   readonly #choices = shallowRef<ReadonlyMap<string, string>>(new Map());
   readonly #asked = new Map<QualifiedName, Promise<void>>();
+
+  /**
+   * The SDK's `VISUALS` source, for a system's own result view (an attachment renderer): every loaded contribution
+   * that fits, the registry's bundles loading on the first ask.
+   */
+  readonly source: VisualSource = {
+    visuals: (registry, table) => {
+      void this.prepare(registry);
+      return this.#deps.renderers.contributedVisuals(registry, table);
+    },
+  };
 
   constructor(deps: VisualHostDeps) {
     this.#deps = deps;

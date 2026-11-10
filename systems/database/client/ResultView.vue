@@ -4,15 +4,18 @@
  * fits (hidden when only the table does), and a line with the count, whether there are more rows, and the sort.
  */
 import { ResultTable } from '@harness/core';
-import type { AttachmentViewOf } from '@harness/sdk';
-import { computed } from 'vue';
-import type { database } from '../shared/index.ts';
+import { VISUALS, type AttachmentViewOf } from '@harness/sdk';
+import { computed, inject } from 'vue';
+import { VISUALS_REGISTRY, type database } from '../shared/index.ts';
 import { OWN_VISUALS } from './own-visuals.ts';
-import { useVisualChoice } from './visuals.ts';
+import { fromOwn, fromSource, useVisualChoice } from './visuals.ts';
 
 const props = defineProps<AttachmentViewOf<typeof database, 'result'>>();
 const table = computed(() => ResultTable.parse(props.data));
-const { options, shown, choose } = useVisualChoice(table, OWN_VISUALS);
+// every loaded system's visuals when the chat gives them, else this system's own
+const source = inject(VISUALS, undefined);
+const options = computed(() => (source === undefined ? fromOwn(table.value, OWN_VISUALS) : fromSource(source.visuals(VISUALS_REGISTRY, table.value))));
+const { shown, choose } = useVisualChoice(options);
 const summary = computed(() => {
   const { rows: list, total, offset, truncated, sort: order } = table.value;
   const rows = list.length;
@@ -37,7 +40,7 @@ const summary = computed(() => {
         </button>
       </div>
     </header>
-    <component :is="shown.visual.component" v-if="shown" :table="table" :system="system" />
+    <component :is="shown.component" v-if="shown" v-bind="{ system, ...shown.props }" :table="table" />
   </section>
 </template>
 

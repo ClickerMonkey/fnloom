@@ -62,7 +62,7 @@ export class TableCatalog {
       const title = titleOf(table.scanned.spec);
       return {
         name: table.typeName,
-        description: table.enrichment?.description ?? `A row of ${table.scanned.spec.name} in ${label}.`,
+        description: `${table.enrichment?.description ?? `A row of ${table.scanned.spec.name} in ${label}.`} Columns: ${table.scanned.spec.columns.map((column) => column.name).join(', ')}.`,
         def: table.hubType,
         display: { label: table.scanned.spec.name, icon: 'table', ...(title === undefined ? {} : { title }) },
         methods: [],

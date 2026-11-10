@@ -88,6 +88,11 @@ export class DatabaseInstance {
   #catalog: TableCatalog;
   /** The table shapes the hub's types were made from, by table name. */
   #applied = new Map<string, TableSpec>();
+  /**
+   * Tables whose enrichment couldn't run yet: the hub only takes a system's model calls inside a run, so a scan at
+   * start or configure (outside any run) leaves them plain, and the next run on this database enriches them.
+   */
+  readonly #unenriched = new Set<string>();
 
   constructor(config: DatabaseConfig, deps: InstanceDeps) {
     this.config = config;
@@ -171,6 +176,33 @@ export class DatabaseInstance {
     const pending = waiting.length === 0 && dropped.length === 0 ? undefined : { scan: `scan_${randomUUID()}`, tables: waiting, dropped, foundAt: this.#deps.now() };
     await this.#deps.store.setPending(pending);
     return { added, changed, pending, parts };
+  }
+
+  /**
+   * Enrich the tables a scan outside a run had to leave plain, with a run's model, and send their types again. Only
+   * tables whose type the hub has as they are now (not ones waiting for an admin) are sent. Returns how many.
+   */
+  async enrichLater(llm: Llm): Promise<number> {
+    if (this.#unenriched.size === 0) { return 0; }
+    const scanned = this.#catalog.tables.map((table) => table.scanned);
+    const plain = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, new Map());
+    const enrichments = new Map<string, TableEnrichment>();
+    const done = new Set<string>();
+    for (const table of this.#catalog.tables) {
+      const name = table.scanned.spec.name;
+      const enrichment = this.#unenriched.has(name) ? await this.#enrichment(table.scanned, plain, llm) : table.enrichment;
+      if (enrichment !== undefined) { enrichments.set(table.hash, enrichment); }
+      // one try per run-less scan: a table its model can't enrich stays plain until the schema changes
+      if (this.#unenriched.has(name)) { this.#unenriched.delete(name); } else if (enrichment !== undefined && table.enrichment === undefined) { done.add(name); }
+    }
+    this.#catalog = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, enrichments);
+    const current = new Set(this.#catalog.tables.filter((table) => {
+      const applied = this.#applied.get(table.scanned.spec.name);
+      return done.has(table.scanned.spec.name) && applied !== undefined && schemaHash(applied) === table.hash;
+    }).map((table) => table.typeName));
+    const upsert = this.#catalog.typeDecls(this.config.label).filter((decl) => current.has(decl.name));
+    if (upsert.length > 0) { await this.#deps.hub.types(upsert, []); }
+    return upsert.length;
   }
 
   /** The table shapes the hub's types now come from. */
@@ -260,7 +292,15 @@ export class DatabaseInstance {
     const kept = await this.#deps.store.enrichment(hash);
     if (kept !== undefined || !this.config.enrich.on || llm === undefined) { return kept; }
     const profile = await this.profile(table, catalog);
-    const written = await this.#deps.enricher.enrich(table, profile.sample, profile.distinct, llm, this.config.enrich.model);
+    let written: Awaited<ReturnType<Enricher['enrich']>>;
+    try {
+      written = await this.#deps.enricher.enrich(table, profile.sample, profile.distinct, llm, this.config.enrich.model);
+    } catch {
+      // outside a run the hub refuses the call: a run enriches it later (`enrichLater`)
+      this.#unenriched.add(table.spec.name);
+      return undefined;
+    }
+    this.#unenriched.delete(table.spec.name);
     if ('problems' in written) { return undefined; }
     await this.#deps.store.putEnrichment(hash, written);
     return written;

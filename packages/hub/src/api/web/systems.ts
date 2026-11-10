@@ -37,7 +37,7 @@ export async function systemView(hub: Pick<HubServices, 'catalog' | 'store'>, re
   return SystemView.parse({
     ...record, keyFingerprint: main?.keyFingerprint ?? '', config: main?.config, installed: main?.installed, pairedAt: main?.pairedAt, pairedBy: main?.pairedBy,
     lastSeenAt: main?.lastSeenAt, address: main?.address,
-    fns: fns.length, needsConfig: record.status === 'needs-config', configType: manifest?.config, instances,
+    fns: fns.length, needsConfig: record.status === 'needs-config', configType: manifest?.config, ...(manifest?.configSecrets === undefined ? {} : { configSecrets: manifest.configSecrets }), instances,
   });
 }
 

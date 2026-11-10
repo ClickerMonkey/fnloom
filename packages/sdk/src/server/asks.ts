@@ -3,8 +3,8 @@
  * link) and asking the decision model to choose (`decide`). One builder each, used by the run context and, for
  * proposals, the system context.
  */
-import { Json, LocalName, type DecideAnswer, type DecideCandidate, type ProposedRun, type RunId } from '@harness/core';
-import type { DecideOptions, Decisions, ProposeOptions, Proposals } from '../ctx.ts';
+import { Json, LocalName, type DecideAnswer, type DecideCandidate, type FleetInstance, type ProposedRun, type RunId } from '@harness/core';
+import type { DecideOptions, Decisions, Fleets, ProposeOptions, Proposals } from '../ctx.ts';
 import { canonicalJson, sha256 } from '../manifest.ts';
 import type { AnyFnRef } from '../refs.ts';
 import type { HubAccess } from './link.ts';
@@ -49,6 +49,16 @@ function proposedCall(system: string, fn: AnyFnRef | string, args: unknown): { l
   const prefix = `${system}/`;
   if (!fn.name.startsWith(prefix)) { throw new Error(`${system} can only propose runs of its own fns, not ${fn.name}.`); }
   return { local: fn.name.slice(prefix.length), wire: encodeOrThrow(fn.args, args, `The args of ${fn.name}`) };
+}
+
+/** `fleet` for a context: the system's instances, from the hub. */
+export function fleets(hub: HubAccess, signal: AbortSignal): Fleets {
+  return {
+    fleet: async (): Promise<FleetInstance[]> => {
+      const link = await hub.ready(signal);
+      return await link.call('fleet', {});
+    },
+  };
 }
 
 /** `decide` for a run. */

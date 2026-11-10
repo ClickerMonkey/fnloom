@@ -99,6 +99,22 @@ describe('many instances of one system', () => {
     expect(rig.resources.roots().map((r) => r.instance)).toEqual(['laptop']);
   });
 
+  it('lists the fleet to its own instances: who is online, each config, and the types each owns', async () => {
+    const laptop = await instance(LAPTOP);
+    const desk = await instance(DESK);
+    const row = { description: 'A row.', def: { name: 'obj', props: {} }, display: { label: 'Row' }, methods: [] };
+    const patched = await laptop.sdk.call('patch', { hash: 'h-laptop', upsert: { types: [{ ...row, name: 'laptop.rows', instance: LAPTOP }] }, remove: {} });
+    expect(patched.refused).toEqual([]);
+    desk.drop();
+    await settle(5);
+    const fleet = await laptop.sdk.call('fleet', {});
+    expect(fleet.map((member) => [member.instance, member.online, member.types.map((type) => type.name)])).toEqual([
+      ['desk', false, []],
+      ['laptop', true, ['vectors/laptop.rows']],
+    ]);
+    expect(fleet[1]?.config).toEqual({});
+  });
+
   it('removes one instance and leaves the others', async () => {
     const laptop = await instance(LAPTOP);
     await instance(DESK);

@@ -26,7 +26,7 @@ import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { AnyOutcome, OutcomeHelpers, RunTarget, RuntimeFnCtx, RuntimeKindCtx, RuntimeProgress, RuntimeRunBase } from './table.ts';
-import { decisions, proposals } from './asks.ts';
+import { decisions, fleets, proposals } from './asks.ts';
 import { decodeArgs, decodeOrThrow, encode, encodeOrThrow, fnError, invalidInput, InvalidValue, messageOf, settledOf, thrownError } from './wire.ts';
 
 /** What every run gets from the runtime. */
@@ -338,6 +338,7 @@ export class ActiveRun {
       ...servicesFor(env, this.id, signal, this.#log, (send) => { this.#track(send); }),
       ...proposals({ system: env.system, hub: env.hub, signal, parent: this.id }),
       ...decisions(env.hub, this.id, signal),
+      ...fleets(env.hub, signal),
       config: config.value,
       run: request.run,
       budget: this.#budget(),

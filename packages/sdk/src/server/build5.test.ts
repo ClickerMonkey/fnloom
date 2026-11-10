@@ -124,7 +124,8 @@ describe('approval runs', () => {
 describe('registries, contributions and config secrets', () => {
   it('lists them in the manifest and the pairing info', async () => {
     const manifest = await manifestOf(shop, { version: '1.0.0' });
-    expect(manifest.registries).toEqual([{ name: 'visuals', description: 'Ways to draw rows.', data: expect.objectContaining({ name: 'obj' }) }]);
+    expect(manifest.registries?.map((r) => [r.name, r.description])).toEqual([['visuals', 'Ways to draw rows.']]);
+    expect(manifest.registries?.[0]?.data).toMatchObject({ name: 'obj' });
     expect(manifest.contributes?.map((c) => `${c.registry} ${c.name}`)).toEqual(['shop/visuals table', 'other/charts pie']);
     expect(manifest.configSecrets).toEqual(['connection.password']);
   });
@@ -167,5 +168,12 @@ describe('result blocks', () => {
     expect(small).toMatchObject({ rowCount: 1, sample: [{ name: 'Ada', total: 1 }] });
     expect(small.sampleNote).toBeUndefined();
     expect(small.nextPage).toBeUndefined();
+  });
+
+  it('says text is cut only when a sampled row had its text cut, not a row past the budget', () => {
+    const rows = [['Ada', 1], ['Bo', 2], ['y'.repeat(500), 3]];
+    const block = resultBlock({ ...table, rows, total: 3, truncated: false }, { fn: fnInfo, budget: 12, cellChars: 40 });
+    expect(block.sample.map((row) => row['name'])).toEqual(['Ada', 'Bo']);
+    expect(block.sampleNote).toBe('The first 2 of 3 rows; the person has them all.');
   });
 });

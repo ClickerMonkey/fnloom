@@ -5,7 +5,7 @@
 import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
-  Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, ProposalApprover, ProposedRun,
+  Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -161,7 +161,15 @@ export interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
 }
 
 /** What hooks, mentions, actions, dynamic context, events and lifecycle events get. */
-export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals {
+/**
+ * This system's fleet: every paired instance, whether it is online, its config (secret fields as `SECRET_KEPT`) and
+ * the types it owns, so one instance can pick which of them a request is for and forward the call with `on`.
+ */
+export interface Fleets {
+  fleet(): Promise<FleetInstance[]>;
+}
+
+export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -304,7 +312,7 @@ export interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
  * What a run gets besides its args. Typed by its fn: only its deps can be called, only its handlers exist, only its
  * progress steps can be reported, and the outcome helpers take its result, undo and resume types.
  */
-export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions {
+export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */

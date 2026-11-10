@@ -4,8 +4,9 @@
  * those that fit (none when only the table does), then the person's pick.
  */
 import { TABLE_VISUAL_SCORE, mintId, type ResultTable, type RunId } from '@harness/core';
-import type { SystemClient } from '@harness/sdk';
+import { VISUALS, type SystemClient, type VisualSource } from '@harness/sdk';
 import { mount } from '@vue/test-utils';
+import { h } from 'vue';
 import { describe, expect, it } from 'vitest';
 import type { DatabaseContract } from '../shared/index.ts';
 import { barFit, tableFit, valueFit } from '../shared/visuals.ts';
@@ -55,5 +56,19 @@ describe('ResultView', () => {
     expect(wide.find('[role="radiogroup"]').exists()).toBe(false);
     expect(wide.find('td.empty').text()).toBe('—');
     expect(wide.text()).toContain('Rows 1–1 of 40');
+  });
+
+  it('offers the visuals every loaded system contributes when the chat gives them', () => {
+    const pie = (props: { table: ResultTable }) => h('figure', { class: 'pie' }, String(props.table.rows.length));
+    const grid = () => h('table');
+    const source: VisualSource = {
+      visuals: (_registry, data) => [
+        { system: 'charts', name: 'pie', fit: { fits: true, score: 0.95 }, component: pie, props: { table: data, system } },
+        { system: 'database', name: 'table', fit: tableFit(), component: grid, props: { table: data, system } },
+      ],
+    };
+    const view = mount(ResultView, { props: { data: BY_STATUS, title: 'x', system }, global: { provide: { [VISUALS]: source } } });
+    expect(view.find('figure.pie').text()).toBe('3');
+    expect(view.findAll('[role="radio"]').map((button) => button.text())).toEqual(['pie', 'Table']);
   });
 });

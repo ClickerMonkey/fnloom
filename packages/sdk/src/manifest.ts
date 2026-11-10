@@ -60,6 +60,7 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     }),
     ...withValidation(validationOf(def.validate)),
     ...(def.approval === undefined ? {} : { approval: { ...def.approval } }),
+    ...(def.routing === undefined ? {} : { routing: def.routing }),
   };
 }
 

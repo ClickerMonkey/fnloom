@@ -25,14 +25,6 @@ export const AGENT_KIND = hub.kinds.llm.name;
 /** The kind of fn the agent loop runs. */
 export type AgentKind = typeof AGENT_KIND;
 
-/**
- * Who answers a run a system proposed outside any run (`ProposalApprover` `admins`): the group named by the hub's own
- * actor, which the approver directory reads as every enabled admin (core's `Approver` has no admins variant yet).
- */
-export function adminsApprover(hubActor: ActorId): Approver {
-  return { by: 'group', group: hubActor };
-}
-
 /** A request to run a fn: from an agent's tool call, a person's `!`, or a run's child call. */
 export interface RunInput {
   fn: QualifiedName;
@@ -97,9 +89,11 @@ export type RunDecision = { effect: 'allow' } | { effect: 'deny'; reason: string
 export interface PolicyEngine {
   /**
    * A fn that always asks (`FnDecl.approval`) asks even when a policy or the fallback allows it (a deny still wins);
-   * only an explicit allow policy stands in when its approvals may be remembered. `preview` is kept on the approval.
+   * only an explicit allow policy stands in when its approvals may be remembered. `preview` is asked for only when an
+   * approval is made (not for a run denied, allowed or remembered) and kept on it; when it gives nothing (the system
+   * refused), no approval is made and the run is denied.
    */
-  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver; preview?: ApprovalPreview }): Promise<RunDecision>;
+  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver; preview?: () => Promise<ApprovalPreview | undefined> }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
   propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId }): Promise<Approval>;
   /** Answer an approval. For a fn whose approvals may not be remembered, any `remember` counts as `once`. */
