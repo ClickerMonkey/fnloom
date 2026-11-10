@@ -45,6 +45,12 @@ build-5.md or build-5-design.md, this file wins.
   contributions), examples and providers: add, update, remove, with the hub storing each with its defining system and
   instance, version history and visibility, and telling browsers and other systems live. A contract's static entries
   are just the ones known up front; both paths end in the same hub records.
+- **Context brings its fns, and names them (owner, follow-up):** in an admin chat asked to create and hook up a system,
+  the model read the fs authoring context and still thought it couldn't write anything, so it printed the files for the
+  owner to create. A context pulled into a turn must bring the fns its work needs (for fs authoring: bash, read, write,
+  edit) both mechanically (the hub adds them to the turn) and in its text (it tells the model which fns to use and how).
+- **Installing a system from chat (owner, follow-up, planned for a later build):** a system the chat wrote must be
+  installable without the console. Plan in `docs/plans/system-install-flow.md` (being written); not part of build 5.
 - **Everything shared lives in the hub.** Saved inputs and query fns are hub fns (and their embeddings hub vectors).
   No system keeps its own store of them, loads them all, or does vector math in memory. The hub gets a
   **fns/context search endpoint** (also on the system link and as an LLM fn): text and/or semantic, ordered by score

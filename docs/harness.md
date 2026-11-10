@@ -1072,6 +1072,10 @@ Already checked: type-checking all of the types and examples takes about two sec
     artifact.
   - **Frontend logs and traffic** go to the hub as per-person resources. A new file starts on size, or after 5
     minutes of quiet.
+  - **A context brings the fns its work needs:** the hub adds them to the turn, and the context's text names them and
+    says how to use them. For example, fs authoring brings bash, read, write and edit.
+  - **A system the chat writes is installed from the chat, not the console.** The plan is in
+    `docs/plans/system-install-flow.md`.
   - **Chat shows:**
     - reasoning, fn calls and content in the exact order the model produced them
     - consecutive fn calls collapsed into one section, newest first
