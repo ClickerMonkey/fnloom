@@ -1080,6 +1080,9 @@ Already checked: type-checking all of the types and examples takes about two sec
     the hub keyed by a stable, readable key that people never see. Context links (loads, next choices) always load
     through `load_context`, so a small model can walk a large choose-your-own-adventure graph. The API is organised the
     same way: grouped, indexed and searchable, never one huge flat list.
+  - **A system page shows everything the system contributed** (fns, context, types, kinds, resources, commands,
+    components, examples, providers) with origin, version and visibility. It has a switch per item and a switch for all
+    of the system's context, like the one for its fns.
   - **A context brings the fns its work needs:** the hub adds them to the turn, and the context's text names them and
     says how to use them. For example, fs authoring brings bash, read, write and edit.
   - **A system the chat writes is installed from the chat, not the console.** The plan is in
