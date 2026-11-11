@@ -36,6 +36,7 @@ import { MockBuild4, readAccess, readActors } from './mockBuild4.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
 import { MockFns } from './mockBuild5.ts';
+import { contextFolderSamples, HOSTED_RANDOM, MockExplorer } from './mockBuild6.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
@@ -123,6 +124,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const build4 = new MockBuild4(admin, owner);
   const fns = new MockFns();
   const graph = new ContextGraphDouble(owner(), Date.now);
+  graph.records.push(...contextFolderSamples(Date.now()));
   // build 5: the database system, one instance (`shop`) with its tables and saved queries
   const shopConfig = { value: SHOP_CONFIG, version: 3, setBy: owner(), setAt: Date.now() - 86_400_000 };
   const DATABASE = SystemName.parse('database');
@@ -131,6 +133,10 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     fns: 5, configType: DATABASE_CONFIG_TYPE, config: shopConfig, defaultInstance: 'shop',
   }));
   build2.instances.set(DATABASE, [instanceView({ system: 'database', instance: 'shop', description: 'Shop orders (Postgres)', version: '0.1.0', config: shopConfig })]);
+  // build 6: a system fs hosts, and fs's files for the explorer
+  const explorer = new MockExplorer();
+  const RANDOM = SystemName.parse('random');
+  admin.systems.set(RANDOM, systemView({ name: 'random', description: 'Rolls dice; written and installed from the chat.', status: 'connected', version: '0.2.0', fns: 1, configType: undefined, config: undefined, host: HOSTED_RANDOM }));
   /** A system as the admin pages get it, with its instances. */
   const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name) });
   /** Tell every signed-in browser about a change (set once the app exists). */
@@ -209,6 +215,9 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       autoClassifier: () => fns.classifier(),
       setAutoClassifier: ({ data, user }) => fns.setClassifier(data, user.id),
       clientLogs: ({ data }) => fns.log(data),
+      exploreRoots: () => explorer.roots(),
+      exploreList: ({ data }) => explorer.list(data.uri),
+      exploreRead: ({ data }) => explorer.read(data.uri),
       approve: ({ data }) => chat.approve(data.approval, data.approve),
       presence: () => undefined,
       systems: () => admin.list().map(withInstances),
@@ -234,8 +243,12 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
         const known = shopTypes(Date.now()).filter((type) => data.names.includes(type.name));
         return { types: known, missing: data.names.filter((name) => !known.some((type) => type.name === name)) };
       },
-      // only the `types` list is asked for through `query` (a fleet instance's types); its `is` filters narrow it
+      // the `types` list (a system's or a fleet instance's types) and the `contexts` list (a system's context) are asked for through `query`
       query: ({ data }) => {
+        if (data.list === 'contexts') {
+          const found = graph.list({ query: data.query });
+          return { items: found.items.map((record) => Json.parse(record)), sort: [{ field: 'name', dir: 'asc' as const }], total: found.items.length, ...(found.cursor === undefined ? {} : { cursor: found.cursor }) };
+        }
         if (data.list !== 'types') { return { items: [], sort: [], total: 0 }; }
         const wanted = isFilters(data.query);
         const items = shopTypes(Date.now()).filter((type) => (wanted['system'] ?? type.system) === type.system && (wanted['instance'] ?? type.instance) === type.instance);
@@ -339,7 +352,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'setup', 'createAdmin', 'signIn', 'refresh', 'signOut', 'me', 'notifications', 'readNotifications',
     'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
     'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
-    'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs', 'query',
+    'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs', 'query', 'exploreRoots', 'exploreList', 'exploreRead',
     'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',

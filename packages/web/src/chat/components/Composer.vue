@@ -225,6 +225,7 @@ defineExpose({ focus: () => { area.value?.focus(); } });
         {{ arg.name }}<span v-if="!arg.required" class="optional"> (optional)</span>
       </span>
       <span v-if="hint.command.args[hint.current]" class="hint-help">{{ hint.command.args[hint.current]?.hint }}</span>
+      <span v-if="hint.command.unavailable !== undefined" class="hint-off" data-testid="command-unavailable">Can't be used now: {{ hint.command.unavailable }}</span>
     </div>
 
     <FileChips v-if="files.length > 0" class="files" :files="files" @remove="emit('removeFile', $event)" @retry="emit('retryFile', $event)" />
@@ -291,6 +292,7 @@ defineExpose({ focus: () => { area.value?.focus(); } });
 .strip-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hint { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); padding: 0 var(--space-2); font-size: var(--text-sm); color: var(--text-faint); }
 .hint-name { font-family: var(--mono); color: var(--text-dim); }
+.hint-off { color: var(--warn); }
 .hint-arg { padding: 0 6px; border-radius: var(--radius-sm); font-family: var(--mono); }
 .hint-arg.current { background: var(--accent-soft); color: var(--accent); }
 .optional { font-family: var(--font); }

@@ -10,6 +10,7 @@ import type {
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
 import type { AnyFnRef, AttachmentRef, FnRef, SettingRef } from './refs.ts';
+import type { HarnessAi } from './server/llm.ts';
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
@@ -89,8 +90,19 @@ export interface Log {
   error(key: string, fields?: Record<string, Json>, error?: unknown): void;
 }
 
+/**
+ * aeye through the hub, in any context: `await ctx.ai()` is an `@aeye/ai` instance whose provider is the hub, with the
+ * hub's models (and a `role/<role>` model per role) listed, so aeye's selection, tools, structured output, prompts,
+ * agents, images, speech and embeddings work as usual. Name a model the aeye way (`metadata: { model: 'role/chat' }`)
+ * or let aeye pick. The hub decides access and budgets: in a run the run pays; elsewhere (hooks, lifecycle, timers) the
+ * system's own budget does, and every call is a `ModelCall` attributed to the system.
+ */
+export interface AiSource {
+  ai(): Promise<HarnessAi>;
+}
+
 /** What every run, undo and action gets from the hub. */
-export interface Services extends SystemPlace {
+export interface Services extends SystemPlace, AiSource {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
@@ -179,7 +191,7 @@ export interface FnSearch {
   fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage>;
 }
 
-export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch {
+export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;

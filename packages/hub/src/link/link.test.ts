@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core';
-import { MAIN_INSTANCE, MessageId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type KindDescription, type Manifest } from '@harness/core';
+import { ApprovalId, InstanceName, MAIN_INSTANCE, MessageId, noFnStats, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type InstallSubject, type KindDescription, type Manifest } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, declOf, manifestFor, orders, shop, vectors } from '../catalog/fixtures.ts';
@@ -352,7 +352,6 @@ describe('resources', () => {
     expect((await rig.resources.text(ResourceUri.parse('file:///work/a.md'))).text).toBe('small');
     expect((await rig.resources.stat(ResourceUri.parse('file:///work/a.md')))?.version).toBe('v2');
     expect(await rig.resources.list(ResourceUri.parse('file:///work'))).toEqual({ items: [] });
-    expect((await system.sdk.call('resource', { uri: ResourceUri.parse('file:///work/a.md'), want: ['text'] })).text).toEqual({ inline: 'small' });
     expect(await statusOf(rig.resources.read(ResourceUri.parse('http://elsewhere/x'), ['text']))).toEqual({ status: 404, code: 'NO_RESOURCE' });
   });
 
@@ -388,11 +387,10 @@ describe('events, embeddings and logs', () => {
     rig.relay.stop();
   });
 
-  it('embeds for systems and forwards their logs', async () => {
+  it('forwards the logs of systems', async () => {
     const system = new FakeSystem(rig.app, 'vectors', await manifestFor(vectors));
     await pairDirectly(rig, system);
     await system.start();
-    expect(await system.sdk.call('embed', { texts: ['a', 'b'] })).toEqual({ vectors: [[1, 0, 0], [1, 0, 0]], cost: 0 });
     await system.sdk.call('log', { level: 'warn', key: 'vectors.slow', fields: { took: 9 } });
     expect(rig.records.find((r) => r.msg === 'vectors.slow')).toMatchObject({ level: 'warn', system: 'vectors', took: 9 });
   });
@@ -402,10 +400,10 @@ describe('events, embeddings and logs', () => {
     await pairDirectly(rig, system);
     await system.start();
     rig.records.length = 0;
-    await system.sdk.call('embed', { texts: ['a'] });
+    await system.sdk.call('fleet', {});
     await system.sdk.call('log', { level: 'info', key: 'vectors.note', fields: {} });
     const lines = rig.records.map((r) => [r.msg, r['path']]);
-    expect(lines).toEqual([['request', '/embed'], ['response', '/embed'], ['vectors.note', '/log']]);
+    expect(lines).toEqual([['request', '/fleet'], ['response', '/fleet'], ['vectors.note', '/log']]);
     const [request, response, note] = rig.records;
     expect(response).toMatchObject({ status: 200, requestId: request?.['requestId'] });
     // logs inside a call carry its trace context
@@ -463,5 +461,54 @@ describe('the event relay', () => {
       { type: 'run', run: 'run_1', fn: 'shop/get', update: { type: 'status', status: 'running' } },
       { type: 'system', system: 'shop', status: 'disconnected' },
     ]);
+  });
+});
+
+describe('pairing granted to an approved install run (build 6)', () => {
+  /** fs/install_system approved by an admin for shop, with the install's subject on its preview. */
+  async function approvedInstall(manifestHash: string) {
+    const fs = SystemName.parse('fs');
+    const decl = { ...declOf(shopManifest, 'list'), name: 'install_system', approval: { preview: true, remember: false, approver: 'admins' as const } };
+    await rig.store.table('fns').put({ name: q('fs/install_system'), system: fs, decl, version: 'v1', origin: 'contract', available: true, paused: false, disabled: false, stats: noFnStats(), updatedAt: 0 });
+    const run = RunId.parse('run_install');
+    await rig.store.table('runs').put({
+      id: run, fn: q('fs/install_system'), fnVersion: 'v1', kind: 'native', system: fs, instance: MAIN_INSTANCE, root: run, turn: TurnId.parse('trn_install'), key: 'k',
+      actor: ADMIN, caller: ADMIN, args: { path: '/systems/shop' }, status: 'running', allowed: { cancel: true, pause: false, background: false },
+      cost: 0, totalCost: 0, priority: 'interactive', background: false, attempt: 1, errors: [], stateChanges: [], createdAt: 0,
+    });
+    const subject: InstallSubject = {
+      kind: 'system-install', system: SHOP, instance: MAIN_INSTANCE, version: '1.0.0', manifestHash, bundleHash: 'b'.repeat(64), sourceHash: 's'.repeat(64),
+      host: { system: fs, instance: MAIN_INSTANCE },
+    };
+    await rig.store.table('approvals').put({
+      id: ApprovalId.parse('apr_install'), run, fn: q('fs/install_system'), approver: { by: 'admins' }, status: 'approved',
+      decisions: [{ by: ADMIN, approve: true, remember: 'once', at: 0 }], createdAt: 0, preview: { title: 'Install shop 1.0.0 on fs/main', parts: [], irreversible: false, subject },
+    });
+    return { run, subject, host: { system: fs, instance: MAIN_INSTANCE } };
+  }
+
+  it('grants a one-time token bound to the subject, pairs only the approved contract, and records the host', async () => {
+    const { run, subject, host } = await approvedInstall(shopManifest.hash);
+    await expect(rig.pairing.grant({ run, subject: { ...subject, bundleHash: 'c'.repeat(64) } }, host)).rejects.toThrow(/not what was approved/);
+    await expect(rig.pairing.grant({ run, subject }, { ...host, system: SHOP })).rejects.toThrow(/not a running run/);
+    const { token } = await rig.pairing.grant({ run, subject }, host);
+    // a hello with another contract is refused, so the token is still good for the approved one
+    const other = new FakeSystem(rig.app, 'shop', { ...shopManifest, hash: 'changed' });
+    other.open();
+    expect(await statusOf(other.hello(token))).toEqual({ status: 403, code: 'NOT_WHAT_WAS_APPROVED' });
+    const system = new FakeSystem(rig.app, 'shop', shopManifest);
+    const reply = await system.connect(token);
+    if ('limits' in reply) { throw new Error('expected pairing'); }
+    expect((await rig.store.table('instances').get(main('shop')))?.host).toEqual({ host, path: '/systems/shop', bundleHash: subject.bundleHash, approval: 'apr_install' });
+    const again = new FakeSystem(rig.app, 'shop', shopManifest);
+    again.open();
+    expect(await statusOf(again.hello(token))).toEqual({ status: 401, code: 'BAD_PAIRING_TOKEN' });
+  });
+
+  it('refuses a grant when the approved install names another host than the asking instance', async () => {
+    const { run, subject, host } = await approvedInstall(shopManifest.hash);
+    const elsewhere = { ...subject, host: { system: host.system, instance: InstanceName.parse('lab') } };
+    await rig.store.table('approvals').update(ApprovalId.parse('apr_install'), { preview: { title: 'Install shop on fs/lab', parts: [], irreversible: false, subject: elsewhere } });
+    await expect(rig.pairing.grant({ run, subject: elsewhere }, host)).rejects.toThrow(/hosted by fs@lab, not fs@main/);
   });
 });

@@ -5,7 +5,7 @@
 import { ApiError, manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, hubWebSpec, MAIN_INSTANCE, mintId, ModelCallId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelForward, type ModelInfo, type ModelRoleView, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
+  ActorId, ContextDecl, hubWebSpec, MAIN_INSTANCE, mintId, ModelCallId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelForward, type ModelInfo, type ModelRoleView, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
 import { fn, g, wireType } from '@harness/sdk';
 import { TestCatalog } from '../../execution/testing.ts';
@@ -175,13 +175,17 @@ describe('chat', () => {
   it('offers only what connected, enabled systems in the session serve', async () => {
     const fs = SystemName.parse('fs');
     const off = SystemName.parse('off');
-    const { r, web, as } = await signedIn({
+    const { r, web, as, me } = await signedIn({
       chat: { sessions: { get: (_id, viewer) => Promise.resolve(session(viewer, { systems: [fs, off] })) } },
       catalog: {
         entries: entriesFrom({
           mentions: [
             { name: QualifiedName.parse('fs/file'), system: fs, decl: { name: 'file', title: 'Files', description: '', target: { name: 'text' } } },
             { name: QualifiedName.parse('off/x'), system: off, decl: { name: 'x', title: 'X', description: '', target: { name: 'text' } } },
+          ],
+          context: [
+            { name: QualifiedName.parse('fs/guide'), system: fs, decl: ContextDecl.parse({ name: 'guide', description: 'Guide', command: { name: 'guide', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] }) },
+            { name: QualifiedName.parse('off/notes'), system: off, decl: ContextDecl.parse({ name: 'notes', description: 'Notes', command: { name: 'notes', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] }) },
           ],
         }),
         fns: () => Promise.resolve([]),
@@ -195,12 +199,23 @@ describe('chat', () => {
     });
     await r.store.table('systems').insert(systemRow('fs'));
     await r.store.table('systems').insert(systemRow('off', { enabled: { functions: false, renderers: true } }));
+    // a memory with a /command is the hub's own: always offered, never waiting on a system called memory
+    await r.store.table('context').insert({
+      name: QualifiedName.parse('memory/gollum-1a2b'), system: SystemName.parse('hub'), origin: { type: 'memory', scope: { to: 'everyone' }, author: me }, stale: false, updatedAt: 0,
+      decl: ContextDecl.parse({ name: 'gollum-1a2b', description: 'Gollum', command: { name: 'gollum', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] }), mentions: { context: [], fns: [] }, tokens: { full: 1, summary: 1 },
+    });
     const caps = await web.client.call('capabilities', { session: sessionId }, as);
     expect(caps.mentions).toEqual([{ provider: 'fs/file', title: 'Files' }]);
+    // a command whose system can't run it now is listed greyed out, with the reason
+    expect(caps.commands).toEqual([
+      { name: 'guide', context: 'fs/guide', args: [], description: 'Guide' },
+      { name: 'notes', context: 'off/notes', args: [], description: 'Notes', unavailable: 'the off system has its functions switched off' },
+      { name: 'gollum', context: 'memory/gollum-1a2b', args: [], description: 'Gollum' },
+    ]);
     expect(caps.systems).toEqual([{ name: fs, status: 'connected', enabled: true }, { name: off, status: 'connected', enabled: false }]);
     // the picker gets chat models with what it shows, and no embedding models
     expect(caps.models).toEqual([{ id: 'openrouter/auto', provider: 'openrouter', name: 'Auto', capabilities: ['chat'] }]);
-    expect(caps).toMatchObject({ voiceInput: false, uploads: true, commands: [], invocations: [], clients: [] });
+    expect(caps).toMatchObject({ voiceInput: false, uploads: true, invocations: [], clients: [] });
   });
 
   it('ships a system’s client renderers by its renderers switch alone, apart from its fns switch', async () => {

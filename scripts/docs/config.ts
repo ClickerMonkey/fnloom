@@ -18,8 +18,6 @@ import { GIN_EXTERNALS, OUTLINE } from './outline.ts';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 /** Where the guide is written. */
 export const AUTHORING_FILE = join(ROOT, 'packages/sdk/AUTHORING.md');
-/** Where the guide's parts are written: the module fs declares its authoring context from. */
-export const AUTHORING_PARTS_FILE = join(ROOT, 'systems/fs/shared/authoring.gen.ts');
 const TYPETESTS = 'packages/sdk/typetests';
 
 const at = (path: string): string => join(ROOT, path);

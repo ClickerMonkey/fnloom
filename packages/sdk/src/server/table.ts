@@ -5,11 +5,12 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ConnectFinish, CostEstimate, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
+import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
-  ActionImpl, AnyTypeDef, ContextImpl, EmbedderImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
+  ActionImpl, AnyTypeDef, ContextImpl, EmbedderImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindEstimateInput, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
 } from '../declare.ts';
 import type { AnyFnDef, FnTypes, Handlers, Outcome, ProgressDef, UntypedFn } from '../fn.ts';
@@ -93,6 +94,7 @@ export interface RuntimeKindImpl {
   run(payload: unknown, args: Json, ctx: RuntimeKindCtx): Promise<Outcome<UntypedFn>>;
   undo?(payload: unknown, undo: Json, ctx: UndoCtx): Promise<UndoOutcome>;
   preview?(payload: unknown, args: Json, ctx: PreviewCtx): Promise<PreviewAnswer>;
+  estimate?(payload: unknown, input: KindEstimateInput, ctx: SystemCtx): Promise<CostEstimate | undefined>;
 }
 
 /** What dynamic context gets: the system context and who is asking (the session only when there is one). */
@@ -192,18 +194,53 @@ export type RunTarget =
   | { kind: 'method'; local: string; type: string; method: string; def: AnyFnDef; argsType: AnyFnDef['args']; impl: RuntimeMethodImpl }
   | { kind: 'kind'; local: string; kindName: string; def: KindDef<unknown>; impl: RuntimeKindImpl };
 
+/**
+ * A change to a running system's declarations, in core's shapes (`RunningSystem.patch`): entries to add or replace
+ * by name in any section, names to remove (the contract's own entries too), the top-level lists (providers,
+ * registries, contributions) each replaced whole, and `roots` when its resource roots changed.
+ */
+export interface SystemPatch {
+  readonly upsert?: { readonly [S in ManifestSection]?: readonly SectionDecl<S>[] };
+  readonly remove?: { readonly [S in ManifestSection]?: readonly string[] };
+  readonly lists?: ManifestPatch['lists'];
+  readonly roots?: true;
+}
+
+/** Sections whose entries the system runs: a new entry needs an implementation already there. */
+const IMPLEMENTED: { readonly [S in ManifestSection]?: (impl: ImplTable, name: string) => boolean } = {
+  kinds: (impl, name) => impl.kinds?.[name] !== undefined,
+  hooks: (impl, name) => impl.hooks?.[name] !== undefined,
+  mentions: (impl, name) => impl.mentions?.[name] !== undefined,
+  embedders: (impl, name) => impl.embedders?.[name] !== undefined,
+  sectioners: (impl, name) => impl.sectioners?.[name] !== undefined,
+  actions: (impl, name) => impl.actions?.[name] !== undefined,
+};
+
 /** The runtime's lookup of declarations and implementations. Runtime-added native fns join the contract's. */
 export class SystemTable {
   readonly contract: AnyContract;
   readonly impl: ImplTable;
   readonly #added = new Map<string, { def: AnyFnDef; impl: RuntimeFnImpl | undefined }>();
   readonly #types = new Map<string, TypeDecl>();
+  /** Entries a runtime patch added or replaced, by section and name. */
+  readonly #patched: { readonly [S in ManifestSection]: Map<string, SectionDecl<S>> } = {
+    types: new Map(), settings: new Map(), attachments: new Map(), kinds: new Map(), fns: new Map(), context: new Map(), hooks: new Map(), mentions: new Map(),
+    embedders: new Map(), sectioners: new Map(), actions: new Map(),
+  };
+  /** Contract entries a runtime patch removed, by section. */
+  readonly #hidden = new Map<ManifestSection, Set<string>>();
+  #lists: ManifestPatch['lists'];
   readonly #listeners = new Set<() => void>();
 
   constructor(contract: AnyContract, impl: ImplTable) {
     this.contract = contract;
     this.impl = impl;
     for (const [local, def] of Object.entries(contract.defs.fns)) { checkPreview(contract.name, local, def, impl.fns?.[local]); }
+    for (const [local, def] of Object.entries(contract.defs.kinds)) {
+      if (def.estimates && impl.kinds?.[local] !== undefined && impl.kinds[local].estimate === undefined) {
+        throw new Error(`kind ${contract.name}/${local} says it estimates, so its implementation needs an estimate(payload, input, ctx).`);
+      }
+    }
   }
 
   /** Add a fn at runtime; native fns bring their implementation. */
@@ -240,6 +277,86 @@ export class SystemTable {
     }
   }
 
+  /**
+   * Apply a runtime patch's declarations, checked first (nothing changes when one is wrong): upserts replace by name or
+   * add, removes drop runtime entries and hide contract ones (a removed contract fn no longer runs). A native fn is
+   * added with `add` (it brings its code); a new kind, hook, mention, embedder, sectioner or action needs its
+   * implementation already in the system.
+   */
+  patch(change: SystemPatch): void {
+    const upsert = change.upsert ?? {};
+    const remove = change.remove ?? {};
+    for (const section of MANIFEST_SECTION_NAMES) {
+      for (const decl of upsert[section] ?? []) { this.#checkUpsert(section, MANIFEST_SECTIONS[section].parse(decl)); }
+      for (const name of remove[section] ?? []) {
+        if (!this.#declares(section, name)) { throw new Error(`${this.contract.name} has no ${section} entry ${name} to remove.`); }
+      }
+    }
+    for (const section of MANIFEST_SECTION_NAMES) {
+      for (const name of remove[section] ?? []) { this.#removeEntry(section, name); }
+      this.#upsertAll(section, upsert[section] ?? []);
+    }
+    if (change.lists !== undefined) { this.#lists = { ...this.#lists, ...change.lists }; }
+    this.#changed();
+  }
+
+  /** A section as it is now: `base` (the contract's and `add`/`setTypes` entries) with the patch's removes and upserts. */
+  overlay<S extends ManifestSection>(section: S, base: readonly SectionDecl<S>[]): SectionDecl<S>[] {
+    const hidden = this.#hidden.get(section);
+    const patched: Map<string, SectionDecl<S>> = this.#patched[section];
+    const kept = base.filter((decl) => hidden?.has(decl.name) !== true).map((decl) => patched.get(decl.name) ?? decl);
+    const names = new Set(kept.map((decl) => decl.name));
+    return [...kept, ...[...patched.values()].filter((decl) => !names.has(decl.name))];
+  }
+
+  /** The lists a patch replaced (each one whole), if any. */
+  lists(): ManifestPatch['lists'] {
+    return this.#lists;
+  }
+
+  #checkUpsert<S extends ManifestSection>(section: S, decl: SectionDecl<S>): void {
+    if (section === 'types' && decl.name in this.contract.defs.types) { throw new Error(`type ${decl.name} is part of ${this.contract.name}'s contract`); }
+    if (section === 'fns' && 'kind' in decl && decl.kind === 'native' && this.impl.fns?.[decl.name] === undefined && this.#added.get(decl.name)?.impl === undefined) {
+      throw new Error(`fn ${decl.name} is native: add it with its implementation (add()).`);
+    }
+    const implemented = IMPLEMENTED[section];
+    if (implemented !== undefined && !implemented(this.impl, decl.name)) {
+      throw new Error(`${this.contract.name} has no implementation for the ${section} entry ${decl.name}.`);
+    }
+  }
+
+  #upsertAll<S extends ManifestSection>(section: S, decls: readonly SectionDecl<S>[]): void {
+    const patched: Map<string, SectionDecl<S>> = this.#patched[section];
+    for (const decl of decls) {
+      patched.set(decl.name, decl);
+      this.#hidden.get(section)?.delete(decl.name);
+    }
+  }
+
+  #removeEntry(section: ManifestSection, name: string): void {
+    this.#patched[section].delete(name);
+    if (section === 'fns' && this.#added.delete(name)) { return; }
+    if (section === 'types' && this.#types.delete(name)) { return; }
+    if (this.#inContract(section, name)) { this.#hidden.set(section, new Set([...(this.#hidden.get(section) ?? []), name])); }
+  }
+
+  /** Whether the system declares an entry now (its contract's, unless hidden, or a runtime one). */
+  #declares(section: ManifestSection, name: string): boolean {
+    if (this.#patched[section].has(name)) { return true; }
+    if (section === 'fns' && this.#added.has(name)) { return true; }
+    if (section === 'types' && this.#types.has(name)) { return true; }
+    return this.#inContract(section, name) && !this.#isHidden(section, name);
+  }
+
+  #inContract(section: ManifestSection, name: string): boolean {
+    return name in this.contract.defs[section];
+  }
+
+  /** Whether a patch removed this contract fn, so it no longer runs. */
+  #isHidden(section: ManifestSection, name: string): boolean {
+    return this.#hidden.get(section)?.has(name) === true;
+  }
+
   /** The types added at runtime, by local name. */
   addedTypes(): ReadonlyMap<string, TypeDecl> {
     return this.#types;
@@ -253,7 +370,8 @@ export class SystemTable {
   /** A fn's declaration by local name: the contract's, a runtime one, or a type's method (`Entry.reveal`). */
   fnDef(local: string): AnyFnDef | undefined {
     const method = splitMethod(local);
-    if (method !== undefined) { return this.typeDef(method.type)?.methods[method.method]; }
+    if (method !== undefined) { return this.#isHidden('types', method.type) ? undefined : this.typeDef(method.type)?.methods[method.method]; }
+    if (this.#isHidden('fns', local)) { return undefined; }
     return this.contract.defs.fns[local] ?? this.#added.get(local)?.def;
   }
 

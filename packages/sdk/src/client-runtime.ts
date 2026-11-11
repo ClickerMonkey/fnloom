@@ -146,6 +146,8 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
 interface LoadedVisual {
   readonly system: string;
   readonly name: string;
+  readonly label: string;
+  readonly icon: string | undefined;
   match(table: ResultTable): VisualFit;
   readonly component: Component;
 }
@@ -169,8 +171,12 @@ export class ClientRuntime {
     for (const [format, list] of this.#viewers) { this.#viewers.set(format, list.filter((viewer) => viewer.system !== module.system)); }
     for (const [registry, list] of this.#visuals) { this.#visuals.set(registry, list.filter((visual) => visual.system !== module.system)); }
     for (const [registry, entries] of Object.entries(module.renderers.visuals ?? {})) {
-      const added = Object.entries(entries).map(([name, entry]): LoadedVisual => ({ system: module.system, name, match: (table) => entry.match(table), component: entry.component }));
       const key = QualifiedName.parse(registry);
+      const added = Object.entries(entries).map(([name, entry]): LoadedVisual => {
+        // client() checked that every visual is in the contract's contributes
+        const declared = module.contract.contributes.find((c) => c.registry === key && c.name === name);
+        return { system: module.system, name, label: declared?.label ?? name, icon: declared?.icon, match: (table) => entry.match(table), component: entry.component };
+      });
       this.#visuals.set(key, [...(this.#visuals.get(key) ?? []), ...added]);
     }
     const viewers: Readonly<Record<string, AnyRenderer | ResourceViewerEntry<AnyRenderer>>> = module.renderers.resources ?? {};
@@ -205,7 +211,12 @@ export class ClientRuntime {
         console.warn('client.visual.match-failed', { registry, system: visual.system, name: visual.name, error });
         continue;
       }
-      if (fit.fits) { fitting.push({ system: visual.system, name: visual.name, fit, component: visual.component, props: { table, system: this.systemClient(visual.system) } }); }
+      if (fit.fits) {
+        fitting.push({
+          system: visual.system, name: visual.name, label: visual.label, ...(visual.icon === undefined ? {} : { icon: visual.icon }), fit, component: visual.component,
+          props: { table, system: this.systemClient(visual.system) },
+        });
+      }
     }
     return fitting.sort((a, b) => b.fit.score - a.fit.score);
   }

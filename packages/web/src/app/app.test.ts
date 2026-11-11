@@ -363,7 +363,7 @@ describe('pages', () => {
     await app.get('form').trigger('submit');
     await flushPromises();
     expect(app.text()).toContain('Enter an email address.');
-    expect(app.text()).toContain('At least 10 characters.');
+    expect(app.text()).toContain('At least 8 characters.');
     expect(fakes.api.auth.createAdmin.calls).toHaveLength(0);
     app.unmount();
   });

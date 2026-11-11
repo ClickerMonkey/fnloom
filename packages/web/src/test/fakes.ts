@@ -172,7 +172,7 @@ export function fakePush(options: { supported?: boolean; answer?: NotificationPe
 }
 
 /** Every store, built on fakes. `signedIn` starts the session signed in. */
-export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeof fakeApi> } = {}) {
+export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeof fakeApi>; admin?: ReturnType<typeof fakeAdmin> } = {}) {
   const store = memoryStore();
   const api = options.api ?? fakeApi();
   const events = fakeUserEvents();
@@ -180,7 +180,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
   const session = new SessionStore(store);
   if (options.signedIn === true) { session.keep(tokens()); }
   const chat = fakeChat();
-  const admin = fakeAdmin();
+  const admin = options.admin ?? fakeAdmin();
   const resources = fakeResources();
   const context = fakeContext();
   const fns = fakeFnsApi();

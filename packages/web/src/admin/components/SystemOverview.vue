@@ -1,14 +1,15 @@
 <script setup lang="ts">
 /**
  * A system's overview: switching its functions and renderers on and off (separately, so old messages keep drawing),
- * the facts about it, its process when the hub runs it (start, stop, restart, upgrade, and how it last exited), and
- * reimporting or removing it.
+ * the facts about it, its process when the hub runs it (start, stop, restart, upgrade, and how it last exited), who
+ * hosts it when another system runs it ("hosted by fs/main at systems/random", with start, restart and stop through
+ * that host), and reimporting or removing it.
  */
 import AccessControl from '../../components/access/AccessControl.vue';
 import type { SystemEnabled, SystemView } from '@harness/core';
 import { computed, ref } from 'vue';
-import { UiBadge, UiButton, UiCard, UiCodeBlock, UiInput, UiSwitch, fullTime, relativeTime } from '../../ui/index.ts';
-import { INSTALLED_STATUS_LOOK, systemActions, type SystemAction } from '../logic/systems.ts';
+import { UiBadge, UiButton, UiCard, UiCodeBlock, UiInput, UiSwitch, fullTime, relativeTime, shortHash } from '../../ui/index.ts';
+import { hostText, INSTALLED_STATUS_LOOK, systemActions, type SystemAction } from '../logic/systems.ts';
 import StatusBadge from './StatusBadge.vue';
 
 const props = withDefaults(defineProps<{
@@ -66,6 +67,18 @@ const blocked = computed(() => props.acting !== undefined);
       </UiCard>
 
       <AccessControl :target="{ kind: 'system', system: system.name }" />
+      <UiCard v-if="system.host" title="Hosted" :subtitle="`By ${hostText(system.host)}`" data-testid="system-host">
+        <div class="process">
+          <dl class="facts">
+            <div><dt>Bundle</dt><dd :title="system.host.bundleHash"><code>{{ shortHash(system.host.bundleHash) }}</code></dd></div>
+          </dl>
+          <div class="buttons">
+            <UiButton v-if="actions.has('start')" variant="primary" icon="play" :loading="busy('start')" :disabled="blocked" data-testid="host-start" @click="emit('act', 'start')">Start</UiButton>
+            <UiButton v-if="actions.has('restart')" icon="refresh" :loading="busy('restart')" :disabled="blocked" data-testid="host-restart" @click="emit('act', 'restart')">Restart</UiButton>
+            <UiButton v-if="actions.has('stop')" icon="stop" :loading="busy('stop')" :disabled="blocked" data-testid="host-stop" @click="emit('act', 'stop')">Stop</UiButton>
+          </div>
+        </div>
+      </UiCard>
       <UiCard v-if="installed" title="Process" :subtitle="source">
         <template #actions><StatusBadge :look="INSTALLED_STATUS_LOOK[installed.status]" /></template>
         <div class="process">

@@ -7,6 +7,7 @@ export const fnsEnv = env({
   HARNESS_FN_SEARCH_CANDIDATES: z.number().int().min(10).default(5_000).describe('The most items a filtered search ranks by words and meaning; filters that let more through rank the whole index instead.'),
   HARNESS_FN_PROMPT_EXAMPLES: z.number().int().min(0).max(20).default(2).describe('How many examples of a fn go into the prompt with it when the fn doesn\'t say (`FnDecl.promptExamples`), the most relevant to the turn first.'),
   HARNESS_FN_EXAMPLES_PAGE: z.number().int().min(1).max(50).default(10).describe('How many examples a `hub/fn_examples` page holds when the asker doesn\'t say.'),
+  HARNESS_FN_ESTIMATE_TIMEOUT: z.number().int().min(100).default(5_000).describe('How long the system of a kind may take to estimate what a fn of the kind costs, before the history is used instead.'),
   HARNESS_FN_LONG_RUNNING: z.number().int().min(1_000).default(60_000).describe('A fn whose typical run takes longer than this is long-running: the chat says how long it usually takes.'),
   HARNESS_FN_FACTS_DEPTH: z.number().int().min(1).max(20).default(8).describe('How deep the fns a fn uses are followed when its facts are worked out.'),
   HARNESS_FN_HISTORY_DAYS: z.number().int().min(1).max(365).default(30).describe('How many days of run history cost and time estimates read.'),

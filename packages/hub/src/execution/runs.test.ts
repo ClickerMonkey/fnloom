@@ -159,7 +159,7 @@ describe('runs on a system', () => {
     await settle();
     const approval = r.bus.of('approval')[0]?.approval;
     await r.module.policies.answer(approval?.id ?? NO_APPROVAL, { by: ALICE, approve: false, remember: 'once', reason: 'no' });
-    expect(await settled).toMatchObject({ status: 'failed', error: { code: 'denied', message: 'Declined by the approver: no' } });
+    expect(await settled).toMatchObject({ status: 'cancelled', error: { code: 'denied', message: 'Declined by the approver: no' } });
   });
 
   it('runs a fn the person runs themselves without asking', async () => {

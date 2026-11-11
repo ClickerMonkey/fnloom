@@ -16,7 +16,6 @@ import { openDatabase, type Database } from './drivers/index.ts';
 import { NO_ENRICHER, RecordingHub, shopConfig, testFolder } from './fixture.ts';
 import { DatabaseInstance } from './instance.ts';
 import { resultTable } from './results.ts';
-import { MemoryStore } from './store.ts';
 
 const live = env({
   DATABASE_TEST_POSTGRES_URL: z.string().min(1).optional(),
@@ -99,7 +98,7 @@ describe.skipIf(targets.length === 0)('live databases', () => {
       await target.prepare();
       const ddl = dialectFor(target.name === 'postgres' ? 'postgres' : 'sqlserver').ddl;
       const instance = new DatabaseInstance(shopConfig({ connection: target.fields }), {
-        instance: InstanceName.parse('main'), dataDir: testFolder(target.name), store: new MemoryStore(), enricher: NO_ENRICHER, hub: new RecordingHub(),
+        instance: InstanceName.parse('main'), dataDir: testFolder(target.name), enricher: NO_ENRICHER, hub: new RecordingHub(),
         limits: { page: 50, max: 500 }, distinctMax: 12, now: () => 1_000,
       });
       opened.push(instance);

@@ -11,6 +11,9 @@
       "path": "packages/hub"
     },
     {
+      "path": "packages/build"
+    },
+    {
       "path": "packages/cli"
     },
     {

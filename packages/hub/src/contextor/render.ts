@@ -77,9 +77,14 @@ export function cardsSection(cards: readonly string[], protocol: Protocol): stri
 }
 
 /** A chosen context item as the prompt shows it; `listed` items go in `moreContext` instead. */
-export function contextBlock(chosen: Pick<ChosenContext, 'detail' | 'text'> & { readonly name: string }): string {
+export function contextBlock(chosen: Pick<ChosenContext, 'detail' | 'text' | 'choices'> & { readonly name: string; readonly fns?: readonly string[] }): string {
   const detail = chosen.detail === 'full' ? '' : ' detail="summary"';
-  return `<context name="${chosen.name}"${detail}>\n${chosen.text}\n</context>`;
+  const fns = chosen.fns === undefined || chosen.fns.length === 0 ? [] : [`Fns it brings (in your tools now): ${chosen.fns.join(', ')}`];
+  const choices = chosen.choices === undefined || chosen.choices.length === 0 ? [] : [
+    'Where to go next: load the one that fits with hub/load_context, or none.',
+    ...chosen.choices.map((c) => `- ${c.to}${c.tokens === undefined ? '' : ` (~${c.tokens} tokens)`}: ${c.when}`),
+  ];
+  return [`<context name="${chosen.name}"${detail}>`, chosen.text, ...fns, ...choices, '</context>'].join('\n');
 }
 
 /** Listed context items, loadable by name. */

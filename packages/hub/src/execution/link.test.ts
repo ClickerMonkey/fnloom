@@ -206,11 +206,11 @@ describe('the LLM forward', () => {
     expect((await r.module.runs.get(run))?.cost).toBeCloseTo(0.002);
   });
 
-  it('refuses calls outside a run, for another system\'s run, with bad schemas, or over budget', async () => {
+  it('refuses calls for another system\'s run, with bad schemas, or over budget', async () => {
     const r = await started();
     const { run, turn } = await parentRun(r);
     const request: LlmRequest = { messages: [{ role: 'user', content: 'hi' }] };
-    expect(await collect(r.module.linkHandlers.llm(payload({ request, stream: true })))).toMatchObject([{ type: 'error', kind: 'limit' }]);
+
     expect(await collect(r.module.linkHandlers.llm(payload({ run, request, stream: true }, otherLink)))).toMatchObject([{ type: 'error', kind: 'limit' }]);
     expect(await collect(r.module.linkHandlers.llm(payload({ run, request: { ...request, tools: [{ name: 't', parameters: { type: 'string' } }] }, stream: true })))).toMatchObject([{ type: 'error', kind: 'tool' }]);
     await r.store.table('turns').update(turn.id, { cost: 5 });

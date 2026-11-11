@@ -182,7 +182,11 @@ export const ChatCapabilities = z.object({
   uploads: z.boolean(),
   /** `of` is the named type of the things a provider points at, whose methods its hover card offers. */
   mentions: z.array(z.object({ provider: QualifiedName, title: z.string(), of: QualifiedName.optional() })),
-  commands: z.array(z.object({ name: z.string(), context: QualifiedName, args: z.array(CommandArg), description: z.string() })),
+  /**
+   * The `/commands` a person can see. `unavailable` is why one can't run now (its system is offline or left out of the
+   * session): the composer shows it greyed out with that reason instead of offering it.
+   */
+  commands: z.array(z.object({ name: z.string(), context: QualifiedName, args: z.array(CommandArg), description: z.string(), unavailable: z.string().optional() })),
   /** Agent fns (of the hub's `llm` kind) that can answer in a chat, for the agent picker. */
   agents: z.array(z.object({ fn: QualifiedName, description: z.string() })),
   /**

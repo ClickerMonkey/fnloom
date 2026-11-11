@@ -4,9 +4,11 @@
  * debounce (`clientLogsCaller`: one call per pause, at most one per `LOG_BATCH.maxWait`, the queued lines merged into
  * one batch), so a burst of lines is one request. Only while signed in: the hub files them under the person.
  *
- * What is sent: errors the app didn't catch (Vue's, the window's, rejected promises), lines the app logs through
- * `log`, and each call's method, path, status and time. Never a body, an answer, a header or a token: traffic lines
- * have no room for them, and log lines carry only an error's name, message and stack.
+ * What is sent: errors the app didn't catch (Vue's, the window's, rejected promises), the page's `console` lines (`log`,
+ * `info`, `warn`, `error`; each still printed), lines the app logs through `log`, and each call's method, path, status
+ * and time. Never a body, an answer, a header or a token: traffic lines have no room for them, log lines carry only an
+ * error's name, message and stack, and console lines are sanitized (`consoleText`): fields named like secrets, bearer
+ * tokens and JWTs are replaced by `[hidden]`.
  */
 import type { ClientLogBatch, ClientLogEntry } from '@harness/core';
 import type { CallSeen } from '../api/traffic.ts';
@@ -18,6 +20,42 @@ export const LOG_BATCH = { wait: 5_000, maxWait: 30_000, max: 500 } as const;
 const MESSAGE_MAX = 4_000;
 /** The longest stack a line carries. */
 const STACK_MAX = 3_000;
+/** The longest any one console argument is written out. */
+const ARG_MAX = 1_000;
+/** What stands in for a hidden value. */
+const HIDDEN = '[hidden]';
+/** Field names whose values are never sent. */
+const SECRET_FIELD = /token|password|passwd|secret|authorization|cookie|api[-_]?key|private[-_]?key|credential/i;
+/** Values that look like credentials inside text: bearer tokens and JWTs. */
+const SECRET_TEXT = [/(bearer\s+)[\w.~+/=-]+/gi, /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g] as const;
+
+/** The console methods copied to the hub, with the level each line gets. */
+export const CONSOLE_LEVELS = { log: 'info', info: 'info', warn: 'warn', error: 'error' } as const satisfies Record<string, LogLevel>;
+type ConsoleMethod = keyof typeof CONSOLE_LEVELS;
+
+/** Text with bearer tokens and JWTs hidden. */
+function hideSecrets(text: string): string {
+  return SECRET_TEXT.reduce((out, pattern) => out.replace(pattern, (_match: string, prefix: unknown) => (typeof prefix === 'string' ? `${prefix}${HIDDEN}` : HIDDEN)), text);
+}
+
+/** One console argument as text: an error's name and message, a value as JSON with secret fields hidden, cut to size. */
+function argText(arg: unknown): string {
+  if (typeof arg === 'string') { return hideSecrets(arg).slice(0, ARG_MAX); }
+  if (arg instanceof Error) { return hideSecrets(`${arg.name}: ${arg.message}`).slice(0, ARG_MAX); }
+  if (arg === undefined || typeof arg === 'function' || typeof arg === 'symbol') { return String(arg); }
+  try {
+    const json = JSON.stringify(arg, (key, value: unknown) => (key !== '' && SECRET_FIELD.test(key) ? HIDDEN : value));
+    return hideSecrets(json).slice(0, ARG_MAX);
+  } catch {
+    // a cycle, or a value JSON can't hold
+    return Object.prototype.toString.call(arg);
+  }
+}
+
+/** A console call's arguments as one sanitized line. */
+export function consoleText(args: readonly unknown[]): string {
+  return args.map(argText).join(' ').slice(0, MESSAGE_MAX);
+}
 
 /** The caller that sends batches: queued lines merge into one batch (the newest `LOG_BATCH.max`), retried a few times. */
 export function clientLogsCaller(hub: Hub): CallerOf<'clientLogs'> {
@@ -65,9 +103,10 @@ export class ClientLogs {
     this.#clock = options.clock ?? Date.now;
   }
 
-  /** A log line. */
+  /** A log line; bearer tokens and JWTs in its message and fields are hidden, as on console lines. */
   log(level: LogLevel, message: string, fields: Readonly<Record<string, string>> = {}): void {
-    this.#send({ type: 'log', at: this.#clock(), level, message: message.slice(0, MESSAGE_MAX), ...(Object.keys(fields).length === 0 ? {} : { fields: { ...fields } }) });
+    const shown = Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, SECRET_FIELD.test(name) ? HIDDEN : hideSecrets(value)]));
+    this.#send({ type: 'log', at: this.#clock(), level, message: hideSecrets(message).slice(0, MESSAGE_MAX), ...(Object.keys(shown).length === 0 ? {} : { fields: shown }) });
   }
 
   /** An error the app didn't catch, with where it surfaced (`vue`, `window`, `promise`). */
@@ -81,17 +120,46 @@ export class ClientLogs {
     this.#send({ type: 'traffic', at: call.at, method: call.method.slice(0, 16), endpoint: call.endpoint.slice(0, 300), status: call.status, duration: call.duration });
   }
 
-  /** Report the window's uncaught errors and rejected promises; returns the function that stops. */
-  watch(win: Pick<Window, 'addEventListener' | 'removeEventListener'>): () => void {
+  /**
+   * Report the window's uncaught errors and rejected promises, and copy the console's lines (each still printed);
+   * returns the function that stops and puts the console back.
+   */
+  watch(win: Pick<Window, 'addEventListener' | 'removeEventListener'>, target: Console = console): () => void {
     const onError = (event: ErrorEvent): void => { this.error(event.error ?? event.message, 'window'); };
     const onRejection = (event: PromiseRejectionEvent): void => { this.error(event.reason, 'promise'); };
     win.addEventListener('error', onError);
     win.addEventListener('unhandledrejection', onRejection);
+    const restore = this.#captureConsole(target);
     return () => {
       win.removeEventListener('error', onError);
       win.removeEventListener('unhandledrejection', onRejection);
+      restore();
     };
   }
+
+  /** Wrap the console's methods so each line is also sent; returns the function that puts the originals back. */
+  #captureConsole(target: Console): () => void {
+    const methods = Object.keys(CONSOLE_LEVELS).filter((name): name is ConsoleMethod => name in CONSOLE_LEVELS);
+    // each method's own property as it was, put back as it was when capture stops
+    const saved = methods.map((method) => [method, Object.getOwnPropertyDescriptor(target, method)] as const);
+    let inside = false;
+    for (const method of methods) {
+      const original = target[method].bind(target);
+      target[method] = (...args: unknown[]): void => {
+        original(...args);
+        // a line logged while sending one is not sent again
+        if (inside) { return; }
+        inside = true;
+        try { this.log(CONSOLE_LEVELS[method], consoleText(args), { source: 'console' }); } finally { inside = false; }
+      };
+    }
+    return () => {
+      for (const [method, descriptor] of saved) {
+        if (descriptor === undefined) { Reflect.deleteProperty(target, method); } else { Object.defineProperty(target, method, descriptor); }
+      }
+    };
+  }
+
 
   #send(entry: ClientLogEntry): void {
     if (!this.#options.signedIn()) { return; }

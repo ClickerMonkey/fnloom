@@ -20,10 +20,10 @@ import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
   type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
-  type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery,
+  type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch,
 } from '@harness/core';
 import type { Log, SystemPlace } from '../ctx.ts';
-import { fnSearch } from './asks.ts';
+import { fleets, fnSearch } from './asks.ts';
 import { wireType } from '../gin.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
@@ -46,7 +46,9 @@ import { NodeProcess, type ProcessControl } from './process.ts';
 import type { RunEnvironment } from './run.ts';
 import { RunRegistry } from './runs.ts';
 import { ConfigStore, SystemRuntime } from './runtime.ts';
-import { implTable, runtimeFnImpl, SystemTable, type RuntimeLifecycle } from './table.ts';
+import { implTable, runtimeFnImpl, SystemTable, type RuntimeLifecycle, type SystemPatch } from './table.ts';
+import { hubAiOf, type HarnessAi } from './llm.ts';
+import { ContextFolderError, formatContextProblem, readContextFolder, watchContextFolder } from './context-files.ts';
 import { Deferred, messageOf, withTimeout } from './wire.ts';
 
 /** The system stopped; nothing more goes to the hub. */
@@ -178,6 +180,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   /** Says hello again when the pending pairing request runs out. */
   #pairingRenewal: ReturnType<typeof setTimeout> | undefined;
   #mcp: McpFace | undefined;
+  /** Stops watching the context folder, when it is watched. */
+  #unwatchContext: (() => void) | undefined;
 
   constructor(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, deps: LinkHostDeps) {
     this.name = contract.name;
@@ -224,6 +228,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   /** Connect, and keep connecting. Resolves once the first connection attempt has started. */
   async start(): Promise<void> {
     this.#version = this.#options.version ?? await packageVersion() ?? '0.0.0';
+    await this.#loadContext();
     const events = SYSTEM_EVENT_TYPES.filter((type) => this.#table.impl.events?.[type] !== undefined);
     if (this.#options.client !== undefined) { this.#bundle = await readClientBundle(this.#options.client); }
     this.#manifest = new ManifestState(this.#table, {
@@ -307,9 +312,33 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
 
   async remove(fn: AnyFnRef): Promise<void> {
     const { system, local } = splitName(fn.name);
-    if (system !== this.name || !this.#table.remove(local)) { throw new Error(`${fn.name} was not added at runtime by ${this.name}.`); }
+    if (system !== this.name) { throw new Error(`${fn.name} is not a fn of ${this.name}.`); }
+    if (!this.#table.remove(local)) {
+      // a contract fn: hidden from the manifest and no longer run
+      const report = await this.patch({ remove: { fns: [local] } });
+      this.#checkReport(report, fn.name);
+      return;
+    }
     const hub = this.#now();
     if (hub !== undefined) { this.#checkReport(await hub.call('patch', await this.#manifestState().remove(local)), fn.name); }
+  }
+
+  async patch(change: SystemPatch): Promise<ImportReport> {
+    this.#table.patch(change);
+    const hub = this.#now();
+    // while offline the change rides in the next manifest (its hash includes it); roots are asked for at welcome
+    if (hub === undefined) { return { added: [], updated: [], removed: [], refused: [] }; }
+    return hub.call('patch', await this.#manifestState().patch(change));
+  }
+
+  async examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }> {
+    if (this.#table.fnDef(fn) === undefined) { throw new Error(`${this.name} has no fn ${fn}.`); }
+    const hub = await this.#access.ready(this.#stop.signal);
+    return hub.call('examples', FnExamplesPatch.parse({ fn, upsert: change.upsert ?? [], remove: change.remove ?? [] }), { signal: this.#stop.signal });
+  }
+
+  ai(): Promise<HarnessAi> {
+    return hubAiOf({ hub: this.#access, content: new HubContent(this.#access) });
   }
 
   async types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void> {
@@ -327,6 +356,10 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
 
   fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage> {
     return fnSearch(this.#access, undefined, this.#stop.signal).fnExamples(query);
+  }
+
+  fleet(): Promise<FleetInstance[]> {
+    return fleets(this.#access, this.#stop.signal).fleet();
   }
 
   async restart(reason: string): Promise<never> {
@@ -513,6 +546,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   }
 
   async #doShutdown(reason: StopReason, timeout: number): Promise<void> {
+    this.#unwatchContext?.();
     const runs = this.#runs;
     if (this.#config.current !== undefined) {
       const ctx = this.#systemCtx();
@@ -604,6 +638,24 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     } catch (error) {
       this.#log.error('system.lifecycle-failed', { event }, error);
     }
+  }
+
+  /** Send the context folder as context (it rides in the first manifest), and watch it when asked. */
+  async #loadContext(): Promise<void> {
+    const dir = this.#options.context;
+    if (dir === undefined || dir === false) { return; }
+    const folder = await readContextFolder(dir);
+    if (folder.problems.length > 0) { throw new ContextFolderError(folder.problems); }
+    if (folder.files.length > 0) { this.#table.patch({ upsert: { context: folder.files.map((file) => file.decl) } }); }
+    if (!this.#env.HARNESS_CONTEXT_WATCH) { return; }
+    this.#unwatchContext = watchContextFolder(dir, folder.files.map((file) => file.decl), (change) => this.patch(change), {
+      debounce: this.#env.HARNESS_CONTEXT_DEBOUNCE,
+      events: {
+        problems: (problems) => { for (const problem of problems) { this.#log.warn('context.problem', { problem: formatContextProblem(problem) }); } },
+        sent: (change) => { this.#log.info('context.sent', { upserted: change.upsert?.context?.length ?? 0, removed: change.remove?.context?.length ?? 0 }); },
+        failed: (error) => { this.#log.warn('context.send-failed', { error: messageOf(error) }); },
+      },
+    });
   }
 
   #checkReport(report: ImportReport, name: QualifiedName): void {

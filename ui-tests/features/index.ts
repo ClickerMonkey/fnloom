@@ -13,6 +13,10 @@ import adminSystems from './admin-systems.ts';
 import approvals from './approvals.ts';
 import attachments from './attachments.ts';
 import budget from './budget.ts';
+import build5Feedback from './build5-feedback.ts';
+import build6Screens from './build6-screens.ts';
+import build6Added from './build6-added.ts';
+import searchPills from './search-pills.ts';
 import chatManage from './chat-manage.ts';
 import chatShell from './chat-shell.ts';
 import chatModes from './chat-modes.ts';
@@ -74,5 +78,5 @@ export const FEATURES: readonly Feature[] = [
   adminSystems, pairing, adminSystem, adminModels, adminLimits, adminPolicies, adminActorSettings, adminRuns, adminLlm, adminResources,
   ginEditors, resourceBrowser, viewers,
   modelRoles, chatModes, contextGraph, contextItems, invalidInput, modelCalls, fnMetrics, hubMcps, instances, qrPairing,
-  streaming, approvals,
+  streaming, approvals, build5Feedback, build6Screens, build6Added, searchPills,
 ];

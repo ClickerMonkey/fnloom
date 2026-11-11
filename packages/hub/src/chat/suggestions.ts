@@ -79,6 +79,37 @@ export class HubSuggestions implements SuggestionDecider {
   }
 
   async decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions> {
+    return this.#withBrought(await this.#decide(input), input.actor);
+  }
+
+  /**
+   * A suggested context brings its fns (`ContextDecl.fns`): each the person may use and that isn't suggested already
+   * is suggested with it, at the context's score, and recorded with `broughtBy`.
+   */
+  async #withBrought(decided: DecidedSuggestions, actor: ActorId): Promise<DecidedSuggestions> {
+    const contexts = decided.suggestions.filter((s) => s.kind === 'context');
+    if (contexts.length === 0) { return decided; }
+    const have = new Set<string>(decided.suggestions.filter((s) => s.kind === 'fn').map((s) => s.name));
+    const access = await this.#deps.access.scope(actor);
+    const brought: Suggestion[] = [];
+    const outcomes: SuggestionOutcome[] = [];
+    for (const context of contexts) {
+      const record = await this.#deps.catalog.context(context.name);
+      for (const name of record?.decl.fns ?? []) {
+        if (have.has(name)) { continue; }
+        const fn = await this.#deps.catalog.fn(name);
+        if (fn === undefined || fn.disabled || !access.seesFn(fn) || !access.mayUse(fn)) { continue; }
+        have.add(name);
+        brought.push({ kind: 'fn', name, description: fn.decl.description, score: context.score });
+        outcomes.push({ used: true, kind: 'fn', name, score: context.score, broughtBy: context.name });
+      }
+    }
+    if (brought.length === 0) { return decided; }
+    const record = decided.record === undefined ? undefined : { ...decided.record, items: [...decided.record.items, ...outcomes] };
+    return record === undefined ? { suggestions: [...decided.suggestions, ...brought] } : { suggestions: [...decided.suggestions, ...brought], record };
+  }
+
+  async #decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions> {
     const limit = this.#deps.settings.model.HARNESS_SUGGESTIONS;
     if (limit === 0 || input.text.trim() === '') { return { suggestions: [] }; }
     const decision = (await this.setting()).value;

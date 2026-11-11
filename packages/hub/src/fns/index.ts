@@ -14,7 +14,7 @@
  */
 import type {
   ActorId, AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, CostEstimate, FnExample, FnExamplesPage, FnExamplesQuery, FnFacts, FnMode,
-  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, Json, QualifiedName, RunId, Session,
+  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, FnExamplesPatch, Json, QualifiedName, RunId, SearchItemKind, Session, SystemName,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 
@@ -22,6 +22,8 @@ import type { AccessScope } from '../access/index.ts';
 export interface Asker {
   readonly actor: ActorId;
   readonly access: AccessScope;
+  /** Build 6: a further per-hit rule (the session's systems, a hub MCP's scope); every hit when absent. */
+  readonly keep?: (item: SearchItemKind, name: QualifiedName) => boolean;
 }
 
 /** Fns and context, searched in the hub's database. */
@@ -35,6 +37,8 @@ export interface FnExamples {
   sync(fns: readonly FnRecord[], removed: readonly QualifiedName[]): Promise<void>;
   /** A page of one fn's examples, the most relevant to the query first; refused for a fn the asker can't see. */
   page(query: FnExamplesQuery, asker: Asker): Promise<FnExamplesPage>;
+  /** Build 6: a system's runtime examples of one of its fns: added or replaced by key, or removed (`examples` on the link). */
+  patch(system: SystemName, patch: FnExamplesPatch): Promise<{ added: number; removed: number }>;
   /** The examples that go into a prompt with a fn: `count` of them, the most relevant to `text`. */
   forPrompt(fn: FnRecord, text: string, count: number): Promise<FnExample[]>;
 }

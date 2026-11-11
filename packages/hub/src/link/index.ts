@@ -14,7 +14,7 @@ import type { Peer } from '@ayepi/core';
 import type {
   ActorId, AutoPairChoice, ConfigValue, ContentRef, ImportReport, InstallSource, InstalledSystem, InstanceName, InstanceRecord, InstanceRef, InvalidInput, Json, LinkSession,
   Page, PairingId, PairingRequest, QualifiedName, ReadWant, ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section,
-  FnRouting, SessionId, StopReason, SystemEnabled, SystemLinkSpec, SystemName, Timestamp,
+  FnRouting, PairingGrant, PairingGrantRequest, SessionId, StopReason, SystemEnabled, SystemLinkSpec, SystemName, Timestamp,
 } from '@harness/core';
 
 export type { SystemOutput } from './output.ts';
@@ -70,6 +70,8 @@ export interface PairingChoice {
 /** Pairing: new instances wait for an admin (code or token); known instances prove their key. */
 export interface PairingService {
   pending(): Promise<PairingRequest[]>;
+  /** Build 6: a one-time token for an approved install run, bound to what was approved (`grantPairing`). */
+  grant(request: PairingGrantRequest, link: InstanceRef): Promise<PairingGrant>;
   /** One request, for the pairing page; refused when unknown. */
   get(pairing: PairingId): Promise<PairingRequest>;
   /** Pair the instance; with a config, it is checked first (refused with its problems) and set as it pairs. */

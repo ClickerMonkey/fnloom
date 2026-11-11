@@ -19,9 +19,9 @@ function recordingOps(asked: Array<{ op: string; data: unknown; by: string }>): 
     set_budget: (data, by) => { asked.push({ op: 'set_budget', data, by }); return Promise.resolve({ id: 'bgt_1' }); },
     set_model_category: unused, set_priority: unused, set_policy: unused, set_actor_setting: unused, add_user: unused, add_group: unused,
     remove_rule: unused, approve_pairing: unused, create_pairing_token: unused, configure_system: unused, enable_system: unused, remove_system: unused,
-    install_system: unused, start_system: unused, stop_system: unused, upgrade_system: unused, set_model_role: unused, clear_model_role: unused,
+    install_system: unused, start_system: unused, stop_system: unused, restart_system: unused, upgrade_system: unused, set_model_role: unused, clear_model_role: unused,
     set_model_limits: unused, create_mcp: unused, update_mcp: unused, rotate_mcp_secret: unused, delete_mcp: unused, preview_mcp: unused,
-    install_package: unused, remove_instance: unused, export_system_data: unused,
+    install_package: unused, remove_instance: unused, export_system_data: unused, suggest_decision_set: unused, auto_pair_revoke: unused, system_reimport: unused,
   };
 }
 
@@ -117,6 +117,10 @@ const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]>
   install_system: { source: { path: 'systems/fs' } },
   start_system: { system: 'fs' },
   stop_system: { system: 'fs' },
+  restart_system: { system: 'fs', reason: 'stuck' },
+  suggest_decision_set: { enabled: false },
+  auto_pair_revoke: { id: 'apk_1' },
+  system_reimport: { system: 'fs' },
   upgrade_system: { system: 'fs' },
   set_model_role: { input: { role: 'chat', model: { model: 'm' } } },
   clear_model_role: { role: 'chat' },
@@ -145,10 +149,11 @@ describe('every admin fn', () => {
       set_priority: reached('set_priority'), set_policy: reached('set_policy'), set_actor_setting: reached('set_actor_setting'), add_user: reached('add_user'),
       add_group: reached('add_group'), remove_rule: reached('remove_rule'), approve_pairing: reached('approve_pairing'),
       create_pairing_token: reached('create_pairing_token'), configure_system: reached('configure_system'), enable_system: reached('enable_system'),
-      remove_system: reached('remove_system'), install_system: reached('install_system'), start_system: reached('start_system'), stop_system: reached('stop_system'),
+      remove_system: reached('remove_system'), install_system: reached('install_system'), start_system: reached('start_system'), stop_system: reached('stop_system'), restart_system: reached('restart_system'),
       upgrade_system: reached('upgrade_system'), set_model_role: reached('set_model_role'), clear_model_role: reached('clear_model_role'),
       set_model_limits: reached('set_model_limits'), create_mcp: reached('create_mcp'), update_mcp: reached('update_mcp'),
       rotate_mcp_secret: reached('rotate_mcp_secret'), delete_mcp: reached('delete_mcp'), preview_mcp: reached('preview_mcp'),
+      suggest_decision_set: reached('suggest_decision_set'), auto_pair_revoke: reached('auto_pair_revoke'), system_reimport: reached('system_reimport'),
       install_package: reached('install_package'), remove_instance: reached('remove_instance'), export_system_data: reached('export_system_data'),
     };
     registerAdminFns(r.module.hubFns, () => ops);

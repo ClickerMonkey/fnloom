@@ -1,7 +1,7 @@
 /**
  * The chat modes. `tools` is build 1's strict mode: every selected fn at `signature` or `full` is a native tool, and
- * `listed` fns are a `<more_fns>` list the model can load. `static` always sends the same five tools (`find`,
- * `inspect`, `load`, `unload`, which are the hub fns of those names, and `run`, which is not a fn: a call of it
+ * `listed` fns are a `<more_fns>` list the model can load. `static` always sends the same five tools (`find`, which is
+ * `hub/fns_search`, `inspect`, `load`, `unload`, the hub fns of those names, and `run`, which is not a fn: a call of it
  * becomes a run of the fn it names, its args checked against that fn's type first), and shows the selected fns as
  * cards at the end of the system prompt or in a trailing system message. For a model without native tools the static
  * mode speaks the text protocol instead: no tools at all, `<run fn="…">{…}</run>` blocks in its answer.
@@ -22,15 +22,16 @@ import { modelMayUse } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
 export const STATIC_HUB_FNS = {
-  find: { ref: hub.fns.find, def: hub.defs.fns.find },
+  // the static `find` tool is the one search, `hub/fns_search`
+  find: { ref: hub.fns.fns_search, def: hub.defs.fns.fns_search },
   inspect: { ref: hub.fns.inspect, def: hub.defs.fns.inspect },
   load: { ref: hub.fns.load, def: hub.defs.fns.load },
   unload: { ref: hub.fns.unload, def: hub.defs.fns.unload },
 } as const satisfies Record<Exclude<StaticTool, 'run'>, { readonly ref: AnyFnRef; readonly def: { readonly description: string } }>;
 
-/** Build 1's search and load fns, whose jobs `find`, `inspect`, `load` and `unload` do in static mode, so it never shows them. */
+/** The search and load fns whose jobs `find`, `inspect`, `load` and `unload` do in static mode, so it never shows them. */
 export const REPLACED_BY_STATIC: ReadonlySet<string> = new Set<string>([
-  hub.fns.search_fns.name, hub.fns.load_fns.name, hub.fns.drop_fns.name, hub.fns.search_context.name, hub.fns.load_context.name,
+  hub.fns.fns_search.name, hub.fns.load_fns.name, hub.fns.drop_fns.name, hub.fns.load_context.name,
 ]);
 
 /** The `run` tool's args. */
@@ -198,7 +199,7 @@ export class StaticChatMode implements ChatMode {
 
   guide(ctx: ModeContext): string {
     if (ctx.protocol === 'text') return textProtocolInstructions();
-    return 'Use find to look for fns and context, inspect or load to see them, and run({ fn, args }) to run any fn by name.';
+    return 'Use find (its `text` says what you need) to look for fns and context, inspect or load to see them, and run({ fn, args }) to run any fn by name.';
   }
 
   fixedTools(ctx: ModeContext): Promise<readonly ModeTool[]> {

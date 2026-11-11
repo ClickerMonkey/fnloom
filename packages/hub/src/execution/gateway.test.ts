@@ -8,6 +8,7 @@ import type { HubCallContext, HubCallMetadata } from './scope.ts';
 import { ALICE, ALICE_INFO, OPEN_LIMITS, testSettings } from './testing.ts';
 
 const RUN = RunId.parse('run_fwd');
+const WORK = RunId.parse('run_work');
 const TURN = TurnId.parse('trn_fwd');
 const FS = SystemName.parse('fs');
 const forward: LlmForward & { system: string } = { run: RUN, request: { messages: [{ role: 'user', content: 'hi' }] }, stream: true, system: FS };
@@ -24,6 +25,7 @@ async function gateway(limited: number, retryAfter = 40) {
   };
   await store.table('runs').insert(run);
   const events: string[] = [];
+  const settled: Array<{ id: RunId; status: string }> = [];
   let held = 0;
   let calls = 0;
   const streamer: Streamer<HubCallContext, HubCallMetadata> = async function* (_request, context): AsyncGenerator<Chunk, Response> {
@@ -42,7 +44,12 @@ async function gateway(limited: number, retryAfter = 40) {
   };
   const hub = new HubLlmGateway({
     store, clock: () => 0, log: memoryLog().log, settings: testSettings({}, {}, 'test-model'),
-    runs: { get: (id) => store.table('runs').get(id) },
+    runs: {
+      get: (id) => store.table('runs').get(id),
+      // a system's work outside a run: a run of its own in the stored turn
+      systemWork: (system) => store.table('runs').put({ ...run, id: WORK, fn: 'hub/system_calls', system, root: WORK, key: 'work', status: 'running' }),
+      settle: async (id, outcome) => { settled.push({ id, status: outcome.status }); await store.table('runs').update(id, { status: outcome.status }); },
+    },
     queues: {
       llm: async (_priority, task) => {
         held += 1;
@@ -60,7 +67,7 @@ async function gateway(limited: number, retryAfter = 40) {
     models: { resolve: () => Promise.resolve({}) },
     sleep: (ms, signal) => { events.push(`sleep ${ms} holding ${held}`); return abortableSleep(ms, signal); },
   });
-  return { hub, events, heard, calls: () => calls };
+  return { hub, events, heard, settled, calls: () => calls };
 }
 
 async function collect(stream: AsyncIterable<LlmForwardChunk>): Promise<LlmForwardChunk[]> {
@@ -81,11 +88,20 @@ describe('non-chat model calls', () => {
     expect(heard[0]?.ctx.call).toMatchObject({ run: RUN, system: FS, fn: 'fs/summarize' });
   });
 
-  it('refuse a run that isn’t the system’s, and a system call outside a run', async () => {
+  it('refuse a run that isn’t the system’s', async () => {
     const { hub, heard } = await gateway(0);
     await expect(hub.transcribe(audio, { system: SystemName.parse('web'), run: RUN }, live())).rejects.toThrow(/not web's/);
-    await expect(hub.embed({ texts: ['a'], metadata: {} }, { system: FS }, live())).rejects.toThrow(/inside a run/);
     expect(heard).toEqual([]);
+  });
+
+  it('charge a system’s call outside any run to a run of its own work, settled when the call ends (build 6)', async () => {
+    const { hub, settled } = await gateway(0);
+    const out = await hub.transcribe(audio, { system: FS }, live());
+    expect(out).toMatchObject({ value: { text: 'hello there' }, call: 'mdl_2' });
+    expect(settled).toEqual([{ id: WORK, status: 'done' }]);
+    const streamed = await collect(hub.forward({ request: forward.request, stream: true, system: FS }, live()));
+    expect(streamed.at(-1)).toMatchObject({ type: 'done' });
+    expect(settled.at(-1)).toEqual({ id: WORK, status: 'done' });
   });
 
   it('do the hub’s own work under its purpose, paid by no turn', async () => {

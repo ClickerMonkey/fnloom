@@ -25,7 +25,8 @@ export class SessionModeGate implements FnModeGate {
     if (chat === 'none') return { effect: 'refuse', reason: 'This chat is set to use no fns. Answer without them, or ask the person to change the chat\'s mode.' };
     const mode = (await this.#facts().modes([input.fn.name])).get(input.fn.name) ?? 'write';
     if (chat === 'auto') {
-      if (mode === 'read') return { effect: 'pass' };
+      // a fn that always asks (an install, a schema change) is never decided by the classifier: its approver answers
+      if (mode === 'read' || input.fn.decl.approval !== undefined) return { effect: 'pass' };
       const verdict = await this.#classifier().classify({ session: input.session, fn: input.fn, mode, args: input.args, run: input.run });
       return verdict.allow ? { effect: 'allow', reason: verdict.reason } : { effect: 'ask', reason: verdict.reason };
     }

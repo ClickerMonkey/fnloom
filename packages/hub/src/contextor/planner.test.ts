@@ -83,20 +83,20 @@ describe('the graph contextor', () => {
 
   it('keeps the agent\'s own fns callable: native tools in tools mode, offered in static mode', async () => {
     const { r, session, turn } = await planning();
-    r.catalog.addFn('hub/search_fns', hub.defs.fns.search_fns);
+    r.catalog.addFn('hub/fns_search', hub.defs.fns.fns_search);
     r.catalog.addFn('hub/run_status', hub.defs.fns.run_status);
     const toolbox = (mode: ChatModeConfig) => r.catalog.addFn(`hub/toolbox_${mode.type}`, agent({
-      description: 'Toolbox.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [hub.fns.search_fns, hub.fns.run_status], mode, contextor: { type: 'graph' },
+      description: 'Toolbox.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [hub.fns.fns_search, hub.fns.run_status], mode, contextor: { type: 'graph' },
     }));
     const planFor = (mode: ChatModeConfig) => r.planner.plan({ session, turn, agent: toolbox(mode), model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'hello' }] });
     const tools = await planFor({ type: 'tools' });
-    expect(tools.tools.map((t) => t.name).sort()).toEqual(['hub__run_status', 'hub__search_fns']);
-    expect(tools.report.fns.map((f) => f.name).sort()).toEqual(['hub/run_status', 'hub/search_fns']);
+    expect(tools.tools.map((t) => t.name).sort()).toEqual(['hub__fns_search', 'hub__run_status']);
+    expect(tools.report.fns.map((f) => f.name).sort()).toEqual(['hub/fns_search', 'hub/run_status']);
     expect(tools.report.fns[0]?.detail).not.toBe('listed');
     // static mode leaves out build 1's search and load fns, whose jobs its own tools do
     const listed = await planFor({ type: 'static', protocol: 'auto', placement: 'system-end', loadDetail: 'full' });
     expect(listed.report.fns.map((f) => f.name)).toEqual(['hub/run_status']);
-    expect(listed.context).not.toContain('hub/search_fns');
+    expect(listed.context).not.toContain('hub/fns_search');
     expect(listed.tools.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
   });
 
@@ -227,7 +227,7 @@ describe('static mode calls', () => {
     // a block names the machine with on, as run's on does
     expect(await r.planner.interpret({ type: 'block', id: 'b4', fn: 'fs/read', on: 'laptop', json: '{"path": "a"}' }, planned)).toEqual({ type: 'run', fn: 'fs/read', args: { path: 'a' }, on: 'laptop' });
     expect(await r.planner.interpret({ type: 'block', id: 'b5', fn: 'fs/read', on: 'Not A Machine!', json: '{"path": "a"}' }, planned)).toMatchObject({ type: 'invalid', invalid: { problems: [{ path: 'on' }] } });
-    expect(await r.planner.interpret({ type: 'tool', id: '2', name: 'find', args: { query: 'x' } }, planned)).toEqual({ type: 'run', fn: 'hub/find', args: { query: 'x' } });
+    expect(await r.planner.interpret({ type: 'tool', id: '2', name: 'find', args: { text: 'x' } }, planned)).toEqual({ type: 'run', fn: 'hub/fns_search', args: { text: 'x' } });
     expect(await r.planner.interpret({ type: 'block', id: 'b3', fn: undefined, json: '{}' }, planned)).toMatchObject({ type: 'invalid', invalid: { source: 'schema' } });
   });
 
@@ -251,5 +251,29 @@ describe('context order', () => {
       chosen('r/doc', {}, 0.1),
     ]);
     expect(ordered.map((c) => c.record.name)).toEqual(['r/doc', 'r/part-1', 'r/part-2']);
+  });
+});
+
+describe('the plain contextor (build 6: a context brings its fns)', () => {
+  it('replays turn 1: a loaded guide comes with what it imports, its fns are tools, and its choices show their sizes', async () => {
+    const { r, session, turn } = await planning([], { agent: 'hub/chat', context: ['fs/authoring'] });
+    const chat = await r.catalog.fn('hub/chat');
+    if (chat === undefined) throw new Error('no hub/chat');
+    const plan = (text: string) => r.planner.plan({ session, turn, agent: chat, model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: text }] });
+    r.catalog.addContext(contextRecord('fs/authoring', {
+      description: 'Writing a system.', content: 'Start here.', imports: ['fs/authoring.layout'], fns: ['fs/install_system'],
+      choices: [{ to: 'fs/authoring.kinds', when: 'pick this when the system declares a kind' }],
+    }));
+    r.catalog.addContext(contextRecord('fs/authoring.layout', { description: 'Folder layout.', content: 'A system has server/ and system.json.', fns: ['fs/read'] }));
+    r.catalog.addContext(contextRecord('fs/authoring.kinds', { description: 'Kinds.', content: 'A kind has a payload type.' }));
+    r.catalog.addFn('fs/install_system', fn({ description: 'Install a system.', args: g.obj({}), returns: g.text() }));
+    r.catalog.addFn('fs/read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text() }));
+    const planned = await plan('write me a system');
+    expect(planned.report.contextor).toBe('plain');
+    expect(planned.report.context.map((c) => c.name)).toEqual(['fs/authoring', 'fs/authoring.layout']);
+    expect(planned.tools.map((t) => t.name).sort()).toEqual(['fs__install_system', 'fs__read']);
+    const system = planned.context;
+    expect(system).toContain('Fns it brings (in your tools now): fs/install_system');
+    expect(system).toMatch(/- fs\/authoring\.kinds \(~\d+ tokens\): pick this when the system declares a kind/);
   });
 });

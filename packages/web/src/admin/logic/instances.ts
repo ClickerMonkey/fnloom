@@ -13,12 +13,15 @@ export function instanceFns(fns: readonly FnRecord[], instance: InstanceName): F
   return fns.filter((fn) => fn.decl.routing?.to === 'instance' && fn.decl.routing.instance === instance);
 }
 
-/** The hub `types` list query for a fleet instance's types (a database's tables), by name, one page. */
-export function typesQuery(key: { readonly system: SystemName; readonly instance: InstanceName }, cursor: string | undefined, limit: number): QueryFnArgs {
+/**
+ * The hub `types` list query, by name, one page: a fleet instance's types (a database's tables), or with no instance
+ * every type its system declared or made.
+ */
+export function typesQuery(key: { readonly system: SystemName; readonly instance?: InstanceName | undefined }, cursor: string | undefined, limit: number): QueryFnArgs {
   return {
     list: 'types',
     query: {
-      filters: [{ field: 'system', op: 'is', value: key.system }, { field: 'instance', op: 'is', value: key.instance }],
+      filters: [{ field: 'system', op: 'is', value: key.system }, ...(key.instance === undefined ? [] : [{ field: 'instance', op: 'is' as const, value: key.instance }])],
       sort: [{ field: 'name', dir: 'asc' }], limit, ...(cursor === undefined ? {} : { cursor }),
     },
   };

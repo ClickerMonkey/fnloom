@@ -1,5 +1,9 @@
-/** The errors chat services throw, each with a stable code the web API maps to a status. */
+/**
+ * The errors chat services throw, each with a stable code and the HTTP status the web API answers with. A chat error is
+ * an `@ayepi/core` `ApiError`, so a refusal reaches the person as a 4xx with its reason, never as a 500.
+ */
 
+import { ApiError } from '@ayepi/core';
 import { messageOf } from '@harness/core';
 
 /** Why a chat request was refused. */
@@ -12,23 +16,21 @@ export const CHAT_ERROR_CODES = {
   invalid: 422,
   /** It can't be done in the current state: undoing a running turn, a reply into another session. */
   conflict: 409,
-  /** What it needs isn't there now: a disabled system, a provider that isn't connected. */
-  unavailable: 503,
+  /** What it needs isn't there now: a disabled system, a provider that isn't connected. A refusal the person can act on, so a 4xx. */
+  unavailable: 409,
 } as const;
 
 /** A chat error code. */
 export type ChatErrorCode = keyof typeof CHAT_ERROR_CODES;
 
 /** A refused chat request. `status` is the HTTP status the web API answers with, typed by the code. */
-export class ChatError<C extends ChatErrorCode = ChatErrorCode> extends Error {
-  override readonly name = 'ChatError';
-  readonly code: C;
-  readonly status: (typeof CHAT_ERROR_CODES)[C];
+export class ChatError<C extends ChatErrorCode = ChatErrorCode> extends ApiError {
+  declare readonly code: C;
+  declare readonly status: (typeof CHAT_ERROR_CODES)[C];
 
   constructor(code: C, message: string) {
-    super(message);
-    this.code = code;
-    this.status = CHAT_ERROR_CODES[code];
+    super(CHAT_ERROR_CODES[code], code, message);
+    this.name = 'ChatError';
   }
 }
 

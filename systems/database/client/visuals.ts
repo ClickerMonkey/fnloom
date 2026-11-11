@@ -21,10 +21,10 @@ export interface FittingVisual<V extends VisualMatch> {
   readonly visual: V;
 }
 
-/** The labels of the visuals the app draws itself (the system contributes none; another system's show by name). */
+/** The labels of this system's own visuals, for a view the chat gives no source (a contributed visual has its own label). */
 const OWN_LABELS: Readonly<Record<string, string>> = { table: 'Table', bar: 'Bar chart', value: 'Value' };
 
-/** A visual's label: the app's own visuals have one, a contributed visual shows its name. */
+/** One of this system's own visuals' labels, else its name. */
 export function labelOf(name: string): string {
   return OWN_LABELS[name] ?? name;
 }
@@ -51,7 +51,7 @@ export interface ShownVisual {
 
 /** The chat runtime's options (every loaded system's contributions, best first) as the view draws them. */
 export function fromSource(options: readonly VisualOption[]): ShownVisual[] {
-  return options.map((option) => ({ name: option.name, label: labelOf(option.name), fit: option.fit, component: option.component, props: { ...option.props } }));
+  return options.map((option) => ({ name: option.name, label: option.label, fit: option.fit, component: option.component, props: { ...option.props } }));
 }
 
 /** This system's own visuals that fit, for a view the chat gives no source. */

@@ -78,6 +78,7 @@ export const linkEnv = env({
   HARNESS_MAX_CHUNK: z.number().int().min(16_384).default(131_072).describe('The largest chunk a stream is cut into on a system link, in bytes.'),
   HARNESS_HEARTBEAT: z.number().int().min(1_000).default(15_000).describe('How often a system link is pinged; a link that misses a pong is dropped.'),
   HARNESS_PAIRING_TIMEOUT: z.number().int().min(10_000).default(600_000).describe('How long a pairing request waits for an admin.'),
+  HARNESS_PAIRING_GRANT_TTL: z.number().int().min(5_000).default(60_000).describe('How long a pairing token granted to an approved install run stays good.'),
   HARNESS_STOP_TIMEOUT: z.number().int().min(100).default(10_000).describe('How long an installed system has to stop before it is killed.'),
   HARNESS_RESTART_BACKOFF: z.number().int().min(100).default(2_000).describe('The first delay before an installed system that exited is started again.'),
   HARNESS_RESTARTS_PER_HOUR: z.number().int().min(1).default(10).describe('Most restarts of one installed system in an hour before it is left stopped.'),

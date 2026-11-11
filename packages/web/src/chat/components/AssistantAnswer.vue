@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * One agent's answer to one turn as one bubble with one avatar and one time, its pieces in exactly the order the model
- * produced them (`answerPieces`): reasoning, words and the fns it ran (as cards, in call order; calls in a row collapse
- * into one section, `RunGroup`, when grouping is on), with what the fns
+ * produced them (`answerPieces`): reasoning, words and the fns it ran (as cards, in call order; a stretch of calls, with the reasoning between
+ * them, collapses into one section, `RunGroup`, when grouping is on), with what the fns
  * attached after them. Each stretch of reasoning sits collapsed where it happened, shimmering while it streams. Text
  * renders as markdown as it arrives, with one soft caret while streaming. Attachments draw through their system's renderer, links as cards. While the turn is in flight the status line sits at the foot of the
  * bubble; before anything arrives, a typing indicator stands in its place, and the message actions wait until there is
@@ -10,18 +10,19 @@
  */
 import type { ChatMessage, Display, Link, MessagePart, RunId } from '@harness/core';
 import { computed, ref } from 'vue';
-import { UiAvatar, UiIcon, UiMarkdown, fullTime, relativeTime } from '../../ui/index.ts';
-import { groups } from '../logic/groups.ts';
+import { UiAvatar, UiMarkdown, fullTime, relativeTime } from '../../ui/index.ts';
+import { groupPieces, type GroupedPiece } from '../logic/groups.ts';
 import { lineHasNews, runShows, type RunView, type StatusLine as Line } from '../logic/runs.ts';
 import { answerPieces, type AnswerPiece, type AnswerSegment } from '../logic/thread.ts';
 import AttachmentCard from './AttachmentCard.vue';
 import LinkCard from './LinkCard.vue';
 import MessageActions from './MessageActions.vue';
+import ReasoningBlock from './ReasoningBlock.vue';
 import RunGroup from './RunGroup.vue';
 import RunList from './RunList.vue';
 import StatusLine from './StatusLine.vue';
 import TypingDots from './TypingDots.vue';
-import type { MessageAction, RenderView } from './types.ts';
+import type { GroupStep, MessageAction, RenderView } from './types.ts';
 
 type Attachment = Extract<MessagePart, { type: 'attachment' }>;
 
@@ -71,6 +72,17 @@ const runsIn = (ids: readonly RunId[]): RunView[] => ids.flatMap((id) => { const
 const showOf = (run: RunView): Display => runShows(run, props.displayOf(run));
 /** The runs of a piece that show at all. */
 const shownIn = (ids: readonly RunId[]): RunView[] => runsIn(ids).filter((run) => showOf(run) !== 'hidden');
+/** Each message's pieces with its stretches of fn calls folded into groups (when grouping is on). */
+const groupedPieces = computed(() => new Map(props.messages.map((m) => [m.id, groupPieces(piecesOf(m), props.grouped, (piece) => shownIn(piece.runs).length)])));
+const groupedOf = (message: ChatMessage): GroupedPiece[] => groupedPieces.value.get(message.id) ?? [];
+/** A piece's key within the answer (its message and place), which open states and the caret go by. */
+const keyOf = (message: ChatMessage, piece: { readonly key: string }): string => `${message.id}-${piece.key}`;
+/** A group's steps with their runs, the calls that don't show left out. */
+const stepsOf = (piece: Extract<GroupedPiece, { kind: 'group' }>): GroupStep[] => piece.steps.flatMap((step): GroupStep[] => {
+  if (step.kind === 'reasoning') { return [step]; }
+  const runs = shownIn(step.runs);
+  return runs.length === 0 ? [] : [{ kind: 'runs', key: step.key, runs }];
+});
 /** The last text piece of the last message, where the streaming caret sits. */
 const caretKey = computed(() => {
   const last = props.messages.at(-1);
@@ -82,11 +94,7 @@ const empty = computed(() => props.messages.every((m) => piecesOf(m).length === 
 /** The answer is on its way but has nothing to show: the typing indicator stands in, and there is nothing to act on. */
 const pending = computed(() => empty.value && (props.streaming || props.waiting));
 /** The run cards not folded into a group, which Collapse all and Expand all act on. */
-const allRuns = computed(() => props.messages.flatMap((m) => piecesOf(m).flatMap((piece) => {
-  if (piece.kind !== 'runs') { return []; }
-  const shown = shownIn(piece.runs);
-  return groups(props.grouped, shown) ? [] : shown.filter((run) => showOf(run) === 'card');
-})));
+const allRuns = computed(() => props.messages.flatMap((m) => groupedOf(m).flatMap((piece) => (piece.kind === 'runs' ? shownIn(piece.runs).filter((run) => showOf(run) === 'card') : []))));
 const anyExpanded = computed(() => allRuns.value.some((run) => !props.collapsed(run)));
 /** The reasoning pieces opened, by message and piece. */
 const openReasoning = ref<ReadonlySet<string>>(new Set());
@@ -100,9 +108,9 @@ function setGroup(id: string, open: boolean): void {
   openGroups.value = next;
 }
 
-function toggleReasoning(id: string): void {
+function setReasoning(id: string, open: boolean): void {
   const next = new Set(openReasoning.value);
-  if (next.has(id)) { next.delete(id); } else { next.add(id); }
+  if (open) { next.add(id); } else { next.delete(id); }
   openReasoning.value = next;
 }
 
@@ -121,31 +129,23 @@ function toggleReasoning(id: string): void {
       </header>
       <div class="body">
         <template v-for="message in messages" :key="message.id">
-          <template v-for="piece in piecesOf(message)" :key="`${message.id}-${piece.key}`">
-            <div v-if="piece.kind === 'reasoning'" class="reasoning" data-testid="reasoning">
-              <button
-                type="button" class="reasoning-toggle touch-target" :class="{ shimmer: thinking(message, piece) }"
-                :aria-expanded="openReasoning.has(`${message.id}-${piece.key}`) ? 'true' : 'false'" @click="toggleReasoning(`${message.id}-${piece.key}`)"
-              >
-                <UiIcon :name="openReasoning.has(`${message.id}-${piece.key}`) ? 'chevron-down' : 'chevron-right'" :size="14" />
-                {{ thinking(message, piece) ? 'Reasoning…' : 'Reasoning' }}
-              </button>
-              <p v-if="openReasoning.has(`${message.id}-${piece.key}`)" class="reasoning-text">{{ piece.text }}</p>
-            </div>
-            <div v-else-if="piece.kind === 'text'" class="text" :class="{ caret: caretKey === `${message.id}-${piece.key}` }" data-testid="answer-text">
+          <template v-for="piece in groupedOf(message)" :key="`${message.id}-${piece.key}`">
+            <ReasoningBlock
+              v-if="piece.kind === 'reasoning'" :text="piece.text" :thinking="thinking(message, piece)"
+              :open="openReasoning.has(keyOf(message, piece))" @update:open="setReasoning(keyOf(message, piece), $event)"
+            />
+            <div v-else-if="piece.kind === 'text'" class="text" :class="{ caret: caretKey === keyOf(message, piece) }" data-testid="answer-text">
               <UiMarkdown :source="piece.text" :navigate="navigate" />
             </div>
-            <template v-else-if="piece.kind === 'runs' && shownIn(piece.runs).length > 0">
-              <RunGroup
-                v-if="groups(grouped, shownIn(piece.runs))" :open="openGroups.has(`${message.id}-${piece.key}`)" :runs="shownIn(piece.runs)" :now="now" :collapsed="collapsed"
-                :view-of="viewOf" :show-of="showOf" @update:open="setGroup(`${message.id}-${piece.key}`, $event)"
-                @open="emit('runOpen', $event)" @toggle="(id, c) => emit('runToggle', id, c)" @background="emit('background', $event)"
-              />
-              <RunList
-                v-else :runs="shownIn(piece.runs)" :now="now" :collapsed="collapsed" :view-of="viewOf" :show-of="showOf"
-                @open="emit('runOpen', $event)" @toggle="(id, c) => emit('runToggle', id, c)" @background="emit('background', $event)"
-              />
-            </template>
+            <RunGroup
+              v-else-if="piece.kind === 'group'" :open="openGroups.has(keyOf(message, piece))" :steps="stepsOf(piece)" :now="now" :collapsed="collapsed"
+              :view-of="viewOf" :show-of="showOf" @update:open="setGroup(keyOf(message, piece), $event)"
+              @open="emit('runOpen', $event)" @toggle="(id, c) => emit('runToggle', id, c)" @background="emit('background', $event)"
+            />
+            <RunList
+              v-else-if="piece.kind === 'runs' && shownIn(piece.runs).length > 0" :runs="shownIn(piece.runs)" :now="now" :collapsed="collapsed" :view-of="viewOf" :show-of="showOf"
+              @open="emit('runOpen', $event)" @toggle="(id, c) => emit('runToggle', id, c)" @background="emit('background', $event)"
+            />
             <AttachmentCard v-else-if="piece.kind === 'attachment'" :view-key="`${message.id}-${piece.key}`" :title="piece.part.title" :attachment="piece.part.attachment" :data="piece.part.data" :view="attachmentView(piece.part)" />
             <LinkCard v-else-if="piece.kind === 'link'" :link="piece.link" @open="emit('link', $event)" />
           </template>
@@ -180,14 +180,6 @@ function toggleReasoning(id: string): void {
   border-radius: 2px; background: var(--accent); animation: caret 1s steps(2) infinite;
 }
 @keyframes caret { 50% { opacity: 0; } }
-.reasoning { display: grid; gap: var(--space-1); }
-.reasoning-toggle { display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 2px var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); font-size: var(--text-sm); }
-.reasoning-toggle:hover { color: var(--text-dim); background: var(--surface-2); }
-.reasoning-text { margin: 0; padding: var(--space-2) var(--space-3); border-left: 2px solid var(--border-strong); color: var(--text-dim); font-size: var(--text-sm); white-space: pre-wrap; }
-.shimmer {
-  background: linear-gradient(90deg, var(--text-faint) 40%, var(--text) 50%, var(--text-faint) 60%) 0 0 / 300% 100%;
-  -webkit-background-clip: text; background-clip: text; color: transparent; animation: ui-shimmer 2s linear infinite;
-}
 .meta { display: flex; min-height: 32px; }
 .actions { opacity: 0; transition: opacity var(--fast) var(--ease); }
 .answer:hover .actions, .answer:focus-within .actions { opacity: 1; }

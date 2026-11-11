@@ -101,9 +101,11 @@ export type Track = (send: (hub: HubLink) => Promise<unknown>) => void;
  * attachments and links, its user's settings, and its log.
  */
 export function servicesFor(env: RunEnvironment, run: RunId, signal: AbortSignal, log: ScopedLog, track: Track): Services {
+  const llm = new HubLlm({ hub: env.hub, content: env.content, run }, signal);
   return {
     ...env.place,
-    llm: new HubLlm({ hub: env.hub, content: env.content, run }, signal),
+    llm,
+    ai: () => llm.listed(),
     files: env.files({ content: env.content, signal }),
     fetch: env.fetch,
     resources: new HubResources(env.hub, env.content, { run, signal }),

@@ -16,7 +16,7 @@ import {
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
   type ProviderChat, type ProviderChunk, type ProviderEmbed, type ProviderEmbedResult, type ValidateAnswer, type ValidateRequest,
-  type ConnectFinish, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest,
+  type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -134,6 +134,8 @@ export class TestCatalog implements Catalog {
   readonly records = new Map<QualifiedName, FnRecord>();
   readonly signatures = new Map<QualifiedName, FnSignature>();
   readonly contexts = new Map<QualifiedName, string>();
+  /** Build 6: more of a context item's declaration (what it imports, the fns it brings), by name. */
+  readonly contextDecls = new Map<QualifiedName, Partial<Pick<ContextDecl, 'imports' | 'fns' | 'choices'>>>();
 
   /** Declare a fn of a system. */
   add(system: string, name: string, def: AnyFnDef, extra: Partial<Pick<FnRecord, 'available' | 'paused' | 'disabled'>> = {}): FnRecord {
@@ -179,7 +181,7 @@ export class TestCatalog implements Catalog {
     const { system, local } = { system: name.slice(0, name.indexOf('/')), local: name.slice(name.indexOf('/') + 1) };
     return Promise.resolve({
       name, system: SystemName.parse(system), stale: false, updatedAt: 0, mentions: { context: [], fns: [] },
-      decl: { name: local, description: local, content, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] },
+      decl: { name: local, description: local, content, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], ...this.contextDecls.get(name) },
     });
   }
 
@@ -385,7 +387,7 @@ export async function executionRig(options: {
       followUp: (input) => { chat.followUps.push(input); return Promise.resolve(undefined); },
     },
     enrich: { render: (message) => message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') },
-    approvers: { approvers: (approver: Approver, turnUser: ActorId) => Promise.resolve(approver.by === 'turn-user' ? [turnUser] : approver.by === 'actor' ? [approver.actor] : []) },
+    approvers: { approvers: (approver: Approver, turnUser: ActorId) => Promise.resolve(approver.by === 'turn-user' ? [turnUser] : approver.by === 'actor' ? [approver.actor] : approver.by === 'admins' ? [ALICE] : []) },
     ports: { work: memoryBackend(), rate: rateMemory() },
     calls, metrics, planner: contextor.planner,
     llm: options.llm ?? { providers: { [SCRIPTED_AS]: provider }, models: [TEST_MODEL] },

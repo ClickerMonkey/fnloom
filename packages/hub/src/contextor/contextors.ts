@@ -23,6 +23,7 @@ import type {
   ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorFactories, ContextorInput, DynamicAsk, ExchangeSummary, FnView, Selection,
 } from './index.ts';
 import { contextBlock, earlierBlock, listedLine } from './render.ts';
+import { broughtFns, sizedChoices, withImports } from './brought.ts';
 import { baseScore, metricSettings, spread, wordShare, words, type Edge, type Signals } from './score.ts';
 import { forModel, usable } from './views.ts';
 
@@ -49,7 +50,9 @@ export function contextDetails(record: ContextRecord): readonly Detail[] {
 
 /** What a context item costs at a detail, as the prompt shows it. */
 export function contextCost(record: ContextRecord, detail: Detail, input: Pick<ContextorInput, 'ctx'>): number {
-  const text = detail === 'listed' ? `- ${contextText(record, 'listed')}\n` : `${contextBlock({ name: record.name, detail, text: contextText(record, detail) })}\n\n`;
+  const text = detail === 'listed'
+    ? `- ${contextText(record, 'listed')}\n`
+    : `${contextBlock({ name: record.name, detail, text: contextText(record, detail), fns: record.decl.fns, ...(record.decl.choices === undefined ? {} : { choices: record.decl.choices }) })}\n\n`;
   return input.ctx.estimator.text(text);
 }
 
@@ -166,17 +169,28 @@ export class PlainContextorImpl implements Contextor {
       cut.push({ what: name(item), why: 'left out to fit the model\'s window' });
       return false;
     });
-    const wanted = (await contextsOf(this.deps, [...asked.context, ...always.context, ...loaded.context], input)).filter((r) => r.decl.content !== undefined);
-    const records = shownInOrder(fit(wanted, (r) => contextCost(r, 'full', input), (r) => r.name), (r) => r.name, [...always.context, ...loaded.context, ...asked.context]);
-    const context: ChosenContext[] = records.map((record) => ({ record, detail: 'full', activation: 1, text: contextText(record, 'full') }));
-    const wantedFns = (await viewsOf(this.deps, [...asked.fns, ...always.fns, ...loaded.fns], input)).slice(0, payload.maxTools);
-    const views = shownInOrder(fit(wantedFns, (v) => input.mode.cost(v, detail, ctx), (v) => v.record.name), (v) => v.record.name, [...always.fns, ...loaded.fns, ...asked.fns]);
-    const fns: ChosenFn[] = views.map((view) => ({ view, detail, activation: 1 }));
+    // every item comes with the context it imports, and the kept ones bring their fns (`broughtFns`)
+    const [askedContext, alwaysContext, loadedContext] = await Promise.all([withImports(this.deps.catalog, asked.context), withImports(this.deps.catalog, always.context), withImports(this.deps.catalog, loaded.context)]);
+    const contextOrder = [...alwaysContext, ...loadedContext, ...askedContext];
+    const wanted = (await contextsOf(this.deps, [...askedContext, ...alwaysContext, ...loadedContext], input)).filter((r) => r.decl.content !== undefined);
+    const records = shownInOrder(fit(wanted, (r) => contextCost(r, 'full', input), (r) => r.name), (r) => r.name, contextOrder);
+    const context: ChosenContext[] = await Promise.all(records.map(async (record): Promise<ChosenContext> => ({
+      record, detail: 'full', activation: 1, text: contextText(record, 'full'), choices: await sizedChoices(this.deps.catalog, record, (text) => ctx.estimator.text(text)),
+    })));
+    const brought = broughtFns(records);
+    const wantedFns = (await viewsOf(this.deps, [...asked.fns, ...always.fns, ...brought, ...loaded.fns], input)).slice(0, payload.maxTools);
+    const views = shownInOrder(fit(wantedFns, (v) => input.mode.cost(v, detail, ctx), (v) => v.record.name), (v) => v.record.name, [...always.fns, ...brought, ...loaded.fns, ...asked.fns]);
     const contextTokens = records.reduce((sum, r) => sum + contextCost(r, 'full', input), 0);
-    const fnTokens = views.reduce((sum, v) => sum + input.mode.cost(v, detail, ctx), 0);
     const injected = await this.inject(input, context, left);
     const injectedTokens = injected.reduce((sum, c) => sum + contextCost(c.record, 'full', input), 0);
-    const history = fitHistory(input.history, Math.max(0, left - injectedTokens), input);
+    left = Math.max(0, left - injectedTokens);
+    // injected context brings its fns too, as far as they fit
+    const shown = new Set<string>(views.map((v) => v.record.name));
+    const injectedFns = broughtFns(injected.map((c) => c.record)).filter((name) => !shown.has(name));
+    const extra = fit((await viewsOf(this.deps, injectedFns, input)).slice(0, Math.max(0, payload.maxTools - views.length)), (v) => input.mode.cost(v, detail, ctx), (v) => v.record.name);
+    const fns: ChosenFn[] = [...views, ...extra].map((view) => ({ view, detail, activation: 1 }));
+    const fnTokens = fns.reduce((sum, f) => sum + input.mode.cost(f.view, detail, ctx), 0);
+    const history = fitHistory(input.history, left, input);
     const all = [...context, ...injected];
     const historyAsk = input.ctx.estimator.messages(input.history.flatMap((e) => [...e.messages]));
     const wantedTokens = wanted.reduce((sum, r) => sum + contextCost(r, 'full', input), 0);
@@ -212,7 +226,7 @@ export class SuggestContextorImpl extends PlainContextorImpl {
     if (auto === undefined || auto.items === 0 || input.query.trim() === '') return [];
     const hits = await safeSearch(this.deps, input, ['context'], this.#config.topN);
     const taken = new Set<string>(have.map((c) => c.record.name));
-    const records = await contextsOf(this.deps, hits.map((h) => h.key).filter((key) => !taken.has(key)), input);
+    const records = await contextsOf(this.deps, (await withImports(this.deps.catalog, hits.map((h) => h.key))).filter((key) => !taken.has(key)), input);
     const out: ChosenContext[] = [];
     let left = Math.min(auto.tokens, Math.max(0, room));
     for (const record of records) {
@@ -220,7 +234,7 @@ export class SuggestContextorImpl extends PlainContextorImpl {
       const cost = contextCost(record, 'full', input);
       if (cost > left) continue;
       left -= cost;
-      out.push({ record, detail: 'full', activation: hits.find((h) => h.key === record.name)?.score ?? 0, text: contextText(record, 'full') });
+      out.push({ record, detail: 'full', activation: hits.find((h) => h.key === record.name)?.score ?? 0, text: contextText(record, 'full'), choices: await sizedChoices(this.deps.catalog, record, (text) => input.ctx.estimator.text(text)) });
     }
     return out;
   }
@@ -268,7 +282,15 @@ export class GraphContextorImpl implements Contextor {
       ...input.always.context, ...input.always.fns, ...input.loaded.context, ...input.loaded.fns, ...input.asked.context, ...input.asked.fns, ...last.keys(), ...hits.map((h) => h.key),
     ]);
     const neighbours = await this.#deps.graph.neighbours(seeds.flatMap((s) => { const p = QualifiedName.safeParse(s); return p.success ? [p.data] : []; }), 1, K);
-    const candidates = await this.#candidates([...seeds, ...neighbours.keys()], input);
+    const found = await this.#candidates([...seeds, ...neighbours.keys()], input);
+    // a context's imports and brought fns are always candidates with it, so its unit is whole however it was found
+    const pooled = new Set<string>(found.map((c) => c.name));
+    const contexts = found.flatMap((c) => (c.kind === 'context' ? [c.record] : []));
+    const closure = [...await withImports(this.#deps.catalog, contexts.map((r) => r.name)), ...broughtFns(contexts)].filter((name) => !pooled.has(name));
+    const extra = closure.length === 0 ? [] : await this.#candidates(closure, input);
+    const more = extra.flatMap((c) => (c.kind === 'context' ? [c.record] : []));
+    const brought = broughtFns(more).filter((name) => !pooled.has(name) && !extra.some((c) => c.name === name));
+    const candidates = [...found, ...extra, ...(brought.length === 0 ? [] : await this.#candidates(brought, input))];
     const byName = new Map<string, Candidate>(candidates.map((c) => [c.name, c]));
 
     // 2. base scores
@@ -365,7 +387,10 @@ export class GraphContextorImpl implements Contextor {
     const fns: ChosenFn[] = [];
     for (const [name, detail] of detailOf) {
       const candidate = byName.get(name);
-      if (candidate?.kind === 'context') context.push({ record: candidate.record, detail, activation: act(name), text: contextText(candidate.record, detail) });
+      if (candidate?.kind === 'context') {
+        const choices = detail === 'listed' ? [] : await sizedChoices(this.#deps.catalog, candidate.record, (text) => input.ctx.estimator.text(text));
+        context.push({ record: candidate.record, detail, activation: act(name), text: contextText(candidate.record, detail), choices });
+      }
       if (candidate?.kind === 'fn') fns.push({ view: candidate.view, detail, activation: act(name) });
     }
     context.sort((a, b) => b.activation - a.activation || a.record.name.localeCompare(b.record.name));

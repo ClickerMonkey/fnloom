@@ -18,7 +18,7 @@ export {
 } from './fn.ts';
 export {
   type, setting, attachment, kind, arg, context, hook, hookBlock, mention, embedder, sectioner, sectionKeys, action,
-  type TypeDef, type AnyTypeDef, type ValueOf, type NamingKeys, type ContextLinkDef, type ContextLinkTarget, type MethodImpl, type SettingDef, type AttachmentDef, type KindDef, type KindImpl,
+  type TypeDef, type AnyTypeDef, type ValueOf, type NamingKeys, type ContextLinkDef, type ContextLinkTarget, type MethodImpl, type SettingDef, type AttachmentDef, type KindDef, type KindImpl, type KindEstimateInput,
   type KindCheckCtx, type KindRunCtx, type ArgDef, type ArgsOf, type ContextDef, type AnyContextDef, type ContextInput, type ContextImpl,
   type HookDef, type HookContribution, type HookImpl, type MentionDef, type MentionOption, type MentionCtx, type MentionImpl,
   type EmbedderDef, type EmbedderImpl, type SectionerDef, type SectionerImpl, type ActionDef, type ActionImpl,
@@ -31,21 +31,21 @@ export {
   Suspended, CallFailed, HandlerFailed,
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
-  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch,
+  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource,
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
 export type { FnImpl } from './impl.ts';
 export type { ResourceProvider } from './resources.ts';
 export { provider, providerDecl, type ProviderDef, type ProviderInput, type ProviderImpl } from './providers.ts';
 export {
-  system, CONTRACT_SECTIONS,
+  system, isSystemContract, CONTRACT_SECTIONS,
   type ContractShape, type ContractSection, type EmptyContract, type Merge, type SystemRefs, type SystemContract, type AnyContract, type ConfigOf,
   type ConnectImpl, type EventHandlers, type Lifecycle, type SystemImpl, type SystemInfo, type RegistryDef,
 } from './system.ts';
 export {
-  hub, ADMIN_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, FIND_KINDS, LlmPayloadType, ModelChoiceType, ChatModeType, ContextorType, FnErrorType,
+  hub, ADMIN_ENDPOINTS, ADMIN_READ_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, HUB_PERSON_ENDPOINTS, HUB_EXPLORE_ENDPOINTS, FIND_KINDS, LlmPayloadType, ModelChoiceType, ChatModeType, ContextorType, FnErrorType,
   StoredFn, SaveFnArgs, SAVE_FN_TAKEN,
-  type AdminFnName, type HubReadFnName, type HubWriteFnName, type HubContract,
+  type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
 } from './hub.ts';
 export { agent, type AgentInput, type AgentFnTypes, type LlmPayload, type LlmKind } from './agent.ts';
 export { manifestOf, manifestBody, fnDecl, canonicalJson, sha256, type ManifestOptions } from './manifest.ts';

@@ -2,33 +2,46 @@
  * One database instance: its connection, its tables as types, and running queries against it. Nothing here knows
  * the link: the implementation (`impl.ts`) hands it the hub's side through `HubSide` and the run's model calls.
  *
- * - **Scan** (`scan`, on configure and start): read the schema, enrich new and changed tables (cached by schema
- *   hash) and rebuild the query engine, so saved queries can be checked and described against it.
+ * - **Scan** (`scan`, on configure and start): read the schema, enrich new and changed tables and rebuild the query
+ *   engine, so saved queries can be checked and described against it. A table's enrichment is kept with its type in
+ *   the hub (`TableMeta`, by schema hash), so a model enriches a schema once and the system keeps no store.
  * - **Publish** (`publish`, right after): work out what changed since the table types the hub keeps for this
  *   instance (read from the hub each time, so nothing here remembers them). New tables and changes no saved query
  *   minds go to the hub straight away; a dropped table, or a change that breaks a saved query, waits for an admin as
  *   pending changes (with a type diff per table). `rescan` does both.
+ * - **Waiting changes** are the only thing an instance holds, in memory: every publish works them out again.
  * - **Run** (`read`, `write`, `dryRun`): a saved query's payload and a call's args become SQL for this dialect.
  */
 import { ginTypeToTable, type TableSpec } from '@aeye/query';
 import { createHash } from 'node:crypto';
-import { type GinTypeDef, type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
+import { Timestamp, type GinTypeDef, type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
 import type { Llm } from '@harness/sdk';
 import { Connection, dialectOf, type DatabaseConfig, type DatabaseInfo, type QueryPayload, type SortArg } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
 import { TableCatalog } from './catalog.ts';
 import { compileQuery, planCall, type CallPlan, type CompiledQuery, type PageLimits, type Refusal } from './compile.ts';
 import { openDatabase, type Database, type Rows, type Written } from './drivers/index.ts';
-import { schemaHash, type ScannedTable } from './schema.ts';
-import type { InstanceStore, PendingChanges } from './store.ts';
-import { hubTypeOf, identifierOf, qualifiedTypeOf, typeNameOf, type TableEnrichment } from './types.ts';
+import { z } from 'zod';
+import { ScannedTable, schemaHash } from './schema.ts';
+import { hubTypeOf, identifierOf, qualifiedTypeOf, typeNameOf, type KeptType, type TableEnrichment } from './types.ts';
+
+/** A table type change a rescan found that waits for an admin, with the scan it came from. */
+export const PendingChanges = z.object({
+  scan: z.string().min(1),
+  /** The tables as scanned (each one changed or new). */
+  tables: z.array(ScannedTable),
+  /** Tables that are gone, by name. */
+  dropped: z.array(z.string()),
+  foundAt: Timestamp,
+});
+export type PendingChanges = z.infer<typeof PendingChanges>;
 
 /** The hub's side of an instance's types. */
 export interface HubSide {
   /** Add or replace these table types, and take these away (local names). */
   types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void>;
-  /** The table types the hub keeps for this instance now, by local name (`main.orders`), with their definitions. */
-  known(): Promise<ReadonlyMap<string, GinTypeDef>>;
+  /** The table types the hub keeps for this instance now, by local name (`main.orders`), with their definitions and meta. */
+  known(): Promise<ReadonlyMap<string, KeptType>>;
   /**
    * The saved query fns of this instance that read a table type (`database/main.orders`), found in the hub's database
    * (`searchFns` by kind, instance and the types they read).
@@ -94,7 +107,6 @@ export interface TableProfile {
 export interface InstanceDeps {
   readonly instance: InstanceName;
   readonly dataDir: string;
-  readonly store: InstanceStore;
   readonly enricher: Enricher;
   readonly hub: HubSide;
   readonly limits: PageLimits;
@@ -183,11 +195,12 @@ export class DatabaseInstance {
   /** Read the schema, enrich it and rebuild the query engine; the hub is not told (`publish` does that). */
   async scan(llm: Llm | undefined): Promise<void> {
     const scanned = await this.db.schema();
+    const kept = await this.#keptEnrichments();
     // the enricher reads samples through a plain catalog of the tables as they are
     const plain = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, new Map());
     const enrichments = new Map<string, TableEnrichment>();
     for (const table of scanned) {
-      const enrichment = await this.#enrichment(table, plain, llm);
+      const enrichment = kept.get(schemaHash(table.spec)) ?? await this.#enrichment(table, plain, llm);
       if (enrichment !== undefined) { enrichments.set(schemaHash(table.spec), enrichment); }
     }
     this.#catalog = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, enrichments);
@@ -208,7 +221,7 @@ export class DatabaseInstance {
       const decl = decls.get(table.typeName);
       if (decl === undefined) { continue; }
       const kept = known.get(table.typeName);
-      const before = kept === undefined ? undefined : keptSpec(spec, kept);
+      const before = kept === undefined ? undefined : keptSpec(spec, kept.def);
       if (before === undefined) { added.push(spec.name); upsert.push(decl); applied.set(spec.name, spec); continue; }
       if (sameShape(before, spec)) { upsert.push(decl); applied.set(spec.name, spec); continue; }
       // only a change that narrows the table can break a saved query; the hub knows which saved queries read it
@@ -218,14 +231,14 @@ export class DatabaseInstance {
       // the hub keeps the type it has until an admin applies the change
       waiting.push(table.scanned);
       applied.set(spec.name, before);
-      parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, spec.name), before: kept ?? hubTypeOf(before), after: table.hubType, changes: changeWords(before, spec), breaks });
+      parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, spec.name), before: kept?.def ?? hubTypeOf(before), after: table.hubType, changes: changeWords(before, spec), breaks });
     }
     // a type the hub keeps for this instance with no table behind it any more is a dropped table's
     const present = new Set(this.#catalog.tables.map((table) => table.typeName));
     const prefix = `${this.instance}.`;
     const dropped = [...known.keys()].filter((name) => name.startsWith(prefix) && !present.has(name)).map((name) => name.slice(prefix.length));
     for (const name of dropped) {
-      const before = known.get(typeNameOf(this.instance, name));
+      const before = known.get(typeNameOf(this.instance, name))?.def;
       const breaks = (await this.#deps.hub.readers(qualifiedTypeOf(this.instance, name))).map((fn) => ({ fn, why: `It reads ${name}, which is gone.` }));
       parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, name), ...(before === undefined ? {} : { before }), changes: changeWords(undefined, undefined), breaks });
     }
@@ -345,9 +358,7 @@ export class DatabaseInstance {
   }
 
   async #enrichment(table: ScannedTable, catalog: TableCatalog, llm: Llm | undefined): Promise<TableEnrichment | undefined> {
-    const hash = schemaHash(table.spec);
-    const kept = await this.#deps.store.enrichment(hash);
-    if (kept !== undefined || !this.config.enrich.on || llm === undefined) { return kept; }
+    if (!this.config.enrich.on || llm === undefined) { return undefined; }
     const profile = await this.profile(table, catalog);
     let written: Awaited<ReturnType<Enricher['enrich']>>;
     try {
@@ -358,8 +369,21 @@ export class DatabaseInstance {
       return undefined;
     }
     this.#unenriched.delete(table.spec.name);
-    if ('problems' in written) { return undefined; }
-    await this.#deps.store.putEnrichment(hash, written);
-    return written;
+    return 'problems' in written ? undefined : written;
+  }
+
+  /**
+   * The enrichments already made, by schema hash: those the hub keeps with this instance's table types, and those of
+   * the current catalog (made by this process, maybe not sent yet because their change waits for an admin).
+   */
+  async #keptEnrichments(): Promise<Map<string, TableEnrichment>> {
+    const kept = new Map<string, TableEnrichment>();
+    for (const type of (await this.#deps.hub.known()).values()) {
+      if (type.meta?.enrichment !== undefined) { kept.set(type.meta.schemaHash, type.meta.enrichment); }
+    }
+    for (const table of this.#catalog.tables) {
+      if (table.enrichment !== undefined) { kept.set(table.hash, table.enrichment); }
+    }
+    return kept;
   }
 }

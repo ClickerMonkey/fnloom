@@ -5,8 +5,8 @@
  *
  * Owner: the hub-systems lane. `SystemEmbedders` (`embedders.ts`), `StoreIndexer` (`indexer.ts`), `IndexSearch`
  * (`search.ts`) and `IndexSuggester` (`suggester.ts`) implement the interfaces below; `EmbedBatcher` (`batch.ts`)
- * batches embeds, `Sectioning` (`sectioning.ts`) picks and runs sectioners (the hub's own are in `sectioners.ts`),
- * and `IndexEmbedding` (`embedding.ts`) answers systems that ask the hub to embed.
+ * batches embeds, and `Sectioning` (`sectioning.ts`) picks and runs sectioners (the hub's own are in `sectioners.ts`).
+ * Systems that need embeddings ask through the hub link's `model` (modality `embed`), recorded like any model call.
  */
 import type {
   ConvertedVersion, FormKind, IndexedKind, QualifiedName, ResourceLink, ResourceRoot, ResourceStat, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName,

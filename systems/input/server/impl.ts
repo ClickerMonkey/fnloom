@@ -100,6 +100,8 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
     },
     kinds: {
       form: {
+        // showing a form calls no model: free, whatever the payload
+        estimate: (_payload, input) => Promise.resolve({ min: 0, typical: 0, max: 0, basis: 'free', runs: input.history?.runs ?? 0 }),
         check: (payload) => Promise.resolve(formProblems(payload.type)),
         describe: () => Promise.resolve({
           args: wireType(g.obj({})),

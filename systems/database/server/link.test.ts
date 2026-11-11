@@ -18,7 +18,6 @@ import { QUERY_KIND, QueryRun, database } from '../shared/index.ts';
 import { databaseEnv } from './env.ts';
 import { NO_ENRICHER, RecordingHub, shopConfig, shopFile } from './fixture.ts';
 import { SELF_FLEET, createDatabaseImpl, type DatabaseServer } from './impl.ts';
-import { MemoryStore } from './store.ts';
 
 const packageManifest = SystemPackageManifest.parse(JSON.parse(readFileSync(new URL('../system.json', import.meta.url), 'utf8')));
 const settings = databaseEnv.parse();
@@ -66,7 +65,7 @@ describe('the database system over the link', () => {
   /** Called after each table type patch reaches the hub (the real hub describes saved queries again then). */
   let afterPatch: (() => Promise<void>) | undefined;
 
-  async function start(store = new MemoryStore(), config = shopConfig()): Promise<void> {
+  async function start(config = shopConfig()): Promise<void> {
     hub = new FakeHub({ config });
     types = new RecordingHub();
     // the hub keeps the table types the system sends, and lists them on its fleet
@@ -81,7 +80,7 @@ describe('the database system over the link', () => {
       });
     };
     server = createDatabaseImpl({
-      settings, instance: InstanceName.parse('main'), dataDir: dir, store, fleet: SELF_FLEET, enricher: NO_ENRICHER, now: () => 1_000,
+      settings, instance: InstanceName.parse('main'), dataDir: dir, fleet: SELF_FLEET, enricher: NO_ENRICHER, now: () => 1_000,
       hub: () => ({ types: async (upsert, remove) => { await types.types(upsert, remove); await afterPatch?.(); }, searchFns }),
     });
     // a tool's work is forwarded through the hub to the instance with the database: here, the one serving
@@ -207,7 +206,7 @@ describe('the database system over the link', () => {
 
   it('never saves a write on a read-only database, and refuses schema changes without schema allowed', async () => {
     dir = shopFile().dir;
-    await start(new MemoryStore(), shopConfig({ data: 'read-only', schema: 'none' }));
+    await start(shopConfig({ data: 'read-only', schema: 'none' }));
     const wipe = { name: 'wipe', title: 'Wipe', description: 'Deletes every order.', query: { kind: 'delete', from: 'orders' } };
     expect(done(await hub.run('database/check_query', { database: 'main', draft: wipe }))).toMatchObject({ ok: false, problems: [expect.stringContaining('read-only')] });
     expect(await hub.run('database/save_query', { database: 'main', draft: wipe })).toMatchObject({ status: 'invalid-input' });
@@ -220,7 +219,7 @@ describe('the database system over the link', () => {
   it('keeps a database to its audience: refused to a member outside it, served to one it is shared with', async () => {
     dir = shopFile().dir;
     const bo = { ...TEST_USER, id: ActorId.parse('act_bo'), name: 'Bo', role: 'member' as const };
-    await start(new MemoryStore(), shopConfig({ audience: { visibility: 'shared', with: [bo.id] } }));
+    await start(shopConfig({ audience: { visibility: 'shared', with: [bo.id] } }));
     // the instance answers for the run's person (in the hub, `tables` forwards here as the same person)
     const as = (user: typeof TEST_USER) => ({ run: hub.runInfo('database/at_instance', { user }) });
     const refused = await hub.run('database/at_instance', { op: 'tables' }, as({ ...TEST_USER, id: ActorId.parse('act_cy'), role: 'member' }));
@@ -263,8 +262,7 @@ describe('the database system over the link', () => {
 
   it('holds back a breaking rescan for an admin, naming the saved queries the hub says read the table, and applies it once approved', async () => {
     dir = shopFile().dir;
-    const store = new MemoryStore();
-    await start(store);
+    await start();
     done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }));
     const db = new BetterSqlite3(join(dir, 'shop.db'));
     db.exec('ALTER TABLE orders DROP COLUMN total');

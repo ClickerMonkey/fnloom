@@ -13,7 +13,6 @@ import type { EventBus } from '../bus.ts';
 import { StoreCatalog } from '../catalog/catalog.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { EmbedBatcher } from '../index/batch.ts';
-import { IndexEmbedding } from '../index/embedding.ts';
 import { SystemEmbedders } from '../index/embedders.ts';
 import type { IndexTuning } from '../index/env.ts';
 import type { ModelCallLog } from '../metrics/index.ts';
@@ -28,7 +27,7 @@ import { StoreConfigService } from './config.ts';
 import { PeerLinkService } from './connections.ts';
 import { LinkKindDescriber } from './describer.ts';
 import { SystemEventRelay } from './events.ts';
-import { LinkHandshake, linkPlugin, type LinkEmbedding } from './handlers.ts';
+import { LinkHandshake, linkPlugin } from './handlers.ts';
 import type { SystemTokens } from './index.ts';
 import type { PackagingEnv } from './env.ts';
 import { migrateLegacyInstances } from './migrate.ts';
@@ -72,8 +71,6 @@ export interface SystemsOptions {
   readonly secrets: () => ConfigVault;
   /** The typed callers of connected systems, shared with the hub link server (default a new registry). */
   readonly peers?: Peers<SystemLinkSpec>;
-  /** Replace how systems' embed requests are answered (tests); default the index's document embedder. */
-  readonly embedding?: LinkEmbedding;
   /** Replace the catalog (tests); default the store catalog with kinds described over the link. */
   readonly catalog?: (describer: LinkKindDescriber) => Catalog;
   /** Where embed calls to system embedders are recorded (the metrics module's log, looked up when used). */
@@ -104,6 +101,7 @@ export function buildSystems(options: SystemsOptions) {
   });
   const pairing = new StorePairingService({
     store, bus, log, clock, instances, autoPairs, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,
+    grantTtl: settings.link.HARNESS_PAIRING_GRANT_TTL, fn: (name) => catalog.fn(name),
     check: (system, type, value) => catalog.check(system, type, value),
     configType: async (system) => (await catalog.manifest(system))?.config,
     configSecrets: async (system) => (await catalog.manifest(system))?.configSecrets, secrets: configSecrets,
@@ -148,7 +146,6 @@ export function buildSystems(options: SystemsOptions) {
 
   const handshake = new LinkHandshake({
     log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output,
-    embedding: options.embedding ?? new IndexEmbedding({ embedders, batcher, catalog }),
     limits: { maxFrame: settings.link.HARNESS_MAX_FRAME, maxChunk: settings.link.HARNESS_MAX_CHUNK, heartbeat: settings.link.HARNESS_HEARTBEAT },
   });
 

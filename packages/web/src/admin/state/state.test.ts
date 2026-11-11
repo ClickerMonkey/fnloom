@@ -6,6 +6,7 @@ import { fakeCaller } from '../../test/fakes.ts';
 import { Loaded, Paged, Task } from '../../state/loaded.ts';
 import { withPage } from '../../state/query.ts';
 import { modelCallsBody } from './browsers.ts';
+import { RESTART_REASON } from './system.ts';
 import { budget, fakeAdmin, fakeAdminApi, installed, logLine, pairing, settingView, systemView, T0 } from '../test/fakes.ts';
 
 const fs = SystemName.parse('fs');
@@ -131,12 +132,12 @@ describe('SystemStore', () => {
     expect(admin.system.view.value.value?.enabled.renderers).toBe(true);
   });
 
-  it('runs lifecycle actions, restart being stop then start', async () => {
+  it('runs lifecycle actions, restart in one call with its reason (a hosted system restarts through its host)', async () => {
     const { admin, api } = fakeAdmin();
     await admin.system.open(fs);
     expect(await admin.system.act('restart')).toEqual({ ok: true, value: { kind: 'done' } });
-    expect(api.stopSystem.calls).toHaveLength(1);
-    expect(api.startSystem.calls).toHaveLength(1);
+    expect(api.restartSystem.calls.map(([body]) => body)).toEqual([{ system: fs, reason: RESTART_REASON }]);
+    expect(api.stopSystem.calls).toHaveLength(0);
     expect(await admin.system.act('upgrade', '1.0.0')).toEqual({ ok: true, value: { kind: 'upgrade', from: '0.4.0', to: '1.0.0' } });
     const reimport = await admin.system.act('reimport');
     expect(reimport.ok && reimport.value.kind).toBe('reimport');

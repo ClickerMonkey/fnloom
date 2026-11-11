@@ -93,7 +93,7 @@ export function contextOrder(chosen: readonly ChosenContext[]): ChosenContext[] 
 /** The system message's text after the instructions: the mode's guide, context, earlier summaries, fn cards. */
 export function contextRegion(guide: string, selection: Pick<Selection, 'context' | 'earlier'>, systemEnd: string): string {
   const ordered = contextOrder(selection.context);
-  const blocks = ordered.filter((c) => c.detail !== 'listed').map((c) => contextBlock({ name: c.record.name, detail: c.detail, text: c.text }));
+  const blocks = ordered.filter((c) => c.detail !== 'listed').map((c) => contextBlock({ name: c.record.name, detail: c.detail, text: c.text, fns: c.record.decl.fns, ...(c.choices === undefined ? {} : { choices: c.choices }) }));
   const listed = moreContext(ordered.filter((c) => c.detail === 'listed').map((c) => c.text));
   return [guide, ...blocks, listed, ...selection.earlier.map(earlierBlock), systemEnd].filter((part) => part !== '').join('\n\n');
 }

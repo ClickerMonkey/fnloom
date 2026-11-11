@@ -235,6 +235,12 @@ describe('composer rules', () => {
     expect(command === undefined ? [] : missingArgs({ ...command, args: [{ name: 'root', hint: '', required: true }] }, {})).toEqual(['root']);
   });
 
+  it('hints why a command typed by hand can’t be used now, even one with no args', () => {
+    const on = { name: 'gollum', context: QualifiedName.parse('memory/gollum'), args: [], description: 'Talk like Gollum' };
+    expect(commandHint('/gollum what can you do', [{ ...on, unavailable: 'memory has never connected' }])?.command.unavailable).toBe('memory has never connected');
+    expect(commandHint('/gollum hi', [on])).toBeUndefined();
+  });
+
   it('sends text, chips and a leading command as parts; a deleted chip is dropped', () => {
     expect(textParts('see @harness.md now', [mention])).toEqual([{ type: 'text', text: 'see ' }, mention, { type: 'text', text: ' now' }]);
     expect(pruneMentions('nothing here', [mention])).toEqual([]);

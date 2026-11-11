@@ -7,7 +7,7 @@ import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { systemsSlice, adminOnly, SystemView, type InstanceRecord, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { knownSystem, type AdminOperations } from '../admin-ops.ts';
+import { type AdminOperations } from '../admin-ops.ts';
 import { type FullHandlers } from './access.ts';
 import { allRows } from '../../catalog/rows.ts';
 import { defaultInstanceOf } from '../../link/status.ts';
@@ -19,7 +19,7 @@ export function maskedInstance(record: InstanceRecord): InstanceRecord {
 }
 
 /** How many pairing requests the admin list shows at most. */
-const MAX_PAIRINGS = 500;
+export const MAX_PAIRINGS = 500;
 import type { authPlugin } from './auth.ts';
 import type { HubReads } from '../reads.ts';
 
@@ -43,7 +43,7 @@ export async function systemView(hub: Pick<HubServices, 'catalog' | 'store'>, re
 
 /** The systems plugin. */
 export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, ops: AdminOperations, reads: HubReads) {
-  const { link, store } = hub;
+  const { store } = hub;
   return plugin({ name: 'web.systems', spec: systemsSlice, requires: [auth] })
     .middleware(adminOnly, () => async (io) => {
       if (io.ctx.user.role !== 'admin') { throw reject(403, 'ADMIN_ONLY', 'only an admin can do this'); }
@@ -64,12 +64,8 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
       installSystem: ({ data, user }) => ops.install_system(data, user.id),
       startSystem: ({ data, user }) => ops.start_system(data, user.id),
       stopSystem: ({ data, user }) => ops.stop_system(data, user.id),
-      // Build 6 stub (hub lane): restart through the host for hosted instances, else the supervisor.
-      restartSystem: () => Promise.reject(new Error('restartSystem is not built yet.')),
+      restartSystem: ({ data, user }) => ops.restart_system(data, user.id),
       upgradeSystem: ({ data, user }) => ops.upgrade_system(data, user.id),
-      reimport: async ({ data }) => {
-        await knownSystem(hub, data.system);
-        return link.admin.reimport(data.system);
-      },
+      reimport: ({ data, user }) => ops.system_reimport(data, user.id),
     }));
 }

@@ -59,6 +59,7 @@ export const ROUTES = {
   mcp: 'mcp',
   pair: 'pair',
   resources: 'resources',
+  explore: 'explore',
   context: 'context',
   contextItem: 'context-item',
   connect: 'connect',
@@ -105,6 +106,8 @@ export const QUERIES = {
   [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
   [ROUTES.llmCalls]: z.object({ q: z.string(), call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.resources]: BrowserQuery,
+  /** The file opened in the folder shown, by its name there. */
+  [ROUTES.explore]: z.object({ open: z.string().min(1) }).partial(),
   [ROUTES.context]: ContextBrowseQuery,
   [ROUTES.contextItem]: ContextItemQuery,
   [ROUTES.modelCalls]: z.object({ q: z.string(), run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
@@ -175,11 +178,20 @@ export const links = {
   }),
   /** The fns catalogue narrowed to one system's fns. */
   systemFns: (system: SystemName): RouteLocationRaw => links.fns({ q: queryParam('fns', { filters: [{ field: 'system', op: 'is', value: system }] }) }),
+  /** The context browser narrowed to one system's items. */
+  systemContext: (system: SystemName): RouteLocationRaw => links.context({ q: queryParam('contexts', { filters: [{ field: 'system', op: 'is', value: system }] }) }),
   /** The LLM calls browser; `query` narrows it (`q`) or opens one (`call`). */
   llmCalls: (query: RouteQuery<typeof ROUTES.llmCalls> = {}): RouteLocationRaw => ({ name: ROUTES.llmCalls, ...queryOf(ROUTES.llmCalls, query) }),
   /** The resource browser; `query` lays it out (`view`, `group`), narrows it (`q`, `system`, `family`, `under`, `in`) or opens one (`uri`, `mode`). */
   resources: (query: RouteQuery<typeof ROUTES.resources> = {}): RouteLocationRaw => ({ name: ROUTES.resources, ...queryOf(ROUTES.resources, query) }),
   /** Every context item, filtered; `query` may open the remember or make-from-a-resource dialog. */
+  /**
+   * A system instance's files, live (`/explore/fs/main/work/src?open=app.ts`): `path` is a root's name and the folders
+   * under it, `open` a file in that folder.
+   */
+  explore: (system: SystemName, instance: InstanceName, path: readonly string[] = [], open?: string): RouteLocationRaw => ({
+    name: ROUTES.explore, params: { system, instance, path: [...path] }, ...queryOf(ROUTES.explore, { open }),
+  }),
   context: (query: RouteQuery<typeof ROUTES.context> = {}): RouteLocationRaw => ({ name: ROUTES.context, ...queryOf(ROUTES.context, query) }),
   /** One context item with its links both ways (`fs/guide` is `/context/fs/guide`). */
   contextItem: (item: QualifiedName, query: RouteQuery<typeof ROUTES.contextItem> = {}): RouteLocationRaw => {
@@ -233,6 +245,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/chat/:session/turn/:turn/tree', name: ROUTES.turnTree, component: () => import('../pages/ChatPage.vue'), meta: { title: 'Run tree', group: 'chat', ownHeader: true } },
   { path: '/resources', name: ROUTES.resources, component: () => import('../pages/ResourcesPage.vue'), meta: { title: 'Resources' } },
   // a system's pairing QR code opens this (admins; a signed-out visitor signs in first and comes back)
+  { path: '/explore/:system/:instance/:path(.*)*', name: ROUTES.explore, component: () => import('../pages/ExplorePage.vue'), meta: { title: 'Files' } },
   { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
   { path: '/context/:system/:local(.+)', name: ROUTES.contextItem, component: () => import('../pages/ContextItemPage.vue'), meta: { title: 'Context' } },
   { path: '/pair/:pairing', name: ROUTES.pair, component: () => import('../pages/PairPage.vue'), meta: { title: 'Pair a system', admin: true } },

@@ -39,6 +39,7 @@ export function fakeFsSystem(online = true, starts = false): FakeFsSystem {
     run: {
       read: ask('read'), write: ask('write'), edit: ask('edit'), list: ask('list'), glob: ask('glob'), grep: ask('grep'),
       cd: ask('cd'), bash: ask('bash'), remove: ask('remove'), restart: ask('restart'), explore: ask('explore'),
+      install_system: ask('install_system'), system_status: ask('system_status'), restart_system: ask('restart_system'), stop_system: ask('stop_system'),
     },
   };
   return {

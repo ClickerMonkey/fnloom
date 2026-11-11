@@ -11,7 +11,7 @@
 import type { BaseRequest, BaseResponse, Request, Response, Streamer, Usage } from '@aeye/core';
 import { AI, type EmbeddingRequest, type ImageGenerationRequest, type ModelInfo, type Providers, type SpeechRequest, type TranscriptionRequest } from '@aeye/ai';
 import { models as knownModels, strictSupport } from '@aeye/models';
-import { compact, ModelProvider, type CacheSupport, type LlmInteractionId, type ModelInfo as ModelView, type ReservationId, type Usd } from '@harness/core';
+import { compact, ModelProvider, type CacheSupport, type LlmInteractionId, type ReservationId, type Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import type { ModelCallLog, OpenModelCall } from '../metrics/index.ts';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
@@ -20,7 +20,7 @@ import type { InteractionRecorder } from './interactions.ts';
 import {
   audioFile, audioMime, sizesOf, unitsOf, type EmbedCall, type MediaRequest, type Heard, type ImageCall, type MadeImage, type SpeechCall, type Spoken, type TranscribeCall,
 } from './media.ts';
-import type { ExecutionBase, LlmEngine, RunCosts } from './ports.ts';
+import type { EngineModel as ModelView, ExecutionBase, LlmEngine, RunCosts } from './ports.ts';
 import type { CallReceipts, HubCallContext, HubCallMetadata, LlmCallScope } from './scope.ts';
 import { requestToWire, responseToWire, tokensOf, usageToWire } from './wire.ts';
 
@@ -374,7 +374,8 @@ export class AeyeLlm implements RefreshableEngine {
       if (!kind.success || !providers.has(kind.data) || !fresh(`${kind.data}/${model.id}`)) return [];
       const text = model.pricing.text;
       return [{
-        id: model.id, provider: kind.data, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities],
+        id: model.id, provider: kind.data, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities], tier: model.tier,
+        ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
         ...(text?.input === undefined && text?.output === undefined ? {} : { pricing: { input: text.input ?? 0, output: text.output ?? 0 } }),
       }];
     });

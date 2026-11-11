@@ -1,52 +1,40 @@
 /**
- * `harness system build [dir]`: typecheck the system, check its contract's name equals `system.json`'s, bundle
- * `server/` into `dist/server/main.js` (everything inlined but `server.external` and Node's own modules), build
- * `client/` into `dist/client/`, and write `dist/system.json` with the built entries.
+ * `harness system build [dir]`: `@harness/build`'s `buildSystem` (typecheck, the contract's name, the context folder,
+ * a self-contained `dist/server/main.js`, `dist/client/`, `dist/context/`, `dist/system.json` and the bundle's scan),
+ * printing its problems or what it built.
  */
-import { join, relative, resolve } from 'node:path';
-import { PACKAGE_MANIFEST_FILE, type SystemPackageManifest } from '@harness/core';
-import { manifestBytes } from '@harness/hub/package';
+import { relative, resolve } from 'node:path';
+import { buildSystem as build } from '@harness/build';
+import type { SystemPackageManifest } from '@harness/core';
 import { z } from 'zod';
 import { command, type CliIo } from '../command.ts';
-import { BUILT, DIST, builtManifest, readSystemJson } from '../folder.ts';
 
-/** Where a system's contract is. */
-export const CONTRACT_ENTRY = 'shared/index.ts';
+/** What the build says about each failed stage before its problems. */
+const STAGE_HEADING = { typecheck: "doesn't typecheck:", contract: undefined, context: 'has context problems:' } as const;
 
-/** Build a system folder; true when it built. Shared with `pack`, which builds when `dist/` is stale. */
+/** Build a system folder; its built manifest, or `undefined` once the problems are printed. Shared with `pack`. */
 export async function buildSystem(dir: string, io: CliIo, options: { typecheck: boolean }): Promise<SystemPackageManifest | undefined> {
-  const manifest = await readSystemJson(io.files, dir);
   const label = relative(io.cwd, dir) || '.';
-  if (options.typecheck) {
-    const problems = await io.builder.typecheck(dir);
-    if (problems.length > 0) {
-      io.out.warn(`${label} doesn't typecheck:`);
-      for (const problem of problems) { io.out.warn(`  ${problem}`); }
-      return undefined;
+  const result = await build(dir, io, options);
+  if (!result.ok) {
+    const heading = STAGE_HEADING[result.stage];
+    if (heading === undefined) {
+      for (const problem of result.problems) { io.out.warn(problem); }
+    } else {
+      io.out.warn(`${label} ${heading}`);
+      for (const problem of result.problems) { io.out.warn(`  ${problem}`); }
     }
-  }
-  const names = await io.builder.contractNames(join(dir, CONTRACT_ENTRY));
-  if (!names.includes(manifest.name)) {
-    io.out.warn(names.length === 0
-      ? `${CONTRACT_ENTRY} exports no system contract`
-      : `${CONTRACT_ENTRY} exports ${names.map((n) => `"${n}"`).join(', ')}, but system.json names "${manifest.name}"`);
     return undefined;
   }
-  const dist = join(dir, DIST);
-  await io.files.remove(dist);
-  await io.builder.bundleServer({
-    entry: join(dir, manifest.server.entry), outDir: join(dist, 'server'), fileName: BUILT.server.slice('server/'.length), external: Object.keys(manifest.server.external),
-  });
-  if (manifest.client !== undefined) { await io.builder.buildClient({ entry: join(dir, manifest.client.entry), outDir: join(dist, 'client') }); }
-  const built = builtManifest(manifest);
-  await io.files.write(join(dist, PACKAGE_MANIFEST_FILE), manifestBytes(built));
-  io.out.line(`built ${manifest.name} ${manifest.version} into ${relative(io.cwd, dist) || dist}`);
-  return built;
+  const concerns = result.scan.concerns.length;
+  io.out.line(`built ${result.manifest.name} ${result.manifest.version} into ${relative(io.cwd, result.dist) || result.dist}`
+    + ` (${result.scan.size} bytes${concerns === 0 ? '' : `, ${concerns} lines of concern in the scan`})`);
+  return result.manifest;
 }
 
 export const buildCommand = command({
   path: ['system', 'build'],
-  summary: 'Typecheck a system, check its name, and bundle its server and client into dist/.',
+  summary: 'Typecheck a system, check its name and context, and bundle its server and client into dist/.',
   usage: '[dir] [--skip-typecheck]',
   args: z.object({
     positionals: z.array(z.string()).max(1),

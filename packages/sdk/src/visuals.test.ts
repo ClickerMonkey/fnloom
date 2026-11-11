@@ -52,6 +52,7 @@ describe('visual registries', () => {
     expect(r.visuals(REGISTRY, one).map((v) => `${v.system}/${v.name}`)).toEqual(['database/value', 'database/table']);
     expect(r.visuals(REGISTRY, many).map((v) => v.name)).toEqual(['table']);
     expect(r.visuals(REGISTRY, one)[0]?.props.table).toBe(one);
+    expect(r.visuals(REGISTRY, one).map((v) => v.label)).toEqual(['Value', 'Table']);
     expect(r.visuals('other/registry', one)).toEqual([]);
     expect(warn).toHaveBeenCalledWith('client.visual.match-failed', expect.objectContaining({ system: 'charts', name: 'broken' }));
     warn.mockRestore();

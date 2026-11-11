@@ -170,7 +170,7 @@ expectType<Equal<LlmPayload['contextor'], z.input<typeof ContextorConfig> | unde
 
 // ── The hub contract's build 2 fns are typed refs ─────────────────────────────
 
-expectType<Equal<typeof hub.fns.find.name, 'hub/find'>>(true);
+expectType<Equal<typeof hub.fns.fns_search.name, 'hub/fns_search'>>(true);
 expectType<Equal<typeof hub.fns.resource_read.name, 'hub/resource_read'>>(true);
 expectType<Equal<typeof hub.fns.set_model_role.name, 'hub/set_model_role'>>(true);
 expectType<Equal<typeof hub.fns.chat_small.name, 'hub/chat_small'>>(true);
@@ -187,6 +187,6 @@ expectType<Equal<Infer<typeof hub.fns.set_model_role.args>, { input: z.input<typ
 expectType<Equal<Infer<typeof hub.fns.forget.returns>, z.input<typeof contextSlice.endpoints.forget.cfg.response>>>(true);
 // @ts-expect-error a resource read needs its uri
 void ((args: Infer<typeof hub.fns.resource_read.args>) => args)({});
-// `hub/find` looks for every kind of item a link can point at
+// `FIND_KINDS` lists every kind of item a link can point at
 expectType<Equal<(typeof FIND_KINDS)[number], LinkTargetKind>>(true);
 expectType<Equal<LlmPayload['maxOutput'], number | undefined>>(true);

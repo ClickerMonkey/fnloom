@@ -1,51 +1,28 @@
 /**
- * The contextor's hub fns: the static toolset's `find`, `inspect`, `load` and `unload` (real fns, so they have
- * policies, runs and metrics like any other), and the `model_limits` read. `find` searches the index for fns,
- * context, types and resource sections and marks what the session has loaded; `inspect` shows one item at a detail
+ * The contextor's hub fns: the static toolset's `inspect`, `load` and `unload` (real fns, so they have policies,
+ * runs and metrics like any other; its `find` tool is `hub/fns_search`), and the `model_limits` read. `inspect` shows one item at a detail
  * with the same renderers the prompt uses; `load` and `unload` change the session's loaded fns and context, which the
  * contextors keep in front of the model. `set_model_limits` is an admin operation (`api/admin-ops.ts`).
  */
-import { QualifiedName, splitName, type ActorId, type IndexedKind, type Session, type SessionId } from '@harness/core';
-import { FIND_KINDS, hub, HUB_READ_ENDPOINTS } from '@harness/sdk';
+import { QualifiedName, splitName, type ActorId, type ContextRecord, type Session, type SessionId } from '@harness/core';
+import { hub, HUB_READ_ENDPOINTS } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
-import { allowsSystem, searchSystems } from '../chat/support.ts';
+import { allowsSystem } from '../chat/support.ts';
 import { InvalidArgs, type HubFnCtx, type HubFns } from '../execution/executors.ts';
 import type { Search } from '../index/index.ts';
-import { parseSectionIndexKey } from '../index/indexer.ts';
 import type { HubStore } from '../store/index.ts';
 import { contextDetailAtMost, contextText, unique, visible } from './contextors.ts';
 import type { ContextorServices, FnViewSource } from './index.ts';
 import { limitsFor } from './limits.ts';
 import type { McpScope } from '../mcp/index.ts';
 import type { AccessScope } from '../access/index.ts';
-import { seesContextNamed, seesTypeNamed } from '../access/scope.ts';
 import { fnCard, listedLine } from './render.ts';
-import { forModel, modelMayUse } from './views.ts';
+import { fnRefusal, modelMayUse } from './views.ts';
+import { broughtFns, withImports } from './brought.ts';
 
-/** What `find` looks for, as an index kind. */
-type FindKind = (typeof FIND_KINDS)[number];
-const INDEX_KIND: Readonly<Record<FindKind, IndexedKind>> = { fn: 'fn', context: 'context', type: 'type', resource: 'section' };
-const FIND_KIND: Readonly<Record<IndexedKind, FindKind | undefined>> = { fn: 'fn', context: 'context', type: 'type', section: 'resource', message: undefined, example: undefined };
-
-/** How many hits `find` returns when the model doesn't say, and the most it looks through. */
-const FIND_LIMIT = 8;
-const FIND_MAX = 50;
-
-/** What a hub MCP exposes, as `find` and `inspect` keep to it when they run for one of its clients. */
+/** What a hub MCP exposes, as `fns_search` and `inspect` keep to it when they run for one of its clients. */
 export type FnScope = Pick<McpScope, 'fns' | 'types' | 'context' | 'allowsResource'>;
-
-/** Whether a hit is inside an MCP's scope. */
-function inScope(scope: FnScope, kind: FindKind, key: string): boolean {
-  if (kind === 'resource') return scope.allowsResource(parseSectionIndexKey(key).uri);
-  const name = QualifiedName.safeParse(key);
-  if (!name.success) return false;
-  switch (kind) {
-    case 'fn': return scope.fns.has(name.data);
-    case 'context': return scope.context.has(name.data);
-    case 'type': return scope.types.has(name.data);
-  }
-}
 
 /** What the contextor fns read, each looked up when a fn runs. */
 export interface ContextorFnDeps {
@@ -59,19 +36,6 @@ export interface ContextorFnDeps {
   readonly mcpScope: (caller: ActorId) => Promise<FnScope | undefined>;
   /** What the run's person may see and use. */
   readonly access: (actor: ActorId) => Promise<AccessScope>;
-}
-
-/** Whether a person may see what a `find` hit names. */
-async function seesHit(deps: ContextorFnDeps, access: AccessScope, kind: FindKind, key: string): Promise<boolean> {
-  if (kind === 'resource') return access.seesUri(parseSectionIndexKey(key).uri);
-  const name = QualifiedName.safeParse(key);
-  if (!name.success) return false;
-  const system = splitName(name.data).system;
-  switch (kind) {
-    case 'fn': return access.seesFn({ name: name.data, system });
-    case 'context': return seesContextNamed(access, (n) => deps.catalog().context(n), name.data);
-    case 'type': return seesTypeNamed(access, (n) => deps.catalog().type(n), name.data);
-  }
 }
 
 /** The session a run is in, if any. */
@@ -89,26 +53,6 @@ async function requireSession(deps: ContextorFnDeps, ctx: HubFnCtx): Promise<Ses
 
 /** Register the contextor's hub fns. */
 export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
-  fns.register(hub.fns.find, async (args, ctx) => {
-    const session = await sessionOf(deps, ctx);
-    const scope = await deps.mcpScope(ctx.request.run.caller);
-    const access = await deps.access(ctx.request.run.user.id);
-    const kinds = (args.kinds ?? FIND_KINDS).map((kind) => INDEX_KIND[kind]);
-    const limit = args.limit ?? FIND_LIMIT;
-    // through an MCP, hits outside its scope are dropped, so ask for more
-    const hits = await deps.search().search({ text: args.query, kinds, limit: scope === undefined ? limit : FIND_MAX, ...(session === undefined ? {} : { systems: searchSystems(session) }) });
-    const loaded = new Set<string>([...(session?.tools ?? []), ...(session?.context ?? [])]);
-    const out: Array<{ name: string; kind: FindKind; description: string; loaded: boolean }> = [];
-    for (const hit of hits) {
-      const kind = FIND_KIND[hit.kind];
-      if (kind === undefined || (scope !== undefined && !inScope(scope, kind, hit.key)) || !(await seesHit(deps, access, kind, hit.key))) continue;
-      const description = await describe(deps, kind, hit.key, hit.text);
-      if (description !== undefined) out.push({ name: kind === 'resource' ? resourceName(hit.key) : hit.key, kind, description, loaded: loaded.has(hit.key) });
-      if (out.length >= limit) break;
-    }
-    return out;
-  });
-
   fns.register(hub.fns.inspect, async (args, ctx) => {
     const session = await sessionOf(deps, ctx);
     const scope = await deps.mcpScope(ctx.request.run.caller);
@@ -149,18 +93,29 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
       if (!allowsSystem(session, splitName(name.data).system)) { refused.push({ name: given, reason: 'this session does not use that system' }); continue; }
       const fn = await deps.catalog().fn(name.data);
       if (fn !== undefined) {
-        if (modelMayUse(fn, session, access)) tools.push(name.data);
-        else refused.push({ name: given, reason: fn.disabled ? 'switched off' : !forModel(fn.decl.visibility) ? 'not for the model' : 'unavailable now' });
+        const reason = fnRefusal(fn, session, access);
+        if (reason === undefined) tools.push(name.data);
+        else refused.push({ name: given, reason });
         continue;
       }
       const item = await deps.catalog().context(name.data);
       if (item !== undefined && visible(item, { session, user: ctx.request.run.user.id, access })) context.push(name.data);
       else refused.push({ name: given, reason: 'no fn or context has that name' });
     }
-    if (tools.length > 0 || context.length > 0) {
-      await deps.sessions().load(session.id, { tools: unique([...session.tools, ...tools]), context: unique([...session.context, ...context]) });
+    // context loads with what it imports, and brings its fns (`broughtFns`), as hub/load_context does
+    const user = ctx.request.run.user.id;
+    const records: ContextRecord[] = [];
+    for (const name of await withImports(deps.catalog(), context)) {
+      const parsed = QualifiedName.safeParse(name);
+      const item = parsed.success ? await deps.catalog().context(parsed.data) : undefined;
+      if (item !== undefined && visible(item, { session, user, access })) records.push(item);
     }
-    return { loaded: [...tools, ...context], refused };
+    for (const name of broughtFns(records)) if (fnRefusal(await deps.catalog().fn(name), session, access) === undefined) tools.push(name);
+    const loadedContext = records.map((r) => r.name);
+    if (tools.length > 0 || loadedContext.length > 0) {
+      await deps.sessions().load(session.id, { tools: unique([...session.tools, ...tools]), context: unique([...session.context, ...loadedContext]) });
+    }
+    return { loaded: unique([...tools, ...loadedContext]), refused };
   });
 
   fns.register(hub.fns.unload, async (args, ctx) => {
@@ -178,22 +133,3 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     return limitsFor(deps.contextor().limits, model);
   });
 }
-
-/** One line about a hit: its declared description, or the first line of a section. Undefined for an item that is gone. */
-async function describe(deps: ContextorFnDeps, kind: FindKind, key: string, text: string): Promise<string | undefined> {
-  if (kind === 'resource') return text.split('\n', 1)[0]?.slice(0, 160) ?? key;
-  const name = QualifiedName.safeParse(key);
-  if (!name.success) return undefined;
-  switch (kind) {
-    case 'fn': return (await deps.catalog().fn(name.data))?.decl.description;
-    case 'context': return (await deps.catalog().context(name.data))?.decl.description;
-    case 'type': return (await deps.catalog().type(name.data))?.description;
-  }
-}
-
-/** A section hit's name: `uri#section`, or the uri. */
-function resourceName(key: string): string {
-  const at = parseSectionIndexKey(key);
-  return 'section' in at ? `${at.uri}#${at.section}` : at.uri;
-}
-

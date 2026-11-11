@@ -1,12 +1,12 @@
 /**
- * Crawls over a fake site: the real page loader on a scripted `fetch`, robots.txt read once per origin, links
+ * Crawls over a fake site: `@aeye/resources`' graph over the real page loader on a scripted `fetch`, robots.txt read once per origin, links
  * followed by depth, same-site, include and exclude, the page limit, and pages held for the hub's fetch back.
  */
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { mintId, type ResourceUri } from '@harness/core';
 import { CallFailed } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
-import { Crawler, FetchedPages, crawlFolder, crawlRoot, globMatches, linksOf, type CrawlPlan, type PageImporter } from './crawl.ts';
+import { Crawler, FetchedPages, crawlFolder, crawlRoot, globMatches, type CrawlPlan, type PageImporter } from './crawl.ts';
 import { PageLoader } from './loader.ts';
 import { RobotsRules } from './robots.ts';
 import { PageTabs } from './renderer.ts';
@@ -41,6 +41,7 @@ function crawler(overrides: { importPage?: PageImporter; maxLinks?: number } = {
     }),
     agent: 'harness-web',
     maxLinks: overrides.maxLinks ?? 100,
+    concurrency: 1,
     progress: (fraction) => { progress.push(fraction); },
     signal: new AbortController().signal,
   });
@@ -101,11 +102,6 @@ describe('crawl helpers', () => {
     expect(globMatches('*.html', url)).toBe(true);
     expect(globMatches('https://example.com/**', url)).toBe(true);
     expect(globMatches('/blog/**', url)).toBe(false);
-  });
-
-  it('reads links: absolute, by <base>, without fragments or nofollow', () => {
-    const links = linksOf('<base href="https://example.com/sub/"><a href="a#x">a</a><a rel="nofollow" href="/b">b</a><a href="javascript:void 0">c</a><a href="">d</a>', 'https://example.com/');
-    expect(links.map((l) => l.href)).toEqual(['https://example.com/sub/a']);
   });
 
   it('holds a fetched page once, until its time is up', () => {

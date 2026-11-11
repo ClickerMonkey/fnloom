@@ -168,6 +168,8 @@ export class ComposerStore {
       this.#replace(trigger, `${mentionToken(chip)} `);
       if (known === undefined) { this.mentions.value = [...this.mentions.value, chip]; }
     } else if (item.kind === 'command') {
+      // a command that can't run now is shown with its reason, never put in the draft
+      if (item.command.unavailable !== undefined) { return; }
       this.#replace(trigger, `/${item.command.name} `);
     } else {
       this.#replace(trigger, '');

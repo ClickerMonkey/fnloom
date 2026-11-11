@@ -47,3 +47,8 @@ export function relativeTime(at: number, now: number, locale?: string): string {
 export function fullTime(at: number, locale?: string): string {
   return new Date(at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
 }
+
+/** A long hash cut to its first characters, enough to compare by eye; the whole value belongs in a tooltip. */
+export function shortHash(hash: string): string {
+  return hash.length > 16 ? `${hash.slice(0, 12)}…` : hash;
+}

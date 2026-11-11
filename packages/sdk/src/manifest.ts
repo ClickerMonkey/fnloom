@@ -175,6 +175,7 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     kinds: entriesOf(defs.kinds).map(([name, def]) => ({
       name, description: def.description, applicability: def.applicability, payload: wireType(def.payload), approveChanges: def.approveChanges,
       ...(def.status === undefined ? {} : { status: def.status }),
+      ...(def.estimates ? { estimates: true } : {}),
     })),
     fns,
     context: entriesOf(defs.context).map(([name, def]) => contextDecl(name, def)),

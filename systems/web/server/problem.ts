@@ -8,6 +8,8 @@ import type { ErrorClass } from '@harness/core';
 export const PROBLEMS = {
   /** Not an http(s) URL. */
   'bad-url': 'caller',
+  /** The site's robots.txt disallows the URL (a crawl leaves it out). */
+  'robots': 'caller',
   /** A private, loopback or link-local address while `allowPrivate` is off. */
   'private-address': 'caller',
   /** The server answered with a status that isn't success (4xx). */

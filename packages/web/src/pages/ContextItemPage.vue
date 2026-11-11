@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /**
- * One context item (`/context/:system/:local`): what it is (origin, system, `/command`, the agents it is always given
- * to, tags, size in tokens, weight, when it changed), its text, and its links both ways, grouped by relation. A person
+ * One context item (`/context/:system/:local`), titled by its title (else its description): what it is (origin,
+ * system, its key for admins, who sees it, `/command`, the agents it is always given to, tags, size in tokens, weight,
+ * when it changed), its text, the choices it offers the model (each worded as a decision, opening the item it loads),
+ * and its links both ways, grouped by relation. A person
  * adds a link (`?link=1`) and removes links they drew; a memory is edited (`?edit=1`, written anew) or forgotten.
  * Live: a change to this item or one it links with reloads it.
  */
@@ -17,7 +19,7 @@ import LoadState from '../admin/components/LoadState.vue';
 import LinkDialog from '../context/components/LinkDialog.vue';
 import LinkGroups from '../context/components/LinkGroups.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
-import { linkKey, ORIGIN_WORDS, originOf, scopeText, sizeText, type LinkDraft, type MemoryDraft } from '../context/logic/context.ts';
+import { AUDIENCE_WORDS, contextKey, contextLabel, linkKey, ORIGIN_WORDS, originOf, scopeText, sizeText, type LinkDraft, type MemoryDraft } from '../context/logic/context.ts';
 import { targetRoute } from '../context/logic/targets.ts';
 import { useStores } from '../state/stores.ts';
 import { fullTime, relativeTime, UiBadge, UiBanner, UiButton, UiCard, UiIcon, UiMarkdown } from '../ui/index.ts';
@@ -42,6 +44,8 @@ const name = computed(() => {
 });
 const view = computed(() => item.view.value.value);
 const record = computed(() => view.value?.record);
+const title = computed(() => (record.value === undefined ? name.value ?? 'Context' : contextLabel(record.value.decl)));
+const choices = computed(() => record.value?.decl.choices ?? []);
 const origin = computed(() => (record.value === undefined ? undefined : ORIGIN_WORDS[originOf(record.value)]));
 const memory = computed(() => (record.value?.origin?.type === 'memory' ? record.value.origin : undefined));
 /** A memory written for its author or one chat stays that way: its sharing card shows it, locked. */
@@ -89,7 +93,7 @@ async function save(draft: MemoryDraft): Promise<void> {
 </script>
 
 <template>
-  <AppPage :title="name ?? 'Context'" :description="record?.decl.description ?? ''" keep-title>
+  <AppPage :title="title" :description="record?.decl.title === undefined ? '' : record.decl.description" keep-title>
     <template #crumb>
       <RouterLink :to="links.context()" class="crumb" data-testid="back-to-context"><UiIcon name="chevron-left" :size="14" />Context</RouterLink>
     </template>
@@ -107,6 +111,8 @@ async function save(draft: MemoryDraft): Promise<void> {
             <dl class="facts" data-testid="context-facts">
               <div><dt>Origin</dt><dd><UiIcon :name="origin.icon" :size="14" /> {{ origin.label }}</dd></div>
               <div><dt>System</dt><dd><code>{{ record.system }}</code></dd></div>
+              <div v-if="admin && originOf(record) === 'system'" data-testid="context-key"><dt>Key</dt><dd><code>{{ contextKey(record.name) }}</code></dd></div>
+              <div><dt>Seen by</dt><dd>{{ AUDIENCE_WORDS[record.decl.visible] }}</dd></div>
               <div v-if="memory?.scope.to === 'session'"><dt>For</dt><dd>{{ scopeText(memory.scope) }}</dd></div>
               <div v-if="fromResource"><dt>Made from</dt><dd><RouterLink :to="links.resources({ uri: fromResource.uri })" class="uri">{{ fromResource.uri }}</RouterLink><template v-if="fromResource.section"> § {{ fromResource.section }}</template></dd></div>
               <div v-if="fromResource"><dt>Text</dt><dd>{{ fromResource.copy === 'live' ? 'Live: read when loaded' : 'A snapshot' }}</dd></div>
@@ -125,6 +131,11 @@ async function save(draft: MemoryDraft): Promise<void> {
           </UiCard>
         </div>
         <div class="side">
+          <UiCard v-if="choices.length > 0" :title="`Choices · ${choices.length}`" subtitle="What the model may load next, and when." compact data-testid="context-choices">
+            <ul class="choices">
+              <li v-for="choice in choices" :key="choice.to"><RouterLink :to="links.contextItem(choice.to)" class="choice"><span>{{ choice.when }}</span><code v-if="admin">{{ choice.to }}</code></RouterLink></li>
+            </ul>
+          </UiCard>
           <UiCard :title="`Links out · ${view.links.length}`" subtitle="What this item links to." compact data-testid="links-out">
             <template #actions><UiButton size="sm" variant="ghost" icon="plus" @click="linking = true">Add</UiButton></template>
             <LinkGroups :links="view.links" direction="out" :route-of="routeOf" :removing="removing" empty="It links to nothing yet." @remove="removeLink" />
@@ -156,6 +167,11 @@ async function save(draft: MemoryDraft): Promise<void> {
 .chips { gap: var(--space-1); }
 .uri { font-family: var(--mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .text { max-height: 60vh; overflow: auto; }
+.choices { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.choice { display: grid; gap: 2px; padding: var(--space-2); border-radius: var(--radius); color: var(--text); font-size: var(--text-sm); text-decoration: none; }
+.choice:hover { background: var(--surface-2); text-decoration: none; }
+.choice:focus-visible { outline: none; box-shadow: var(--ring); }
+.choice code { color: var(--text-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .none { margin: 0; color: var(--text-faint); font-size: var(--text-sm); }
 @media (min-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }

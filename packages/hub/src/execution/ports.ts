@@ -6,7 +6,7 @@ import type { Streamer } from '@aeye/core';
 import type { Logger } from '@ayepi/log';
 import type {
   FnError, FnRecord, IdRandom, Json, LlmMessage, OutcomeWire, Run, RunId, RunInfo, RunRequest, RunSettled, UndoOutcome, Usd,
-  ModelInfo, RunControlAction,
+  ModelInfo, HubModelInfo, RunControlAction,
 } from '@harness/core';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
@@ -128,7 +128,7 @@ export interface LlmEngine {
   image(input: ImageCall, ctx: HubCallContext, signal?: AbortSignal): Promise<MadeImage[]>;
   transcribe(input: TranscribeCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Heard>;
   speech(input: SpeechCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Spoken>;
-  models(): ModelInfo[];
+  models(): EngineModel[];
 }
 
 /**
@@ -142,3 +142,9 @@ export interface Conversation {
   /** Put tool replies right after the assistant message at `anchor` (before any user message that came in since). */
   answer(anchor: number, replies: readonly LlmMessage[]): Promise<void>;
 }
+
+/**
+ * A model as the hub's engine knows it: `ModelInfo` plus aeye's tier and output cap when the engine has them, so the
+ * hub link's `models` can give systems' aeye what its selection needs (`HubModelInfo`).
+ */
+export type EngineModel = ModelInfo & Partial<Pick<HubModelInfo, 'tier' | 'maxOutputTokens'>>;

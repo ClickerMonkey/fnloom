@@ -6,13 +6,17 @@
  * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
-import type { AutoPairGrant, Duration, QualifiedName, TypeDecl } from '@harness/core';
-import type { FnSearch } from '../ctx.ts';
+import type { AutoPairGrant, Duration, FnExamplesPatch, ImportReport, QualifiedName, TypeDecl } from '@harness/core';
+import type { Fleets, FnSearch } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
 import type { ContractShape, SystemContract, SystemImpl } from '../system.ts';
 import type { FilesFactory } from './files.ts';
+import type { HarnessAi } from './llm.ts';
+import type { SystemPatch } from './table.ts';
+import { join } from 'node:path';
+import { CONTEXT_FOLDER } from './context-files.ts';
 import { LinkHost } from './host.ts';
 import { SYSTEM_ENV, sdkEnv } from './env.ts';
 import { checkPackage, findPackageManifest } from './package.ts';
@@ -45,6 +49,12 @@ export interface ServeOptions {
   files?: FilesFactory;
   /** The `ctx.fetch` each run gets. Default: the global `fetch`. */
   fetch?: typeof fetch;
+  /**
+   * The system's context folder (markdown files with YAML headers, `context-files.ts`), sent as its context; `false`
+   * for none. Default: `context/` beside its `system.json`, when there is one. A folder with problems stops the start;
+   * with `HARNESS_CONTEXT_WATCH` its changes go to the hub live.
+   */
+  context?: string | false;
 }
 
 /** Where the MCP face listens: stdin/stdout, or MCP Streamable HTTP on a port (any path; body limit `HARNESS_MCP_MAX_BODY`). */
@@ -53,8 +63,8 @@ export type McpServe = { stdio: true } | { http: { port: number; host?: string }
 /** Where a running system is. */
 export type RunningStatus = 'connecting' | 'pairing' | 'needs-config' | 'connected' | 'disconnected' | 'stopped';
 
-/** A running system. */
-export interface RunningSystem<N extends string> extends FnSearch {
+/** A running system. It searches the hub and lists its fleet (every paired instance) as the system itself. */
+export interface RunningSystem<N extends string> extends FnSearch, Fleets {
   readonly name: N;
   readonly status: RunningStatus;
   /** Calls `listener` on every status change; returns the unsubscribe. */
@@ -65,8 +75,22 @@ export interface RunningSystem<N extends string> extends FnSearch {
   add<const K extends string, T extends FnTypes & { kind: 'native' }>(name: K, def: FnDef<T>, impl: FnImpl<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
   /** Add a fn of some kind at runtime (no implementation: its kind runs it). */
   add<const K extends string, T extends FnTypes>(name: K, def: FnDef<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
-  /** Remove a fn added at runtime. */
+  /** Remove a fn: one added at runtime, or one of the contract's (it is no longer declared or run until a patch adds it back). */
   remove(fn: AnyFnRef): Promise<void>;
+  /**
+   * Change any declarations while running, in core's shapes: add or replace entries by name in any section (context
+   * by its stable key, settings, kind fns, …), remove entries (the contract's too), replace the providers, registries
+   * or contributions lists, or say the resource roots changed. Checked here first; the hub keeps static and runtime
+   * entries in the same records. While offline the change rides in the next manifest. Native fns go through `add`.
+   */
+  patch(change: SystemPatch): Promise<ImportReport>;
+  /**
+   * Add or replace (by `key`) and remove examples of one of this system's fns, by local name, in the hub's
+   * `fnExamples` (the hub embeds and pages them). Waits for the hub.
+   */
+  examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }>;
+  /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
+  ai(): Promise<HarnessAi>;
   /**
    * Add or replace types at runtime (a database's table types, each with its `instance`) and remove types added this
    * way, by local name. While offline they ride in the next manifest. Throws when the hub refuses one.
@@ -104,9 +128,25 @@ export async function serve<N extends string, C extends ContractShape>(contract:
   const manifest = await findPackageManifest(options.package ?? process.cwd());
   if (manifest === undefined) { return host.start(contract, impl, options); }
   checkPackage(contract, manifest, sdkEnv.parse()[SYSTEM_ENV.instance]);
-  return host.start(contract, impl, { ...options, version: options.version ?? manifest.version });
+  return host.start(contract, impl, {
+    ...options, version: options.version ?? manifest.version, context: options.context ?? join(options.package ?? process.cwd(), CONTEXT_FOLDER),
+  });
 }
 
+/**
+ * aeye through the hub anywhere in a system's process (background jobs, timers, startup): an `@aeye/ai` instance
+ * whose provider is the hub, with the hub's models and roles listed. Calls are attributed to the system and paid by
+ * its own budget; inside a run use `ctx.ai()`, so the run pays.
+ */
+export function hubAi(system: Pick<RunningSystem<string>, 'ai'>): Promise<HarnessAi> {
+  return system.ai();
+}
+
+export type { SystemPatch } from './table.ts';
+export {
+  CONTEXT_FOLDER, ContextFolderError, contextChange, contextProblem, formatContextProblem, parseContextFile, positionOf, readContextFolder, watchContextFolder,
+  type ContextFile, type ContextFolder, type ContextWatchEvents,
+} from './context-files.ts';
 export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
 export { placeFolders, RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, systemState, defaultStateFolder, type SdkEnv } from './env.ts';
 export { contentHash, contentHasher, type ContentHasher } from './content.ts';
@@ -114,7 +154,8 @@ export { AUTO_PAIR_FILE, FileKeyStore, isPublicKey, KEY_FILE, makeKeyPair, Memor
 export { FileJournal, MemoryJournal, type OutcomeJournal } from './journal.ts';
 export { WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
 export {
-  HarnessProvider, HubLlm, HubLlmError, HubModels, harnessAi, harnessAiOf, wireRequest, HUB_MODEL, type HarnessAi, type HarnessMetadata, type HarnessProviderConfig,
+  HarnessProvider, HubLlm, HubLlmError, HubModelLink, HubModels, aeyeModelOf, harnessAi, harnessAiOf, hubAiOf, hubModelId, roleModelId, wireRequest, HUB_MODEL,
+  type HarnessAi, type HarnessMetadata, type HarnessProviderConfig, type ModelLink,
 } from './llm.ts';
 export {
   LlmWire, UNSENDABLE_CONTENT, messageFromWire, requestFromWire, isObjectSchema, descriptorsOf, applyDescriptors, usageToWire, usageFromWire, chunkToWire,
@@ -123,6 +164,10 @@ export {
 export { ProviderServer, providerErrorKind, type ProviderServerParts } from './providers.ts';
 export { NodeFiles, fileUri, uriInstance, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
 export { NodeProcess, type ProcessControl } from './process.ts';
+export {
+  BASIC_ENV, CrashPolicy, HARNESS_ENV_PREFIX, NodeStarter, permissionArgs, scrubbedEnv,
+  type CrashPolicyOptions, type ExitDecision, type NodeStarterOptions, type ProcessCommand, type ProcessExit, type ProcessGrants, type ProcessStarter, type SupervisedProcess,
+} from './supervise.ts';
 export { StateConflict } from './state.ts';
 export { McpFace, mcpToolNameOf, type McpLimits } from './mcp.ts';
 export {

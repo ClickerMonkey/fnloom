@@ -2,11 +2,14 @@
 /**
  * A modal layer over the page (`v-model:open`): a dimmed backdrop and a panel placed in the centre (dialogs) or
  * against an edge (drawers and sheets). Focus moves in, Tab stays inside, the page behind doesn't scroll, and Escape
- * or a press on the backdrop closes it; focus then goes back where it was.
+ * or a press on the backdrop closes it; focus then goes back where it was. Attributes given to it (a `data-testid`)
+ * go on the panel, since the modal renders through a teleport.
  */
 import { ref } from 'vue';
 import { useOverlay } from './overlay.ts';
 import type { ModalPlacement } from './types.ts';
+
+defineOptions({ inheritAttrs: false });
 
 withDefaults(defineProps<{
   placement?: ModalPlacement;
@@ -36,7 +39,7 @@ defineSlots<{ default: () => unknown }>();
         <div class="backdrop" aria-hidden="true" />
         <div
           ref="panel" class="panel" :role="role" aria-modal="true" :aria-label="label" :aria-labelledby="labelledBy"
-          :aria-describedby="describedBy" tabindex="-1" :style="{ '--modal-width': width }"
+          :aria-describedby="describedBy" tabindex="-1" :style="{ '--modal-width': width }" v-bind="$attrs"
         >
           <slot />
         </div>

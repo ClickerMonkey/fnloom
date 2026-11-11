@@ -1,15 +1,15 @@
 /**
  * Test fixtures: a small shop database in a fresh SQLite file (customers and their orders), the config of an
- * instance over it, and an instance built on a memory store with a scripted enricher.
+ * instance over it, and an instance with a scripted enricher over a recording hub that keeps its types and their meta.
  */
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
-import { InstanceName, SystemName, TypeRecord, qualify, type FleetInstance, type GinTypeDef, type Json, type TypeDecl, type TypeDefinitions } from '@harness/core';
+import { InstanceName, SystemName, TypeRecord, qualify, type FleetInstance, type Json, type TypeDecl, type TypeDefinitions } from '@harness/core';
 import BetterSqlite3 from 'better-sqlite3';
 import type { DatabaseConfig } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
 import { DatabaseInstance, type HubSide } from './instance.ts';
-import { MemoryStore } from './store.ts';
+import { tableMetaOf, type KeptType } from './types.ts';
 
 /** The shop's schema and rows. */
 export const SHOP_SQL = `
@@ -61,8 +61,8 @@ export class RecordingHub implements HubSide {
   /** The table types the hub keeps, by local name. */
   readonly kept = new Map<string, TypeDecl>();
 
-  known(): Promise<ReadonlyMap<string, GinTypeDef>> {
-    return Promise.resolve(new Map([...this.kept].map(([name, decl]) => [name, decl.def])));
+  known(): Promise<ReadonlyMap<string, KeptType>> {
+    return Promise.resolve(new Map([...this.kept].map(([name, decl]) => [name, { def: decl.def, meta: tableMetaOf(decl.meta) }])));
   }
 
   /** The hub's fleet as `ctx.fleet()` lists it: one online instance with this config and the kept types. */
@@ -92,13 +92,12 @@ export class RecordingHub implements HubSide {
 }
 
 /** An instance over a fresh shop database. */
-export function shopInstance(options: { config?: Partial<DatabaseConfig>; enricher?: Enricher; store?: MemoryStore; hub?: RecordingHub; dir?: string } = {}): { instance: DatabaseInstance; store: MemoryStore; hub: RecordingHub; dir: string } {
+export function shopInstance(options: { config?: Partial<DatabaseConfig>; enricher?: Enricher; hub?: RecordingHub; dir?: string } = {}): { instance: DatabaseInstance; hub: RecordingHub; dir: string } {
   const dir = options.dir ?? shopFile().dir;
-  const store = options.store ?? new MemoryStore();
   const hub = options.hub ?? new RecordingHub();
   const instance = new DatabaseInstance(shopConfig(options.config), {
-    instance: InstanceName.parse('main'), dataDir: dir, store, enricher: options.enricher ?? NO_ENRICHER, hub,
+    instance: InstanceName.parse('main'), dataDir: dir, enricher: options.enricher ?? NO_ENRICHER, hub,
     limits: { page: 50, max: 500 }, distinctMax: 12, now: () => 1_000,
   });
-  return { instance, store, hub, dir };
+  return { instance, hub, dir };
 }

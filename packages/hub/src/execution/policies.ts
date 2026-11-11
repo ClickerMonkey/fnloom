@@ -154,9 +154,12 @@ export class HubPolicyEngine implements PolicyEngine {
     // a per-person fn kept on 'ask first' asks whatever the policies allow
     const asked = input.ask === undefined ? policy : { effect: 'ask' as const, approver: input.ask };
     // a fn that always asks asks even when allowed, unless its approvals may be remembered and a policy allows it
-    const decision = always !== undefined && asked.effect === 'allow' && !(always.remember && chosen !== undefined)
-      ? { effect: 'ask' as const, approver: TURN_USER }
+    // with `approver: 'admins'` only an admin's decision counts, whoever a policy names
+    const alwaysAsks: Approver = always?.approver === 'admins' ? { by: 'admins' } : TURN_USER;
+    const decided = always !== undefined && asked.effect === 'allow' && !(always.remember && chosen !== undefined)
+      ? { effect: 'ask' as const, approver: alwaysAsks }
       : asked;
+    const decision = decided.effect === 'ask' && always?.approver === 'admins' ? { effect: 'ask' as const, approver: alwaysAsks } : decided;
     if (decision.effect === 'allow') return decision;
     const remembered = input.session === undefined || always?.remember === false ? undefined : await this.#rememberedForSession(fn.name, input.actor, input.session);
     if (remembered !== undefined) return remembered;

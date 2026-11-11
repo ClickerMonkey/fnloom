@@ -14,13 +14,14 @@ import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
-  type ConnectResult, type DecideAnswer, type FleetInstance, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
+  type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
-import type { Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
+import type { AiSource, Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
+import { fakeHubAi, streamOf } from './fake-models.ts';
 import { FakeHubFns } from './fake-hub-fns.ts';
 import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
@@ -42,10 +43,12 @@ export type SystemBody<K extends keyof SystemLinkSpec['endpoints']> = SystemLink
 export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.harness-test/data', cacheDir: '.harness-test/cache' };
 
 /**
- * `ctx.propose` and `ctx.decide` for a hand-made test context that has no hub: proposing fails (the test didn't
- * expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
+ * `ctx.propose`, `ctx.decide` and `ctx.ai` for a hand-made test context that has no hub: proposing fails (the test
+ * didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
+ * Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
  */
-export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch = {
+export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource = {
+  ai: () => fakeHubAi(),
   propose: () => Promise.reject(new Error('This test context proposes no runs; serve against FakeHub to record them.')),
   decide: () => Promise.resolve({ by: 'off' }),
   fleet: () => Promise.resolve([]),
@@ -224,7 +227,6 @@ export class FakeHub {
   usable: (run: HubBody<'usableFns'>['run'], fn: string) => boolean = () => true;
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]> = [];
   readonly forwards: LlmForward[] = [];
-  readonly embeds: string[][] = [];
   /** Every non-chat model call forwarded (`model`). */
   readonly models: ModelForward[] = [];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
@@ -233,6 +235,8 @@ export class FakeHub {
   readonly proposals: Array<HubBody<'propose'> & ProposedRun> = [];
   /** What systems asked the decision model (`decide`). */
   readonly decisions: Array<HubBody<'decide'>> = [];
+  /** Example changes systems sent (`examples`). */
+  readonly exampleChanges: Array<HubBody<'examples'>> = [];
 
   // ─── What the hub holds ─────────────────────────────────────────────────────
   /** Paired keys by system name. */
@@ -268,6 +272,8 @@ export class FakeHub {
   onModel: (forward: ModelForward) => Promise<ModelForwardResult> = (forward) => Promise.resolve(this.#modelAnswer(forward));
   /** Answers `ctx.decide`. Default: `off` (no decision model), so the system goes by its scores. */
   onDecide: (request: HubBody<'decide'>) => Promise<DecideAnswer> = () => Promise.resolve({ by: 'off' });
+  /** Answers `models` (`ctx.ai()` lists them). Default: none, so calls go to `hub/auto`. */
+  onModels: () => Promise<HubModelInfo[]> = () => Promise.resolve([]);
   /** Answers `ctx.fleet`. Default: no instances listed. */
   onFleet: () => Promise<FleetInstance[]> = () => Promise.resolve([]);
   /** Controls a child run. Default: accepted. */
@@ -423,6 +429,11 @@ export class FakeHub {
     return this.peer().call('preview', body);
   }
 
+  /** Ask the connected system what a fn of one of its kinds costs (`estimate`), as the hub does for `FnFacts.cost`. */
+  estimate(body: SystemBody<'estimate'>): Promise<KindEstimateAnswer> {
+    return this.peer().call('estimate', body);
+  }
+
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra: Partial<Omit<RunRequest, 'fn' | 'args'>> = {}): Promise<OutcomeWire> {
     return this.peer().call('run', this.request(fn, args, extra));
@@ -540,10 +551,6 @@ export class FakeHub {
           this.forwards.push(data);
           return this.onLlm(data);
         },
-        embed: ({ data }) => {
-          this.embeds.push(data.texts);
-          return { vectors: data.texts.map((t) => [t.length, 1]), cost: 0 };
-        },
         resource: ({ data }) => this.onResource(data),
         content: ({ data }) => {
           const bytes = this.content.get(data.ref.hash);
@@ -593,8 +600,11 @@ export class FakeHub {
         searchFns: ({ data }) => Promise.resolve(this.fns.search(data)),
         fnExamples: ({ data }) => Promise.resolve(this.fns.examples(data)),
         // Build 6 stubs (hub lane): fill in with the SDK work that uses them.
-        examples: () => ({ added: 0, removed: 0 }),
-        models: () => [],
+        examples: ({ data }) => {
+          this.exampleChanges.push(data);
+          return { added: data.upsert.length, removed: data.remove.length };
+        },
+        models: () => this.onModels(),
         resourceSections: () => [],
         grantPairing: () => Promise.reject(new Error('grantPairing is not served by the fake hub yet.')),
         model: async ({ data }) => {
@@ -611,13 +621,9 @@ function jsonOf(value: unknown): Json {
   return Json.parse(JSON.parse(JSON.stringify(value)));
 }
 
-/** Items as an async stream, one per tick (what a scripted `onLlm` returns). */
-export async function* streamOf<T>(items: readonly T[]): AsyncGenerator<T> {
-  for (const item of items) { yield await Promise.resolve(item); }
-}
-
 function emptyReport(): ImportReport {
   return { added: [], updated: [], removed: [], refused: [] };
 }
 export { liveEnv, liveModels } from './live.ts';
 export { FakeHubFns, type KeptFn } from './fake-hub-fns.ts';
+export { FakeModelLink, fakeHubAi, replyChunks, streamOf, type FakeModelOptions, type FakeReply } from './fake-models.ts';

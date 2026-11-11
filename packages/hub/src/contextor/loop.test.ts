@@ -43,7 +43,7 @@ async function started(options: Parameters<typeof executionRig>[0] = {}) {
   r.catalog.add('tools', 'helper', toolsAgent);
   r.catalog.add('tools', 'small', staticAgent);
   r.catalog.add('tools', 'graph', graphAgent);
-  for (const name of ['find', 'inspect', 'load', 'unload'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
+  for (const name of ['fns_search', 'inspect', 'load', 'unload'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
   const search = new FixedSearch();
   const contextor = createContextor({
     store: r.store, catalog: r.catalog, search, settings: contextorEnv.parse(), modelSettings: { HARNESS_DEFAULT_MODEL: 'test-model' }, models: () => r.module.llm.models(),

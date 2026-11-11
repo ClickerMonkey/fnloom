@@ -1,9 +1,10 @@
-import { TypeRecord, type QualifiedName } from '@harness/core';
+import { SECRET_KEPT, TypeRecord, type QualifiedName } from '@harness/core';
 import { client, g, hub, system, type, wireType, type GinType, type InputViewOf } from '@harness/sdk';
 import { ClientRuntime } from '@harness/sdk/client';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
+import { secretFields } from '../admin/logic/instances.ts';
 import GinForm from './GinForm.vue';
 import { GIN_INPUTS } from './registry.ts';
 import { draftOf, encode, formOf, issueProblems, issueText, parseDuration, type Draft, type FormNode } from './logic/form.ts';
@@ -268,5 +269,26 @@ describe('a discriminated union value', () => {
     const type = wireType(g.obj({ connection: g.or([g.obj({ kind: g.literal('a'), path: g.text() }), g.obj({ kind: g.literal('b'), url: g.text() })]) }));
     const form = mount(GinForm, { props: { type, initial: { connection: { kind: 'b', url: 'x' } } }, attachTo: document.body });
     expect(form.find('[data-path="connection.url"] input').exists()).toBe(true);
+  });
+});
+
+describe('a config with secret fields', () => {
+  it('draws each as a password input, never its value, and keeps a saved one unless it is typed over', async () => {
+    const type = wireType(g.obj({ host: g.text(), apiKey: g.text() }));
+    const kept = mount(GinForm, { props: { type, initial: { host: 'db.local', apiKey: SECRET_KEPT }, secrets: secretFields(['apiKey'], { apiKey: SECRET_KEPT }) }, attachTo: document.body });
+    await flushPromises();
+    const secret = kept.get('[data-secret] input');
+    expect(secret.attributes('type')).toBe('password');
+    expect(secret.element instanceof HTMLInputElement ? secret.element.value : undefined).toBe('');
+    expect(secret.attributes('placeholder')).toBe('Saved');
+    expect(kept.html()).not.toContain(SECRET_KEPT);
+    await kept.get('form').trigger('submit');
+    expect(kept.emitted('submit')?.[0]).toEqual([{ host: 'db.local', apiKey: SECRET_KEPT }]);
+    kept.unmount();
+
+    // a pairing page's empty config: the declared field is a password input from the start
+    const fresh = mount(GinForm, { props: { type, secrets: secretFields(['apiKey'], undefined) }, attachTo: document.body });
+    await flushPromises();
+    expect(fresh.get('[data-secret] input').attributes('type')).toBe('password');
   });
 });

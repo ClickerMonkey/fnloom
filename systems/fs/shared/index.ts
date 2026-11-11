@@ -1,12 +1,13 @@
 /**
- * The fs system's contract (`shared/`): files and a shell over chosen folders, served as resources, and a restart
- * so changes to its own code go live. Other systems import this to call its fns with typed refs; its server
+ * The fs system's contract (`shared/`): files and a shell over chosen folders, served as resources, a restart so
+ * changes to its own code go live, and hosting: systems written here are installed from the chat, run on this machine
+ * from a bundle an admin approved, and supervised. Other systems import this to call its fns with typed refs; its server
  * implements it and its client draws it.
  */
 import { type Infer, type ValueOf, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
-import { authoringContext } from './authoring.gen.ts';
+import { HostedState, HostedStatus, InstallArgs, InstallResult, RestartArgs, StatusArgs, StopArgs, StopResult } from './hosting.ts';
 
-export { AUTHORING_PARTS, perPart, type AuthoringPart } from './authoring.gen.ts';
+export * from './hosting.ts';
 
 /** A file or folder under one of the roots. */
 export const Entry = type({
@@ -258,6 +259,85 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         returns: g.obj({ restarting: g.literal(true) }),
         operations: { cancel: false, background: false },
       }),
+      install_system: fn({
+        description: 'Build, check and start a system folder on this machine, and connect it to the hub, once an admin approves.',
+        instructions: [
+          'After writing or changing a system folder: builds, checks and starts it on this machine and connects it to the hub. Call it again after each change; it restarts the system with the new code.',
+          'Before anything is asked, the folder is typechecked with its own tsconfig.json, bundled and scanned. When that fails the call comes back as invalid input with `file:line:col message` lines: fix each one with fs/edit and call again.',
+          'A good build becomes a card for an admin with what the system adds, its scan and its hashes; nothing runs until they approve. If it exits before it connects, the call comes back with its exit code and the end of its output, so you can fix the crash.',
+          'The name in system.json must be the contract\'s name. `hub`, and the name of a system that runs somewhere else, are refused unless `replace` is set (the card then says what it replaces).',
+          'Once it is running, load its fns with hub/load_fns to call them. When it needs config, ask the person for it (its page has the form).',
+        ].join(' '),
+        examples: [
+          {
+            args: { path: 'systems/random' },
+            result: { system: 'random', instance: 'main', version: '0.1.0', status: 'connected', fns: ['random/random'], folder: 'C:/work/harness/systems/random' },
+            note: 'A new system, approved and running.',
+          },
+          { args: { path: 'systems/random' }, note: 'Again after a change: the card shows the diff, and the new code replaces the running one.' },
+          { args: { path: 'systems/notes', instance: 'laptop', replace: true }, note: 'Replaces a `notes/laptop` that runs elsewhere.' },
+        ],
+        args: InstallArgs,
+        returns: InstallResult,
+        // what runs is new code: an admin looks at every install, and the chat must be in write mode or higher
+        approval: { preview: true, remember: false, approver: 'admins' },
+        effects: { mode: 'write', free: true },
+        operations: { cancel: false, background: false },
+        status: {
+          active: { one: 'Installing {args.path}…', many: 'Installing {n} systems…' },
+          retry: { one: 'Installing {args.path} again…', many: 'Installing {n} systems again…' },
+          done: { one: 'Installed {args.path}', many: 'Installed {n} systems' },
+          failed: { one: 'Installing {args.path} failed', many: '{n} installs failed' },
+        },
+        tags: ['admin', 'systems'],
+      }),
+      system_status: fn({
+        description: 'The systems this machine hosts: each one\'s state, version, process, restarts in the last hour and the end of its output.',
+        instructions: 'Call it after install_system, restart_system or a crash to see whether a hosted system is up, and read `output` to find why it stopped. Give `system` for one; empty lists all.',
+        examples: [
+          {
+            args: { system: 'random' },
+            result: [{ system: 'random', instance: 'main', version: '0.1.0', state: 'connected', pid: 4120, restartsLastHour: 0, folder: 'C:/work/harness/systems/random', bundleHash: '9f2c…', output: 'random.serving …' }],
+          },
+          { args: {}, note: 'Every hosted system.' },
+        ],
+        args: StatusArgs,
+        returns: g.list(HostedStatus),
+        effects: { mode: 'read', free: true },
+        display: 'message',
+        tags: ['read', 'systems'],
+      }),
+      restart_system: fn({
+        description: 'Restart a system this machine hosts, with the code an admin approved.',
+        instructions: 'Use it when a hosted system is stuck, crashed or was disabled after too many crashes. It runs the approved bundle again; it never picks up changed code (call install_system for that). Say why in `reason`.',
+        examples: [{ args: { system: 'random', reason: 'It stopped answering after the hub restarted.' }, result: { state: 'connected' } }],
+        args: RestartArgs,
+        returns: g.obj({ state: HostedState }),
+        effects: { mode: 'write', free: true },
+        operations: { cancel: false, background: false },
+        tags: ['systems'],
+      }),
+      stop_system: fn({
+        description: 'Stop a system this machine hosts; with `remove`, also delete its hosted folders.',
+        instructions: 'It stays stopped (also after fs restarts) until install_system or restart_system starts it again. `remove` deletes its bundle, state and data for good, so the person is asked first; use it only when they want the system gone.',
+        examples: [
+          { args: { system: 'random' }, result: { stopped: true, removed: false } },
+          { args: { system: 'random', remove: true }, result: { stopped: true, removed: true }, note: 'Gone for good, after the person said yes.' },
+        ],
+        args: StopArgs,
+        returns: StopResult,
+        effects: { mode: 'delete', free: true },
+        operations: { cancel: false, background: false },
+        handlers: {
+          confirm: handler({
+            description: 'Delete this hosted system\'s folders, its data included?',
+            args: g.obj({ system: g.text(), folders: g.list(g.text()) }),
+            returns: g.bool(),
+            required: false,
+          }),
+        },
+        tags: ['systems'],
+      }),
     },
     hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
   })
@@ -282,18 +362,17 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         description: 'The folder tree of a root, as it is now.',
         command: { name: 'tree', args: { root: arg('Which root (default: all)', { required: false }) } },
       }),
-      // the start of the SDK's authoring guide (its parts follow, one item each) and the template, so the chat can
-      // write a system with these fns
+      // the start of writing a system: it loads the guide's index (`context/authoring/`, a graph of the SDK guide) with
+      // it, and says where the template is on this machine, with the fns to write and install a system
       'system-authoring': context({
-        description: 'How to write a harness system: the parts of the SDK guide and their sizes, where the template system is, and how to copy it.',
+        description: 'How to write and install a harness system: the index of its guide, where the template system is, and how to copy it.',
         command: { name: 'new-system' },
-        fns: [fns.write, fns.edit, fns.bash, fns.read],
+        imports: [{ ref: 'context', name: 'fs/authoring' }],
+        fns: [fns.read, fns.write, fns.edit, fns.bash, fns.install_system, fns.system_status],
         alwaysFor: [],
       }),
     },
   }))
-  // the authoring guide's parts, under its start item (generated from the guide: `npm run docs:authoring`)
-  .with(({ context: ctx }) => ({ context: authoringContext(ctx['system-authoring']) }))
   .with(({ fns, context: ctx }) => ({
     fns: {
       explore: agent({

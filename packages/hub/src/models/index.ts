@@ -10,7 +10,7 @@
  *   SDK's forwarding provider) and for the hub's own work (forms, dictation), each budgeted, rate-limited and recorded
  *   as a `ModelCall`. Chat stays on the execution module's `LlmGateway`.
  */
-import type { ActorId, ModelForward, ModelForwardResult, ModelRole, ModelRoleView, ResolvedRole, RoleChoice, RunId, SystemName, TurnId } from '@harness/core';
+import type { ActorId, ModelForward, ModelForwardResult, ModelRole, ModelRoleView, ResolvedRole, RoleChoice, InstanceName, RunId, SystemName, TurnId } from '@harness/core';
 
 /** Which model each role uses. */
 export interface ModelRoles {
@@ -23,7 +23,7 @@ export interface ModelRoles {
 }
 
 /** Who a non-chat call is for: a system's run, or the hub's own work. */
-export type ModelSite = { readonly system: SystemName; readonly run?: RunId; readonly turn?: TurnId } | { readonly purpose: string; readonly run?: RunId };
+export type ModelSite = { readonly system: SystemName; readonly instance?: InstanceName; readonly run?: RunId; readonly turn?: TurnId } | { readonly purpose: string; readonly run?: RunId };
 
 /** Every non-chat modality through the hub provider. */
 export interface ModelGateway {

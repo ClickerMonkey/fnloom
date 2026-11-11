@@ -165,6 +165,5 @@ export function fakeBuild2Api() {
     exportSystemData: fakeCaller<'exportSystemData'>(() => Promise.resolve({ hash: 'c'.repeat(64), size: 2_048, mime: 'application/zip', url: '/_files/export.zip' })),
     upload: fakeCaller<'upload'>(({ name }) => Promise.resolve({ url: `/_files?put=${name}`, upload: `up_${name}` })),
     uploaded: fakeCaller<'uploaded'>(() => Promise.resolve({ hash: 'd'.repeat(64), size: 4_096, mime: 'application/zip' })),
-    search: fakeCaller<'search'>(() => Promise.resolve([])),
   };
 }

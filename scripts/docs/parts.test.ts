@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Topic } from './compose.ts';
-import { guideParts, partsModule } from './parts.ts';
+import { guideParts } from './parts.ts';
 
 const OUTLINE: readonly Topic[] = [
   { id: 'start', title: 'Start here', exports: [] },
@@ -21,24 +21,5 @@ describe('the guide in parts', () => {
       ['authoring-types', '## 4. Core types\n\nTypes.'],
     ]);
     expect(() => guideParts('# Guide\n', OUTLINE)).toThrow('the guide has no section "## 1. Start here"');
-  });
-
-  it('writes each part, its context declaration and one value per part, chaining parts of the same kind', () => {
-    const text = partsModule(guideParts(GUIDE, OUTLINE));
-    expect(text).toContain("'authoring-start': { heading: '## 1. Start here', title: 'Start here', tokens: 10, reference: false, next: 'authoring-make' },");
-    // the guide's chain ends before the reference parts, which chain on their own
-    expect(text).toContain("'authoring-make': { heading: '## 2. Making it', title: 'Making it', tokens: 10, reference: false },");
-    expect(text).toContain("'authoring-inside': { heading: '## 3. Inside', title: 'Inside', tokens: 10, reference: true, next: 'authoring-types' },");
-    expect(text).toContain("'authoring-start': context({ description: 'Writing a harness system, part 1 of 4: Start here (about 10 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-make' } }),");
-    expect(text).toContain("'authoring-types': context({ description: 'Writing a harness system, reference part 4 of 4: Core types (about 10 tokens).', parent, suggest: 'none', tags: ['reference'] }),");
-    expect(text).toContain("    'authoring-make': make('authoring-make'),");
-    // the same guide always writes the same module, so `--check` is stable
-    expect(partsModule(guideParts(GUIDE, OUTLINE))).toBe(text);
-  });
-
-  it('quotes titles with quotes and backslashes', () => {
-    const outline: readonly Topic[] = [{ id: 'q', title: "Al's \\ path", exports: [] }];
-    const text = partsModule(guideParts("## 1. Al's \\ path\n\nx", outline));
-    expect(text).toContain("title: 'Al\\'s \\\\ path'");
   });
 });

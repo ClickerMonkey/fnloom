@@ -48,6 +48,7 @@ export function registerAdminFns(fns: HubFns, ops: () => AdminOperations): void 
     install_system: run(ADMIN_ENDPOINTS.install_system, (o) => o.install_system),
     start_system: run(ADMIN_ENDPOINTS.start_system, (o) => o.start_system),
     stop_system: run(ADMIN_ENDPOINTS.stop_system, (o) => o.stop_system),
+    restart_system: run(ADMIN_ENDPOINTS.restart_system, (o) => o.restart_system),
     upgrade_system: run(ADMIN_ENDPOINTS.upgrade_system, (o) => o.upgrade_system),
     set_model_role: run(ADMIN_ENDPOINTS.set_model_role, (o) => o.set_model_role),
     clear_model_role: run(ADMIN_ENDPOINTS.clear_model_role, (o) => o.clear_model_role),
@@ -59,6 +60,9 @@ export function registerAdminFns(fns: HubFns, ops: () => AdminOperations): void 
     preview_mcp: run(ADMIN_ENDPOINTS.preview_mcp, (o) => o.preview_mcp),
     install_package: run(ADMIN_ENDPOINTS.install_package, (o) => o.install_package),
     remove_instance: run(ADMIN_ENDPOINTS.remove_instance, (o) => o.remove_instance),
+    suggest_decision_set: run(ADMIN_ENDPOINTS.suggest_decision_set, (o) => o.suggest_decision_set),
+    auto_pair_revoke: run(ADMIN_ENDPOINTS.auto_pair_revoke, (o) => o.auto_pair_revoke),
+    system_reimport: run(ADMIN_ENDPOINTS.system_reimport, (o) => o.system_reimport),
     export_system_data: run(ADMIN_ENDPOINTS.export_system_data, (o) => o.export_system_data),
   };
   for (const name of ADMIN_FN_NAMES) { fns.register(hub.fns[name], impls[name]); }

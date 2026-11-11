@@ -39,7 +39,7 @@ describe('the static toolset on a free OpenRouter model (live)', () => {
       rig = r;
       r.catalog.add('vault', 'open', fn({ description: 'Open the vault and read the secret word inside it.', args: g.obj({ vault: g.text() }), returns: g.text(), tags: ['read'] }));
       r.catalog.add('tools', 'small', small);
-      for (const name of ['find', 'inspect', 'load', 'unload'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
+      for (const name of ['fns_search', 'inspect', 'load', 'unload'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
       const contextor = createContextor({
         store: r.store, catalog: r.catalog, search, settings: contextorEnv.parse(), modelSettings: { HARNESS_DEFAULT_MODEL: model }, models: () => r.module.llm.models(),
         log: r.log, clock: () => r.time.now, probes: () => undefined,

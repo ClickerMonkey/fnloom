@@ -4,8 +4,8 @@
  * time estimates, the chat fn mode gate, the auto classifier, and browser logs rolled by size and quiet.
  */
 import {
-  ActorId, compositeKey, ModelCallId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noOutcomes,
-  type FnMetricsDay, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
+  ActorId, compositeKey, ModelCallId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noFnStats, noOutcomes,
+  type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
 } from '@harness/core';
 import { context, fn, g, hub, system, type as typeDecl } from '@harness/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -24,7 +24,7 @@ import { RecordingBus, memoryLog, testStore } from '../testing.ts';
 import type { HubStore } from '../store/index.ts';
 import { LlmAutoClassifier } from './auto.ts';
 import { ResourceClientLogs, logFileName } from './client-logs.ts';
-import { AgentCostEstimator, DeclaredCostEstimator, FreeCostEstimator, HistoryCostEstimator, UnknownCostEstimator } from './costs.ts';
+import { AgentCostEstimator, DeclaredCostEstimator, FreeCostEstimator, HistoryCostEstimator, KindCostEstimator, UnknownCostEstimator } from './costs.ts';
 import { StoreFnExamples } from './examples.ts';
 import { aboutDuration, StoreFnFacts } from './facts.ts';
 import { SessionModeGate } from './gate.ts';
@@ -224,6 +224,20 @@ describe('fn examples', () => {
     expect(await store.table('fnExamples').count({ fn: q('books/overdue') })).toBe(0);
     await expect(examples.page({ fn: q('books/nope') }, asker)).rejects.toThrow('no fn');
   });
+
+  it('lets a system add, replace and remove examples of its own fns while running, leaving the declared ones (build 6)', async () => {
+    const { examples, asker, store } = await setup();
+    const books = SystemName.parse('books');
+    expect(await examples.patch(books, { fn: 'overdue', upsert: [{ key: 'q1', args: { days: 7 }, note: 'a week late' }], remove: [] })).toEqual({ added: 1, removed: 0 });
+    expect((await examples.page({ fn: q('books/overdue') }, asker)).total).toBe(4);
+    const first = (await store.table('fnExamples').find({ where: { fn: q('books/overdue'), source: 'runtime' }, limit: 5 })).items;
+    expect(await examples.patch(books, { fn: 'overdue', upsert: [{ key: 'q1', args: { days: 14 }, note: 'two weeks late' }], remove: [] })).toEqual({ added: 0, removed: 0 });
+    const replaced = (await store.table('fnExamples').find({ where: { fn: q('books/overdue'), source: 'runtime' }, limit: 5 })).items;
+    expect(replaced.map((row) => [row.id, row.args])).toEqual([[first[0]?.id, { days: 14 }]]);
+    expect(await examples.patch(books, { fn: 'overdue', upsert: [], remove: ['q1'] })).toEqual({ added: 0, removed: 1 });
+    expect((await examples.page({ fn: q('books/overdue') }, asker)).total).toBe(3);
+    await expect(examples.patch(SystemName.parse('other'), { fn: 'overdue', upsert: [], remove: [] })).rejects.toThrow(/has no fn/);
+  }, 20_000);
 });
 
 describe('fn facts', () => {
@@ -354,5 +368,27 @@ describe('browser logs', () => {
     expect(big.uri).not.toBe(third.uri);
     expect(owned).toEqual(Array(3).fill(`hub://resources/logs/${ME}:${ME}`));
     expect(kept.map((k) => k.name)).toEqual([first.uri, first.uri, third.uri, big.uri].map((uri) => uri.split('/').at(-1)));
+  });
+});
+
+describe('a kind estimates its fns\' cost (build 6)', () => {
+  it('asks the kind\'s system with the payload, args and history, and falls through when it gives none', async () => {
+    const asked: unknown[] = [];
+    const record = { system: SystemName.parse('database'), decl: { name: 'query', description: '', applicability: '', payload: { name: 'any' }, approveChanges: false, estimates: true } };
+    const estimator = new KindCostEstimator({
+      kind: () => Promise.resolve(record),
+      ask: (_system, request) => { asked.push(request); return Promise.resolve(request.args === undefined ? {} : { estimate: { min: 0, typical: 0.001, max: 0.002, basis: 'payload', runs: 0 } }); },
+    });
+    const fn: FnRecord = {
+      name: q('database/main.sales'), system: SystemName.parse('database'), version: 'v1', origin: 'runtime', available: true, paused: false, disabled: false, stats: noFnStats(), updatedAt: 0,
+      decl: {
+        name: 'main.sales', description: 'Sales.', kind: q('database/query'), payload: { sql: 'select 1' }, args: { name: 'any' }, returns: { name: 'any' }, deps: [], handlers: {}, progress: { type: 'none' },
+        operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {}, visibility: 'both', tags: [],
+      },
+    };
+    expect(await estimator.estimate({ fn, free: false, args: { year: 2025 }, history: [] })).toEqual({ min: 0, typical: 0.001, max: 0.002, basis: 'payload', runs: 0 });
+    expect(asked[0]).toEqual({ kind: 'database/query', payload: { sql: 'select 1' }, args: { year: 2025 } });
+    expect(await estimator.estimate({ fn, free: false, history: [] })).toBeUndefined();
+    expect(await estimator.estimate({ fn: { ...fn, decl: { ...fn.decl, kind: 'native' } }, free: false, history: [] })).toBeUndefined();
   });
 });

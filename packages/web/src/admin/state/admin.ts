@@ -27,6 +27,7 @@ import { PoliciesStore } from './policies.ts';
 import { ModelRolesStore } from './roles.ts';
 import { ActorSettingsStore } from './settings.ts';
 import { SystemStore } from './system.ts';
+import { SystemPartsStore } from './system-parts.ts';
 import { SystemsStore } from './systems.ts';
 
 /** What the admin stores are built from. */
@@ -46,6 +47,8 @@ export class AdminStore {
   readonly actors: ActorsDirectory;
   readonly systems: SystemsStore;
   readonly system: SystemStore;
+  /** The open system's context and types. */
+  readonly systemParts: SystemPartsStore;
   readonly models: ModelsStore;
   readonly roles: ModelRolesStore;
   readonly limits: LimitsStore;
@@ -79,6 +82,7 @@ export class AdminStore {
     this.actors = new ActorsDirectory(api);
     this.systems = new SystemsStore(api, deps.userEvents);
     this.system = new SystemStore(api, deps.userEvents, deps.systemLogs);
+    this.systemParts = new SystemPartsStore(api);
     this.models = new ModelsStore(api);
     this.roles = new ModelRolesStore(api);
     this.limits = new LimitsStore(api);

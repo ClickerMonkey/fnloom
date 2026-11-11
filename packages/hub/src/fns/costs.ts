@@ -2,6 +2,7 @@
  * Cost estimators, one per kind of work, asked in order until one answers:
  *
  * - `FreeCostEstimator`: a fn whose facts say it spends nothing (reading a file) costs nothing.
+ * - `KindCostEstimator` (build 6): a fn of a kind that estimates asks the kind's system, from its payload and args.
  * - `HistoryCostEstimator`: a fn that has run costs what its runs cost: the cheapest and dearest day's average, and
  *   the overall average as typical.
  * - `AgentCostEstimator`: an agent (the hub's `llm` kind) that has never run is priced from the call: its
@@ -10,7 +11,7 @@
  * - `DeclaredCostEstimator`: a fn that declares a rough cost per run costs that until it has run.
  * - `UnknownCostEstimator`: anything else that spends and has never run says so, at zero.
  */
-import { ModelChoice, type CostEstimate, type FnMetricsDay, type ModelInfo } from '@harness/core';
+import { ModelChoice, type CostEstimate, type FnMetricsDay, type KindEstimateAnswer, type KindEstimateRequest, type KindRecord, type ModelInfo, type QualifiedName, type SystemName } from '@harness/core';
 import { parseValue, LlmPayloadType } from '@harness/sdk';
 import type { TokenEstimator } from '../contextor/index.ts';
 import { AGENT_KIND } from '../execution/index.ts';
@@ -86,6 +87,38 @@ export class DeclaredCostEstimator implements CostEstimator {
   estimate(input: CostInput): Promise<CostEstimate | undefined> {
     const cost = input.fn.decl.limits.cost;
     return Promise.resolve(cost === undefined ? undefined : { min: cost, typical: cost, max: cost, basis: 'payload', runs: 0 });
+  }
+}
+
+/** How a kind's system is asked what a fn of the kind would cost (`estimate` on the system link); none when it can't answer. */
+export interface KindEstimates {
+  kind(name: QualifiedName): Promise<Pick<KindRecord, 'system' | 'decl'> | undefined>;
+  ask(system: SystemName, request: KindEstimateRequest): Promise<KindEstimateAnswer | undefined>;
+}
+
+/**
+ * Build 6: a fn of a kind that estimates (`KindDecl.estimates`, a saved query, a form) asks the kind's system, which
+ * works the cost out from the payload and the call's args, blending in the history it is given. No answer, or no
+ * estimate in it, leaves it to the estimators after.
+ */
+export class KindCostEstimator implements CostEstimator {
+  readonly #kinds: KindEstimates;
+  readonly #history = new HistoryCostEstimator();
+
+  constructor(kinds: KindEstimates) {
+    this.#kinds = kinds;
+  }
+
+  async estimate(input: CostInput): Promise<CostEstimate | undefined> {
+    const { kind, payload } = input.fn.decl;
+    if (kind === 'native') return undefined;
+    const record = await this.#kinds.kind(kind);
+    if (record?.decl.estimates !== true) return undefined;
+    const history = await this.#history.estimate(input);
+    const answer = await this.#kinds.ask(record.system, {
+      kind, payload: payload ?? null, ...(input.args === undefined ? {} : { args: input.args }), ...(history === undefined ? {} : { history }),
+    });
+    return answer?.estimate;
   }
 }
 

@@ -137,6 +137,8 @@ export const input = system('input', { description: 'Ask the person for input wi
         payload: InputForm,
         // a form only asks; saving one needs no approval
         approveChanges: false,
+        // a form only asks the person, so its implementation says every run is free
+        estimates: true,
         status: status('{fn}'),
       }),
     },

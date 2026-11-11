@@ -109,7 +109,7 @@ describe('a SQLite database instance', () => {
     expect((await instance.read(instance.plan(count, {}, []))).rows[0]?.[0]).toBe(0);
   });
 
-  it('enriches each table once per schema hash', async () => {
+  it('enriches each table once per schema hash, keeping the enrichment with its type in the hub', async () => {
     let calls = 0;
     const enricher: Enricher = {
       enrich: (table) => {
@@ -119,7 +119,7 @@ describe('a SQLite database instance', () => {
           : { description: 'An order.', columns: { status: { values: ['open', 'paid', 'refunded'] } } });
       },
     };
-    const { instance, store, dir } = shopInstance({ config: { enrich: { on: true } }, enricher });
+    const { instance, hub, dir } = shopInstance({ config: { enrich: { on: true } }, enricher });
     open.push(instance);
     await instance.rescan(fakeLlm);
     expect(calls).toBe(2);
@@ -127,7 +127,9 @@ describe('a SQLite database instance', () => {
     expect(JSON.stringify(email)).toContain('@');
     expect(email?.docs).toContain('Where receipts go.');
     expect(instance.catalog.table('orders')?.hubType.props?.['status']?.type).toMatchObject({ name: 'enum' });
-    const again = shopInstance({ config: { enrich: { on: true } }, enricher, store, dir });
+    expect(hub.kept.get('main.customers')?.meta).toMatchObject({ enrichment: { description: 'A shop customer.' } });
+    // a new process over the same hub reads the enrichment back from the types' meta
+    const again = shopInstance({ config: { enrich: { on: true } }, enricher, hub, dir });
     open.push(again.instance);
     await again.instance.rescan(fakeLlm);
     expect(calls).toBe(2);

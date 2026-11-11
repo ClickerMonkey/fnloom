@@ -150,6 +150,7 @@ export function fakeAdminApi() {
     installSystem: fakeCaller<'installSystem'>(() => Promise.resolve({ name: systemName('weather') })),
     startSystem: fakeCaller<'startSystem'>(() => Promise.resolve({ ok: true })),
     stopSystem: fakeCaller<'stopSystem'>(() => Promise.resolve({ ok: true })),
+    restartSystem: fakeCaller<'restartSystem'>(() => Promise.resolve({ ok: true })),
     upgradeSystem: fakeCaller<'upgradeSystem'>(({ version }) => Promise.resolve({ from: '0.4.0', to: version ?? '0.5.0' })),
     reimport: fakeCaller<'reimport'>(() => Promise.resolve(ImportReport.parse({ added: ['fs/stat'], updated: [], removed: [], refused: [] }))),
     systemFns: fakeCaller<'systemFns'>(() => Promise.resolve([fnRecord(), fnRecord({ name: 'fs/write_file', available: { unavailable: 'disabled', detail: 'Turned off by an admin' } })])),
@@ -219,10 +220,9 @@ export function fakeProbe(): McpProbe & { readonly asked: { url: string; secret:
   };
 }
 
-/** The admin store on fakes, with its channels. */
-export function fakeAdmin(options: { api?: FakeAdminApi } = {}) {
-  const api = options.api ?? fakeAdminApi();
-  const chatApi = {
+/** The chat callers the admin store uses (runs, model calls, undo, resources, types, approvals), each a fake. */
+function adminChatApi() {
+  return {
     run: fakeCaller<'run'>(({ run: id }) => Promise.resolve(run({ id }))),
     llmCall: fakeCaller<'llmCall'>(({ id }) => Promise.resolve(llmCall({ id }))),
     background: fakeCaller<'background'>(() => Promise.resolve({ accepted: true })),
@@ -232,6 +232,13 @@ export function fakeAdmin(options: { api?: FakeAdminApi } = {}) {
     approvals: fakeCaller<'approvals'>(() => Promise.resolve([])),
     approve: fakeCaller<'approve'>(({ approval: id, approve }) => Promise.resolve(approval({ id, status: approve ? 'approved' : 'denied' }))),
   };
+}
+type FakeAdminChatApi = ReturnType<typeof adminChatApi>;
+
+/** The admin store on fakes, with its channels. */
+export function fakeAdmin(options: { api?: FakeAdminApi; chat?: Partial<FakeAdminChatApi> } = {}) {
+  const api = options.api ?? fakeAdminApi();
+  const chatApi = { ...adminChatApi(), ...options.chat };
   const user = channel<UserEvent>();
   const logs = channel<{ system: SystemName; line: OutputLine }>();
   const systemLogs: SystemLogEvents = (system, listener) => logs.subscribe((event) => { if (event.system === system) { listener(event.line); } });

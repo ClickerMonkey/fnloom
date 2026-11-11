@@ -6,8 +6,8 @@
 import { plugin } from '@ayepi/plugin';
 import { chatSlice, compact, qualify, type ChatCapabilities, type SessionId, type SystemName, type UserView } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { HUB_SYSTEM } from '../../catalog/availability.ts';
-import { DEFAULT_AGENT } from '../../chat/sessions.ts';
+import { personOperations } from '../person-ops.ts';
+import { HUB_SYSTEM, systemAvailability } from '../../catalog/availability.ts';
 import { AGENT_KIND } from '../../execution/index.ts';
 import { collect, PAGE } from '../paging.ts';
 import { CLIENTS_PATH } from '../serve.ts';
@@ -29,6 +29,14 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   // a system shared with someone else is as good as absent here
   const seen = systems.filter((s) => access.seesSystem(s.name));
   const usable = new Set(seen.filter((s) => s.status === 'connected' && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
+  const seenNames = new Set(seen.map((s) => s.name));
+  /** Why a seen system's commands can't run in this session now. */
+  const unusableReason = (name: SystemName): string => {
+    const record = seen.find((s) => s.name === name);
+    if (!allows(scope, name)) { return `the ${name} system is not enabled in this session`; }
+    const available = systemAvailability(name, record);
+    return available === true ? `the ${name} system has its functions switched off` : available.detail;
+  };
   const rendering = seen.filter((s) => s.enabled.renderers && allows(scope, s.name));
   const [mentions, declared, madeAll, fnsAll, models, manifests, types, dictate] = await Promise.all([
     hub.catalog.entries('mentions'),
@@ -56,9 +64,12 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     voiceOutput: false,
     uploads: true,
     mentions: mentions.filter((m) => usable.has(m.system)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
-    commands: [...contexts.filter((c) => usable.has(c.system)), ...made].flatMap((c) => (c.decl.command === undefined ? [] : [{
-      name: c.decl.command.name, context: c.name, args: c.decl.command.args, description: c.decl.description,
-    }])),
+    // hub-made context (memories, context from resources) is always usable; a system's says why it can't run now
+    commands: [...contexts.filter((c) => seenNames.has(c.system)), ...made].flatMap((c) => {
+      if (c.decl.command === undefined) { return []; }
+      const why = c.system === HUB_SYSTEM || usable.has(c.system) ? undefined : unusableReason(c.system);
+      return [{ name: c.decl.command.name, context: c.name, args: c.decl.command.args, description: c.decl.description, ...(why === undefined ? {} : { unavailable: why }) }];
+    }),
     agents: fns.filter((f) => (f.system === HUB_SYSTEM || usable.has(f.system)) && f.decl.kind === AGENT_KIND).map((f) => ({ fn: f.name, description: f.decl.description })),
     display: Object.fromEntries(fns.filter((f) => f.decl.display !== 'card').map((f) => [f.name, f.decl.display])),
     invocations: fns.filter((f) => byHand(f) && !methods.has(f.name)).map((f) => ({ fn: f.name, description: f.decl.description, args: f.decl.args })),
@@ -82,6 +93,7 @@ export function clientUrl(system: SystemName, hash: string, path: string): strin
 
 /** The chat plugin. */
 export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, reads: HubReads) {
+  const person = personOperations(hub);
   const { chat, execution } = hub;
   return plugin({ name: 'web.chat', spec: chatSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof chatSlice> => ({
@@ -89,21 +101,9 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
       types: ({ data, user }) => reads.types_get(data, user),
       sessions: ({ data, user }) => reads.sessions_list(data, user),
       session: ({ data, user }) => visibleSession(hub, data.session, user),
-      createSession: async (io) => {
-        const { user } = io;
-        const data = io.data;
-        const session = await chat.sessions.create({ ...compact(data), owner: user.id, agent: data.agent ?? DEFAULT_AGENT });
-        hub.log.info('session.created', { session: session.id, user: user.id });
-        return session;
-      },
-      updateSession: async ({ data: { session, ...patch }, user }) => {
-        await visibleSession(hub, session, user);
-        return chat.sessions.update(session, compact(patch), user.id);
-      },
-      deleteSession: async ({ data, user }) => {
-        await visibleSession(hub, data.session, user);
-        return { deleted: await chat.sessions.delete(data.session, user.id) };
-      },
+      createSession: ({ data, user }) => person.session_create(data, user),
+      updateSession: ({ data, user }) => person.session_update(data, user),
+      deleteSession: ({ data, user }) => person.session_delete(data, user),
       limits: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
         return execution.limits.resolve({ user: await userInfo(hub, user), session: data.session });

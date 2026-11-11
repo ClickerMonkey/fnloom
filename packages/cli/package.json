@@ -5,7 +5,7 @@
   "type": "module",
   "description": "The harness CLI: make, build, pack and install systems, export their data, and bridge a hub MCP to stdio.",
   "bin": {
-    "harness": "./src/main.ts"
+    "harness": "./bin/harness.mjs"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -15,9 +15,11 @@
     "@ayepi/core": "file:../../../ayepi/packages/core",
     "@ayepi/env": "file:../../../ayepi/packages/env",
     "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
+    "@harness/build": "*",
     "@harness/core": "*",
     "@harness/hub": "*",
     "@harness/sdk": "*",
+    "tsx": "^4.23.15",
     "vite": "^8.3.6",
     "zod": "^4.6.7"
   }

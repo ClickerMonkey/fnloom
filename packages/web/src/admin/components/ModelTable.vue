@@ -1,20 +1,25 @@
 <script setup lang="ts">
 /**
  * The models the providers offer, narrowed as the person types: name and id, what it can do, which provider, how much
- * it can read at once, and its price per million tokens in and out. The columns are one grid, so they line up from
- * row to row; a number the provider doesn't give shows a dash. A model one provider lists twice shows once.
+ * it can read at once, and its price per million tokens in and out, with the hub roles it fills now (what systems'
+ * `ctx.ai()` is told beside it). The columns are one grid, so they line up from row to row; a number the provider
+ * doesn't give shows a dash. A model one provider lists twice shows once.
  */
-import type { ModelInfo } from '@harness/core';
+import type { ModelInfo, ModelRole } from '@harness/core';
 import { computed } from 'vue';
 import { formatCost } from '../../chat/logic/format.ts';
 import { contextSize, findModels, isFree } from '../../chat/logic/models.ts';
 import { UiBadge, UiEmpty, UiInput } from '../../ui/index.ts';
+import { modelKey, ROLE_WORDS } from '../logic/roles.ts';
 
-const props = defineProps<{ models: readonly ModelInfo[]; providerName: (model: ModelInfo) => string }>();
+const props = withDefaults(defineProps<{ models: readonly ModelInfo[]; providerName: (model: ModelInfo) => string; roles?: ReadonlyMap<string, readonly ModelRole[]> }>(), {
+  roles: () => new Map(),
+});
 /** The search; a parent binds it to the URL so a refresh keeps it. */
 const query = defineModel<string>('query', { default: '' });
 
-const keyOf = (model: ModelInfo): string => `${model.provider}/${model.id}`;
+const keyOf = modelKey;
+const rolesOf = (model: ModelInfo): readonly ModelRole[] => props.roles.get(keyOf(model)) ?? [];
 const unique = computed(() => [...new Map(props.models.map((m) => [keyOf(m), m])).values()]);
 const shown = computed(() => findModels(unique.value, { text: query.value, filters: new Set(), sort: 'name' }));
 const context = (model: ModelInfo): string => contextSize(model) || '—';
@@ -36,6 +41,7 @@ const price = (model: ModelInfo): string => {
           <code class="id">{{ model.id }}</code>
         </div>
         <div class="chips">
+          <UiBadge v-for="role in rolesOf(model)" :key="role" tone="accent" data-testid="model-role" :title="ROLE_WORDS[role].about">{{ ROLE_WORDS[role].label }} role</UiBadge>
           <UiBadge v-for="capability in model.capabilities" :key="capability">{{ capability }}</UiBadge>
         </div>
         <dl class="numbers">

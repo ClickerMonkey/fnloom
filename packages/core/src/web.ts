@@ -18,7 +18,7 @@ import { ReadWant, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Conten
 import { ClientInfo, RunUpdate } from './run.ts';
 import { Actor, ActorSetting, Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
 import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControlAction, SessionControls, SessionSummary } from './records/chat.ts';
-import { IndexedKind, Notification, PushSubscription, ResourceRecord, SearchHit } from './records/content.ts';
+import { Notification, PushSubscription, ResourceRecord } from './records/content.ts';
 import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNode, UndoReport } from './records/runs.ts';
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
 import { ContextRecord, FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
@@ -253,7 +253,6 @@ export const findSlice = spec({
   endpoints: use(tel, hubAuth).group({
     /** Fns and context that match a draft message by meaning (and words), for the composer's suggestions. */
     suggest: { body: z.object({ session: SessionId, text: z.string(), limit: z.number().int().min(1).max(20).optional() }), response: z.array(Suggestion), ws: 'suggest' },
-    search: { body: z.object({ query: z.string(), kinds: z.array(IndexedKind).optional(), limit: z.number().int().min(1).max(50).optional() }), response: z.array(SearchHit), ws: 'search' },
     mentions: { body: z.object({ session: SessionId, provider: QualifiedName, query: z.string() }), response: z.array(MentionOption), ws: 'mentions' },
     mentionHover: { body: z.object({ session: SessionId, provider: QualifiedName, target: Json }), response: z.object({ hover: MentionHover.optional() }), ws: 'mentionHover' },
     resource: { body: z.object({ uri: ResourceUri, want: z.array(ReadWant) }), response: ResourceRead, ws: 'resource' },

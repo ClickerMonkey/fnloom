@@ -5,11 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { COMMANDS, findCommand, helpText, runCli, usageOf } from './cli.ts';
 import { command, optionsOf, parseCommand, UsageError } from './command.ts';
-import { isExternal } from './builder.ts';
+import { builtManifest, isExternal, isStale, readSystemJson } from '@harness/build';
 import { npmSpec } from './commands/install.ts';
 import { cases, rename } from './commands/new.ts';
 import { instanceLine, systemLines } from './commands/manage.ts';
-import { builtManifest, isStale, readSystemJson } from './folder.ts';
 import { hubTarget } from './hub.ts';
 import { FakeHub, putFolder, testIo } from './testing.ts';
 

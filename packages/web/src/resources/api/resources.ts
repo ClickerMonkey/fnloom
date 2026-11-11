@@ -1,8 +1,8 @@
 /**
  * The resource browser's and viewer's callers, made once from the one hub client: browsing with facets, a
  * resource's forms, reading a form's text, making a form, presigned downloads, importing a URL or an upload,
- * renaming and deleting hub resources, and making context from a resource; plus the chat's `resource` read, which
- * the viewer falls back to for a resource the hub's resource library doesn't hold. Stores receive only the callers
+ * renaming and deleting hub resources, and making context from a resource; the chat's `resource` read, which the
+ * viewer falls back to for a resource the hub's resource library doesn't hold; and the file explorer's live reads. Stores receive only the callers
  * they use (`Pick<ResourcesApi, …>`), so tests hand them fakes. Live changes come through `ResourceEvents`.
  */
 import type { FormKind, ResourceUri } from '@harness/core';
@@ -30,6 +30,10 @@ export function resourcesApi(hub: Hub) {
     uploaded: hub.caller('uploaded'),
     /** A system's own read of a resource (stat, links and text), for resources the library doesn't hold. */
     systemRead: hub.caller('resource', { dedupe: true }),
+    /** The file explorer: a system instance's roots, a folder's entries and a file's text, live, with nothing saved. */
+    exploreRoots: hub.caller('exploreRoots', { lastOnly: true }),
+    exploreList: hub.caller('exploreList'),
+    exploreRead: hub.caller('exploreRead', { lastOnly: true }),
   };
 }
 

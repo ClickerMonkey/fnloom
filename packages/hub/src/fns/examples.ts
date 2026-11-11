@@ -6,7 +6,7 @@
  * database does all of it.
  */
 import { reject } from '@ayepi/core';
-import { mintId, type FnExample, type FnExampleRecord, type FnExamplesPage, type FnExamplesQuery, type FnRecord, type QualifiedName } from '@harness/core';
+import { mintId, qualify, type FnExamplesPatch, type SystemName, type FnExample, type FnExampleRecord, type FnExamplesPage, type FnExamplesQuery, type FnRecord, type QualifiedName } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { Indexer, Search } from '../index/index.ts';
 import type { HubStore } from '../store/index.ts';
@@ -135,6 +135,31 @@ export class StoreFnExamples implements FnExamples {
     const table = this.#deps.store().table('fnExamples');
     for (const row of fresh) await table.put(row);
     await this.#deps.indexer().upsert(fresh.map((row) => ({ kind: 'example', key: row.id, text: row.text, system: row.system })), { vectors: 'background' });
+  }
+
+  /**
+   * Build 6: a system adds, replaces (by its key) or removes examples of one of its own fns while running. Declared
+   * examples are left alone; a replaced example keeps its id, so it is indexed again in place.
+   */
+  async patch(system: SystemName, patch: FnExamplesPatch): Promise<{ added: number; removed: number }> {
+    const name = qualify(system, patch.fn);
+    const fn = await this.#deps.catalog().fn(name);
+    if (fn?.system !== system) throw reject(404, 'FN_NOT_FOUND', `${system} has no fn ${patch.fn}`);
+    const runtime = (await this.#rows(name)).filter((row) => row.source === 'runtime');
+    const byKey = new Map(runtime.map((row) => [row.key, row]));
+    const upserted = new Set(patch.upsert.map((example) => example.key));
+    // a key both removed and upserted is replaced
+    const dropped = runtime.filter((row) => row.key !== undefined && patch.remove.includes(row.key) && !upserted.has(row.key));
+    await this.#drop(dropped);
+    const now = this.#deps.clock();
+    const rows: FnExampleRecord[] = patch.upsert.map((example) => ({
+      id: byKey.get(example.key)?.id ?? mintId('fnExample'), fn: name, system, source: 'runtime', key: example.key, order: 0, text: exampleText(name, example),
+      args: example.args, ...(example.result === undefined ? {} : { result: example.result }), ...(example.note === undefined ? {} : { note: example.note }), createdAt: now,
+    }));
+    const table = this.#deps.store().table('fnExamples');
+    for (const row of rows) await table.put(row);
+    if (rows.length > 0) await this.#deps.indexer().upsert(rows.map((row) => ({ kind: 'example', key: row.id, text: row.text, system: row.system })), { vectors: 'background' });
+    return { added: patch.upsert.filter((example) => !byKey.has(example.key)).length, removed: dropped.length };
   }
 
   /** Remove examples and their index items. */

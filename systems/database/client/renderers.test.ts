@@ -66,12 +66,12 @@ describe('ResultView', () => {
     const grid = () => h('table');
     const source: VisualSource = {
       visuals: (_registry, data) => [
-        { system: 'charts', name: 'pie', fit: { fits: true, score: 0.95 }, component: pie, props: { table: data, system } },
-        { system: 'database', name: 'table', fit: tableFit(), component: grid, props: { table: data, system } },
+        { system: 'charts', name: 'pie', label: 'Pie chart', fit: { fits: true, score: 0.95 }, component: pie, props: { table: data, system } },
+        { system: 'database', name: 'table', label: 'Table', fit: tableFit(), component: grid, props: { table: data, system } },
       ],
     };
     const view = mount(ResultView, { props: { data: BY_STATUS, title: 'x', system }, global: { provide: { [VISUALS]: source } } });
     expect(view.find('figure.pie').text()).toBe('3');
-    expect(view.findAll('[role="radio"]').map((button) => button.text())).toEqual(['pie', 'Table']);
+    expect(view.findAll('[role="radio"]').map((button) => button.text())).toEqual(['Pie chart', 'Table']);
   });
 });

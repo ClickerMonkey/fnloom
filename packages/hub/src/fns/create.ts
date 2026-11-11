@@ -12,7 +12,7 @@ import { messageOf } from '../execution/errors.ts';
 import { rows } from '../execution/pages.ts';
 import { LlmAutoClassifier } from './auto.ts';
 import { ResourceClientLogs } from './client-logs.ts';
-import { AgentCostEstimator, DeclaredCostEstimator, FreeCostEstimator, HistoryCostEstimator, UnknownCostEstimator } from './costs.ts';
+import { AgentCostEstimator, DeclaredCostEstimator, FreeCostEstimator, HistoryCostEstimator, KindCostEstimator, UnknownCostEstimator } from './costs.ts';
 import { StoreFnExamples } from './examples.ts';
 import { StoreFnFacts } from './facts.ts';
 import { SessionModeGate } from './gate.ts';
@@ -20,7 +20,7 @@ import type { Asker, FnsServices } from './index.ts';
 import { StoreFnSearch } from './search.ts';
 
 /** The slice of `hubLinkSpec` this module answers. */
-export const FNS_LINK_SPEC = spec({ endpoints: { searchFns: hubLinkSpec.endpoints.searchFns, fnExamples: hubLinkSpec.endpoints.fnExamples } });
+export const FNS_LINK_SPEC = spec({ endpoints: { searchFns: hubLinkSpec.endpoints.searchFns, fnExamples: hubLinkSpec.endpoints.fnExamples, examples: hubLinkSpec.endpoints.examples } });
 
 /** Build the module's services over the hub's (read lazily). */
 export function fnsServices(hub: HubServices): FnsServices {
@@ -34,6 +34,20 @@ export function fnsServices(hub: HubServices): FnsServices {
     store, catalog: () => hub.catalog, metrics: () => hub.metrics.fns, clock: () => hub.clock(), tuning,
     estimators: [
       new FreeCostEstimator(),
+      new KindCostEstimator({
+        kind: (name) => hub.catalog.kind(name),
+        // a kind's system that isn't connected or can't answer leaves it to the history and the declared cost
+        ask: async (system, request) => {
+          const connection = hub.link.connections.connection(system);
+          if (connection === undefined) return undefined;
+          try {
+            return await connection.peer.call('estimate', request, { signal: AbortSignal.any([connection.signal, AbortSignal.timeout(tuning.HARNESS_FN_ESTIMATE_TIMEOUT)]) });
+          } catch (error) {
+            hub.log.warn('fns.estimate.failed', { system, kind: request.kind, error: error instanceof Error ? error.message : String(error) });
+            return undefined;
+          }
+        },
+      }),
       new HistoryCostEstimator(),
       new AgentCostEstimator({ models: () => hub.execution.llm.models(), defaultModel: () => Promise.resolve(hub.settings.modelEnv.HARNESS_DEFAULT_MODEL), tokens: (model) => hub.contextor.tokens.forModel(model) }),
       new DeclaredCostEstimator(),
@@ -102,6 +116,8 @@ export const fnsModule: ModuleFactory<'fns'> = ({ hub }) => {
         return services.search.search(query, await linkAsker(hub, link.system, run));
       },
       fnExamples: async ({ data, link }) => services.examples.page(data, await linkAsker(hub, link.system, undefined)),
+      // a system's own fn only: the examples it adds while running live with the declared ones, searchable alike
+      examples: ({ data, link }) => services.examples.patch(link.system, data),
     }))],
   };
 };

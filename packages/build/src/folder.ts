@@ -1,11 +1,11 @@
 /**
- * A system folder as the CLI reads it: `system.json` at its root (`SystemPackageManifest`), `shared/`, `server/`,
+ * A system folder as a build reads it: `system.json` at its root (`SystemPackageManifest`), `shared/`, `server/`,
  * `client/`, and `dist/`, what `harness system build` makes and `pack` zips. In `dist/` the entries point at the
  * built files (`server/main.js`, `client/index.js`) and `system.json` has no file list until `pack` adds one.
  */
 import { join } from 'node:path';
 import { PACKAGE_MANIFEST_FILE, SystemPackageManifest } from '@harness/core';
-import type { CliFiles } from './files.ts';
+import type { BuildFiles } from './files.ts';
 
 /** The build output folder of a system folder. */
 export const DIST = 'dist';
@@ -20,7 +20,7 @@ export class FolderError extends Error {
 }
 
 /** Read and check a folder's `system.json`. */
-export async function readSystemJson(files: CliFiles, dir: string): Promise<SystemPackageManifest> {
+export async function readSystemJson(files: BuildFiles, dir: string): Promise<SystemPackageManifest> {
   const path = join(dir, PACKAGE_MANIFEST_FILE);
   if (await files.stat(path) === undefined) { throw new FolderError(`${dir} has no ${PACKAGE_MANIFEST_FILE}: is it a system folder?`); }
   let json: unknown;
@@ -41,7 +41,7 @@ export function builtManifest(manifest: SystemPackageManifest): SystemPackageMan
 }
 
 /** Whether `dist/` is missing or older than anything in the source folder. */
-export async function isStale(files: CliFiles, dir: string): Promise<boolean> {
+export async function isStale(files: BuildFiles, dir: string): Promise<boolean> {
   const built = await files.stat(join(dir, DIST, PACKAGE_MANIFEST_FILE));
   if (built === undefined) { return true; }
   for (const file of await files.walk(dir, NOT_SOURCE)) {

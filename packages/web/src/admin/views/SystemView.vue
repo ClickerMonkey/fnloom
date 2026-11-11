@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
  * One system's page, its tab in the URL: the overview (switches, facts, process and maintenance), its instances (a
- * fleet's copies, each with its own page; another copy can be installed from a package zip), its config form, its fns
- * (each with its own page of metrics), and its live output. Removing asks first.
+ * fleet's copies, each with its own page; another copy can be installed from a package zip), its config form, what it
+ * added to the hub (its fns, each with its own page of metrics; its context items, each with its key; its named types),
+ * and its live output. Removing asks first.
  */
-import { SystemName, type AutoPairId, type InstanceName, type Json, type SystemEnabled } from '@harness/core';
+import { MAIN_INSTANCE, SystemName, type AutoPairId, type InstanceName, type Json, type SystemEnabled } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -17,6 +18,8 @@ import { useNow } from '../../ui/now.ts';
 import FnList from '../components/FnList.vue';
 import InstallDialog from '../components/InstallDialog.vue';
 import AutoPairList from '../components/AutoPairList.vue';
+import ContextRow from '../../context/components/ContextRow.vue';
+import InstanceTypes from '../components/InstanceTypes.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import InstanceList from '../components/InstanceList.vue';
 import type { PackageOptions } from '../state/packages.ts';
@@ -32,6 +35,9 @@ import { SystemTab } from '../sections.ts';
 
 const { admin, toasts, chat } = useStores();
 const store = admin.system;
+const parts = admin.systemParts;
+/** No change waits on a system's own types here; an instance's page shows those. */
+const NO_CHANGES: ReadonlySet<string> = new Set();
 const route = useRoute();
 const router = useRouter();
 const now = useNow();
@@ -69,6 +75,8 @@ const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'instances', label: 'Instances', count: view.value?.instances.length ?? 0 },
   { value: 'config', label: 'Config' },
   { value: 'fns', label: 'Fns', count: view.value?.fns ?? 0 },
+  { value: 'context', label: 'Context', ...(parts.contextCount.value === undefined ? {} : { count: parts.contextCount.value }) },
+  { value: 'types', label: 'Types', ...(parts.typeCount.value === undefined ? {} : { count: parts.typeCount.value }) },
   // every system's output reaches the hub (an installed one's process, a paired one's log lines), so the tab is always there
   { value: 'logs', label: 'Output' },
 ]);
@@ -77,13 +85,15 @@ watch(name, (system) => {
   if (system !== undefined) { void store.open(system); void admin.actors.load(); }
 }, { immediate: true });
 
-watch([tab, name], ([current]) => {
+watch([tab, name], ([current, system]) => {
   problems.value = [];
   if (current === 'fns') { void store.loadFns(); }
+  if (current === 'context' && system !== undefined) { void parts.loadContext(system); }
+  if (current === 'types' && system !== undefined) { void parts.loadTypes(system); }
   if (current === 'logs') { void store.followLogs(); } else { store.unfollowLogs(); }
 }, { immediate: true });
 
-onBeforeUnmount(() => { store.close(); });
+onBeforeUnmount(() => { store.close(); parts.close(); });
 
 async function save(config: Json): Promise<void> {
   const result = await store.configure(config);
@@ -128,6 +138,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
       <RouterLink :to="links.systems()" class="crumb" data-testid="back-to-systems"><UiIcon name="chevron-left" :size="14" />Systems</RouterLink>
     </template>
     <template v-if="view" #actions>
+      <RouterLink v-if="name !== undefined && view.status === 'connected'" :to="links.explore(name, MAIN_INSTANCE)" class="waiting" data-testid="system-explore"><UiIcon name="folder" :size="14" />Files</RouterLink>
       <RouterLink v-if="name !== undefined" :to="links.waitingRuns(name)" class="waiting" data-testid="system-waiting-runs"><UiIcon name="shield" :size="14" />Waiting runs</RouterLink>
       <StatusBadge :look="SYSTEM_STATUS_LOOK[view.status]" />
     </template>
@@ -163,6 +174,23 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           <RouterLink v-if="name !== undefined" :to="links.systemFns(name)" class="search-fns" data-testid="search-system-fns"><UiIcon name="search" :size="14" />Search and sort in Fns</RouterLink>
           <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" />
         </LoadState>
+        <LoadState
+          v-else-if="tab === 'context'" :loading="parts.context.loading.value" :problem="parts.context.problem.value" :ready="parts.context.loaded.value"
+          :empty="parts.context.items.value.length === 0" empty-icon="layers" empty-title="No context" empty-body="This system doesn't add any context." @retry="name && parts.loadContext(name)"
+        >
+          <RouterLink v-if="name !== undefined" :to="links.systemContext(name)" class="search-fns" data-testid="search-system-context"><UiIcon name="search" :size="14" />Search and sort in Context</RouterLink>
+          <div class="list" data-testid="system-context">
+            <ContextRow v-for="item in parts.context.items.value" :key="item.name" :record="item" :to="links.contextItem(item.name)" :now="now" keyed />
+          </div>
+          <UiButton v-if="parts.context.hasMore.value" class="more" variant="ghost" size="sm" :loading="parts.context.loadingMore.value" @click="parts.context.more()">Show more context</UiButton>
+        </LoadState>
+        <LoadState
+          v-else-if="tab === 'types'" :loading="parts.types.loading.value" :problem="parts.types.problem.value" :ready="parts.types.loaded.value"
+          :empty="parts.types.items.value.length === 0" empty-icon="braces" empty-title="No types" empty-body="This system doesn't name any types." @retry="name && parts.loadTypes(name)"
+        >
+          <InstanceTypes :types="parts.types.items.value" :changing="NO_CHANGES" />
+          <UiButton v-if="parts.types.hasMore.value" class="more" variant="ghost" size="sm" :loading="parts.types.loadingMore.value" @click="parts.types.more()">Show more types</UiButton>
+        </LoadState>
         <LoadState v-else :loading="store.logs.loading.value" :problem="store.logs.problem.value" :ready="store.logs.value.value !== undefined" :empty="false" @retry="store.followLogs()">
           <LogView :lines="store.logs.value.value ?? []" />
         </LoadState>
@@ -185,6 +213,9 @@ async function act(action: SystemAction, version?: string): Promise<void> {
 
 <style scoped>
 .instances { display: grid; gap: var(--space-3); }
+.list { display: grid; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+.list > * + * { border-top: 1px solid var(--border); }
+.more { justify-self: start; margin-top: var(--space-2); }
 .config-tab { display: grid; gap: var(--space-4); }
 .search-fns { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-sm); }
 .waiting { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }

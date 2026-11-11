@@ -1,16 +1,18 @@
 /**
- * Crawling a site: a breadth-first walk from a start page, a few links deep, that keeps every page it reads as a hub
- * resource under one folder (`crawls/<host>-<yyyymmdd-hhmm>`). Each page is fetched here first (robots.txt checked,
- * links read from its html), held in `FetchedPages` and imported through the hub, which fetches it back through
- * `web/fetch_raw` and finds it waiting, so no page crosses the network twice.
+ * Crawling a site: `@aeye/resources`' `buildResourceGraph` walks it breadth first from a start page, a few links deep,
+ * over the web system's guarded fetch (each request checked against the site's robots.txt first), and every page it
+ * reads is kept as a hub resource under one folder (`crawls/<host>-<yyyymmdd-hhmm>`). Each graph node carries the raw
+ * bytes and what the fetch found (final URL, status, rendered); the page is held in `FetchedPages` and imported through
+ * the hub, which fetches it back through `web/fetch_raw` and finds it waiting, so no page crosses the network twice.
  */
-import { extractLinksFromHtml } from '@aeye/resources';
+import { buildResourceGraph, type ResourceGraph, type ResourceGraphEdge, type ResourceGraphNode, type ResourceLink } from '@aeye/resources';
 import { z } from 'zod';
 import type { ResourceUri } from '@harness/core';
 import { CallFailed, type Infer } from '@harness/sdk';
 import type { CrawledPage, CrawlSkipReason, SkippedPageValue } from '../shared/index.ts';
 import { domainOf, redactUrl } from '../shared/urls.ts';
 import type { FetchedPage, FetchSettings, PageSource } from './index.ts';
+import { titleFor } from './loader.ts';
 import { WebProblem, isAbort } from './problem.ts';
 import { RobotsRules, escapeRegExp } from './robots.ts';
 
@@ -90,6 +92,8 @@ export interface CrawlerDeps {
   readonly agent: string;
   /** The most links one crawl looks at. */
   readonly maxLinks: number;
+  /** How many pages load at once. */
+  readonly concurrency: number;
   /** Called after each page with the share of `maxPages` done. */
   readonly progress: (fraction: number, message: string) => void;
   readonly signal: AbortSignal;
@@ -135,24 +139,35 @@ export function globMatches(glob: string, url: URL): boolean {
 /** The tag and `rel` words `@aeye/resources` records on each html link. */
 const LinkFacts = z.object({ tag: z.string(), rel: z.array(z.string()).optional() });
 
-/**
- * The pages an html page links to, as `@aeye/resources` extracts them (`extractLinksFromHtml`): anchors only, made
- * absolute against the page's `<base href>` (else its URL), without fragments, http(s) only; `rel="nofollow"` links
- * are left out.
- */
-export function linksOf(html: string, base: string): URL[] {
-  const links = extractLinksFromHtml(html, base).map((link) => ({ value: link.value.trim(), facts: LinkFacts.safeParse(link.metadata) }));
-  const baseHref = links.find((link) => link.facts.success && link.facts.data.tag === 'base')?.value;
-  const resolveFrom = baseHref !== undefined && URL.canParse(baseHref, base) ? new URL(baseHref, base).href : base;
-  return links.flatMap((link) => {
-    const facts = link.facts.success ? link.facts.data : undefined;
-    if (facts?.tag !== 'a' || facts.rel?.includes('nofollow') === true || link.value === '' || !URL.canParse(link.value, resolveFrom)) { return []; }
-    const url = new URL(link.value, resolveFrom);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') { return []; }
-    url.hash = '';
-    return [url];
-  });
+/** The tag and `rel` words of a link the graph found (`@aeye/resources` puts them in its metadata). */
+function linkFacts(link: ResourceLink): z.infer<typeof LinkFacts> | undefined {
+  const facts = LinkFacts.safeParse(link.metadata);
+  return facts.success ? facts.data : undefined;
 }
+
+/** A link as an absolute http(s) URL without its fragment, against the page it is on; `undefined` for any other link. */
+function webUrlOf(link: ResourceLink, from: string): URL | undefined {
+  const value = link.value.trim();
+  if (value === '' || !URL.canParse(value, from)) { return undefined; }
+  const url = new URL(value, from);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') { return undefined; }
+  url.hash = '';
+  return url;
+}
+
+/** A URL without its fragment (a link's `#part` names a place in the page, not another page). */
+function withoutFragment(url: string): string {
+  if (!URL.canParse(url)) { return url; }
+  const parsed = new URL(url);
+  parsed.hash = '';
+  return parsed.href;
+}
+
+/** The words a robots refusal carries, so an edge's error says it was robots. */
+const ROBOTS_REFUSAL = 'is disallowed by the site\'s robots.txt';
+
+/** Records a page the crawl left out, once per URL. */
+type Skip = (url: URL | string, reason: CrawlSkipReason, detail?: string) => void;
 
 /** A crawl's walk. One instance per crawl. */
 export class Crawler {
@@ -165,40 +180,82 @@ export class Crawler {
 
   /** Walk the site as the plan says. Throws only when the run is cancelled; a page that fails is left out. */
   async run(plan: CrawlPlan): Promise<CrawlReport> {
-    const kept: CrawlKept[] = [];
-    const skipped: CrawlSkip[] = [];
-    const keptUrls = new Set<string>();
-    const seen = new Set<string>([plan.start.href]);
-    const queue: Array<{ url: URL; depth: number }> = [{ url: plan.start, depth: 0 }];
     const site = domainOf(plan.start);
-    let looked = 1;
+    const skipped = new Map<string, CrawlSkip>();
+    const seen = new Set<string>([plan.start.href]);
+    const skip: Skip = (url, reason, detail) => {
+      const key = typeof url === 'string' ? url : url.href;
+      if (!skipped.has(key)) { skipped.set(key, { url: redactUrl(url), reason, ...(detail === undefined ? {} : { detail }) }); }
+    };
+    // every page the graph reads is held for the hub and imported at once, while the walk goes on
+    const imports: Array<Promise<{ depth: number; kept: CrawlKept } | undefined>> = [];
+    const keptUrls = new Set<string>();
+    let kept = 0;
+    const { registry, options } = this.#deps.pages.crawling(plan.fetch, this.#deps.signal, (url) => this.#check(url, plan.fetch));
 
-    while (queue.length > 0 && kept.length < plan.maxPages) {
-      const next = queue.shift();
-      if (next === undefined) { break; }
-      const { url, depth } = next;
-      if (!(await this.#rules(url, plan.fetch)).allows(url)) { skipped.push({ url: redactUrl(url), reason: 'robots' }); continue; }
-      const page = await this.#fetch(url, plan.fetch);
-      if ('problem' in page) { skipped.push({ url: redactUrl(url), reason: 'failed', detail: page.problem }); continue; }
-      // a redirect to a page already kept is the same page
-      if (keptUrls.has(page.finalUrl)) { continue; }
-      const imported = await this.#import(page, plan.folder);
-      if ('problem' in imported) { skipped.push({ url: redactUrl(url), reason: 'failed', detail: imported.problem }); continue; }
-      keptUrls.add(page.finalUrl).add(page.requestedUrl);
-      kept.push({ url: redactUrl(page.finalUrl), uri: imported.uri, title: imported.title, depth });
-      this.#deps.progress(kept.length / plan.maxPages, `Kept ${kept.length} of up to ${plan.maxPages}: ${imported.title}`);
-      if (depth >= plan.depth || page.type !== 'html') { continue; }
-      for (const link of linksOf(new TextDecoder().decode(page.bytes), page.finalUrl)) {
-        if (seen.has(link.href)) { continue; }
-        if (looked >= this.#deps.maxLinks) { break; }
-        seen.add(link.href);
-        looked += 1;
-        const reason = this.#leaveOut(link, plan, site);
-        if (reason === undefined) { queue.push({ url: link, depth: depth + 1 }); } else { skipped.push({ url: redactUrl(link), reason }); }
-      }
+    let graph: ResourceGraph;
+    try {
+      graph = await buildResourceGraph(registry, plan.start.href, {
+        ...options,
+        maxDepth: plan.depth,
+        maxResources: plan.maxPages,
+        concurrency: this.#deps.concurrency,
+        followChildren: false,
+        // the site rule is by registrable domain (subdomains count), so it is checked here, not by origin in the graph
+        followExternal: true,
+        sameOrigin: false,
+        keepBytes: true,
+        shouldFollow: (link, from) => {
+          // only an html page's anchors are pages to follow, and never a nofollow one
+          const facts = linkFacts(link);
+          if (from.type !== 'html' || facts?.tag !== 'a' || facts.rel?.includes('nofollow') === true) { return false; }
+          const url = webUrlOf(link, from.location);
+          if (url === undefined || seen.has(url.href) || seen.size >= this.#deps.maxLinks) { return false; }
+          seen.add(url.href);
+          const reason = this.#leaveOut(url, plan, site);
+          if (reason !== undefined) { skip(url, reason); }
+          return reason === undefined;
+        },
+        onNode: (node) => {
+          const page = this.#pageOf(node);
+          if (page === undefined || keptUrls.has(page.finalUrl)) { return; }
+          keptUrls.add(page.finalUrl).add(page.requestedUrl);
+          this.#deps.held.put(page);
+          imports.push(this.#import(page, plan.folder, node.depth).then((answer) => {
+            if ('problem' in answer) { skip(page.requestedUrl, 'failed', answer.problem); return undefined; }
+            kept += 1;
+            this.#deps.progress(kept / plan.maxPages, `Kept ${kept} of up to ${plan.maxPages}: ${answer.kept.title}`);
+            return { depth: node.depth, kept: answer.kept };
+          }));
+        },
+      });
+    } catch (error) {
+      // the start page itself failed, so the crawl keeps nothing
+      if (this.#deps.signal.aborted || !(error instanceof Error) || isAbort(error)) { throw error; }
+      await Promise.allSettled(imports);
+      const robots = error.message.includes(ROBOTS_REFUSAL);
+      skip(plan.start, robots ? 'robots' : 'failed', robots ? undefined : error.message);
+      return { pages: [], skipped: [...skipped.values()] };
     }
-    for (const left of queue) { skipped.push({ url: redactUrl(left.url), reason: 'limit' }); }
-    return { pages: kept, skipped };
+    const settled = await Promise.all(imports);
+    for (const node of graph.nodes.values()) {
+      for (const edge of node.edges) { this.#edgeSkip(edge, node, skip); }
+    }
+    // in the order the walk reached them: by depth, then as the graph met them
+    const pages = settled.flatMap((entry) => (entry === undefined ? [] : [entry])).sort((a, b) => a.depth - b.depth).map((entry) => entry.kept);
+    return { pages, skipped: [...skipped.values()] };
+  }
+
+  /** Why a link the graph didn't load was left out, for the limit and failures (links the crawl chose not to follow are said already). */
+  #edgeSkip(edge: ResourceGraphEdge, from: ResourceGraphNode, skip: Skip): void {
+    if (edge.loaded) { return; }
+    const url = webUrlOf(edge.link, from.location);
+    if (url === undefined) { return; }
+    if (edge.reason === 'max-resources') { skip(url, 'limit'); return; }
+    if (edge.reason === 'error') {
+      const robots = edge.error?.includes(ROBOTS_REFUSAL) === true;
+      skip(url, robots ? 'robots' : 'failed', robots ? undefined : edge.error);
+    }
   }
 
   #leaveOut(link: URL, plan: CrawlPlan, site: string): CrawlSkipReason | undefined {
@@ -210,20 +267,28 @@ export class Crawler {
     return undefined;
   }
 
-  async #fetch(url: URL, settings: FetchSettings): Promise<FetchedPage | { problem: string }> {
-    try {
-      const page = await this.#deps.pages.fetch(url.href, settings, this.#deps.signal);
-      this.#deps.held.put(page);
-      return page;
-    } catch (error) {
-      if (error instanceof WebProblem && !this.#deps.signal.aborted) { return { problem: error.message }; }
-      throw error;
-    }
+  /** A graph node as a fetched page, from the bytes and fetch facts it carries; `undefined` for a node that wasn't fetched. */
+  #pageOf(node: ResourceGraphNode): FetchedPage | undefined {
+    const fetched = node.fetch;
+    const bytes = node.bytes;
+    if (fetched === undefined || bytes === undefined) { return undefined; }
+    return {
+      bytes,
+      mime: node.resource.mimeType ?? 'application/octet-stream',
+      type: node.type,
+      requestedUrl: withoutFragment(fetched.requestedUrl),
+      finalUrl: withoutFragment(fetched.url),
+      status: fetched.status,
+      rendered: fetched.rendered,
+      renderError: fetched.renderError,
+      title: titleFor(node.type, bytes, fetched.url),
+    };
   }
 
-  async #import(page: FetchedPage, folder: string): Promise<{ uri: ResourceUri; title: string } | { problem: string }> {
+  async #import(page: FetchedPage, folder: string, depth: number): Promise<{ kept: CrawlKept } | { problem: string }> {
     try {
-      return await this.#deps.importPage(page.requestedUrl, folder);
+      const imported = await this.#deps.importPage(page.requestedUrl, folder);
+      return { kept: { url: redactUrl(page.finalUrl), uri: imported.uri, title: imported.title, depth } };
     } catch (error) {
       if (this.#deps.signal.aborted || isAbort(error) || !(error instanceof Error) || (error instanceof CallFailed && error.error.class === 'cancelled')) { throw error; }
       return { problem: error.message };
@@ -231,6 +296,12 @@ export class Crawler {
       // the hub has fetched it back by now, or never will
       this.#deps.held.take(page.requestedUrl);
     }
+  }
+
+  /** Refuse a request robots.txt disallows (robots.txt itself is always allowed). */
+  async #check(url: URL, settings: FetchSettings): Promise<void> {
+    if (url.pathname === '/robots.txt') { return; }
+    if (!(await this.#rules(url, settings)).allows(url)) { throw new WebProblem('robots', `${redactUrl(url)} ${ROBOTS_REFUSAL}.`); }
   }
 
   /** The site's robots.txt rules, read once per origin; one that can't be read allows everything. */
@@ -248,4 +319,3 @@ export class Crawler {
     return reading;
   }
 }
-

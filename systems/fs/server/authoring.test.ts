@@ -1,82 +1,42 @@
-/** The authoring context: its start item (`fs/system-authoring`) and the guide's parts, one item each. */
+/** The authoring context: its start item (`fs/system-authoring`), and the guide as fs's context folder. */
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkContextFolder } from '@harness/build';
+import { qualify } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { AUTHORING_PARTS, type AuthoringPart } from '../shared/authoring.gen.ts';
 import { fs } from '../shared/index.ts';
-import { AUTHORING_SPECIFIER, authoringPart, authoringStart, authoringText, PackagedAuthoring, templateNote, type AuthoringSource } from './authoring.ts';
+import { AUTHORING_SPECIFIER, authoringStart, authoringText, PackagedAuthoring, templateNote, type AuthoringSource } from './authoring.ts';
 import { sectionOf } from './sections.ts';
 
-/** The parts in the guide's order. */
-const PARTS = Object.keys(AUTHORING_PARTS).filter((name): name is AuthoringPart => Object.hasOwn(AUTHORING_PARTS, name));
+/** The fns the start item brings, and every item of the guide but a reference with it. */
+const START_FNS = ['fs/read', 'fs/write', 'fs/edit', 'fs/bash', 'fs/install_system', 'fs/system_status'];
 
-/** A part's facts, with `next` readable on every part. */
-const info = (part: AuthoringPart): { readonly heading: string; readonly title: string; readonly reference: boolean; readonly next?: AuthoringPart } => AUTHORING_PARTS[part];
+/** fs's context folder. */
+const CONTEXT = fileURLToPath(new URL('../context', import.meta.url));
 
-/** A guide with every part's heading and one line under each, and a template on this machine. */
-const FAKE: AuthoringSource = {
-  guide: () => Promise.resolve([
-    '# Writing a harness system', 'The intro.', '## Contents', '1. ...', ...PARTS.flatMap((name) => [info(name).heading, `About ${name}.`]),
-  ].join('\n\n')),
-  template: () => '/repo/systems/template/',
-};
-
-/** A part's text without the line naming the part after it. */
-const bodyOf = (text: string): string => text.replace(/\n\n(?:Next: .*|This is the last part of its kind\.)\n$/, '');
+/** A template on this machine. */
+const FAKE: AuthoringSource = { guide: () => Promise.resolve('# Writing a harness system\n'), template: () => '/repo/systems/template/' };
 
 describe('the system-authoring context', () => {
-  it('is a /new-system command that brings the fns to write a system with', () => {
+  it('is a /new-system command that brings the fns to write and install a system, and loads the guide index with it', () => {
     const def = fs.defs.context['system-authoring'];
     expect(def.dynamic).toBe(true);
     expect(def.command?.name).toBe('new-system');
-    expect(def.fns.map((f) => f.name)).toEqual(['fs/write', 'fs/edit', 'fs/bash', 'fs/read']);
+    expect(def.fns.map((f) => f.name)).toEqual(START_FNS);
+    expect(def.imports.map((ref) => ref.name)).toEqual(['fs/authoring']);
     expect(def.alwaysFor).toEqual([]);
   });
 
-  it('has one dynamic item per part, each under the start item; the guide’s parts and the reference parts are each a chain', () => {
-    for (const name of PARTS) {
-      const def = fs.defs.context[name];
-      const { next, reference } = info(name);
-      expect(def.dynamic, name).toBe(true);
-      expect(def.parent?.name, name).toBe('fs/system-authoring');
-      expect(def.next?.name, name).toBe(next === undefined ? undefined : `fs/${next}`);
-      if (next !== undefined) { expect(info(next).reference, name).toBe(reference); }
-      expect(def.suggest, name).toBe(reference ? 'none' : 'both');
-    }
-    expect(PARTS.filter((name) => info(name).reference)).toEqual(['authoring-internals', 'authoring-core-types']);
-  });
-
-  it('starts with the guide’s intro, lists every part with its size, and ends with the template note', async () => {
-    const text = await authoringStart(FAKE);
-    expect(text.startsWith('# Writing a harness system\n\nThe intro.\n\n## The parts of this guide\n')).toBe(true);
-    expect(text).not.toContain('## Contents');
-    for (const name of PARTS) { expect(text).toContain(`- \`fs/${name}\`: ${info(name).title} (about `); }
-    expect(text.indexOf('fs/authoring-examples')).toBeLessThan(text.indexOf('Reference parts'));
-    expect(text.indexOf('fs/authoring-core-types')).toBeGreaterThan(text.indexOf('Reference parts'));
+  it('names the fns it brings, how to walk the guide and where the template is, and ends with installing', () => {
+    const text = authoringStart(FAKE);
+    expect(text).toContain('This brings fs/read, fs/write, fs/edit and fs/bash');
+    expect(text).toContain('with `hub/load_context`');
+    expect(text).not.toContain('context_get');
     expect(text).toContain('The template system is at `/repo/systems/template/`');
-    expect(text.trimEnd().endsWith('until they pass.')).toBe(true);
-  });
-
-  it('serves each part as its section of the guide, naming the part after it', async () => {
-    const first = await authoringPart(FAKE, 'authoring-start');
-    expect(first).toBe(`${info('authoring-start').heading}\n\nAbout authoring-start.\n\nNext: \`fs/authoring-folder\` (${info('authoring-folder').title}).\n`);
-    const last = await authoringPart(FAKE, 'authoring-examples');
-    expect(last).toContain('About authoring-examples.');
-    expect(last).not.toContain('About authoring-internals.');
-    expect(last.trimEnd().endsWith('This is the last part of its kind.')).toBe(true);
-    const missing: AuthoringSource = { guide: () => Promise.resolve('# Nothing here\n'), template: () => undefined };
-    await expect(authoringPart(missing, 'authoring-gin')).rejects.toThrow(/npm run docs:authoring/);
-  });
-
-  it('cuts the real guide into parts that together are all of it after the contents', async () => {
-    const source = new PackagedAuthoring();
-    const guide = (await source.guide()).replaceAll('\r\n', '\n').trimEnd();
-    const parts = await Promise.all(PARTS.map((name) => authoringPart(source, name)));
-    expect(guide.endsWith(parts.map(bodyOf).join('\n\n'))).toBe(true);
-    // the start item is short: the list of parts, not the guide
-    expect((await authoringStart(source)).length).toBeLessThan(8_000);
+    expect(text).toContain('so never\n`mkdir` first');
+    expect(text.trimEnd().endsWith('the end of its output after a crash.')).toBe(true);
   });
 
   it('says where the template is in the repository when it is not on this machine', () => {
@@ -85,6 +45,34 @@ describe('the system-authoring context', () => {
 
   it('still gives the whole guide at once, for a model with a big window', async () => {
     expect(await authoringText({ guide: () => Promise.resolve('# All\n\n'), template: () => undefined })).toMatch(/^# All\n\n## Making a system here\n/);
+  });
+});
+
+describe('the guide as a context folder', () => {
+  const contract = fs.defs;
+  const known = {
+    system: 'fs',
+    fns: new Set(Object.keys(contract.fns).map((name) => qualify('fs', name))),
+    context: new Set(Object.keys(contract.context).map((name) => qualify('fs', name))),
+  };
+
+  it('builds clean: every header, key and link checks out against the fs contract', async () => {
+    const checked = await checkContextFolder(CONTEXT, known);
+    expect(checked.problems).toEqual([]);
+    const keys = checked.files.map((file) => file.header.key);
+    // the start item's import is a real item, and the index offers every group
+    expect(keys).toContain('authoring');
+    expect(checked.files.find((file) => file.header.key === 'authoring')?.header.choices?.map((choice) => choice.to).sort()).toEqual(keys.filter((key) => key.startsWith('authoring.topics.')).map((key) => `fs/${key}`).sort());
+  });
+
+  it('has short summaries, and every item but a reference brings the fns its text names', async () => {
+    const { files } = await checkContextFolder(CONTEXT, known);
+    for (const file of files) {
+      expect(file.header.summary.length, file.file).toBeLessThanOrEqual(160);
+      const reference = file.header.tags.includes('reference');
+      expect(file.header.fns.slice(0, 4), file.file).toEqual(reference ? [] : START_FNS.slice(0, 4));
+    }
+    expect(files.find((file) => file.header.key === 'authoring.packaging')?.header.fns).toContain('fs/install_system');
   });
 });
 

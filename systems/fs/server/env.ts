@@ -70,6 +70,22 @@ export const fsEnv = env({
   FS_REVEAL_TIMEOUT: z.number().int().min(1).default(10_000),
   /** How long after answering `restart` the process restarts. */
   FS_RESTART_DELAY: z.number().int().min(0).default(250),
+  /** How long a system `install_system` or `restart_system` starts may take to connect to the hub. */
+  FS_HOSTED_CONNECT_TIMEOUT: z.number().int().min(1_000).default(30_000),
+  /** How often a starting hosted system is looked for in the hub. */
+  FS_HOSTED_CHECK_EVERY: z.number().int().min(50).default(500),
+  /** Characters of a hosted system's output kept for its status and a crash report. */
+  FS_HOSTED_OUTPUT_TAIL: z.number().int().min(256).default(4_096),
+  /** The most build problems an invalid install returns (the rest are counted). */
+  FS_HOSTED_PROBLEMS: z.number().int().min(1).default(40),
+  /** The first wait before restarting a crashed hosted system; it doubles with each crash in the hour. */
+  FS_HOSTED_BACKOFF: z.number().int().min(100).default(1_000),
+  /** The longest wait between restarts. */
+  FS_HOSTED_BACKOFF_MAX: z.number().int().min(100).default(300_000),
+  /** Crashes in an hour after which a hosted system is disabled until restarted. */
+  FS_HOSTED_CRASHES_PER_HOUR: z.number().int().min(1).default(5),
+  /** How long reading a built system's contract may take. */
+  FS_HOSTED_PROBE_TIMEOUT: z.number().int().min(1_000).default(60_000),
 }).add(systemState('fs'));
 
 /** The fs system's settings, resolved. */

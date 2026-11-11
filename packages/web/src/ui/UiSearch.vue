@@ -198,7 +198,7 @@ const listId = `search-${Math.random().toString(36).slice(2, 9)}`;
         <button type="button" class="pill-x" :aria-label="`Remove filter ${text}`" @click="remove(i)"><UiIcon name="x" :size="12" /></button>
       </span>
       <input
-        ref="input" class="text" type="search" :value="draft" :placeholder="filters.length === 0 ? placeholder : ''" :aria-label="label" autocomplete="off"
+        ref="input" class="text" :class="{ typing: draft !== '' || filters.length === 0 }" type="search" :value="draft" :placeholder="filters.length === 0 ? placeholder : ''" :aria-label="label" autocomplete="off"
         role="combobox" :aria-expanded="listOpen ? 'true' : 'false'" :aria-controls="listId" aria-autocomplete="list" data-testid="search-input"
         :aria-activedescendant="listOpen ? `${listId}-${active}` : undefined"
         @input="onInput" @keydown="onKey" @focus="suggesting = true" @blur="suggesting = false"
@@ -230,21 +230,25 @@ const listId = `search-${Math.random().toString(36).slice(2, 9)}`;
 <style scoped>
 .ui-search {
   display: flex; align-items: flex-start; gap: var(--space-1); flex: 1 1 260px; min-width: 0; min-height: var(--control);
-  padding: 3px var(--space-1) 3px var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); cursor: text;
+  /* one row is exactly a control tall: 1px border, 5px padding and a 28px row each side */
+  padding: 5px var(--space-1) 5px var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); cursor: text;
   transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
 .ui-search:hover { border-color: var(--text-faint); }
 .ui-search:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
-.lead { flex: none; margin: 6px 2px 0 0; color: var(--text-faint); }
-.field { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 2px var(--space-1); min-width: 0; min-height: 28px; }
+.lead { flex: none; margin: 6px var(--space-1) 0 0; color: var(--text-faint); }
+/* pills and the input share rows 28px tall, the height of the buttons beside them, so all sit on one centre line */
+.field { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 0 var(--space-1); min-width: 0; min-height: 28px; }
 .pill {
-  display: inline-flex; align-items: center; min-width: 0; max-width: 100%; height: 24px; border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
+  display: inline-flex; align-items: center; min-width: 0; max-width: 100%; height: 24px; margin-block: 2px; border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
   border-radius: var(--radius-full); background: var(--accent-soft); font-size: var(--text-xs); cursor: default;
 }
 .pill-text { min-width: 0; padding: 0 4px 0 8px; border: 0; background: none; color: var(--text); font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .pill-x { display: grid; place-items: center; width: 20px; height: 20px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--radius-full); background: none; color: var(--text-dim); }
 .pill-x:hover { background: var(--surface-3); color: var(--text); }
-.text { flex: 1 1 3rem; min-width: 3rem; height: 26px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
+/* beside pills the input takes whatever room is left on their row; once typed in (or with no pills) it needs a little more */
+.text { flex: 1 1 1rem; min-width: 1rem; height: 28px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
+.text.typing { min-width: 6rem; }
 .text::placeholder { color: var(--text-faint); }
 .text::-webkit-search-cancel-button { display: none; }
 .icon-btn { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-dim); }

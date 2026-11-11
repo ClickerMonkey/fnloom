@@ -2,7 +2,7 @@
  * One person's view of visibility: the stored rows, the groups they are in and their per-person connections, checked
  * without further reads.
  */
-import { accessKey, seesOrigin, splitName, SystemName, type QualifiedName, type SessionId, type AccessRecord, type AccessTarget, type ActorId, type Sharing, type ShareRule } from '@harness/core';
+import { ADMIN_TAG, accessKey, seesOrigin, splitName, SystemName, type QualifiedName, type SessionId, type AccessRecord, type AccessTarget, type ActorId, type Sharing, type ShareRule } from '@harness/core';
 import type { AccessScope, ConnectionGate, ContextRef, FnConnection, FnRef, TypeRef } from './index.ts';
 
 /** Whether a sharing lets a person (in these groups) in. A rule with no owner (a type's audience) is private to nobody. */
@@ -61,6 +61,8 @@ export class ActorScope implements AccessScope {
   }
 
   seesFn(record: FnRef): boolean {
+    // admin fns run only for an admin, so nobody else is shown them (searches, prompts, lists)
+    if (!this.admin && record.decl?.tags.includes(ADMIN_TAG) === true) return false;
     if (!this.seesSystem(record.system) || !this.sees({ kind: 'fn', fn: record.name })) return false;
     return this.connection(record)?.state !== 'off';
   }

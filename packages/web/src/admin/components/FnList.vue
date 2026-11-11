@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * A system's fns: what each does, whether it can be used now (and why not), whether it is paused or off, its tags,
+ * A system's fns: what each does, its version (the start of its decl's hash) and whether it was added while running,
+ * whether it can be used now (and why not), whether it is paused or off, its tags,
  * and how its runs have gone (count, failure rate, retried input apart from failures, typical and p95 time, cost).
  * Its name opens its page with its metrics; its numbers open its runs. A tag every listed fn has (all of an
  * instance's saved queries are `database` and `query`, all added while running) is left off: it tells none apart.
@@ -11,7 +12,7 @@ import type { RouteLocationRaw } from 'vue-router';
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { UiBadge, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
-import { availabilityText } from '../logic/systems.ts';
+import { availabilityText, shortVersion } from '../logic/systems.ts';
 
 const props = defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; pageOf: (fn: QualifiedName) => RouteLocationRaw }>();
 
@@ -37,6 +38,7 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
         <p class="top">
           <RouterLink class="label" :to="pageOf(fn.name)" data-testid="fn-page">{{ fnLabel(fn.name) }}</RouterLink>
           <code class="name">{{ fn.name }}</code>
+          <code class="name" :title="`Version ${fn.version}`" data-testid="fn-version">v {{ shortVersion(fn.version) }}</code>
         </p>
         <p class="description">{{ fn.decl.description }}</p>
         <p class="chips">

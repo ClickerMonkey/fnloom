@@ -74,11 +74,11 @@ const countText = computed(() => (props.count === undefined ? '' : `${props.coun
 .side { display: flex; align-items: center; gap: var(--space-2); flex: 0 1 auto; min-width: 0; min-height: var(--control); margin-left: auto; }
 .side :deep(.ui-menu-trigger) { min-width: 0; }
 .extra { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-height: var(--control); margin-left: auto; }
-/* narrow: the box takes the row; the sort starts the row under it, the page's additions and the count to its right */
+/* narrow: the box takes the row; under it one row holds the sort with its count beside it, then the page's additions at its end */
 @container (max-width: 559px) {
   .list-search > :first-child { flex-basis: 100%; }
-  .side { flex: 1 1 auto; margin-left: 0; }
-  .side .count { margin-left: auto; }
+  .side { flex: 0 1 auto; margin-left: 0; }
+  .count { text-align: left; }
 }
 .partial { display: flex; flex-basis: 100%; align-items: center; gap: var(--space-1); margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
 .count { min-width: 2ch; color: var(--text-faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-align: right; }

@@ -7,7 +7,7 @@ import { PACKAGE_MANIFEST_FILE, packageFileName } from '@harness/core';
 import { sealPackage, zip, type ZipEntry } from '@harness/hub/package';
 import { z } from 'zod';
 import { command } from '../command.ts';
-import { DIST, isStale, readSystemJson } from '../folder.ts';
+import { DIST, isStale, readSystemJson } from '@harness/build';
 import { buildSystem } from './build.ts';
 
 export const packCommand = command({

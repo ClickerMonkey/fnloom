@@ -92,13 +92,16 @@ export interface CommandHint {
   readonly current: number;
 }
 
-/** The hint for the command being typed, once its name is complete and followed by a space. */
+/**
+ * The hint for the command being typed, once its name is complete and followed by a space: its args, or why it can't
+ * be used now (so a command typed by hand says so before it is sent).
+ */
 export function commandHint(text: string, commands: readonly Command[]): CommandHint | undefined {
   const line = text.split('\n', 1)[0] ?? '';
   const match = /^\/(\S+)\s(.*)$/.exec(line);
   if (match === null) { return undefined; }
   const command = commands.find((c) => c.name === match[1]);
-  if (command === undefined || command.args.length === 0) { return undefined; }
+  if (command === undefined || (command.args.length === 0 && command.unavailable === undefined)) { return undefined; }
   const rest = match[2] ?? '';
   const words = rest.split(/\s+/).filter((w) => w !== '');
   const typing = rest === '' || /\s$/.test(rest) ? words.length : words.length - 1;

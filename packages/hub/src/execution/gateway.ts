@@ -11,14 +11,14 @@
  */
 import type { Request } from '@aeye/core';
 import { retry } from '@ayepi/core/retry';
-import { isSettled, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelChoice, type ModelInfo, type Priority, type Run, type RunId, type TurnId } from '@harness/core';
+import { isSettled, MAIN_INSTANCE, SystemName, type InstanceName, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelChoice, type Priority, type RunId, type TurnId } from '@harness/core';
 import type { ModelSite } from '../models/index.ts';
 import { Channel } from './channel.ts';
-import { BudgetRefused, causeOf, LlmRateLimited, messageOf } from './errors.ts';
-import type { LlmGateway, Recorded } from './index.ts';
+import { BudgetRefused, causeOf, fnError, LlmRateLimited, messageOf } from './errors.ts';
+import type { LlmGateway, Recorded, RunService } from './index.ts';
 import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { ModelResolver } from './models.ts';
-import type { ExecutionDeps, LlmEngine } from './ports.ts';
+import type { EngineModel, ExecutionDeps, LlmEngine } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { CallReceipts, LlmCallScope, type HubCallContext } from './scope.ts';
 import { chunkToWire, descriptorsOf, requestFromWire } from './wire.ts';
@@ -28,7 +28,7 @@ const TRANSIENT_TRIES = 3;
 
 /** What the gateway uses. */
 export interface GatewayDeps extends Pick<ExecutionDeps, 'store' | 'clock' | 'log' | 'settings'> {
-  readonly runs: { get(run: RunId): Promise<Run | undefined> };
+  readonly runs: Pick<RunService, 'get' | 'systemWork' | 'settle'>;
   readonly queues: Pick<ExecutionQueues, 'llm'>;
   readonly llm: LlmEngine;
   readonly models: Pick<ModelResolver, 'resolve'>;
@@ -64,9 +64,12 @@ export class HubLlmGateway implements LlmGateway {
     this.#deps = { ...deps, sleep: deps.sleep ?? abortableSleep };
   }
 
-  async *forward(input: LlmForward & { system: string; turn?: TurnId }, signal: AbortSignal): AsyncIterable<LlmForwardChunk> {
-    const scope = await this.#scope(input.run, input.system);
+  async *forward(input: LlmForward & { system: string; turn?: TurnId; instance?: InstanceName }, signal: AbortSignal): AsyncIterable<LlmForwardChunk> {
+    // a call outside any run is the system's own work: a run of it, charged to its budgets, settled when the call ends
+    const work = input.run === undefined ? await this.#deps.runs.systemWork(SystemName.parse(input.system), input.instance ?? MAIN_INSTANCE) : undefined;
+    const scope = await this.#scope(work?.id ?? input.run, input.system);
     if (typeof scope === 'string') {
+      if (work !== undefined) await this.#deps.runs.settle(work.id, { status: 'failed', error: fnError('caller', scope, 'refused') });
       yield { type: 'error', kind: 'limit', message: scope };
       return;
     }
@@ -98,8 +101,11 @@ export class HubLlmGateway implements LlmGateway {
       attempts: TRANSIENT_TRIES, base: 0, jitter: 0,
       on: (error) => (sent || signal.aborted ? false : transientDelay(error) ?? false),
       sleep: (ms) => this.#deps.sleep(ms, signal),
-    }).catch((error: unknown) => {
+    }).then(async () => {
+      if (work !== undefined) await this.#deps.runs.settle(work.id, { status: 'done', result: null });
+    }, async (error: unknown) => {
       this.#deps.log.warn('llm.forward-failed', { run: scope.run, system: input.system, error: messageOf(error) });
+      if (work !== undefined) await this.#deps.runs.settle(work.id, { status: 'failed', error: fnError('fatal', messageOf(error), 'model-call') });
       channel.push({ type: 'error', kind: errorKind(error), message: messageOf(error) });
     }).finally(() => { channel.close(); });
     yield* channel;
@@ -133,7 +139,7 @@ export class HubLlmGateway implements LlmGateway {
     }, input.priority);
   }
 
-  models(): Promise<ModelInfo[]> {
+  models(): Promise<EngineModel[]> {
     return Promise.resolve(this.#deps.llm.models());
   }
 
@@ -143,11 +149,26 @@ export class HubLlmGateway implements LlmGateway {
    */
   async #call<T>(site: ModelSite, signal: AbortSignal, call: (ctx: HubCallContext) => Promise<T>, priority?: Priority): Promise<Recorded<T>> {
     const system = 'system' in site ? site.system : undefined;
-    const scope = site.run === undefined ? undefined : await this.#scope(site.run, system);
+    // a system's call outside any run is its own work: a run of it, charged to its budgets and recorded as its
+    const work = system !== undefined && site.run === undefined ? await this.#deps.runs.systemWork(system, ('instance' in site ? site.instance : undefined) ?? MAIN_INSTANCE) : undefined;
+    const purpose = 'purpose' in site ? site.purpose : undefined;
+    if (work === undefined) return this.#callIn(site.run, system, purpose, signal, call, priority);
+    try {
+      const recorded = await this.#callIn(work.id, system, purpose, signal, call, priority);
+      await this.#deps.runs.settle(work.id, { status: 'done', result: null });
+      return recorded;
+    } catch (error) {
+      await this.#deps.runs.settle(work.id, { status: 'failed', error: fnError('fatal', messageOf(error), 'model-call') });
+      throw error;
+    }
+  }
+
+  /** One call in a run's scope (none for the hub's own calls). */
+  async #callIn<T>(run: RunId | undefined, system: SystemName | undefined, purpose: string | undefined, signal: AbortSignal, call: (ctx: HubCallContext) => Promise<T>, priority?: Priority): Promise<Recorded<T>> {
+    const scope = run === undefined ? undefined : await this.#scope(run, system);
     if (typeof scope === 'string') throw new Error(scope);
-    if (system !== undefined && scope === undefined) throw new Error('Model calls from a system must be made inside a run.');
     const receipts = new CallReceipts();
-    const ctx: HubCallContext = { receipts, ...(scope === undefined ? {} : { call: scope }), ...('purpose' in site ? { purpose: site.purpose } : {}) };
+    const ctx: HubCallContext = { receipts, ...(scope === undefined ? {} : { call: scope }), ...(purpose === undefined ? {} : { purpose }) };
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('stopped');
     const value = await this.#deps.queues.llm(scope?.priority ?? priority ?? 'background', () => call(ctx));
     const last = receipts.last;
@@ -157,7 +178,7 @@ export class HubLlmGateway implements LlmGateway {
 
   /** The scope that pays for a call made inside a run (by its system, when one forwarded it); a reason when there is none. */
   async #scope(id: RunId | undefined, system: string | undefined): Promise<LlmCallScope | string> {
-    if (id === undefined) return 'LLM calls from a system must be made inside a run.';
+    if (id === undefined) return 'There is no run to charge the call to.';
     const run = await this.#deps.runs.get(id);
     if (run === undefined) return `There is no run ${id}.`;
     if (system !== undefined && run.system !== system) return `Run ${id} is not ${system}'s.`;

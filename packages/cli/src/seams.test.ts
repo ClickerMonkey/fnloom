@@ -5,8 +5,9 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { BUILD_ONLY_MODULES, isExternal, ViteBuilder } from './builder.ts';
+import { BUILD_ONLY_MODULES, isExternal, ViteBuilder } from '@harness/build';
 import { NodeFiles } from './files.ts';
 import { cliSettings, connectHub, hubTarget } from './hub.ts';
 import { waitFor } from './hub-client.ts';
@@ -104,10 +105,16 @@ describe('ViteBuilder', () => {
     expect(isExternal('zod', [])).toBe(false);
   });
 
-  it('reads the names of the contracts a module exports', async () => {
-    const module = join(root, 'contracts.mjs');
-    writeFileSync(module, "export const notes = { name: 'notes', defs: {}, with() {} };\nexport const other = { name: 'x' };\nexport const n = 1;\n");
-    expect(await builder.contractNames(module)).toEqual(['notes']);
+  it('reads the contracts a module exports, with their fns and context, and nothing shaped like one', async () => {
+    const module = join(root, 'contracts.ts');
+    const sdk = pathToFileURL(fileURLToPath(new URL('../../sdk/src/index.ts', import.meta.url))).href;
+    writeFileSync(module, [
+      `import { context, fn, g, system } from '${sdk}';`,
+      "export const notes = system('notes', { description: 'Notes.' }).with({ fns: { add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() }) }, context: { guide: context({ description: 'Guide.', content: 'x' }) } });",
+      "export const lookalike = { name: 'x', defs: {}, with() {} };",
+      'export const n = 1;',
+    ].join('\n'));
+    expect(await builder.contracts(module)).toEqual([{ name: 'notes', fns: ['notes/add'], context: ['notes/guide'], requires: [], references: [] }]);
   });
 
   it('bundles a server entry into one file, keeping externals as imports', async () => {

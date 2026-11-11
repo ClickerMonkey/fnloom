@@ -10,9 +10,10 @@ import { classifierDraft, classifierOf, classifierText } from '../admin/logic/cl
 import { manifest } from '../api/manifest.gen.ts';
 import { withTraffic, type CallSeen } from '../api/traffic.ts';
 import RunGroup from '../chat/components/RunGroup.vue';
-import { groupCount, groupSummary, groupText } from '../chat/logic/groups.ts';
+import { groupCount, groupPieces, groupSummary, groupText } from '../chat/logic/groups.ts';
+import type { AnswerPiece } from '../chat/logic/thread.ts';
 import { run } from '../chat/test/fakes.ts';
-import { ClientLogs } from '../state/client-logs.ts';
+import { ClientLogs, consoleText } from '../state/client-logs.ts';
 import { fakeCaller, fakeUserEvents } from '../test/fakes.ts';
 import FnOverview from './components/FnOverview.vue';
 import { costText, exampleCall, factFigures } from './logic/facts.ts';
@@ -32,10 +33,27 @@ describe('fn calls in a row', () => {
 
   it('opens by itself while a run in it waits for approval, so the approval is never hidden', () => {
     const runs = [run({ status: 'done' }), run({ fn: 'fs/bash', status: 'awaiting-approval' })];
-    const group = mount(RunGroup, { props: { runs, now: 0, collapsed: () => true, viewOf: () => undefined, showOf: () => 'card', open: false } });
+    const group = mount(RunGroup, { props: { steps: [{ kind: 'runs', key: 's0', runs }], now: 0, collapsed: () => true, viewOf: () => undefined, showOf: () => 'card', open: false } });
     expect(group.get('[data-testid=run-group-toggle]').attributes('aria-expanded')).toBe('true');
     expect(group.findAll('[data-testid=run-card]')).toHaveLength(2);
     expect(group.get('.run-dot').attributes('data-status')).toBe('awaiting-approval');
+  });
+
+  it('folds a stretch of calls with the reasoning between them, in order, leaving the reasoning around it outside', () => {
+    const [a, b] = [run({ status: 'done' }), run({ fn: 'fs/bash', status: 'done' })];
+    const pieces: AnswerPiece[] = [
+      { kind: 'reasoning', key: 's0', text: 'first' }, { kind: 'runs', key: 's1', runs: [a.id] }, { kind: 'reasoning', key: 's2', text: 'between' },
+      { kind: 'runs', key: 's3', runs: [b.id] }, { kind: 'reasoning', key: 's4', text: 'after' }, { kind: 'text', key: 's5', text: 'Done.' },
+    ];
+    const folded = groupPieces(pieces, true, (piece) => piece.runs.length);
+    expect(folded.map((p) => p.kind)).toEqual(['reasoning', 'group', 'reasoning', 'text']);
+    const group = folded[1];
+    expect(group?.kind === 'group' ? group.steps.map((step) => step.key) : []).toEqual(['s1', 's2', 's3']);
+    // one call, or grouping off, folds nothing
+    expect(groupPieces(pieces.slice(0, 3), true, (piece) => piece.runs.length)).toEqual(pieces.slice(0, 3));
+    expect(groupPieces(pieces, false, (piece) => piece.runs.length)).toEqual(pieces);
+    const view = mount(RunGroup, { props: { steps: [{ kind: 'runs', key: 's1', runs: [a] }, { kind: 'reasoning', key: 's2', text: 'between' }, { kind: 'runs', key: 's3', runs: [b] }], now: 0, collapsed: () => true, viewOf: () => undefined, showOf: () => 'card', open: true } });
+    expect(view.findAll('[data-testid=run-card], [data-testid=reasoning]').map((el) => el.attributes('data-testid'))).toEqual(['run-card', 'reasoning', 'run-card']);
   });
 });
 
@@ -134,5 +152,33 @@ describe('browser logs and traffic', () => {
     expect(traffic).toEqual({ type: 'traffic', at: 4, method: 'POST', endpoint: '/send', status: 200, duration: 12 });
     expect(send.calls).toHaveLength(2);
     expect(send.calls[0]?.[0].page).toBe('/chat/ses_1');
+  });
+
+  it('copies console lines, still printed, with secrets hidden, and puts the console back', () => {
+    const send = fakeCaller<'clientLogs'>(() => Promise.resolve({ uri: 'hub://logs/a.jsonl', written: 1 }));
+    const logs = new ClientLogs({ send, signedIn: () => true, page: () => '/chat', clock: () => 7 });
+    const printed: unknown[][] = [];
+    const fakeConsole = { ...console, warn: (...args: unknown[]) => { printed.push(args); } };
+    const stop = logs.watch({ addEventListener: () => undefined, removeEventListener: () => undefined }, fakeConsole);
+    fakeConsole.warn('sync failed', { session: 'ses_1', accessToken: 'abc', nested: { password: 'p' } }, 'Authorization: Bearer abc.def', new RangeError('too far'));
+    stop();
+    fakeConsole.warn('after');
+    expect(printed).toHaveLength(2);
+    expect(send.calls).toHaveLength(1);
+    const line = send.calls[0]?.[0].entries[0];
+    expect(line).toMatchObject({ type: 'log', level: 'warn', fields: { source: 'console' } });
+    const message = line?.type === 'log' ? line.message : '';
+    expect(message).toBe('sync failed {"session":"ses_1","accessToken":"[hidden]","nested":{"password":"[hidden]"}} Authorization: Bearer [hidden] RangeError: too far');
+    expect(consoleText(['token eyJhbGciOi.eyJzdWIi.c2lnbmF0dXJl here'])).toBe('token [hidden] here');
+  });
+
+  it('hides credentials in uncaught errors and their stacks too', () => {
+    const send = fakeCaller<'clientLogs'>(() => Promise.resolve({ uri: 'hub://logs/a.jsonl', written: 1 }));
+    const logs = new ClientLogs({ send, signedIn: () => true, page: () => '/chat', clock: () => 7 });
+    const error = new Error('fetch failed with Bearer abc.def');
+    error.stack = 'Error: fetch failed with Bearer abc.def\n    at eyJhbGciOi.eyJzdWIi.c2lnbmF0dXJl';
+    logs.error(error, 'window');
+    const line = send.calls[0]?.[0].entries[0];
+    expect(line).toMatchObject({ type: 'log', message: 'Error: fetch failed with Bearer [hidden]', fields: { source: 'window', stack: 'Error: fetch failed with Bearer [hidden]\n    at [hidden]' } });
   });
 });

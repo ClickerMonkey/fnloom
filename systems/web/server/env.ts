@@ -49,6 +49,8 @@ export const webEnv = env({
   WEB_CRAWL_MAX_PAGES: z.number().int().min(1).default(100),
   /** The most links one crawl looks at (kept or left out) before it stops queueing more. */
   WEB_CRAWL_MAX_LINKS: z.number().int().min(1).default(2_000),
+  /** How many pages a crawl loads at once. */
+  WEB_CRAWL_CONCURRENCY: z.number().int().min(1).max(16).default(4),
   /** Left-out pages a crawl's result lists; the rest are counted. */
   WEB_CRAWL_SKIPPED_SHOWN: z.number().int().min(0).default(30),
   /** How long a page a crawl fetched waits for the hub to fetch it back (through `web/fetch_raw`) before it is fetched again. */

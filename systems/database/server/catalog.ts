@@ -1,14 +1,21 @@
 /**
  * One database's tables as the system knows them after a scan: the query engine over their types (what queries are
  * checked against and emitted from), the hub's type of each table, and the schema text the query agent writes
- * against.
+ * against. Each hub type carries its `TableMeta`, so the enrichment is kept with the type in the hub.
  */
 import { QueryEngine, createRegistry, describeEngine, type Dialect, type TableSpec, type TypeBacking } from '@aeye/query';
-import type { GinTypeDef, InstanceName, TypeDecl } from '@harness/core';
+import { JsonObject, type GinTypeDef, type InstanceName, type TypeDecl } from '@harness/core';
 import type { DatabaseConfig, DialectName } from '../shared/shapes.ts';
 import { dialectFor } from './dialects.ts';
 import { schemaHash, type ScannedTable } from './schema.ts';
-import { engineTypeOf, hubTypeOf, identifierOf, titleOf, typeNameOf, type TableEnrichment } from './types.ts';
+import { engineTypeOf, hubTypeOf, identifierOf, titleOf, typeNameOf, type TableEnrichment, type TableMeta } from './types.ts';
+
+/** The meta a table type carries to the hub: its schema hash and enrichment. */
+function metaOf(table: CatalogTable): JsonObject {
+  const meta: TableMeta = { schemaHash: table.hash, ...(table.enrichment === undefined ? {} : { enrichment: table.enrichment }) };
+  // through JSON, so the optional fields a model left out are dropped rather than kept as undefined
+  return JsonObject.parse(JSON.parse(JSON.stringify(meta)));
+}
 
 /** One table: its scan, hash, enrichment (when there is one) and hub type. */
 export interface CatalogTable {
@@ -71,6 +78,7 @@ export class TableCatalog {
         methods: [],
         instance: this.instance,
         audience,
+        meta: metaOf(table),
       };
     });
   }

@@ -231,7 +231,24 @@ function assemble<N extends string, C extends ContractShape>(name: N, extras: Co
   };
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the refs were built from `defs` section by section, which is what SystemRefs<N, C> maps
   const self = contract as unknown as SystemContract<N, C>;
+  madeContracts().add(self);
   return self;
+}
+
+const CONTRACTS_KEY = Symbol.for('harness.contracts');
+
+/** Every contract `system()` made, in this process, shared by every copy of the SDK loaded in it. */
+function madeContracts(): WeakSet<object> {
+  const kept: unknown = Reflect.get(globalThis, CONTRACTS_KEY);
+  if (kept instanceof WeakSet) { return kept; }
+  const made = new WeakSet<object>();
+  Reflect.set(globalThis, CONTRACTS_KEY, made);
+  return made;
+}
+
+/** Whether a value is a contract `system()` made (a module's exports, read by a build). */
+export function isSystemContract(value: unknown): value is AnyContract {
+  return typeof value === 'object' && value !== null && madeContracts().has(value);
 }
 
 /** Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. */

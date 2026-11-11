@@ -188,7 +188,7 @@ describe('named types', () => {
     });
     types['shop/Price'] = record('shop/Price');
     types['shop/Product'] = record('shop/Product');
-    const found = await s.types([QualifiedName.parse('shop/Price'), QualifiedName.parse('shop/Product'), QualifiedName.parse('shop/Gone')]);
+    const found = await s.types(SHOP, [QualifiedName.parse('shop/Price'), QualifiedName.parse('shop/Product'), QualifiedName.parse('shop/Gone')]);
     expect(found.types.map((t) => t.name)).toEqual(['shop/Price', 'shop/Product']);
     expect(found.missing).toEqual(['shop/Gone']);
   });

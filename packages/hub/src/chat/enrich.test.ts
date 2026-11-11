@@ -1,6 +1,6 @@
 import { IDS, SystemName, type ChatMessage, type HookDecl, type UserInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { hookTag } from './enrich.ts';
+import { hookTag, SUGGESTED_CONTEXT_LINE, SUGGESTED_FNS_LINE } from './enrich.ts';
 import { hiddenMessage } from './turns.ts';
 import { chatWorld, gin } from './testing.ts';
 
@@ -139,8 +139,8 @@ describe('the text the LLM gets', () => {
   it('lists suggestions in their block', async () => {
     const w = await world();
     expect(w.chat.enrich.block('suggested_fns', [{ type: 'suggest-fns', items: [{ fn: 'fs/read', why: 'Read <files>.' }, { fn: 'fs/ls' }] }]))
-      .toBe('<suggested_fns>\n- fn fs/read: Read &lt;files&gt;.\n- fn fs/ls\n</suggested_fns>');
-    expect(w.chat.enrich.block('suggested_context', [{ type: 'suggest-context', items: [{ context: 'fs/guide' }] }])).toBe('<suggested_context>\n- context fs/guide\n</suggested_context>');
+      .toBe(`<suggested_fns>\n${SUGGESTED_FNS_LINE}\n- fn fs/read: Read &lt;files&gt;.\n- fn fs/ls\n</suggested_fns>`);
+    expect(w.chat.enrich.block('suggested_context', [{ type: 'suggest-context', items: [{ context: 'fs/guide' }] }])).toBe(`<suggested_context>\n${SUGGESTED_CONTEXT_LINE}\n- context fs/guide\n</suggested_context>`);
   });
 
   it('makes hook names tag-safe', () => {

@@ -94,6 +94,8 @@ export const KindDecl = z.object({
   status: StatusTemplates.optional(),
   /** Build 6: its system answers `estimate` on the link, working out a fn's cost from its payload and args. */
   estimates: z.boolean().optional(),
+  /** Build 6: how every fn of this kind asks before it runs; the hub copies it onto each fn saved of the kind. */
+  approval: FnApproval.optional(),
 });
 export type KindDecl = z.infer<typeof KindDecl>;
 

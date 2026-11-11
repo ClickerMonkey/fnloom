@@ -283,16 +283,16 @@ describe('hub MCPs', () => {
     const tools = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual(['find', 'inspect', 'run']);
     // the args are the hub fns' own and the chat's `run` args, so a fleet's `on` is there too
-    expect(tools[0]?.inputSchema).toMatchObject({ properties: { query: {}, kinds: {}, limit: {} } });
+    expect(tools[0]?.inputSchema).toMatchObject({ properties: { text: {}, kinds: {}, limit: {} } });
     expect(tools[1]?.inputSchema).toMatchObject({ properties: { name: {}, detail: {} } });
     expect(tools[2]?.inputSchema).toMatchObject({ properties: { fn: {}, args: {}, on: {} } });
-    expect(await client.callTool('find', { query: 'write a file' })).toMatchObject({ structuredContent: { read: { query: 'write a file' } } });
+    expect(await client.callTool('find', { text: 'write a file' })).toMatchObject({ structuredContent: { read: { text: 'write a file' } } });
     expect(await client.callTool('inspect', { name: 'fs/read' })).toMatchObject({ structuredContent: { read: { name: 'fs/read' } } });
     expect(await client.callTool('run', { fn: 'fs/read', args: { path: 'x' }, on: 'laptop' })).toMatchObject({ structuredContent: { read: { path: 'x' } } });
     expect(await client.callTool('run', { fn: 'fs/bash', args: { command: 'rm -rf /' } })).toMatchObject({ isError: true, content: [{ text: 'fs/bash is not available through this MCP.' }] });
     expect(await client.callTool('run', { fn: 'hub/create_mcp', args: {} })).toMatchObject({ isError: true });
     expect(h.runs.started).toMatchObject([
-      { fn: 'hub/find', args: { query: 'write a file' }, caller: mcp.actor },
+      { fn: 'hub/fns_search', args: { text: 'write a file' }, caller: mcp.actor },
       { fn: 'hub/inspect', args: { name: 'fs/read' }, caller: mcp.actor },
       { fn: 'fs/read', args: { path: 'x' }, on: 'laptop', caller: mcp.actor },
     ]);

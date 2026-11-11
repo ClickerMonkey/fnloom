@@ -1,0 +1,496 @@
+/**
+ * Hosting: systems written on this machine, installed from the chat (`install_system`), run here from a bundle an
+ * admin approved, and supervised (`system_status`, `restart_system`, `stop_system`).
+ *
+ * - **Preview** (before the card): read `system.json`, refuse reserved names, build (typecheck with the folder's own
+ *   `tsconfig.json`, bundle one self-contained file, check the contract's name, scan) into a version folder, and
+ *   answer the card: what it adds, the change from the running version, the scan and the hashes, with the install
+ *   subject the hub binds the pairing grant to. A failed build is refused with its `file:line:col` lines, so the run
+ *   is invalid input and the model fixes them without an admin being asked.
+ * - **Install** (approved): hash the folder again (a change after the card is invalid input), get a one-time pairing
+ *   token bound to the approved subject (none for a system already hosted here: it keeps its key), start the bundle
+ *   under the runner with its own folders and wait for it to say it connected. An exit before that is invalid input
+ *   with the exit code and the end of its output.
+ * - **Folders**: `<dataDir>/hosted/<system>/<instance>/{state,data,cache}` and bundles in
+ *   `<dataDir>/hosted/<system>/versions/<bundleHash>/`, the same layout the hub's supervisor uses. What is hosted
+ *   (`host.json` beside the instance's folders) is the supervisor's own bookkeeping: which bundle to start, and whether.
+ */
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, SystemName, SystemPackageManifest, type ApprovalPreview, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
+import { z } from 'zod';
+import type { HostedStatusValue, HostedStateValue, InstallResultValue } from '../shared/hosting.ts';
+
+/** Names a hosted system may never take. */
+const RESERVED = new Set(['hub']);
+
+/** What a build of a system folder gives: what will run, and what the card shows. Kept beside its bundle (`built.json`). */
+export const BuiltSystem = z.object({
+  /** `system.json` as built. */
+  manifest: SystemPackageManifest,
+  /** The hash of the contract the bundle declares, which its hello must carry. */
+  manifestHash: z.string().min(1),
+  /** sha-256 of the self-contained server bundle. */
+  bundleHash: z.string().min(1),
+  /** The bundle's server file, under the build folder. */
+  entry: z.string().min(1),
+  /** Its fns by qualified name, with their mode and tags (`random/random (read)`), for the card and the diff. */
+  fns: z.array(z.string()),
+  /** What else it adds (kinds, hooks, mentions, providers, config, renderers), a line each. */
+  adds: z.array(z.string()),
+  /** The scan report, a line each: built-ins imported, dynamic code, URLs and hosts, the size. */
+  scan: z.array(z.string()),
+  /** Lines of concern the scan found, as code to show. */
+  concerns: z.array(z.object({ file: z.string(), line: z.number().int().min(1), code: z.string() })),
+});
+export type BuiltSystem = z.infer<typeof BuiltSystem>;
+
+/** Builds and checks system folders (`@harness/build`). An interface so tests use a fake. */
+export interface SystemBuilds {
+  /** sha-256 over a folder's source files, so a change after approval is caught. */
+  sourceHash(dir: string): Promise<string>;
+  /** sha-256 of a built bundle file, so only the approved bundle ever starts. */
+  bundleHash(file: string): Promise<string>;
+  /** Typecheck, bundle into `outDir`, check names and scan; the problems as `file:line:col message` lines when it doesn't build. */
+  build(dir: string, outDir: string, signal: AbortSignal): Promise<{ readonly problems: readonly string[] } | { readonly built: BuiltSystem }>;
+}
+
+/** What the runner starts: a bundle under tsx, in its folders, with only the environment given. */
+export interface HostedLaunch {
+  readonly entry: string;
+  /** Where it runs: its bundle folder, which it may read. */
+  readonly cwd: string;
+  /** The folders it may write: its state, data and cache. */
+  readonly writes: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+  readonly permissions: SystemPackageManifest['permissions'];
+}
+
+/** How a start went: it said it connected (or waits for config), it exited first, or it said nothing in time. */
+export type StartOutcome =
+  | { readonly state: 'connected' | 'needs-config' }
+  | { readonly exited: { readonly code: number | null; readonly output: string } }
+  | { readonly timedOut: { readonly output: string } };
+
+/** How starting a hosted system went: as the runner saw it, or refused before it ran (its bundle isn't the approved one). */
+export type HostedStart = StartOutcome | { readonly refused: string };
+
+/** A hosted process as the runner sees it. */
+export interface RunnerStatus {
+  readonly state: HostedStateValue;
+  readonly pid?: number;
+  readonly restartsLastHour: number;
+  readonly output: string;
+}
+
+/** Starts, watches and stops hosted processes under the shared supervision policy (backoff, a cap per hour). */
+export interface HostedRunner {
+  /** Start (or restart) one; resolves once it says it connected or needs config, exits, or `timeout` passes. */
+  start(key: string, launch: HostedLaunch, timeout: number): Promise<StartOutcome>;
+  stop(key: string): Promise<void>;
+  status(key: string): RunnerStatus | undefined;
+}
+
+/** Whether the hub knows a system instance of this name (it runs, or ran, somewhere). */
+export type KnownSystem = (system: SystemName, instance: InstanceName) => Promise<boolean>;
+
+/** A one-time pairing token bound to an approved install run's subject (`grantPairing` on the link). */
+export type GrantPairing = (subject: InstallSubject) => Promise<PairingGrant>;
+
+/** What hosting is built from. */
+export interface HostingDeps {
+  readonly builds: SystemBuilds;
+  readonly runner: HostedRunner;
+  /** The hub's link URL, for the hosted processes. */
+  readonly hubUrl: string;
+  /** This fs instance, the host. */
+  readonly host: InstanceRef;
+  /** fs's data folder; hosted folders go under `hosted/`. */
+  readonly dataDir: string;
+  readonly limits: {
+    /** How long a start may take to connect. */
+    readonly connectTimeout: number;
+    /** The most problem lines an invalid build returns. */
+    readonly problems: number;
+    /** Characters of output kept for a crash. */
+    readonly outputTail: number;
+  };
+}
+
+/** What is hosted, kept beside the instance's folders. */
+export const HostedRecord = z.object({
+  system: SystemName,
+  instance: InstanceName,
+  version: z.string().min(1),
+  /** The source folder it was built from. */
+  folder: z.string().min(1),
+  bundleHash: z.string().min(1),
+  manifestHash: z.string().min(1),
+  /** The bundle's server file. */
+  entry: z.string().min(1),
+  fns: z.array(z.string()),
+  permissions: SystemPackageManifest.shape.permissions,
+  /** Whether fs starts it when it starts (false once stopped). */
+  start: z.boolean(),
+});
+export type HostedRecord = z.infer<typeof HostedRecord>;
+
+/** Why an install can't go ahead, said to the model as invalid input. */
+export class InstallRefused extends Error {}
+
+/** Lines, cut to the most the model is given, with how many more there were. */
+export function capped(lines: readonly string[], max: number): string {
+  const shown = lines.slice(0, max);
+  return [...shown, ...(lines.length > max ? [`and ${String(lines.length - max)} more`] : [])].join('\n');
+}
+
+/** The end of a text, at most `max` characters. */
+export function tail(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(text.length - max);
+}
+
+/** The fns line of the diff between two versions: added and removed, by name. */
+export function fnsDiff(before: readonly string[], after: readonly string[]): string[] {
+  const nameOf = (line: string) => line.split(' ')[0] ?? line;
+  const had = new Map(before.map((line) => [nameOf(line), line]));
+  const has = new Map(after.map((line) => [nameOf(line), line]));
+  return [
+    ...after.filter((line) => !had.has(nameOf(line))).map((line) => `+ ${line}`),
+    ...before.filter((line) => !has.has(nameOf(line))).map((line) => `- ${line}`),
+    ...after.filter((line) => had.has(nameOf(line)) && had.get(nameOf(line)) !== line).map((line) => `~ ${line} (was ${had.get(nameOf(line)) ?? ''})`),
+  ];
+}
+
+/** The systems this fs instance hosts. */
+export class Hosting {
+  readonly #deps: HostingDeps;
+
+  constructor(deps: HostingDeps) {
+    this.#deps = deps;
+  }
+
+  /** The root of the hosted folders. */
+  get root(): string {
+    return join(this.#deps.dataDir, 'hosted');
+  }
+
+  /** An instance's folders, as the hub's supervisor lays them out. */
+  folders(system: string, instance: string): { state: string; data: string; cache: string; record: string } {
+    const at = join(this.root, system, instance);
+    return { state: join(at, 'state'), data: join(at, 'data'), cache: join(at, 'cache'), record: join(at, 'host.json') };
+  }
+
+  /** Where a version's bundle is built. */
+  versionFolder(system: string, bundleHash: string): string {
+    return join(this.root, system, 'versions', bundleHash);
+  }
+
+  /**
+   * The card for installing a folder, or why not (`InstallRefused`). The bundle is built into its version folder
+   * here, so the run starts exactly what the admin saw.
+   */
+  async preview(folder: string, options: { instance?: string | undefined; replace?: boolean | undefined; known: KnownSystem }, signal: AbortSignal): Promise<ApprovalPreview> {
+    const manifest = await this.#systemJson(folder);
+    const instance = this.#instance(options.instance);
+    const hosted = await this.record(manifest.name, instance);
+    if (RESERVED.has(manifest.name)) { throw new InstallRefused(`"${manifest.name}" is reserved for the hub: rename the system in system.json and its contract.`); }
+    if (hosted === undefined && options.replace !== true && await options.known(manifest.name, instance)) {
+      throw new InstallRefused(`A system ${manifest.name}/${instance} already runs somewhere else. Pick another name, or call again with replace: true to replace it (the card says so).`);
+    }
+    const built = await this.#build(folder, manifest.name, signal);
+    const sourceHash = await this.#deps.builds.sourceHash(folder);
+    const subject: InstallSubject = {
+      kind: 'system-install',
+      system: manifest.name,
+      instance,
+      version: manifest.version,
+      manifestHash: built.manifestHash,
+      bundleHash: built.bundleHash,
+      sourceHash,
+      host: this.#deps.host,
+      ...(hosted === undefined ? {} : { replaces: { version: hosted.version, manifestHash: hosted.manifestHash } }),
+    };
+    const where = `${this.#deps.host.system}/${this.#deps.host.instance}`;
+    const title = hosted === undefined
+      ? `Install ${manifest.name} ${manifest.version} on ${where}`
+      : `Update ${manifest.name} ${hosted.version} → ${manifest.version} on ${where}`;
+    const diff = hosted === undefined ? [] : fnsDiff(hosted.fns, built.fns);
+    const permissions = Object.entries(manifest.permissions ?? {}).filter(([, on]) => on === true).map(([name]) => name);
+    const parts: PreviewPart[] = [
+      {
+        type: 'text',
+        text: [
+          `**${manifest.name}** ${manifest.version}: ${manifest.description}`,
+          '',
+          'Fns:',
+          ...built.fns.map((line) => `- ${line}`),
+          ...(built.adds.length === 0 ? [] : ['', 'Also adds:', ...built.adds.map((line) => `- ${line}`)]),
+          ...(permissions.length === 0 ? [] : ['', `Asks to: ${permissions.join(', ')}.`]),
+          ...(options.replace === true && hosted === undefined ? ['', `Replaces the ${manifest.name}/${instance} that runs somewhere else.`] : []),
+        ].join('\n'),
+      },
+      ...(hosted === undefined ? [] : [{ type: 'text' as const, text: ['Changes from the running version:', ...(diff.length === 0 ? ['- no fns added, removed or changed'] : diff.map((line) => `- ${line}`))].join('\n') }]),
+      { type: 'text', text: ['Scan (a report, not a guarantee):', ...built.scan.map((line) => `- ${line}`)].join('\n') },
+      { type: 'text', text: [`Source: \`${folder}\``, `Bundle: \`${built.bundleHash}\``, `Contract: \`${built.manifestHash}\``].join('\n') },
+      ...built.concerns.map((concern) => ({ type: 'code' as const, language: 'js', code: concern.code, title: `${concern.file}:${String(concern.line)}` })),
+    ];
+    return { title, parts, irreversible: false, subject };
+  }
+
+  /** Start what an admin approved; see the file's docs. */
+  async install(folder: string, subject: InstallSubject, grant: GrantPairing, signal: AbortSignal): Promise<InstallResultValue> {
+    if (await this.#deps.builds.sourceHash(folder) !== subject.sourceHash) {
+      throw new InstallRefused('The folder changed after approval; call install_system again to build and approve the new code.');
+    }
+    const manifest = await this.#systemJson(folder);
+    let bundle = this.versionFolder(subject.system, subject.bundleHash);
+    let built = await this.#readBuilt(bundle);
+    if (built === undefined) {
+      const again = await this.#build(folder, subject.system, signal);
+      if (again.bundleHash !== subject.bundleHash) { throw new InstallRefused('The build is not the one approved; call install_system again.'); }
+      bundle = this.versionFolder(subject.system, again.bundleHash);
+      built = again;
+    }
+    const hosted = await this.record(subject.system, subject.instance);
+    // a system already hosted here keeps its key and re-pairs by itself; a new one needs a token bound to this approval
+    const token = hosted === undefined ? (await grant(subject)).token : undefined;
+    const record: HostedRecord = {
+      system: subject.system, instance: subject.instance, version: subject.version, folder, bundleHash: subject.bundleHash,
+      manifestHash: subject.manifestHash, entry: built.entry, fns: [...built.fns], permissions: manifest.permissions, start: true,
+    };
+    const outcome = await this.#start(record, token);
+    if (!('state' in outcome)) {
+      // the old version keeps its record, so restart_system brings it back
+      if (hosted !== undefined) { await this.#start(hosted, undefined); }
+      throw new InstallRefused(this.#why(outcome));
+    }
+    await this.#write(record);
+    await this.#prune(subject.system, subject.bundleHash);
+    return { system: record.system, instance: record.instance, version: record.version, status: outcome.state, fns: built.fns.map((line) => line.split(' ')[0] ?? line), folder };
+  }
+
+  /** The hosted systems (or one), as the runner sees them now. */
+  async status(system?: string): Promise<HostedStatusValue[]> {
+    const records = (await this.records()).filter((record) => system === undefined || record.system === system);
+    return records.map((record) => {
+      const seen = this.#deps.runner.status(keyOf(record));
+      return {
+        system: record.system, instance: record.instance, version: record.version,
+        state: seen?.state ?? (record.start ? 'crashed' : 'stopped'),
+        ...(seen?.pid === undefined ? {} : { pid: seen.pid }),
+        restartsLastHour: seen?.restartsLastHour ?? 0,
+        folder: record.folder, bundleHash: record.bundleHash, output: seen?.output ?? '',
+      };
+    });
+  }
+
+  /** Restart a hosted system with its approved bundle. */
+  async restart(system: string, instance: string | undefined): Promise<HostedStateValue> {
+    const record = await this.#hosted(system, instance);
+    const outcome = await this.#start(record, undefined);
+    if (!('state' in outcome)) { throw new InstallRefused(this.#why(outcome)); }
+    await this.#write({ ...record, start: true });
+    return outcome.state;
+  }
+
+  /** Stop a hosted system (it stays stopped); with `remove`, delete its folders too. */
+  async stop(system: string, instance: string | undefined, remove: boolean): Promise<{ stopped: boolean; removed: boolean }> {
+    const record = await this.#hosted(system, instance);
+    await this.#deps.runner.stop(keyOf(record));
+    if (!remove) {
+      await this.#write({ ...record, start: false });
+      return { stopped: true, removed: false };
+    }
+    await rm(join(this.root, record.system, record.instance), { recursive: true, force: true });
+    const others = (await this.records()).filter((other) => other.system === record.system);
+    // the bundles go with the last instance of the system
+    if (others.length === 0) { await rm(join(this.root, record.system), { recursive: true, force: true }); }
+    return { stopped: true, removed: true };
+  }
+
+  /** The folders `stop` with `remove` deletes. */
+  async removes(system: string, instance: string | undefined): Promise<string[]> {
+    const record = await this.#hosted(system, instance);
+    return [join(this.root, record.system, record.instance)];
+  }
+
+  /** Start every hosted system marked to start (when fs starts). Each start is logged by the caller; failures are kept in its status. */
+  async startAll(): Promise<{ system: string; outcome: HostedStart }[]> {
+    const marked = (await this.records()).filter((record) => record.start);
+    return await Promise.all(marked.map(async (record) => ({ system: `${record.system}/${record.instance}`, outcome: await this.#start(record, undefined) })));
+  }
+
+  /** Stop every hosted system (when fs stops); they start again with fs. */
+  async stopAll(): Promise<void> {
+    await Promise.all((await this.records()).map((record) => this.#deps.runner.stop(keyOf(record))));
+  }
+
+  /** One hosted record, if this fs hosts it. */
+  async record(system: string, instance: string): Promise<HostedRecord | undefined> {
+    let text: string;
+    try {
+      text = await readFile(this.folders(system, instance).record, 'utf8');
+    } catch (error) {
+      if (isMissing(error)) { return undefined; }
+      throw error;
+    }
+    return HostedRecord.parse(JSON.parse(text));
+  }
+
+  /** Every hosted record. */
+  async records(): Promise<HostedRecord[]> {
+    const systems = await names(this.root);
+    const found = await Promise.all(systems.map(async (system) => {
+      const instances = (await names(join(this.root, system))).filter((name) => name !== 'versions');
+      return await Promise.all(instances.map((instance) => this.record(system, instance)));
+    }));
+    return found.flat().filter((record): record is HostedRecord => record !== undefined);
+  }
+
+  async #hosted(system: string, instance: string | undefined): Promise<HostedRecord> {
+    const name = this.#instance(instance);
+    const record = await this.record(system, name);
+    if (record === undefined) {
+      const hosted = (await this.records()).map((other) => `${other.system}/${other.instance}`);
+      throw new InstallRefused(`${system}/${name} isn't hosted here.${hosted.length === 0 ? ' Nothing is.' : ` Hosted: ${hosted.join(', ')}.`}`);
+    }
+    return record;
+  }
+
+  #instance(instance: string | undefined): InstanceName {
+    const parsed = InstanceName.safeParse(instance ?? MAIN_INSTANCE);
+    // `versions` is where the bundles are kept
+    if (!parsed.success || parsed.data === 'versions') { throw new InstallRefused(`"${instance ?? ''}" isn't an instance name: lowercase letters, digits and dashes.`); }
+    return parsed.data;
+  }
+
+  async #systemJson(folder: string): Promise<SystemPackageManifest> {
+    let text: string;
+    try {
+      text = await readFile(join(folder, PACKAGE_MANIFEST_FILE), 'utf8');
+    } catch (error) {
+      if (isMissing(error)) { throw new InstallRefused(`${folder} has no ${PACKAGE_MANIFEST_FILE}: give the system's folder (copy systems/template to start one).`); }
+      throw error;
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
+      throw new InstallRefused(`${PACKAGE_MANIFEST_FILE} isn't JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const parsed = SystemPackageManifest.safeParse(json);
+    if (!parsed.success) {
+      throw new InstallRefused(`${PACKAGE_MANIFEST_FILE} is wrong:\n${parsed.error.issues.map((issue) => `${issue.path.join('.') || '(top)'}: ${issue.message}`).join('\n')}`);
+    }
+    return parsed.data;
+  }
+
+  /** Build into a fresh folder, then move it to its version folder (by bundle hash), keeping the built summary beside it. */
+  async #build(folder: string, system: string, signal: AbortSignal): Promise<BuiltSystem> {
+    const scratch = join(this.root, system, 'versions', `building-${String(Date.now())}-${String(process.pid)}`);
+    await mkdir(scratch, { recursive: true });
+    try {
+      const answer = await this.#deps.builds.build(folder, scratch, signal);
+      if ('problems' in answer) {
+        throw new InstallRefused(`It doesn't build. Fix these and call install_system again:\n${capped(answer.problems, this.#deps.limits.problems)}`);
+      }
+      const target = this.versionFolder(system, answer.built.bundleHash);
+      await rm(target, { recursive: true, force: true });
+      await rename(scratch, target);
+      const built: BuiltSystem = { ...answer.built, entry: join(target, relativeTo(scratch, answer.built.entry)) };
+      await writeFile(join(target, BUILT_FILE), JSON.stringify(built), 'utf8');
+      return built;
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  }
+
+  async #readBuilt(bundle: string): Promise<BuiltSystem | undefined> {
+    try {
+      return BuiltSystem.parse(JSON.parse(await readFile(join(bundle, BUILT_FILE), 'utf8')));
+    } catch (error) {
+      if (isMissing(error)) { return undefined; }
+      throw error;
+    }
+  }
+
+  async #start(record: HostedRecord, token: string | undefined): Promise<HostedStart> {
+    const found = await this.#deps.builds.bundleHash(record.entry).catch((error: unknown) => {
+      if (isMissing(error)) { return undefined; }
+      throw error;
+    });
+    if (found !== record.bundleHash) {
+      return { refused: `The bundle of ${keyOf(record)} at ${record.entry} ${found === undefined ? 'is gone' : 'changed since it was approved'}, so it was not started. Call install_system again to build and approve it.` };
+    }
+    const dirs = this.folders(record.system, record.instance);
+    await Promise.all([dirs.state, dirs.data, dirs.cache].map((dir) => mkdir(dir, { recursive: true })));
+    // it runs in its bundle folder (where serve() reads its version); it writes only to its own folders
+    const env: Record<string, string> = {
+      HARNESS_HUB: this.#deps.hubUrl,
+      HARNESS_INSTANCE: record.instance,
+      HARNESS_SYSTEM_NAME: record.system,
+      HARNESS_SYSTEM_STATE: dirs.state,
+      HARNESS_SYSTEM_DATA: dirs.data,
+      HARNESS_SYSTEM_CACHE: dirs.cache,
+      HARNESS_SUPERVISED: '1',
+      // the runner reads the SDK's status lines to know it connected
+      HARNESS_LOG_JSON: 'true',
+      ...(token === undefined ? {} : { HARNESS_PAIRING_TOKEN: token }),
+    };
+    return await this.#deps.runner.start(keyOf(record), { entry: record.entry, cwd: this.versionFolder(record.system, record.bundleHash), writes: [dirs.state, dirs.data, dirs.cache], env, permissions: record.permissions }, this.#deps.limits.connectTimeout);
+  }
+
+  async #write(record: HostedRecord): Promise<void> {
+    const file = this.folders(record.system, record.instance).record;
+    await mkdir(join(file, '..'), { recursive: true });
+    await writeFile(`${file}.tmp`, JSON.stringify(record, null, 2), 'utf8');
+    await rename(`${file}.tmp`, file);
+  }
+
+  /** Remove bundles no instance of the system runs any more. */
+  async #prune(system: string, keep: string): Promise<void> {
+    const used = new Set([keep, ...(await this.records()).filter((record) => record.system === system).map((record) => record.bundleHash)]);
+    const versions = join(this.root, system, 'versions');
+    for (const name of await names(versions)) {
+      if (!used.has(name)) { await rm(join(versions, name), { recursive: true, force: true }); }
+    }
+  }
+
+  #why(outcome: Exclude<HostedStart, { state: unknown }>): string {
+    if ('refused' in outcome) { return outcome.refused; }
+    const max = this.#deps.limits.outputTail;
+    if ('exited' in outcome) {
+      return `It exited (code ${outcome.exited.code === null ? 'none' : String(outcome.exited.code)}) before it connected. The end of its output:\n${tail(outcome.exited.output, max)}`;
+    }
+    return `It didn't connect within ${String(Math.round(this.#deps.limits.connectTimeout / 1000))} s, so it was stopped. The end of its output:\n${tail(outcome.timedOut.output, max)}`;
+  }
+}
+
+/** The file beside a bundle that keeps what its build found, so a run starts what its preview built. */
+const BUILT_FILE = 'built.json';
+
+/** A hosted instance's runner key. */
+function keyOf(record: Pick<HostedRecord, 'system' | 'instance'>): string {
+  return `${record.system}/${record.instance}`;
+}
+
+/** A path under `from`, relative to it (the build reports its entry under the scratch folder). */
+function relativeTo(from: string, path: string): string {
+  const normal = (value: string) => value.replaceAll('\\', '/');
+  const base = `${normal(from)}/`;
+  return normal(path).startsWith(base) ? normal(path).slice(base.length) : normal(path);
+}
+
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+/** The names of a folder's subfolders (none when it doesn't exist). */
+async function names(dir: string): Promise<string[]> {
+  try {
+    return (await readdir(dir, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch (error) {
+    if (isMissing(error)) { return []; }
+    throw error;
+  }
+}

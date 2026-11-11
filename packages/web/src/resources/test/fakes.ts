@@ -4,7 +4,7 @@
  * presigned URLs, and the stores built on them.
  */
 import {
-  ConvertedVersion, FormRecord, ResourceQuery, ResourceRecord, ResourceUri, type FormKind, type FormOffer, type ResourceFacet,
+  ConvertedVersion, FormRecord, ResourceQuery, ResourceRecord, ResourceRoot, ResourceStat, ResourceUri, type FormKind, type FormOffer, type ResourceFacet,
 } from '@harness/core';
 import { ref } from 'vue';
 import { fakeSender } from '../../chat/test/fakes.ts';
@@ -108,8 +108,23 @@ export function fakeResourcesApi(options: { records?: readonly ResourceRecord[];
     upload: fakeCaller<'upload'>(({ name }) => Promise.resolve({ url: `/_files?put=${name}`, upload: `up_${name}` })),
     uploaded: fakeCaller<'uploaded'>(() => Promise.resolve({ hash: HASH, size: 3, mime: 'text/plain' })),
     systemRead: fakeCaller<'resource'>(({ uri }) => Promise.resolve({ stat: { uri, name: 'system.md', type: 'file', format: 'markdown', version: '1' }, text: { inline: '# From the system' } })),
+    exploreRoots: fakeCaller<'exploreRoots'>(() => Promise.resolve([EXPLORE_ROOT])),
+    exploreList: fakeCaller<'exploreList'>(({ uri }) => Promise.resolve({ items: [...(EXPLORE_TREE[uri] ?? [])] })),
+    exploreRead: fakeCaller<'exploreRead'>(({ uri }) => Promise.resolve({ stat: exploreEntry(uri, 'file'), text: { inline: `// ${uri}\nexport const answer = 42;\n` } })),
   };
 }
+
+/** The explorer's one root on the fake fs instance, and its folders' entries by uri. */
+export const EXPLORE_ROOT = ResourceRoot.parse({ uri: 'file:///work', name: 'work', description: 'The work folder', index: 'none', ignore: [], watch: false });
+/** An entry of the fake explorer tree. */
+export function exploreEntry(uri: string, type: 'folder' | 'file'): ResourceStat {
+  return ResourceStat.parse({ uri, name: uri.split('/').at(-1), type, version: '1', ...(type === 'file' ? { size: 1_200, modifiedAt: 1_789_000_000_000 } : {}) });
+}
+export const EXPLORE_TREE: Readonly<Record<string, readonly ResourceStat[]>> = {
+  'file:///work': [exploreEntry('file:///work/src', 'folder'), exploreEntry('file:///work/README.md', 'file')],
+  'file:///work/src': [exploreEntry('file:///work/src/app.ts', 'file'), exploreEntry('file:///work/src/lib', 'folder')],
+  'file:///work/src/lib': [],
+};
 
 /** The fake resource callers. */
 export type FakeResourcesApi = ReturnType<typeof fakeResourcesApi>;

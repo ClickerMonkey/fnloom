@@ -17,8 +17,7 @@ import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } from './instance.ts';
 import { QueryService, callArgs, callOf, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
-import type { InstanceStore } from './store.ts';
-import { hubTypeOf, qualifiedTypeOf } from './types.ts';
+import { hubTypeOf, qualifiedTypeOf, tableMetaOf } from './types.ts';
 
 /** The run context of one of the contract's fns. */
 type CtxOf<K extends keyof DatabaseContract['defs']['fns']> = FnCtx<TypesOf<DatabaseContract['defs']['fns'][K]>, DatabaseConfig>;
@@ -75,7 +74,6 @@ export interface DatabaseDeps {
   readonly settings: DatabaseSettings;
   readonly instance: InstanceName;
   readonly dataDir: string;
-  readonly store: InstanceStore;
   readonly enricher: Enricher;
   readonly fleet: Fleet;
   /** The hub's side of this instance; set once the system is serving. */
@@ -201,7 +199,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       const wanted = new Set<string>(names);
       // the closure comes with what the types reference; only this instance's own table types are wanted
       const found = (await system.types.definitions(names)).types.filter((type) => wanted.has(type.name));
-      return new Map(found.map((type) => [splitName(type.name).local, type.def]));
+      return new Map(found.map((type) => [splitName(type.name).local, { def: type.def, meta: tableMetaOf(type.meta) }]));
     },
     readers: async (type) => {
       const link = deps.hub();
@@ -235,7 +233,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       instance = undefined;
       await before?.close();
       const opening = new DatabaseInstance(config, {
-        instance: deps.instance, dataDir: deps.dataDir, store: deps.store, enricher: deps.enricher, hub: hubSide, limits,
+        instance: deps.instance, dataDir: deps.dataDir, enricher: deps.enricher, hub: hubSide, limits,
         distinctMax: s.DATABASE_DISTINCT_MAX, now: deps.now, ...(deps.open === undefined ? {} : { open: deps.open }),
       });
       try {
@@ -425,6 +423,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     },
     kinds: {
       query: {
+        // SQL against the database, no model: free, whatever the payload
+        estimate: (_payload, input) => Promise.resolve({ min: 0, typical: 0, max: 0, basis: 'free', runs: input.history?.runs ?? 0 }),
         async check(payload) {
           const here = await openFor(payload.instance);
           const compiled = here.compile(QueryPayload.parse(payload));

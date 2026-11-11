@@ -28,7 +28,7 @@ import RuleRow from '../components/RuleRow.vue';
 import type { ModelInfo } from '@harness/core';
 import { modelProviderName, PROVIDER_NAME, type CategoryBody } from '../logic/forms.ts';
 import { decisionModelText } from '../logic/suggestions.ts';
-import { LIMIT_FIELDS, LIMIT_SOURCE_WORDS, LIMIT_WORDS, resolvedText, ROLE_FROM_WORDS, ROLE_WORDS, roleWorks } from '../logic/roles.ts';
+import { LIMIT_FIELDS, LIMIT_SOURCE_WORDS, LIMIT_WORDS, resolvedText, ROLE_FROM_WORDS, ROLE_WORDS, roleWorks, rolesByModel } from '../logic/roles.ts';
 import type { IconName } from '../../ui/index.ts';
 import { ModelsTab } from '../sections.ts';
 import type { ProviderRow } from '../state/models.ts';
@@ -72,10 +72,13 @@ const tabs = computed<readonly TabItem<ModelsTab>[]>(() => [
 ]);
 const ready = computed(() => models.providers.value.value !== undefined);
 const providerName = (model: ModelInfo): string => modelProviderName(model.provider);
+/** The roles each model fills, shown beside it: systems' `ctx.ai()` sees the same list with the same roles. */
+const modelRoles = computed(() => rolesByModel(roles.roles.value.value ?? []));
 
 onMounted(() => { void models.load(ready.value); });
 watch(tab, (current) => {
   if (current === 'roles') { void roles.loadRoles(roles.roles.value.value !== undefined); void suggestions.load(suggestions.decision.value.value !== undefined); void classifier.load(classifier.setting.value.value !== undefined); }
+  if (current === 'models') { void roles.loadRoles(roles.roles.value.value !== undefined); }
   if (current === 'limits') { void roles.loadLimits(roles.limits.value.value !== undefined); }
 }, { immediate: true });
 
@@ -168,7 +171,7 @@ async function confirmRemove(): Promise<void> {
         <template #actions><UiButton variant="primary" icon="plus" @click="providerOpen = true">Add provider</UiButton></template>
       </UiEmpty>
 
-      <ModelTable v-if="tab === 'models'" v-model:query="modelQuery" :models="models.models.value.value ?? []" :provider-name="providerName" />
+      <ModelTable v-if="tab === 'models'" v-model:query="modelQuery" :models="models.models.value.value ?? []" :provider-name="providerName" :roles="modelRoles" />
 
       <template v-if="tab === 'categories'">
         <RuleList title="Categories" description="An ordered list of models: the first is tried first." add="New category" testid="categories" @add="editCategory()">

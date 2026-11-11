@@ -1,11 +1,11 @@
-import { LinkLimits, mintId, ModelForward, type ContentRef, type LlmForward, type LlmForwardChunk, type ModelForwardResult } from '@harness/core';
+import { LinkLimits, mintId, ModelForward, type ContentRef, type HubModelInfo, type LlmForward, type LlmForwardChunk, type ModelForwardResult } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { g } from '../gin.ts';
 import { contentHash, type ContentTransfer } from './content.ts';
 import type { HubAccess, HubLink } from './link.ts';
 import { chunkFromWire } from './llm-wire.ts';
-import { harnessAi, HarnessProvider, HubLlm, HubLlmError, HubModels, wireRequest } from './llm.ts';
+import { HarnessProvider, hubAiOf, HubLlm, HubLlmError, HubModelLink, HubModels, wireRequest } from './llm.ts';
 
 /** Content kept in memory by hash, as the hub would keep it. */
 class MemoryContent implements ContentTransfer {
@@ -33,11 +33,12 @@ const embedLengths: ModelAnswer = (forward) => {
 };
 
 /** A hub whose LLM forwards answer from a script, one per forward; non-chat calls answer with `model` (embeds echo lengths). */
-function scriptedHub(script: Array<(forward: LlmForward) => LlmForwardChunk[]>, model: ModelAnswer = embedLengths) {
+function scriptedHub(script: Array<(forward: LlmForward) => LlmForwardChunk[]>, model: ModelAnswer = embedLengths, listed: HubModelInfo[] = []) {
   const forwards: LlmForward[] = [];
   const models: ModelForward[] = [];
   const hub = {
     call: (name: string, data: LlmForward) => {
+      if (name === 'models') { return Promise.resolve(listed); }
       if (name === 'model') {
         const forward = ModelForward.parse(data);
         models.push(forward);
@@ -111,7 +112,7 @@ describe('HarnessProvider', () => {
         done(0.003),
       ],
     ]);
-    const ai = harnessAi({ hub: access, content: new MemoryContent(), run: mintId('run') });
+    const ai = await hubAiOf({ hub: access, content: new MemoryContent(), run: mintId('run') });
     const lookups: string[] = [];
     const lookup = ai.tool({
       name: 'lookup',
@@ -163,6 +164,41 @@ describe('HarnessProvider', () => {
     const { access } = scriptedHub([() => [{ type: 'error', message: 'over budget', kind: 'limit' }]]);
     await expect(new HubLlm({ hub: access, content: new MemoryContent() }).text({ prompt: 'x' })).rejects.toMatchObject({ name: 'HubLlmError', kind: 'limit' });
     expect(new HubLlmError('m', 'model').kind).toBe('model');
+  });
+});
+
+describe('the hub\'s real models (ctx.ai / hubAi)', () => {
+  const said = (text: string) => (): LlmForwardChunk[] => [{ type: 'chunk', chunk: { content: text } }, { type: 'chunk', chunk: { finishReason: 'stop' } }, done()];
+  const small: HubModelInfo = {
+    id: 'meta/small', provider: 'openrouter', name: 'Small', capabilities: ['chat', 'streaming', 'telepathy'], tier: 'efficient',
+    pricing: { input: 0.1, output: 0.2 }, contextWindow: 8_000, roles: ['chat'],
+  };
+  const big: HubModelInfo = {
+    id: 'big', provider: 'openai', name: 'Big', capabilities: ['chat', 'streaming', 'tools', 'structured'], tier: 'flagship',
+    pricing: { input: 5, output: 15 }, contextWindow: 128_000, maxOutputTokens: 16_000, roles: [],
+  };
+
+  it('lists the hub\'s models and roles as aeye models, with aeye\'s capability names only', async () => {
+    const { access } = scriptedHub([], embedLengths, [small, big]);
+    const ai = await hubAiOf({ hub: access });
+    const models = new Map(ai.models.list().map((m) => [m.id, m]));
+    expect([...models.keys()].sort()).toEqual(['openai/big', 'openrouter/meta/small', 'role/chat']);
+    expect(models.get('openrouter/meta/small')).toMatchObject({ provider: 'hub', tier: 'efficient', contextWindow: 8_000, pricing: { text: { input: 0.1, output: 0.2 } } });
+    expect([...(models.get('openrouter/meta/small')?.capabilities ?? [])]).toEqual(['chat', 'streaming']);
+    expect(models.get('openai/big')?.maxOutputTokens).toBe(16_000);
+  });
+
+  it('forwards the model aeye picks or the call names, a role as its model, and lets the hub pick with none listed', async () => {
+    const { access, forwards } = scriptedHub([said('a'), said('b'), said('c')], embedLengths, [small, big]);
+    const ai = await hubAiOf({ hub: access });
+    await ai.chat.get({ messages: [{ role: 'user', content: 'hi' }] });
+    await ai.chat.get({ messages: [{ role: 'user', content: 'hi' }] }, { metadata: { model: 'role/chat' } });
+    await ai.chat.get({ messages: [{ role: 'user', content: 'hi' }] }, { metadata: { model: 'openai/big' } });
+    expect(forwards.map((f) => f.model)).toEqual([{ model: 'openrouter/meta/small' }, { model: 'openrouter/meta/small' }, { model: 'openai/big' }]);
+
+    const none = scriptedHub([said('d')]);
+    await (await hubAiOf({ hub: none.access })).chat.get({ messages: [{ role: 'user', content: 'hi' }] });
+    expect(none.forwards[0]?.model).toBeUndefined();
   });
 });
 
@@ -261,12 +297,12 @@ describe('every other modality through the hub (`model`)', () => {
     expect(bytes).toEqual(speech);
     await expect(provider.speech({ text: 'hi', responseFormat: 'flac' }, {})).rejects.toThrow(/mp3, wav or ogg/);
 
-    const embedded = await harnessAi({ hub: access, content, run }).embed.get({ texts: ['four'] });
+    const embedded = await (await hubAiOf({ hub: access, content, run })).embed.get({ texts: ['four'] });
     expect(embedded.embeddings).toEqual([{ embedding: [4], index: 0 }]);
   });
 
   it('refuses an answer of another modality', async () => {
     const { access } = scriptedHub([], () => ({ modality: 'embed', vectors: [], call, cost: 0, model: 'x' }));
-    await expect(new HubModels({ hub: access, content: new MemoryContent() }).image({ prompt: 'x' })).rejects.toThrow(/image call with embed/);
+    await expect(new HubModels(new HubModelLink(access)).image({ prompt: 'x' })).rejects.toThrow(/image call with embed/);
   });
 });

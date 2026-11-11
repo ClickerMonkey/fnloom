@@ -9,7 +9,7 @@ import type { CallReturn, ClientData } from '@ayepi/core';
 import { hubWebSpec, type ContentRef, type HubWebSpec } from '@harness/core';
 import { sha256 } from '@harness/hub/package';
 import type { CliIo } from './command.ts';
-import type { SystemBuilder } from './builder.ts';
+import type { ContractSummary, SystemBuilder } from '@harness/build';
 import type { CliFiles, FileStat } from './files.ts';
 import { linesOf } from './commands/mcp.ts';
 import { cliEnv, type HubSession } from './hub.ts';
@@ -64,6 +64,11 @@ export class MemoryFiles implements CliFiles {
     for (const key of [...this.files.keys()]) { if (key === path || key.startsWith(`${path}${sep}`)) { this.files.delete(key); } }
     return Promise.resolve();
   }
+
+  copy(from: string, to: string): Promise<void> {
+    for (const [key, file] of [...this.files]) { if (key.startsWith(`${from}${sep}`)) { this.files.set(`${to}${key.slice(from.length)}`, file); } }
+    return Promise.resolve();
+  }
 }
 
 /** A builder that writes stand-in output and records each call. */
@@ -82,9 +87,9 @@ export class FakeBuilder implements SystemBuilder {
     return Promise.resolve(this.problems);
   }
 
-  contractNames(module: string): Promise<string[]> {
+  contracts(module: string): Promise<ContractSummary[]> {
     this.calls.push(`contract ${module}`);
-    return Promise.resolve(this.names);
+    return Promise.resolve(this.names.map((name) => ({ name, fns: [], context: [], requires: [], references: [] })));
   }
 
   bundleServer(input: { entry: string; outDir: string; fileName: string; external: readonly string[] }): Promise<void> {

@@ -16,7 +16,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'contract',
     title: 'The contract',
-    exports: ['system', 'SystemContract', 'SystemRefs', 'ContractShape', 'ContractSection', 'CONTRACT_SECTIONS', 'EmptyContract', 'Merge', 'AnyContract', 'ConfigOf', 'SystemInfo', 'RegistryDef'],
+    exports: ['system', 'SystemContract', 'SystemRefs', 'ContractShape', 'ContractSection', 'CONTRACT_SECTIONS', 'isSystemContract', 'EmptyContract', 'Merge', 'AnyContract', 'ConfigOf', 'SystemInfo', 'RegistryDef'],
   },
   {
     id: 'gin',
@@ -55,7 +55,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'kinds-agents',
     title: 'Kinds and agents',
     exports: [
-      'kind', 'KindDef', 'KindImpl', 'KindCheckCtx', 'KindRunCtx', 'KindRef', 'AnyKindRef', 'kindFn', 'KindFnInput', 'KindFnTypes', 'UntypedFn',
+      'kind', 'KindDef', 'KindImpl', 'KindEstimateInput', 'KindCheckCtx', 'KindRunCtx', 'KindRef', 'AnyKindRef', 'kindFn', 'KindFnInput', 'KindFnTypes', 'UntypedFn',
       'agent', 'AgentInput', 'AgentFnTypes', 'LlmPayload', 'LlmKind',
     ],
   },
@@ -63,7 +63,10 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'context',
     title: 'Context and commands',
-    exports: ['context', 'ContextInput', 'ContextDef', 'AnyContextDef', 'ContextImpl', 'ContextLinkDef', 'ContextLinkTarget', 'arg', 'ArgDef', 'ArgsOf', 'ContextRef', 'AnyContextRef'],
+    exports: [
+      'CONTEXT_FOLDER', 'readContextFolder', 'parseContextFile', 'ContextFile', 'ContextFolder', 'ContextFolderError', 'formatContextProblem', 'contextProblem', 'positionOf',
+      'contextChange', 'watchContextFolder', 'ContextWatchEvents',
+      'context', 'ContextInput', 'ContextDef', 'AnyContextDef', 'ContextImpl', 'ContextLinkDef', 'ContextLinkTarget', 'arg', 'ArgDef', 'ArgsOf', 'ContextRef', 'AnyContextRef'],
   },
   { id: 'hooks', title: 'Hooks', exports: ['hook', 'HookDef', 'HookImpl', 'HookContribution', 'hookBlock', 'HookRef', 'AnyHookRef'] },
   { id: 'mentions', title: 'Mentions', exports: ['mention', 'MentionDef', 'MentionImpl', 'MentionOption', 'MentionCtx', 'MentionRef'] },
@@ -78,7 +81,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'hub',
     title: 'The hub contract',
     exports: [
-      'hub', 'HubContract', 'ADMIN_ENDPOINTS', 'AdminFnName', 'HUB_READ_ENDPOINTS', 'HubReadFnName', 'HUB_WRITE_ENDPOINTS', 'HubWriteFnName', 'FIND_KINDS',
+      'hub', 'HubContract', 'ADMIN_ENDPOINTS', 'AdminFnName', 'HUB_READ_ENDPOINTS', 'HubReadFnName', 'HUB_WRITE_ENDPOINTS', 'HubWriteFnName', 'HUB_PERSON_ENDPOINTS', 'HubPersonFnName', 'HUB_EXPLORE_ENDPOINTS', 'HubExploreFnName', 'ADMIN_READ_ENDPOINTS', 'AdminReadFnName', 'FIND_KINDS',
       'LlmPayloadType', 'ModelChoiceType', 'ChatModeType', 'ContextorType', 'FnErrorType', 'StoredFn', 'SaveFnArgs', 'SAVE_FN_TAKEN',
     ],
   },
@@ -87,7 +90,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'The server: serve and the implementation',
     exports: [
       'serve', 'ServeOptions', 'McpServe', 'mcpToolNameOf', 'RunningSystem', 'RunningStatus', 'SystemImpl', 'FnImpl', 'ConnectImpl', 'loggedHost', 'LoggedHost', 'systemFields', 'systemState', 'defaultStateFolder', 'SYSTEM_ENV', 'placeFolders', 'sdkEnv', 'SdkEnv',
-      'RESTART_CODE', 'SystemHost', 'LinkHost', 'LinkHostDeps', 'SystemStopped',
+      'RESTART_CODE', 'SystemHost', 'LinkHost', 'LinkHostDeps', 'SystemStopped', 'SystemPatch',
       'PairingDisplay', 'PairingShown', 'pairingDisplayFor', 'LogPairingDisplay', 'TerminalPairingDisplay', 'PAIRING_QR_MODES', 'PairingQrMode', 'codeBanner', 'terminalQr', 'QrRenderer',
     ],
   },
@@ -97,6 +100,7 @@ export const OUTLINE: readonly Topic[] = [
     exports: [
       'FnCtx', 'Services', 'SystemCtx', 'SystemPlace', 'UndoCtx', 'AskerCtx', 'BudgetInfo', 'RunStatusView', 'Llm', 'ForwardModality', 'ModelInput', 'ModelOutput', 'Files', 'Resources', 'Types', 'Log',
       'Proposals', 'ProposeOptions', 'Decisions', 'DecideOptions', 'Fleets', 'FnSearch',
+      'AiSource', 'hubAi', 'hubAiOf', 'hubModelId', 'roleModelId', 'aeyeModelOf', 'ModelLink', 'HubModelLink',
       'harnessAi', 'harnessAiOf', 'HarnessAi', 'HarnessProvider', 'HarnessProviderConfig', 'HarnessMetadata', 'HubLlm', 'HubLlmError', 'HubModels', 'HUB_MODEL', 'wireRequest',
     ],
   },
@@ -122,7 +126,8 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'testing',
     title: 'Testing',
-    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal', 'FakeHubFns', 'KeptFn'],
+    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal', 'FakeHubFns', 'KeptFn',
+      'FakeModelLink', 'fakeHubAi', 'replyChunks', 'FakeModelOptions', 'FakeReply'],
   },
   { id: 'mistakes', title: 'Common mistakes', exports: [] },
   { id: 'examples', title: 'Worked examples', exports: [] },
@@ -137,6 +142,7 @@ export const OUTLINE: readonly Topic[] = [
       'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'AUTO_PAIR_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
       'OutcomeJournal', 'FileJournal', 'contentHash', 'contentHasher', 'ContentHasher', 'StateConflict', 'LinkGap', 'InvalidValue',
       'LinkTransport', 'LinkSocket', 'WsLinkTransport', 'HubAccess', 'HubLink', 'NodeFiles', 'FilesFactory', 'FilesScope', 'fileUri', 'uriInstance', 'mimeOf', 'NodeProcess', 'ProcessControl',
+      'NodeStarter', 'NodeStarterOptions', 'ProcessStarter', 'ProcessCommand', 'ProcessExit', 'SupervisedProcess', 'scrubbedEnv', 'BASIC_ENV', 'HARNESS_ENV_PREFIX', 'permissionArgs', 'ProcessGrants', 'CrashPolicy', 'CrashPolicyOptions', 'ExitDecision',
       'McpFace', 'McpLimits', 'readClientBundle', 'CLIENT_ENTRY', 'ClientBundle',
       'LlmWire', 'LlmWireOptions', 'LlmDescriptors', 'UNSENDABLE_CONTENT', 'messageFromWire', 'requestFromWire', 'isObjectSchema', 'descriptorsOf', 'applyDescriptors',
       'usageToWire', 'usageFromWire', 'chunkToWire', 'chunkFromWire', 'responseToWire',

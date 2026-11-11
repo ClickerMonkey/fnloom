@@ -1,9 +1,10 @@
 /**
  * The chat's results host: the query visuals that fit a result, the app's own and those systems contribute from their
- * client bundles (named by the hub's `contributions`, labelled from them), and the visual the person picked for each
+ * client bundles (the hub's `contributions` say which bundles to load; each visual's label and icon come from its
+ * contract), and the visual the person picked for each
  * result, kept per message while the app is open (not in the URL).
  */
-import { humanize, type ContributionView, type QualifiedName, type ResultTable } from '@harness/core';
+import type { QualifiedName, ResultTable } from '@harness/core';
 import type { VisualSource } from '@harness/sdk';
 import { markRaw, shallowRef } from 'vue';
 import { OWN_VISUALS, type ResultsHost } from '../../components/results/builtin.ts';
@@ -22,7 +23,6 @@ export interface VisualHostDeps {
 /** The chat's query visuals and the choices made between them. */
 export class VisualHost implements ResultsHost {
   readonly #deps: VisualHostDeps;
-  readonly #contributions = shallowRef<ReadonlyMap<QualifiedName, readonly ContributionView[]>>(new Map());
   readonly #choices = shallowRef<ReadonlyMap<string, string>>(new Map());
   readonly #asked = new Map<QualifiedName, Promise<void>>();
 
@@ -42,15 +42,10 @@ export class VisualHost implements ResultsHost {
   }
 
   visuals(registry: QualifiedName, table: ResultTable): readonly FittingVisual[] {
-    const views = this.#contributions.value.get(registry) ?? [];
-    const contributed = this.#deps.renderers.contributedVisuals(registry, table).map((entry): Visual => {
-      const view = views.find((v) => v.system === entry.system && v.name === entry.name);
-      const icon = view?.icon;
-      return {
-        name: entry.name, label: view?.label ?? humanize(entry.name), icon: isIconName(icon) ? icon : 'layers', system: entry.system,
-        match: () => entry.fit, component: markRaw(entry.component), props: entry.props,
-      };
-    });
+    const contributed = this.#deps.renderers.contributedVisuals(registry, table).map((entry): Visual => ({
+      name: entry.name, label: entry.label, icon: isIconName(entry.icon) ? entry.icon : 'layers', system: entry.system,
+      match: () => entry.fit, component: markRaw(entry.component), props: entry.props,
+    }));
     return fittingVisuals(OWN_VISUALS, contributed, table);
   }
 
@@ -61,7 +56,6 @@ export class VisualHost implements ResultsHost {
     const made = (async () => {
       try {
         const views = await this.#deps.api.contributions.call({ registry });
-        this.#contributions.value = new Map([...this.#contributions.value, [registry, views]]);
         if (views.length > 0) { await this.#deps.prepare(); }
       } catch (error) {
         // the app's own visuals still draw it; ask again next time

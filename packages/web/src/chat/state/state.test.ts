@@ -528,6 +528,16 @@ describe('ComposerStore', () => {
     expect(none.trigger.value).toBeUndefined();
   });
 
+  it('shows a command that can’t run now but never puts it in the draft', async () => {
+    const off = { name: 'gollum', context: QualifiedName.parse('memory/gollum'), args: [], description: 'Talk like Gollum', unavailable: 'memory has never connected' };
+    const { composer } = make(memoryStore(), capabilities({ commands: [off] }));
+    composer.input('/gol', 4);
+    await nextTick();
+    expect(composer.pickerItems.value).toMatchObject([{ kind: 'command', command: { unavailable: 'memory has never connected' } }]);
+    composer.pick();
+    expect(composer.text.value).toBe('/gol');
+  });
+
   it('closes the picker on Escape until the caret leaves the trigger, and edits a message in place', async () => {
     const { composer } = make();
     composer.input('/', 1);

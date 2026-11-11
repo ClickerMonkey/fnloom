@@ -138,6 +138,10 @@ export class FakePages implements PageSource {
     this.asked.push({ url, settings });
     return this.page instanceof Error ? Promise.reject(this.page) : Promise.resolve(this.page);
   }
+
+  crawling(): never {
+    throw new Error('FakePages answers fetches only; crawl over a PageLoader with a scripted fetch.');
+  }
 }
 
 /** A fetched html page. */

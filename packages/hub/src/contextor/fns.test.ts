@@ -20,7 +20,7 @@ async function started(options: { scope?: FnScope } = {}) {
   r.catalog.add('fs', 'read', fn({ description: 'Read a text file.', args: g.obj({ path: g.text() }), returns: g.text() }));
   r.catalog.add('fs', 'off', fn({ description: 'Switched off.', args: g.obj({}), returns: g.text() }), { disabled: true });
   r.catalog.contexts.set('fs/guide', 'Use fs/read for files.');
-  for (const name of ['find', 'inspect', 'load', 'unload', 'model_limits'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
+  for (const name of ['fns_search', 'inspect', 'load', 'unload', 'model_limits'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
   const search = new FixedSearch();
   // memory of three scopes, and a named type, over the rig's catalog
   const BOB = ActorId.parse('act_bob');
@@ -61,24 +61,6 @@ async function started(options: { scope?: FnScope } = {}) {
 }
 
 describe('the contextor\'s hub fns', () => {
-  it('find marks what the session has loaded, across kinds', async () => {
-    const { search, call } = await started();
-    search.hits = [
-      { kind: 'fn', key: 'fs/read', score: 1, text: '' },
-      { kind: 'context', key: 'fs/guide', score: 0.5, text: '' },
-      { kind: 'section', key: 'file:///a.md#Usage', score: 0.4, text: 'Usage\nHow to use it.' },
-      { kind: 'fn', key: 'fs/gone', score: 0.1, text: '' },
-    ];
-    expect(await call('hub/find', { query: 'read files' })).toEqual({
-      status: 'done', result: [
-        { name: 'fs/read', kind: 'fn', description: 'Read a text file.', loaded: true },
-        { name: 'fs/guide', kind: 'context', description: 'guide', loaded: false },
-        { name: 'file:///a.md#Usage', kind: 'resource', description: 'Usage', loaded: false },
-      ],
-    });
-    expect(await call('hub/find', { query: 'read', kinds: ['context'] })).toMatchObject({ status: 'done', result: [{ name: 'fs/guide' }] });
-  });
-
   it('inspect shows a fn\'s card and a context item\'s text at a detail, and refuses what isn\'t there', async () => {
     const { r, call } = await started();
     expect(await call('hub/inspect', { name: 'fs/read', detail: 'listed' })).toEqual({ status: 'done', result: { name: 'fs/read', kind: 'fn', detail: 'listed', text: '### fs/read — Read a text file.' } });
@@ -152,10 +134,6 @@ describe('the contextor\'s hub fns', () => {
       { kind: 'section', key: 'file:///a.md#Usage', score: 0.6, text: 'Usage' },
       { kind: 'section', key: 'file:///docs/b.md#Intro', score: 0.5, text: 'Intro' },
     ];
-    const found = await call('hub/find', { query: 'read', limit: 2 }, MCP_CALLER);
-    expect(found.status === 'done' ? found.result : found).toMatchObject([{ name: 'fs/read' }, { name: 'fs/guide' }]);
-    const all = await call('hub/find', { query: 'read' }, MCP_CALLER);
-    expect(all.status === 'done' ? all.result : all).toMatchObject([{ name: 'fs/read' }, { name: 'fs/guide' }, { name: 'file:///docs/b.md#Intro' }]);
     expect(await call('hub/inspect', { name: 'fs/read', detail: 'listed' }, MCP_CALLER)).toMatchObject({ status: 'done' });
     // what the MCP leaves out is not there for its client, even what the chat can see
     for (const name of ['fs/Entry', 'memory/mine']) {

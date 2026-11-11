@@ -5,7 +5,7 @@
  */
 import { implement, reject, server, type Server } from '@ayepi/core';
 import {
-  EXPORT_NOT_READY, systemLinkSpec,
+  CostEstimate, EXPORT_NOT_READY, systemLinkSpec, type KindEstimateAnswer, type KindEstimateRequest,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
   type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest, type PreviewAnswer, type PreviewRequest,
@@ -131,11 +131,13 @@ export class SystemRuntime<C extends ContractShape> {
     const env = this.#parts.env;
     const current = this.#parts.config.current;
     if (current === undefined) { throw reject(409, 'NEEDS_CONFIG', `${env.system} has no valid config yet.`); }
+    const llm = new HubLlm({ hub: env.hub, content: env.content }, signal);
     return {
       ...env.place,
       system: env.system,
       config: current.value,
-      llm: new HubLlm({ hub: env.hub, content: env.content }, signal),
+      llm,
+      ai: () => llm.listed(),
       resources: new HubResources(env.hub, env.content, { signal }),
       types: new HubTypes(env.hub, signal),
       log: this.#log,
@@ -219,8 +221,7 @@ export class SystemRuntime<C extends ContractShape> {
       export: ({ data }) => this.#export(data.timeout),
       validate: ({ data, signal }) => this.#validate(data, signal),
       preview: ({ data, signal }) => this.#preview(data, signal),
-      // Build 6 stub (hub lane): answer from the kind's cost hook once the SDK has one; no estimate means "use history".
-      estimate: () => ({}),
+      estimate: ({ data, signal }) => this.#estimate(data, signal),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),
@@ -295,6 +296,18 @@ export class SystemRuntime<C extends ContractShape> {
    * What a run waiting for approval would do: the fn's (or its kind's) `preview`. A fn with no preview to give
    * refuses, since the hub only asks for fns that declared one.
    */
+  /** A kind's cost hook: no estimate (the hub goes by history) when the kind has none. */
+  async #estimate(data: KindEstimateRequest, signal: AbortSignal): Promise<KindEstimateAnswer> {
+    const target = this.#parts.table.target('', data.kind);
+    if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }
+    if (target.kind !== 'kind' || target.impl.estimate === undefined) { return {}; }
+    const estimate = await target.impl.estimate(decodeOrThrow(target.def.payload, data.payload, 'The payload'), {
+      ...(data.args === undefined ? {} : { args: data.args }),
+      ...(data.history === undefined ? {} : { history: data.history }),
+    }, this.systemCtx(signal));
+    return estimate === undefined ? {} : { estimate: CostEstimate.parse(estimate) };
+  }
+
   async #preview(data: PreviewRequest, signal: AbortSignal): Promise<PreviewAnswer> {
     const target = this.#parts.table.target(data.fn, data.kind ?? 'native');
     if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }

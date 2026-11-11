@@ -251,7 +251,8 @@ export const OutcomeWire = z.discriminatedUnion('status', [
   z.object({ status: z.literal('invalid-input'), invalid: InvalidInput, undo: Json.optional(), cost: Usd.optional() }),
   z.object({ status: z.literal('paused'), resume: Json, cost: Usd.optional() }),
   z.object({ status: z.literal('failed'), error: FnError, undo: Json.optional(), cost: Usd.optional() }),
-  z.object({ status: z.literal('cancelled'), partial: Json.optional(), undo: Json.optional(), cost: Usd.optional() }),
+  // `error` (build 6): why, when someone declined it ("Declined by Ann: …"); kept in the run's errors too
+  z.object({ status: z.literal('cancelled'), partial: Json.optional(), undo: Json.optional(), cost: Usd.optional(), error: FnError.optional() }),
 ]);
 export type OutcomeWire = z.infer<typeof OutcomeWire>;
 
@@ -259,7 +260,7 @@ export type OutcomeWire = z.infer<typeof OutcomeWire>;
 export const RunSettled = z.discriminatedUnion('status', [
   z.object({ status: z.literal('done'), result: Json }),
   z.object({ status: z.literal('failed'), error: FnError }),
-  z.object({ status: z.literal('cancelled') }),
+  z.object({ status: z.literal('cancelled'), error: FnError.optional() }),
   z.object({ status: z.literal('background'), run: RunId }),
 ]);
 export type RunSettled = z.infer<typeof RunSettled>;

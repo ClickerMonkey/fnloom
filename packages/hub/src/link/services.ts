@@ -12,6 +12,7 @@ import { plugin } from '@ayepi/plugin';
 import {
   hubLinkSpec, type ActorId, type AttachmentDecl, type ContentRef, type Json, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
 } from '@harness/core';
+import type { AccessScope } from '../access/index.ts';
 import type { ContentStore } from '../api/index.ts';
 import { typeDefinitions } from '../catalog/definitions.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -61,6 +62,8 @@ export interface LinkServiceDeps {
   /** An upload not finished within this long is dropped. */
   readonly uploadTtl: number;
   readonly clock: () => number;
+  /** Build 6: what an actor may see, so `types` answers only the types the asking system may see. */
+  readonly access?: (actor: ActorId) => Promise<Pick<AccessScope, 'seesType'>>;
 }
 
 /** An upload being received. */
@@ -168,9 +171,24 @@ export class LinkServices {
     await this.#deps.turns().attach(run.id, { type: 'attachment', attachment, data, title });
   }
 
-  /** Named type definitions and every named type they reference, dependencies first, with the names not found. */
-  types(names: readonly QualifiedName[]): Promise<TypeDefinitions> {
-    return typeDefinitions(this.#deps.catalog(), names);
+  /**
+   * Named type definitions and every named type they reference, dependencies first, with the names not found. A type
+   * the asking system may not see (its visibility) is answered as not found.
+   */
+  async types(link: LinkSession, names: readonly QualifiedName[]): Promise<TypeDefinitions> {
+    const access = this.#deps.access;
+    const actor = access === undefined ? undefined : (await this.#deps.store().table('systems').get(link.system))?.actor;
+    if (access === undefined || actor === undefined) return typeDefinitions(this.#deps.catalog(), names);
+    const scope = await access(actor);
+    const seen: QualifiedName[] = [];
+    const hidden: QualifiedName[] = [];
+    for (const name of names) {
+      const record = await this.#deps.catalog().type(name);
+      if (record === undefined || scope.seesType(record)) seen.push(name); else hidden.push(name);
+    }
+    const found = seen.length === 0 ? { types: [], missing: [] } : await typeDefinitions(this.#deps.catalog(), seen);
+    // a type a seen one uses is left out too when the system may not see it
+    return { types: found.types.filter((type) => scope.seesType(type)), missing: [...found.missing, ...hidden] };
   }
 
   /** The run a system names, refused unless that system ran it. */
@@ -202,7 +220,7 @@ export function linkServiceHandlers(services: LinkServices): { [K in ServiceEndp
     stateSet: ({ data: { owner, patch, clear, version }, link }) => services.stateSet(link, owner, { patch, clear, ...(version === undefined ? {} : { version }) }),
     setting: ({ data, link }) => services.setting(link, data),
     attach: ({ data, link }) => services.attach(link, data),
-    types: ({ data }) => services.types(data.names),
+    types: ({ data, link }) => services.types(link, data.names),
   };
 }
 

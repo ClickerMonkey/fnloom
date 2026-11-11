@@ -215,6 +215,8 @@ export class FakeRuns implements RunService {
   }
 
   propose(): Promise<never> { return Promise.reject(new Error('proposals are not in chat tests')); }
+  systemWork(): Promise<never> { return Promise.reject(new Error('system work is not in chat tests')); }
+  settle(): Promise<void> { return Promise.resolve(); }
 
   gateWith(): void {
     // chat tests have no fn mode gate

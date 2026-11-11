@@ -8,7 +8,8 @@ import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { runsSlice, compact, RunSummary, type LlmInteraction, type Run, type RunId, type TreeNode, type Turn } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { visibleRun, visibleSession, visibleTurn, type FullHandlers } from './access.ts';
+import { personOperations } from '../person-ops.ts';
+import { visibleRun, visibleSession, type FullHandlers } from './access.ts';
 import { collect } from '../paging.ts';
 import type { authPlugin } from './auth.ts';
 import type { HubReads } from '../reads.ts';
@@ -34,19 +35,12 @@ export function buildTree(turn: Pick<Turn, 'root'>, runs: readonly Run[], calls:
 
 /** The runs plugin. */
 export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, reads: HubReads) {
+  const person = personOperations(hub);
   const { chat, execution, store } = hub;
   return plugin({ name: 'web.runs', spec: runsSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof runsSlice> => ({
-      background: async ({ data, user }) => {
-        await visibleRun(hub, data.run, user);
-        return { accepted: await execution.runs.background(data.run) };
-      },
-      undoTurn: async ({ data, user }) => {
-        await visibleTurn(hub, data.turn, user);
-        const report = await chat.undo.undoTurn(data.turn, user.id);
-        hub.log.info('turn.undone', { turn: data.turn, undone: report.undone.length, failed: report.failed.length });
-        return report;
-      },
+      background: ({ data, user }) => person.run_background(data, user),
+      undoTurn: ({ data, user }) => person.turn_undo(data, user),
       tree: ({ data, user }) => reads.run_tree(data, user),
       run: ({ data, user }) => reads.run_get(data, user),
       llmCall: ({ data, user }) => reads.llm_call(data, user),

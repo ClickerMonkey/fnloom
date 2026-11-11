@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { SystemName } from '@harness/core';
 import { z } from 'zod';
 import { command } from '../command.ts';
-import { NOT_SOURCE } from '../folder.ts';
+import { NOT_SOURCE } from '@harness/build';
 
 /** Where the template system is in this repository. */
 export const TEMPLATE_DIR = fileURLToPath(new URL('../../../../systems/template', import.meta.url));

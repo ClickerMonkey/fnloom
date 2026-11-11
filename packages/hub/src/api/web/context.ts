@@ -10,9 +10,11 @@ import type { HubServices } from '../../boot/index.ts';
 import type { FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
 import type { HubReads } from '../reads.ts';
+import { personOperations } from '../person-ops.ts';
 
 /** The context plugin. */
 export function contextPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, reads: HubReads) {
+  const person = personOperations(hub);
   return plugin({ name: 'web.context', spec: contextSlice, requires: [auth] })
     .handlers((): FullHandlers<typeof contextSlice> => {
       const { context } = hub.resources;
@@ -30,10 +32,10 @@ export function contextPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         },
         // the browser has no chat session, so a session memory (the schema's default) is the person's own
         remember: ({ data, user }) => context.remember({ ...data, scope: data.scope === 'session' ? 'user' : data.scope }, { actor: user.id, admin: user.role === 'admin' }),
-        updateMemory: ({ data, user }) => context.update(data, { actor: user.id, admin: user.role === 'admin' }),
+        updateMemory: ({ data, user }) => person.memory_update(data, user),
         forget: async ({ data, user }) => ({ ok: await context.forget(data.name, { actor: user.id }) }),
-        linkContext: ({ data, user }) => context.link(data, { actor: user.id }),
-        unlinkContext: async ({ data, user }) => ({ ok: await context.unlink(data, { actor: user.id }) }),
+        linkContext: ({ data, user }) => person.context_link(data, user),
+        unlinkContext: ({ data, user }) => person.context_unlink(data, user),
       };
     });
 }

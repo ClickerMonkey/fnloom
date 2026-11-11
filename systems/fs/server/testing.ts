@@ -87,6 +87,7 @@ function services(options: FakeOptions, recorded: Recorded) {
   return {
     ...TEST_PLACE,
     llm: new HubLlm({ hub: unreachable }),
+    ai: unused('ai'),
     files: { read: unused('files'), readText: unused('files'), write: unused('files'), list: unused('files'), remove: unused('files'), share: unused('files') },
     fetch: unused('fetch'),
     resources: { stat: unused('resources'), text: unused('resources'), links: unused('resources'), sections: unused('resources'), search: unused('resources') },
@@ -164,7 +165,7 @@ export function undoCtx(options: FakeOptions): { ctx: UndoCtx<FsConfig> } & Reco
 export function systemCtx(options: FakeOptions): SystemCtx<FsConfig> & { session: ReturnType<typeof mintId<'session'>>; user: typeof user; time: TimeInfo } & Recorded {
   const recorded = record();
   const all = services(options, recorded);
-  return { ...recorded, ...TEST_PLACE, ...NO_ASKS, system: 'fs', config: options.config, llm: all.llm, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
+  return { ...recorded, ...TEST_PLACE, ...NO_ASKS, system: 'fs', config: options.config, llm: all.llm, ai: all.ai, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
 }
 
 /** The outcome of a run, narrowed to `done`, failing the test otherwise. */

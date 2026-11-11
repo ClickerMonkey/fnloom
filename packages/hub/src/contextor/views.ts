@@ -29,6 +29,20 @@ export function modelMayUse(record: FnRecord, session: Pick<Session, 'systems'> 
   return usable(record, session, access) && forModel(record.decl.visibility);
 }
 
+/**
+ * Why the model may not load or run a fn by name, or undefined when it may: the one check `hub/load`, `hub/load_fns`
+ * and the static `run` share. A fn the person can't see reads as missing.
+ */
+export function fnRefusal(record: FnRecord | undefined, session: Pick<Session, 'systems'> | undefined, access: AccessScope): string | undefined {
+  if (record === undefined || !access.seesFn(record)) return 'no such fn';
+  if (modelMayUse(record, session, access)) return undefined;
+  if (record.disabled) return 'switched off';
+  if (session !== undefined && !allowsSystem(session, record.system)) return 'this session does not use that system';
+  if (!forModel(record.decl.visibility)) return 'not for the model';
+  if (!access.mayUse(record)) return 'connect your account to use this fn';
+  return 'unavailable now';
+}
+
 /** A named type's definition as a card shows it. */
 export function typeDefinition(name: QualifiedName, record: Pick<TypeRecord, 'description'>, code: string): string {
   const doc = record.description.trim() === '' ? '' : `// ${record.description.split('\n', 1)[0]}\n`;

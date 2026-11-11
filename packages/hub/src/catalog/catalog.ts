@@ -179,7 +179,8 @@ export class StoreCatalog implements Catalog {
   async availability(name: QualifiedName): Promise<Availability> {
     const fn = await this.fn(name);
     if (fn !== undefined) { return fn.available; }
-    const system = systemOf(name);
+    // a context item is served by its record's system: the hub for what it made itself (`memory/…`, `resource/…`)
+    const system = (await this.context(name))?.system ?? systemOf(name);
     if (system === undefined) { return unavailable('system-disconnected', `${name} names no valid system`); }
     return systemAvailability(system, await this.options.store.table('systems').get(system));
   }
@@ -233,8 +234,11 @@ export class StoreCatalog implements Catalog {
         const replacing = new Set(replaced.map((decl) => decl.name));
         return [...lists[section].filter((decl) => !removed.has(decl.name) && !replacing.has(decl.name)), ...replaced];
       });
-      const next: Manifest = { ...previous, ...sections, hash: patch.hash };
-      return this.#import(from === undefined ? next : fromInstance(previous, next, from), false);
+      // the top-level lists (providers, registries, contributions) are short, so a patch replaces each whole
+      const next: Manifest = { ...previous, ...sections, ...patch.lists, hash: patch.hash };
+      // what a patch adds is the running system's own, not its contract's: its records say `runtime`
+      const runtime = new Set<string>((patch.upsert.fns ?? []).map((decl) => qualify(system, decl.name)));
+      return this.#import(from === undefined ? next : fromInstance(previous, next, from), false, runtime);
     });
   }
 
@@ -355,7 +359,7 @@ export class StoreCatalog implements Catalog {
 
   // ─── The import itself ────────────────────────────────────────────────────
 
-  async #import(next: Manifest, force: boolean): Promise<ImportReport> {
+  async #import(next: Manifest, force: boolean, runtime?: ReadonlySet<string>): Promise<ImportReport> {
     await this.#load();
     const { store, log, clock } = this.options;
     const system = next.name;
@@ -424,7 +428,15 @@ export class StoreCatalog implements Catalog {
     await store.tx(async (tx) => {
       for (const decl of accepted.types) {
         const name = qualify(system, decl.name);
-        if (changedNames.has(name) || force) { await tx.table('types').put(this.#typeRecord(system, decl, now)); }
+        if (changedNames.has(name) || force) {
+          // the definition it replaces is kept, numbered, with its meta (a table's schema hash at that version)
+          const old = before.types.find((t) => t.name === decl.name);
+          if (old !== undefined && !sameDecl(old, decl)) {
+            const number = (await tx.table('typeVersions').count({ type: name })) + 1;
+            await tx.table('typeVersions').put({ id: `${name}#${number}`, type: name, number, decl: old, ...(old.instance === undefined ? {} : { instance: old.instance }), savedAt: now });
+          }
+          await tx.table('types').put(this.#typeRecord(system, decl, now));
+        }
       }
       for (const decl of accepted.kinds) {
         const name = qualify(system, decl.name);
@@ -435,8 +447,10 @@ export class StoreCatalog implements Catalog {
         const existing = await tx.table('fns').get(name);
         // a kind fn its kind could not describe this time keeps its last description while its declaration is unchanged
         const described = work.described.get(decl.name) ?? (decl.kind !== 'native' && !changedNames.has(name) ? existing?.decl ?? decl : decl);
-        if (existing !== undefined && existing.origin === 'contract' && sameDecl(existing.decl, described)) { continue; }
-        const record = await this.#fnRecord(system, described, existing, 'contract', undefined);
+        // a fn a patch added stays the running system's (`runtime`) until a whole manifest declares it
+        const origin: FnRecord['origin'] = runtime !== undefined && (runtime.has(name) || (existing?.origin === 'runtime' && existing.addedBy === undefined)) ? 'runtime' : 'contract';
+        if (existing !== undefined && existing.origin === origin && sameDecl(existing.decl, described)) { continue; }
+        const record = await this.#fnRecord(system, described, existing, origin, undefined);
         fnWrites.push(await tx.table('fns').put(record));
         if (!changedNames.has(name)) { report.updated.push(name); changedNames.add(name); }
       }
@@ -449,7 +463,9 @@ export class StoreCatalog implements Catalog {
         }
       }
       for (const name of removedFrom.get('fns') ?? []) {
-        if ((await tx.table('fns').get(name))?.origin === 'contract') { await tx.table('fns').remove(name); }
+        // a fn a person saved (`addedBy`) is never in a manifest, so only the system's own go
+        const gone = await tx.table('fns').get(name);
+        if (gone !== undefined && (gone.origin === 'contract' || gone.addedBy === undefined)) { await tx.table('fns').remove(name); }
       }
       for (const name of removedFrom.get('types') ?? []) { await tx.table('types').remove(name); }
       for (const name of removedFrom.get('kinds') ?? []) { await tx.table('kinds').remove(name); }
@@ -632,6 +648,8 @@ export class StoreCatalog implements Catalog {
       ...(decl.instance === undefined ? {} : { instance: decl.instance }),
       // and who may see it, when that is narrower than its system
       ...(decl.audience === undefined ? {} : { audience: decl.audience }),
+      // and what its system keeps about it (build 6), read back through `types` and `ctx.types`
+      ...(decl.meta === undefined ? {} : { meta: decl.meta }),
     };
   }
 

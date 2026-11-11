@@ -182,7 +182,7 @@ describe('a session agent', () => {
 
   it.each([
     { approve: true, outcome: 'approved', says: '1' },
-    { approve: false, outcome: 'declined', says: 'Error: Declined by the approver: not that table' },
+    { approve: false, outcome: 'declined', says: 'Declined by the approver: not that table' },
   ])('tells the agent how a write its tool proposed ended ($outcome) once the person answers, after its call returned', async ({ approve, outcome, says: reply }) => {
     const r = await started();
     const fs = r.connect('fs');

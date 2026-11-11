@@ -91,7 +91,7 @@ export function executionLinkHandlers(deps: LinkHandlerDeps): { [K in ExecutionL
       await own(data.run, link.system);
       return deps.handlers.handle(data, signal);
     },
-    llm: ({ data, link, signal }) => gateway.forward({ ...data, system: link.system }, signal),
+    llm: ({ data, link, signal }) => gateway.forward({ ...data, system: link.system, instance: link.instance }, signal),
     propose: async ({ data, link }) => {
       try {
         return await runs.propose({ ...data, system: link.system, instance: link.instance });

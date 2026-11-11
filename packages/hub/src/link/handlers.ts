@@ -1,7 +1,7 @@
 /**
  * The hub's side of the system link for what this module answers: the handshake (`hello`, `prove`, `pairingInfo`),
- * the contract (`manifest`, `patch`), resources (`resource`, `resourcesChanged`), embeddings (`embed`) and logs
- * (`log`), plus the `linkSession` guard every endpoint after the handshake runs behind. `linkPlugin` packages them as
+ * the contract (`manifest`, `patch`), resource changes (`resourcesChanged`), the fleet and logs (`log`) (reads checked
+ * as a person are `reads.ts`), plus the `linkSession` guard every endpoint after the handshake runs behind. `linkPlugin` packages them as
  * an `@ayepi/plugin` over `LINK_SPEC` (this module's slice of `hubLinkSpec`; it binds `linkSession` once for every
  * slice); boot installs it on the hub link server, which must be made with `{ peers: PeerLinkService.peers }`.
  *
@@ -33,7 +33,7 @@ const endpoints = hubLinkSpec.endpoints;
 export const LINK_SPEC = spec({
   endpoints: {
     hello: endpoints.hello, prove: endpoints.prove, pairingInfo: endpoints.pairingInfo, manifest: endpoints.manifest, patch: endpoints.patch,
-    resourcesChanged: endpoints.resourcesChanged, resource: endpoints.resource, embed: endpoints.embed, log: endpoints.log,
+    resourcesChanged: endpoints.resourcesChanged, log: endpoints.log,
     fleet: endpoints.fleet,
   },
 });
@@ -42,11 +42,6 @@ export type LinkEndpoint = keyof LinkSpec['endpoints'];
 
 /** The handlers for those endpoints. */
 export type LinkHandlers = { [K in LinkEndpoint]: HandlerFor<LinkSpec, LinkSpec['endpoints'][K]> };
-
-/** Embeddings for systems that ask the hub (`ctx.embed`): the index's document embedder. */
-export interface LinkEmbedding {
-  embed(texts: readonly string[], signal?: AbortSignal): Promise<{ vectors: number[][]; cost: number }>;
-}
 
 /** What the handshake and its handlers need. */
 export interface LinkHandlerOptions {
@@ -60,7 +55,6 @@ export interface LinkHandlerOptions {
   readonly instances: InstanceKeeper;
   readonly tokens: SystemTokens;
   readonly resources: ResourceRouter;
-  readonly embedding: LinkEmbedding;
   readonly limits: LinkLimits;
   /** Where each system's lines go for the admin page. */
   readonly output: SystemOutput;
@@ -110,7 +104,7 @@ export class LinkHandshake {
 
   /** The handlers, to install on the hub link server. */
   handlers(): LinkHandlers {
-    const { catalog, resources, embedding, log, pairing, links } = this.#options;
+    const { catalog, resources, log, pairing, links } = this.#options;
     return {
       hello: ({ data, conn }) => this.#hello(data, conn),
       prove: ({ data, conn }) => this.#prove(data.signature, conn),
@@ -129,11 +123,11 @@ export class LinkHandshake {
       patch: async ({ data, link }) => {
         const report = await catalog.importPatch(link.system, data, link.instance);
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', {});
+        // its resource roots changed: ask for them again
+        if (data.roots === true) { await resources.refresh(link.system, link.instance); }
         return report;
       },
       resourcesChanged: ({ data, link }) => { resources.changed(link, data.changes); },
-      resource: ({ data, signal }) => resources.read(data.uri, data.want, signal),
-      embed: ({ data, signal }) => embedding.embed(data.texts, signal),
       fleet: async ({ link }) => {
         const [rows, types] = await Promise.all([this.#options.instances.of(link.system), catalog.typesOf(link.system)]);
         return rows.filter((row) => row.status !== 'removed').map((row) => ({

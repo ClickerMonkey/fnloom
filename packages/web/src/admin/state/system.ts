@@ -13,10 +13,13 @@ import type { OutputLine } from '@harness/core';
 import type { SystemAction } from '../logic/systems.ts';
 
 type SystemApi = Pick<AdminApi,
-  'system' | 'systemFns' | 'systemLogs' | 'configureSystem' | 'enableSystem' | 'startSystem' | 'stopSystem' | 'upgradeSystem' | 'reimport' | 'removeSystem'>;
+  'system' | 'systemFns' | 'systemLogs' | 'configureSystem' | 'enableSystem' | 'startSystem' | 'stopSystem' | 'restartSystem' | 'upgradeSystem' | 'reimport' | 'removeSystem'>;
 
 /** The most output lines kept on the page. */
 export const LOG_LINES = 1_000;
+
+/** Why a restart from the admin pages happened, as the hub (and a hosted system's host) records it. */
+export const RESTART_REASON = 'Restarted by an admin from its page';
 
 /** What saving a config came to. */
 export type ConfigResult = { readonly ok: true; readonly version: number } | { readonly ok: false; readonly problems: readonly string[] };
@@ -130,10 +133,7 @@ export class SystemStore {
     switch (action) {
       case 'start': await this.#api.startSystem.call({ system }); return { kind: 'done' };
       case 'stop': await this.#api.stopSystem.call({ system }); return { kind: 'done' };
-      case 'restart':
-        await this.#api.stopSystem.call({ system });
-        await this.#api.startSystem.call({ system });
-        return { kind: 'done' };
+      case 'restart': await this.#api.restartSystem.call({ system, reason: RESTART_REASON }); return { kind: 'done' };
       case 'upgrade': {
         const upgraded = await this.#api.upgradeSystem.call({ system, ...(version === undefined || version === '' ? {} : { version }) });
         return { kind: 'upgrade', ...upgraded };

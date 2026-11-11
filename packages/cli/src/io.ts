@@ -1,6 +1,6 @@
 /** The io the `harness` binary runs commands over: the console, the disk, Vite, a hub over HTTP, and stdin. */
 import type { CliIo } from './command.ts';
-import { ViteBuilder } from './builder.ts';
+import { ViteBuilder } from '@harness/build';
 import { linesOf } from './commands/mcp.ts';
 import { NodeFiles } from './files.ts';
 import { cliSettings, connectHub, hubTarget } from './hub.ts';

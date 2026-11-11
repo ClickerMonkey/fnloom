@@ -1,5 +1,5 @@
 /**
- * The web app's build. In dev it proxies the hub's HTTP API (`/api`), its WebSocket (`/ws`) and files (`/_files`) to
+ * The web app's build. In dev it proxies the hub's HTTP API (`/api`), its WebSocket (`/ws`), files (`/_files`) and systems' client bundles (`/clients`) to
  * the hub, so the browser talks to one origin. Ports come from `webEnv` (`HARNESS_PORT`, `HARNESS_WEB_PORT`). The
  * build has two entries: the app (`index.html`) and its service worker (`sw/sw.ts`, written to `/sw.js`).
  */
@@ -21,6 +21,8 @@ export default defineConfig({
     proxy: {
       '/api': { target: hub, changeOrigin: true },
       '/_files': { target: hub, changeOrigin: true },
+      // systems' client bundles (renderers, visuals), which the hub serves
+      '/clients': { target: hub, changeOrigin: true },
       // the redirect back from a provider's sign-in (a calendar): the hub answers it, then sends the person to /connect/<system>
       '/connect/callback': { target: hub, changeOrigin: true },
       '/ws': { target: hub.replace('http', 'ws'), ws: true },

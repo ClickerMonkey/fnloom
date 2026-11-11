@@ -15,7 +15,7 @@ import {
 import { ADMIN } from '../catalog/fixtures.ts';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import { buildSystems, type SystemsSettings } from './build.ts';
-import { LINK_SPEC, type LinkEmbedding, type LinkSpec } from './handlers.ts';
+import { LINK_SPEC, type LinkSpec } from './handlers.ts';
 import { makeKeyPair, signNonce, type StoredKeyPair } from './keys.ts';
 import type { ProcessExit, ProcessLauncher, SystemCommand, SystemProcess } from './process.ts';
 import { sha256 } from './package/index.ts';
@@ -27,7 +27,7 @@ export const RIG_SETTINGS: SystemsSettings = {
   hub: { HARNESS_URL: 'http://hub:4300/', HARNESS_SYSTEMS_DIR: '.harness-test/systems' },
   packaging: { HARNESS_PUBLIC_URL: undefined, HARNESS_AUTO_PAIR_LIMIT: 3, HARNESS_AUTO_PAIR_WINDOW: 60_000, HARNESS_AUTO_PAIR_EXPIRY: 7_776_000_000, HARNESS_PACKAGE_MAX: 10_000_000, HARNESS_NPM: 'npm' },
   link: {
-    HARNESS_MAX_FRAME: 262_144, HARNESS_MAX_CHUNK: 1_024, HARNESS_HEARTBEAT: 15_000, HARNESS_PAIRING_TIMEOUT: 60_000, HARNESS_STOP_TIMEOUT: 1_000,
+    HARNESS_MAX_FRAME: 262_144, HARNESS_MAX_CHUNK: 1_024, HARNESS_HEARTBEAT: 15_000, HARNESS_PAIRING_TIMEOUT: 60_000, HARNESS_PAIRING_GRANT_TTL: 60_000, HARNESS_STOP_TIMEOUT: 1_000,
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2,
   },
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
@@ -39,18 +39,17 @@ export const RIG_SETTINGS: SystemsSettings = {
 const noLauncher: ProcessLauncher = { launch: () => { throw new Error('the rig starts no processes'); } };
 
 /** The system side over fakes, with a running hub link server. */
-export async function linkRig(options: { embedding?: LinkEmbedding; publicUrl?: string } = {}) {
+export async function linkRig(options: { publicUrl?: string } = {}) {
   const store = await testStore();
   const bus = new RecordingBus();
   const { log, records } = memoryLog();
   const time = { now: 1_000_000 };
   const clock = () => time.now;
-  const embedding: LinkEmbedding = options.embedding ?? { embed: (texts) => Promise.resolve({ vectors: texts.map(() => [1, 0, 0]), cost: 0 }) };
   const content = new MemoryContent();
   const vault = new AesSecretVault({ store, box: new SecretBox('a-key-that-is-long-enough-for-the-hub-0123'), clock });
   const settings: SystemsSettings = options.publicUrl === undefined ? RIG_SETTINGS : { ...RIG_SETTINGS, packaging: { ...RIG_SETTINGS.packaging, HARNESS_PUBLIC_URL: options.publicUrl } };
   const systems = buildSystems({
-    store, bus, log, clock, settings, embedding, launcher: noLauncher, content: () => content, secrets: () => vault,
+    store, bus, log, clock, settings, launcher: noLauncher, content: () => content, secrets: () => vault,
     tokens: new JwtSystemTokens({ secret: 's'.repeat(32), ttl: 60_000 }),
   });
   const app = server(spec({ endpoints: {} }), [], { peers: systems.connections.peers });

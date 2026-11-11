@@ -52,6 +52,14 @@ describe('visibility', () => {
     expect((await access.scope(BEN)).seesSystem('fs')).toBe(false);
   });
 
+  it('hides admin fns from everyone but admins (build 6)', async () => {
+    const { access } = await world();
+    const admin = { name: READ, system: FS, decl: { tags: ['admin'] } };
+    expect((await access.scope(BEN)).seesFn(admin)).toBe(false);
+    expect((await access.scope(ADA)).seesFn(admin)).toBe(true);
+    expect((await access.scope(BEN)).seesFn({ ...admin, decl: { tags: ['read'] } })).toBe(true);
+  });
+
   it('shows a type with an audience only to that audience and admins, and one without to whoever sees its system', async () => {
     const { access } = await world();
     const table = { system: 'database', audience: { visibility: 'shared' as const, with: [TEAM] } };

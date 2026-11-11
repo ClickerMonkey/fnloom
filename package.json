@@ -12,6 +12,7 @@
     "packages/sdk",
     "packages/hub",
     "packages/cli",
+    "packages/build",
     "packages/web",
     "systems/fs",
     "systems/embedder",

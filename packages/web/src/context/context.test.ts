@@ -214,17 +214,28 @@ describe('ContextStore', () => {
 describe('the context components', () => {
   const router = () => createRouter({ history: createMemoryHistory(), routes });
 
-  it('a row shows the origin, the command and when it changed', async () => {
+  it('a row shows its title or description (never its key), the origin, the command and when it changed', async () => {
     const record = contextRecord('fs/guide', { description: 'How to use the file tools', command: 'files', tokens: { full: 1200, summary: 20 }, stale: true });
     const r = router();
     const wrapper = mount(ContextRow, { props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT + 5 * 60_000 }, global: { plugins: [r] } });
     await flushPromises();
-    expect(wrapper.text()).toContain('fs/guide');
+    expect(wrapper.text()).toContain('How to use the file tools');
+    expect(wrapper.text()).not.toContain('fs/guide');
     expect(wrapper.text()).toContain('/files');
     expect(wrapper.text()).toContain('Stale');
     expect(wrapper.text()).toContain('1,200 tokens');
     expect(wrapper.text()).toContain('5m');
     expect(wrapper.attributes('href')).toBe('/context/fs/guide');
+    // a titled item from a context folder: its title, its description under it, who sees it, its choices; keyed on an admin page
+    const filed = contextRecord('fs/authoring.kinds', {
+      description: 'How kinds work', decl: { title: 'Kinds', visible: 'llm', choices: [{ to: 'fs/authoring.fns', when: 'The person asks about fns' }] },
+    });
+    const keyed = mount(ContextRow, { props: { record: filed, to: links.contextItem(filed.name), now: T_CONTEXT, keyed: true }, global: { plugins: [r] } });
+    expect(keyed.get('.name').text()).toBe('Kinds');
+    expect(keyed.get('.description').text()).toBe('How kinds work');
+    expect(keyed.get('[data-testid="context-seen-by"]').text()).toBe('Seen by agents');
+    expect(keyed.text()).toContain('1 choice');
+    expect(keyed.get('.key').text()).toBe('authoring.kinds');
   });
 
   it('link groups show both directions, and only drawn links out can be removed', async () => {

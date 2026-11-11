@@ -2,7 +2,8 @@
 /**
  * Resources as a list: a row each with a checkbox, its type's icon, its name and address, its forms as badges, its
  * size, when it changed and where it came from, and its menu. On wide screens the columns sort from their headers;
- * on phones a row is two lines. The opened row is marked.
+ * on phones a row is two lines. The opened row is marked. A click anywhere on a row opens it (its name button covers
+ * the row), except on its checkbox and menu.
  */
 import type { ResourceRecord, ResourceUri } from '@harness/core';
 import { UiBadge, UiIcon, relativeTime } from '../../ui/index.ts';
@@ -66,7 +67,10 @@ const badges = (record: ResourceRecord): string[] => BADGE_FORMS.filter((kind) =
 .sorter.active { color: var(--text); font-weight: var(--weight-medium); }
 .sorter:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 4px; }
 .rows { margin: 0; padding: 0; list-style: none; }
-.row { min-height: 52px; border-bottom: 1px solid var(--border); }
+.row { position: relative; min-height: 52px; border-bottom: 1px solid var(--border); cursor: pointer; }
+/* the name button's hit area is the whole row; the checkbox and menu sit above it */
+.open::after { content: ""; position: absolute; inset: 0; }
+.row > .check, .row > .c-menu { position: relative; z-index: 1; }
 .row:hover { background: var(--surface-2); }
 .row.opened { background: color-mix(in oklab, var(--accent) 10%, transparent); }
 .row.selected { background: color-mix(in oklab, var(--accent) 6%, transparent); }

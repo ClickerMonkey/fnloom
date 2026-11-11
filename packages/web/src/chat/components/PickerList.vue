@@ -2,7 +2,8 @@
 /**
  * The composer's picker: `@` results grouped by provider (label, hint, icon), `/` commands with their descriptions,
  * or `!` fns with theirs. It is an ARIA listbox the composer's textarea controls (`aria-activedescendant`), so arrow
- * keys and Enter work from the textarea while it is open, and only then.
+ * keys and Enter work from the textarea while it is open, and only then. A command that can't run now is shown greyed,
+ * with the reason in place of its description, and can't be picked.
  */
 import { computed } from 'vue';
 import { ICONS, UiIcon, UiSpinner, type IconName } from '../../ui/index.ts';
@@ -14,16 +15,19 @@ const emit = defineEmits<{ pick: [item: PickerItem]; hover: [index: number] }>()
 
 const isIcon = (name: string | undefined): name is IconName => name !== undefined && name in ICONS;
 
-interface Row { readonly item: PickerItem; readonly index: number; readonly group: string | undefined; readonly icon: IconName; readonly title: string; readonly hint: string }
+interface Row { readonly item: PickerItem; readonly index: number; readonly group: string | undefined; readonly icon: IconName; readonly title: string; readonly hint: string; readonly off: boolean }
 
 const rows = computed<Row[]>(() => props.items.map((item, index) => {
   const previous = index > 0 ? props.items[index - 1] : undefined;
   if (item.kind === 'mention') {
     const group = previous?.kind === 'mention' && previous.group === item.group ? undefined : item.group;
-    return { item, index, group, icon: isIcon(item.option.icon) ? item.option.icon : 'link', title: item.option.label, hint: item.option.hint ?? '' };
+    return { item, index, group, icon: isIcon(item.option.icon) ? item.option.icon : 'link', title: item.option.label, hint: item.option.hint ?? '', off: false };
   }
-  if (item.kind === 'command') { return { item, index, group: undefined, icon: 'chevron-right', title: `/${item.command.name}`, hint: item.command.description }; }
-  return { item, index, group: undefined, icon: 'fn', title: fnLabel(item.invocation.fn), hint: item.invocation.description };
+  if (item.kind === 'command') {
+    const reason = item.command.unavailable;
+    return { item, index, group: undefined, icon: 'chevron-right', title: `/${item.command.name}`, hint: reason === undefined ? item.command.description : `Can't be used now: ${reason}`, off: reason !== undefined };
+  }
+  return { item, index, group: undefined, icon: 'fn', title: fnLabel(item.invocation.fn), hint: item.invocation.description, off: false };
 }));
 
 const empty = computed(() => (props.kind === 'mention' ? 'Nothing matches' : props.kind === 'command' ? 'No commands match' : 'No fns match'));
@@ -41,7 +45,7 @@ const title = computed(() => (props.kind === 'mention' ? 'Mention' : props.kind 
         <li v-if="row.group" class="group" role="presentation">{{ row.group }}</li>
         <li
           :id="`${id}-${row.index}`" class="option" role="option" :aria-selected="row.index === active ? 'true' : 'false'" :data-testid="`picker-${row.item.kind}`"
-          @mousedown.prevent="emit('pick', row.item)" @mousemove="emit('hover', row.index)"
+          :class="{ off: row.off }" :aria-disabled="row.off ? 'true' : undefined" @mousedown.prevent="row.off || emit('pick', row.item)" @mousemove="emit('hover', row.index)"
         >
           <span class="icon"><UiIcon :name="row.icon" :size="14" /></span>
           <span class="text">
@@ -63,6 +67,10 @@ const title = computed(() => (props.kind === 'mention' ? 'Mention' : props.kind 
 .group { padding: var(--space-2) var(--space-2) 2px; color: var(--text-faint); font-size: var(--text-xs); }
 .option { display: flex; align-items: center; gap: var(--space-3); min-height: 40px; padding: var(--space-1) var(--space-2); border-radius: var(--radius); cursor: pointer; }
 .option[aria-selected='true'] { background: var(--accent-soft); }
+.option.off { cursor: default; }
+.option.off .name, .option.off .icon { opacity: 0.55; }
+.option.off[aria-selected='true'] { background: var(--surface-2); }
+.option.off[aria-selected='true'] .icon { background: var(--surface-3); color: var(--text-dim); }
 .icon { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-dim); }
 .option[aria-selected='true'] .icon { background: var(--accent); color: var(--on-accent); }
 .text { display: grid; flex: 1; min-width: 0; }

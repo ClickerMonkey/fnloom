@@ -155,6 +155,7 @@ export class StoreFnSearch implements FnSearch {
 
   /** A candidate as a hit, or undefined when the asker may not have it (or a per-hit filter leaves it out). */
   async #hit(query: FnSearchQuery, candidate: Candidate, asker: Asker, score: number | undefined): Promise<FnSearchHit | undefined> {
+    if (asker.keep !== undefined && !asker.keep(candidate.kind, candidate.key)) return undefined;
     const catalog = this.#deps.catalog();
     if (candidate.kind === 'context') {
       const record = await catalog.context(candidate.key);

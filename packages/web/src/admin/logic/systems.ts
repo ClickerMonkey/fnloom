@@ -2,7 +2,7 @@
  * How systems read on the admin pages: each status's tone and words, which lifecycle actions apply to a system now,
  * why a fn can't be used in plain words, and the order systems are listed in (what needs the admin first).
  */
-import type { AutoPairView, Availability, FnUnavailable, InstalledStatus, PairingRequest, SystemStatus, SystemView } from '@harness/core';
+import type { AutoPairView, Availability, FnUnavailable, InstalledStatus, PairingRequest, QueryFnArgs, SystemName, SystemStatus, SystemView } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
 
 /** How a status looks: its tone, its word, and whether it is in motion. */
@@ -35,9 +35,15 @@ export const INSTALLED_STATUS_LOOK = {
 export const SYSTEM_ACTIONS = ['start', 'stop', 'restart', 'upgrade', 'reimport', 'remove'] as const;
 export type SystemAction = (typeof SYSTEM_ACTIONS)[number];
 
-/** Which actions apply to a system now. Only installed systems start, stop and upgrade; only connected ones reimport. */
-export function systemActions(system: Pick<SystemView, 'status' | 'installed'>): ReadonlySet<SystemAction> {
+/**
+ * Which actions apply to a system now. Installed systems start, stop and upgrade; hosted ones (run by another system,
+ * such as fs) start, stop and restart through their host; only connected ones reimport.
+ */
+export function systemActions(system: Pick<SystemView, 'status' | 'installed' | 'host'>): ReadonlySet<SystemAction> {
   const actions = new Set<SystemAction>();
+  if (system.host !== undefined) {
+    if (system.status === 'connected' || system.status === 'needs-config') { actions.add('stop'); actions.add('restart'); } else if (system.status === 'disconnected') { actions.add('start'); }
+  }
   const process = system.installed?.status;
   if (process !== undefined) {
     if (process === 'stopped' || process === 'crashed' || process === 'disabled') { actions.add('start'); }
@@ -117,4 +123,22 @@ export function endsText(expiresAt: number | undefined, now: number): string {
   const span = days === 0 ? 'today' : `${days} ${days === 1 ? 'day' : 'days'}`;
   if (expiresAt > now) { return days === 0 ? 'ends today' : `ends in ${span}`; }
   return days === 0 ? 'ended today' : `ended ${span} ago`;
+}
+
+/** Where a hosted system runs, in words: "fs/main at systems/random". */
+export function hostText(host: NonNullable<SystemView['host']>): string {
+  return `${host.host.system}/${host.host.instance} at ${host.path}`;
+}
+
+/** The hub `contexts` list query for every context item a system declared or added while running, by key, one page. */
+export function systemContextQuery(system: SystemName, cursor: string | undefined, limit: number): QueryFnArgs {
+  return {
+    list: 'contexts',
+    query: { filters: [{ field: 'system', op: 'is', value: system }], sort: [{ field: 'name', dir: 'asc' }], limit, ...(cursor === undefined ? {} : { cursor }) },
+  };
+}
+
+/** The first characters of a version hash, enough to tell two versions apart on a row. */
+export function shortVersion(version: string): string {
+  return version.length > 8 ? version.slice(0, 8) : version;
 }

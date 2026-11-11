@@ -659,28 +659,6 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
-    "search": {
-      "method": "POST",
-      "path": "/search",
-      "ws": "search",
-      "httpOnly": false,
-      "streamIn": null,
-      "itemsIn": false,
-      "streamOut": null,
-      "items": false,
-      "p": [],
-      "q": [],
-      "b": [
-        "query",
-        "kinds",
-        "limit"
-      ],
-      "f": [],
-      "hasBody": true,
-      "hasHeaders": false,
-      "multi": false,
-      "bodyEnc": "json"
-    },
     "mentions": {
       "method": "POST",
       "path": "/mentions",

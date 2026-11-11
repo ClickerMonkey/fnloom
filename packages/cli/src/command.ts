@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import type { CliFiles } from './files.ts';
 import type { CliEnv, HubSession } from './hub.ts';
-import type { SystemBuilder } from './builder.ts';
+import type { SystemBuilder } from '@harness/build';
 
 /** Where a command's output goes. */
 export interface CliOutput {

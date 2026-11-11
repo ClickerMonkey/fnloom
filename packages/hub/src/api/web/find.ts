@@ -1,21 +1,15 @@
 /**
- * The finding slice: suggestions for the message being written (by meaning, from the index), hybrid search, `@`
- * mentions and their hover cards, and reading a resource from the system that serves it. Each answers only with what
+ * The finding slice: suggestions for the message being written (by meaning, from the index; searching is the one
+ * `searchFns`), `@` mentions and their hover cards, and reading a resource from the system that serves it. Each answers only with what
  * the signed-in person may see (their `AccessScope`); a resource they may not see reads as if it weren't there.
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { findSlice, INDEXED_KINDS, type Suggestion } from '@harness/core';
-
-/** What a search without kinds looks through: everything but fn examples, which are read through their fn (`fnExamples`). */
-const SEARCHED_KINDS = INDEXED_KINDS.filter((kind) => kind !== 'example');
+import { findSlice, type Suggestion } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { keepSeen, mayOffer } from '../../access/hits.ts';
+import { mayOffer } from '../../access/hits.ts';
 import { visibleSession, type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
-
-/** How many search hits when the browser doesn't say. */
-const SEARCH_LIMIT = 20;
 
 /** The finding plugin. */
 export function findPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
@@ -39,9 +33,6 @@ export function findPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         }
         return offered;
       },
-      search: async ({ data, user }) => index.search.search({
-        text: data.query, kinds: data.kinds ?? SEARCHED_KINDS, limit: data.limit ?? SEARCH_LIMIT, keep: keepSeen(await hub.access.scope(user.id), { context: lookup, type: (name) => catalog.type(name) }),
-      }),
       mentions: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
         return chat.mentions.search({ session: data.session, actor: user.id, provider: data.provider }, data.query);

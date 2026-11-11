@@ -236,7 +236,6 @@ const linked = use(linkTel, linkSession).group({
    * budgeted and attributed to `run`. Nothing a system does reaches a provider any other way.
    */
   model: { body: ModelForward, response: ModelForwardResult, ws: 'mdl' },
-  embed: { body: z.object({ texts: z.array(z.string()), run: RunId.optional() }), response: z.object({ vectors: z.array(z.array(z.number())), cost: Usd }), ws: 'em' },
   /** Resource access for `ctx.resources`, routed to whichever system serves the URI. */
   resource: {
     body: z.object({

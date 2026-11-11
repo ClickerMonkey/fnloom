@@ -86,6 +86,14 @@ export const sdkEnv = env({
   HARNESS_RESULT_CELL_CHARS: z.number().int().min(20).default(300),
   /** Bytes of content kept for the hub to fetch by ref. */
   HARNESS_CONTENT_CACHE: z.number().int().min(1_024).default(64_000_000),
+  /** Watch the system's context folder and send each change to the hub as it is saved (for development). */
+  HARNESS_CONTEXT_WATCH: z.boolean().default(false),
+  /** How long the context folder must be quiet before a change is read and sent. */
+  HARNESS_CONTEXT_DEBOUNCE: z.number().int().min(10).default(250),
+  /** For a system that supervises others (fs's hosted systems): the longest wait between restarts after crashes. */
+  HARNESS_SUPERVISE_BACKOFF_MAX: z.number().int().min(100).default(300_000),
+  /** For a system that supervises others: how many characters of a child's output are kept for its exit report. */
+  HARNESS_SUPERVISE_OUTPUT_TAIL: z.number().int().min(256).default(8_192),
   /** Which copy of the system this process is: `main` unless it is one of a fleet. */
   [SYSTEM_ENV.instance]: InstanceName.default(MAIN_INSTANCE),
   ...placeFields,

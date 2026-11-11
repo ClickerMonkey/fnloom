@@ -1,6 +1,6 @@
 /**
- * The database system's process, one per database instance: its table enrichments in its data folder, the enricher
- * over the hub's models, the visuals and result view built into its state folder, served to the hub. Once serving, the
+ * The database system's process, one per database instance: the enricher over the hub's models (its enrichments are
+ * kept with the table types in the hub), the visuals and result view built into its state folder, served to the hub. Once serving, the
  * lifecycle opens and scans the configured database. Saved queries are the hub's fns; nothing is restored here.
  */
 import { join } from 'node:path';
@@ -9,7 +9,6 @@ import { database } from '../shared/index.ts';
 import { LlmEnricher } from './author.ts';
 import { databaseEnv } from './env.ts';
 import { HUB_FLEET, createDatabaseImpl, type HubLink } from './impl.ts';
-import { FileStore } from './store.ts';
 const settings = databaseEnv.parse();
 const { dataDir } = placeFolders(settings.HARNESS_SYSTEM_STATE, settings);
 const instance = settings.HARNESS_INSTANCE;
@@ -25,7 +24,6 @@ const hub: HubLink = {
 };
 const server = createDatabaseImpl({
   settings, instance, dataDir,
-  store: new FileStore(dataDir),
   enricher: new LlmEnricher({ retries: settings.DATABASE_AUTHOR_RETRIES }),
   fleet: HUB_FLEET,
   hub: () => hub,

@@ -83,7 +83,23 @@ describe('fns that always ask', () => {
     const { settled } = await r.module.runs.start(input(turn, 'fs/write', { table: 'orders' }));
     await settle();
     await r.module.policies.answer(lastApproval(r).id, { by: ALICE, approve: false, remember: 'once', reason: 'not that table' });
-    expect(await settled).toMatchObject({ status: 'failed', error: { code: 'denied', message: 'Declined by Alice: not that table' } });
+    expect(await settled).toMatchObject({ status: 'cancelled', error: { code: 'denied', message: 'Declined by Alice: not that table' } });
+    // build 6: a declined run is cancelled, with who declined and why in its errors
+    const runs = await r.store.table('runs').find({ where: { fn: 'fs/write' }, limit: 1 });
+    expect(runs.items[0]).toMatchObject({ status: 'cancelled', errors: [{ error: { message: 'Declined by Alice: not that table' } }] });
+  });
+
+  it('asks the admins when its approver is the admins, and tells the run what was approved (build 6)', async () => {
+    const r = await started({ preview: true, remember: false, approver: 'admins' });
+    const fs = r.connect('fs');
+    const turn = await r.turn();
+    const { settled } = await r.module.runs.start(input(turn, 'fs/write', { table: 'orders' }));
+    await settle();
+    const approval = lastApproval(r);
+    expect(approval.approver).toEqual({ by: 'admins' });
+    await r.module.policies.answer(approval.id, { by: ALICE, approve: true, remember: 'once' });
+    expect(await settled).toMatchObject({ status: 'done' });
+    expect(fs.requests[0]?.approved).toMatchObject({ by: ALICE, preview: { title: 'Do it' } });
   });
 });
 

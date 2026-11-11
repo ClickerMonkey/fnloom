@@ -1,15 +1,16 @@
 /**
  * The fs system's implementation: every fn, method, action, hook, mention, context and resource the contract
  * declares, wired to the server's parts. `createFsImpl` takes every seam (shell, git, snapshots, documents, the
- * file manager, the restarter, the watcher and the clock), so tests run it against a temp folder with fakes.
+ * file manager, the restarter, the watcher, hosting and the clock), so tests run it against a temp folder with fakes.
  */
-import type { FnCtx, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
+import { InstanceName, SystemName, type PairingGrant, type PairingGrantRequest, type PreviewAnswer } from '@harness/core';
+import type { FnCtx, FnSearch, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
 import { COMMAND_TIMEOUT_MIN, fs, type FsContract } from '../shared/index.ts';
 import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';
-import { perPart } from '../shared/authoring.gen.ts';
-import { authoringPart, authoringStart, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
+import { authoringStart, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
 import type { FsSettings } from './env.ts';
 import { FileService } from './files.ts';
+import { InstallRefused, type Hosting } from './hosting.ts';
 import { describeStatus } from './git.ts';
 import type { Documents, FsConfig, Git, Opener, PathGuard, Restarter, Shell, Snapshots, WatchFolder } from './index.ts';
 import { FileMentions, PathIndex } from './mentions.ts';
@@ -31,7 +32,14 @@ export interface FsDeps {
   readonly restarter: Restarter;
   readonly watch: WatchFolder;
   readonly now: () => number;
-  /** Where the authoring context (its start item and parts) reads the SDK's guide and finds the template. Default: the installed SDK's. */
+  /**
+   * Building, starting and supervising systems written here (`install_system` and the rest); absent when this fs
+   * can't build systems (a packed fs without `@harness/build`), and those fns say so.
+   */
+  readonly hosting?: Hosting;
+  /** The hub's one-time pairing token for an approved install run (`grantPairing` on the link). */
+  readonly grantPairing?: (request: PairingGrantRequest) => Promise<PairingGrant>;
+  /** Where the authoring start item finds the template. Default: beside the installed SDK. */
   readonly authoring?: AuthoringSource;
 }
 
@@ -48,6 +56,27 @@ async function attempt<T extends FnTypes>(ctx: Pick<FnCtx<T, FsConfig>, 'fail'>,
   try {
     return await work();
   } catch (error) {
+    if (error instanceof FsProblem) { return ctx.fail('caller', error.message, { code: error.code }); }
+    throw error;
+  }
+}
+
+/** What the hosting fns say on an fs that can't build systems. */
+const NO_HOSTING = 'This fs can\x27t build systems (it runs without @harness/build). Install the system with the harness CLI, or from an fs that runs from the harness repository.';
+
+/** Whether the hub knows a system instance (it has fns somewhere), searched as the system or the run's person. */
+async function knownTo(search: FnSearch, system: SystemName, instance: InstanceName): Promise<boolean> {
+  const page = await search.searchFns({ systems: [system], instance, available: false, limit: 1 });
+  return page.items.length > 0;
+}
+
+/** Hosting work, turning a refused install into invalid input the model can fix. */
+async function hosted<T extends FnTypes>(ctx: Pick<FnCtx<T, FsConfig>, 'fail' | 'invalid'>, hosting: Hosting | undefined, work: (hosting: Hosting) => Promise<Outcome<T>>): Promise<Outcome<T>> {
+  if (hosting === undefined) { return ctx.fail('caller', NO_HOSTING, { code: 'no-hosting' }); }
+  try {
+    return await work(hosting);
+  } catch (error) {
+    if (error instanceof InstallRefused) { return ctx.invalid(error.message); }
     if (error instanceof FsProblem) { return ctx.fail('caller', error.message, { code: error.code }); }
     throw error;
   }
@@ -191,6 +220,51 @@ export function createFsImpl(deps: FsDeps): FsServer {
           return Promise.resolve(ctx.done({ restarting: true }));
         },
       },
+      install_system: {
+        preview: async (args, ctx): Promise<PreviewAnswer> => {
+          const hosting = deps.hosting;
+          if (hosting === undefined) { return { refused: NO_HOSTING }; }
+          try {
+            const at = guard(ctx.config).resolve(args.path, { write: false });
+            const known = (system: SystemName, instance: InstanceName) => knownTo(ctx, system, instance);
+            return { preview: await hosting.preview(at.path, { instance: args.instance, replace: args.replace, known }, ctx.signal) };
+          } catch (error) {
+            if (error instanceof InstallRefused || error instanceof FsProblem) { return { refused: error.message }; }
+            throw error;
+          }
+        },
+        run: (args, ctx) => hosted(ctx, deps.hosting, async (hosting) => {
+          const subject = ctx.approved?.preview.subject;
+          const grant = deps.grantPairing;
+          if (subject === undefined) { return ctx.fail('fatal', 'install_system runs only once an admin approves its card, and this run carries no approval.', { code: 'not-approved' }); }
+          if (grant === undefined) { return ctx.fail('fatal', 'This fs can\x27t ask the hub for a pairing token.', { code: 'no-grant' }); }
+          const at = guard(ctx.config).resolve(args.path, { write: false });
+          const result = await hosting.install(at.path, subject, (bound) => grant({ run: ctx.run.id, subject: bound }), ctx.signal);
+          ctx.log.info('fs.hosted.installed', { system: result.system, instance: result.instance, version: result.version, status: result.status });
+          return ctx.done(result);
+        }),
+      },
+      system_status: {
+        run: (args, ctx) => hosted(ctx, deps.hosting, async (hosting) => ctx.done(await hosting.status(args.system))),
+      },
+      restart_system: {
+        run: (args, ctx) => hosted(ctx, deps.hosting, async (hosting) => {
+          ctx.log.info('fs.hosted.restart', { system: args.system, reason: args.reason });
+          return ctx.done({ state: await hosting.restart(args.system, args.instance) });
+        }),
+      },
+      stop_system: {
+        run: (args, ctx) => hosted(ctx, deps.hosting, async (hosting) => {
+          const remove = args.remove === true;
+          if (remove) {
+            const folders = await hosting.removes(args.system, args.instance);
+            const confirm = ctx.handlers.confirm;
+            if (confirm === undefined) { return ctx.invalid('Removing a hosted system deletes its data, so the person must confirm it, and this call has no way to ask. Stop it without remove, or ask the person to remove it from its page.'); }
+            if (!await confirm({ system: args.system, folders })) { return ctx.cancelled(); }
+          }
+          return ctx.done(await hosting.stop(args.system, args.instance, remove));
+        }),
+      },
     },
     types: {
       Entry: {
@@ -203,8 +277,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
       },
     },
     context: {
-      'system-authoring': (_args, ctx) => authoringStart(authoring, ctx.signal),
-      ...perPart((part) => (_args: unknown, ctx: { readonly signal: AbortSignal }) => authoringPart(authoring, part, ctx.signal)),
+      'system-authoring': () => Promise.resolve(authoringStart(authoring)),
       tree: async (args, ctx) => {
         const g = guard(ctx.config);
         if (g.roots.length === 0) { return 'No folders are configured yet.'; }
@@ -238,6 +311,12 @@ export function createFsImpl(deps: FsDeps): FsServer {
       started: (ctx) => {
         current = ctx.config;
         ctx.log.info('fs.started', { roots: ctx.config.roots.length });
+        // the systems this machine hosts start with it, without holding up fs's own start
+        deps.hosting?.startAll().then((started) => {
+          for (const { system, outcome } of started) {
+            ctx.log.info('fs.hosted.started', { system, outcome: 'state' in outcome ? outcome.state : 'refused' in outcome ? 'refused' : 'exited' in outcome ? 'exited' : 'timed-out' });
+          }
+        }).catch((error: unknown) => { ctx.log.error('fs.hosted.start.failed', {}, error); });
         return Promise.resolve();
       },
       configured: (ctx) => {
@@ -246,9 +325,9 @@ export function createFsImpl(deps: FsDeps): FsServer {
         ctx.log.info('fs.configured', { roots: ctx.config.roots.length, before: ctx.previous?.roots.length ?? 0 });
         return Promise.resolve();
       },
-      stopping: (ctx) => {
+      stopping: async (ctx) => {
         ctx.log.info('fs.stopping', { reason: ctx.reason });
-        return Promise.resolve();
+        await deps.hosting?.stopAll();
       },
     },
   };

@@ -714,6 +714,16 @@ The contract sections, in the order the manifest lists them.
 const CONTRACT_SECTIONS: readonly ["types", "settings", "attachments", "kinds", "fns", "context", "hooks", "mentions", "embedders", "sectioners", "actions", "providers"];
 ```
 
+#### `isSystemContract`
+
+function · `import { isSystemContract } from '@harness/sdk'`
+
+Whether a value is a contract `system()` made (a module's exports, read by a build).
+
+```ts
+function isSystemContract(value: unknown): value is AnyContract;
+```
+
 #### `EmptyContract`
 
 interface · `import { EmptyContract } from '@harness/sdk'`
@@ -2910,10 +2920,11 @@ _From `scripts/docs/example/shared/index.ts`:_
 
 function · `import { kind } from '@harness/sdk'`
 
-Declare a kind.
+Declare a kind. `estimates: true` says its implementation has an `estimate` hook that works out a fn's cost from its
+payload (a query is free; a form costs nothing until it asks a model), which the hub shows before a run.
 
 ```ts
-function kind<P>(def: { description: string; applicability: string; payload: GinType<P>; approveChanges?: boolean; status?: StatusTemplates; }): KindDef<P>;
+function kind<P>(def: { description: string; applicability: string; payload: GinType<P>; approveChanges?: boolean; status?: StatusTemplates; estimates?: boolean; }): KindDef<P>;
 ```
 
 #### `KindDef`
@@ -2932,6 +2943,8 @@ interface KindDef<P> {
   readonly approveChanges: boolean;
   /** The status words of its fns that declare none. They may use `{fn}`, `{n}` and `{args}` / `{output}` paths. */
   readonly status: StatusTemplates | undefined;
+  /** Its implementation's `estimate` works out what a fn of this kind costs from its payload (`FnFacts.cost`, basis `payload`). */
+  readonly estimates: boolean;
 }
 ```
 
@@ -2951,10 +2964,30 @@ interface KindImpl<P, Cfg = unknown> {
   undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
   /** What a run of a payload's fn would do, for a fn `describe` gave an `approval` with a preview (a write query). */
   preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
+  /**
+   * What a fn of this payload costs, for a kind declared with `estimates: true`: an estimate with basis `payload` (or
+   * `free`), blending in `history` when it helps, or `undefined` to leave it to the history.
+   */
+  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg>): Promise<CostEstimate | undefined>;
 }
 ```
 
-Refers to: [`Json`](#core-json), [`KindDescription`](#core-kinddescription), [`PreviewAnswer`](#core-previewanswer), [`UndoOutcome`](#core-undooutcome).
+Refers to: [`CostEstimate`](#core-costestimate), [`Json`](#core-json), [`KindDescription`](#core-kinddescription), [`PreviewAnswer`](#core-previewanswer), [`UndoOutcome`](#core-undooutcome).
+
+#### `KindEstimateInput`
+
+interface · `import { KindEstimateInput } from '@harness/sdk'`
+
+What a kind's `estimate` is asked about: one call's args (absent for the fn in general) and the fn's run history, if any.
+
+```ts
+interface KindEstimateInput {
+  readonly args?: Json;
+  readonly history?: CostEstimate;
+}
+```
+
+Refers to: [`CostEstimate`](#core-costestimate), [`Json`](#core-json).
 
 #### `KindCheckCtx`
 
@@ -3367,7 +3400,198 @@ A dynamic context's `ctx` is the system context (config, LLM, resources, types, 
 (`ctx.user`, `ctx.time`, and the session when there is one). Keep context focused: a short guide that names its fns
 beats a long manual, and the hub budgets what it sends to small models.
 
+**A context folder.** Static context can live in markdown files under the system's `context/` folder instead of the
+contract: each file starts with a YAML header between `---` lines holding any context option (`ContextFileHeader`:
+`key`, `title`, `description`, `summary` (required), `fns`, `imports`, `choices`, `parent`, `next`, `alwaysFor`, `tags`,
+`visible`, …), and the rest of the file is the content. `key` is a stable, readable name people never see
+(`notes.guide.adding`); it is never taken from the path, so a file can move or be renamed and the hub keeps updating the
+same record with its links, stats and embeddings.
+
+```md
+---
+key: guide
+title: Notes guide
+description: Where to start with notes.
+summary: The index of the notes guide; pick the part you need.
+choices:
+  - to: notes/guide.adding
+    when: You are adding or editing a note.
+---
+Notes are plain markdown. Use fn:notes/add to add one, or read [adding notes](context:notes/guide.adding).
+```
+
+`harness system build` checks the folder and fails with `file:line:col` problems on a header that doesn't match, a
+duplicate key, a link to a fn or context that doesn't exist (in the header, and `context:` / `fn:` references in the
+body), a context that imports itself in a cycle, and a missing summary. `serve` sends the files as the system's context;
+with `HARNESS_CONTEXT_WATCH=true` (development) it watches the folder and sends each saved change to the hub. Keep each
+item to one idea with a short summary, start with a shallow index whose `choices` are worded as decisions, and let a
+small model walk the graph a step at a time instead of reading one long list.
+
 ### Reference: context and commands
+
+#### `CONTEXT_FOLDER`
+
+const · `import { CONTEXT_FOLDER } from '@harness/sdk/server'`
+
+The folder of a system that holds its context files.
+
+```ts
+const CONTEXT_FOLDER: "context";
+```
+
+#### `readContextFolder`
+
+function · `import { readContextFolder } from '@harness/sdk/server'`
+
+Read and check a context folder: each file's header against the schema (a missing summary called out), and that
+no two files share a key. `label` prefixes file names in problems (default `context`).
+
+```ts
+function readContextFolder(dir: string, label?: string): Promise<ContextFolder>;
+```
+
+#### `parseContextFile`
+
+function · `import { parseContextFile } from '@harness/sdk/server'`
+
+Parse one context file. `file` names it in problems.
+
+```ts
+function parseContextFile(file: string, source: string): { file?: ContextFile; problems: ContextFileProblem[]; };
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `ContextFile`
+
+interface · `import { ContextFile } from '@harness/sdk/server'`
+
+One checked context file.
+
+```ts
+interface ContextFile {
+  /** Its path, relative to the folder it was read from, with forward slashes. */
+  readonly file: string;
+  /** Its whole text, so later checks can point at a line. */
+  readonly source: string;
+  readonly header: ContextFileHeader;
+  /** What it becomes in the manifest: the header, `key` as the name, and the body as the content. */
+  readonly decl: ContextDecl;
+  /** The 1-based line its body starts on. */
+  readonly bodyLine: number;
+}
+```
+
+Refers to: [`ContextDecl`](#core-contextdecl), [`ContextFileHeader`](#core-contextfileheader).
+
+#### `ContextFolder`
+
+interface · `import { ContextFolder } from '@harness/sdk/server'`
+
+A context folder as read: the files that parsed, and every problem, each at a file and line.
+
+```ts
+interface ContextFolder {
+  readonly files: readonly ContextFile[];
+  readonly problems: readonly ContextFileProblem[];
+}
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `ContextFolderError`
+
+class · `import { ContextFolderError } from '@harness/sdk/server'`
+
+Thrown when a system starts with a context folder that doesn't check.
+
+```ts
+class ContextFolderError extends Error {
+  readonly name: "ContextFolderError";
+  readonly problems: readonly ContextFileProblem[];
+  constructor(problems: readonly ContextFileProblem[]);
+}
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `formatContextProblem`
+
+function · `import { formatContextProblem } from '@harness/sdk/server'`
+
+A problem as the build prints it: `context/kinds.md:3:1 broken-link …`.
+
+```ts
+function formatContextProblem(problem: ContextFileProblem): string;
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `contextProblem`
+
+function · `import { contextProblem } from '@harness/sdk/server'`
+
+A problem at a 1-based line and column of a file.
+
+```ts
+function contextProblem(file: string, line: number, column: number, code: ContextFileProblemCode, message: string): ContextFileProblem;
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem), [`ContextFileProblemCode`](#core-contextfileproblemcode).
+
+#### `positionOf`
+
+function · `import { positionOf } from '@harness/sdk/server'`
+
+Where `needle` first appears at or after a 1-based line (the line itself when it doesn't).
+
+```ts
+function positionOf(source: string, needle: string, fromLine?: number): { line: number; column: number; };
+```
+
+#### `contextChange`
+
+function · `import { contextChange } from '@harness/sdk/server'`
+
+The patch that takes the context from `before` to `after`, by key: changed and new entries upserted, gone ones removed.
+
+```ts
+function contextChange(before: ReadonlyMap<string, ContextDecl>, after: ReadonlyMap<string, ContextDecl>): SystemPatch | undefined;
+```
+
+Refers to: [`ContextDecl`](#core-contextdecl).
+
+#### `watchContextFolder`
+
+function · `import { watchContextFolder } from '@harness/sdk/server'`
+
+Watch a context folder (dev) and send each settled change as a runtime patch, by key. `initial` is what the system
+started with. Returns a stop function.
+
+```ts
+function watchContextFolder(dir: string, initial: readonly ContextDecl[], send: (change: SystemPatch) => Promise<unknown>, options: { debounce: number; label?: string; events: ContextWatchEvents; }): () => void;
+```
+
+Refers to: [`ContextDecl`](#core-contextdecl).
+
+#### `ContextWatchEvents`
+
+interface · `import { ContextWatchEvents } from '@harness/sdk/server'`
+
+What `watchContextFolder` reports.
+
+```ts
+interface ContextWatchEvents {
+  /** The folder has problems; nothing was sent until they are fixed. */
+  problems(problems: readonly ContextFileProblem[]): void;
+  /** A change went to the hub. */
+  sent(change: SystemPatch): void;
+  /** Sending a change failed. */
+  failed(error: unknown): void;
+}
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem).
 
 #### `context`
 
@@ -4265,14 +4489,6 @@ This is the hub contract as the SDK declares it now:
 
 #### Fns of `hub`
 
-- `hub/search_fns`: Find fns by what they do. Tags: `read`.
-
-  ```text
-  (obj{
-    query: text,
-    limit?: num{min=1, max=50, whole=true}
-  }) => list<obj{fn: text, description: text, available: bool}>
-  ```
 - `hub/load_fns`: Add fns to your toolset for this session. Tags: `read`.
 
   ```text
@@ -4346,18 +4562,14 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text, version: num{min=1, whole=true}, created: bool}
   ```
-- `hub/search_context`: Find context (guides, skills, references) by what it covers. Tags: `read`.
-
-  ```text
-  (obj{
-    query: text,
-    limit?: num{min=1, max=50, whole=true}
-  }) => list<obj{context: text, description: text}>
-  ```
 - `hub/load_context`: Load context into this session. Tags: `read`.
 
   ```text
-  (obj{context: list<text>{minLength=1}}) => obj{loaded: list<text>}
+  (obj{context: list<text>{minLength=1}}) => obj{
+    loaded: list<text>,
+    fns: list<text>,
+    refused: list<obj{context: text, reason: text{minLength=1}, closest: list<text>}>
+  }
   ```
 - `hub/search_resources`: Search files and other resources by meaning and words. Tags: `read`.
 
@@ -4427,20 +4639,6 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{question: text, user?: text}) => obj{answer: text}
   ```
-- `hub/find`: Find fns, context, resources and types by what they are about. Already loaded items are marked. Tags: `read`.
-
-  ```text
-  (obj{
-    query: text{minLength=1},
-    kinds?: list<enum<text>{fn, context, resource, type}>,
-    limit?: num{min=1, max=50, whole=true}
-  }) => list<obj{
-    name: text,
-    kind: enum<text>{fn, context, resource, type},
-    description: text,
-    loaded: bool
-  }>
-  ```
 - `hub/inspect`: Look at one item at a detail: a fn's card, a context item's text, a type's definition, or a resource's outline. Tags: `read`.
 
   ```text
@@ -4496,6 +4694,11 @@ This is the hub contract as the SDK declares it now:
       chars: num{whole=true, min=0}
     }>
   }
+  ```
+- `hub/system_calls`: Holds the model calls a system makes outside its own runs (hooks, timers, start-up, its own aeye), so they are charged to its budgets and show as its.
+
+  ```text
+  (obj) => obj
   ```
 - `hub/mint_mcp_token`: Mint a short-lived token for a hub MCP, for a session this system starts (a Claude session, for one). Only a grantee system's runs may call it. Tags: `admin`.
 
@@ -4596,12 +4799,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
   ```text
-  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
+  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
   ```
 - `hub/system_fns`: A system's fns, with whether each can be used now and its running numbers. Tags: `read`.
 
@@ -4713,6 +4916,130 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{name: text}) => obj{ok: bool}
+  ```
+- `hub/session_create`: Start a chat session for the person, with an agent and the systems it may use.
+
+  ```text
+  (obj{
+    agent?: text,
+    systems?: or<list<text>, literal<text>{value="all"}>,
+    title?: text
+  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, status, transcript, createdAt, updatedAt, archived … }
+  ```
+- `hub/session_update`: Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.
+
+  ```text
+  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, status, transcript, createdAt, updatedAt, archived … }
+  ```
+- `hub/session_delete`: Delete a session and its messages.
+
+  ```text
+  (obj{/* session id */ session: text}) => obj{deleted: bool}
+  ```
+- `hub/run_background`: Move a running run to the background, so the chat can go on while it works.
+
+  ```text
+  (obj{/* run id */ run: text}) => obj{accepted: bool}
+  ```
+- `hub/turn_undo`: Undo what one message's runs did, where their fns can undo.
+
+  ```text
+  (obj{/* turn id */ turn: text}) => obj{
+    /* turn id */ turn: text,
+    undone: list<obj{/* run id */ run: text, fn: text, summary: text}>,
+    failed: list<obj{
+      /* run id */ run: text,
+      fn: text,
+      error: obj{
+        class: enum<text>{retry, caller, fatal},
+        message: text,
+        code?: text,
+        data?: any
+      }
+    }>,
+    notUndoable: list<obj{/* run id */ run: text, fn: text}>
+  }
+  ```
+- `hub/memory_update`: Change a memory: its text, title, weight, tags, the fns it brings or where it applies.
+
+  ```text
+  (obj{ text?, title?, about?, weight?, summary?, tags?, fns?, suggestFns?, alwaysFor?, command?, visible?, suggest?, parent?, name, clear? … }) => obj{name: text}
+  ```
+- `hub/context_link`: Link a context item to another item (context, fn, type or resource), with a relation and weight.
+
+  ```text
+  (obj{ from, to, relation, weight … }) => obj{ from, to, toKey, relation, weight, source, uses?, by?, updatedAt … }
+  ```
+- `hub/context_unlink`: Remove one link from a context item.
+
+  ```text
+  (obj{
+    from: text,
+    toKey: text,
+    relation: enum<text>{imports, brings, suggests, parent, next, related, mentions, about, learned}
+  }) => obj{ok: bool}
+  ```
+- `hub/access_set`: Set who may see a system, fn, context item, resource root or connection: private, shared with some, or public.
+
+  ```text
+  (obj{ target, sharing … }) => obj{ target, sharing, editable … }
+  ```
+- `hub/connection_update`: Change one of the person's connected accounts: its settings, which fns use it, or who it is shared with.
+
+  ```text
+  (obj{
+    /* connection id */ connection: text,
+    settings?: any,
+    fns?: any,
+    share?: obj{
+      visibility: enum<text>{private, shared, public},
+      with: list<text>
+    }
+  }) => obj{ id, system, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
+  ```
+- `hub/connection_disconnect`: Disconnect one of the person's connected accounts.
+
+  ```text
+  (obj{
+    /* connection id */ connection: text
+  }) => obj{ok: bool}
+  ```
+- `hub/explore_roots`: The roots one system instance serves files from (folders, sites), live. Tags: `read`.
+
+  ```text
+  (obj{system: text, instance?: text}) => list<obj{
+    uri: text,
+    name: text,
+    description: text,
+    index: enum<text>{all, "on-read", none},
+    ignore: list<text>,
+    watch: bool
+  }>
+  ```
+- `hub/explore_list`: What a folder holds, live from the system that serves it, a page at a time. Tags: `read`.
+
+  ```text
+  (obj{uri: text, cursor?: text}) => obj{
+    items: list<obj{
+      uri: text,
+      name: text,
+      type: enum<text>{folder, file, page, record, other},
+      mime?: text,
+      format?: text,
+      size?: num{whole=true, min=0},
+      modifiedAt?: num{whole=true},
+      version: text
+    }>,
+    cursor?: text
+  }
+  ```
+- `hub/explore_read`: One file's text (or its bytes by content ref) or its links, live, without keeping it in the hub. Tags: `read`.
+
+  ```text
+  (obj{
+    uri: text,
+    want: list<enum<text>{links, text, bytes}>
+  }) => obj{ stat, links?, text?, bytes? … }
   ```
 - `hub/chat`: The chat agent: answers people in a session with every tool the session allows. A fn of the `hub/llm` kind.
 
@@ -4829,6 +5156,15 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, instance?: text}) => obj{ok: bool}
   ```
+- `hub/restart_system`: Restart a system instance, with the reason. Tags: `admin`.
+
+  ```text
+  (obj{
+    system: text,
+    instance?: text,
+    reason: text{minLength=1, maxLength=200}
+  }) => obj{ok: bool}
+  ```
 - `hub/upgrade_system`: Upgrade an installed system to a version (the latest when none is given). Tags: `admin`.
 
   ```text
@@ -4908,10 +5244,157 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, instance: text}) => obj{ok: bool}
   ```
+- `hub/suggest_decision_set`: Turn the suggestion decision model on or off, and set how many candidates it sees and picks. Tags: `admin`.
+
+  ```text
+  (obj{ enabled?, model?, messages?, candidates?, cap?, floor? … }) => obj{ value, setBy?, updatedAt? … }
+  ```
+- `hub/auto_pair_revoke`: Revoke an auto-pair secret, so its instance must pair again by code or token. Tags: `admin`.
+
+  ```text
+  (obj{/* autoPair id */ id: text}) => obj{ok: bool}
+  ```
+- `hub/system_reimport`: Import a system's stored contract again, re-checking every entry. Tags: `admin`.
+
+  ```text
+  (obj{system: text}) => obj{
+    added: list<text>,
+    updated: list<text>,
+    removed: list<text>,
+    refused: list<obj{name: text, problems: list<text>}>
+  }
+  ```
 - `hub/export_system_data`: Zip an instance's data folder with its config (secret fields only when asked) and return the content. Tags: `admin`.
 
   ```text
   (obj{system: text, instance: text, withSecrets?: bool}) => obj{hash: text, size: num{whole=true, min=0}, mime: text, url: text}
+  ```
+- `hub/budgets_list`: Every budget rule with what it has spent so far. Tags: `admin`, `read`.
+
+  ```text
+  (obj) => list<obj{ id, target, period, maxCost, maxTokens?, maxCalls?, maxTime?, share?, onLimit, setBy, spent … }>
+  ```
+- `hub/policies_list`: Every policy: who it is for, which fns, and whether they run, ask or are refused. Tags: `admin`, `read`.
+
+  ```text
+  (obj) => list<obj{ id, description, subject, target, decision, priority, expiresAt?, createdBy, createdAt … }>
+  ```
+- `hub/priority_rules_list`: Every priority rule: the default and highest priority of the hub, groups, people and sessions. Tags: `admin`, `read`.
+
+  ```text
+  (obj) => list<obj{ id, target, default?, max?, setBy … }>
+  ```
+- `hub/providers_list`: The model providers set up, with how many models each offers. Tags: `admin`, `read`.
+
+  ```text
+  (obj) => list<obj{
+    /* provider id */ id: text,
+    provider: enum<text>{openai, openrouter, ollama, aws},
+    models: num{whole=true}
+  }>
+  ```
+- `hub/actors_list`: People, groups, agents, systems and hub MCPs the hub knows, optionally of one kind. Tags: `admin`, `read`.
+
+  ```text
+  (obj{
+    kind?: enum<text>{user, group, agent, system, mcp}
+  }) => list<or<obj{
+    /* actor id */ id: text,
+    name: text,
+    about: text,
+    createdAt: num{whole=true},
+    disabled: bool,
+    kind: literal<text>{value="user"},
+    email: text,
+    role: enum<text>{admin, member},
+    timeZone?: text
+  }, obj{
+    /* actor id */ id: text,
+    name: text,
+    about: text,
+    createdAt: num{whole=true},
+    disabled: bool,
+    kind: literal<text>{value="group"}
+  }, obj{
+    /* actor id */ id: text,
+    name: text,
+    about: text,
+    createdAt: num{whole=true},
+    disabled: bool,
+    kind: literal<text>{value="agent"},
+    fn: text
+  }, obj{
+    /* actor id */ id: text,
+    name: text,
+    about: text,
+    createdAt: num{whole=true},
+    disabled: bool,
+    kind: literal<text>{value="system"},
+    system: text
+  }, obj{
+    /* actor id */ id: text,
+    name: text,
+    about: text,
+    createdAt: num{whole=true},
+    disabled: bool,
+    kind: literal<text>{value="mcp"},
+    /* mcp id */ mcp: text
+  }>>
+  ```
+- `hub/actor_settings_list`: The settings systems declare, and the values set for people and groups. Tags: `admin`, `read`.
+
+  ```text
+  (obj) => obj{ declared, values … }
+  ```
+- `hub/mcps_list`: The hub MCPs: what each exposes, for whom, and whether it is on. Tags: `admin`, `read`.
+
+  ```text
+  (obj) => list<obj{ id, slug, name, instructions, rules, toolMode, user, actor, grantees, origins, enabled, createdBy, createdAt, updatedAt, url, sessions, callsToday … }>
+  ```
+- `hub/mcp_sessions_list`: The clients connected to one hub MCP now. Tags: `admin`, `read`.
+
+  ```text
+  (obj{/* mcp id */ mcp: text}) => list<obj{
+    /* mcp id */ mcp: text,
+    session: text,
+    label: text,
+    client?: obj{name: text, version: text},
+    since: num{whole=true},
+    lastCallAt?: num{whole=true},
+    calls: num{whole=true, min=0}
+  }>
+  ```
+- `hub/pairings_list`: Pairing requests, newest first, optionally of one status. Tags: `admin`, `read`.
+
+  ```text
+  (obj{
+    status?: enum<text>{pending, approved, rejected, expired}
+  }) => list<obj{ id, name, keyFingerprint, publicKey, version, address, method, code?, replaces?, description?, instance?, configType?, configSecrets?, status, createdAt, expiresAt … }>
+  ```
+- `hub/auto_pairs_list`: The auto-pair secrets granted, optionally for one system. Tags: `admin`, `read`.
+
+  ```text
+  (obj{system?: text}) => list<obj{
+    /* autoPair id */ id: text,
+    system: text,
+    instance: text,
+    /* actor id */ createdBy: text,
+    createdAt: num{whole=true},
+    expiresAt?: num{whole=true},
+    lastUsedAt?: num{whole=true},
+    uses: num{whole=true, min=0},
+    revokedAt?: num{whole=true}
+  }>
+  ```
+- `hub/instances_list`: One system's instances, with their status, version, config (secrets masked) and host. Tags: `admin`, `read`.
+
+  ```text
+  (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address? … }>
+  ```
+- `hub/suggest_decision_get`: The suggestion decision model setting: whether a model picks the suggestions, and its limits. Tags: `admin`, `read`.
+
+  ```text
+  (obj) => obj{ value, setBy?, updatedAt? … }
   ```
 
 #### Kinds of `hub`
@@ -5004,7 +5487,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`Section`](#core-section).
+Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`Section`](#core-section).
 
 #### `HubContract`
 
@@ -5044,6 +5527,7 @@ const ADMIN_ENDPOINTS = {
   install_system: systemsSlice.endpoints.installSystem,
   start_system: systemsSlice.endpoints.startSystem,
   stop_system: systemsSlice.endpoints.stopSystem,
+  restart_system: systemsSlice.endpoints.restartSystem,
   upgrade_system: systemsSlice.endpoints.upgradeSystem,
   set_model_role: modelsSlice.endpoints.setModelRole,
   clear_model_role: modelsSlice.endpoints.clearModelRole,
@@ -5056,6 +5540,10 @@ const ADMIN_ENDPOINTS = {
   install_package: packagingSlice.endpoints.installPackage,
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
+  // build 6
+  suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
+  auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
+  system_reimport: systemsSlice.endpoints.reimport,
 } as const satisfies Record<string, EndpointLike>;
 ```
 
@@ -5140,11 +5628,105 @@ A hub write fn's name.
 type HubWriteFnName = keyof typeof HUB_WRITE_ENDPOINTS;
 ```
 
+#### `HUB_PERSON_ENDPOINTS`
+
+const · `import { HUB_PERSON_ENDPOINTS } from '@harness/sdk'`
+
+Build 6: the rest of what a person does in the browser, as fns (fn name → endpoint), so the chat agent can do it
+too, as the run's person: sessions, visibility, memory and context links, undoing a turn, background runs and
+per-person connections. None is tagged `read`, so each asks unless a policy allows it. Answering an approval or a
+question is left out on purpose: an agent must never answer what it asked.
+
+```ts
+const HUB_PERSON_ENDPOINTS = {
+  session_create: chatSlice.endpoints.createSession,
+  session_update: chatSlice.endpoints.updateSession,
+  session_delete: chatSlice.endpoints.deleteSession,
+  run_background: runsSlice.endpoints.background,
+  turn_undo: runsSlice.endpoints.undoTurn,
+  memory_update: contextSlice.endpoints.updateMemory,
+  context_link: contextSlice.endpoints.linkContext,
+  context_unlink: contextSlice.endpoints.unlinkContext,
+  access_set: accessSlice.endpoints.setAccess,
+  connection_update: connectionsSlice.endpoints.updateConnection,
+  connection_disconnect: connectionsSlice.endpoints.disconnect,
+} as const satisfies Record<string, EndpointLike>;
+```
+
+#### `HubPersonFnName`
+
+type · `import { HubPersonFnName } from '@harness/sdk'`
+
+A person's write fn's name (build 6).
+
+```ts
+type HubPersonFnName = keyof typeof HUB_PERSON_ENDPOINTS;
+```
+
+#### `HUB_EXPLORE_ENDPOINTS`
+
+const · `import { HUB_EXPLORE_ENDPOINTS } from '@harness/sdk'`
+
+Build 6: the file explorer's reads as fns (tagged `read`): a system's files live, as the run's person may see them.
+
+```ts
+const HUB_EXPLORE_ENDPOINTS = {
+  explore_roots: explorerSlice.endpoints.exploreRoots,
+  explore_list: explorerSlice.endpoints.exploreList,
+  explore_read: explorerSlice.endpoints.exploreRead,
+} as const satisfies Record<string, EndpointLike>;
+```
+
+#### `HubExploreFnName`
+
+type · `import { HubExploreFnName } from '@harness/sdk'`
+
+An explorer read fn's name (build 6).
+
+```ts
+type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
+```
+
+#### `ADMIN_READ_ENDPOINTS`
+
+const · `import { ADMIN_READ_ENDPOINTS } from '@harness/sdk'`
+
+Build 6: the admin pages' reads as fns (tagged `admin` and `read`): budgets, policies, priorities, providers,
+people, settings, hub MCPs, pairings, auto-pair secrets, instances and the suggestion decision model. They run only
+for an admin and never through a hub MCP; reading asks nobody.
+
+```ts
+const ADMIN_READ_ENDPOINTS = {
+  budgets_list: adminSlice.endpoints.budgets,
+  policies_list: adminSlice.endpoints.policies,
+  priority_rules_list: adminSlice.endpoints.priorityRules,
+  providers_list: settingsSlice.endpoints.providers,
+  actors_list: adminSlice.endpoints.actors,
+  actor_settings_list: adminSlice.endpoints.actorSettings,
+  mcps_list: mcpsSlice.endpoints.mcps,
+  mcp_sessions_list: mcpsSlice.endpoints.mcpSessions,
+  pairings_list: systemsSlice.endpoints.pairings,
+  auto_pairs_list: autoPairSlice.endpoints.autoPairs,
+  instances_list: packagingSlice.endpoints.instances,
+  suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
+} as const satisfies Record<string, EndpointLike>;
+```
+
+#### `AdminReadFnName`
+
+type · `import { AdminReadFnName } from '@harness/sdk'`
+
+An admin read fn's name (build 6).
+
+```ts
+type AdminReadFnName = keyof typeof ADMIN_READ_ENDPOINTS;
+```
+
 #### `FIND_KINDS`
 
 const · `import { FIND_KINDS } from '@harness/sdk'`
 
-What `hub/find` can look for: every kind of item a context link can point at (core's `LinkTarget`).
+What `hub/inspect` can show: every kind of item a context link can point at (core's `LinkTarget`).
 
 ```ts
 const FIND_KINDS: readonly ["fn", "context", "resource", "type"];
@@ -5433,6 +6015,12 @@ interface ServeOptions {
   files?: FilesFactory;
   /** The `ctx.fetch` each run gets. Default: the global `fetch`. */
   fetch?: typeof fetch;
+  /**
+   * The system's context folder (markdown files with YAML headers, `context-files.ts`), sent as its context; `false`
+   * for none. Default: `context/` beside its `system.json`, when there is one. A folder with problems stops the start;
+   * with `HARNESS_CONTEXT_WATCH` its changes go to the hub live.
+   */
+  context?: string | false;
 }
 ```
 
@@ -5465,10 +6053,10 @@ Refers to: [`QualifiedName`](#core-qualifiedname).
 
 interface · `import { RunningSystem } from '@harness/sdk/server'`
 
-A running system.
+A running system. It searches the hub and lists its fleet (every paired instance) as the system itself.
 
 ```ts
-interface RunningSystem<N extends string> extends FnSearch {
+interface RunningSystem<N extends string> extends FnSearch, Fleets {
   readonly name: N;
   readonly status: RunningStatus;
   /** Calls `listener` on every status change; returns the unsubscribe. */
@@ -5479,8 +6067,22 @@ interface RunningSystem<N extends string> extends FnSearch {
   add<const K extends string, T extends FnTypes & { kind: 'native' }>(name: K, def: FnDef<T>, impl: FnImpl<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
   /** Add a fn of some kind at runtime (no implementation: its kind runs it). */
   add<const K extends string, T extends FnTypes>(name: K, def: FnDef<T>): Promise<FnRef<QualifiedName<N, K>, T['args'], T['result'], T['handlers']>>;
-  /** Remove a fn added at runtime. */
+  /** Remove a fn: one added at runtime, or one of the contract's (it is no longer declared or run until a patch adds it back). */
   remove(fn: AnyFnRef): Promise<void>;
+  /**
+   * Change any declarations while running, in core's shapes: add or replace entries by name in any section (context
+   * by its stable key, settings, kind fns, …), remove entries (the contract's too), replace the providers, registries
+   * or contributions lists, or say the resource roots changed. Checked here first; the hub keeps static and runtime
+   * entries in the same records. While offline the change rides in the next manifest. Native fns go through `add`.
+   */
+  patch(change: SystemPatch): Promise<ImportReport>;
+  /**
+   * Add or replace (by `key`) and remove examples of one of this system's fns, by local name, in the hub's
+   * `fnExamples` (the hub embeds and pages them). Waits for the hub.
+   */
+  examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }>;
+  /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
+  ai(): Promise<HarnessAi>;
   /**
    * Add or replace types at runtime (a database's table types, each with its `instance`) and remove types added this
    * way, by local name. While offline they ride in the next manifest. Throws when the hub refuses one.
@@ -5492,7 +6094,7 @@ interface RunningSystem<N extends string> extends FnSearch {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
+Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-importreport), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
 
 #### `RunningStatus`
 
@@ -5767,6 +6369,25 @@ class SystemStopped extends Error {
 }
 ```
 
+#### `SystemPatch`
+
+interface · `import { SystemPatch } from '@harness/sdk/server'`
+
+A change to a running system's declarations, in core's shapes (`RunningSystem.patch`): entries to add or replace
+by name in any section, names to remove (the contract's own entries too), the top-level lists (providers,
+registries, contributions) each replaced whole, and `roots` when its resource roots changed.
+
+```ts
+interface SystemPatch {
+  readonly upsert?: { readonly [S in ManifestSection]?: readonly SectionDecl<S>[] };
+  readonly remove?: { readonly [S in ManifestSection]?: readonly string[] };
+  readonly lists?: ManifestPatch['lists'];
+  readonly roots?: true;
+}
+```
+
+Refers to: [`ManifestPatch`](#core-manifestpatch), [`ManifestSection`](#core-manifestsection), [`SectionDecl`](#core-sectiondecl).
+
 #### `PairingDisplay`
 
 interface · `import { PairingDisplay } from '@harness/sdk/server'`
@@ -5909,7 +6530,26 @@ Every implementation gets a context (`ctx`) typed by what it implements.
 - `ctx.llm`: model calls, always through the hub, which picks the model, enforces budgets and records every call:
   `text({ prompt, system?, model? })`, `object({ prompt, output: ginType })` (an answer checked against a gin type),
   `stream(...)`, `embed(texts)`, `image(...)`, `transcribe(...)`, `speak(...)`. Never call a model provider directly.
-  For aeye prompts, tools and agents, `harnessAiOf(ctx.llm)` gives an `@aeye/ai` instance backed by the hub.
+- `await ctx.ai()`: the way to use AI beyond that. An `@aeye/ai` instance whose provider is the hub, with the hub's real
+  models listed (capabilities, prices, limits) and one `role/<role>` model per hub role, so aeye's selection, tools,
+  structured output, prompts, agents, images, speech and embeddings work as usual. Every ctx has it (runs, hooks,
+  lifecycle, actions); outside any ctx (a timer, a background job) `hubAi(running)` gives the same, paid by the
+  system's own budget. The hub still decides access and budgets and records every call.
+
+  ```ts
+  const ai = await ctx.ai();
+  const summarize = ai.prompt({
+    name: 'summarize',
+    description: 'Summarizes a note in one line.',
+    content: 'Summarize this note in one line:
+
+{{note}}',
+    input: (input: { note: string }) => input,
+  });
+  const line = await summarize.get('result', { note: args.text }, { metadata: { model: 'role/chat' } });
+  ```
+
+  In tests, `fakeHubAi({ models, reply })` (from `@harness/sdk/server/testing`) gives the same type with scripted answers.
 - `ctx.files`: file operations the system allows (`read`, `readText`, `write`, `list`, `remove`, and `share(path)` to
   upload to the hub and get a `ContentRef`).
 - `ctx.fetch`: `fetch` through the system's outbound rules.
@@ -6013,7 +6653,7 @@ interface · `import { Services } from '@harness/sdk'`
 What every run, undo and action gets from the hub.
 
 ```ts
-interface Services extends SystemPlace {
+interface Services extends SystemPlace, AiSource {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
@@ -6040,7 +6680,7 @@ Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
 interface · `import { SystemCtx } from '@harness/sdk'`
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch {
+interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -6375,14 +7015,128 @@ interface FnSearch {
 
 Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery).
 
+#### `AiSource`
+
+interface · `import { AiSource } from '@harness/sdk'`
+
+aeye through the hub, in any context: `await ctx.ai()` is an `@aeye/ai` instance whose provider is the hub, with the
+hub's models (and a `role/<role>` model per role) listed, so aeye's selection, tools, structured output, prompts,
+agents, images, speech and embeddings work as usual. Name a model the aeye way (`metadata: { model: 'role/chat' }`)
+or let aeye pick. The hub decides access and budgets: in a run the run pays; elsewhere (hooks, lifecycle, timers) the
+system's own budget does, and every call is a `ModelCall` attributed to the system.
+
+```ts
+interface AiSource {
+  ai(): Promise<HarnessAi>;
+}
+```
+
+#### `hubAi`
+
+function · `import { hubAi } from '@harness/sdk/server'`
+
+aeye through the hub anywhere in a system's process (background jobs, timers, startup): an `@aeye/ai` instance
+whose provider is the hub, with the hub's models and roles listed. Calls are attributed to the system and paid by
+its own budget; inside a run use `ctx.ai()`, so the run pays.
+
+```ts
+function hubAi(system: Pick<RunningSystem<string>, "ai">): Promise<HarnessAi>;
+```
+
+#### `hubAiOf`
+
+function · `import { hubAiOf } from '@harness/sdk/server'`
+
+An aeye `AI` backed by the hub, with the hub's models and roles listed, so aeye selects among them.
+
+```ts
+function hubAiOf(config: HarnessProviderConfig): Promise<HarnessAi>;
+```
+
+#### `hubModelId`
+
+function · `import { hubModelId } from '@harness/sdk/server'`
+
+The aeye model id of a hub model: its id under its provider (`openrouter/meta-llama/llama-3.2-3b-instruct`), which the hub reads (`namesModel`).
+
+```ts
+function hubModelId(model: Pick<HubModelInfo, "id" | "provider">): string;
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+
+#### `roleModelId`
+
+function · `import { roleModelId } from '@harness/sdk/server'`
+
+The aeye model id that stands for a hub role (`role/chat`): the model the admin set for it.
+
+```ts
+function roleModelId(role: string): string;
+```
+
+#### `aeyeModelOf`
+
+function · `import { aeyeModelOf } from '@harness/sdk/server'`
+
+A hub model as aeye's registry sees it: under the hub provider, with aeye's capability names (others dropped), its
+price per million tokens, its tier and its limits. `id` and `name` override its own (a role's stand-in).
+
+```ts
+function aeyeModelOf(model: HubModelInfo, id?: string, name?: string): ModelInfo;
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+
+#### `ModelLink`
+
+interface · `import { ModelLink } from '@harness/sdk/server'`
+
+What a forwarding provider sends model calls over: the hub link (`HubModelLink`), or a fake in tests
+(`FakeModelLink` in `@harness/sdk/server/testing`).
+
+```ts
+interface ModelLink {
+  /** Stream one chat request through the hub. */
+  llm(forward: LlmForward, signal?: AbortSignal): AsyncIterable<LlmForwardChunk>;
+  /** One non-chat call (embeddings, images, transcription, speech). */
+  model(forward: ModelForward, signal?: AbortSignal): Promise<ModelForwardResult>;
+  /** The models (and the roles they fill) this system may use. */
+  models(signal?: AbortSignal): Promise<HubModelInfo[]>;
+  /** Whether the hub can be reached right now. */
+  connected(): boolean;
+}
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+
+#### `HubModelLink`
+
+class · `import { HubModelLink } from '@harness/sdk/server'`
+
+The model link over the system's hub connection.
+
+```ts
+class HubModelLink implements ModelLink {
+  constructor(hub: HubAccess);
+  llm(forward: LlmForward, signal?: AbortSignal): AsyncIterable<LlmForwardChunk>;
+  model(forward: ModelForward, signal?: AbortSignal): Promise<ModelForwardResult>;
+  models(signal?: AbortSignal): Promise<HubModelInfo[]>;
+  connected(): boolean;
+}
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+
 #### `harnessAi`
 
 function · `import { harnessAi } from '@harness/sdk/server'`
 
-An aeye `AI` whose only provider is the hub. Use it for aeye prompts, tools and agents inside a system.
+An aeye `AI` whose only provider is the hub, before its models are listed: only calls that name a model (or pass
+`HUB_MODEL`) resolve. `hubAiOf` lists them; `ctx.ai()` and `hubAi(system)` give an `AI` that is ready.
 
 ```ts
-function harnessAi(config: HarnessProviderConfig): AI<AITypesInfer<{}, HarnessMetadata, { hub: HarnessProvider; }, { models: ModelInfo<string>[]; }>>;
+function harnessAi(config: HarnessProviderConfig): AI<AITypesInfer<{}, HarnessMetadata, { hub: HarnessProvider; }, {}>>;
 ```
 
 #### `harnessAiOf`
@@ -6401,7 +7155,7 @@ function harnessAiOf(llm: Llm): HarnessAi;
 
 type · `import { HarnessAi } from '@harness/sdk/server'`
 
-The aeye `AI` a system gets: `ctx.llm.ai`.
+The aeye `AI` a system gets from `ctx.ai()` and `hubAi(system)`.
 
 ```ts
 type HarnessAi = ReturnType<typeof harnessAi>;
@@ -6418,8 +7172,17 @@ class HarnessProvider implements Provider<HarnessProviderConfig> {
   readonly name: "hub";
   readonly config: HarnessProviderConfig;
   constructor(config: HarnessProviderConfig);
+  /**
+  * The hub's models this system may use, as aeye models, and a stand-in for each role they fill (`role/chat`). Just
+  * `hub/auto` when the hub lists none, so a call still reaches the hub, which then picks.
+  */
   listModels(): Promise<ModelInfo[]>;
   checkHealth(): Promise<boolean>;
+  /**
+  * The model choice a call forwards: the one its harness metadata names, else the model aeye selected (a role's
+  * stand-in becomes the role's model), else none (`hub/auto`: the hub picks).
+  */
+  choiceFor(metadata: unknown): ModelChoice | undefined;
   /** Stream one request through the hub. */
   forward(request: Request, model: ModelChoice | undefined, signal?: AbortSignal): AsyncGenerator<Chunk, Response>;
   createStreamer(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => AsyncGenerator<Chunk, Response>;
@@ -6437,12 +7200,13 @@ Refers to: [`ModelChoice`](#core-modelchoice).
 
 interface · `import { HarnessProviderConfig } from '@harness/sdk/server'`
 
-What a forwarding provider acts for: the hub, how content moves to it, and the run whose budget pays (absent outside runs).
+What a forwarding provider acts for: the hub (or a `ModelLink` standing in for it), how content moves to it, and the
+run whose budget pays. Outside a run the system's own budget and limits pay, and the call is recorded as the system's.
 
 ```ts
 interface HarnessProviderConfig {
-  readonly hub: HubAccess;
-  /** How audio goes up and images and speech come down by content ref. Default: over `hub`. */
+  readonly hub: HubAccess | ModelLink;
+  /** How audio goes up and images and speech come down by content ref. Default: over `hub` (none over a bare `ModelLink`). */
   readonly content?: ContentTransfer;
   readonly run?: RunId;
 }
@@ -6468,12 +7232,15 @@ Refers to: [`ModelChoice`](#core-modelchoice).
 
 class · `import { HubLlm } from '@harness/sdk/server'`
 
-`ctx.llm`: LLM calls through the hub, counted against the run's budget.
+`ctx.llm`: a thin helper over the same hub-backed aeye `AI` as `ctx.ai()`, counted against the run's budget.
 
 ```ts
 class HubLlm implements Llm {
   constructor(config: HarnessProviderConfig, signal?: AbortSignal);
-  get ai(): AI<AITypesInfer<{}, HarnessMetadata, { hub: HarnessProvider; }, { models: ModelInfo<string>[]; }>>;
+  /** The aeye `AI` these calls go through, its models not listed: `ctx.llm` lets the hub pick unless a call names one. */
+  get ai(): AI<AITypesInfer<{}, HarnessMetadata, { hub: HarnessProvider; }, {}>>;
+  /** `ctx.ai()`: an aeye `AI` on the same hub, run and budget, with the hub's models listed. */
+  listed(): Promise<HarnessAi>;
   text(input: { prompt: string; system?: string; model?: ModelChoice; }): Promise<string>;
   object<T>(input: { prompt: string; output: GinType<T>; system?: string; model?: ModelChoice; }): Promise<T>;
   stream(input: { prompt: string; system?: string; model?: ModelChoice; }): AsyncIterable<string>;
@@ -6511,7 +7278,7 @@ speech. The hub records each as one `ModelCall` and answers with its id and cost
 
 ```ts
 class HubModels {
-  constructor(config: HarnessProviderConfig);
+  constructor(link: ModelLink, run?: RunId);
   embed(input: ModelInput<"embed">, signal?: AbortSignal): Promise<ModelOutput<"embed">>;
   image(input: ModelInput<"image">, signal?: AbortSignal): Promise<ModelOutput<"image">>;
   transcribe(input: ModelInput<"transcribe">, signal?: AbortSignal): Promise<ModelOutput<"transcribe">>;
@@ -6519,7 +7286,7 @@ class HubModels {
 }
 ```
 
-Refers to: [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`RunId`](#core-runid).
 
 #### `HUB_MODEL`
 
@@ -7574,6 +8341,10 @@ A visual that fits a result, as the chat's client runtime finds it among every l
 interface VisualOption {
   readonly system: string;
   readonly name: string;
+  /** What the switcher shows ("Bar chart"): the contribution's `label` in the contract. */
+  readonly label: string;
+  /** An icon name from the web app's icon set, when the contribution names one. */
+  readonly icon?: string;
   readonly fit: VisualFit;
   readonly component: Component;
   readonly props: VisualView & WithSystem<ContractShape>;
@@ -7694,6 +8465,17 @@ must equal `name`. Its schema (`SystemPackageManifest` in `@harness/core`, as JS
         "type": "string",
         "pattern": "^[0-9a-f]{64}$"
       }
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "childProcess": {
+          "type": "boolean"
+        },
+        "workers": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "required": [
@@ -7722,7 +8504,7 @@ Every command, read from the CLI itself:
 | Command | What it does |
 |---|---|
 | `harness system new <name> [--dir <parent folder>] [--from <template folder>]` | Make a system folder from the template, with its name filled in. |
-| `harness system build [dir] [--skip-typecheck]` | Typecheck a system, check its name, and bundle its server and client into dist/. |
+| `harness system build [dir] [--skip-typecheck]` | Typecheck a system, check its name and context, and bundle its server and client into dist/. |
 | `harness system pack [dir] [--out <file>] [--skip-typecheck]` | Build if needed, then zip dist/ with every file hashed into a package the hub installs. |
 | `harness system install <zip \| folder \| npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>] [--no-start] [--wait <ms>]` | Install a package zip, a folder or an npm package on a hub, which pairs, configures and starts it. |
 | `harness system export-data <system> [--instance <name>] [--out <file>] [--with-secrets --yes]` | Download an installed instance’s data folder as a zip (its config too, with --with-secrets --yes). |
@@ -8022,7 +8804,6 @@ class FakeHub {
   usable: (run: HubBody<'usableFns'>['run'], fn: string) => boolean;
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]>;
   readonly forwards: LlmForward[];
-  readonly embeds: string[][];
   /** Every non-chat model call forwarded (`model`). */
   readonly models: ModelForward[];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
@@ -8031,6 +8812,8 @@ class FakeHub {
   readonly proposals: Array<HubBody<'propose'> & ProposedRun>;
   /** What systems asked the decision model (`decide`). */
   readonly decisions: Array<HubBody<'decide'>>;
+  /** Example changes systems sent (`examples`). */
+  readonly exampleChanges: Array<HubBody<'examples'>>;
   /** Paired keys by system name. */
   readonly keys: Map<string, string>;
   /** Session state by owner (`run:<id>` / `delivery:<id>`). */
@@ -8058,6 +8841,8 @@ class FakeHub {
   onModel: (forward: ModelForward) => Promise<ModelForwardResult>;
   /** Answers `ctx.decide`. Default: `off` (no decision model), so the system goes by its scores. */
   onDecide: (request: HubBody<'decide'>) => Promise<DecideAnswer>;
+  /** Answers `models` (`ctx.ai()` lists them). Default: none, so calls go to `hub/auto`. */
+  onModels: () => Promise<HubModelInfo[]>;
   /** Answers `ctx.fleet`. Default: no instances listed. */
   onFleet: () => Promise<FleetInstance[]>;
   /** Controls a child run. Default: accepted. */
@@ -8095,6 +8880,8 @@ class FakeHub {
   disconnect(body: SystemBody<"disconnect">): Promise<void>;
   /** Ask the connected system what a run would do (`preview`), as the hub does before an approval. */
   preview(body: SystemBody<"preview">): Promise<PreviewAnswer>;
+  /** Ask the connected system what a fn of one of its kinds costs (`estimate`), as the hub does for `FnFacts.cost`. */
+  estimate(body: SystemBody<"estimate">): Promise<KindEstimateAnswer>;
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<OutcomeWire>;
   /** Store content (as an upload would) and return its ref. */
@@ -8102,7 +8889,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -8177,11 +8964,12 @@ const TEST_PLACE: SystemPlace;
 
 const · `import { NO_ASKS } from '@harness/sdk/server/testing'`
 
-`ctx.propose` and `ctx.decide` for a hand-made test context that has no hub: proposing fails (the test didn't
-expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
+`ctx.propose`, `ctx.decide` and `ctx.ai` for a hand-made test context that has no hub: proposing fails (the test
+didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
+Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
 
 ```ts
-const NO_ASKS: Proposals & Decisions & Fleets & FnSearch;
+const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource;
 ```
 
 #### `HubBody`
@@ -8212,7 +9000,7 @@ Refers to: [`SystemLinkSpec`](#core-systemlinkspec).
 
 function · `import { streamOf } from '@harness/sdk/server/testing'`
 
-Items as an async stream, one per tick (what a scripted `onLlm` returns).
+Items as an async stream, one at a time (a scripted hub's answer).
 
 ```ts
 function streamOf<T>(items: readonly T[]): AsyncGenerator<T>;
@@ -8338,6 +9126,82 @@ interface KeptFn {
   readonly history: ReadonlyArray<Infer<typeof SaveFnArgs>>;
 }
 ```
+
+#### `FakeModelLink`
+
+class · `import { FakeModelLink } from '@harness/sdk/server/testing'`
+
+A `ModelLink` answering from scripts, recording what it was sent.
+
+```ts
+class FakeModelLink implements ModelLink {
+  /** Every chat forward, in order. */
+  readonly forwards: LlmForward[];
+  /** Every non-chat call, in order. */
+  readonly calls: ModelForward[];
+  constructor(options: FakeModelOptions = {});
+  llm(forward: LlmForward): AsyncIterable<LlmForwardChunk>;
+  model(forward: ModelForward): Promise<ModelForwardResult>;
+  models(): Promise<HubModelInfo[]>;
+  connected(): boolean;
+}
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+
+#### `fakeHubAi`
+
+function · `import { fakeHubAi } from '@harness/sdk/server/testing'`
+
+A `HarnessAi` (the type `ctx.ai()` returns) over a `FakeModelLink`: pass the link to read what was forwarded, or
+options to make one. `content` moves images and audio when a test needs them.
+
+```ts
+function fakeHubAi(link?: FakeModelLink | FakeModelOptions, content?: ContentTransfer): Promise<HarnessAi>;
+```
+
+#### `replyChunks`
+
+function · `import { replyChunks } from '@harness/sdk/server/testing'`
+
+The chunks of a plain text reply, with a free `done`.
+
+```ts
+function replyChunks(text: string): LlmForwardChunk[];
+```
+
+Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+
+#### `FakeModelOptions`
+
+interface · `import { FakeModelOptions } from '@harness/sdk/server/testing'`
+
+How a `FakeModelLink` behaves.
+
+```ts
+interface FakeModelOptions {
+  /** The models it lists (default none: calls go to `hub/auto`). */
+  readonly models?: readonly HubModelInfo[];
+  /** The reply to each chat forward (default the text `ok`). */
+  readonly reply?: (forward: LlmForward) => FakeReply;
+  /** The answer to each non-chat call (default: embeddings of each text's length; other modalities refused). */
+  readonly model?: (forward: ModelForward) => ModelForwardResult;
+}
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+
+#### `FakeReply`
+
+type · `import { FakeReply } from '@harness/sdk/server/testing'`
+
+What a fake answers one chat forward with: the text of the reply, or the chunks themselves.
+
+```ts
+type FakeReply = string | readonly LlmForwardChunk[];
+```
+
+Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
 
 ## 26. Common mistakes
 
@@ -9849,14 +10713,15 @@ progress and handlers, a hook, a mention provider, static and dynamic context, a
 
 ```ts
 /**
- * The fs system's contract (`shared/`): files and a shell over chosen folders, served as resources, and a restart
- * so changes to its own code go live. Other systems import this to call its fns with typed refs; its server
+ * The fs system's contract (`shared/`): files and a shell over chosen folders, served as resources, a restart so
+ * changes to its own code go live, and hosting: systems written here are installed from the chat, run on this machine
+ * from a bundle an admin approved, and supervised. Other systems import this to call its fns with typed refs; its server
  * implements it and its client draws it.
  */
 import { type Infer, type ValueOf, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
-import { authoringContext } from './authoring.gen.ts';
+import { HostedState, HostedStatus, InstallArgs, InstallResult, RestartArgs, StatusArgs, StopArgs, StopResult } from './hosting.ts';
 
-export { AUTHORING_PARTS, perPart, type AuthoringPart } from './authoring.gen.ts';
+export * from './hosting.ts';
 
 /** A file or folder under one of the roots. */
 export const Entry = type({
@@ -10108,6 +10973,85 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         returns: g.obj({ restarting: g.literal(true) }),
         operations: { cancel: false, background: false },
       }),
+      install_system: fn({
+        description: 'Build, check and start a system folder on this machine, and connect it to the hub, once an admin approves.',
+        instructions: [
+          'After writing or changing a system folder: builds, checks and starts it on this machine and connects it to the hub. Call it again after each change; it restarts the system with the new code.',
+          'Before anything is asked, the folder is typechecked with its own tsconfig.json, bundled and scanned. When that fails the call comes back as invalid input with `file:line:col message` lines: fix each one with fs/edit and call again.',
+          'A good build becomes a card for an admin with what the system adds, its scan and its hashes; nothing runs until they approve. If it exits before it connects, the call comes back with its exit code and the end of its output, so you can fix the crash.',
+          'The name in system.json must be the contract\'s name. `hub`, and the name of a system that runs somewhere else, are refused unless `replace` is set (the card then says what it replaces).',
+          'Once it is running, load its fns with hub/load_fns to call them. When it needs config, ask the person for it (its page has the form).',
+        ].join(' '),
+        examples: [
+          {
+            args: { path: 'systems/random' },
+            result: { system: 'random', instance: 'main', version: '0.1.0', status: 'connected', fns: ['random/random'], folder: 'C:/work/harness/systems/random' },
+            note: 'A new system, approved and running.',
+          },
+          { args: { path: 'systems/random' }, note: 'Again after a change: the card shows the diff, and the new code replaces the running one.' },
+          { args: { path: 'systems/notes', instance: 'laptop', replace: true }, note: 'Replaces a `notes/laptop` that runs elsewhere.' },
+        ],
+        args: InstallArgs,
+        returns: InstallResult,
+        // what runs is new code: an admin looks at every install, and the chat must be in write mode or higher
+        approval: { preview: true, remember: false, approver: 'admins' },
+        effects: { mode: 'write', free: true },
+        operations: { cancel: false, background: false },
+        status: {
+          active: { one: 'Installing {args.path}…', many: 'Installing {n} systems…' },
+          retry: { one: 'Installing {args.path} again…', many: 'Installing {n} systems again…' },
+          done: { one: 'Installed {args.path}', many: 'Installed {n} systems' },
+          failed: { one: 'Installing {args.path} failed', many: '{n} installs failed' },
+        },
+        tags: ['admin', 'systems'],
+      }),
+      system_status: fn({
+        description: 'The systems this machine hosts: each one\'s state, version, process, restarts in the last hour and the end of its output.',
+        instructions: 'Call it after install_system, restart_system or a crash to see whether a hosted system is up, and read `output` to find why it stopped. Give `system` for one; empty lists all.',
+        examples: [
+          {
+            args: { system: 'random' },
+            result: [{ system: 'random', instance: 'main', version: '0.1.0', state: 'connected', pid: 4120, restartsLastHour: 0, folder: 'C:/work/harness/systems/random', bundleHash: '9f2c…', output: 'random.serving …' }],
+          },
+          { args: {}, note: 'Every hosted system.' },
+        ],
+        args: StatusArgs,
+        returns: g.list(HostedStatus),
+        effects: { mode: 'read', free: true },
+        display: 'message',
+        tags: ['read', 'systems'],
+      }),
+      restart_system: fn({
+        description: 'Restart a system this machine hosts, with the code an admin approved.',
+        instructions: 'Use it when a hosted system is stuck, crashed or was disabled after too many crashes. It runs the approved bundle again; it never picks up changed code (call install_system for that). Say why in `reason`.',
+        examples: [{ args: { system: 'random', reason: 'It stopped answering after the hub restarted.' }, result: { state: 'connected' } }],
+        args: RestartArgs,
+        returns: g.obj({ state: HostedState }),
+        effects: { mode: 'write', free: true },
+        operations: { cancel: false, background: false },
+        tags: ['systems'],
+      }),
+      stop_system: fn({
+        description: 'Stop a system this machine hosts; with `remove`, also delete its hosted folders.',
+        instructions: 'It stays stopped (also after fs restarts) until install_system or restart_system starts it again. `remove` deletes its bundle, state and data for good, so the person is asked first; use it only when they want the system gone.',
+        examples: [
+          { args: { system: 'random' }, result: { stopped: true, removed: false } },
+          { args: { system: 'random', remove: true }, result: { stopped: true, removed: true }, note: 'Gone for good, after the person said yes.' },
+        ],
+        args: StopArgs,
+        returns: StopResult,
+        effects: { mode: 'delete', free: true },
+        operations: { cancel: false, background: false },
+        handlers: {
+          confirm: handler({
+            description: 'Delete this hosted system\'s folders, its data included?',
+            args: g.obj({ system: g.text(), folders: g.list(g.text()) }),
+            returns: g.bool(),
+            required: false,
+          }),
+        },
+        tags: ['systems'],
+      }),
     },
     hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
   })
@@ -10132,18 +11076,17 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         description: 'The folder tree of a root, as it is now.',
         command: { name: 'tree', args: { root: arg('Which root (default: all)', { required: false }) } },
       }),
-      // the start of the SDK's authoring guide (its parts follow, one item each) and the template, so the chat can
-      // write a system with these fns
+      // the start of writing a system: it loads the guide's index (`context/authoring/`, a graph of the SDK guide) with
+      // it, and says where the template is on this machine, with the fns to write and install a system
       'system-authoring': context({
-        description: 'How to write a harness system: the parts of the SDK guide and their sizes, where the template system is, and how to copy it.',
+        description: 'How to write and install a harness system: the index of its guide, where the template system is, and how to copy it.',
         command: { name: 'new-system' },
-        fns: [fns.write, fns.edit, fns.bash, fns.read],
+        imports: [{ ref: 'context', name: 'fs/authoring' }],
+        fns: [fns.read, fns.write, fns.edit, fns.bash, fns.install_system, fns.system_status],
         alwaysFor: [],
       }),
     },
   }))
-  // the authoring guide's parts, under its start item (generated from the guide: `npm run docs:authoring`)
-  .with(({ context: ctx }) => ({ context: authoringContext(ctx['system-authoring']) }))
   .with(({ fns, context: ctx }) => ({
     fns: {
       explore: agent({
@@ -10738,6 +11681,202 @@ interface ProcessControl {
 }
 ```
 
+#### `NodeStarter`
+
+class · `import { NodeStarter } from '@harness/sdk/server'`
+
+Starts processes with `child_process.spawn`, with a scrubbed environment, keeping the tail of their output.
+
+```ts
+class NodeStarter implements ProcessStarter {
+  constructor(options: NodeStarterOptions);
+  launch(command: ProcessCommand): SupervisedProcess;
+}
+```
+
+#### `NodeStarterOptions`
+
+interface · `import { NodeStarterOptions } from '@harness/sdk/server'`
+
+How `NodeStarter` starts children.
+
+```ts
+interface NodeStarterOptions {
+  /** The parent's environment; a child gets only what `scrubbedEnv` keeps of it. */
+  readonly baseEnv: Readonly<Record<string, string | undefined>>;
+  /** Node flags put first when a command runs this Node binary (the parent's loader, e.g. tsx; `permissionArgs`). */
+  readonly nodeArgs?: readonly string[] | undefined;
+  /** Characters of output kept for the exit report (`HARNESS_SUPERVISE_OUTPUT_TAIL`). */
+  readonly outputTail: number;
+}
+```
+
+#### `ProcessStarter`
+
+interface · `import { ProcessStarter } from '@harness/sdk/server'`
+
+Starts processes. An interface so supervisors can be tested without real processes.
+
+```ts
+interface ProcessStarter {
+  launch(command: ProcessCommand): SupervisedProcess;
+}
+```
+
+#### `ProcessCommand`
+
+interface · `import { ProcessCommand } from '@harness/sdk/server'`
+
+How to run a process: the program, its arguments, its working folder and the variables it adds.
+
+```ts
+interface ProcessCommand {
+  readonly run: string;
+  readonly args: readonly string[];
+  readonly cwd?: string | undefined;
+  /** Set on top of the scrubbed environment (the instance's `HARNESS_*` identity goes here). */
+  readonly env?: Readonly<Record<string, string>> | undefined;
+}
+```
+
+#### `ProcessExit`
+
+interface · `import { ProcessExit } from '@harness/sdk/server'`
+
+How a process ended.
+
+```ts
+interface ProcessExit {
+  /** Its exit code: 1 for a signal, -1 when it never started. */
+  readonly code: number;
+  /** The end of what it printed. */
+  readonly output: string;
+}
+```
+
+#### `SupervisedProcess`
+
+interface · `import { SupervisedProcess } from '@harness/sdk/server'`
+
+A running process.
+
+```ts
+interface SupervisedProcess {
+  readonly pid: number | undefined;
+  /** Settles once, when the process exits (or fails to start, with code -1). */
+  readonly exited: Promise<ProcessExit>;
+  kill(): void;
+}
+```
+
+#### `scrubbedEnv`
+
+function · `import { scrubbedEnv } from '@harness/sdk/server'`
+
+The environment a supervised child gets: from `base`, only `PATH`, the OS basics (`BASIC_ENV`) and `HARNESS_*`
+(never the parent's instance identity, its keys or anything else), then `extra` on top.
+
+```ts
+function scrubbedEnv(base: Readonly<Record<string, string | undefined>>, extra?: Readonly<Record<string, string>>): Record<string, string>;
+```
+
+#### `BASIC_ENV`
+
+const · `import { BASIC_ENV } from '@harness/sdk/server'`
+
+The OS variables a child keeps (matched without case, as Windows names them `Path`, `SystemRoot`, ...).
+
+```ts
+const BASIC_ENV: readonly ["PATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR"];
+```
+
+#### `HARNESS_ENV_PREFIX`
+
+const · `import { HARNESS_ENV_PREFIX } from '@harness/sdk/server'`
+
+The prefix of the harness's own variables, which a child keeps.
+
+```ts
+const HARNESS_ENV_PREFIX: "HARNESS_";
+```
+
+#### `permissionArgs`
+
+function · `import { permissionArgs } from '@harness/sdk/server'`
+
+The Node flags that run a child under the permission model (stable in Node 22.13+): `--permission`, one
+`--allow-fs-read` / `--allow-fs-write` per absolute path, and `--allow-child-process` / `--allow-worker` only when
+declared.
+
+```ts
+function permissionArgs(grants: ProcessGrants): string[];
+```
+
+#### `ProcessGrants`
+
+interface · `import { ProcessGrants } from '@harness/sdk/server'`
+
+What a child may touch under Node's permission model.
+
+```ts
+interface ProcessGrants {
+  /** Folders and files it may read (its bundle, its folders, the loader it runs under). */
+  readonly read: readonly string[];
+  /** Folders it may write (its state, data and cache). Writable folders are readable too. */
+  readonly write: readonly string[];
+  /** What `system.json`'s `permissions` declares; both default to no. */
+  readonly permissions?: Partial<SystemPermissions> | undefined;
+}
+```
+
+#### `CrashPolicy`
+
+class · `import { CrashPolicy } from '@harness/sdk/server'`
+
+The restart rule for supervised processes, one per supervisor, keyed by instance: an asked-for stop or a clean exit
+(for `on-failure`) stops; the restart code restarts at once; a crash restarts after `backoff`, doubling with each
+crash in the last hour, and more than `maxPerHour` crashes in an hour gives up (the caller may roll back).
+
+```ts
+class CrashPolicy {
+  constructor(options: CrashPolicyOptions);
+  /** Decide what follows `exit` of the instance `key`, run under `policy`; `stopping` when the stop was asked for. */
+  decide(key: string, policy: RestartPolicy, exit: Pick<ProcessExit, "code">, stopping: boolean): ExitDecision;
+  /** Forget an instance's crashes (after a rollback, a new version or an uninstall). */
+  forget(key: string): void;
+}
+```
+
+#### `CrashPolicyOptions`
+
+interface · `import { CrashPolicyOptions } from '@harness/sdk/server'`
+
+How `CrashPolicy` decides.
+
+```ts
+interface CrashPolicyOptions {
+  /** The longest wait between restarts (`HARNESS_SUPERVISE_BACKOFF_MAX`). */
+  readonly maxWait: number;
+  /** The exit code that asks for an immediate restart (`RESTART_CODE` unless the supervisor sets another). */
+  readonly restartCode: number;
+  readonly clock?: (() => number) | undefined;
+}
+```
+
+#### `ExitDecision`
+
+type · `import { ExitDecision } from '@harness/sdk/server'`
+
+What to do after a process exits.
+
+```ts
+type ExitDecision =
+| { readonly action: 'stopped' }
+| { readonly action: 'restart-now' }
+| { readonly action: 'restart'; readonly wait: number; readonly crashes: number }
+| { readonly action: 'give-up'; readonly crashes: number };
+```
+
 #### `McpFace`
 
 class · `import { McpFace } from '@harness/sdk/server'`
@@ -11227,6 +12366,23 @@ type ApprovalPreview = {
     after?: TypeDef<any> | undefined;
   })[];
   irreversible: boolean;
+  subject?: {
+    kind: "system-install";
+    system: string & z.core.$brand<"SystemName">;
+    instance: string & z.core.$brand<"InstanceName">;
+    version: string;
+    manifestHash: string;
+    bundleHash: string;
+    sourceHash: string;
+    host: {
+      system: string & z.core.$brand<"SystemName">;
+      instance: string & z.core.$brand<"InstanceName">;
+    };
+    replaces?: {
+      version: string;
+      manifestHash: string;
+    } | undefined;
+  } | undefined;
 };
 ```
 
@@ -11424,6 +12580,144 @@ type ContentRef = {
 };
 ```
 
+#### <a id="core-contextdecl"></a>`ContextDecl`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+A context item. `name` is its stable key (`authoring.kinds`): readable, never shown to people, never derived from a
+file path, so the hub updates the same record (links, stats, embeddings) when its title, text or place change.
+
+```ts
+type ContextDecl = {
+  name: string;
+  description: string;
+  imports: `${string}/${string}`[];
+  fns: `${string}/${string}`[];
+  suggestFns: `${string}/${string}`[];
+  suggest: "llm" | "none" | "user" | "both";
+  visible: "llm" | "none" | "user" | "both";
+  alwaysFor: `${string}/${string}`[];
+  tags: string[];
+  title?: string | undefined;
+  content?: string | undefined;
+  command?: {
+    name: string;
+    args: {
+      name: string;
+      hint: string;
+      required: boolean;
+    }[];
+  } | undefined;
+  weight?: number | undefined;
+  summary?: string | undefined;
+  parent?: `${string}/${string}` | undefined;
+  next?: `${string}/${string}` | undefined;
+  choices?: {
+    to: `${string}/${string}`;
+    when: string;
+  }[] | undefined;
+  links?: {
+    to: {
+      kind: "context";
+      name: `${string}/${string}`;
+    } | {
+      kind: "fn";
+      name: `${string}/${string}`;
+    } | {
+      kind: "type";
+      name: `${string}/${string}`;
+    } | {
+      kind: "resource";
+      uri: `${string}://${string}`;
+      section?: (string & z.core.$brand<"SectionKey">) | undefined;
+    };
+    relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
+    weight: number;
+  }[] | undefined;
+};
+```
+
+#### <a id="core-contextfileheader"></a>`ContextFileHeader`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+The YAML header of a context file: `ContextDecl` without its content (the body is the content), with `key` for its
+name and the lists optional. A summary is required, so every item has a short form for small models. Every link
+(`fns`, `imports`, `choices`, `links`, `parent`, `next`, `alwaysFor`) is a qualified name.
+
+```ts
+type ContextFileHeader = {
+  description: string;
+  key: string;
+  summary: string;
+  imports: `${string}/${string}`[];
+  fns: `${string}/${string}`[];
+  suggestFns: `${string}/${string}`[];
+  suggest: "llm" | "none" | "user" | "both";
+  visible: "llm" | "none" | "user" | "both";
+  alwaysFor: `${string}/${string}`[];
+  tags: string[];
+  title?: string | undefined;
+  weight?: number | undefined;
+  next?: `${string}/${string}` | undefined;
+  links?: {
+    to: {
+      kind: "context";
+      name: `${string}/${string}`;
+    } | {
+      kind: "fn";
+      name: `${string}/${string}`;
+    } | {
+      kind: "type";
+      name: `${string}/${string}`;
+    } | {
+      kind: "resource";
+      uri: `${string}://${string}`;
+      section?: (string & z.core.$brand<"SectionKey">) | undefined;
+    };
+    relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
+    weight: number;
+  }[] | undefined;
+  command?: {
+    name: string;
+    args: {
+      name: string;
+      hint: string;
+      required: boolean;
+    }[];
+  } | undefined;
+  parent?: `${string}/${string}` | undefined;
+  choices?: {
+    to: `${string}/${string}`;
+    when: string;
+  }[] | undefined;
+};
+```
+
+#### <a id="core-contextfileproblem"></a>`ContextFileProblem`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+One problem, at a file and line (1-based), as the build prints it: `context/kinds.md:3:1 broken-link …`.
+
+```ts
+type ContextFileProblem = {
+  file: string;
+  line: number;
+  column: number;
+  code: "header" | "duplicate-key" | "broken-link" | "cycle" | "missing-summary";
+  message: string;
+};
+```
+
+#### <a id="core-contextfileproblemcode"></a>`ContextFileProblemCode`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+```ts
+type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycle" | "missing-summary";
+```
+
 #### <a id="core-contextorconfig"></a>`ContextorConfig`
 
 const, type · declared in `packages/core/src/modes.ts`
@@ -11472,6 +12766,24 @@ type ContributionDecl = {
   label: string;
   description?: string | undefined;
   icon?: string | undefined;
+};
+```
+
+#### <a id="core-costestimate"></a>`CostEstimate`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+What a call is expected to cost, in dollars. `basis` says where the numbers come from: `free` (nothing it does
+spends), `history` (its settled runs), `payload` (worked out from the call's args and the model's price), or
+`unknown` (it spends and has never run).
+
+```ts
+type CostEstimate = {
+  min: number;
+  typical: number;
+  max: number;
+  basis: "unknown" | "history" | "payload" | "free";
+  runs: number;
 };
 ```
 
@@ -11608,6 +12920,7 @@ A fn whose every run waits for approval (`FnDecl.approval`). `preview`: the hub 
 type FnApproval = {
   preview: boolean;
   remember: boolean;
+  approver?: "person" | "admins" | undefined;
 };
 ```
 
@@ -11675,6 +12988,26 @@ type FnExamplesPage = {
   }[];
   total: number;
   next?: number | undefined;
+};
+```
+
+#### <a id="core-fnexamplespatch"></a>`FnExamplesPatch`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+Build 6: a system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
+the hub link). Examples in the fn's declaration are left alone.
+
+```ts
+type FnExamplesPatch = {
+  fn: string;
+  upsert: {
+    args: z.core.util.JSONType;
+    key: string;
+    result?: z.core.util.JSONType | undefined;
+    note?: string | undefined;
+  }[];
+  remove: string[];
 };
 ```
 
@@ -11895,6 +13228,49 @@ type · declared in `packages/core/src/link.ts`
 type HubLinkSpec = typeof hubLinkSpec;
 ```
 
+#### <a id="core-hubmodelinfo"></a>`HubModelInfo`
+
+const, type · declared in `packages/core/src/admin.ts`
+
+Build 6: a model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
+what `ModelInfo` says plus what aeye's selection needs, and the hub roles it fills. `capabilities` are aeye's
+capability names. Only the models the system may use are listed; the hub still checks access and budgets per call.
+
+```ts
+type HubModelInfo = {
+  id: string;
+  provider: `${string}/${string}` | "openai" | "openrouter" | "ollama" | "aws";
+  name: string;
+  capabilities: string[];
+  tier: "flagship" | "efficient" | "legacy" | "experimental";
+  roles: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[];
+  contextWindow?: number | undefined;
+  pricing?: {
+    input: number;
+    output: number;
+  } | undefined;
+  maxOutputTokens?: number | undefined;
+};
+```
+
+#### <a id="core-importreport"></a>`ImportReport`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+What the hub did with a manifest or patch.
+
+```ts
+type ImportReport = {
+  added: `${string}/${string}`[];
+  updated: `${string}/${string}`[];
+  removed: `${string}/${string}`[];
+  refused: {
+    name: string;
+    problems: string[];
+  }[];
+};
+```
+
 #### <a id="core-inputproblem"></a>`InputProblem`
 
 const, type · declared in `packages/core/src/run.ts`
@@ -12037,6 +13413,7 @@ type KindDescription = {
   approval?: {
     preview: boolean;
     remember: boolean;
+    approver?: "person" | "admins" | undefined;
   } | undefined;
   effects?: {
     mode?: "read" | "write" | "delete" | undefined;
@@ -12047,6 +13424,24 @@ type KindDescription = {
   readable?: {
     language: string;
     code: string;
+  } | undefined;
+};
+```
+
+#### <a id="core-kindestimateanswer"></a>`KindEstimateAnswer`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+The kind's answer: an estimate with basis `payload` or `free`, or none (the hub uses the history).
+
+```ts
+type KindEstimateAnswer = {
+  estimate?: {
+    min: number;
+    typical: number;
+    max: number;
+    basis: "unknown" | "history" | "payload" | "free";
+    runs: number;
   } | undefined;
 };
 ```
@@ -12255,6 +13650,25 @@ type LlmRequest = {
 };
 ```
 
+#### <a id="core-loadcontextresult"></a>`LoadContextResult`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
+brings that went into the session's tools, and what it refused, each with the closest names it knows.
+
+```ts
+type LoadContextResult = {
+  loaded: `${string}/${string}`[];
+  fns: `${string}/${string}`[];
+  refused: {
+    context: string;
+    reason: string;
+    closest: `${string}/${string}`[];
+  }[];
+};
+```
+
 #### <a id="core-logline"></a>`LogLine`
 
 const, type · declared in `packages/core/src/link.ts`
@@ -12299,6 +13713,7 @@ type Manifest = {
       visibility: "private" | "shared" | "public";
       with: string[];
     } | undefined;
+    meta?: Record<string, z.core.util.JSONType> | undefined;
   }[];
   settings: {
     name: string;
@@ -12336,6 +13751,12 @@ type Manifest = {
         one: string;
         many: string;
       };
+    } | undefined;
+    estimates?: boolean | undefined;
+    approval?: {
+      preview: boolean;
+      remember: boolean;
+      approver?: "person" | "admins" | undefined;
     } | undefined;
   }[];
   fns: {
@@ -12413,6 +13834,7 @@ type Manifest = {
     approval?: {
       preview: boolean;
       remember: boolean;
+      approver?: "person" | "admins" | undefined;
     } | undefined;
     routing?: {
       to: "instance";
@@ -12438,6 +13860,7 @@ type Manifest = {
     visible: "llm" | "none" | "user" | "both";
     alwaysFor: `${string}/${string}`[];
     tags: string[];
+    title?: string | undefined;
     content?: string | undefined;
     command?: {
       name: string;
@@ -12451,6 +13874,10 @@ type Manifest = {
     summary?: string | undefined;
     parent?: `${string}/${string}` | undefined;
     next?: `${string}/${string}` | undefined;
+    choices?: {
+      to: `${string}/${string}`;
+      when: string;
+    }[] | undefined;
     links?: {
       to: {
         kind: "context";
@@ -12598,6 +14025,7 @@ type ManifestPatch = {
         visibility: "private" | "shared" | "public";
         with: string[];
       } | undefined;
+      meta?: Record<string, z.core.util.JSONType> | undefined;
     }[] | undefined;
     settings?: {
       name: string;
@@ -12635,6 +14063,12 @@ type ManifestPatch = {
           one: string;
           many: string;
         };
+      } | undefined;
+      estimates?: boolean | undefined;
+      approval?: {
+        preview: boolean;
+        remember: boolean;
+        approver?: "person" | "admins" | undefined;
       } | undefined;
     }[] | undefined;
     fns?: {
@@ -12712,6 +14146,7 @@ type ManifestPatch = {
       approval?: {
         preview: boolean;
         remember: boolean;
+        approver?: "person" | "admins" | undefined;
       } | undefined;
       routing?: {
         to: "instance";
@@ -12737,6 +14172,7 @@ type ManifestPatch = {
       visible: "llm" | "none" | "user" | "both";
       alwaysFor: `${string}/${string}`[];
       tags: string[];
+      title?: string | undefined;
       content?: string | undefined;
       command?: {
         name: string;
@@ -12750,6 +14186,10 @@ type ManifestPatch = {
       summary?: string | undefined;
       parent?: `${string}/${string}` | undefined;
       next?: `${string}/${string}` | undefined;
+      choices?: {
+        to: `${string}/${string}`;
+        when: string;
+      }[] | undefined;
       links?: {
         to: {
           kind: "context";
@@ -12808,7 +14248,48 @@ type ManifestPatch = {
     }[] | undefined;
   };
   remove: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>>;
+  lists?: {
+    providers?: {
+      name: string;
+      description: string;
+      models: {
+        id: string;
+        capabilities: string[];
+        contextWindow: number;
+        pricing: {
+          input: number;
+          output: number;
+          cached?: number | undefined;
+          cacheWrite?: number | undefined;
+        };
+        caching: boolean;
+        name?: string | undefined;
+        maxOutput?: number | undefined;
+      }[];
+    }[] | undefined;
+    registries?: {
+      name: string;
+      description: string;
+      data: TypeDef<any>;
+    }[] | undefined;
+    contributes?: {
+      registry: `${string}/${string}`;
+      name: string;
+      label: string;
+      description?: string | undefined;
+      icon?: string | undefined;
+    }[] | undefined;
+  } | undefined;
+  roots?: true | undefined;
 };
+```
+
+#### <a id="core-manifestsection"></a>`ManifestSection`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+```ts
+type ManifestSection = "types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions";
 ```
 
 #### <a id="core-mentionhover"></a>`MentionHover`
@@ -13201,6 +14682,12 @@ type OutcomeWire = {
   partial?: z.core.util.JSONType | undefined;
   undo?: z.core.util.JSONType | undefined;
   cost?: number | undefined;
+  error?: {
+    class: "retry" | "caller" | "fatal";
+    message: string;
+    code?: string | undefined;
+    data?: z.core.util.JSONType | undefined;
+  } | undefined;
 };
 ```
 
@@ -13307,6 +14794,23 @@ type PreviewAnswer = {
       after?: TypeDef<any> | undefined;
     })[];
     irreversible: boolean;
+    subject?: {
+      kind: "system-install";
+      system: string & z.core.$brand<"SystemName">;
+      instance: string & z.core.$brand<"InstanceName">;
+      version: string;
+      manifestHash: string;
+      bundleHash: string;
+      sourceHash: string;
+      host: {
+        system: string & z.core.$brand<"SystemName">;
+        instance: string & z.core.$brand<"InstanceName">;
+      };
+      replaces?: {
+        version: string;
+        manifestHash: string;
+      } | undefined;
+    } | undefined;
   };
 } | {
   refused: string;
@@ -13334,10 +14838,10 @@ type ProgressDecl = {
 
 const, type · declared in `packages/core/src/approvals.ts`
 
-Who answers a proposed run: the person of the run that proposed it, or an admin.
+Who answers a proposed run or a fn that always asks: the run's person, or an admin (only an admin's decision counts).
 
 ```ts
-type ProposalApprover = "admins" | "person";
+type ProposalApprover = "person" | "admins";
 ```
 
 #### <a id="core-proposedrun"></a>`ProposedRun`
@@ -13768,6 +15272,12 @@ type RunRequest = {
       };
     } | {
       status: "cancelled";
+      error?: {
+        class: "retry" | "caller" | "fatal";
+        message: string;
+        code?: string | undefined;
+        data?: z.core.util.JSONType | undefined;
+      } | undefined;
     } | {
       status: "background";
       run: string;
@@ -13779,6 +15289,71 @@ type RunRequest = {
     owner: string;
     credentials: z.core.util.JSONType;
     settings: z.core.util.JSONType;
+  } | undefined;
+  approved?: {
+    by: string;
+    preview: {
+      title: string;
+      parts: ({
+        type: "text";
+        text: string;
+      } | {
+        type: "code";
+        language: string;
+        code: string;
+        title?: string | undefined;
+      } | {
+        type: "table";
+        title: string;
+        table: {
+          columns: {
+            name: string;
+            kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+            nullable: boolean;
+            label?: string | undefined;
+            type?: TypeDef<any> | undefined;
+            ref?: `${string}/${string}` | undefined;
+          }[];
+          rows: z.core.util.JSONType[][];
+          offset: number;
+          truncated: boolean;
+          sort: {
+            column: string;
+            dir: "asc" | "desc";
+          }[];
+          limit?: number | undefined;
+          total?: number | undefined;
+        };
+      } | {
+        type: "type-diff";
+        name: string;
+        changes: string[];
+        breaks: {
+          fn: string;
+          why: string;
+        }[];
+        before?: TypeDef<any> | undefined;
+        after?: TypeDef<any> | undefined;
+      })[];
+      irreversible: boolean;
+      subject?: {
+        kind: "system-install";
+        system: string & z.core.$brand<"SystemName">;
+        instance: string & z.core.$brand<"InstanceName">;
+        version: string;
+        manifestHash: string;
+        bundleHash: string;
+        sourceHash: string;
+        host: {
+          system: string & z.core.$brand<"SystemName">;
+          instance: string & z.core.$brand<"InstanceName">;
+        };
+        replaces?: {
+          version: string;
+          manifestHash: string;
+        } | undefined;
+      } | undefined;
+    };
   } | undefined;
 };
 ```
@@ -13803,6 +15378,12 @@ type RunSettled = {
   };
 } | {
   status: "cancelled";
+  error?: {
+    class: "retry" | "caller" | "fatal";
+    message: string;
+    code?: string | undefined;
+    data?: z.core.util.JSONType | undefined;
+  } | undefined;
 } | {
   status: "background";
   run: string;
@@ -13875,6 +15456,16 @@ type Section = {
   embedText?: string | undefined;
   form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
 };
+```
+
+#### <a id="core-sectiondecl"></a>`SectionDecl`
+
+type · declared in `packages/core/src/manifest.ts`
+
+The declaration type of one manifest section.
+
+```ts
+type SectionDecl<S extends ManifestSection> = z.infer<(typeof MANIFEST_SECTIONS)[S]>;
 ```
 
 #### <a id="core-sectionkey"></a>`SectionKey`
@@ -14083,6 +15674,10 @@ type SystemPackageManifest = {
     entry: string;
   } | undefined;
   files?: Record<string, string> | undefined;
+  permissions?: {
+    childProcess?: boolean | undefined;
+    workers?: boolean | undefined;
+  } | undefined;
 };
 ```
 
@@ -14135,6 +15730,7 @@ type TypeDecl = {
     visibility: "private" | "shared" | "public";
     with: string[];
   } | undefined;
+  meta?: Record<string, z.core.util.JSONType> | undefined;
 };
 ```
 
@@ -14166,6 +15762,7 @@ type TypeDefinitions = {
       visibility: "private" | "shared" | "public";
       with: string[];
     } | undefined;
+    meta?: Record<string, z.core.util.JSONType> | undefined;
   }[];
   missing: `${string}/${string}`[];
 };

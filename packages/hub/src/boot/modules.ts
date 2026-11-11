@@ -16,6 +16,9 @@ import { createChat } from '../chat/chat.ts';
 import { executionModule, type ExecutionModule, type LlmSource } from '../execution/create.ts';
 import { buildSystems, type HubSystems } from '../link/build.ts';
 import { linkServicesPlugin, serviceCatalog } from '../link/services.ts';
+import { linkReadsPlugin } from '../link/reads.ts';
+import { adminReadOperations, exploreOperations, personOperations, type AdminReadOperations, type ExploreOperations, type PersonOperations } from '../api/person-ops.ts';
+import { registerPersonFns } from './person-fns.ts';
 import { NodeLauncher, type Installer, type ProcessLauncher } from '../link/process.ts';
 import { openSqliteStore } from '../store/sqlite.ts';
 import { adminOperations, type AdminOperations } from '../api/admin-ops.ts';
@@ -99,6 +102,9 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
         linkPlugins: [systems.plugin, linkServicesPlugin({
           store: () => hub.store, catalog: () => serviceCatalog(hub.catalog), content: () => hub.api.content, state: () => hub.chat.state, turns: () => hub.chat.turns,
           maxUpload: hub.settings.httpEnv.HARNESS_MAX_UPLOAD, uploadTtl: hub.settings.httpEnv.HARNESS_PRESIGN_TTL, clock: hub.clock,
+          access: (actor) => hub.access.scope(actor),
+        }), linkReadsPlugin({
+          store: () => hub.store, access: (actor) => hub.access.scope(actor), router: () => hub.link.resources, reader: () => hub.resources.reader, pairing: () => hub.link.pairing,
         })],
       };
     },
@@ -141,20 +147,26 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
  * services are read when a fn runs, never while registering.
  */
 export function registerHubContract(module: { readonly hubFns: ExecutionModule['hubFns']; readonly handlers: Pick<ExecutionModule['handlers'], 'askPerson'> }, hub: HubServices): void {
-  registerHubFns(module.hubFns, {
-    store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
-    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns,
-  });
-  let ops: AdminOperations | undefined;
-  registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));
-  let reads: HubReads | undefined;
-  registerReadFns(module.hubFns, () => (reads ??= hubReads(hub)));
-  registerMcpFns(module.hubFns, { tokens: () => hub.mcp.tokens, settings: hub.settings.mcpEnv });
   // what the hub MCP a run's caller acts as exposes, so fns that reach resources and context keep to its rules
   const mcpScope = async (caller: ActorId): Promise<McpScope | undefined> => {
     const mcp = (await hub.store.table('mcps').find({ where: { actor: caller }, limit: 1 })).items[0];
     return mcp === undefined ? undefined : hub.mcp.scopes.scope(mcp.id);
   };
+  registerHubFns(module.hubFns, {
+    store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
+    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns, mcpScope,
+  });
+  let ops: AdminOperations | undefined;
+  registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));
+  let reads: HubReads | undefined;
+  registerReadFns(module.hubFns, () => (reads ??= hubReads(hub)));
+  let person: PersonOperations | undefined;
+  let explore: ExploreOperations | undefined;
+  let adminReads: AdminReadOperations | undefined;
+  registerPersonFns(module.hubFns, {
+    person: () => (person ??= personOperations(hub)), explore: () => (explore ??= exploreOperations(hub)), adminReads: () => (adminReads ??= adminReadOperations(hub)),
+  });
+  registerMcpFns(module.hubFns, { tokens: () => hub.mcp.tokens, settings: hub.settings.mcpEnv });
   registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm, mcpScope, access: (actor) => hub.access.scope(actor) });
   registerContextorFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions,

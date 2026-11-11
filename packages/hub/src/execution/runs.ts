@@ -14,7 +14,7 @@ import {
   compact, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
-  type ApprovalPreview, type Approver, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, qualify,
+  type ApprovalPreview, type Approver, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -74,7 +74,7 @@ export function settledOf(outcome: OutcomeWire | undefined, run: RunId): RunSett
     // a code caller hears refused input as a caller error carrying the problems; agents read the run's own status
     case 'invalid-input': return { status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE, message: outcome.invalid.problems.map(problemLine).join('; '), data: compact(outcome.invalid) } };
     case 'failed': return { status: 'failed', error: outcome.error };
-    case 'cancelled': return { status: 'cancelled' };
+    case 'cancelled': return outcome.error === undefined ? { status: 'cancelled' } : { status: 'cancelled', error: outcome.error };
     case 'paused': return { status: 'background', run };
   }
 }
@@ -110,6 +110,9 @@ export const PROPOSED_KEY = 'propose:';
 
 /** The error code of a run a policy denied or its approver declined. */
 export const DECLINED_CODE = 'denied';
+
+/** Build 6: the hub fn whose runs hold the model calls a system makes outside its own runs (`systemWork`). */
+export const SYSTEM_CALLS_FN: QualifiedName = 'hub/system_calls';
 
 /** A promise with its resolver. */
 interface Waiter {
@@ -378,6 +381,21 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     return { run: run.id, approval: approval.id };
   }
 
+  async systemWork(system: SystemName, instance: InstanceName): Promise<Run> {
+    const { store, clock, catalog } = this.#deps;
+    const turn = await this.#systemTurn(system);
+    const fn = await catalog.fn(SYSTEM_CALLS_FN);
+    const id = mintId('run', this.#deps.random);
+    const run: Run = {
+      id, fn: SYSTEM_CALLS_FN, fnVersion: fn?.version ?? '', kind: 'native', system, instance, root: id, turn: turn.id, key: `system-calls:${id}`,
+      actor: turn.actor, caller: turn.actor, args: {}, status: 'running', allowed: { cancel: false, pause: false, background: false },
+      cost: 0, totalCost: 0, priority: turn.limits.priority, background: false, attempt: 1, errors: [], stateChanges: [], createdAt: clock(),
+    };
+    await store.table('runs').insert(run);
+    await store.table('turns').update(turn.id, { root: id });
+    return run;
+  }
+
   /** A turn of a system's own, for a run it proposed outside any run; it ends when the run settles. */
   async #systemTurn(system: SystemName): Promise<Turn> {
     const { store, clock } = this.#deps;
@@ -508,7 +526,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     this.#deadlines.disarm(id);
     const now = clock();
     const cost = outcome.cost ?? 0;
-    const errors = outcome.status === 'failed' ? [...run.errors, { attempt: run.attempt, error: outcome.error, cost, at: now }] : run.errors;
+    const error = outcome.status === 'failed' || outcome.status === 'cancelled' ? outcome.error : undefined;
+    const errors = error === undefined ? run.errors : [...run.errors, { attempt: run.attempt, error, cost, at: now }];
     if (outcome.status === 'failed' && outcome.error.class === 'retry') {
       const fn = await catalog.fn(run.fn);
       if (run.attempt <= (fn?.decl.limits.retries ?? 0)) {
@@ -738,7 +757,20 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       deadline: deadline.at,
       configVersion: configured?.version ?? 0,
       ...(await this.#connection(run, fn, turn)),
+      ...(await this.#approvedOn(run, fn)),
     };
+  }
+
+  /**
+   * The approval a run of a fn with `approval` went ahead on (`ctx.approved`): who approved it and the preview they
+   * saw, so the system can check it runs what was approved. Nothing for other fns or runs that weren't asked about.
+   */
+  async #approvedOn(run: Run, fn: FnRecord): Promise<Pick<RunRequest, 'approved'>> {
+    if (fn.decl.approval === undefined || run.approvedAt === undefined) return {};
+    const page = await this.#deps.store.table('approvals').find({ where: { run: run.id, status: 'approved' }, order: [['createdAt', 'desc']], limit: 1 });
+    const approval = page.items[0];
+    const by = approval?.decisions.findLast((d) => d.approve)?.by;
+    return approval?.preview === undefined || by === undefined ? {} : { approved: { by, preview: approval.preview } };
   }
 
   /**
@@ -853,7 +885,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const who = decided === undefined ? undefined : (await this.#deps.store.table('actors').get(decided.by))?.name;
     const reason = decided?.reason?.trim() ?? '';
     const message = `Declined by ${who ?? 'the approver'}${reason === '' ? ' (no reason given).' : `: ${reason}`}`;
-    await this.settle(id, { status: 'failed', error: fnError('caller', message, DECLINED_CODE) });
+    // a declined run did not fail: it is cancelled, with who declined and why in its errors and the caller's reply
+    await this.settle(id, { status: 'cancelled', error: fnError('caller', message, DECLINED_CODE) });
   }
 
   async #addToAncestors(run: Run, cost: Usd): Promise<void> {

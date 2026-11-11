@@ -20,7 +20,26 @@ Every implementation gets a context (`ctx`) typed by what it implements.
 - `ctx.llm`: model calls, always through the hub, which picks the model, enforces budgets and records every call:
   `text({ prompt, system?, model? })`, `object({ prompt, output: ginType })` (an answer checked against a gin type),
   `stream(...)`, `embed(texts)`, `image(...)`, `transcribe(...)`, `speak(...)`. Never call a model provider directly.
-  For aeye prompts, tools and agents, `harnessAiOf(ctx.llm)` gives an `@aeye/ai` instance backed by the hub.
+- `await ctx.ai()`: the way to use AI beyond that. An `@aeye/ai` instance whose provider is the hub, with the hub's real
+  models listed (capabilities, prices, limits) and one `role/<role>` model per hub role, so aeye's selection, tools,
+  structured output, prompts, agents, images, speech and embeddings work as usual. Every ctx has it (runs, hooks,
+  lifecycle, actions); outside any ctx (a timer, a background job) `hubAi(running)` gives the same, paid by the
+  system's own budget. The hub still decides access and budgets and records every call.
+
+  ```ts
+  const ai = await ctx.ai();
+  const summarize = ai.prompt({
+    name: 'summarize',
+    description: 'Summarizes a note in one line.',
+    content: 'Summarize this note in one line:
+
+{{note}}',
+    input: (input: { note: string }) => input,
+  });
+  const line = await summarize.get('result', { note: args.text }, { metadata: { model: 'role/chat' } });
+  ```
+
+  In tests, `fakeHubAi({ models, reply })` (from `@harness/sdk/server/testing`) gives the same type with scripted answers.
 - `ctx.files`: file operations the system allows (`read`, `readText`, `write`, `list`, `remove`, and `share(path)` to
   upload to the hub and get a `ContentRef`).
 - `ctx.fetch`: `fetch` through the system's outbound rules.

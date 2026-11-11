@@ -6,7 +6,7 @@
  * into the hub's own argument shapes (`LinkTarget`, `RememberArgs`) with one plain problem when they don't parse.
  */
 import {
-  ContextFromResourceArgs, ContextOptions, type ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, type ListQuery,
+  ContextFromResourceArgs, ContextOptions, type ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, splitName, type ListQuery,
   type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience, type ShareRule,
 } from '@harness/core';
 import { z } from 'zod';
@@ -330,4 +330,14 @@ export function fromResourceRequest(draft: FromResourceDraft): FromResourceReque
   const args = ContextFromResourceArgs.safeParse({ uri: uri.data, copy: draft.copy, ...(command === '' ? {} : { command }) });
   if (!args.success) { return { ok: false, problem: 'A command is lower-case letters, digits and dashes, starting with a letter.' }; }
   return { ok: true, value: args.data };
+}
+
+/** What people see an item called: its title, else its description; never its key (`ContextDecl.name`). */
+export function contextLabel(decl: Pick<ContextRecord['decl'], 'title' | 'description'>): string {
+  return decl.title ?? (decl.description === '' ? 'Untitled' : decl.description);
+}
+
+/** An item's key: its stable name inside its system (`authoring.kinds`), as its context file's header gives it. */
+export function contextKey(name: QualifiedName): string {
+  return splitName(name).local;
 }

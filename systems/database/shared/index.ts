@@ -192,6 +192,8 @@ export const database = system('database', {
         payload: ginAs(QueryPayload),
         // get_query keeps every query it makes; a saved query that writes still waits for approval on every run
         approveChanges: false,
+        // a query runs SQL and never calls a model, so its implementation says every run is free
+        estimates: true,
         status: status('Querying {fn}…', 'Queried {fn}', 'Query {fn} failed'),
       }),
     },

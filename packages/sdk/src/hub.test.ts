@@ -3,16 +3,24 @@ import { ADMIN_TAG, ChatModeConfig, ContextorConfig, OWN_TAG, READ_TAG, resource
 import { agent } from './agent.ts';
 import { encodeValue, g, parseValue } from './gin.ts';
 import type { AnyFnDef } from './fn.ts';
-import { ADMIN_ENDPOINTS, ChatModeType, ContextorType, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, LlmPayloadType, hub } from './hub.ts';
+import { ADMIN_ENDPOINTS, ADMIN_READ_ENDPOINTS, ChatModeType, ContextorType, HUB_EXPLORE_ENDPOINTS, HUB_PERSON_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, LlmPayloadType, hub } from './hub.ts';
 import { manifestOf } from './manifest.ts';
 
 describe('the hub contract', () => {
   it('builds a manifest the hub accepts, with every build 2 fn', async () => {
     const manifest = await manifestOf(hub, { version: '2.0.0' });
     const names = new Set(manifest.fns.map((f) => f.name));
-    for (const name of ['find', 'inspect', 'load', 'unload', 'resource_outline', 'resource_send', 'mint_mcp_token', 'chat', 'chat_small']) { expect(names).toContain(name); }
-    for (const name of [...Object.keys(HUB_READ_ENDPOINTS), ...Object.keys(HUB_WRITE_ENDPOINTS), ...Object.keys(ADMIN_ENDPOINTS)]) { expect(names).toContain(name); }
+    for (const name of ['fns_search', 'inspect', 'load', 'unload', 'resource_outline', 'resource_send', 'mint_mcp_token', 'chat', 'chat_small']) { expect(names).toContain(name); }
+    for (const name of [...Object.keys(HUB_READ_ENDPOINTS), ...Object.keys(HUB_WRITE_ENDPOINTS), ...Object.keys(ADMIN_ENDPOINTS), ...Object.keys(HUB_PERSON_ENDPOINTS), ...Object.keys(HUB_EXPLORE_ENDPOINTS), ...Object.keys(ADMIN_READ_ENDPOINTS)]) { expect(names).toContain(name); }
+    // build 6: one search
+    for (const name of ['search_fns', 'search_context', 'find']) { expect(names).not.toContain(name); }
     expect(manifest.sectioners.map((s) => s.name)).toContain('tables');
+  });
+
+  it('gives every fn instructions and at least one example (build 6)', () => {
+    const fns: Readonly<Record<string, AnyFnDef | undefined>> = hub.defs.fns;
+    const bare = Object.entries(fns).filter(([, def]) => def?.instructions === undefined || def.examples.length === 0).map(([name]) => name);
+    expect(bare).toEqual([]);
   });
 
   it('tags every web read `read`, every admin write `admin`, the writes a system makes for itself `own`, and leaves the other writes to ask', () => {
@@ -22,7 +30,9 @@ describe('the hub contract', () => {
     // a system keeping what it fetched (resource_import) or saving a fn of its own kind (save_fn) is `own`: a system's call asks nobody
     for (const name of Object.keys(HUB_WRITE_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual(name === 'resource_import' ? [OWN_TAG] : []); }
     expect(hub.defs.fns.save_fn.tags).toEqual([OWN_TAG]);
-    for (const name of ['find', 'inspect', 'load', 'unload', 'resource_outline', 'resource_send']) { expect(fns[name]?.tags, name).toEqual([READ_TAG]); }
+    for (const name of ['fns_search', 'inspect', 'load', 'unload', 'resource_outline', 'resource_send', ...Object.keys(HUB_EXPLORE_ENDPOINTS)]) { expect(fns[name]?.tags, name).toEqual([READ_TAG]); }
+    for (const name of Object.keys(HUB_PERSON_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([]); }
+    for (const name of Object.keys(ADMIN_READ_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([ADMIN_TAG, READ_TAG]); }
     expect(hub.defs.fns.mint_mcp_token.tags).toEqual([ADMIN_TAG]);
   });
 

@@ -4,7 +4,7 @@
  * typed refs.
  */
 import type {
-  ActorKind, Audience, DeclarableRelation, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat,
+  ActorKind, Audience, CostEstimate, DeclarableRelation, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat,
   ResourceUri, Section, SectionKey, PreviewAnswer,
   SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
 } from '@harness/core';
@@ -93,11 +93,25 @@ export interface KindDef<P> {
   readonly approveChanges: boolean;
   /** The status words of its fns that declare none. They may use `{fn}`, `{n}` and `{args}` / `{output}` paths. */
   readonly status: StatusTemplates | undefined;
+  /** Its implementation's `estimate` works out what a fn of this kind costs from its payload (`FnFacts.cost`, basis `payload`). */
+  readonly estimates: boolean;
 }
 
-/** Declare a kind. */
-export function kind<P>(def: { description: string; applicability: string; payload: GinType<P>; approveChanges?: boolean; status?: StatusTemplates }): KindDef<P> {
-  return { description: def.description, applicability: def.applicability, payload: def.payload, approveChanges: def.approveChanges ?? true, status: def.status };
+/**
+ * Declare a kind. `estimates: true` says its implementation has an `estimate` hook that works out a fn's cost from its
+ * payload (a query is free; a form costs nothing until it asks a model), which the hub shows before a run.
+ */
+export function kind<P>(def: { description: string; applicability: string; payload: GinType<P>; approveChanges?: boolean; status?: StatusTemplates; estimates?: boolean }): KindDef<P> {
+  return {
+    description: def.description, applicability: def.applicability, payload: def.payload, approveChanges: def.approveChanges ?? true, status: def.status,
+    estimates: def.estimates ?? false,
+  };
+}
+
+/** What a kind's `estimate` is asked about: one call's args (absent for the fn in general) and the fn's run history, if any. */
+export interface KindEstimateInput {
+  readonly args?: Json;
+  readonly history?: CostEstimate;
 }
 
 /** What a kind can look up while checking a payload. */
@@ -125,6 +139,11 @@ export interface KindImpl<P, Cfg = unknown> {
   undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
   /** What a run of a payload's fn would do, for a fn `describe` gave an `approval` with a preview (a write query). */
   preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
+  /**
+   * What a fn of this payload costs, for a kind declared with `estimates: true`: an estimate with basis `payload` (or
+   * `free`), blending in `history` when it helps, or `undefined` to leave it to the history.
+   */
+  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg>): Promise<CostEstimate | undefined>;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────

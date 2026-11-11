@@ -7,7 +7,7 @@ describe('the fs contract', () => {
   it('makes a manifest the hub accepts', async () => {
     const manifest = await manifestOf(fs, { version: '0.0.0', resources: true, events: ['resources'] });
     expect(Manifest.safeParse(manifest).success).toBe(true);
-    expect(manifest.fns.map((f) => f.name).sort()).toEqual(['Entry.reveal', 'bash', 'cd', 'edit', 'explore', 'glob', 'grep', 'list', 'read', 'remove', 'restart', 'write']);
+    expect(manifest.fns.map((f) => f.name).sort()).toEqual(['Entry.reveal', 'bash', 'cd', 'edit', 'explore', 'glob', 'grep', 'install_system', 'list', 'read', 'remove', 'restart', 'restart_system', 'stop_system', 'system_status', 'write']);
     expect(manifest.requires).toEqual(['hub']);
     expect(manifest.mentions[0]?.of).toBe('fs/Entry');
   });

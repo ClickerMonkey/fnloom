@@ -18,7 +18,7 @@ import type { Logger } from '@ayepi/log';
 import {
   MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceRecord,
   type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
-  type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath,
+  type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath, type FnRecord, type InstallSubject, type PairingGrant, type PairingGrantRequest, type QualifiedName,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { allRows } from '../catalog/rows.ts';
@@ -51,6 +51,10 @@ export interface PairingOptions {
   readonly publicUrl?: string | undefined;
   /** How long a pairing request waits for an admin. */
   readonly timeout: number;
+  /** Build 6: how long a token granted to an approved install run stays good (`grantPairing`). */
+  readonly grantTtl: number;
+  /** Build 6: a fn's record, to check the install run's fn is approved by admins. */
+  readonly fn: (name: QualifiedName) => Promise<FnRecord | undefined>;
 }
 
 /** Where a socket asking to pair came from. */
@@ -109,9 +113,11 @@ export class StorePairingService implements PairingService {
     };
 
     if (hello.pairingToken !== undefined) {
-      const token = await this.#redeem(hello.pairingToken, hello.name, rekeys);
-      const request = await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'token', status: 'approved' });
+      const token = await this.#redeem(hello.pairingToken, hello, rekeys);
+      // a token granted to an install run names its instance and may replace that instance's key
+      const request = await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'token', status: 'approved', ...(token.boundTo === undefined ? {} : { replaces: hello.name }) });
       const record = await this.#pair(request, token.createdBy, {});
+      if (token.boundTo !== undefined) { await this.#hosted(record, token.boundTo); }
       if (token.autoPair !== undefined) { await this.#options.autoPairs.grant(record, token.autoPair, token.createdBy); }
       this.#options.bus.publish('pairing', { pairing: request });
       await this.#supersede(request);
@@ -206,6 +212,44 @@ export class StorePairingService implements PairingService {
     return { token, expiresAt };
   }
 
+  /**
+   * Build 6: a one-time token for an approved install run (`grantPairing`). Refused unless `run` is a running run of
+   * the asking instance, of a fn whose approval is the admins', approved with a preview whose subject equals the one
+   * asked for, and hosted by the asking instance. The token pairs only the subject's name, instance and manifest hash, and grants auto pair.
+   */
+  async grant(request: PairingGrantRequest, link: InstanceRef): Promise<PairingGrant> {
+    const { store, clock, log } = this.#options;
+    const refused = (why: string) => refuse(403, 'GRANT_REFUSED', why);
+    const run = await store.table('runs').get(request.run);
+    if (run?.status !== 'running' || run.system !== link.system || run.instance !== link.instance) { throw refused(`${request.run} is not a running run of ${instanceLabel(link)}`); }
+    if ((await this.#options.fn(run.fn))?.decl.approval?.approver !== 'admins') { throw refused(`${run.fn} is not a fn the admins approve`); }
+    const approval = (await store.table('approvals').find({ where: { run: run.id, status: 'approved' }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
+    const by = approval?.decisions.findLast((d) => d.approve)?.by;
+    const subject = approval?.preview?.subject;
+    if (approval === undefined || by === undefined || subject === undefined || !sameSubject(subject, request.subject)) { throw refused('what is asked for is not what was approved'); }
+    if (subject.host.system !== link.system || subject.host.instance !== link.instance) { throw refused(`the approved install is hosted by ${instanceLabel(subject.host)}, not ${instanceLabel(link)}`); }
+    const token = randomToken();
+    const expiresAt = clock() + this.#options.grantTtl;
+    const row: PairingToken = {
+      id: mintId('pairingToken'), tokenHash: sha256Hex(token), createdBy: by, expiresAt, name: request.subject.system, autoPair: {},
+      boundTo: { instance: request.subject.instance, manifestHash: request.subject.manifestHash, host: { system: link.system, instance: link.instance }, run: run.id },
+    };
+    await store.table('pairingTokens').insert(row);
+    log.info('pairing.granted', { token: row.id, system: request.subject.system, instance: request.subject.instance, run: run.id, approval: approval.id, by });
+    return { token, expiresAt };
+  }
+
+  /** An instance paired with a granted token: who hosts it, from which folder and bundle, and the approval it ran on. */
+  async #hosted(record: InstanceRecord, bound: NonNullable<PairingToken['boundTo']>): Promise<void> {
+    const { store, instances } = this.#options;
+    const run = await store.table('runs').get(bound.run);
+    const approval = (await store.table('approvals').find({ where: { run: bound.run, status: 'approved' }, limit: 1 })).items[0];
+    const subject = approval?.preview?.subject;
+    const path = run?.args !== undefined && typeof run.args === 'object' && run.args !== null && !Array.isArray(run.args) ? run.args['path'] : undefined;
+    if (approval === undefined || subject === undefined || typeof path !== 'string') { return; }
+    await instances.sync(record, (current) => ({ ...current, host: { host: bound.host, path, bundleHash: subject.bundleHash, approval: approval.id } }), record);
+  }
+
   async pairInstalled(ref: InstanceRef, publicKey: string, version: string, by: ActorId): Promise<InstanceRecord> {
     // an admin installing an instance chose its name, so a key it had before is replaced
     return this.#pair({ name: ref.system, instance: ref.instance, publicKey, keyFingerprint: fingerprint(publicKey), version, address: 'installed', replaces: ref.system }, by, {});
@@ -251,14 +295,21 @@ export class StorePairingService implements PairingService {
     }
   }
 
-  /** Check and use up a one-time token. Re-keying a paired instance needs a token made for its system's name. */
-  async #redeem(token: string, name: SystemName, rekeys: boolean): Promise<PairingToken> {
+  /**
+   * Check and use up a one-time token. Re-keying a paired instance needs a token made for its system's name. A token
+   * granted to an install run (`boundTo`) pairs only the instance and manifest hash that were approved.
+   */
+  async #redeem(token: string, hello: Hello, rekeys: boolean): Promise<PairingToken> {
+    const name = hello.name;
     const tokens = this.#options.store.table('pairingTokens');
     const page = await tokens.find({ where: { tokenHash: sha256Hex(token) }, limit: 1 });
     const found = page.items[0];
     const now = this.#options.clock();
     if (found === undefined || found.usedAt !== undefined || found.expiresAt <= now || (found.name !== undefined && found.name !== name)) {
       throw refuse(401, 'BAD_PAIRING_TOKEN', 'the pairing token is unknown, used, expired or for another name');
+    }
+    if (found.boundTo !== undefined && (found.boundTo.instance !== hello.instance || found.boundTo.manifestHash !== hello.manifestHash)) {
+      throw refuse(403, 'NOT_WHAT_WAS_APPROVED', `this token pairs only ${name}/${found.boundTo.instance} with the contract that was approved`);
     }
     if (rekeys && found.name === undefined) {
       throw refuse(403, 'TOKEN_NOT_FOR_SYSTEM', `${name} is already paired: replacing its key needs a token made for ${name}`);
@@ -333,4 +384,11 @@ export class StorePairingService implements PairingService {
       });
     }, 0);
   }
+}
+
+/** Whether two install subjects bind the same thing: every field equal. */
+export function sameSubject(a: InstallSubject, b: InstallSubject): boolean {
+  return a.system === b.system && a.instance === b.instance && a.version === b.version && a.manifestHash === b.manifestHash
+    && a.bundleHash === b.bundleHash && a.sourceHash === b.sourceHash && a.host.system === b.host.system && a.host.instance === b.host.instance
+    && a.replaces?.version === b.replaces?.version && a.replaces?.manifestHash === b.replaces?.manifestHash;
 }

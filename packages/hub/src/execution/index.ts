@@ -13,13 +13,14 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelInfo, ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposedRun, ProposeRun, SystemName,
+  ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposedRun, ProposeRun, SystemName, OutcomeWire,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
 import type { FnModeGate } from '../fns/index.ts';
 import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { SpendReader } from './spend.ts';
+import type { EngineModel } from './ports.ts';
 
 /** The qualified kind of agent fns, from the hub contract (`hub.kinds.llm`): renaming it there breaks every user. */
 export const AGENT_KIND = hub.kinds.llm.name;
@@ -67,6 +68,14 @@ export interface RunService {
    * without one it is the system's own run in a turn made for it, and the admins answer. The same key gives the same run.
    */
   propose(input: ProposeRun & { system: SystemName; instance: InstanceName }): Promise<ProposedRun>;
+  /**
+   * Build 6: a running run of `hub/system_calls` for model calls a system makes outside any run (hooks, timers,
+   * lifecycle, `hubAi()`), in a turn of the system's own, so they are charged to the system's budgets and limits and
+   * recorded as its. Settle it when the call is done.
+   */
+  systemWork(system: SystemName, instance: InstanceName): Promise<Run>;
+  /** Settle a run with how it ended (its system's outcome, or the hub's for runs it holds itself). */
+  settle(run: RunId, outcome: OutcomeWire): Promise<void>;
   get(run: RunId): Promise<Run | undefined>;
   cancel(run: RunId, by: ActorId): Promise<{ accepted: boolean; reason?: string }>;
   pause(run: RunId, by: ActorId): Promise<{ accepted: boolean; reason?: string }>;
@@ -152,7 +161,7 @@ export interface Recorded<T> {
  */
 export interface LlmGateway {
   /** A forwarded request from a system (`HubLink.llm`), streamed back. */
-  forward(input: LlmForward & { system: string; turn?: TurnId }, signal: AbortSignal): AsyncIterable<LlmForwardChunk>;
+  forward(input: LlmForward & { system: string; turn?: TurnId; instance?: InstanceName }, signal: AbortSignal): AsyncIterable<LlmForwardChunk>;
   embed(input: EmbedCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<number[][]>>;
   image(input: ImageCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<MadeImage[]>>;
   transcribe(input: TranscribeCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Heard>>;
@@ -164,7 +173,7 @@ export interface LlmGateway {
    */
   chat(input: { request: LlmRequest; model?: ModelChoice; provider?: string; priority?: Priority }, site: ModelSite, signal: AbortSignal): Promise<Recorded<string>>;
   /** The models configured providers offer. */
-  models(): Promise<ModelInfo[]>;
+  models(): Promise<EngineModel[]>;
 }
 
 /** The model providers behind the hub AI. */

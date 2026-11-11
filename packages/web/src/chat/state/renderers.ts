@@ -9,11 +9,10 @@
  */
 import {
   QualifiedName, SystemName, type ChatCapabilities, type DeliveryId, type Json, type MentionHover, type MessagePart, type ResultTable,
-  type VisualFit,
 } from '@harness/core';
 import type { InputMount } from '@harness/sdk';
 import { ClientRuntime, type ClientBridge, type VisualOption } from '@harness/sdk/client';
-import { shallowRef, type Component } from 'vue';
+import { shallowRef } from 'vue';
 import type { RenderView } from '../components/types.ts';
 import { runError, runResult, shownStatus, type RunView } from '../logic/runs.ts';
 import type { ThreadStore } from './thread.ts';
@@ -22,16 +21,6 @@ import type { ThreadStore } from './thread.ts';
 type AttachmentPart = Extract<MessagePart, { type: 'attachment' }>;
 /** A mention part of a message. */
 type MentionPart = Extract<MessagePart, { type: 'mention' }>;
-
-/** A visual a system's client contributes to a registry, with how it fits a table. */
-export interface ContributedVisual {
-  readonly system: string;
-  readonly name: string;
-  readonly fit: VisualFit;
-  readonly component: Component;
-  /** What the system's component is drawn with besides the shared visual props (its system client). */
-  readonly props: VisualOption['props'];
-}
 
 /** Where a system's client build is. */
 export type ClientStatus = 'loading' | 'ready' | 'failed';
@@ -135,10 +124,13 @@ export class RendererHub {
     return this.runtime.mentionView({ provider: part.provider, label: part.label, target: part.target, hover });
   }
 
-  /** The visuals loaded builds contribute to a registry that fit a table, best fit first (`ClientRuntime.visuals`). */
-  contributedVisuals(registry: QualifiedName, table: ResultTable): readonly ContributedVisual[] {
+  /**
+   * The visuals loaded builds contribute to a registry that fit a table, best fit first, each with the label and icon
+   * its contract gives it (`ClientRuntime.visuals`).
+   */
+  contributedVisuals(registry: QualifiedName, table: ResultTable): readonly VisualOption[] {
     this.#track();
-    return this.runtime.visuals(registry, table).map((option) => ({ system: option.system, name: option.name, fit: option.fit, component: option.component, props: option.props }));
+    return this.runtime.visuals(registry, table);
   }
 
   /** Read the version, so a lookup inside a computed or render runs again when a build loads. */

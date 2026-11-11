@@ -17,6 +17,11 @@ import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 /** The tags the hub's own extras carry for the LLM. */
 export const EXTRA_TAGS = { 'local-time': 'local_time', 'suggested-context': 'suggested_context', 'suggested-fns': 'suggested_fns' } as const;
 
+/** The instruction line at the top of `<suggested_context>`. */
+export const SUGGESTED_CONTEXT_LINE = 'Context that may help: load what fits with hub/load_context (the fns it brings come with it).';
+/** The instruction line at the top of `<suggested_fns>`. */
+export const SUGGESTED_FNS_LINE = 'Fns that may help: load the ones you will call with hub/load_fns, or call one by name.';
+
 /** A message with nothing suggested. */
 const NO_SUGGESTIONS: { parts: MessagePart[]; record?: SuggestionRecord } = { parts: [] };
 
@@ -92,8 +97,8 @@ export class HubMessageEnricher implements MessageEnricher {
     const lines = blocks.map((block) => {
       switch (block.type) {
         case 'text': return `<${hookTag(block.tag)}>${escapeBody(block.text)}</${hookTag(block.tag)}>`;
-        case 'suggest-context': return block.items.map((i) => `- context ${i.context}${i.why === undefined ? '' : `: ${escapeBody(i.why)}`}`).join('\n');
-        case 'suggest-fns': return block.items.map((i) => `- fn ${i.fn}${i.why === undefined ? '' : `: ${escapeBody(i.why)}`}`).join('\n');
+        case 'suggest-context': return [SUGGESTED_CONTEXT_LINE, ...block.items.map((i) => `- context ${i.context}${i.why === undefined ? '' : `: ${escapeBody(i.why)}`}`)].join('\n');
+        case 'suggest-fns': return [SUGGESTED_FNS_LINE, ...block.items.map((i) => `- fn ${i.fn}${i.why === undefined ? '' : `: ${escapeBody(i.why)}`}`)].join('\n');
         case 'load': return `Loaded: ${[...(block.context ?? []), ...(block.fns ?? [])].join(', ')}`;
       }
     });

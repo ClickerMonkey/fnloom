@@ -10,7 +10,6 @@ import type { ResourceRouter } from '../link/index.ts';
 import { FakeSystem, linkRig, pairDirectly } from '../link/rig.ts';
 import { HybridSearch } from '../store/hybrid.ts';
 import { EmbedBatcher } from './batch.ts';
-import { IndexEmbedding } from './embedding.ts';
 import { StoreModelCallLog } from '../metrics/calls.ts';
 import { SystemEmbedders } from './embedders.ts';
 import type { Embedder, Embedders } from './index.ts';
@@ -476,10 +475,6 @@ describe('embedders from systems', () => {
       { modality: 'embed', provider: 'vectors', model: DOCUMENT.split('/')[1], purpose: 'index', status: 'done', units: { modality: 'embed', texts: 3, characters: 6, dimensions: 3 } },
     ]);
 
-    const batcher = new EmbedBatcher({ embedders, log: rig.log, size: 4, wait: 1, poll: 2, concurrency: { interactive: 1, background: 1 } });
-    const answer = new IndexEmbedding({ embedders, batcher, catalog: rig.catalog });
-    expect(await answer.embed(['abcd'])).toEqual({ vectors: [[4, 0, 0]], cost: 0 });
-
     system.behaviour.embed = (texts) => texts.map(() => [1]);
     await expect(embedders.get(DOCUMENT)?.embed(['x'])).rejects.toThrow('returned a vector of 1 numbers, not 3');
     expect((await calls.list({})).items.filter((c) => c.modality === 'embed' && c.status === 'failed')).toHaveLength(1);
@@ -488,8 +483,6 @@ describe('embedders from systems', () => {
     await settle(5);
     await embedders.refresh();
     expect(embedders.active()).toBeUndefined();
-    await expect(answer.embed(['x'])).rejects.toThrow('no embedder is connected');
-    await batcher.stop();
     await rig.stop();
   });
 });

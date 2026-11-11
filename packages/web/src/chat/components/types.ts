@@ -6,6 +6,7 @@ import type { ApprovalId, ApprovalPreview, Json, QualifiedName } from '@harness/
 import type { AnyViews } from '@harness/sdk';
 import type { Component } from 'vue';
 import type { IconName } from '../../ui/index.ts';
+import type { RunView } from '../logic/runs.ts';
 
 /** Which kind of renderer a view mounts: a fn's, an attachment's, a custom input, a mention card or a resource viewer. */
 export type RenderKind = keyof AnyViews;
@@ -64,3 +65,8 @@ export interface SessionListHandle {
 export interface TitleHandle {
   start(): Promise<void>;
 }
+
+/** One step of a group of fn calls, as `RunGroup` draws it: the reasoning between calls, or the calls made together. */
+export type GroupStep =
+  | { readonly kind: 'reasoning'; readonly key: string; readonly text: string }
+  | { readonly kind: 'runs'; readonly key: string; readonly runs: readonly RunView[] };

@@ -49,6 +49,29 @@ export const TableEnrichment = z.object({
 });
 export type TableEnrichment = z.infer<typeof TableEnrichment>;
 
+/**
+ * What the system keeps with each table type in the hub (`TypeDecl.meta`, read back through `ctx.types`): the schema
+ * hash of the table the type was made from, and its enrichment when a model made one. So a model refines a table once
+ * per schema, and the system keeps no store of its own.
+ */
+export const TableMeta = z.object({
+  schemaHash: z.string().min(1),
+  enrichment: TableEnrichment.optional(),
+});
+export type TableMeta = z.infer<typeof TableMeta>;
+
+/** A table type as the hub keeps it: its definition and the meta it was sent with (absent on a type sent before meta). */
+export interface KeptType {
+  readonly def: GinTypeDef;
+  readonly meta: TableMeta | undefined;
+}
+
+/** The meta the hub returned with a type, when it is a table type's meta. */
+export function tableMetaOf(meta: unknown): TableMeta | undefined {
+  const parsed = TableMeta.safeParse(meta);
+  return parsed.success ? parsed.data : undefined;
+}
+
 // ─── Names ───────────────────────────────────────────────────────────────────
 
 /** A table or column name as an identifier the type systems accept (`order items` becomes `order_items`). */

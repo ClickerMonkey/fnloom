@@ -283,6 +283,10 @@ export const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>> = Symbol.for('harne
 export interface VisualOption {
   readonly system: string;
   readonly name: string;
+  /** What the switcher shows ("Bar chart"): the contribution's `label` in the contract. */
+  readonly label: string;
+  /** An icon name from the web app's icon set, when the contribution names one. */
+  readonly icon?: string;
   readonly fit: VisualFit;
   readonly component: Component;
   readonly props: VisualView & WithSystem<ContractShape>;

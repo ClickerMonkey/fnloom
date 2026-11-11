@@ -89,7 +89,7 @@ export function settledReply(settled: RunSettled): string {
   switch (settled.status) {
     case 'done': return replyText(settled.result);
     case 'failed': return `Error: ${settled.error.message}`;
-    case 'cancelled': return 'The run was cancelled before it finished.';
+    case 'cancelled': return settled.error === undefined ? 'The run was cancelled before it finished.' : settled.error.message;
     case 'background': return backgroundReply(settled.run);
   }
 }
@@ -726,7 +726,7 @@ export function backgroundResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettl
  * and asked to tell the person what came of it.
  */
 export function proposedResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>): string {
-  const declined = settled.status === 'failed' && settled.error.code === DECLINED_CODE;
+  const declined = settled.status === 'cancelled' && settled.error?.code === DECLINED_CODE;
   const outcome = declined ? 'declined' : settled.status === 'done' ? 'approved' : settled.status;
   const ask = declined
     ? 'The person declined a change you proposed earlier. Acknowledge it briefly and, if the reason suggests another way, offer it.'

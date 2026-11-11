@@ -114,3 +114,23 @@ export function limitsOf(draft: Readonly<Record<keyof ModelLimits, string>>): Ou
   const field = LIMIT_FIELDS.find((f) => f === issue?.path[0]);
   return { ok: false, problem: `${field === undefined ? 'A limit' : LIMIT_WORDS[field].label}: ${issue?.message ?? 'not valid'}.` };
 }
+
+/** A model's key among every provider's models: its provider and id. */
+export function modelKey(model: { readonly provider: string; readonly id: string }): string {
+  return `${model.provider}/${model.id}`;
+}
+
+/**
+ * The roles each model fills now, by `modelKey`: what systems' aeye (`ctx.ai()`, the hub link's `models`) is told
+ * beside each model, so a system picks the hub's chat or transcription model by role.
+ */
+export function rolesByModel(roles: readonly ModelRoleView[]): ReadonlyMap<string, readonly ModelRole[]> {
+  const filled = new Map<string, ModelRole[]>();
+  for (const view of roles) {
+    const resolved = view.resolved;
+    if (resolved === undefined || !('model' in resolved)) { continue; }
+    const key = modelKey({ provider: resolved.provider, id: resolved.model });
+    filled.set(key, [...(filled.get(key) ?? []), view.role]);
+  }
+  return filled;
+}

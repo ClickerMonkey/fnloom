@@ -74,7 +74,7 @@ describe('SignInForm', () => {
     await form.load();
     expect(form.needsAdmin).toBe(true);
     expect(await form.submit({ email: 'nope', password: 'short', name: '' })).toBe(false);
-    expect(form.fields.value).toEqual({ email: 'Enter an email address.', password: 'At least 10 characters.', name: 'Required.' });
+    expect(form.fields.value).toEqual({ email: 'Enter an email address.', password: 'At least 8 characters.', name: 'Required.' });
     expect(api.auth.createAdmin.calls).toHaveLength(0);
     expect(await form.submit({ email: 'ada@example.com', password: 'long enough pass', name: 'Ada' })).toBe(true);
     expect(form.fields.value).toEqual({});

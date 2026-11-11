@@ -125,6 +125,7 @@ export function createWebImpl(deps: WebDeps): WebServer {
             },
             agent: s.WEB_ROBOTS_AGENT,
             maxLinks: s.WEB_CRAWL_MAX_LINKS,
+            concurrency: s.WEB_CRAWL_CONCURRENCY,
             progress: (fraction, message) => { ctx.progress.set(Math.min(1, fraction), message); },
             signal: ctx.signal,
           });

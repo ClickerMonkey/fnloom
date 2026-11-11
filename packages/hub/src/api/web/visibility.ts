@@ -7,22 +7,25 @@ import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { accessSlice, connectionsSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
+import { personOperations } from '../person-ops.ts';
 import { CONNECT_CALLBACK_PATH } from '../../connections/service.ts';
 import type { FullHandlers } from './access.ts';
 import type { systemsPlugin } from './systems.ts';
 
 /** The visibility plugin. Requires the systems plugin, which binds `hubAuth`. */
-export function accessPlugin(hub: Pick<HubServices, 'access'>, systems: ReturnType<typeof systemsPlugin>) {
+export function accessPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>) {
+  const person = personOperations(hub);
   return plugin({ name: 'web.access', spec: accessSlice, requires: [systems] })
     .handlers((): FullHandlers<typeof accessSlice> => ({
       accessInfo: () => hub.access.info(),
       access: ({ data, user }) => hub.access.views(user.id, data.targets),
-      setAccess: ({ data, user }) => hub.access.set(user.id, data.target, data.sharing),
+      setAccess: ({ data, user }) => person.access_set(data, user),
     }));
 }
 
 /** The per-person connections plugin: every person, their own connections only, to the systems they may see. */
-export function connectionsPlugin(hub: Pick<HubServices, 'connections' | 'access'>, systems: ReturnType<typeof systemsPlugin>) {
+export function connectionsPlugin(hub: HubServices, systems: ReturnType<typeof systemsPlugin>) {
+  const person = personOperations(hub);
   return plugin({ name: 'web.connections', spec: connectionsSlice, requires: [systems] })
     .handlers((): FullHandlers<typeof connectionsSlice> => ({
       connectPages: async ({ user }) => {
@@ -38,7 +41,7 @@ export function connectionsPlugin(hub: Pick<HubServices, 'connections' | 'access
         cookie(binding.cookie, binding.value, { path: CONNECT_CALLBACK_PATH, maxAge: binding.maxAge, httpOnly: true, sameSite: 'Lax', secure: binding.secure });
         return { url: started.url };
       },
-      updateConnection: ({ data, user }) => hub.connections.update(user.id, data),
-      disconnect: async ({ data, user }) => ({ ok: await hub.connections.disconnect(user.id, data.connection) }),
+      updateConnection: ({ data, user }) => person.connection_update(data, user),
+      disconnect: ({ data, user }) => person.connection_disconnect(data, user),
     }));
 }

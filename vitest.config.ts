@@ -19,7 +19,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
-          include: ['packages/{core,sdk,hub,cli}/src/**/*.test.ts', 'systems/*/{shared,server}/**/*.test.ts', 'scripts/**/*.test.ts'],
+          include: ['packages/{core,sdk,hub,cli,build}/src/**/*.test.ts', 'systems/*/{shared,server}/**/*.test.ts', 'scripts/**/*.test.ts'],
           exclude: [live, '**/node_modules/**'],
         },
       },

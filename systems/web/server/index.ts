@@ -3,6 +3,7 @@
  * `fetch`, DNS, browser and search): `SearchProvider` (Tavily), `PageSource` (fetching a URL, with rendering) and
  * `ContentUploads` (handing fetched bytes to the hub). `createWebImpl` wires them to the contract.
  */
+import type { ResolveOptions, ResourceRegistry } from '@aeye/resources';
 import type { ContentRef } from '@harness/core';
 import type { ConfigOf, TypesOf } from '@harness/sdk';
 import type { RenderModeValue, SearchFoundValue, WebContract } from '../shared/index.ts';
@@ -51,6 +52,12 @@ export interface FetchedPage {
 export interface PageSource {
   /** Throws `WebProblem` for a bad URL, a refused address, a failed status, a timeout or a body over the limit. */
   fetch(url: string, settings: FetchSettings, signal?: AbortSignal): Promise<FetchedPage>;
+  /**
+   * What `@aeye/resources`' graph walks a site with: the registry, and the options every page is fetched with under
+   * these settings (the guarded fetch, the renderer, the limits), calling `before` ahead of each request (a crawl
+   * checks robots.txt there; throwing refuses the request).
+   */
+  crawling(settings: FetchSettings, signal: AbortSignal, before: (url: URL) => Promise<void>): { registry: ResourceRegistry; options: ResolveOptions };
 }
 
 /** Hands fetched bytes to the hub for the run that fetched them. */

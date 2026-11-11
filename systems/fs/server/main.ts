@@ -2,20 +2,27 @@
  * The fs system's process: builds the implementation with the real shell, git, file manager, snapshots and watcher,
  * builds its renderers into its cache folder, then serves both to the hub. Its undo snapshots are its data (kept
  * across upgrades and exported with it); its data and cache folders come from the SDK's `placeFolders`, the same
- * ones `ctx.dataDir` and `ctx.cacheDir` give. `npm run dev` starts it; `restart` restarts it through the running
+ * ones `ctx.dataDir` and `ctx.cacheDir` give. The systems it hosts (`install_system`) are built with `@harness/build` and
+ * run as its children under the SDK's shared supervision, each found in the hub through fs's own search. `npm run dev` starts it; `restart` restarts it through the running
  * system, which builds the renderers again so changes to them go live too.
  */
 import { existsSync, watch } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { NodeFiles, ViteBuilder } from '@harness/build';
+import { InstanceName, SystemName } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { loggedHost, placeFolders, rendererFolder, serve, type RunningSystem } from '@harness/sdk/server';
+import { CrashPolicy, NodeStarter, RESTART_CODE, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
 import { fs } from '../shared/index.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
 import { CliGit } from './git.ts';
+import { HarnessBuilds } from './builds.ts';
+import { Hosting } from './hosting.ts';
 import { createFsImpl } from './impl.ts';
 import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
+import { SupervisedRunner, type ConnectProbe } from './runner.ts';
 import { NodeExec, NodeShell, chooseShell } from './shell.ts';
 import { DiskSnapshots } from './snapshots.ts';
 
@@ -41,6 +48,37 @@ const watchFolder: WatchFolder = (folder, listener) => {
   return () => { watcher.close(); };
 };
 
+// a hosted system is there once the hub lists its fns: usable (connected), or held back waiting for its config
+const probe: ConnectProbe = async (key) => {
+  const [system, instance] = key.split('/');
+  const name = SystemName.safeParse(system);
+  const at = InstanceName.safeParse(instance);
+  if (!name.success || !at.success) { return undefined; }
+  const page = await running.searchFns({ systems: [name.data], instance: at.data, available: false, limit: 20 });
+  if (page.items.some((hit) => hit.available)) { return 'connected'; }
+  return page.items.some((hit) => /config/i.test(hit.unavailable ?? '')) ? 'needs-config' : undefined;
+};
+// the hosted systems run under the loader fs runs under (tsx), which they may read
+const loader = dirname(dirname(fileURLToPath(import.meta.resolve('tsx'))));
+const hosting = new Hosting({
+  builds: new HarnessBuilds({ builder: new ViteBuilder(), files: new NodeFiles(), probeTimeout: settings.FS_HOSTED_PROBE_TIMEOUT, probeEnv: scrubbedEnv(process.env) }),
+  runner: new SupervisedRunner({
+    starter: new NodeStarter({ baseEnv: process.env, nodeArgs: ['--import', 'tsx'], outputTail: settings.FS_HOSTED_OUTPUT_TAIL }),
+    policy: new CrashPolicy({ maxWait: settings.FS_HOSTED_BACKOFF_MAX, restartCode: RESTART_CODE }),
+    restart: { policy: 'on-failure', backoff: settings.FS_HOSTED_BACKOFF, maxPerHour: settings.FS_HOSTED_CRASHES_PER_HOUR },
+    reads: [loader],
+    probe,
+    every: settings.FS_HOSTED_CHECK_EVERY,
+    wait: (ms) => new Promise((done) => { setTimeout(done, ms); }),
+    now: () => Date.now(),
+    log: (key, fields) => { log.info(key, fields); },
+  }),
+  hubUrl: settings.HARNESS_HUB,
+  host: { system: SystemName.parse(fs.name), instance: settings.HARNESS_INSTANCE },
+  dataDir,
+  limits: { connectTimeout: settings.FS_HOSTED_CONNECT_TIMEOUT, problems: settings.FS_HOSTED_PROBLEMS, outputTail: settings.FS_HOSTED_OUTPUT_TAIL },
+});
+
 const server = createFsImpl({
   settings,
   shell: new NodeShell(shell, processLimits),
@@ -50,6 +88,8 @@ const server = createFsImpl({
   documents: new AeyeDocuments(createDefaultResourceRegistry()),
   restarter,
   watch: watchFolder,
+  hosting,
+  grantPairing: (request) => running.grantPairing(request),
   now: () => Date.now(),
 });
 

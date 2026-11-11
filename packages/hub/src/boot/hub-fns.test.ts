@@ -1,5 +1,5 @@
 import { agent, fn, g, hub, type FnRef } from '@harness/sdk';
-import { ActorId, LinkSession, QualifiedName, SystemName, type Json, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
+import { ActorId, LinkSession, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
@@ -22,13 +22,20 @@ function addHubFn<A, R>(r: ExecutionRig, ref: FnRef<QualifiedName, A, R>): void 
 async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, access: (actor: ActorId) => AccessScope = openScope) {
   const r = await executionRig();
   rig = r;
-  const { search_fns, load_fns, drop_fns, search_context, load_context, search_resources, ask_user } = hub.fns;
-  addHubFn(r, search_fns); addHubFn(r, load_fns); addHubFn(r, drop_fns); addHubFn(r, search_context); addHubFn(r, load_context);
+  const { fns_search, load_fns, drop_fns, load_context, search_resources, ask_user } = hub.fns;
+  addHubFn(r, fns_search); addHubFn(r, load_fns); addHubFn(r, drop_fns); addHubFn(r, load_context);
   addHubFn(r, search_resources); addHubFn(r, ask_user);
   r.catalog.add('fs', 'read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
   r.catalog.add('shop', 'buy', fn({ description: 'Buy.', args: g.obj({}), returns: g.text() }), { available: { unavailable: 'system-disconnected', detail: 'shop is offline' } });
   const searched: Array<{ text: string; kinds: readonly string[] }> = [];
   const loads: Array<{ session: SessionId; tools?: readonly string[]; context?: readonly string[] }> = [];
+  const fnSearches: FnSearchQuery[] = [];
+  // the hub's one search, over a fixed set: what the asker's rule keeps
+  const known: FnSearchHit[] = [
+    { item: 'fn', name: QualifiedName.parse('fs/read'), system: SystemName.parse('fs'), description: 'Read a file.', available: true },
+    { item: 'fn', name: QualifiedName.parse('shop/buy'), system: SystemName.parse('shop'), description: 'Buy.', available: false },
+    { item: 'context', name: QualifiedName.parse('fs/guide'), system: SystemName.parse('fs'), description: 'guide', available: true },
+  ];
   registerHubFns(r.module.hubFns, {
     store: () => r.store,
     catalog: () => r.catalog,
@@ -49,11 +56,15 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, a
     handlers: () => r.module.handlers,
     access: (actor) => Promise.resolve(access(actor)),
     sharing: () => ({ sharing: () => Promise.reject(new Error('no sharing here')), own: () => Promise.reject(new Error('no sharing here')) }),
-    fns: () => ({ search: { search: () => Promise.reject(new Error('no fns search here')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples here')), forPrompt: () => Promise.resolve([]) } }),
+    fns: () => ({ search: { search: (query, asker) => {
+      fnSearches.push(query);
+      const items = known.filter((hit) => (query.items ?? ['fn']).includes(hit.item) && (asker.keep === undefined || asker.keep(hit.item, hit.name)));
+      return Promise.resolve({ items });
+    } }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples here')), patch: () => Promise.reject(new Error('no examples here')), forPrompt: () => Promise.resolve([]) } }),
   });
   await r.session({ systems: [SystemName.parse('fs'), SystemName.parse('shop')], ...session });
   await r.module.start();
-  return { r, searched, loads, turn: await r.turn({ session: SESSION, text: 'hello' }) };
+  return { r, searched, loads, fnSearches, turn: await r.turn({ session: SESSION, text: 'hello' }) };
 }
 
 /** Run a hub fn in the session's turn and return how it settled. */
@@ -63,15 +74,11 @@ async function call(r: ExecutionRig, turn: Turn, name: string, args: Json) {
 }
 
 describe('finding and loading fns', () => {
-  it('finds fns by meaning and says which can be used now', async () => {
-    const { r, turn, searched } = await started([
-      { kind: 'fn', key: 'fs/read', score: 0.9, text: 'read' }, { kind: 'fn', key: 'shop/buy', score: 0.5, text: 'buy' }, { kind: 'context', key: 'fs/guide', score: 1, text: 'g' },
-    ]);
-    const settled = await call(r, turn, 'search_fns', { query: 'open a file' });
-    expect(settled).toEqual({ status: 'done', result: [
-      { fn: 'fs/read', description: 'Read a file.', available: true }, { fn: 'shop/buy', description: 'Buy.', available: false },
-    ] });
-    expect(searched[0]).toMatchObject({ text: 'open a file', kinds: ['fn'], limit: 10 });
+  it('searches with fns_search, keeping to the session\'s systems', async () => {
+    const { r, turn, fnSearches } = await started([], { systems: [SystemName.parse('fs')] });
+    const settled = await call(r, turn, 'fns_search', { text: 'open a file' });
+    expect(settled).toEqual({ status: 'done', result: { items: [{ item: 'fn', name: 'fs/read', system: 'fs', description: 'Read a file.', available: true }] } });
+    expect(fnSearches[0]).toMatchObject({ text: 'open a file' });
   });
 
   it('loads usable fns into the session and says why the rest were refused', async () => {
@@ -90,21 +97,31 @@ describe('finding and loading fns', () => {
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
   });
 
+  it('refuses a fn not meant for the model, as hub/load does', async () => {
+    const { r, turn } = await started();
+    r.catalog.add('fs', 'raw', fn({ description: 'Raw.', args: g.obj({}), returns: g.text(), visibility: 'user' }));
+    expect(await call(r, turn, 'load_fns', { fns: ['fs/raw'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/raw', reason: 'not for the model' }] } });
+  });
+
   it('refuses outside a chat session', async () => {
     const { r } = await started();
     const loose = await r.turn();
-    const input: RunInput = { fn: QualifiedName.parse('hub/search_fns'), args: { query: 'x' }, turn: loose.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] };
+    const input: RunInput = { fn: QualifiedName.parse('hub/load_fns'), args: { fns: ['fs/read'] }, turn: loose.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] };
     expect(await (await r.module.runs.start(input)).settled).toMatchObject({ status: 'failed', error: { message: 'this fn only works inside a chat session' } });
   });
 });
 
 describe('context and resources', () => {
-  it('finds and loads context the session can use', async () => {
-    const { r, turn } = await started([{ kind: 'context', key: 'fs/guide', score: 1, text: 'guide' }]);
+  it('loads context with what it imports and the fns it brings, and refuses a wrong name with the closest', async () => {
+    const { r, turn } = await started();
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
-    expect(await call(r, turn, 'search_context', { query: 'files' })).toEqual({ status: 'done', result: [{ context: 'fs/guide', description: 'guide' }] });
-    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/missing'] })).toEqual({ status: 'done', result: { loaded: ['fs/guide'] } });
-    expect((await r.store.table('sessions').get(SESSION))?.context).toEqual(['fs/guide']);
+    r.catalog.contexts.set(QualifiedName.parse('fs/guide.paths'), 'Paths are relative to the root.');
+    r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/guide.paths')], fns: [QualifiedName.parse('fs/read')] });
+    expect(await call(r, turn, 'load_context', { context: ['fs/guide: how to work with files', 'fs/missing'] })).toEqual({ status: 'done', result: {
+      loaded: ['fs/guide', 'fs/guide.paths'], fns: ['fs/read'],
+      refused: [{ context: 'fs/missing', reason: 'no context you can load has that name', closest: ['fs/guide'] }],
+    } });
+    expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide', 'fs/guide.paths'], tools: ['fs/read'] });
   });
 
   it('searches sections and gives each hit its resource, section, title and preview, narrowed to roots', async () => {
@@ -130,18 +147,16 @@ describe('keeping to what the person may see', () => {
 
   it('leaves hidden fns, context and sections out of searches, and refuses to load them', async () => {
     const { r, turn } = await started([
-      { kind: 'fn', key: 'fs/read', score: 0.9, text: 'read' }, { kind: 'fn', key: 'fs/secret', score: 1, text: 'secret' },
-      { kind: 'context', key: 'fs/guide', score: 0.9, text: 'guide' }, { kind: 'context', key: 'fs/secret', score: 1, text: 'secret' },
       { kind: 'section', key: 'file:///repo/README.md#Intro', score: 0.5, text: 'README.md\n\nOpen.' },
       { kind: 'section', key: 'file:///private/crawl.md#Top', score: 0.9, text: 'crawl.md\n\nPrivate.' },
     ], {}, member);
     r.catalog.add('fs', 'secret', fn({ description: 'Secret.', args: g.obj({}), returns: g.text() }));
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
     r.catalog.contexts.set(QualifiedName.parse('fs/secret'), 'Private notes.');
-    expect(await call(r, turn, 'search_fns', { query: 'x' })).toEqual({ status: 'done', result: [{ fn: 'fs/read', description: 'Read a file.', available: true }] });
+    r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/secret')], fns: [QualifiedName.parse('fs/secret')] });
     expect(await call(r, turn, 'load_fns', { fns: ['fs/secret'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', reason: 'no such fn' }] } });
-    expect(await call(r, turn, 'search_context', { query: 'x' })).toEqual({ status: 'done', result: [{ context: 'fs/guide', description: 'guide' }] });
-    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/secret'] })).toEqual({ status: 'done', result: { loaded: ['fs/guide'] } });
+    // what it imports and brings is still kept to what the person may see
+    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: ['fs/guide'], fns: [] } });
     expect(await call(r, turn, 'search_resources', { query: 'x' })).toMatchObject({ status: 'done', result: [{ uri: 'file:///repo/README.md' }] });
   });
 });
@@ -163,7 +178,7 @@ describe('asking a person', () => {
 function chatAgent(maxTools = 32) {
   return agent({
     description: 'Chats.', args: g.obj({}), returns: g.text(), instructions: 'Help with files.', maxTools,
-    tools: [hub.fns.search_fns, hub.fns.load_fns, hub.fns.load_context],
+    tools: [hub.fns.fns_search, hub.fns.load_fns, hub.fns.load_context],
   });
 }
 
@@ -192,16 +207,16 @@ describe('the chat agent reaching system fns', () => {
     files.behaviour.run = () => Promise.resolve({ status: 'done', result: 'hello from a.txt' });
     // the scripted model reuses its tool call ids each iteration (call_1, call_2), as some real models do
     r.provider.script(
-      calls([['hub__search_fns', { query: 'read a file' }]]),
+      calls([['hub__fns_search', { text: 'read a file' }]]),
       calls([['hub__load_fns', { fns: ['fs/read'] }], ['hub__load_context', { context: ['fs/guide'] }]]),
       calls([['fs__read', { path: 'a.txt' }]]),
       says('It says hello.'),
     );
     expect(await answer(r, turn)).toEqual({ status: 'done', result: 'It says hello.' });
 
-    expect(sent(r, 0).tools).toEqual(['hub__load_context', 'hub__load_fns', 'hub__search_fns']);
+    expect(sent(r, 0).tools).toEqual(['hub__fns_search', 'hub__load_context', 'hub__load_fns']);
     expect(sent(r, 0).system).not.toContain('<context');
-    expect(sent(r, 2).tools).toEqual(['fs__read', 'hub__load_context', 'hub__load_fns', 'hub__search_fns']);
+    expect(sent(r, 2).tools).toEqual(['fs__read', 'hub__fns_search', 'hub__load_context', 'hub__load_fns']);
     expect(sent(r, 2).system).toContain('<context name="fs/guide">\nHow to work with files.\n</context>');
     expect(files.requests.map((q) => [q.fn, q.args])).toEqual([['read', { path: 'a.txt' }]]);
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ tools: ['fs/read'], context: ['fs/guide'] });
@@ -216,7 +231,7 @@ describe('the chat agent reaching system fns', () => {
     r.provider.script(says('ok'));
     expect(await answer(r, turn)).toEqual({ status: 'done', result: 'ok' });
     // shop/buy is unavailable, fs/off switched off, other/peek of a system the session doesn't use; the cap of 4 drops fs/read
-    expect(sent(r, 0).tools).toEqual(['fs__write', 'hub__load_context', 'hub__load_fns', 'hub__search_fns']);
+    expect(sent(r, 0).tools).toEqual(['fs__write', 'hub__fns_search', 'hub__load_context', 'hub__load_fns']);
   });
 });
 
@@ -232,7 +247,7 @@ describe('saved fns (build 5)', () => {
     registerHubFns(r.module.hubFns, {
       store: () => r.store,
       catalog: () => ({
-        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(),
+        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(), kind: () => r.catalog.kind(),
         declare: (system, decl, by) => {
           const name = QualifiedName.parse(`${system}/${decl.name}`);
           const existing = r.catalog.records.get(name);
@@ -249,7 +264,7 @@ describe('saved fns (build 5)', () => {
         sharing: () => Promise.resolve({ owner: ALICE, visibility: 'private', with: [] }),
         own: (target, owner, rule) => { if (target.kind === 'fn') owned.push({ fn: target.fn, owner, visibility: rule.visibility }); return Promise.resolve({ target, sharing: { owner, ...rule }, editable: true }); },
       }),
-      fns: () => ({ search: { search: () => Promise.reject(new Error('no search')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples')), forPrompt: () => Promise.resolve([]) } }),
+      fns: () => ({ search: { search: () => Promise.reject(new Error('no search')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples')), patch: () => Promise.reject(new Error('no examples')), forPrompt: () => Promise.resolve([]) } }),
     });
     await r.module.start();
     const input = r.connect('input');

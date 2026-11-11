@@ -10,16 +10,16 @@
  */
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  mcpsSlice, metricsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
-  FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, ShareRule,
+  FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule,
 } from '@harness/core';
 import { z } from 'zod';
-import { fn } from './fn.ts';
+import { fn, type FnExampleOf } from './fn.ts';
 import { kind, mention, sectioner, type } from './declare.ts';
 import { g, json, type GinType } from './gin.ts';
 import { system } from './system.ts';
-import { ginAs, ginOf, toolArgsOf } from './zod-gin.ts';
+import { ginAs, ginOf, toolArgsOf, type ToolArgs } from './zod-gin.ts';
 
 /** A web endpoint a hub fn stands for: its body is the fn's args and its response the fn's result. */
 interface EndpointLike {
@@ -74,6 +74,62 @@ export const HUB_WRITE_ENDPOINTS = {
 export type HubWriteFnName = keyof typeof HUB_WRITE_ENDPOINTS;
 
 /**
+ * Build 6: the rest of what a person does in the browser, as fns (fn name → endpoint), so the chat agent can do it
+ * too, as the run's person: sessions, visibility, memory and context links, undoing a turn, background runs and
+ * per-person connections. None is tagged `read`, so each asks unless a policy allows it. Answering an approval or a
+ * question is left out on purpose: an agent must never answer what it asked.
+ */
+export const HUB_PERSON_ENDPOINTS = {
+  session_create: chatSlice.endpoints.createSession,
+  session_update: chatSlice.endpoints.updateSession,
+  session_delete: chatSlice.endpoints.deleteSession,
+  run_background: runsSlice.endpoints.background,
+  turn_undo: runsSlice.endpoints.undoTurn,
+  memory_update: contextSlice.endpoints.updateMemory,
+  context_link: contextSlice.endpoints.linkContext,
+  context_unlink: contextSlice.endpoints.unlinkContext,
+  access_set: accessSlice.endpoints.setAccess,
+  connection_update: connectionsSlice.endpoints.updateConnection,
+  connection_disconnect: connectionsSlice.endpoints.disconnect,
+} as const satisfies Record<string, EndpointLike>;
+
+/** A person's write fn's name (build 6). */
+export type HubPersonFnName = keyof typeof HUB_PERSON_ENDPOINTS;
+
+/** Build 6: the file explorer's reads as fns (tagged `read`): a system's files live, as the run's person may see them. */
+export const HUB_EXPLORE_ENDPOINTS = {
+  explore_roots: explorerSlice.endpoints.exploreRoots,
+  explore_list: explorerSlice.endpoints.exploreList,
+  explore_read: explorerSlice.endpoints.exploreRead,
+} as const satisfies Record<string, EndpointLike>;
+
+/** An explorer read fn's name (build 6). */
+export type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
+
+/**
+ * Build 6: the admin pages' reads as fns (tagged `admin` and `read`): budgets, policies, priorities, providers,
+ * people, settings, hub MCPs, pairings, auto-pair secrets, instances and the suggestion decision model. They run only
+ * for an admin and never through a hub MCP; reading asks nobody.
+ */
+export const ADMIN_READ_ENDPOINTS = {
+  budgets_list: adminSlice.endpoints.budgets,
+  policies_list: adminSlice.endpoints.policies,
+  priority_rules_list: adminSlice.endpoints.priorityRules,
+  providers_list: settingsSlice.endpoints.providers,
+  actors_list: adminSlice.endpoints.actors,
+  actor_settings_list: adminSlice.endpoints.actorSettings,
+  mcps_list: mcpsSlice.endpoints.mcps,
+  mcp_sessions_list: mcpsSlice.endpoints.mcpSessions,
+  pairings_list: systemsSlice.endpoints.pairings,
+  auto_pairs_list: autoPairSlice.endpoints.autoPairs,
+  instances_list: packagingSlice.endpoints.instances,
+  suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
+} as const satisfies Record<string, EndpointLike>;
+
+/** An admin read fn's name (build 6). */
+export type AdminReadFnName = keyof typeof ADMIN_READ_ENDPOINTS;
+
+/**
  * The web admin endpoints the hub also offers as fns, so whatever an admin configures can be done by asking in chat:
  * fn name → endpoint. The endpoint's body and response are the fn's args and result, and the hub's admin fn and the
  * web handler run the same operation. Each is tagged `admin`: never exposed through a hub MCP, run only for an admin,
@@ -97,6 +153,7 @@ export const ADMIN_ENDPOINTS = {
   install_system: systemsSlice.endpoints.installSystem,
   start_system: systemsSlice.endpoints.startSystem,
   stop_system: systemsSlice.endpoints.stopSystem,
+  restart_system: systemsSlice.endpoints.restartSystem,
   upgrade_system: systemsSlice.endpoints.upgradeSystem,
   set_model_role: modelsSlice.endpoints.setModelRole,
   clear_model_role: modelsSlice.endpoints.clearModelRole,
@@ -109,6 +166,10 @@ export const ADMIN_ENDPOINTS = {
   install_package: packagingSlice.endpoints.installPackage,
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
+  // build 6
+  suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
+  auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
+  system_reimport: systemsSlice.endpoints.reimport,
 } as const satisfies Record<string, EndpointLike>;
 
 /** An admin fn's name. */
@@ -126,101 +187,152 @@ function resultTypeOf<E extends EndpointLike>(endpoint: E): GinType<EndpointResu
   return ginOf(endpoint.cfg.response ?? NoResponse) as GinType<EndpointResult<E>>;
 }
 
+/** An example call of an endpoint fn: its args as the fn takes them (the endpoint's body), checked when the contract is built. */
+type EndpointExample<E extends EndpointLike> = FnExampleOf<ToolArgs<E['cfg']['body']>, EndpointResult<E>>;
+
 /**
  * A fn for one web endpoint, its args and result read off the endpoint's body and response, so a system calling it
  * gets the endpoint's types and a change to the endpoint's schema reaches every caller.
  */
-function endpointFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, tags: readonly string[], display?: Display) {
+function endpointFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[], tags: readonly string[], display?: Display) {
   return fn({
     description,
     instructions,
     args: toolArgsOf<E['cfg']['body']>(endpoint.cfg.body).args,
     returns: resultTypeOf(endpoint),
+    examples,
     tags: [...tags],
     ...(display === undefined ? {} : { display }),
   });
 }
 
 /** A fn for a web read, tagged `read`. Reads are bookkeeping the person needn't see as a card once done. */
-function readFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E) {
-  return endpointFn(description, instructions, endpoint, [READ_TAG], 'message');
+function readFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[]) {
+  return endpointFn(description, instructions, endpoint, examples, [READ_TAG], 'message');
 }
 
 /** A fn for a write on resources, context or memory: it asks unless a policy allows it. */
-function writeFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, tags: readonly string[] = []) {
-  return endpointFn(description, instructions, endpoint, tags);
+function writeFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[], tags: readonly string[] = []) {
+  return endpointFn(description, instructions, endpoint, examples, tags);
+}
+
+/** A fn for an admin page's read (build 6), tagged `admin` and `read`: only for an admin, and reading asks nobody. */
+function adminReadFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[]) {
+  return endpointFn(description, instructions, endpoint, examples, [ADMIN_TAG, READ_TAG], 'message');
 }
 
 /** A fn for an admin operation, tagged `admin`. */
-function adminFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E) {
-  return endpointFn(description, instructions, endpoint, [ADMIN_TAG]);
+function adminFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[]) {
+  return endpointFn(description, instructions, endpoint, examples, [ADMIN_TAG]);
 }
 
 /** The hub's read fns (`HUB_READ_ENDPOINTS`), each described for the agent that offers them. */
 const readFns = {
-  resource_list: readFn('List resources (files, pages, uploads) from every system and the hub, filtered, grouped and paged.', 'Use it to browse what exists (the files of a root, the pages a crawl kept, the uploads of a session) when you know where to look; to find something by what it says use hub/search_resources. Filter by root, system or kind and page on rather than asking for everything.', HUB_READ_ENDPOINTS.resource_list),
-  resource_read: readFn('Read a resource as text: its primary form (markdown for pages, tables for spreadsheets) or a chosen form, whole or by sections.', 'Use it to read a resource you have the uri of. For a long one, read its outline first (hub/resource_outline) and then one section, or a window, so the answer fits; it says when the text was cut. Images and audio are read through their text forms (description, transcript); to look at the image itself use hub/resource_send.', HUB_READ_ENDPOINTS.resource_read),
-  context_get: readFn('One context item (a guide, skill, memory or piece of a resource) with its text and its links both ways.', 'Use it to read one context item in full, with what links to it and what it links to, after a search or a mention named it. To keep it in front of you for the rest of the session use hub/load instead.', HUB_READ_ENDPOINTS.context_get),
-  types_get: readFn('The definitions of named types and of every type they refer to, dependencies first.', 'Use it before writing args or a payload that use a named type (a table type, fs/Entry): it gives each type\'s fields and every type they refer to, so you need one call. Ask for several names at once.', HUB_READ_ENDPOINTS.types_get),
-  runs_list: readFn('Runs, newest first, filtered by fn, status, session or system. A member sees their own runs.', 'Use it to find earlier runs (what ran, when, how it ended), for example to see why something failed. Filter by fn, status or session, newest first, and page; then hub/run_get for one run.', HUB_READ_ENDPOINTS.runs_list),
-  run_get: readFn('One run: its fn, args, status, result or error, cost and timings.', 'Use it to see one run in full: its args, result or error, cost and how long it took. For a run still going use hub/run_status or hub/run_wait.', HUB_READ_ENDPOINTS.run_get),
-  run_tree: readFn('The tree of runs a turn made: each run with the runs it called.', 'Use it to see everything one turn did, as a tree: each run with the runs it called. Good for explaining what happened or where a chain failed.', HUB_READ_ENDPOINTS.run_tree),
-  llm_call: readFn('One LLM call: its whole request and response, tokens, cost and timings.', 'Use it to look at one model call exactly as sent and received (messages, tools, tokens, cost) when a run\'s behaviour needs explaining. It can be long: read it only when the summary in hub/run_get is not enough.', HUB_READ_ENDPOINTS.llm_call),
-  model_calls: readFn('Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings.', 'Use it for spending and timing questions across models (what cost the most today, which calls were slow). Filter and page; one call\'s detail is hub/llm_call.', HUB_READ_ENDPOINTS.model_calls),
-  fn_metrics: readFn('How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens.', 'Use it to say how a fn usually behaves: how often it fails, how long it usually takes (p50) and when it is slow (p95), and what it costs. Quote these numbers rather than guessing.', HUB_READ_ENDPOINTS.fn_metrics),
-  sessions_list: readFn('Chat sessions, most recent first.', 'Use it to find a person\'s earlier chats, most recent first; then hub/session_messages to read one.', HUB_READ_ENDPOINTS.sessions_list),
-  session_messages: readFn('A session\'s messages, newest first, paged backwards.', 'Use it to read what was said in a session, newest first; page backwards for older messages. Read only as far back as the question needs.', HUB_READ_ENDPOINTS.session_messages),
-  systems_list: readFn('Every system: whether it is connected, its version, instances and what it offers.', 'Use it to see which systems are installed, connected and configured before relying on one; a system that is not connected has no usable fns.', HUB_READ_ENDPOINTS.systems_list),
-  system_get: readFn('One system: its status, version, instances, config state and what it offers.', 'Use it for one system\'s state: whether it is connected, its instances and whether its config is set. When a fn of it is unavailable this usually says why.', HUB_READ_ENDPOINTS.system_get),
-  system_fns: readFn('A system\'s fns, with whether each can be used now and its running numbers.', 'Use it to list what one system offers and which of its fns can be used now, with how they have been doing.', HUB_READ_ENDPOINTS.system_fns),
-  system_logs: readFn('The end of a system\'s output, oldest first.', 'Use it to see why a system misbehaves: the end of its output. Admins only; read the end first and go further back only if needed.', HUB_READ_ENDPOINTS.system_logs),
-  model_roles: readFn('Which model (and provider) the hub uses for each job: chat, transcription, dictation, speech, describing images, reading text in them.', 'Use it to say which model does which job (chat, transcription, describing images, ...); to change one an admin uses hub/set_model_role.', HUB_READ_ENDPOINTS.model_roles),
-  model_limits: readFn('Each model\'s context window, output limit, reasoning reserve and characters per token, with where each came from.', 'Use it when a prompt does not fit or an answer is cut: each model\'s window and output limit, and where the numbers came from.', HUB_READ_ENDPOINTS.model_limits),
-  query: readFn(`Any list (${LIST_NAMES.join(', ')}) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging.`, 'Use it for any list question with conditions (runs that failed this week, the biggest resources, fns of one system): name the list, add filters on its fields, a sort and a small page size, and page on. Never ask for everything.', HUB_READ_ENDPOINTS.query),
+  resource_list: readFn('List resources (files, pages, uploads) from every system and the hub, filtered, grouped and paged.', 'Use it to browse what exists (the files of a root, the pages a crawl kept, the uploads of a session) when you know where to look; to find something by what it says use hub/search_resources. Filter by root, system or kind and page on rather than asking for everything.', HUB_READ_ENDPOINTS.resource_list, [{ args: { system: 'fs', under: 'file:///repo/docs', limit: 20 }, note: 'The first 20 files under one folder.' }, { args: { source: 'upload', group: 'date' }, note: 'Uploads, grouped by day.' }]),
+  resource_read: readFn('Read a resource as text: its primary form (markdown for pages, tables for spreadsheets) or a chosen form, whole or by sections.', 'Use it to read a resource you have the uri of. For a long one, read its outline first (hub/resource_outline) and then one section, or a window, so the answer fits; it says when the text was cut. Images and audio are read through their text forms (description, transcript); to look at the image itself use hub/resource_send.', HUB_READ_ENDPOINTS.resource_read, [{ args: { uri: 'file:///repo/docs/guide.md', section: 'Install' }, note: 'One section of a long file.' }, { args: { uri: 'upload://s1/report.pdf', maxChars: 4000 }, note: 'The start of a long upload.' }]),
+  context_get: readFn('One context item (a guide, skill, memory or piece of a resource) with its text and its links both ways.', 'Use it to read one context item in full, with what links to it and what it links to, after a search or a mention named it. To keep it in front of you for the rest of the session use hub/load instead.', HUB_READ_ENDPOINTS.context_get, [{ args: { name: 'fs/authoring' }, note: 'A guide and what it brings.' }]),
+  types_get: readFn('The definitions of named types and of every type they refer to, dependencies first.', 'Use it before writing args or a payload that use a named type (a table type, fs/Entry): it gives each type\'s fields and every type they refer to, so you need one call. Ask for several names at once.', HUB_READ_ENDPOINTS.types_get, [{ args: { names: ['fs/Entry'] }, note: 'A type and the types it uses.' }]),
+  runs_list: readFn('Runs, newest first, filtered by fn, status, session or system. A member sees their own runs.', 'Use it to find earlier runs (what ran, when, how it ended), for example to see why something failed. Filter by fn, status or session, newest first, and page; then hub/run_get for one run.', HUB_READ_ENDPOINTS.runs_list, [{ args: { limit: 10 }, note: 'The ten newest runs.' }]),
+  run_get: readFn('One run: its fn, args, status, result or error, cost and timings.', 'Use it to see one run in full: its args, result or error, cost and how long it took. For a run still going use hub/run_status or hub/run_wait.', HUB_READ_ENDPOINTS.run_get, [{ args: { run: 'run_01HZX3' } }]),
+  run_tree: readFn('The tree of runs a turn made: each run with the runs it called.', 'Use it to see everything one turn did, as a tree: each run with the runs it called. Good for explaining what happened or where a chain failed.', HUB_READ_ENDPOINTS.run_tree, [{ args: { turn: 'trn_01HZX3' }, note: 'Every run one message started.' }]),
+  llm_call: readFn('One LLM call: its whole request and response, tokens, cost and timings.', 'Use it to look at one model call exactly as sent and received (messages, tools, tokens, cost) when a run\'s behaviour needs explaining. It can be long: read it only when the summary in hub/run_get is not enough.', HUB_READ_ENDPOINTS.llm_call, [{ args: { id: 'llm_01HZX3' }, note: 'What the model was sent and answered.' }]),
+  model_calls: readFn('Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings.', 'Use it for spending and timing questions across models (what cost the most today, which calls were slow). Filter and page; one call\'s detail is hub/llm_call.', HUB_READ_ENDPOINTS.model_calls, [{ args: { run: 'run_01HZX3' }, note: 'What one run spent on models.' }]),
+  fn_metrics: readFn('How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens.', 'Use it to say how a fn usually behaves: how often it fails, how long it usually takes (p50) and when it is slow (p95), and what it costs. Quote these numbers rather than guessing.', HUB_READ_ENDPOINTS.fn_metrics, [{ args: { fn: 'fs/read', days: 7 }, note: 'A week of one fn.' }]),
+  sessions_list: readFn('Chat sessions, most recent first.', 'Use it to find a person\'s earlier chats, most recent first; then hub/session_messages to read one.', HUB_READ_ENDPOINTS.sessions_list, [{ args: { limit: 20 } }]),
+  session_messages: readFn('A session\'s messages, newest first, paged backwards.', 'Use it to read what was said in a session, newest first; page backwards for older messages. Read only as far back as the question needs.', HUB_READ_ENDPOINTS.session_messages, [{ args: { session: 'ses_01HZX3', limit: 30 }, note: 'The last 30 messages.' }]),
+  systems_list: readFn('Every system: whether it is connected, its version, instances and what it offers.', 'Use it to see which systems are installed, connected and configured before relying on one; a system that is not connected has no usable fns.', HUB_READ_ENDPOINTS.systems_list, [{ args: {}, note: 'Every system and its status.' }]),
+  system_get: readFn('One system: its status, version, instances, config state and what it offers.', 'Use it for one system\'s state: whether it is connected, its instances and whether its config is set. When a fn of it is unavailable this usually says why.', HUB_READ_ENDPOINTS.system_get, [{ args: { system: 'fs' } }]),
+  system_fns: readFn('A system\'s fns, with whether each can be used now and its running numbers.', 'Use it to list what one system offers and which of its fns can be used now, with how they have been doing.', HUB_READ_ENDPOINTS.system_fns, [{ args: { system: 'database' }, note: 'Everything one system offers.' }]),
+  system_logs: readFn('The end of a system\'s output, oldest first.', 'Use it to see why a system misbehaves: the end of its output. Admins only; read the end first and go further back only if needed.', HUB_READ_ENDPOINTS.system_logs, [{ args: { system: 'fs', limit: 50 }, note: 'The last 50 lines, to read a crash.' }]),
+  model_roles: readFn('Which model (and provider) the hub uses for each job: chat, transcription, dictation, speech, describing images, reading text in them.', 'Use it to say which model does which job (chat, transcription, describing images, ...); to change one an admin uses hub/set_model_role.', HUB_READ_ENDPOINTS.model_roles, [{ args: {}, note: 'Which model does what.' }]),
+  model_limits: readFn('Each model\'s context window, output limit, reasoning reserve and characters per token, with where each came from.', 'Use it when a prompt does not fit or an answer is cut: each model\'s window and output limit, and where the numbers came from.', HUB_READ_ENDPOINTS.model_limits, [{ args: { model: 'qwen2.5:3b' } }]),
+  query: readFn(`Any list (${LIST_NAMES.join(', ')}) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging.`, 'Use it for any list question with conditions (runs that failed this week, the biggest resources, fns of one system): name the list, add filters on its fields, a sort and a small page size, and page on. Never ask for everything.', HUB_READ_ENDPOINTS.query, [{ args: { list: 'runs', query: { text: 'install', limit: 10 } }, note: 'Runs whose words match.' }, { args: { list: 'contexts', query: { limit: 20 } }, note: 'A page of context items.' }]),
 } satisfies Record<HubReadFnName, unknown>;
 
 /** The hub's write fns on resources, context and memory (`HUB_WRITE_ENDPOINTS`). */
 const writeFns = {
-  resource_convert: writeFn('Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.', 'Use it when a resource\'s form you need is missing (an image never described, audio not transcribed): it makes that form now, which may cost a model call, so make only the form you will read.', HUB_WRITE_ENDPOINTS.resource_convert),
-  resource_import: writeFn('Import a URL or uploaded content as a hub resource, kept and converted by the hub.', 'Use it to keep a URL or an upload as a hub resource so it can be read, searched and linked later. It returns the uri; read it with hub/resource_read.', HUB_WRITE_ENDPOINTS.resource_import, [OWN_TAG]),
-  resource_rename: writeFn('Rename a hub resource.', 'Use it when the person asks to rename a hub resource. Only hub resources (imports, uploads) can be renamed; a system\'s files are renamed through that system (fs).', HUB_WRITE_ENDPOINTS.resource_rename),
-  resource_delete: writeFn('Delete a hub resource; says how many messages, context items and runs still point at it.', 'Use it only when the person asks to delete a hub resource. It reports how many messages, context items and runs still point at it: tell the person, since those links will show as gone.', HUB_WRITE_ENDPOINTS.resource_delete),
-  context_from_resource: writeFn('Make context items from a resource (one per section, under an outline parent), or update the ones made before.', 'Use it to turn a document the person wants kept as knowledge (a guide, a spec) into context items, one per section; run it again after the document changes to update them.', HUB_WRITE_ENDPOINTS.context_from_resource),
-  remember: writeFn('Remember something for later as a memory: for this session, the person, or everyone.', 'Use it when the person asks you to remember something, or states a lasting preference. Choose the scope: this session, the person (the default for preferences), or everyone (only when they say so). Keep one fact per memory, in a plain sentence.', HUB_WRITE_ENDPOINTS.remember),
-  forget: writeFn('Forget a memory.', 'Use it when the person asks you to forget something, or a memory is wrong. Find the memory first (hub/find) and forget it by its name.', HUB_WRITE_ENDPOINTS.forget),
+  resource_convert: writeFn('Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.', 'Use it when a resource\'s form you need is missing (an image never described, audio not transcribed): it makes that form now, which may cost a model call, so make only the form you will read.', HUB_WRITE_ENDPOINTS.resource_convert, [{ args: { uri: 'upload://s1/report.pdf', kind: 'markdown' }, note: 'A PDF as markdown.' }]),
+  resource_import: writeFn('Import a URL or uploaded content as a hub resource, kept and converted by the hub.', 'Use it to keep a URL or an upload as a hub resource so it can be read, searched and linked later. It returns the uri; read it with hub/resource_read.', HUB_WRITE_ENDPOINTS.resource_import, [{ args: { input: { url: 'https://example.com/docs', render: 'auto' } }, note: 'A web page, kept as a hub resource.' }], [OWN_TAG]),
+  resource_rename: writeFn('Rename a hub resource.', 'Use it when the person asks to rename a hub resource. Only hub resources (imports, uploads) can be renamed; a system\'s files are renamed through that system (fs).', HUB_WRITE_ENDPOINTS.resource_rename, [{ args: { uri: 'hub://resources/notes.md', name: 'meeting-notes.md' } }]),
+  resource_delete: writeFn('Delete a hub resource; says how many messages, context items and runs still point at it.', 'Use it only when the person asks to delete a hub resource. It reports how many messages, context items and runs still point at it: tell the person, since those links will show as gone.', HUB_WRITE_ENDPOINTS.resource_delete, [{ args: { uri: 'hub://resources/old.md' } }]),
+  context_from_resource: writeFn('Make context items from a resource (one per section, under an outline parent), or update the ones made before.', 'Use it to turn a document the person wants kept as knowledge (a guide, a spec) into context items, one per section; run it again after the document changes to update them.', HUB_WRITE_ENDPOINTS.context_from_resource, [{ args: { uri: 'file:///repo/STYLE.md', copy: 'live', tags: ['style'] }, note: 'A style guide kept in step with its file.' }]),
+  remember: writeFn('Remember something for later as a memory: for this session, the person, or everyone.', 'Use it when the person asks you to remember something, or states a lasting preference. Choose the scope: this session, the person (the default for preferences), or everyone (only when they say so). Keep one fact per memory, in a plain sentence.', HUB_WRITE_ENDPOINTS.remember, [{ args: { text: 'Reports go out on Fridays.', scope: 'user', title: 'Report day' }, note: 'A fact about the person, for every session of theirs.' }]),
+  forget: writeFn('Forget a memory.', 'Use it when the person asks you to forget something, or a memory is wrong. Find the memory first (hub/fns_search with `items: ["context"]`) and forget it by its name.', HUB_WRITE_ENDPOINTS.forget, [{ args: { name: 'hub/memory.report-day' } }]),
 } satisfies Record<HubWriteFnName, unknown>;
+
+/** Build 6: a person's write fns (`HUB_PERSON_ENDPOINTS`): each asks unless a policy allows it. */
+const personFns = {
+  session_create: writeFn('Start a chat session for the person, with an agent and the systems it may use.', 'Use it when the person asks for a fresh conversation, or one with only some systems. It returns the session; tell the person its title.', HUB_PERSON_ENDPOINTS.session_create, [{ args: { title: 'Quarterly report', systems: ['database', 'fs'] }, note: 'A session that uses two systems only.' }]),
+  session_update: writeFn('Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.', 'Use it when the person asks to rename, archive or reconfigure a session. Give only the fields that change.', HUB_PERSON_ENDPOINTS.session_update, [{ args: { session: 'ses_01HZX3', title: 'Q3 report' } }, { args: { session: 'ses_01HZX3', archived: true }, note: 'Archive it.' }]),
+  session_delete: writeFn('Delete a session and its messages.', 'Use it only when the person asks to delete a session by name; it can\'t be undone, so say which session first.', HUB_PERSON_ENDPOINTS.session_delete, [{ args: { session: 'ses_01HZX3' } }]),
+  run_background: writeFn('Move a running run to the background, so the chat can go on while it works.', 'Use it for a long run the person need not wait for; check on it later with hub/run_status.', HUB_PERSON_ENDPOINTS.run_background, [{ args: { run: 'run_01HZX3' } }]),
+  turn_undo: writeFn('Undo what one message\'s runs did, where their fns can undo.', 'Use it when the person asks to take back what a message did. It reports what was undone and what could not be.', HUB_PERSON_ENDPOINTS.turn_undo, [{ args: { turn: 'trn_01HZX3' } }]),
+  memory_update: writeFn('Change a memory: its text, title, weight, tags, the fns it brings or where it applies.', 'Use it to correct or narrow a memory rather than forgetting it and remembering again. Give its name and only what changes.', HUB_PERSON_ENDPOINTS.memory_update, [{ args: { name: 'hub/memory.report-day', text: 'Reports go out on Thursdays.' } }]),
+  context_link: writeFn('Link a context item to another item (context, fn, type or resource), with a relation and weight.', 'Use it to say what a context item imports, brings or relates to, so it loads with its context and fns. `imports` and `brings` always load with it.', HUB_PERSON_ENDPOINTS.context_link, [{ args: { from: 'hub/memory.report-day', to: { kind: 'fn', name: 'database/sales_by_month' }, relation: 'brings', weight: 1 }, note: 'A memory that brings the fn its work needs.' }]),
+  context_unlink: writeFn('Remove one link from a context item.', 'Use it when a link is wrong or no longer needed; give the link\'s target key and relation as hub/context_get shows them.', HUB_PERSON_ENDPOINTS.context_unlink, [{ args: { from: 'hub/memory.report-day', toKey: 'fn:database/sales_by_month', relation: 'brings' } }]),
+  access_set: writeFn('Set who may see a system, fn, context item, resource root or connection: private, shared with some, or public.', 'Use it when the person asks to share something or make it private. Only its owner or an admin may change it; say who will see it after.', HUB_PERSON_ENDPOINTS.access_set, [{ args: { target: { kind: 'fn', fn: 'input/trip_details' }, sharing: { visibility: 'shared', with: ['act_01HZX3'] } }, note: 'Share a saved form with one person.' }]),
+  connection_update: writeFn('Change one of the person\'s connected accounts: its settings, which fns use it, or who it is shared with.', 'Use it when the person asks to change how a connected account is used. Never show its credentials.', HUB_PERSON_ENDPOINTS.connection_update, [{ args: { connection: 'cnx_01HZX3', share: { visibility: 'private', with: [] } }, note: 'Stop sharing it.' }]),
+  connection_disconnect: writeFn('Disconnect one of the person\'s connected accounts.', 'Use it only when the person asks to disconnect an account; the fns that act as them stop working until they connect again.', HUB_PERSON_ENDPOINTS.connection_disconnect, [{ args: { connection: 'cnx_01HZX3' } }]),
+};
+
+/** Build 6: the explorer's reads (`HUB_EXPLORE_ENDPOINTS`), tagged `read`. */
+const exploreFns = {
+  explore_roots: readFn('The roots one system instance serves files from (folders, sites), live.', 'Use it first to see where a system keeps its files, then list a root with hub/explore_list. Nothing is copied into the hub.', HUB_EXPLORE_ENDPOINTS.explore_roots, [{ args: { system: 'fs', instance: 'main' } }]),
+  explore_list: readFn('What a folder holds, live from the system that serves it, a page at a time.', 'Use it to walk a folder you got from hub/explore_roots or an earlier listing; page with `cursor`. To find files by what they say, use hub/search_resources.', HUB_EXPLORE_ENDPOINTS.explore_list, [{ args: { uri: 'file:///repo/docs' } }]),
+  explore_read: readFn('One file\'s text (or its bytes by content ref) or its links, live, without keeping it in the hub.', 'Use it to look at a file while browsing; to keep and search it later, import it with hub/resource_import.', HUB_EXPLORE_ENDPOINTS.explore_read, [{ args: { uri: 'file:///repo/README.md', want: ['text'] } }]),
+};
+
+/** Build 6: the admin pages' reads (`ADMIN_READ_ENDPOINTS`), tagged `admin` and `read`. */
+const adminReadFns = {
+  budgets_list: adminReadFn('Every budget rule with what it has spent so far.', 'Use it before changing a budget, or to say why a call was refused or is waiting.', ADMIN_READ_ENDPOINTS.budgets_list, [{ args: {} }]),
+  policies_list: adminReadFn('Every policy: who it is for, which fns, and whether they run, ask or are refused.', 'Use it to explain why a fn asks or is refused, and before adding a policy that might clash.', ADMIN_READ_ENDPOINTS.policies_list, [{ args: {} }]),
+  priority_rules_list: adminReadFn('Every priority rule: the default and highest priority of the hub, groups, people and sessions.', 'Use it before changing priorities, or to say why work waits.', ADMIN_READ_ENDPOINTS.priority_rules_list, [{ args: {} }]),
+  providers_list: adminReadFn('The model providers set up, with how many models each offers.', 'Use it to check a provider is set up before choosing its models. Keys are never shown.', ADMIN_READ_ENDPOINTS.providers_list, [{ args: {} }]),
+  actors_list: adminReadFn('People, groups, agents, systems and hub MCPs the hub knows, optionally of one kind.', 'Use it to find a person\'s or group\'s id before sharing, adding a policy or a budget.', ADMIN_READ_ENDPOINTS.actors_list, [{ args: { kind: 'user' }, note: 'Every person.' }]),
+  actor_settings_list: adminReadFn('The settings systems declare, and the values set for people and groups.', 'Use it before changing a setting with hub/set_actor_setting.', ADMIN_READ_ENDPOINTS.actor_settings_list, [{ args: {} }]),
+  mcps_list: adminReadFn('The hub MCPs: what each exposes, for whom, and whether it is on.', 'Use it before creating or changing a hub MCP.', ADMIN_READ_ENDPOINTS.mcps_list, [{ args: {} }]),
+  mcp_sessions_list: adminReadFn('The clients connected to one hub MCP now.', 'Use it to see who uses a hub MCP before switching it off.', ADMIN_READ_ENDPOINTS.mcp_sessions_list, [{ args: { mcp: 'mcp_01HZX3' } }]),
+  pairings_list: adminReadFn('Pairing requests, newest first, optionally of one status.', 'Use it to find a waiting pairing to approve with hub/approve_pairing.', ADMIN_READ_ENDPOINTS.pairings_list, [{ args: { status: 'pending' } }]),
+  auto_pairs_list: adminReadFn('The auto-pair secrets granted, optionally for one system.', 'Use it before revoking one with hub/auto_pair_revoke.', ADMIN_READ_ENDPOINTS.auto_pairs_list, [{ args: { system: 'fs' } }]),
+  instances_list: adminReadFn('One system\'s instances, with their status, version, config (secrets masked) and host.', 'Use it to see every copy of a system and who hosts each.', ADMIN_READ_ENDPOINTS.instances_list, [{ args: { system: 'database' } }]),
+  suggest_decision_get: adminReadFn('The suggestion decision model setting: whether a model picks the suggestions, and its limits.', 'Use it before changing it with hub/suggest_decision_set.', ADMIN_READ_ENDPOINTS.suggest_decision_get, [{ args: {} }]),
+};
 
 /** The hub's admin fns (`ADMIN_ENDPOINTS`), each described for the agent that offers them. */
 const adminFns = {
-  configure_provider: adminFn('Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted.', 'Use it when an admin gives a provider key. Never repeat the key back or put it in a message; say only that it was stored.', ADMIN_ENDPOINTS.configure_provider),
-  set_model_category: adminFn('Add a model category (a named, ordered list of models), or change the one with this id.', 'Use it to group models for a purpose (fast, cheap, best). Order matters: the first available model is tried first.', ADMIN_ENDPOINTS.set_model_category),
-  set_budget: adminFn('Add a spending budget for the hub, a group, a user, a session, a system, a fn or a model, or change the one with this id.', 'Use it when an admin sets a spending limit. Say the scope and period back in plain words, since a low budget stops runs.', ADMIN_ENDPOINTS.set_budget),
-  set_priority: adminFn('Add a priority rule (the default and highest priority of turns at a level), or change the one with this id.', 'Use it when an admin wants some turns to run before others (a group\'s work first).', ADMIN_ENDPOINTS.set_priority),
-  set_policy: adminFn('Add a policy saying whether actors may run fns (allow, deny, or ask an approver), or change the one with this id.', 'Use it when an admin decides who may run which fns. Prefer ask over allow for fns that write or delete, and check what the rule covers with the person first.', ADMIN_ENDPOINTS.set_policy),
-  set_actor_setting: adminFn('Set a setting a system declares for a user, group or agent.', 'Use it to set a system\'s declared setting for a user, group or agent. Read the setting\'s type first (hub/system_get) so the value fits.', ADMIN_ENDPOINTS.set_actor_setting),
-  add_user: adminFn('Add a person who can sign in, with their role and groups.', 'Use it when an admin adds a person. Give the lowest role that does the job, and say what the role allows.', ADMIN_ENDPOINTS.add_user),
-  add_group: adminFn('Add a group of people.', 'Use it to make a group before adding people or rules to it.', ADMIN_ENDPOINTS.add_group),
-  remove_rule: adminFn('Remove a budget, priority rule, policy, model category or provider.', 'Use it only when an admin asks to remove a rule; say what stops applying once it is gone.', ADMIN_ENDPOINTS.remove_rule),
-  approve_pairing: adminFn('Approve or refuse a system that asked to pair with the hub, optionally naming its instance and setting its config.', 'Use it when an admin approves or refuses a waiting system. Name the instance when there are several of one system, and set its config here if it needs one to start.', ADMIN_ENDPOINTS.approve_pairing),
-  create_pairing_token: adminFn('Make a one-time pairing token a new system can pair with, optionally for one system name.', 'Use it to let a new system pair. The token is shown once: give it to the admin and do not repeat it later.', ADMIN_ENDPOINTS.create_pairing_token),
-  configure_system: adminFn('Set a system\'s config; refused unless it fits the system\'s config type.', 'Use it to set a system\'s config. Read its config type first (hub/system_get); secret fields are kept encrypted and never shown back.', ADMIN_ENDPOINTS.configure_system),
-  enable_system: adminFn('Turn a system\'s functions and its renderers on or off.', 'Use it to turn a system\'s fns and renderers on or off without removing it.', ADMIN_ENDPOINTS.enable_system),
-  remove_system: adminFn('Remove a system; its fns become unavailable until it pairs again.', 'Use it only when an admin asks to remove a system; its fns stop working until it pairs again. To pause it, use hub/enable_system instead.', ADMIN_ENDPOINTS.remove_system),
-  install_system: adminFn('Install a system from a folder, a package or a git repository, and start it.', 'Use it when an admin asks to install a system from a folder, a package or a git URL. It starts the system; pairing may still need approval.', ADMIN_ENDPOINTS.install_system),
-  start_system: adminFn('Start an installed system.', 'Use it to start an installed system that is stopped, then check hub/system_get to see that it connected.', ADMIN_ENDPOINTS.start_system),
-  stop_system: adminFn('Stop an installed system.', 'Use it to stop an installed system; its fns are unavailable until it starts again.', ADMIN_ENDPOINTS.stop_system),
-  upgrade_system: adminFn('Upgrade an installed system to a version (the latest when none is given).', 'Use it to move an installed system to a newer version; name the version when the admin asks for one.', ADMIN_ENDPOINTS.upgrade_system),
-  set_model_role: adminFn('Choose the model (and provider) for a job: chat, transcription, dictation (or the browser\'s own), speech, describing images, reading text in them.', 'Use it when an admin picks the model for a job. Check the current choices with hub/model_roles first.', ADMIN_ENDPOINTS.set_model_role),
-  clear_model_role: adminFn('Clear a job\'s model choice, so it falls back to the hub\'s default (or is off).', 'Use it to undo a job\'s model choice so the hub\'s default applies again.', ADMIN_ENDPOINTS.clear_model_role),
-  set_model_limits: adminFn('Set a model\'s context window, output limit, reasoning reserve or characters per token; with every field absent, clear them.', 'Use it when a model\'s known limits are wrong (answers cut, prompts refused). Leave every field empty to go back to the limits the hub found.', ADMIN_ENDPOINTS.set_model_limits),
-  create_mcp: adminFn('Make a hub MCP: an MCP endpoint with its own route and secret, exposing the systems, fns, types, context and resources its rules include.', 'Use it to expose part of the hub to an MCP client. Include only what the admin asked for, and check it first with hub/preview_mcp.', ADMIN_ENDPOINTS.create_mcp),
-  update_mcp: adminFn('Change a hub MCP\'s name, rules, tool mode or person, or turn it on or off.', 'Use it to change a hub MCP; preview rule changes with hub/preview_mcp first.', ADMIN_ENDPOINTS.update_mcp),
-  rotate_mcp_secret: adminFn('Give a hub MCP a new secret; every open session of it ends.', 'Use it when a hub MCP\'s secret may have leaked. Every open session of it ends, so say so.', ADMIN_ENDPOINTS.rotate_mcp_secret),
-  delete_mcp: adminFn('Delete a hub MCP.', 'Use it only when an admin asks to delete a hub MCP; its clients stop working.', ADMIN_ENDPOINTS.delete_mcp),
-  preview_mcp: adminFn('What draft hub MCP rules would expose now, with warnings, before they are saved.', 'Use it before saving hub MCP rules, to show the admin exactly what would be exposed and any warnings.', ADMIN_ENDPOINTS.preview_mcp),
-  install_package: adminFn('Install a system package zip (made by `harness system pack`), pair it, configure it and start it.', 'Use it with a package zip made by `harness system pack`: it installs, pairs, configures and starts the system in one step.', ADMIN_ENDPOINTS.install_package),
-  remove_instance: adminFn('Remove one instance of a system.', 'Use it only when an admin asks to remove one instance of a system. Offer hub/export_system_data first so its data can be kept.', ADMIN_ENDPOINTS.remove_instance),
-  export_system_data: adminFn('Zip an instance\'s data folder with its config (secret fields only when asked) and return the content.', 'Use it to back up an instance before removing or moving it. Include secret fields only when the admin asks.', ADMIN_ENDPOINTS.export_system_data),
+  configure_provider: adminFn('Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted.', 'Use it when an admin gives a provider key. Never repeat the key back or put it in a message; say only that it was stored.', ADMIN_ENDPOINTS.configure_provider, [{ args: { input: { provider: 'ollama', baseURL: 'http://127.0.0.1:11434' } }, note: 'A local Ollama.' }]),
+  set_model_category: adminFn('Add a model category (a named, ordered list of models), or change the one with this id.', 'Use it to group models for a purpose (fast, cheap, best). Order matters: the first available model is tried first.', ADMIN_ENDPOINTS.set_model_category, [{ args: { name: 'small', description: 'Fast local models.', models: ['qwen2.5:3b'] } }]),
+  set_budget: adminFn('Add a spending budget for the hub, a group, a user, a session, a system, a fn or a model, or change the one with this id.', 'Use it when an admin sets a spending limit. Say the scope and period back in plain words, since a low budget stops runs.', ADMIN_ENDPOINTS.set_budget, [{ args: { target: { scope: 'system', system: 'web' }, period: 'per-turn', maxCost: 0.5, onLimit: 'ask' }, note: 'Fifty cents a message for one system.' }]),
+  set_priority: adminFn('Add a priority rule (the default and highest priority of turns at a level), or change the one with this id.', 'Use it when an admin wants some turns to run before others (a group\'s work first).', ADMIN_ENDPOINTS.set_priority, [{ args: { target: { scope: 'hub' }, default: 'normal', max: 'interactive' } }]),
+  set_policy: adminFn('Add a policy saying whether actors may run fns (allow, deny, or ask an approver), or change the one with this id.', 'Use it when an admin decides who may run which fns. Prefer ask over allow for fns that write or delete, and check what the rule covers with the person first.', ADMIN_ENDPOINTS.set_policy, [{ args: { description: 'Members may read files without asking.', subject: { kind: 'user' }, target: { fn: 'fs/read' }, decision: { effect: 'allow' }, priority: 10 } }]),
+  set_actor_setting: adminFn('Set a setting a system declares for a user, group or agent.', 'Use it to set a system\'s declared setting for a user, group or agent. Read the setting\'s type first (hub/system_get) so the value fits.', ADMIN_ENDPOINTS.set_actor_setting, [{ args: { setting: 'fs/editor', actor: 'act_01HZX3', value: 'vim' } }]),
+  add_user: adminFn('Add a person who can sign in, with their role and groups.', 'Use it when an admin adds a person. Give the lowest role that does the job, and say what the role allows.', ADMIN_ENDPOINTS.add_user, [{ args: { email: 'ann@example.com', name: 'Ann', role: 'member' } }]),
+  add_group: adminFn('Add a group of people.', 'Use it to make a group before adding people or rules to it.', ADMIN_ENDPOINTS.add_group, [{ args: { name: 'Finance', about: 'The finance team.' } }]),
+  remove_rule: adminFn('Remove a budget, priority rule, policy, model category or provider.', 'Use it only when an admin asks to remove a rule; say what stops applying once it is gone.', ADMIN_ENDPOINTS.remove_rule, [{ args: { input: { kind: 'policy', id: 'pol_01HZX3' } } }]),
+  approve_pairing: adminFn('Approve or refuse a system that asked to pair with the hub, optionally naming its instance and setting its config.', 'Use it when an admin approves or refuses a waiting system. Name the instance when there are several of one system, and set its config here if it needs one to start.', ADMIN_ENDPOINTS.approve_pairing, [{ args: { pairing: 'par_01HZX3', approve: true }, note: 'The code on the system matches.' }]),
+  create_pairing_token: adminFn('Make a one-time pairing token a new system can pair with, optionally for one system name.', 'Use it to let a new system pair. The token is shown once: give it to the admin and do not repeat it later.', ADMIN_ENDPOINTS.create_pairing_token, [{ args: { name: 'notes', expiresIn: 600000 }, note: 'A ten-minute token for one system.' }]),
+  configure_system: adminFn('Set a system\'s config; refused unless it fits the system\'s config type.', 'Use it to set a system\'s config. Read its config type first (hub/system_get); secret fields are kept encrypted and never shown back.', ADMIN_ENDPOINTS.configure_system, [{ args: { system: 'database', config: { url: 'sqlite:./data.db' } } }]),
+  enable_system: adminFn('Turn a system\'s functions and its renderers on or off.', 'Use it to turn a system\'s fns and renderers on or off without removing it.', ADMIN_ENDPOINTS.enable_system, [{ args: { system: 'web', functions: false }, note: 'Switch off its fns, keep its renderers.' }]),
+  remove_system: adminFn('Remove a system; its fns become unavailable until it pairs again.', 'Use it only when an admin asks to remove a system; its fns stop working until it pairs again. To pause it, use hub/enable_system instead.', ADMIN_ENDPOINTS.remove_system, [{ args: { system: 'random' } }]),
+  install_system: adminFn('Install a system from a folder, a package or a git repository, and start it.', 'Use it when an admin asks to install a system from a folder, a package or a git URL. It starts the system; pairing may still need approval.', ADMIN_ENDPOINTS.install_system, [{ args: { source: { package: '@acme/notes', version: '1.2.0' } } }]),
+  start_system: adminFn('Start an installed system.', 'Use it to start an installed system that is stopped, then check hub/system_get to see that it connected.', ADMIN_ENDPOINTS.start_system, [{ args: { system: 'fs' } }]),
+  stop_system: adminFn('Stop an installed system.', 'Use it to stop an installed system; its fns are unavailable until it starts again.', ADMIN_ENDPOINTS.stop_system, [{ args: { system: 'fs' } }]),
+  restart_system: adminFn('Restart a system instance, with the reason.', 'Use it when a system is stuck or after changing something it reads only at start. A system installed from the chat is restarted by its host with the approved code as it is. Say why in `reason`; it is kept in the log.', ADMIN_ENDPOINTS.restart_system, [{ args: { system: 'random', reason: 'it stopped answering' } }]),
+  upgrade_system: adminFn('Upgrade an installed system to a version (the latest when none is given).', 'Use it to move an installed system to a newer version; name the version when the admin asks for one.', ADMIN_ENDPOINTS.upgrade_system, [{ args: { system: 'web' }, note: 'To the newest version.' }]),
+  set_model_role: adminFn('Choose the model (and provider) for a job: chat, transcription, dictation (or the browser\'s own), speech, describing images, reading text in them.', 'Use it when an admin picks the model for a job. Check the current choices with hub/model_roles first.', ADMIN_ENDPOINTS.set_model_role, [{ args: { input: { role: 'chat', model: { model: 'qwen2.5:3b' }, provider: 'ollama' } } }]),
+  clear_model_role: adminFn('Clear a job\'s model choice, so it falls back to the hub\'s default (or is off).', 'Use it to undo a job\'s model choice so the hub\'s default applies again.', ADMIN_ENDPOINTS.clear_model_role, [{ args: { role: 'describe' } }]),
+  set_model_limits: adminFn('Set a model\'s context window, output limit, reasoning reserve or characters per token; with every field absent, clear them.', 'Use it when a model\'s known limits are wrong (answers cut, prompts refused). Leave every field empty to go back to the limits the hub found.', ADMIN_ENDPOINTS.set_model_limits, [{ args: { model: 'qwen2.5:3b', limits: { contextWindow: 32768 } } }]),
+  create_mcp: adminFn('Make a hub MCP: an MCP endpoint with its own route and secret, exposing the systems, fns, types, context and resources its rules include.', 'Use it to expose part of the hub to an MCP client. Include only what the admin asked for, and check it first with hub/preview_mcp.', ADMIN_ENDPOINTS.create_mcp, [{ args: { slug: 'notes', name: 'Notes', instructions: 'Read and search notes.', rules: { include: { systems: ['notes'] }, exclude: {} }, toolMode: 'each', user: 'act_01HZX3', grantees: [], origins: [], enabled: true } }]),
+  update_mcp: adminFn('Change a hub MCP\'s name, rules, tool mode or person, or turn it on or off.', 'Use it to change a hub MCP; preview rule changes with hub/preview_mcp first.', ADMIN_ENDPOINTS.update_mcp, [{ args: { mcp: 'mcp_01HZX3', enabled: false }, note: 'Switch one off.' }]),
+  rotate_mcp_secret: adminFn('Give a hub MCP a new secret; every open session of it ends.', 'Use it when a hub MCP\'s secret may have leaked. Every open session of it ends, so say so.', ADMIN_ENDPOINTS.rotate_mcp_secret, [{ args: { mcp: 'mcp_01HZX3' } }]),
+  delete_mcp: adminFn('Delete a hub MCP.', 'Use it only when an admin asks to delete a hub MCP; its clients stop working.', ADMIN_ENDPOINTS.delete_mcp, [{ args: { mcp: 'mcp_01HZX3' } }]),
+  preview_mcp: adminFn('What draft hub MCP rules would expose now, with warnings, before they are saved.', 'Use it before saving hub MCP rules, to show the admin exactly what would be exposed and any warnings.', ADMIN_ENDPOINTS.preview_mcp, [{ args: { rules: { include: { systems: ['fs'] }, exclude: { fns: [{ fn: 'fs/bash' }] } } }, note: 'What an MCP with these rules would expose.' }]),
+  install_package: adminFn('Install a system package zip (made by `harness system pack`), pair it, configure it and start it.', 'Use it with a package zip made by `harness system pack`: it installs, pairs, configures and starts the system in one step.', ADMIN_ENDPOINTS.install_package, [{ args: { zip: { hash: '0000000000000000000000000000000000000000000000000000000000000000', size: 2048, mime: 'application/zip' } } }]),
+  remove_instance: adminFn('Remove one instance of a system.', 'Use it only when an admin asks to remove one instance of a system. Offer hub/export_system_data first so its data can be kept.', ADMIN_ENDPOINTS.remove_instance, [{ args: { system: 'database', instance: 'old' } }]),
+  suggest_decision_set: adminFn('Turn the suggestion decision model on or off, and set how many candidates it sees and picks.', 'Use it when an admin wants a model, not the score alone, to pick what each message is offered. Turning it on needs a model.', ADMIN_ENDPOINTS.suggest_decision_set, [{ args: { enabled: false }, note: 'Let the score decide again.' }]),
+  auto_pair_revoke: adminFn('Revoke an auto-pair secret, so its instance must pair again by code or token.', 'Use it when a machine is lost or retired; find the secret with hub/auto_pairs_list.', ADMIN_ENDPOINTS.auto_pair_revoke, [{ args: { id: 'apk_01HZX3' } }]),
+  system_reimport: adminFn('Import a system\'s stored contract again, re-checking every entry.', 'Use it after a hub upgrade or when a system\'s fns look stale; it reports what was added, updated, removed or refused.', ADMIN_ENDPOINTS.system_reimport, [{ args: { system: 'database' } }]),
+  export_system_data: adminFn('Zip an instance\'s data folder with its config (secret fields only when asked) and return the content.', 'Use it to back up an instance before removing or moving it. Include secret fields only when the admin asks.', ADMIN_ENDPOINTS.export_system_data, [{ args: { system: 'database', instance: 'main' } }]),
 } satisfies Record<AdminFnName, unknown>;
 
 /** Which model an agent or an LLM call uses: a model id, a category, or automatic selection by weights. */
@@ -272,7 +384,7 @@ export const FnErrorType = g.obj({
 
 const RunStatusType = g.enum(RUN_STATUSES);
 
-/** What `hub/find` can look for: every kind of item a context link can point at (core's `LinkTarget`). */
+/** What `hub/inspect` can show: every kind of item a context link can point at (core's `LinkTarget`). */
 export const FIND_KINDS = LINK_TARGET_KINDS;
 
 /** How much of an item the model sees, as a gin type (core's `Detail`). */
@@ -330,6 +442,21 @@ const FNS_SEARCH_EXAMPLES = [
   { args: { systems: ['fs'], modes: ['read' as const], order: 'alphabetical' as const }, note: 'Every fs fn that only reads, by name.' },
 ];
 
+/**
+ * The chat agent's base prompt: one search, and loading context brings its imports and fns, a choice at a time.
+ */
+const CHAT_BASE = [
+  'You are a helpful assistant inside harness. Use tools when they help, say what you did, and keep answers short.',
+  'Find fns and context with hub/fns_search. Loading a context (hub/load_context) loads what it imports too, and the fns it brings join your tools.',
+  'When a context lists where to go next, load the one choice that fits, one step at a time, and only what the request needs.',
+].join(' ');
+
+/** The small-model chat agent's base prompt: the same, in the static toolset's words. */
+const CHAT_SMALL_BASE = [
+  'You are a helpful assistant inside harness. Find, inspect and run fns when they help, say what you did, and keep answers short.',
+  'Loading a context brings what it imports and its fns. When it lists where to go next, load the one choice that fits, a step at a time.',
+].join(' ');
+
 /** The hub's contract. */
 export const hub = system('hub', { description: 'The hub: search and load fns and context, follow runs, ask people, and run agents.' })
   .with({
@@ -359,19 +486,9 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       }),
     },
     fns: {
-      search_fns: fn({
-        description: 'Find fns by what they do.',
-        instructions: 'Use it when no fn in front of you does what is needed: describe the job in plain words (\'rename files\', \'sales by month\'). Then load the ones you will use with hub/load_fns. For filters (kind, system, instance, mode, types read or written) and paging use hub/fns_search.',
-        examples: [{ args: { query: 'send an email' }, note: 'Find a fn by its job.' }, { args: { query: 'read a spreadsheet', limit: 5 } }],
-        args: g.obj({ query: g.text(), limit: g.optional(g.num({ min: 1, max: 50, whole: true })) }),
-        returns: g.list(g.obj({ fn: g.text(), description: g.text(), available: g.bool() })),
-        tags: [READ_TAG],
-        // bookkeeping the person needn't see as a card once it is done
-        display: 'message',
-      }),
       load_fns: fn({
         description: 'Add fns to your toolset for this session.',
-        instructions: 'Use it after hub/search_fns, with the names you will call; they can be called from your next step. A refused name says why (no such fn, not allowed, unavailable). Load only what you need: every loaded fn takes room in the prompt.',
+        instructions: 'Use it after hub/fns_search, with the names you will call; they can be called from your next step. A refused name says why (no such fn, not allowed, unavailable). Load only what you need: every loaded fn takes room in the prompt.',
         examples: [{ args: { fns: ['fs/read', 'fs/edit'] }, note: 'Two fns for a file change.' }],
         args: g.obj({ fns: g.list(g.text(), { minLength: 1 }) }),
         returns: g.obj({ loaded: g.list(g.text()), refused: g.list(g.obj({ fn: g.text(), reason: g.text() })) }),
@@ -429,21 +546,19 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
         tags: [OWN_TAG],
         display: 'hidden',
       }),
-      search_context: fn({
-        description: 'Find context (guides, skills, references) by what it covers.',
-        instructions: 'Use it when a task needs know-how you don\'t have in front of you (how a system is used, a team\'s conventions, a skill). Describe the topic; then load what fits with hub/load_context.',
-        examples: [{ args: { query: 'how to write a system' } }, { args: { query: 'house style for reports', limit: 3 } }],
-        args: g.obj({ query: g.text(), limit: g.optional(g.num({ min: 1, max: 50, whole: true })) }),
-        returns: g.list(g.obj({ context: g.text(), description: g.text() })),
-        tags: [READ_TAG],
-        display: 'message',
-      }),
       load_context: fn({
         description: 'Load context into this session.',
-        instructions: 'Use it after hub/search_context, with the names that fit; their text is in front of you from the next step. Load only what the task needs.',
-        examples: [{ args: { context: ['fs/system-authoring'] } }],
+        instructions: [
+          'Use it after hub/fns_search (or a choice under "Where to go next" in a context), with the names that fit; their text is in front of you from the next step.',
+          'Each loads with the context it imports, and the fns it brings go into your tools; the result lists both. A name you got wrong is refused with the closest names.',
+          'A line copied as `name: description` is fine. Load only what the task needs, one step at a time.',
+        ].join(' '),
+        examples: [
+          { args: { context: ['fs/authoring'] }, note: 'The index of a guide: it offers choices to load next.' },
+          { args: { context: ['fs/authoring.kinds: how to declare a kind'] }, note: 'A choice copied with its line.' },
+        ],
         args: g.obj({ context: g.list(g.text(), { minLength: 1 }) }),
-        returns: g.obj({ loaded: g.list(g.text()) }),
+        returns: ginAs(LoadContextResult),
         tags: [READ_TAG],
         display: 'hidden',
       }),
@@ -482,18 +597,9 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
         tags: [READ_TAG],
       }),
       // ─── The static toolset's fns (`run` is not a fn: its calls become runs of the named fn) ───
-      find: fn({
-        description: 'Find fns, context, resources and types by what they are about. Already loaded items are marked.',
-        instructions: 'Use it first when you need something you don\'t have in front of you: describe it in plain words, and narrow `kinds` when you know you need a fn, context, a resource or a type. Then hub/inspect one hit, or hub/load the ones you will use.',
-        examples: [{ args: { query: 'rename a file', kinds: ['fn'] } }, { args: { query: 'invoice table', kinds: ['type'], limit: 5 } }],
-        args: g.obj({ query: g.text({ minLength: 1 }), kinds: g.optional(g.list(g.enum(FIND_KINDS))), limit: g.optional(g.num({ min: 1, max: 50, whole: true })) }),
-        returns: g.list(g.obj({ name: g.text(), kind: g.enum(FIND_KINDS), description: g.text(), loaded: g.bool() })),
-        tags: [READ_TAG],
-        display: 'message',
-      }),
       inspect: fn({
         description: 'Look at one item at a detail: a fn\'s card, a context item\'s text, a type\'s definition, or a resource\'s outline.',
-        instructions: 'Use it to look at one hit from hub/find before using it. `signature` shows a fn\'s args; `full` adds its instructions and examples. It does not keep the item: use hub/load for that.',
+        instructions: 'Use it to look at one hit from hub/fns_search before using it. `signature` shows a fn\'s args; `full` adds its instructions and examples. It does not keep the item: use hub/load for that.',
         examples: [{ args: { name: 'fs/edit', detail: 'full' }, note: 'A fn card with its examples.' }, { args: { name: 'fs/Entry' } }],
         args: g.obj({ name: g.text({ minLength: 1 }), detail: g.optional(DetailType) }),
         returns: g.obj({ name: g.text(), kind: g.enum(FIND_KINDS), detail: DetailType, text: g.text() }),
@@ -537,11 +643,22 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
         tags: [READ_TAG],
         display: 'hidden',
       }),
+      // ─── Bookkeeping (build 6) ───
+      system_calls: fn({
+        description: 'Holds the model calls a system makes outside its own runs (hooks, timers, start-up, its own aeye), so they are charged to its budgets and show as its.',
+        instructions: 'Never call it: the hub makes its runs itself when a system calls a model outside a run. Read them with hub/runs_list filtered by this fn to see what a system spent on its own.',
+        examples: [{ args: {}, note: 'Its runs are made by the hub; calling it is refused.' }],
+        args: g.obj({}),
+        returns: g.obj({}),
+        visibility: 'none',
+        display: 'hidden',
+      }),
       // ─── Hub MCP session tokens for grantee systems ───
       mint_mcp_token: fn({
         description: 'Mint a short-lived token for a hub MCP, for a session this system starts (a Claude session, for one). Only a grantee system\'s runs may call it.',
         instructions: 'Only a grantee system calls it, when it starts a session that should reach the hub through MCP. Pass the token to that session only and never show it to a person.',
         args: ginAs(MintMcpTokenArgs),
+        examples: [{ args: { mcp: 'mcp_01HZX3', label: 'claude session for the release notes', ttl: 600000 }, note: 'A ten-minute token for one session.' }],
         returns: g.obj({ token: g.text(), expiresAt: g.timestamp() }),
         tags: [ADMIN_TAG],
       }),
@@ -560,15 +677,18 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       tables: sectioner({ description: 'One section per table (large tables in row groups, the header repeated).', match: { form: 'table' } }),
     },
   })
-  .with({ fns: { ...readFns, ...writeFns } })
+  .with({ fns: { ...readFns, ...writeFns, ...personFns, ...exploreFns } })
   .with(({ fns, kinds }) => {
-    const tools = [fns.search_fns.name, fns.load_fns.name, fns.search_context.name, fns.load_context.name, fns.search_resources.name, fns.run_status.name, fns.run_wait.name, fns.ask_user.name];
+    // one search (`fns_search`), loading fns (with the same check as `load`) and context, examples, runs and people
+    const tools = [fns.fns_search.name, fns.load_fns.name, fns.load_context.name, fns.fn_examples.name, fns.run_status.name, fns.ask_user.name];
     return {
       fns: {
         chat: kinds.llm.fn({
           description: 'The chat agent: answers people in a session with every tool the session allows.',
+          instructions: 'The hub runs it for every message in a session that names no other agent. Call it from another fn only to hand a whole conversation turn to the chat agent.',
+          examples: [{ args: {}, note: 'Its input is the session itself: it takes no args.' }],
           payload: {
-            instructions: 'You are a helpful assistant inside harness. Use tools when they help, say what you did, and keep answers short.',
+            instructions: CHAT_BASE,
             tools,
             canLoad: {},
             maxTools: 64,
@@ -582,8 +702,10 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
         }),
         chat_small: kinds.llm.fn({
           description: 'The chat agent for small local models: the static toolset and the graph contextor, so each prompt fits a small window.',
+          instructions: 'Pick it for a session on a small local model (a few thousand tokens of window): it sees five fixed tools and only the context and fn cards that fit each prompt.',
+          examples: [{ args: {}, note: 'Its input is the session itself: it takes no args.' }],
           payload: {
-            instructions: 'You are a helpful assistant inside harness. Find, inspect and run fns when they help, say what you did, and keep answers short.',
+            instructions: CHAT_SMALL_BASE,
             tools,
             canLoad: {},
             maxTools: 64,
@@ -600,7 +722,7 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       },
     };
   })
-  .with({ fns: adminFns });
+  .with({ fns: { ...adminFns, ...adminReadFns } });
 
 /** The hub's contract type. */
 export type HubContract = typeof hub;

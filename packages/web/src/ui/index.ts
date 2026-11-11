@@ -42,7 +42,7 @@ export { isDark, useDarkTheme } from './theme.ts';
 export type { MdBlock, MdInline } from './markdown/ast.ts';
 export { ICONS, TONE_ICON, type IconName } from './icons.ts';
 export { place, type Align, type Box, type Placement, type Side } from './floating.ts';
-export { countLabel, fullTime, hueOf, initials, relativeTime } from './format.ts';
+export { countLabel, fullTime, hueOf, initials, relativeTime, shortHash } from './format.ts';
 export { copyText } from './clipboard.ts';
 export { listSource, onePicked, pickChoices, stepActive, withoutPicked, withPicked, type PickChoice, type PickerSource } from './picker.ts';
 export { useMediaQuery, useOverlay } from './overlay.ts';

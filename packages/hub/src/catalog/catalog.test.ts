@@ -1,4 +1,4 @@
-import { GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
+import { ContextDecl, GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StoreCatalog } from './catalog.ts';
@@ -248,6 +248,17 @@ describe('availability', () => {
     expect(await catalog.availability(q('shop/guide'))).toMatchObject({ unavailable: 'system-disconnected' });
   });
 
+  it('counts context the hub made itself (a memory, named memory/…) as always available', async () => {
+    const { catalog, store } = await imported();
+    const name = q('memory/gollum-1a2b');
+    await store.table('context').put({
+      name, system: SystemName.parse('hub'), origin: { type: 'memory', scope: { to: 'everyone' }, author: ADMIN }, stale: false, updatedAt: 0,
+      decl: ContextDecl.parse({ name: 'gollum-1a2b', description: 'Gollum', command: { name: 'gollum', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], content: 'precious' }),
+      mentions: { context: [], fns: [] }, tokens: { full: 2, summary: 1 },
+    });
+    expect(await catalog.availability(name)).toBe(true);
+  });
+
   it('follows the system, its config, its switches, kinds and deps', async () => {
     const { catalog, store, bus } = await imported();
     const systems = store.table('systems');
@@ -305,6 +316,28 @@ describe('patches, runtime fns and re-imports', () => {
     expect(report.added).toEqual(['shop/find']);
     expect(report.removed).toEqual(['shop/list']);
     expect((await catalog.manifest(SHOP))?.hash).toBe('h2');
+  });
+
+  it('keeps the fns a patch adds as the running system’s own, replaces the top-level lists whole, and versions replaced types with their meta (build 6)', async () => {
+    const { catalog, store } = await setup();
+    const manifest = await manifestFor(shop);
+    await catalog.importManifest(manifest);
+    const get = declOf(manifest, 'get');
+    const product = manifest.types.find((t) => t.name === 'Product');
+    if (product === undefined) throw new Error('no Product');
+    await catalog.importPatch(SHOP, {
+      hash: 'h2', upsert: { fns: [{ ...get, name: 'find' }], types: [{ ...product, description: 'A product.', meta: { schemaHash: 'abc' } }] }, remove: {},
+      lists: { providers: [], registries: [], contributes: [] },
+    });
+    expect((await catalog.fn(QualifiedName.parse('shop/find')))?.origin).toBe('runtime');
+    expect((await catalog.fn(QualifiedName.parse('shop/get')))?.origin).toBe('contract');
+    expect((await catalog.type(QualifiedName.parse('shop/Product')))?.meta).toEqual({ schemaHash: 'abc' });
+    expect((await store.table('typeVersions').get('shop/Product#1'))?.decl.description).toBe(product.description);
+    // a later patch that doesn't touch it leaves the runtime fn the running system's
+    await catalog.importPatch(SHOP, { hash: 'h3', upsert: { types: [{ ...product, meta: { schemaHash: 'def' } }] }, remove: {} });
+    expect((await catalog.fn(QualifiedName.parse('shop/find')))?.origin).toBe('runtime');
+    expect((await store.table('typeVersions').get('shop/Product#2'))?.decl.meta).toEqual({ schemaHash: 'abc' });
+    expect((await catalog.manifest(SHOP))?.providers).toEqual([]);
   });
 
   it('refuses a patch before any manifest', async () => {

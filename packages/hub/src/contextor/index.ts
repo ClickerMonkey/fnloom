@@ -33,6 +33,7 @@ import type { AccessScope } from '../access/index.ts';
 import type { Search } from '../index/index.ts';
 import type { InstanceRouter } from '../link/index.ts';
 import type { ContextorEnv } from './env.ts';
+import type { SizedChoice } from './brought.ts';
 import type { Exchange } from './history.ts';
 import type { RunBlock } from './render.ts';
 
@@ -104,6 +105,8 @@ export interface ChosenContext {
   readonly detail: Detail;
   readonly activation: number;
   readonly text: string;
+  /** Build 6: its choices (`ContextDecl.choices`) with the token size of each, shown as decisions with its block. */
+  readonly choices?: readonly SizedChoice[];
 }
 
 /** A fn chosen for a prompt. */

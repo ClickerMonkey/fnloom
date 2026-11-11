@@ -95,7 +95,7 @@ async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTa
   r.catalog.add('fs', 'read', fn({ description: 'Read a text file and give its lines.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
   r.catalog.add('tools', 'small', small);
   r.catalog.add('tools', 'textual', textual);
-  for (const name of ['find', 'inspect', 'load', 'unload'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
+  for (const name of ['fns_search', 'inspect', 'load', 'unload'] as const) r.catalog.add('hub', name, hub.defs.fns[name]);
   const contextor = createContextor({
     store: r.store, catalog: r.catalog, search, settings: contextorEnv.parse(), modelSettings: { HARNESS_DEFAULT_MODEL: model }, models: () => r.module.llm.models(),
     log: r.log, clock: () => r.time.now, probes: () => undefined,

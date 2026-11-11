@@ -8,7 +8,7 @@
  */
 import { reject } from '@ayepi/core';
 import {
-  compact, dataExportFileName, mintId, splitName, SystemName, type ActorId, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
+  compact, dataExportFileName, MAIN_INSTANCE, mintId, qualify, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
   type ProviderRecord, type SecretId, type SystemRecord, type UserActor,
 } from '@harness/core';
 import type { ADMIN_ENDPOINTS, AdminFnName } from '@harness/sdk';
@@ -16,6 +16,8 @@ import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
 import { findUserByEmail, normalEmail } from './auth.ts';
 import { collect, first, PAGE } from './paging.ts';
+import { userInfo } from './web/access.ts';
+import { timeInfo } from '../execution/time.ts';
 
 /** What an endpoint answers: its response schema's output, or nothing. */
 type ResultOf<E> = E extends { readonly cfg: { readonly response: infer R extends z.ZodType } } ? z.output<R> : void;
@@ -75,6 +77,33 @@ export async function knownSystem(hub: Pick<HubServices, 'store'>, name: SystemN
   const record = await hub.store.table('systems').get(name);
   if (record === undefined) { throw reject(404, 'SYSTEM_NOT_FOUND', `no system ${name}`); }
   return record;
+}
+
+/** Who hosts an instance another system builds and runs (`InstanceRecord.host`), if one does. */
+export async function hostOf(hub: Pick<HubServices, 'store'>, system: SystemName, instance: InstanceName | undefined): Promise<HostedBy | undefined> {
+  return (await hub.store.table('instances').get({ system, instance: instance ?? MAIN_INSTANCE }))?.host;
+}
+
+/**
+ * Run one of a host's fns (`fs/restart_system`, `fs/stop_system`) for an admin, in a turn of their own, and wait for
+ * it: the host restarts the approved bundle as it is, so no new code runs and no approval card is needed.
+ */
+export async function hostCall(hub: Pick<HubServices, 'store' | 'execution' | 'clock'>, hosted: HostedBy, fn: string, args: Json, by: ActorId): Promise<{ ok: boolean }> {
+  const actor = await hub.store.table('actors').get(by);
+  if (actor?.kind !== 'user') throw reject(403, 'NOT_A_PERSON', 'only a person can restart or stop a hosted system');
+  const user = await userInfo(hub, actor);
+  const now = hub.clock();
+  const turn = mintId('turn');
+  const limits = await hub.execution.limits.resolve({ user, turn });
+  await hub.store.table('turns').insert({ id: turn, actor: by, user, time: timeInfo(now, user.timeZone), status: 'running', limits, cost: 0, errors: { max: 1 }, createdAt: now });
+  const { run, settled } = await hub.execution.runs.start({
+    fn: qualify(hosted.host.system, fn), args, turn, key: `host:${fn}`, actor: by, caller: by, priority: limits.priority, background: false, handlers: [],
+  });
+  await hub.store.table('turns').update(turn, { root: run });
+  const outcome = await settled;
+  await hub.store.table('turns').update(turn, { status: outcome.status === 'done' ? 'done' : 'failed', endedAt: hub.clock() });
+  if (outcome.status === 'failed') throw reject(502, 'HOST_REFUSED', `${hosted.host.system} could not ${fn.replace('_system', '')} it: ${outcome.error.message}`);
+  return { ok: outcome.status === 'done' };
 }
 
 /** The admin operations on the hub's services. */
@@ -201,12 +230,25 @@ export function adminOperations(hub: HubServices): AdminOperations {
       hub.log.info('system.installed', { system: installed.name, version: installed.version, user: by });
       return { name: installed.name };
     },
-    start_system: async (data) => {
+    // a hosted instance (installed from the chat) is started, stopped and restarted by its host's fns, as the admin
+    start_system: async (data, by) => {
+      const hosted = await hostOf(hub, data.system, data.instance);
+      if (hosted !== undefined) return hostCall(hub, hosted, 'restart_system', { system: data.system, reason: 'started from the Systems page' }, by);
       await link.supervisor.start(data.system, data.instance);
       return { ok: true };
     },
-    stop_system: async (data) => {
+    stop_system: async (data, by) => {
+      const hosted = await hostOf(hub, data.system, data.instance);
+      if (hosted !== undefined) return hostCall(hub, hosted, 'stop_system', { system: data.system }, by);
       await link.supervisor.stop(data.system, 'shutdown', data.instance);
+      return { ok: true };
+    },
+    restart_system: async (data, by) => {
+      const hosted = await hostOf(hub, data.system, data.instance);
+      if (hosted !== undefined) return hostCall(hub, hosted, 'restart_system', { system: data.system, reason: data.reason }, by);
+      await link.supervisor.stop(data.system, 'restart', data.instance);
+      await link.supervisor.start(data.system, data.instance);
+      hub.log.info('system.restarted', { system: data.system, instance: data.instance ?? null, by, reason: data.reason });
       return { ok: true };
     },
     upgrade_system: (data) => link.supervisor.upgrade(data.system, data.version),
@@ -230,6 +272,12 @@ export function adminOperations(hub: HubServices): AdminOperations {
     remove_instance: async (data, by) => {
       await link.packages.removeInstance(data, by);
       return { ok: true };
+    },
+    suggest_decision_set: (data, by) => hub.chat.suggestions.set(data, by),
+    auto_pair_revoke: async (data, by) => ({ ok: await link.autoPairs.revoke(data.id, by) }),
+    system_reimport: async (data) => {
+      await knownSystem(hub, data.system);
+      return link.admin.reimport(data.system);
     },
     export_system_data: async (data, by) => {
       const ref = await link.packages.exportData({ ref: { system: data.system, instance: data.instance }, withSecrets: data.withSecrets ?? false, by });

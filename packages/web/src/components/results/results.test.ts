@@ -148,7 +148,7 @@ describe('approval cards', () => {
     expect(desk.byRun.value.has(run)).toBe(true);
   });
 
-  it('asks a registry’s contributions once and keeps a choice per view', async () => {
+  it('asks a registry’s contributions once, labels each visual from its contract and keeps a choice per view', async () => {
     const api = fakeChatApi();
     const prepare = vi.fn(() => Promise.resolve());
     const host = new VisualHost({ api, renderers: { contributedVisuals: () => [] }, prepare });
@@ -160,12 +160,12 @@ describe('approval cards', () => {
     const withContributions = new VisualHost({
       api, prepare,
       renderers: { contributedVisuals: () => [
-        { system: 'database', name: 'bar', fit: { fits: true, score: 0.7 }, component: drawn, props: { table: table(), system: client } },
-        { system: 'charts', name: 'pie', fit: { fits: true, score: 0.6 }, component: drawn, props: { table: table(), system: client } },
+        { system: 'database', name: 'bar', label: 'Bars', icon: 'chart', fit: { fits: true, score: 0.7 }, component: drawn, props: { table: table(), system: client } },
+        { system: 'charts', name: 'pie', label: 'Pie chart', icon: 'not-an-icon', fit: { fits: true, score: 0.6 }, component: drawn, props: { table: table(), system: client } },
       ] },
     });
     const shown = withContributions.visuals(registry, table());
-    expect(shown.map((v) => [v.visual.name, v.visual.system])).toEqual([['bar', 'database'], ['pie', 'charts'], ['table', undefined]]);
+    expect(shown.map((v) => [v.visual.name, v.visual.system, v.visual.label, v.visual.icon])).toEqual([['bar', 'database', 'Bars', 'chart'], ['pie', 'charts', 'Pie chart', 'layers'], ['table', undefined, 'Table', 'table']]);
     expect(shown[0]?.visual.props).toEqual({ table: table(), system: client });
     host.choose('m1-0', 'table');
     expect(host.choice('m1-0')).toBe('table');

@@ -23,6 +23,7 @@ export function adminApi(hub: Hub) {
     installSystem: hub.caller('installSystem'),
     startSystem: hub.caller('startSystem'),
     stopSystem: hub.caller('stopSystem'),
+    restartSystem: hub.caller('restartSystem'),
     upgradeSystem: hub.caller('upgradeSystem'),
     reimport: hub.caller('reimport'),
     systemFns: hub.caller('systemFns', { dedupe: true }),
@@ -89,7 +90,6 @@ export function adminApi(hub: Hub) {
     setAutoClassifier: hub.caller('setAutoClassifier'),
     upload: hub.caller('upload'),
     uploaded: hub.caller('uploaded'),
-    search: hub.caller('search', { lastOnly: true }),
   };
 }
 
