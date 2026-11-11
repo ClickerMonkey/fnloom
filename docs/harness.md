@@ -1083,6 +1083,13 @@ Already checked: type-checking all of the types and examples takes about two sec
   - **A system page shows everything the system contributed** (fns, context, types, kinds, resources, commands,
     components, examples, providers) with origin, version and visibility. It has a switch per item and a switch for all
     of the system's context, like the one for its fns.
+  - **Authoring fns, as in product:** the chat model hands a full description to one authoring fn (query, input,
+    and later API and code). Inside it, a sub-agent on `ctx.ai()` follows a forced tool workflow with progressive
+    disclosure of types, schemas and examples, so the huge context stays inside the fn. It ports product's tested
+    logic and runs on one reusable SDK authoring-agent helper.
+  - **Testing is native to a system:** one SDK test kit covers a fake hub and ctx, typed fn calls, mocked and replayed
+    LLM replies plus a few real ones, component previews in named states with screenshots for review, and kind and
+    context-folder checks. `harness test` runs it, and `install_system` runs it before approval.
   - **A context brings the fns its work needs:** the hub adds them to the turn, and the context's text names them and
     says how to use them. For example, fs authoring brings bash, read, write and edit.
   - **A system the chat writes is installed from the chat, not the console.** The plan is in
