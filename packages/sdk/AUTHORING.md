@@ -4531,26 +4531,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/types_get`: The definitions of named types and of every type they refer to, dependencies first. Tags: `read`.
 
   ```text
-  (obj{names: list<text>}) => obj{
-    types: list<obj{
-      description: text,
-      def: any,
-      display: obj{
-        label: text,
-        plural?: text,
-        icon?: text,
-        color?: text,
-        title?: text,
-        subtitle?: text
-      },
-      instance?: text,
-      name: text,
-      system: text,
-      references: list<text>,
-      updatedAt: num{whole=true}
-    }>,
-    missing: list<text>
-  }
+  (obj{names: list<text>}) => obj{ types, missing … }
   ```
 - `hub/runs_list`: Runs, newest first, filtered by fn, status, session or system. A member sees their own runs. Tags: `read`.
 
@@ -4649,7 +4630,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{model?: text}) => list<obj{ model, limits, sources, ratio … }>
   ```
-- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
+- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
 
   ```text
   (obj{ list, query? … }) => obj{
@@ -11178,7 +11159,7 @@ const, type · declared in `packages/core/src/primitives.ts`
 What kind of thing an actor is.
 
 ```ts
-type ActorKind = "system" | "user" | "group" | "agent" | "mcp";
+type ActorKind = "mcp" | "system" | "user" | "group" | "agent";
 ```
 
 #### <a id="core-allowedoperations"></a>`AllowedOperations`
@@ -11256,7 +11237,7 @@ const, type · declared in `packages/core/src/primitives.ts`
 Who can see a thing: people in the UI, the LLM, both, or neither.
 
 ```ts
-type Audience = "none" | "user" | "llm" | "both";
+type Audience = "llm" | "none" | "user" | "both";
 ```
 
 #### <a id="core-autopairgrant"></a>`AutoPairGrant`
@@ -11281,8 +11262,8 @@ What the system brings in `hello` to re-pair without a token or code.
 
 ```ts
 type AutoPairProof = {
-  id: string;
   secret: string;
+  id: string;
 };
 ```
 
@@ -11787,7 +11768,7 @@ type FnSearchQuery = {
   kinds?: (`${string}/${string}` | "native")[] | undefined;
   systems?: (string & z.core.$brand<"SystemName">)[] | undefined;
   instance?: (string & z.core.$brand<"InstanceName">) | undefined;
-  visibility?: "mine" | "shared" | "public" | undefined;
+  visibility?: "shared" | "public" | "mine" | undefined;
   types?: {
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
@@ -12063,6 +12044,10 @@ type KindDescription = {
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
   } | undefined;
+  readable?: {
+    language: string;
+    code: string;
+  } | undefined;
 };
 ```
 
@@ -12221,7 +12206,7 @@ type LlmForwardChunk = {
 } | {
   type: "error";
   message: string;
-  kind: "limit" | "model" | "provider" | "tool";
+  kind: "provider" | "limit" | "model" | "tool";
 };
 ```
 
@@ -12292,7 +12277,7 @@ A system's whole contract as JSON.
 
 ```ts
 type Manifest = {
-  events: ("message" | "system" | "fns" | "run" | "resources")[];
+  events: ("message" | "run" | "system" | "fns" | "resources")[];
   resources: boolean;
   config: TypeDef<any>;
   requires: (string & z.core.$brand<"SystemName">)[];
@@ -12310,12 +12295,16 @@ type Manifest = {
     };
     methods: string[];
     instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    audience?: {
+      visibility: "private" | "shared" | "public";
+      with: string[];
+    } | undefined;
   }[];
   settings: {
     name: string;
     description: string;
     type: TypeDef<any>;
-    appliesTo: ("system" | "user" | "group" | "agent" | "mcp")[];
+    appliesTo: ("mcp" | "system" | "user" | "group" | "agent")[];
     merge: "union" | "user-wins" | "intersect" | "most-restrictive";
     editableBy: ("self" | "fns")[];
   }[];
@@ -12382,10 +12371,14 @@ type Manifest = {
       retries?: number | undefined;
       cost?: number | undefined;
     };
-    visibility: "none" | "user" | "llm" | "both";
+    visibility: "llm" | "none" | "user" | "both";
     tags: string[];
     instructions?: string | undefined;
     payload?: z.core.util.JSONType | undefined;
+    readable?: {
+      language: string;
+      code: string;
+    } | undefined;
     status?: {
       active: {
         one: string;
@@ -12441,8 +12434,8 @@ type Manifest = {
     imports: `${string}/${string}`[];
     fns: `${string}/${string}`[];
     suggestFns: `${string}/${string}`[];
-    suggest: "none" | "user" | "llm" | "both";
-    visible: "none" | "user" | "llm" | "both";
+    suggest: "llm" | "none" | "user" | "both";
+    visible: "llm" | "none" | "user" | "both";
     alwaysFor: `${string}/${string}`[];
     tags: string[];
     content?: string | undefined;
@@ -12601,12 +12594,16 @@ type ManifestPatch = {
       };
       methods: string[];
       instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+      audience?: {
+        visibility: "private" | "shared" | "public";
+        with: string[];
+      } | undefined;
     }[] | undefined;
     settings?: {
       name: string;
       description: string;
       type: TypeDef<any>;
-      appliesTo: ("system" | "user" | "group" | "agent" | "mcp")[];
+      appliesTo: ("mcp" | "system" | "user" | "group" | "agent")[];
       merge: "union" | "user-wins" | "intersect" | "most-restrictive";
       editableBy: ("self" | "fns")[];
     }[] | undefined;
@@ -12673,10 +12670,14 @@ type ManifestPatch = {
         retries?: number | undefined;
         cost?: number | undefined;
       };
-      visibility: "none" | "user" | "llm" | "both";
+      visibility: "llm" | "none" | "user" | "both";
       tags: string[];
       instructions?: string | undefined;
       payload?: z.core.util.JSONType | undefined;
+      readable?: {
+        language: string;
+        code: string;
+      } | undefined;
       status?: {
         active: {
           one: string;
@@ -12732,8 +12733,8 @@ type ManifestPatch = {
       imports: `${string}/${string}`[];
       fns: `${string}/${string}`[];
       suggestFns: `${string}/${string}`[];
-      suggest: "none" | "user" | "llm" | "both";
-      visible: "none" | "user" | "llm" | "both";
+      suggest: "llm" | "none" | "user" | "both";
+      visible: "llm" | "none" | "user" | "both";
       alwaysFor: `${string}/${string}`[];
       tags: string[];
       content?: string | undefined;
@@ -13937,8 +13938,8 @@ A visibility without its owner, for things whose owner is kept elsewhere (a conn
 
 ```ts
 type ShareRule = {
+  visibility: "private" | "shared" | "public";
   with: string[];
-  visibility: "shared" | "public" | "private";
 };
 ```
 
@@ -13986,8 +13987,8 @@ Hub events a system can subscribe to.
 type SystemEvent = {
   type: "message";
   message: {
-    id: string;
     session: string;
+    id: string;
     role: "user" | "note" | "assistant";
     createdAt: number;
     author: string;
@@ -14130,6 +14131,10 @@ type TypeDecl = {
   };
   methods: string[];
   instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+  audience?: {
+    visibility: "private" | "shared" | "public";
+    with: string[];
+  } | undefined;
 };
 ```
 
@@ -14157,6 +14162,10 @@ type TypeDefinitions = {
     references: `${string}/${string}`[];
     updatedAt: number;
     instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    audience?: {
+      visibility: "private" | "shared" | "public";
+      with: string[];
+    } | undefined;
   }[];
   missing: `${string}/${string}`[];
 };

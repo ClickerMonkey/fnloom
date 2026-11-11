@@ -7,7 +7,6 @@
 import type { ResultTable, VisualFit } from '@harness/core';
 import type { VisualOption } from '@harness/sdk';
 import { computed, ref, type Component, type Ref } from 'vue';
-import { database } from '../shared/index.ts';
 
 /** A visual's match logic: whether a result fits it, and how well. */
 export interface VisualMatch {
@@ -22,9 +21,12 @@ export interface FittingVisual<V extends VisualMatch> {
   readonly visual: V;
 }
 
-/** A visual's label, as the contract's `contributes` names it. */
+/** The labels of the visuals the app draws itself (the system contributes none; another system's show by name). */
+const OWN_LABELS: Readonly<Record<string, string>> = { table: 'Table', bar: 'Bar chart', value: 'Value' };
+
+/** A visual's label: the app's own visuals have one, a contributed visual shows its name. */
 export function labelOf(name: string): string {
-  return database.contributes.find((entry) => entry.name === name)?.label ?? name;
+  return OWN_LABELS[name] ?? name;
 }
 
 /** The visuals that fit a table, best first; the table always fits and comes last among equals. */

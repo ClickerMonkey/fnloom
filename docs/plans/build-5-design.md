@@ -1,6 +1,6 @@
 # Build 5 design (binding)
 
-Spec: [build-5.md](build-5.md). The shared contracts are in `@harness/core` now and typecheck is green. The new web
+Spec: [build-5.md](build-5.md). Status per item is at the end ("Status at the end of build 5"). The shared contracts are in `@harness/core` now and typecheck is green. The new web
 endpoints answer 501 from `packages/hub/src/api/web/build5.ts`; the new system link endpoint `preview` throws from
 `sdk/src/server/runtime.ts` (`buildFiveStub`); the SDK's fake hub answers `decide` with `off` and throws on
 `propose`; the hub serves neither `propose` nor `decide` yet. The lanes replace all of these.
@@ -133,3 +133,37 @@ it with an `Equal` test, as the hub does for `ContentRef`.
      provider serving a call); a build 5 suite over a SQLite database (get_query, reuse, a write approved and one
      declined, a proposed type change).
    - **platform** (SDK): keep the run's undo through a validation `retry`.
+
+## Status at the end of build 5
+
+The stub sentence at the top is history: `build5.ts` serves every endpoint and the SDK's `preview`, `propose` and
+`decide` are real. `npm run check` is green. `npm run e2e`: 62 of 63 pass; the one failure (`runs` › the index's embedding
+calls) is because the embedder service on 8760 was not running during the run.
+
+| Item | Status |
+|---|---|
+| 1. Native approval runs | Done: `approval` always waits, `preview` from the system, `propose` (with and without a parent), `approvalsSlice`, one preview view on the chat card and the run page; approving runs it (no separate Run button). |
+| 2. Fleet-owned fns and types | Done: instance-owned catalog entries, `routing` `instance` / `any`. |
+| 3. Config secrets | Done: sealed on save, `SECRET_KEPT` to the web, password inputs. |
+| 4. Decision model for systems | Done: hub link `decide`, `ctx.decide`. |
+| 5. Visual registry | Done: `contributions`, client bundles loaded before a registry renders. The database system contributes nothing: the app draws `table`, `bar` and `value` itself (labels in `systems/database/client/visuals.ts`). A visual another system contributes shows by its name (`VisualOption` carries no label). |
+| 6. `@aeye/query` dialects and DDL | Done in aits (`harness` branch): SQLite and SQL Server dialects, `createTable` / `alterTable`. |
+| 7. Database system | Done for SQLite (tested for real); Postgres and SQL Server have dialect output tests, and their live tests skip without Docker. Saved query fns, types and examples live in the hub (no local store). |
+| 8. Carry-overs | Done: bounded embed catch-up, dev restarts with `crashes.log`, the build 5 e2e suite, undo kept through `retry`. Not done: a build 4 e2e suite (visibility for two people, crawl, `get_input` with `save_form`, a validation retry, a system provider), and pulling `qwen2.5:3b` for the contextor suite (it uses the first listed model that is present). |
+
+Owner feedback ([build-5-feedback.md](build-5-feedback.md)):
+
+| Item | Status |
+|---|---|
+| Hub fn/context search, examples table and `fn_examples`, fn facts (mode, types, freedom, costs, run times) | Done (`packages/hub/src/fns/`). |
+| `get_input`, `get_query`, `edit_query` as agents (prompt with tools), no local stores or in-memory vectors | Done. |
+| Chat fn mode (`none` … `auto`) and the admin classifier model | Done. |
+| Runtime add/update/remove of everything a contract declares | Types at runtime done (database tables); the full uniform API is build 6. |
+| A context brings its fns (fs authoring: bash, read, write, edit) | Partly: see `system-install-flow.md` part 1, carried to build 6. |
+| fs file explorer (browse live, not saved as resources) | Not done. |
+| Web system on `@aeye/resources` | Partly: links come from `extractLinksFromHtml`; the crawl walk stays the system's own (library gap, build 6 item 4). |
+| Self-contained system builds | Done: the server bundle inlines every JS dependency; only `server.external` (native addons) stays out. |
+| Browser logs and traffic as per-person hub resources | Done (the web app's own log client, not `@ayepi/log`). |
+| UI fixes (resources width and tree sidebar, dead opens, `bum` error, missing fn calls, order, collapsing, fn modal, cursor) | Done by the web lane and its reviews; not re-checked in a browser at the end. |
+| Systems use aeye through the hub anywhere (`ctx.ai()`, `hubAi()`, real models) | Not done: `harnessAi` / `harnessAiOf(ctx.llm)` work inside runs only. Build 6 item 3. |
+| Hub surface departures (`docs/reference/hub-surface.md`) | Not re-audited at the end; build 6 item 2 closes what is left. |

@@ -80,8 +80,9 @@ package suite's, 4480 and 4481 `npm run ui-tests:mock`, 8760 the embedder servic
 | fs | `systems/fs` | files and folders as resources, read/write/search fns, `fs/bash` with approval, the system authoring guide as context (`/new-system`); many instances can attach (`fs@laptop`) |
 | embedder | `systems/embedder` | embeddings from the EmbeddingGemma service, for search and suggestions |
 | web | `systems/web` | Tavily search, page reading (pages that need it are rendered with puppeteer) and `web/crawl` (a site, up to 3 links deep, into one resource root); pages become hub resources with a markdown form |
-| input | `systems/input` | forms the agent asks for: `get_input` (reuses a saved form or writes a gin type), `ask_text` / `ask_choice` / `ask_confirm` / `ask_number` / `ask_date`, and `save_form` ("Save this form for next time"); answers come back as a hidden `input-answer` part |
+| input | `systems/input` | forms the agent asks for: `get_input` (an agent: reuses a saved form fn kept in the hub, or writes a gin type), `ask_text` / `ask_choice` / `ask_confirm` / `ask_number` / `ask_date`, and `save_form` ("Save this form for next time"); answers come back as a hidden `input-answer` part |
 | google-calendar | `systems/google-calendar` | each person connects their own calendar at `/connect/google-calendar` and picks which fns are on and which ask first; list, search, get, create, update and delete events |
+| database | `systems/database` | a fleet, one instance per database (SQLite, Postgres, SQL Server): tables become hub types, `get_query` / `edit_query` (an agent that reuses or writes a saved query fn kept in the hub), writes and `create_table` / `alter_table` only after approval with a preview, results drawn as a table, bar chart or value |
 | template | `systems/template` | what `harness system new` copies: `system.json`, `shared/`, `server/`, `client/`, placeholder comments only |
 
 Every installed system gets its own data and cache folders (`ctx.dataDir`, `ctx.cacheDir`) that survive upgrades; its
@@ -97,6 +98,10 @@ A chat's settings (or its agent's) pick a **chat mode** and a **contextor**:
 - Contextors: **plain** (the whole conversation), **suggest** (plain, plus fns and context suggested from the
   embedded message) and **graph** (each message starts a fresh prompt from the relevant history and the context graph's
   weighted links, sized to the model's window and its output tokens; meant for small local models).
+
+A chat's **fn mode** limits which fns it may call: `none`, `read`, `write`, `delete` (each allows fns up to that mode,
+worked out from what a fn and the fns it uses do), or `auto`, where a classifier model (set system-wide in admin)
+decides each call. A fn that needs approval waits once: approving it runs it.
 
 A chat's settings also answer "what would a message get?" with the context and the budget a prompt would use.
 
@@ -161,7 +166,9 @@ in [`docs/architecture.md`](docs/architecture.md).
   read into a markdown resource), `mcp` (a hub MCP answering an MCP client), `pairing` (QR pairing a second fs
   instance; two at once), `package` (a packed fs fleet installed on a hub of its own, 4421). Build 3's `build3` suite:
   list queries (filters and sorts on the hub, `hub/query`, a bad field refused), suggestion records and the decision
-  model, stopping one run by id, and auto pair (pairing with a secret, re-pairing after the key is lost, rotation). Set `HARNESS_E2E_URL`
+  model, stopping one run by id, and auto pair (pairing with a secret, re-pairing after the key is lost, rotation). Build 5's `build5` suite runs over two SQLite database instances: tables as hub types, `get_query`
+writing, saving and reusing a query fn with the free model, paging and sorting a saved query, a write approved and one
+declined, and a table made through approval. Set `HARNESS_E2E_URL`
   to test a stack that is already running instead.
 - `npm run ui-tests` boots nothing. Start a stack (a fresh one is best: `HARNESS_DATA=.harness/ui npm run dev`), then
   point it there: `HARNESS_UI_URL=http://127.0.0.1:4300 HARNESS_UI_EMAIL=… HARNESS_UI_PASSWORD=… npm run ui-tests`

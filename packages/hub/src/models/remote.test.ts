@@ -3,11 +3,12 @@
  * system's link, are recorded as model calls (with their cache reads and whether the model caches), and whose set
  * follows the systems that are connected.
  */
+import type { Providers } from '@aeye/ai';
 import { limiter } from '@ayepi/rate';
 import { SystemName, type Manifest, type SystemProviderDecl } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { RecordingBus, memoryLog, testStore } from '../testing.ts';
-import { cacheSupportOf, createHubAi, HubAiHooks } from '../execution/ai.ts';
+import { AeyeLlm, cacheSupportOf, createHubAi, HubAiHooks, SwitchingLlm } from '../execution/ai.ts';
 import { InteractionRecorder } from '../execution/interactions.ts';
 import { HubLedger } from '../execution/ledger.ts';
 import { LedgerSpend } from '../execution/spend.ts';
@@ -50,7 +51,7 @@ async function hubAi(connection: SystemConnection) {
   });
   const remote = new RemoteProvider(SHOP, LOCAL, () => connection);
   const ai = createHubAi({ providers: { [remote.name]: remote }, hooks, log, models: await remote.listModels() });
-  return { ai, store };
+  return { ai, store, remote, hooks, log };
 }
 
 describe('remote providers', () => {
@@ -82,6 +83,24 @@ describe('remote providers', () => {
     const response = await remote.embed({ texts: ['ab', 'c'] }, { metadata: { model: 'vec' } });
     expect(response.embeddings.map((e) => e.embedding)).toEqual([[2, 1], [1, 1]]);
     expect(response.usage).toEqual({ text: { input: 4 } });
+  });
+
+  it('embed through the hub engine, which keeps its callers while new providers are swapped in', async () => {
+    const { shop, connection } = connectedShop();
+    shop.behaviour.providerEmbed = (input) => ({ vectors: input.texts.map((t) => [t.length, 1]), tokens: 4 });
+    const { store, remote, hooks, log } = await hubAi(connection);
+    const make = (providers: Providers) => new AeyeLlm(createHubAi({ providers, hooks, log, models: LOCAL.models.map((m) => remoteModelInfo(remote.name, m)) }));
+    const engine = new SwitchingLlm(make, {});
+    expect(engine.models()).toEqual([]);
+    await engine.use({ [remote.name]: remote });
+    expect(engine.models().map((m) => m.id).sort()).toEqual(['tiny', 'vec']);
+    expect(await engine.embed({ texts: ['ab', 'c'], metadata: { model: 'vec' } }, { purpose: 'test' })).toEqual([[2, 1], [1, 1]]);
+    const [call] = (await store.table('modelCalls').find({ limit: 5 })).items;
+    expect(call).toMatchObject({ modality: 'embed', provider: 'shop/local', model: 'vec', status: 'done' });
+    // the shop serves no images, transcription or speech: those calls fail rather than go elsewhere
+    await expect(engine.image({ prompt: 'a cat', metadata: { model: 'tiny' } }, { purpose: 'test' })).rejects.toThrow();
+    await expect(engine.transcribe({ audio: new Uint8Array([1]), mime: 'audio/wav', metadata: { model: 'tiny' } }, { purpose: 'test' })).rejects.toThrow();
+    await expect(engine.speech({ text: 'hi', format: 'ogg', metadata: { model: 'tiny' } }, { purpose: 'test' })).rejects.toThrow();
   });
 
   it('stream a chat call with the model given as model info, and throw the error the system sends', async () => {
