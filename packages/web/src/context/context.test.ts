@@ -18,7 +18,7 @@ import LinkDialog from './components/LinkDialog.vue';
 import LinkGroups from './components/LinkGroups.vue';
 import MemoryDialog from './components/MemoryDialog.vue';
 import {
-  emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
+  bodyText, emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
 } from './logic/context.ts';
 import { targetRoute } from './logic/targets.ts';
 import { contextLink, contextRecord, fakeContext, fixtureGraph, T_CONTEXT } from './test/fakes.ts';
@@ -29,6 +29,15 @@ const EVERYONE = { visibility: 'public', with: [] } as const satisfies ShareRule
 const MEMORY = name('memory/likes-tabs-ab12');
 
 describe('the context URL and drafts', () => {
+  it('leaves out of a titled item’s text the title and description its page header shows', () => {
+    const decl = { title: 'Kinds', description: 'How kinds work' };
+    expect(bodyText('# Kinds\n\nHow kinds work\n\nA kind is declared once.', decl)).toBe('A kind is declared once.');
+    expect(bodyText('A kind is declared once.', decl)).toBe('A kind is declared once.');
+    // a titled item may say nothing more; an untitled one (a memory reads as its words) keeps its text whole
+    expect(bodyText('# Kinds\n\nHow kinds work', decl)).toBe('');
+    expect(bodyText('Prefer short answers.', { description: 'Prefer short answers.' })).toBe('Prefer short answers.');
+  });
+
   it('reads the query through its schema, dropping what does not parse', () => {
     expect(readContextQuery({ q: 'origin:memory files', remember: '1' })).toEqual({ q: 'origin:memory files', remember: '1' });
     expect(readContextQuery({ q: '', from: '2' })).toEqual({});
@@ -226,16 +235,21 @@ describe('the context components', () => {
     expect(wrapper.text()).toContain('1,200 tokens');
     expect(wrapper.text()).toContain('5m');
     expect(wrapper.attributes('href')).toBe('/context/fs/guide');
-    // a titled item from a context folder: its title, its description under it, who sees it, its choices; keyed on an admin page
+    // a titled item from a context folder: its title, its description under it, who sees it, its choices; on an admin
+    // page also where it was declared and its version, never its key
     const filed = contextRecord('fs/authoring.kinds', {
       description: 'How kinds work', decl: { title: 'Kinds', visible: 'llm', choices: [{ to: 'fs/authoring.fns', when: 'The person asks about fns' }] },
     });
-    const keyed = mount(ContextRow, { props: { record: filed, to: links.contextItem(filed.name), now: T_CONTEXT, keyed: true }, global: { plugins: [r] } });
+    const keyed = mount(ContextRow, { props: { record: { ...filed, declaredBy: 'runtime', version: 'abcdef0123456789' }, to: links.contextItem(filed.name), now: T_CONTEXT, detailed: true }, global: { plugins: [r] } });
     expect(keyed.get('.name').text()).toBe('Kinds');
     expect(keyed.get('.description').text()).toBe('How kinds work');
     expect(keyed.get('[data-testid="context-seen-by"]').text()).toBe('Seen by agents');
     expect(keyed.text()).toContain('1 choice');
-    expect(keyed.get('.key').text()).toBe('authoring.kinds');
+    expect(keyed.get('[data-testid="context-declared"]').text()).toBe('Added while runningabcdef01');
+    expect(keyed.text()).not.toContain('authoring.kinds');
+    // every row on a system's page says who sees it, everyone included
+    const everyone = mount(ContextRow, { props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT, detailed: true }, global: { plugins: [r] } });
+    expect(everyone.get('[data-testid="context-seen-by"]').text()).toBe('Seen by people and agents');
   });
 
   it('link groups show both directions, and only drawn links out can be removed', async () => {

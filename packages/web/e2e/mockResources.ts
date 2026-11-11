@@ -53,6 +53,8 @@ export class MockResources {
     };
     add('fs://work/README.md', { name: 'README.md', format: 'markdown', mime: 'text/markdown' }, utf8(MARKDOWN), { ago: 0.1 });
     add('fs://work/packages/web/src/main.ts', { name: 'main.ts', format: 'typescript', mime: 'text/typescript' }, utf8(CODE), { ago: 0.5 });
+    // the file the build 5 feedback pass searches for and opens
+    add('fs://work/scripts/hub-client.ts', { name: 'hub-client.ts', format: 'typescript', mime: 'text/typescript' }, utf8(CODE), { ago: 0.6 });
     add('fs://work/data/people.csv', { name: 'people.csv', format: 'csv', mime: 'text/csv' }, utf8(CSV), {
       ago: 2, versions: { table: fixture(ConvertedVersion, { kind: 'table', converter: 'csvConverter', from: 'csv', tables: [{ name: 'people', headers: ['name', 'age', 'joined'], rows: [['Ada', '36', '2024-01-04'], ['Grace', '45', '2023-06-12'], ['Hopper, Grace', '46', '2023-06-13'], ['Alan', '41', '2025-02-20']] }] }) },
     });

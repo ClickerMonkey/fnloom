@@ -3,7 +3,7 @@
  * builds its renderers into its cache folder, then serves both to the hub. Its undo snapshots are its data (kept
  * across upgrades and exported with it); its data and cache folders come from the SDK's `placeFolders`, the same
  * ones `ctx.dataDir` and `ctx.cacheDir` give. The systems it hosts (`install_system`) are built with `@harness/build` and
- * run as its children under the SDK's shared supervision, each found in the hub through fs's own search. `npm run dev` starts it; `restart` restarts it through the running
+ * run as its children under the SDK's shared supervision, each known to be connected by its own status lines. `npm run dev` starts it; `restart` restarts it through the running
  * system, which builds the renderers again so changes to them go live too.
  */
 import { existsSync, watch } from 'node:fs';
@@ -22,7 +22,7 @@ import { tsxLoader } from './loader.ts';
 import { createFsImpl } from './impl.ts';
 import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
-import { SupervisedRunner, type ConnectProbe } from './runner.ts';
+import { SupervisedRunner } from './runner.ts';
 import { NodeExec, NodeShell, chooseShell } from './shell.ts';
 import { DiskSnapshots } from './snapshots.ts';
 
@@ -48,25 +48,15 @@ const watchFolder: WatchFolder = (folder, listener) => {
   return () => { watcher.close(); };
 };
 
-// a hosted system is there once the hub lists its fns: usable (connected), or held back waiting for its config. Not
-// filtered by instance: that filter finds a fleet instance's own fns (saved queries), not the contract's.
-const probe: ConnectProbe = async (key) => {
-  const name = SystemName.safeParse(key.split('/')[0]);
-  if (!name.success) { return undefined; }
-  const page = await running.searchFns({ systems: [name.data], available: false, limit: 20 });
-  if (page.items.some((hit) => hit.available)) { return 'connected'; }
-  return page.items.some((hit) => /config/i.test(hit.unavailable ?? '')) ? 'needs-config' : undefined;
-};
 // the hosted systems run under the loader fs runs under (tsx), whose packages they may read
 const loader = tsxLoader(import.meta.url);
 const hosting = new Hosting({
-  builds: new HarnessBuilds({ builder: new ViteBuilder(), files: new NodeFiles(), probeTimeout: settings.FS_HOSTED_PROBE_TIMEOUT, probeEnv: scrubbedEnv(process.env) }),
+  builds: new HarnessBuilds({ builder: new ViteBuilder({ probeTimeout: settings.FS_HOSTED_PROBE_TIMEOUT, probeEnv: scrubbedEnv(process.env) }), files: new NodeFiles() }),
   runner: new SupervisedRunner({
     starter: new NodeStarter({ baseEnv: process.env, nodeArgs: loader.nodeArgs, outputTail: settings.FS_HOSTED_OUTPUT_TAIL }),
     policy: new CrashPolicy({ maxWait: settings.FS_HOSTED_BACKOFF_MAX, restartCode: RESTART_CODE }),
     restart: { policy: 'on-failure', backoff: settings.FS_HOSTED_BACKOFF, maxPerHour: settings.FS_HOSTED_CRASHES_PER_HOUR },
     reads: loader.reads,
-    probe,
     every: settings.FS_HOSTED_CHECK_EVERY,
     wait: (ms) => new Promise((done) => { setTimeout(done, ms); }),
     now: () => Date.now(),

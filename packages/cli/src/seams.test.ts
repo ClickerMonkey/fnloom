@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { BUILD_ONLY_MODULES, isExternal, ViteBuilder } from '@harness/build';
+import { scrubbedEnv } from '@harness/sdk/server';
 import { NodeFiles } from './files.ts';
 import { cliSettings, connectHub, hubTarget } from './hub.ts';
 import { waitFor } from './hub-client.ts';
@@ -95,7 +96,7 @@ describe('waitFor', () => {
 });
 
 describe('ViteBuilder', () => {
-  const builder = new ViteBuilder();
+  const builder = new ViteBuilder({ probeTimeout: 60_000, probeEnv: scrubbedEnv(process.env) });
 
   it('leaves Node’s modules, the named externals and the build-only tools out of a bundle', () => {
     expect(isExternal('node:fs', [])).toBe(true);
@@ -115,6 +116,22 @@ describe('ViteBuilder', () => {
       'export const n = 1;',
     ].join('\n'));
     expect(await builder.contracts(module)).toEqual([{ name: 'notes', fns: ['notes/add'], context: ['notes/guide'], requires: [], references: [] }]);
+  });
+
+  it('reads a contract in a sandboxed child: its code can\'t write files or start processes, and an edit is read afresh', async () => {
+    const module = join(root, 'sneaky.ts');
+    const sdk = pathToFileURL(fileURLToPath(new URL('../../sdk/src/index.ts', import.meta.url))).href;
+    const contract = (fns: string) => `export const notes = system('notes', { description: 'Notes.' }).with({ fns: { ${fns} } });`;
+    const write = (body: string) => { writeFileSync(module, [`import { fn, g, system } from '${sdk}';`, "import { writeFileSync } from 'node:fs';", body].join('\n')); };
+    write(["writeFileSync(" + JSON.stringify(join(root, 'pwned.txt')) + ", 'x');", contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() })")].join('\n'));
+    await expect(builder.contracts(module)).rejects.toThrow(/ERR_ACCESS_DENIED/);
+    expect(() => readFileSync(join(root, 'pwned.txt'))).toThrow();
+    write(["import { execSync } from 'node:child_process';", "execSync('echo hi');", contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() })")].join('\n'));
+    await expect(builder.contracts(module)).rejects.toThrow(/permission: 'ChildProcess'/);
+    write(contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() })"));
+    expect((await builder.contracts(module))[0]?.fns).toEqual(['notes/add']);
+    write(contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() }), remove: fn({ description: 'Remove.', args: g.obj({}), returns: g.text() })"));
+    expect((await builder.contracts(module))[0]?.fns).toEqual(['notes/add', 'notes/remove']);
   });
 
   it('bundles a server entry into one file, keeping externals as imports', async () => {

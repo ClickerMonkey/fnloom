@@ -629,7 +629,7 @@ interface ProcessCommand {
   readonly run: string;
   readonly args: readonly string[];
   readonly cwd?: string | undefined;
-  /** Set on top of the scrubbed environment (the instance's `HARNESS_*` identity goes here). */
+  /** Set on top of the scrubbed environment (the instance's identity, `SYSTEM_ENV`, goes here). */
   readonly env?: Readonly<Record<string, string>> | undefined;
 }
 ```
@@ -668,8 +668,8 @@ interface SupervisedProcess {
 
 function · `import { scrubbedEnv } from '@harness/sdk/server'`
 
-The environment a supervised child gets: from `base`, only `PATH`, the OS basics (`BASIC_ENV`) and `HARNESS_*`
-(never the parent's instance identity, its keys or anything else), then `extra` on top.
+The environment a supervised child gets: from `base`, only `PATH`, the OS basics (`BASIC_ENV`) and the SDK
+tunables (`SHARED_ENV`), never the parent's identity, keys or anything else, then `extra` on top.
 
 ```ts
 function scrubbedEnv(base: Readonly<Record<string, string | undefined>>, extra?: Readonly<Record<string, string>>): Record<string, string>;
@@ -685,14 +685,16 @@ The OS variables a child keeps (matched without case, as Windows names them `Pat
 const BASIC_ENV: readonly ["PATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR"];
 ```
 
-#### `HARNESS_ENV_PREFIX`
+#### `SHARED_ENV`
 
-const · `import { HARNESS_ENV_PREFIX } from '@harness/sdk/server'`
+const · `import { SHARED_ENV } from '@harness/sdk/server'`
 
-The prefix of the harness's own variables, which a child keeps.
+The harness variables a child inherits, by name: the SDK runtime tunables (`sdkEnv`: link timing, log level, ...),
+never the parent's instance identity. An explicit list, not a `HARNESS_` prefix, so a parent's own settings and
+secrets (the hub's admin password, signing and encryption keys) never reach a child.
 
 ```ts
-const HARNESS_ENV_PREFIX: "HARNESS_";
+const SHARED_ENV: readonly string[];
 ```
 
 #### `permissionArgs`

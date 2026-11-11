@@ -17,7 +17,7 @@ import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { cardsSection, exampleLines, fnCard, listedLine, moreFns, problemLines, textProtocolInstructions } from './render.ts';
+import { cardsSection, exampleLines, fnCard, listedLine, moreFns, problemLines, summaryHint, textProtocolInstructions } from './render.ts';
 import { modelMayUse } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
@@ -199,7 +199,11 @@ export class StaticChatMode implements ChatMode {
 
   guide(ctx: ModeContext): string {
     if (ctx.protocol === 'text') return textProtocolInstructions();
-    return 'Use find (its `text` says what you need) to look for fns and context, inspect or load to see them, and run({ fn, args }) to run any fn by name.';
+    return [
+      'Answer from the context below when it holds the answer.',
+      'Use find({ text: "what you need, in a few words" }) to look for fns and context, inspect or load to see them, and run({ fn, args }) to run any fn by name.',
+      summaryHint('inspect({ name: "<its name>", detail: "full" })'),
+    ].join('\n');
   }
 
   fixedTools(ctx: ModeContext): Promise<readonly ModeTool[]> {

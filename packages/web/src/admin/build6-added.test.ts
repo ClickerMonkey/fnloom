@@ -44,13 +44,14 @@ async function open(path: string, admin = adminWithLists()) {
 }
 
 describe('a system page', () => {
-  it('lists the context it added with its key, and its types, each from the hub list for the system', async () => {
+  it('lists the context it added (where declared and who sees it, never its key), and its types, from the hub list', async () => {
     const { admin } = await open('/admin/systems/fs/context');
     const query = admin.api.query.calls.map(([args]) => QueryFnArgs.parse(args));
     expect(query[0]).toMatchObject({ list: 'contexts', query: { filters: [{ field: 'system', op: 'is', value: 'fs' }] } });
     const row = document.body.querySelector('[data-testid="system-context"] [data-testid="context-row"]');
     expect(row?.querySelector('.name')?.textContent).toBe('Kinds');
-    expect(row?.querySelector('.key')?.textContent).toBe('authoring.kinds');
+    expect(row?.querySelector('[data-testid="context-declared"]')?.textContent).toBe('From its contract');
+    expect(row?.textContent).not.toContain('authoring.kinds');
     expect(row?.textContent).toContain('Seen by agents');
     expect(document.body.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('1');
   });
@@ -63,7 +64,7 @@ describe('a system page', () => {
 });
 
 describe('a context file item', () => {
-  it('shows its title, its key to an admin, who sees it, and its choices opening the item each loads', async () => {
+  it('shows its title, who sees it (never its key), and its choices with the title and size of the item each opens', async () => {
     const fakes = fakeStores({ signedIn: true });
     fakes.context.state.records.unshift(KINDS);
     const router = createAppRouter(fakes.stores.session, createMemoryHistory());
@@ -72,10 +73,13 @@ describe('a context file item', () => {
     mount(App, { attachTo: document.body, global: { plugins: [router], provide: { [STORES]: fakes.stores } } });
     await flushPromises();
     expect(document.body.querySelector('h1')?.textContent).toContain('Kinds');
-    expect(document.body.querySelector('[data-testid="context-key"]')?.textContent).toContain('authoring.kinds');
+    expect(document.body.textContent).not.toContain('authoring.kinds');
     expect(document.body.querySelector('[data-testid="context-facts"]')?.textContent).toContain('Agents');
     const choice = document.body.querySelector<HTMLAnchorElement>('[data-testid="context-choices"] a');
     expect(choice?.textContent).toContain('The person asks how to read files');
+    expect(choice?.querySelector('.choice-title')?.textContent).toBe('How to use the file tools');
+    expect(choice?.querySelector('.choice-size')?.textContent).toBe('120 tokens');
+    expect(choice?.textContent).not.toContain('fs/guide');
     expect(choice?.getAttribute('href')).toBe('/context/fs/guide');
   });
 });

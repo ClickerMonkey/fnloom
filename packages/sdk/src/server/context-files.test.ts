@@ -9,9 +9,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fn } from '../fn.ts';
 import { g } from '../gin.ts';
 import { system } from '../system.ts';
-import { contextChange, formatContextProblem, parseContextFile, readContextFolder } from './context-files.ts';
+import { contextChange, formatContextProblem, parseContextFile, readContextFolder, watchContextFolder } from './context-files.ts';
 import { sdkEnv } from './env.ts';
 import { serve, type RunningSystem } from './index.ts';
+import type { SystemPatch } from './table.ts';
 import { FakeHub } from './testing.ts';
 
 const file = (header: string, body = 'Body text.') => `---\n${header}\n---\n\n${body}\n`;
@@ -87,5 +88,35 @@ describe('serving a context folder', () => {
 
     const broken = await folder({ 'bad.md': '# no header' });
     await expect(serve(notes, { fns: { ask: { async run(_a, ctx) { return ctx.done('ok'); } } } }, { hub: 'ws://hub.test/link', state: 'unused', context: broken }, new FakeHub().host())).rejects.toThrow(/context\/bad\.md:1:1 header/);
+  });
+});
+
+describe('watching a context folder', () => {
+  it('sends a change again after a failed send, one send at a time, so the hub ends up with every change', async () => {
+    const dir = await folder({ 'start.md': file(GOOD) });
+    const initial = (await readContextFolder(dir)).files.map((entry) => entry.decl);
+    const sent: SystemPatch[] = [];
+    let inFlight = 0;
+    let most = 0;
+    let fails = 1;
+    const stop = watchContextFolder(dir, initial, async (change) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((done) => setTimeout(done, 30));
+      inFlight -= 1;
+      if (fails > 0) { fails -= 1; throw new Error('hub down'); }
+      sent.push(change);
+    }, { debounce: 10, retry: 20, retryMax: 40, events: { problems: () => undefined, sent: () => undefined, failed: () => undefined } });
+    try {
+      await writeFile(join(dir, 'start.md'), file(GOOD, 'Edited.'));
+      await expect.poll(() => sent.at(-1)?.upsert?.context?.[0]?.content, { timeout: 5_000 }).toBe('Edited.');
+      await writeFile(join(dir, 'start.md'), file(GOOD, 'Again.'));
+      await new Promise((done) => setTimeout(done, 15));
+      await rm(join(dir, 'start.md'));
+      await expect.poll(() => sent.at(-1)?.remove?.context, { timeout: 5_000 }).toEqual(['guide.start']);
+      expect(most).toBe(1);
+    } finally {
+      stop();
+    }
   });
 });

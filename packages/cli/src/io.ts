@@ -1,6 +1,7 @@
 /** The io the `harness` binary runs commands over: the console, the disk, Vite, a hub over HTTP, and stdin. */
 import type { CliIo } from './command.ts';
 import { ViteBuilder } from '@harness/build';
+import { scrubbedEnv } from '@harness/sdk/server';
 import { linesOf } from './commands/mcp.ts';
 import { NodeFiles } from './files.ts';
 import { cliSettings, connectHub, hubTarget } from './hub.ts';
@@ -12,7 +13,7 @@ export function nodeIo(cwd: string, environment: Readonly<Record<string, string 
     out: { line: (text) => { process.stdout.write(`${text}\n`); }, warn: (text) => { process.stderr.write(`${text}\n`); } },
     files: new NodeFiles(),
     cwd,
-    builder: new ViteBuilder(),
+    builder: new ViteBuilder({ probeTimeout: settings.HARNESS_CLI_PROBE_TIMEOUT, probeEnv: scrubbedEnv(environment) }),
     settings,
     sleep: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
     stdin: () => linesOf(process.stdin),

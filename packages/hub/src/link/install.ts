@@ -1,0 +1,56 @@
+/**
+ * Build 6: what an install card must say about the instance it pairs. A system that hosts installs (fs) can't see the
+ * hub's instances, so the hub checks its own before anyone is asked: installing under a name the hub already has
+ * paired hands the new code that instance's key, config secrets, connections and visibility. Such a card is refused
+ * unless the run asked to replace it (`replace: true` in its args); then the hub writes what it replaces into the
+ * subject and at the top of the card, so the admin sees it and the pairing grant is bound to it (`StorePairingService.grant`).
+ */
+import { instanceLabel, type ApprovalPreview, type InstallSubject, type InstanceRecord, type InstanceRef, type Json } from '@harness/core';
+
+/** An instance row by name (`InstanceKeeper.get`). */
+export type InstanceLookup = (ref: InstanceRef) => Promise<InstanceRecord | undefined>;
+
+/** The paired instance an install subject would take over, if any (a removed one is free to take). */
+export async function pairedInstance(subject: Pick<InstallSubject, 'system' | 'instance'>, lookup: InstanceLookup): Promise<InstanceRecord | undefined> {
+  const existing = await lookup({ system: subject.system, instance: subject.instance });
+  return existing === undefined || existing.status === 'removed' ? undefined : existing;
+}
+
+/** Whether an existing instance is the one the subject's host runs now (an update of its own install). */
+function hostedBy(existing: InstanceRecord, subject: InstallSubject): boolean {
+  return existing.host?.host.system === subject.host.system && existing.host.host.instance === subject.host.instance;
+}
+
+/** Whether a run's args ask to replace a system that runs somewhere else (`replace: true`). */
+function asksToReplace(args: Json | undefined): boolean {
+  return typeof args === 'object' && args !== null && !Array.isArray(args) && args['replace'] === true;
+}
+
+/**
+ * An install card checked against the hub's instances: as it was when the name is free or the host updates its own
+ * install; with the instance it replaces written into its subject, title and first part when the run asked to
+ * replace; else why not, said to the model as invalid input.
+ */
+export async function checkedInstall(preview: ApprovalPreview, args: Json | undefined, lookup: InstanceLookup): Promise<{ preview: ApprovalPreview } | { refused: string }> {
+  const subject = preview.subject;
+  if (subject?.kind !== 'system-install') return { preview };
+  const existing = await pairedInstance(subject, lookup);
+  if (existing === undefined || (subject.replaces !== undefined && hostedBy(existing, subject))) return { preview };
+  const label = instanceLabel(existing);
+  if (!asksToReplace(args)) {
+    return { refused: `${label} is already paired (version ${existing.version}, ${existing.status}). Pick another instance name, or call again with replace: true to replace it (the card then says so).` };
+  }
+  const replaces = { version: existing.version, manifestHash: existing.manifestHash === '' ? 'none' : existing.manifestHash };
+  const where = existing.host === undefined ? 'not hosted by the hub' : `hosted by ${instanceLabel(existing.host.host)}`;
+  return {
+    preview: {
+      ...preview,
+      title: `Replace ${label} ${existing.version} with ${subject.version} on ${instanceLabel(subject.host)}`,
+      subject: { ...subject, replaces },
+      parts: [
+        { type: 'text', text: `**Replaces ${label}** (version ${existing.version}, ${existing.status}, ${where}). The new code takes over its key, config and secrets, connections and who may use it.` },
+        ...preview.parts,
+      ],
+    },
+  };
+}

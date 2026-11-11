@@ -10,6 +10,8 @@
 import { fixture } from './fixture.ts';
 import { LATEST_ORDERS, ORDERS_BY_CITY, WAITING_WRITE, WRITE_PREVIEW } from './mockBuild5.ts';
 import { PROPOSED_CHANGE, RESCAN_PREVIEW } from './mockDatabase.ts';
+import { existsSync } from 'node:fs';
+import { FS_CLIENT, INSTALL_PREVIEW, INSTALL_RESULT, MOCK_CLIENTS } from './mockBuild6.ts';
 import {
   splitName, Approval, ChatCapabilities, ChatMessage, LlmInteraction, ModelCallId, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, Json, type MessagePart, type OutgoingPart,
   type QualifiedName, type RunUpdate, type SessionEvent, type SessionId, type SessionSummary, type TreeNode, type TurnId,
@@ -79,7 +81,8 @@ export class MockChat {
           args: { name: 'obj', props: { path: { type: { name: 'text', options: { minLength: 1 } } }, find: { type: { name: 'text' } }, replace: { type: { name: 'text' } }, all: { type: { name: 'optional', generic: { T: { name: 'bool' } } } } } },
         },
       ],
-      clients: [],
+      // fs's client build draws the install card, when it has been built
+      clients: existsSync(FS_CLIENT) ? [{ system: 'fs', url: `/api${MOCK_CLIENTS}fs/index.js`, hash: 'mock-fs' }] : [],
       systems: [{ name: 'fs', status: 'connected', enabled: true }, { name: 'embedder', status: 'connected', enabled: true }, { name: 'notes', status: 'disconnected', enabled: true }],
       models: [{ id: 'meta-llama/llama-3.3-8b-instruct:free', provider: 'openrouter', name: 'Llama 3.3 8B (free)', contextWindow: 131_072, pricing: { input: 0, output: 0 }, capabilities: ['chat', 'tools'] }],
     } satisfies z.input<typeof ChatCapabilities>;
@@ -405,6 +408,33 @@ export class MockChat {
     this.approvals.set(proposal.id, { approval: proposal, resume: () => { this.#settle(shop.id, rescan.id, 'done'); } });
   }
 
+  /**
+   * Build 6: a system installed from the chat (the install card, done) and its update waiting for an admin (the
+   * approval card with what the install binds).
+   */
+  #seedInstall(now: number): void {
+    const chat = this.create('Install the dice system');
+    this.sessions.set(chat.id, { ...chat, updatedAt: now - 2 * DAY });
+    const first = mintId('turn');
+    this.#add(chat.id, { turn: first, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 600_000, parts: [{ type: 'text', text: 'Make a dice system and install it.' }] });
+    const installed = this.#run(chat.id, first, 'fs/install_system', { path: 'systems/random' }, AGENT);
+    this.runs.set(installed.id, { ...installed, status: 'done', startedAt: now - 590_000, endedAt: now - 560_000, outcome: { status: 'done', result: INSTALL_RESULT } });
+    this.#add(chat.id, {
+      turn: first, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 550_000, runs: [installed.id],
+      parts: [{ type: 'text', text: 'random 0.1.0 is installed and connected. Its fn `random/roll` rolls dice.' }],
+    });
+    const second = mintId('turn');
+    this.#add(chat.id, { turn: second, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 60_000, parts: [{ type: 'text', text: 'Add a coin flip and update it.' }] });
+    const update = this.#run(chat.id, second, 'fs/install_system', { path: 'systems/random' }, AGENT, undefined, 'awaiting-approval');
+    this.runs.set(update.id, { ...update, createdAt: now - 50_000 });
+    const approval = fixture(Approval, { id: 'apr_random_update', run: update.id, fn: update.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: now - 50_000, preview: INSTALL_PREVIEW });
+    this.approvals.set(approval.id, { approval, resume: () => { this.#settle(chat.id, update.id, 'done'); } });
+    this.#add(chat.id, {
+      turn: second, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 45_000, runs: [update.id],
+      parts: [{ type: 'text', text: 'I added `flip` and built it again. The update waits for your approval.' }],
+    });
+  }
+
   #seed(): void {
     const now = this.#now();
     const router = this.create('Refactor the router');
@@ -414,6 +444,7 @@ export class MockChat {
     this.sessions.set(notes.id, { ...notes, updatedAt: now - DAY - 3_600_000 });
     this.sessions.set(budget.id, { ...budget, updatedAt: now - 3 * DAY });
     this.#seedQueries(now);
+    this.#seedInstall(now);
     const turn = mintId('turn');
     const refused = this.#refused(router.id, turn, 'fs/read_file', RunId.parse('run_agent'));
     this.runs.set(refused.id, { ...refused, startedAt: now - DAY - 62_000, endedAt: now - DAY - 62_000 });

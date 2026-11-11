@@ -1,7 +1,7 @@
 import { CrashPolicy, type ProcessCommand, type ProcessExit, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
 import { describe, expect, it } from 'vitest';
 import type { HostedLaunch } from './hosting.ts';
-import { SupervisedRunner, type ConnectProbe } from './runner.ts';
+import { SupervisedRunner } from './runner.ts';
 
 /** A process the test ends by hand. */
 class FakeProcess implements SupervisedProcess {
@@ -35,12 +35,17 @@ const launch: HostedLaunch = {
   env: { HARNESS_INSTANCE: 'main' }, permissions: undefined,
 };
 
-function setup(probe: ConnectProbe) {
+/** What a hosted process's SDK prints when its status changes (`HARNESS_LOG_JSON`). */
+function statusLine(status: string): string {
+  return `${JSON.stringify({ tms: '2026-11-11T00:00:00.000Z', level: 'info', msg: 'system.status', status })}\n`;
+}
+
+function setup() {
   const starter = new FakeStarter();
   let now = 0;
   const runner = new SupervisedRunner({
     starter, policy: new CrashPolicy({ maxWait: 10, restartCode: 75, clock: () => now }), restart: { policy: 'on-failure', backoff: 1, maxPerHour: 2 },
-    reads: ['/repo/node_modules'], probe, every: 1, wait: (ms) => { now += ms; return new Promise((done) => { setTimeout(done, 1); }); }, now: () => now, log: () => undefined,
+    reads: ['/repo/node_modules'], every: 1, wait: (ms) => { now += ms; return new Promise((done) => { setTimeout(done, 1); }); }, now: () => now, log: () => undefined,
   });
   return { starter, runner };
 }
@@ -48,10 +53,20 @@ function setup(probe: ConnectProbe) {
 const settle = () => new Promise((done) => { setTimeout(done, 30); });
 
 describe('the hosted runner', () => {
-  it('starts under the permission model, waits for the hub to see it, and reports it connected', async () => {
-    let tries = 0;
-    const { starter, runner } = setup(() => Promise.resolve((tries += 1) >= 3 ? 'connected' : undefined));
-    expect(await runner.start('random/main', launch, 1_000)).toEqual({ state: 'connected' });
+  it('starts under the permission model, waits for that process to say the hub welcomed it, and reports it connected', async () => {
+    const { starter, runner } = setup();
+    const starting = runner.start('random/main', launch, 1_000);
+    await settle();
+    const say = starter.started[0]?.command.onOutput;
+    // a line split across pieces, other output, and "connecting" don't count
+    say?.('random.serving\n');
+    say?.(statusLine('connecting'));
+    const connected = statusLine('connected');
+    say?.(connected.slice(0, 20));
+    await settle();
+    expect(runner.status('random/main')?.state).toBe('starting');
+    say?.(connected.slice(20));
+    expect(await starting).toEqual({ state: 'connected' });
     const args = starter.started[0]?.command.args ?? [];
     expect(args[0]).toBe('--permission');
     expect(args.some((arg) => arg.startsWith('--allow-fs-write=') && arg.includes('state'))).toBe(true);
@@ -62,7 +77,7 @@ describe('the hosted runner', () => {
   });
 
   it('gives an exit before connecting back with its output, and stops one that never connects', async () => {
-    const { starter, runner } = setup(() => Promise.resolve(undefined));
+    const { starter, runner } = setup();
     const starting = runner.start('random/main', launch, 1_000);
     await settle();
     starter.started[0]?.process.end({ code: 1, output: 'TypeError: boom' });
@@ -72,11 +87,20 @@ describe('the hosted runner', () => {
   });
 
   it('restarts a crash after it connected, and disables it after too many in an hour', async () => {
-    const { starter, runner } = setup(() => Promise.resolve('connected'));
-    await runner.start('random/main', launch, 1_000);
+    const { starter, runner } = setup();
+    const starting = runner.start('random/main', launch, 1_000);
+    await settle();
+    starter.started[0]?.command.onOutput?.(statusLine('connected'));
+    await starting;
     starter.started[0]?.process.end({ code: 1, output: 'crash 1' });
     await settle();
     expect(starter.started).toHaveLength(2);
+    // the old process's lines don't count for the new one
+    starter.started[0]?.command.onOutput?.(statusLine('connected'));
+    await settle();
+    expect(runner.status('random/main')?.state).toBe('starting');
+    starter.started[1]?.command.onOutput?.(statusLine('connected'));
+    await settle();
     expect(runner.status('random/main')).toMatchObject({ state: 'connected', restartsLastHour: 1 });
     starter.started[1]?.process.end({ code: 1, output: 'crash 2' });
     await settle();

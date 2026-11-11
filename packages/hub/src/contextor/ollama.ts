@@ -6,7 +6,8 @@
  * trained to, and its OpenAI endpoint takes no `num_ctx`.
  */
 import type { ModelCapability, ModelInfo } from '@aeye/ai';
-import { OpenAIProvider } from '@aeye/openai';
+import type { Request } from '@aeye/core';
+import { OpenAIProvider, type OpenAIConfig } from '@aeye/openai';
 import { OLLAMA_BASE_URL, type ModelLimits } from '@harness/core';
 import { z } from 'zod';
 
@@ -128,7 +129,11 @@ export function unsetWindowOf(api: Pick<OllamaApi, 'version'>, config: Pick<Olla
   return api.version().then((version) => unsetWindow(version, config.contextWindow, config.cap));
 }
 
-/** Ollama through `@aeye/openai`: chat over `/v1`, the model list and abilities from the native API. */
+/**
+ * Ollama through `@aeye/openai`: chat over `/v1`, the model list and abilities from the native API. `@aeye/openai`
+ * sends system messages with OpenAI's `developer` role, which Ollama's chat templates drop without a word (the model
+ * never sees its instructions or context), so they go to Ollama as `system`.
+ */
 export class OllamaProvider extends OpenAIProvider {
   override readonly name = 'ollama';
   readonly #api: OllamaApi;
@@ -139,6 +144,12 @@ export class OllamaProvider extends OpenAIProvider {
     super({ apiKey: 'ollama', baseURL: `${api.baseURL}/v1`, api: 'chat' });
     this.#api = api;
     this.#config = config;
+  }
+
+  /** The Chat Completions messages, each system one with the `system` role Ollama reads. */
+  protected override async convertMessages(request: Request, config: OpenAIConfig): ReturnType<OpenAIProvider['convertMessages']> {
+    const messages = await super.convertMessages(request, config);
+    return messages.map((message) => (message.role === 'developer' ? { ...message, role: 'system' } : message));
   }
 
   override async listModels(): Promise<ModelInfo[]> {

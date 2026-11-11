@@ -6,8 +6,8 @@
  * into the hub's own argument shapes (`LinkTarget`, `RememberArgs`) with one plain problem when they don't parse.
  */
 import {
-  ContextFromResourceArgs, ContextOptions, type ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, splitName, type ListQuery,
-  type ContextCopy, type ContextLink, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience, type ShareRule,
+  ContextFromResourceArgs, ContextOptions, type ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, type ListQuery,
+  type ContextCopy, type ContextLink, type DeclaredBy, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience, type ShareRule,
 } from '@harness/core';
 import { z } from 'zod';
 import type { IconName, Outcome } from '../../ui/index.ts';
@@ -61,6 +61,9 @@ export const ORIGIN_WORDS = {
   memory: { label: 'Memory', short: 'Memory', icon: 'sparkles' },
   resource: { label: 'From a resource', short: 'Resource', icon: 'file' },
 } as const satisfies Record<ContextOriginType, { readonly label: string; readonly short: string; readonly icon: IconName }>;
+
+/** Where a system's own item was declared, in words. */
+export const DECLARED_WORDS = { contract: 'From its contract', runtime: 'Added while running' } as const satisfies Record<DeclaredBy, string>;
 
 /** Who a memory is for, in words. */
 export function scopeText(scope: MemoryScope): string {
@@ -337,7 +340,15 @@ export function contextLabel(decl: Pick<ContextRecord['decl'], 'title' | 'descri
   return decl.title ?? (decl.description === '' ? 'Untitled' : decl.description);
 }
 
-/** An item's key: its stable name inside its system (`authoring.kinds`), as its context file's header gives it. */
-export function contextKey(name: QualifiedName): string {
-  return splitName(name).local;
+/**
+ * An item's text for its page, without what the page header already shows: for a titled item, a first `# heading`
+ * that is its title and a first paragraph that is its description are left out (which can leave nothing).
+ */
+export function bodyText(text: string, decl: Pick<ContextRecord['decl'], 'title' | 'description'>): string {
+  if (decl.title === undefined) { return text; }
+  let rest = text.trimStart();
+  const firstBlock = (): string => rest.split(/\n\s*\n/, 1)[0] ?? '';
+  if (firstBlock().trim() === `# ${decl.title}`) { rest = rest.slice(firstBlock().length).trimStart(); }
+  if (decl.description !== '' && firstBlock().trim() === decl.description.trim()) { rest = rest.slice(firstBlock().length).trimStart(); }
+  return rest;
 }

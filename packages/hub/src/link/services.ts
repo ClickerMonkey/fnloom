@@ -19,6 +19,7 @@ import type { Catalog } from '../catalog/index.ts';
 import type { AttachedPart, StateService } from '../chat/index.ts';
 import type { LinkHandler } from '../execution/link-handlers.ts';
 import type { HubStore } from '../store/index.ts';
+import { askingOf } from './reads.ts';
 
 const endpoints = hubLinkSpec.endpoints;
 
@@ -62,7 +63,7 @@ export interface LinkServiceDeps {
   /** An upload not finished within this long is dropped. */
   readonly uploadTtl: number;
   readonly clock: () => number;
-  /** Build 6: what an actor may see, so `types` answers only the types the asking system may see. */
+  /** Build 6: what an actor may see, so `types` answers only the types the run's person (or the system) may see. */
   readonly access?: (actor: ActorId) => Promise<Pick<AccessScope, 'seesType'>>;
 }
 
@@ -128,8 +129,13 @@ export class LinkServices {
     return this.#uploads.add(link, input);
   }
 
-  /** A slice of stored content, in base64. */
-  async content(input: { ref: ContentRef; offset: number; length: number }): Promise<{ chunk: string }> {
+  /**
+   * A slice of stored content, in base64. A run it is read for must be the asking instance's own and still acting.
+   * Refs are content hashes, so only a system that was handed one can name it; which person may read which ref is not
+   * recorded yet (see build-6 open issues).
+   */
+  async content(link: LinkSession, input: { ref: ContentRef; offset: number; length: number; run?: RunId | undefined }): Promise<{ chunk: string }> {
+    if (input.run !== undefined) { await askingOf(this.#deps.store(), link, input.run); }
     const content = this.#deps.content();
     if (!await content.has(input.ref)) { throw refuse(404, 'CONTENT_NOT_FOUND', `no content ${input.ref.hash}`); }
     return { chunk: Buffer.from(await content.read(input.ref, input.offset, input.length)).toString('base64') };
@@ -173,13 +179,12 @@ export class LinkServices {
 
   /**
    * Named type definitions and every named type they reference, dependencies first, with the names not found. A type
-   * the asking system may not see (its visibility) is answered as not found.
+   * the run's person (the system itself without a run) may not see is answered as not found.
    */
-  async types(link: LinkSession, names: readonly QualifiedName[]): Promise<TypeDefinitions> {
+  async types(link: LinkSession, names: readonly QualifiedName[], run?: RunId): Promise<TypeDefinitions> {
     const access = this.#deps.access;
-    const actor = access === undefined ? undefined : (await this.#deps.store().table('systems').get(link.system))?.actor;
-    if (access === undefined || actor === undefined) return typeDefinitions(this.#deps.catalog(), names);
-    const scope = await access(actor);
+    if (access === undefined) return typeDefinitions(this.#deps.catalog(), names);
+    const scope = await access((await askingOf(this.#deps.store(), link, run)).actor);
     const seen: QualifiedName[] = [];
     const hidden: QualifiedName[] = [];
     for (const name of names) {
@@ -215,12 +220,12 @@ export class LinkServices {
 export function linkServiceHandlers(services: LinkServices): { [K in ServiceEndpoint]: LinkHandler<K> } {
   return {
     upload: ({ data, link }) => services.upload(link, data),
-    content: ({ data }) => services.content(data),
+    content: ({ data, link }) => services.content(link, data),
     stateGet: ({ data, link }) => services.stateGet(link, data.owner),
     stateSet: ({ data: { owner, patch, clear, version }, link }) => services.stateSet(link, owner, { patch, clear, ...(version === undefined ? {} : { version }) }),
     setting: ({ data, link }) => services.setting(link, data),
     attach: ({ data, link }) => services.attach(link, data),
-    types: ({ data, link }) => services.types(link, data.names),
+    types: ({ data, link }) => services.types(link, data.names, data.run),
   };
 }
 

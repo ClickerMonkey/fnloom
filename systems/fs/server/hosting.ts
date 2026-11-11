@@ -6,7 +6,8 @@
  *   `tsconfig.json`, bundle one self-contained file, check the contract's name, scan) into a version folder, and
  *   answer the card: what it adds, the change from the running version, the scan and the hashes, with the install
  *   subject the hub binds the pairing grant to. A failed build is refused with its `file:line:col` lines, so the run
- *   is invalid input and the model fixes them without an admin being asked.
+ *   is invalid input and the model fixes them without an admin being asked. Whether the name is paired somewhere else
+ *   is the hub's to say (only it sees its instances): it refuses the card, or writes what it replaces on it.
  * - **Install** (approved): hash the folder again (a change after the card is invalid input), get a one-time pairing
  *   token bound to the approved subject (none for a system already hosted here: it keeps its key), start the bundle
  *   under the runner with its own folders and wait for it to say it connected. An exit before that is invalid input
@@ -91,9 +92,6 @@ export interface HostedRunner {
   status(key: string): RunnerStatus | undefined;
 }
 
-/** Whether the hub knows a system instance of this name (it runs, or ran, somewhere). */
-export type KnownSystem = (system: SystemName, instance: InstanceName) => Promise<boolean>;
-
 /** A one-time pairing token bound to an approved install run's subject (`grantPairing` on the link). */
 export type GrantPairing = (subject: InstallSubject) => Promise<PairingGrant>;
 
@@ -164,6 +162,8 @@ export function fnsDiff(before: readonly string[], after: readonly string[]): st
 /** The systems this fs instance hosts. */
 export class Hosting {
   readonly #deps: HostingDeps;
+  /** The install under way for each system, so two never start, write or prune its versions at once. */
+  readonly #installing = new Map<string, Promise<unknown>>();
 
   constructor(deps: HostingDeps) {
     this.#deps = deps;
@@ -189,14 +189,11 @@ export class Hosting {
    * The card for installing a folder, or why not (`InstallRefused`). The bundle is built into its version folder
    * here, so the run starts exactly what the admin saw.
    */
-  async preview(folder: string, options: { instance?: string | undefined; replace?: boolean | undefined; known: KnownSystem }, signal: AbortSignal): Promise<ApprovalPreview> {
+  async preview(folder: string, options: { instance?: string | undefined }, signal: AbortSignal): Promise<ApprovalPreview> {
     const manifest = await this.#systemJson(folder);
     const instance = this.#instance(options.instance);
     const hosted = await this.record(manifest.name, instance);
     if (RESERVED.has(manifest.name)) { throw new InstallRefused(`"${manifest.name}" is reserved for the hub: rename the system in system.json and its contract.`); }
-    if (hosted === undefined && options.replace !== true && await options.known(manifest.name, instance)) {
-      throw new InstallRefused(`A system ${manifest.name}/${instance} already runs somewhere else. Pick another name, or call again with replace: true to replace it (the card says so).`);
-    }
     const built = await this.#build(folder, manifest.name, signal);
     const sourceHash = await this.#deps.builds.sourceHash(folder);
     const subject: InstallSubject = {
@@ -215,7 +212,7 @@ export class Hosting {
       ? `Install ${manifest.name} ${manifest.version} on ${where}`
       : `Update ${manifest.name} ${hosted.version} → ${manifest.version} on ${where}`;
     const diff = hosted === undefined ? [] : fnsDiff(hosted.fns, built.fns);
-    const permissions = Object.entries(manifest.permissions ?? {}).filter(([, on]) => on === true).map(([name]) => name);
+    const permissions = Object.entries(built.manifest.permissions ?? {}).filter(([, on]) => on === true).map(([name]) => name);
     const parts: PreviewPart[] = [
       {
         type: 'text',
@@ -226,7 +223,6 @@ export class Hosting {
           ...built.fns.map((line) => `- ${line}`),
           ...(built.adds.length === 0 ? [] : ['', 'Also adds:', ...built.adds.map((line) => `- ${line}`)]),
           ...(permissions.length === 0 ? [] : ['', `Asks to: ${permissions.join(', ')}.`]),
-          ...(options.replace === true && hosted === undefined ? ['', `Replaces the ${manifest.name}/${instance} that runs somewhere else.`] : []),
         ].join('\n'),
       },
       ...(hosted === undefined ? [] : [{ type: 'text' as const, text: ['Changes from the running version:', ...(diff.length === 0 ? ['- no fns added, removed or changed'] : diff.map((line) => `- ${line}`))].join('\n') }]),
@@ -237,12 +233,22 @@ export class Hosting {
     return { title, parts, irreversible: false, subject };
   }
 
-  /** Start what an admin approved; see the file's docs. */
+  /** Start what an admin approved; see the file's docs. Installs of one system wait for each other. */
   async install(folder: string, subject: InstallSubject, grant: GrantPairing, signal: AbortSignal): Promise<InstallResultValue> {
+    const before = this.#installing.get(subject.system) ?? Promise.resolve();
+    const mine = before.catch(() => undefined).then(() => this.#install(folder, subject, grant, signal));
+    this.#installing.set(subject.system, mine);
+    try {
+      return await mine;
+    } finally {
+      if (this.#installing.get(subject.system) === mine) { this.#installing.delete(subject.system); }
+    }
+  }
+
+  async #install(folder: string, subject: InstallSubject, grant: GrantPairing, signal: AbortSignal): Promise<InstallResultValue> {
     if (await this.#deps.builds.sourceHash(folder) !== subject.sourceHash) {
       throw new InstallRefused('The folder changed after approval; call install_system again to build and approve the new code.');
     }
-    const manifest = await this.#systemJson(folder);
     let built = await this.#readBuilt(this.versionFolder(subject.system, subject.bundleHash));
     if (built === undefined) {
       const again = await this.#build(folder, subject.system, signal);
@@ -250,11 +256,12 @@ export class Hosting {
       built = again;
     }
     const hosted = await this.record(subject.system, subject.instance);
+    // what it may do comes from the approved build, never from system.json read again
     // a system already hosted here keeps its key and re-pairs by itself; a new one needs a token bound to this approval
     const token = hosted === undefined ? (await grant(subject)).token : undefined;
     const record: HostedRecord = {
       system: subject.system, instance: subject.instance, version: subject.version, folder, bundleHash: subject.bundleHash,
-      manifestHash: subject.manifestHash, entry: built.entry, fns: [...built.fns], permissions: manifest.permissions, start: true,
+      manifestHash: subject.manifestHash, entry: built.entry, fns: [...built.fns], permissions: built.manifest.permissions, start: true,
     };
     const outcome = await this.#start(record, token);
     if (!('state' in outcome)) {
@@ -431,8 +438,9 @@ export class Hosting {
       HARNESS_SYSTEM_DATA: dirs.data,
       HARNESS_SYSTEM_CACHE: dirs.cache,
       HARNESS_SUPERVISED: '1',
-      // the runner reads the SDK's status lines to know it connected
+      // the runner reads the SDK's status lines (JSON, at info) to know it connected
       HARNESS_LOG_JSON: 'true',
+      HARNESS_LOG_LEVEL: 'info',
       ...(token === undefined ? {} : { HARNESS_PAIRING_TOKEN: token }),
     };
     return await this.#deps.runner.start(keyOf(record), { entry: record.entry, cwd: this.versionFolder(record.system, record.bundleHash), writes: [dirs.state, dirs.data, dirs.cache], env, permissions: record.permissions }, this.#deps.limits.connectTimeout);

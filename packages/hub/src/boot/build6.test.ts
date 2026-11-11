@@ -1,11 +1,13 @@
-/** Build 6: the pieces without a rig of their own: the auto mode gate and approval fns, the link's models and reads. */
+/** Build 6: the pieces without a rig of their own: the auto mode gate and approval fns, the link's models and reads, and the Systems page's calls to a host. */
 import { reject } from '@ayepi/core';
-import { MAIN_INSTANCE, QualifiedName, RunId, SectionKey, SystemName, noFnStats, type FnRecord, type LinkSession, type ModelRoleView, type Session } from '@harness/core';
+import { ApprovalId, InstanceName, MAIN_INSTANCE, QualifiedName, RunId, SectionKey, SystemName, noFnStats, type FnRecord, type RunSettled, type LinkSession, type ModelRoleView, type Session } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { openScope } from '../access/index.ts';
 import { SessionModeGate } from '../fns/gate.ts';
 import { linkModels } from '../models/create.ts';
 import { linkReadHandlers } from '../link/reads.ts';
+import { viaHost } from '../api/admin-ops.ts';
+import type { RunInput } from '../execution/index.ts';
 import { linkPayload, testStore } from '../testing.ts';
 import { ALICE, ALICE_INFO, OPEN_LIMITS } from '../execution/testing.ts';
 
@@ -89,5 +91,41 @@ describe('link reads as the run\'s person', () => {
     expect(readers).toEqual([ALICE]);
     await expect(handlers.resource(call({ uri: 'file:///private/b.md', want: ['text' as const], run: RunId.parse('run_1') }))).rejects.toMatchObject({ status: 404 });
     await expect(handlers.resourceSections(call({ uri: 'file:///work/a.md', run: RunId.parse('run_1') }, { ...fs, system: SystemName.parse('web') }))).rejects.toMatchObject({ status: 403 });
+    // a run on another instance of the system, or one that has settled with nothing left to undo, reads as nobody
+    await store.table('runs').update(RunId.parse('run_1'), { instance: InstanceName.parse('laptop') });
+    await expect(handlers.resourceSections(call({ uri: 'file:///work/a.md', run: RunId.parse('run_1') }))).rejects.toMatchObject({ status: 403, code: 'NOT_YOUR_RUN' });
+    await store.table('runs').update(RunId.parse('run_1'), { instance: MAIN_INSTANCE, status: 'done' });
+    await expect(handlers.resourceSections(call({ uri: 'file:///work/a.md', run: RunId.parse('run_1') }))).rejects.toMatchObject({ status: 403, code: 'RUN_SETTLED' });
+    await store.table('runs').update(RunId.parse('run_1'), { undo: { file: 'a.md' } });
+    expect(await handlers.resourceSections(call({ uri: 'file:///work/a.md', run: RunId.parse('run_1') }))).toEqual([]);
+  });
+});
+
+describe('a hosted instance from the Systems page', () => {
+  it('goes to the host instance that runs it, naming the instance, and leaves an unhosted one to the supervisor', async () => {
+    const store = await testStore();
+    await store.table('actors').insert({ id: ALICE, kind: 'user', name: 'Alice', about: '', email: 'alice@example.com', role: 'admin', createdAt: 0, disabled: false });
+    const notes = SystemName.parse('notes');
+    const laptop = InstanceName.parse('laptop');
+    const host = { system: FS, instance: InstanceName.parse('lab') };
+    await store.table('instances').put({
+      system: notes, instance: laptop, description: '', status: 'connected', keyFingerprint: 'k', publicKey: 'p', version: '1', manifestHash: 'm',
+      host: { host, path: '/systems/notes', bundleHash: 'b', approval: ApprovalId.parse('apr_1') },
+    });
+    const started: RunInput[] = [];
+    const hub = {
+      store, clock: () => 5,
+      execution: {
+        limits: { resolve: () => Promise.resolve(OPEN_LIMITS) },
+        runs: { start: (input: RunInput) => { started.push(input); return Promise.resolve({ run: RunId.parse('run_host'), settled: Promise.resolve<RunSettled>({ status: 'done', result: {} }) }); } },
+      },
+    };
+    expect(await viaHost(hub, { system: notes, instance: laptop }, 'restart_system', ALICE, 'stuck')).toEqual({ ok: true });
+    expect(await viaHost(hub, { system: notes, instance: laptop }, 'stop_system', ALICE)).toEqual({ ok: true });
+    expect(started.map((input) => ({ fn: input.fn, args: input.args, on: input.on }))).toEqual([
+      { fn: 'fs/restart_system', args: { system: 'notes', instance: 'laptop', reason: 'stuck' }, on: 'lab' },
+      { fn: 'fs/stop_system', args: { system: 'notes', instance: 'laptop' }, on: 'lab' },
+    ]);
+    expect(await viaHost(hub, { system: notes }, 'stop_system', ALICE)).toBeUndefined();
   });
 });

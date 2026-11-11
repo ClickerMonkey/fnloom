@@ -180,7 +180,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
         >
           <RouterLink v-if="name !== undefined" :to="links.systemContext(name)" class="search-fns" data-testid="search-system-context"><UiIcon name="search" :size="14" />Search and sort in Context</RouterLink>
           <div class="list" data-testid="system-context">
-            <ContextRow v-for="item in parts.context.items.value" :key="item.name" :record="item" :to="links.contextItem(item.name)" :now="now" keyed />
+            <ContextRow v-for="item in parts.context.items.value" :key="item.name" :record="item" :to="links.contextItem(item.name)" :now="now" detailed />
           </div>
           <UiButton v-if="parts.context.hasMore.value" class="more" variant="ghost" size="sm" :loading="parts.context.loadingMore.value" @click="parts.context.more()">Show more context</UiButton>
         </LoadState>
@@ -188,7 +188,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           v-else-if="tab === 'types'" :loading="parts.types.loading.value" :problem="parts.types.problem.value" :ready="parts.types.loaded.value"
           :empty="parts.types.items.value.length === 0" empty-icon="braces" empty-title="No types" empty-body="This system doesn't name any types." @retry="name && parts.loadTypes(name)"
         >
-          <InstanceTypes :types="parts.types.items.value" :changing="NO_CHANGES" />
+          <InstanceTypes :types="parts.types.items.value" :changing="NO_CHANGES" detailed />
           <UiButton v-if="parts.types.hasMore.value" class="more" variant="ghost" size="sm" :loading="parts.types.loadingMore.value" @click="parts.types.more()">Show more types</UiButton>
         </LoadState>
         <LoadState v-else :loading="store.logs.loading.value" :problem="store.logs.problem.value" :ready="store.logs.value.value !== undefined" :empty="false" @retry="store.followLogs()">

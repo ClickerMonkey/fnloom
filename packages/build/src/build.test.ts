@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatContextProblem } from '@harness/sdk/server';
+import type { Manifest } from '@harness/core';
 import type { ContractSummary, SystemBuilder } from './builder.ts';
 import { buildSystem } from './build-system.ts';
 import { checkContextFolder } from './context.ts';
@@ -80,6 +81,7 @@ class StandInBuilder implements SystemBuilder {
   constructor(summary: ContractSummary) { this.#summary = summary; }
   typecheck(): Promise<string[]> { return Promise.resolve([]); }
   contracts(): Promise<ContractSummary[]> { return Promise.resolve([this.#summary]); }
+  manifests(): Promise<Manifest[]> { return Promise.resolve([]); }
   async bundleServer(input: { outDir: string; fileName: string }): Promise<void> {
     await new NodeFiles().write(join(input.outDir, input.fileName), "import 'node:child_process';\nexport {};\n");
   }

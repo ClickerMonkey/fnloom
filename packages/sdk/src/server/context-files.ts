@@ -9,6 +9,7 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { backoff } from '@ayepi/core/retry';
 import { CORE_SCHEMA, load, YAMLException } from 'js-yaml';
 import { ContextFileHeader, contextDeclOf, Json, type ContextDecl, type ContextFileProblem, type ContextFileProblemCode } from '@harness/core';
 import { canonicalJson } from '../manifest.ts';
@@ -161,23 +162,47 @@ export interface ContextWatchEvents {
   problems(problems: readonly ContextFileProblem[]): void;
   /** A change went to the hub. */
   sent(change: SystemPatch): void;
-  /** Sending a change failed. */
+  /** Reading or sending a change failed; it is tried again. */
   failed(error: unknown): void;
+}
+
+/** How `watchContextFolder` waits: for the folder to settle, and between tries when sending fails. */
+export interface ContextWatchOptions {
+  /** How long the folder must be quiet before it is read. */
+  readonly debounce: number;
+  /** The first wait before sending a failed change again; it doubles up to `retryMax`. */
+  readonly retry: number;
+  readonly retryMax: number;
+  /** Prefixes file names in problems (default `context`). */
+  readonly label?: string;
+  readonly events: ContextWatchEvents;
 }
 
 /**
  * Watch a context folder (dev) and send each settled change as a runtime patch, by key. `initial` is what the system
- * started with. Returns a stop function.
+ * started with. One rescan runs at a time (a change during one rescans again after it), so patches reach the hub in
+ * order; what the hub has only moves on once a patch is sent, and a failed one is tried again with backoff, so no
+ * change is lost. Returns a stop function.
  */
 export function watchContextFolder(
   dir: string,
   initial: readonly ContextDecl[],
   send: (change: SystemPatch) => Promise<unknown>,
-  options: { debounce: number; label?: string; events: ContextWatchEvents },
+  options: ContextWatchOptions,
 ): () => void {
-  let known = new Map(initial.map((decl) => [decl.name, decl]));
+  /** What the hub has: it moves on only once a patch was sent. */
+  let sent = new Map(initial.map((decl) => [decl.name, decl]));
   let timer: ReturnType<typeof setTimeout> | undefined;
   let watcher: FSWatcher | undefined;
+  let running = false;
+  let again = false;
+  let failures = 0;
+  let stopped = false;
+  const later = (wait: number): void => {
+    if (stopped) { return; }
+    if (timer !== undefined) { clearTimeout(timer); }
+    timer = setTimeout(() => { timer = undefined; void run(); }, wait);
+  };
   const rescan = async (): Promise<void> => {
     const folder = await readContextFolder(dir, options.label);
     if (folder.problems.length > 0) {
@@ -185,21 +210,34 @@ export function watchContextFolder(
       return;
     }
     const next = new Map(folder.files.map((file) => [file.decl.name, file.decl]));
-    const change = contextChange(known, next);
-    known = next;
+    const change = contextChange(sent, next);
     if (change === undefined) { return; }
     await send(change);
+    sent = next;
     options.events.sent(change);
   };
+  const run = async (): Promise<void> => {
+    if (running) { again = true; return; }
+    running = true;
+    try {
+      await rescan();
+      failures = 0;
+    } catch (error) {
+      failures += 1;
+      options.events.failed(error);
+      if (!again) { later(backoff(failures, { base: options.retry, max: options.retryMax, jitter: 0 })); }
+    } finally {
+      running = false;
+    }
+    if (again) { again = false; later(0); }
+  };
   try {
-    watcher = watch(dir, { recursive: true }, () => {
-      if (timer !== undefined) { clearTimeout(timer); }
-      timer = setTimeout(() => { rescan().catch((error: unknown) => { options.events.failed(error); }); }, options.debounce);
-    });
+    watcher = watch(dir, { recursive: true }, () => { later(options.debounce); });
   } catch (error) {
     options.events.failed(error);
   }
   return () => {
+    stopped = true;
     if (timer !== undefined) { clearTimeout(timer); }
     watcher?.close();
   };

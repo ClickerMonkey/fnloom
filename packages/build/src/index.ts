@@ -7,7 +7,10 @@
  * - `scanBundle(code)`: the built-ins, computed imports, `eval`, `new Function` and URLs a bundle holds.
  * - `ViteBuilder` (`SystemBuilder`), `NodeFiles` (`BuildFiles`) and the system folder's layout (`DIST`, `BUILT`, …).
  */
-export { BUILD_ONLY_MODULES, ViteBuilder, isExternal, summaryOf, type ContractSummary, type SystemBuilder } from './builder.ts';
+export {
+  BUILD_ONLY_MODULES, ContractError, ViteBuilder, isExternal, summaryOf, summaryOfManifest,
+  type ContractSummary, type ManifestsOptions, type SystemBuilder, type ViteBuilderOptions,
+} from './builder.ts';
 export { CONTRACT_ENTRY, buildSystem, requiredNames, type BuildDeps, type BuildOptions, type BuildRefused, type BuildResult, type Built } from './build-system.ts';
 export { checkContextFolder, type CheckedContext, type KnownNames } from './context.ts';
 export { NodeFiles, type BuildFiles, type FileStat } from './files.ts';

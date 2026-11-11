@@ -12,6 +12,7 @@
  * Run: npm run mock-hub -w @harness/web   (then `npm run dev -w @harness/web` with HARNESS_PORT set to its port)
  */
 import { fixture } from './fixture.ts';
+import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { implement, server } from '@ayepi/core';
@@ -36,7 +37,7 @@ import { MockBuild4, readAccess, readActors } from './mockBuild4.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
 import { MockFns } from './mockBuild5.ts';
-import { contextFolderSamples, HOSTED_RANDOM, MockExplorer } from './mockBuild6.ts';
+import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer } from './mockBuild6.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
@@ -408,6 +409,11 @@ export function serveMockHub(port: number, options: { needsAdmin: boolean; notif
     if (req.url.startsWith(MOCK_EXPORTS)) {
       res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': 'attachment' });
       res.end(Buffer.from(EMPTY_ZIP));
+      return;
+    }
+    if (req.url === `${MOCK_CLIENTS}fs/index.js` && existsSync(FS_CLIENT)) {
+      res.writeHead(200, { 'content-type': 'text/javascript' });
+      res.end(readFileSync(FS_CLIENT));
       return;
     }
     if (req.url.startsWith(MOCK_FILES)) {

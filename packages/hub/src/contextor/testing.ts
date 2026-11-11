@@ -7,6 +7,7 @@ import { noFnStats, SystemName, type ManifestSection, type ContextDecl, type Con
 import { z } from 'zod';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
+import type { SearchQuery } from '../index/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { memoryLog, testStore } from '../testing.ts';
 import { createContextor } from './create.ts';
@@ -112,10 +113,16 @@ export class FixedSearch {
   hits: SearchHit[] | ((text: string) => SearchHit[]) = [];
   readonly queries: string[] = [];
 
-  search(query: { text: string; kinds: readonly string[]; limit: number }): Promise<SearchHit[]> {
+  /** The hits of the asked kinds that `keep` keeps (the hub's search asks it of each hit), up to the limit. */
+  async search(query: Pick<SearchQuery, 'text' | 'limit' | 'keep'> & { readonly kinds: readonly string[] }): Promise<SearchHit[]> {
     this.queries.push(query.text);
     const hits = typeof this.hits === 'function' ? this.hits(query.text) : this.hits;
-    return Promise.resolve(hits.filter((h) => query.kinds.includes(h.kind)).slice(0, query.limit));
+    const kept: SearchHit[] = [];
+    for (const hit of hits) {
+      if (kept.length >= query.limit) break;
+      if (query.kinds.includes(hit.kind) && (query.keep === undefined || await query.keep(hit))) kept.push(hit);
+    }
+    return kept;
   }
 }
 

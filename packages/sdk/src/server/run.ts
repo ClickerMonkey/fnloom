@@ -109,7 +109,7 @@ export function servicesFor(env: RunEnvironment, run: RunId, signal: AbortSignal
     files: env.files({ content: env.content, signal }),
     fetch: env.fetch,
     resources: new HubResources(env.hub, env.content, { run, signal }),
-    types: new HubTypes(env.hub, signal),
+    types: new HubTypes(env.hub, signal, run),
     ...runReporting(env, run, signal, track),
     log,
   };

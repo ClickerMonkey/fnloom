@@ -40,6 +40,7 @@ import { FileJournal, type OutcomeJournal } from './journal.ts';
 import { FileKeyStore } from './keys.ts';
 import { hubClient, linkUrl, WsLinkTransport, type HubAccess, type HubLink, type LinkSocket, type LinkTransport } from './link.ts';
 import { ScopedLog, systemLogger } from './log.ts';
+import { STATUS_LOG } from './supervise.ts';
 import { ManifestState } from './manifest-state.ts';
 import { McpFace } from './mcp.ts';
 import { pairingDisplayFor, type PairingDisplay, type PairingShown } from './pairing.ts';
@@ -657,6 +658,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     if (!this.#env.HARNESS_CONTEXT_WATCH) { return; }
     this.#unwatchContext = watchContextFolder(dir, folder.files.map((file) => file.decl), (change) => this.patch(change), {
       debounce: this.#env.HARNESS_CONTEXT_DEBOUNCE,
+      retry: this.#env.HARNESS_LINK_BACKOFF,
+      retryMax: this.#env.HARNESS_LINK_BACKOFF_MAX,
       events: {
         problems: (problems) => { for (const problem of problems) { this.#log.warn('context.problem', { problem: formatContextProblem(problem) }); } },
         sent: (change) => { this.#log.info('context.sent', { upserted: change.upsert?.context?.length ?? 0, removed: change.remove?.context?.length ?? 0 }); },
@@ -682,7 +685,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   #setStatus(status: RunningStatus): void {
     if (this.#status === status || this.#status === 'stopped') { return; }
     this.#status = status;
-    this.#log.info('system.status', { status });
+    this.#log.info(STATUS_LOG, { status });
     for (const listener of this.#statusListeners) { listener(status); }
   }
 }

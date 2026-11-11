@@ -18,6 +18,7 @@ import {
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
+import { checkedInstall } from '../link/install.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
 import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from './pages.ts';
@@ -304,7 +305,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   /**
    * What a run of a fn that always asks would do, from its system (`preview` on the system link), before anyone is
    * asked; or how the run settles instead: invalid input with the system's reason, or a retryable failure when the
-   * system can't be reached.
+   * system can't be reached. An install card is checked against the hub's instances (`checkedInstall`).
    */
   async #preview(run: Run, fn: FnRecord, user: UserInfo): Promise<{ preview: ApprovalPreview } | { refused: OutcomeWire }> {
     // a kind fn's preview comes from its kind's system, which works it out from the payload
@@ -318,8 +319,10 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
         ...(fn.decl.kind === 'native' ? {} : { kind: fn.decl.kind }),
         ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
       }, { signal: connection.signal });
-      if ('preview' in answer) return answer;
-      return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: answer.refused }] } } };
+      // an install card is checked against the hub's own instances, which the system can't see
+      const checked = 'preview' in answer ? await checkedInstall(answer.preview, run.args, (ref) => this.#deps.store.table('instances').get(ref)) : answer;
+      if ('preview' in checked) return checked;
+      return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: checked.refused }] } } };
     } catch (error) {
       return away(messageOf(error));
     }

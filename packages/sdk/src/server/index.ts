@@ -18,6 +18,7 @@ import type { SystemPatch } from './table.ts';
 import { join } from 'node:path';
 import { CONTEXT_FOLDER } from './context-files.ts';
 import { LinkHost } from './host.ts';
+import type { RunningStatus } from './supervise.ts';
 import { SYSTEM_ENV, sdkEnv } from './env.ts';
 import { checkPackage, findPackageManifest } from './package.ts';
 
@@ -60,8 +61,6 @@ export interface ServeOptions {
 /** Where the MCP face listens: stdin/stdout, or MCP Streamable HTTP on a port (any path; body limit `HARNESS_MCP_MAX_BODY`). */
 export type McpServe = { stdio: true } | { http: { port: number; host?: string } };
 
-/** Where a running system is. */
-export type RunningStatus = 'connecting' | 'pairing' | 'needs-config' | 'connected' | 'disconnected' | 'stopped';
 
 /** A running system. It searches the hub and lists its fleet (every paired instance) as the system itself. */
 export interface RunningSystem<N extends string> extends FnSearch, Fleets {
@@ -149,7 +148,7 @@ export function hubAi(system: Pick<RunningSystem<string>, 'ai'>): Promise<Harnes
 
 export type { SystemPatch } from './table.ts';
 export {
-  CONTEXT_FOLDER, ContextFolderError, contextChange, contextProblem, formatContextProblem, parseContextFile, positionOf, readContextFolder, watchContextFolder,
+  CONTEXT_FOLDER, ContextFolderError, contextChange, contextProblem, formatContextProblem, parseContextFile, positionOf, readContextFolder, watchContextFolder, type ContextWatchOptions,
   type ContextFile, type ContextFolder, type ContextWatchEvents,
 } from './context-files.ts';
 export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
@@ -170,7 +169,7 @@ export { ProviderServer, providerErrorKind, type ProviderServerParts } from './p
 export { NodeFiles, fileUri, uriInstance, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
 export { NodeProcess, type ProcessControl } from './process.ts';
 export {
-  BASIC_ENV, CrashPolicy, HARNESS_ENV_PREFIX, NodeStarter, permissionArgs, scrubbedEnv,
+  BASIC_ENV, CrashPolicy, RunningStatus, SHARED_ENV, STATUS_LOG, NodeStarter, permissionArgs, scrubbedEnv, statusOfLine,
   type CrashPolicyOptions, type ExitDecision, type NodeStarterOptions, type ProcessCommand, type ProcessExit, type ProcessGrants, type ProcessStarter, type SupervisedProcess,
 } from './supervise.ts';
 export { StateConflict } from './state.ts';

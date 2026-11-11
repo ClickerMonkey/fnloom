@@ -3,18 +3,17 @@
  * child of fs, started by a `ProcessStarter` (the scrubbed environment, fs's tsx loader first) under Node's permission
  * model (`permissionArgs`: read its bundle and the loader, write its own folders, child processes and workers only when
  * `system.json` asks), and restarted after a crash by the `CrashPolicy` (backoff doubling, a cap per hour, then
- * disabled). A start waits until the hub says the system is there (`ConnectProbe`), it exits, or the time is up.
+ * disabled). A start waits until that very process says the hub welcomed it (its `system.status` log line, `connected`
+ * or `needs-config`: the SDK writes it once the hub accepted its key and, for a first install, the approved contract),
+ * it exits, or the time is up. Another instance of the system, or the old process of an update, never counts.
  */
-import { permissionArgs, type CrashPolicy, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
+import { permissionArgs, statusOfLine, type CrashPolicy, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
 import type { RestartPolicy } from '@harness/core';
 import type { HostedStateValue } from '../shared/hosting.ts';
 import type { HostedLaunch, HostedRunner, RunnerStatus, StartOutcome } from './hosting.ts';
 
 /** An hour, the window restarts are counted in. */
 const HOUR = 3_600_000;
-
-/** Whether the hub has a hosted system now: connected, waiting for its config, or not yet. */
-export type ConnectProbe = (key: string) => Promise<'connected' | 'needs-config' | undefined>;
 
 /** What the runner is built from. */
 export interface RunnerDeps {
@@ -23,8 +22,7 @@ export interface RunnerDeps {
   readonly restart: RestartPolicy;
   /** Folders every child may read besides its own (the loader it runs under). */
   readonly reads: readonly string[];
-  readonly probe: ConnectProbe;
-  /** How often a start asks the probe. */
+  /** How often a start looks at what the process said. */
   readonly every: number;
   readonly wait: (ms: number) => Promise<void>;
   readonly now: () => number;
@@ -39,6 +37,8 @@ interface Entry {
   output: string;
   restarts: number[];
   stopping: boolean;
+  /** What the current process last said of the hub: welcomed (connected, or waiting for config), or not yet. */
+  said: 'connected' | 'needs-config' | undefined;
 }
 
 /** Runs hosted systems as supervised children. */
@@ -53,7 +53,7 @@ export class SupervisedRunner implements HostedRunner {
   async start(key: string, launch: HostedLaunch, timeout: number): Promise<StartOutcome> {
     await this.stop(key);
     this.#deps.policy.forget(key);
-    const entry: Entry = { launch, process: undefined, state: 'starting', output: '', restarts: [], stopping: false };
+    const entry: Entry = { launch, process: undefined, state: 'starting', output: '', restarts: [], stopping: false, said: undefined };
     this.#entries.set(key, entry);
     const child = this.#spawn(key, entry);
     const deadline = this.#deps.now() + timeout;
@@ -66,7 +66,7 @@ export class SupervisedRunner implements HostedRunner {
         entry.state = 'crashed';
         return { exited: { code: seen.exit.code, output: seen.exit.output } };
       }
-      const state = await this.#deps.probe(key);
+      const state = entry.said;
       if (state !== undefined) { entry.state = state; return { state }; }
       if (this.#deps.now() >= deadline) {
         await this.stop(key);
@@ -102,7 +102,15 @@ export class SupervisedRunner implements HostedRunner {
   #spawn(key: string, entry: Entry): SupervisedProcess {
     const { launch } = entry;
     const grants = { read: [launch.cwd, ...this.#deps.reads], write: launch.writes, ...(launch.permissions === undefined ? {} : { permissions: launch.permissions }) };
-    const child = this.#deps.starter.launch({ run: process.execPath, args: [...permissionArgs(grants), launch.entry], cwd: launch.cwd, env: launch.env });
+    entry.said = undefined;
+    let partial = '';
+    // only this process's own lines count: a new spawn starts again from nothing
+    const heard = (text: string) => {
+      const lines = (partial + text).split(/\r?\n/);
+      partial = lines.pop() ?? '';
+      for (const line of lines) { this.#heard(entry, child, line); }
+    };
+    const child: SupervisedProcess = this.#deps.starter.launch({ run: process.execPath, args: [...permissionArgs(grants), launch.entry], cwd: launch.cwd, env: launch.env, onOutput: heard });
     entry.process = child;
     void child.exited.then(async (exit) => {
       entry.output = exit.output;
@@ -125,11 +133,24 @@ export class SupervisedRunner implements HostedRunner {
       // a function, so each check reads the entry as it is after the awaits
       const waiting = (): boolean => !watch.gone && entry.process === again && entry.state === 'starting';
       while (waiting()) {
-        const state = await this.#deps.probe(key);
-        if (state !== undefined && entry.process === again) { entry.state = state; break; }
+        const state = entry.said;
+        if (state !== undefined) { entry.state = state; break; }
         await this.#deps.wait(this.#deps.every);
       }
     });
     return child;
+  }
+
+  /** A line the entry's process printed: a status line of the current process is what it says of the hub. */
+  #heard(entry: Entry, child: SupervisedProcess, line: string): void {
+    if (entry.process !== child) { return; }
+    const status = statusOfLine(line);
+    if (status === 'connected' || status === 'needs-config') {
+      entry.said = status;
+      // a running one that changes between the two (its config changed) shows it
+      if (entry.state === 'connected' || entry.state === 'needs-config') { entry.state = status; }
+    } else if (status === 'disconnected' || status === 'connecting') {
+      entry.said = undefined;
+    }
   }
 }

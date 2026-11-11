@@ -6,7 +6,7 @@
 import { join, resolve, sep } from 'node:path';
 import { client } from '@ayepi/core/client';
 import type { CallReturn, ClientData } from '@ayepi/core';
-import { hubWebSpec, type ContentRef, type HubWebSpec } from '@harness/core';
+import { hubWebSpec, type ContentRef, type HubWebSpec, type Manifest } from '@harness/core';
 import { sha256 } from '@harness/hub/package';
 import type { CliIo } from './command.ts';
 import type { ContractSummary, SystemBuilder } from '@harness/build';
@@ -90,6 +90,11 @@ export class FakeBuilder implements SystemBuilder {
   contracts(module: string): Promise<ContractSummary[]> {
     this.calls.push(`contract ${module}`);
     return Promise.resolve(this.names.map((name) => ({ name, fns: [], context: [], requires: [], references: [] })));
+  }
+
+  manifests(module: string): Promise<Manifest[]> {
+    this.calls.push(`manifests ${module}`);
+    return Promise.resolve([]);
   }
 
   bundleServer(input: { entry: string; outDir: string; fileName: string; external: readonly string[] }): Promise<void> {

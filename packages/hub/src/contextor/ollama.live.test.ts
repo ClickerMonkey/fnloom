@@ -8,10 +8,13 @@
  */
 import { openScope } from '../access/index.ts';
 import { agent, fn, g, hub } from '@harness/sdk';
-import { OLLAMA_BASE_URL, type LlmMessage, type RunSettled } from '@harness/core';
+import { OLLAMA_BASE_URL, type ActorId, type LlmMessage, type RunSettled } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT, ALICE, executionRig, SESSION, testSettings, type ExecutionRig } from '../execution/testing.ts';
 import { replyText } from '../execution/wire.ts';
+import { registerHubFns } from '../boot/hub-fns.ts';
+import { fnsEnv } from '../fns/env.ts';
+import { StoreFnSearch } from '../fns/search.ts';
 import { budgetPlan } from './budget.ts';
 import { createContextor } from './create.ts';
 import { contextorEnv } from './env.ts';
@@ -99,6 +102,17 @@ async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTa
   const contextor = createContextor({
     store: r.store, catalog: r.catalog, search, settings: contextorEnv.parse(), modelSettings: { HARNESS_DEFAULT_MODEL: model }, models: () => r.module.llm.models(),
     log: r.log, clock: () => r.time.now, probes: () => undefined,
+  });
+  // find is hub/fns_search: the fns module's search over the same index
+  const access = (actor: ActorId) => Promise.resolve(openScope(actor));
+  const noSharing = () => Promise.reject(new Error('no sharing in this suite'));
+  const fnSearch = new StoreFnSearch({
+    store: () => r.store, catalog: () => r.catalog, search: () => search, views: () => new CatalogFnViews(r.catalog), access: () => ({ sharing: noSharing }), tuning: fnsEnv.parse(),
+  });
+  registerHubFns(r.module.hubFns, {
+    store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store), handlers: () => r.module.handlers, access,
+    sharing: () => ({ sharing: noSharing, own: noSharing }),
+    fns: () => ({ search: fnSearch, examples: { sync: () => Promise.resolve(), page: noSharing, patch: noSharing, forPrompt: () => Promise.resolve([]) } }),
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store),

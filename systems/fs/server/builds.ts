@@ -2,34 +2,23 @@
  * `SystemBuilds` over `@harness/build`: `buildSystem` typechecks the folder with its own `tsconfig.json`, checks the
  * contract's name and the context folder, bundles one self-contained server file into `dist/`, builds the client and
  * scans the bundle; this copies `dist/` into the version folder, hashes the bundle, works out the contract's manifest
- * (in a child process, `manifest-probe.ts`) and words the card's lines from it. The source hash covers every source
+ * (`SystemBuilder.manifests`: the contract runs only in a sandboxed child process, never in fs) and words the card's
+ * lines from it. The source hash covers every source
  * file (not `dist/`, `node_modules` and the like), so a change after approval is caught.
  */
-import { execFile } from 'node:child_process';
 import { cp, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
-import { BUILT, CONTRACT_ENTRY, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type ScanReport, type SystemBuilder } from '@harness/build';
-import { Manifest } from '@harness/core';
+import { BUILT, CONTRACT_ENTRY, ContractError, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type ScanReport, type SystemBuilder } from '@harness/build';
+import type { Manifest } from '@harness/core';
 import { contractHash } from '@harness/sdk';
-import { contentHash, contentHasher } from '@harness/sdk/server';
+import { contentHash, contentHasher, readClientBundle } from '@harness/sdk/server';
 import type { BuiltSystem, SystemBuilds } from './hosting.ts';
 import { InstallRefused } from './hosting.ts';
-
-const run = promisify(execFile);
-
-/** The probe that prints a contract's manifest, run under tsx. */
-const PROBE = fileURLToPath(new URL('./manifest-probe.ts', import.meta.url));
 
 /** What the adapter is built from. */
 export interface HarnessBuildsDeps {
   readonly builder: SystemBuilder;
   readonly files: BuildFiles;
-  /** How long working out a contract's manifest may take. */
-  readonly probeTimeout: number;
-  /** The environment the probe runs with: the OS basics only, never fs's own (the shared allowlist). */
-  readonly probeEnv: Readonly<Record<string, string>>;
 }
 
 /** A fn's line on the card: its name, mode and tags. */
@@ -116,14 +105,18 @@ export class HarnessBuilds implements SystemBuilds {
     };
   }
 
-  /** The contract's manifest, worked out in a child process under tsx. */
+  /** The contract's manifest with the built client, read in the builder's sandboxed child process. */
   async #manifest(module: string, name: string, version: string, client: string): Promise<Manifest> {
+    const assets = client === '' ? undefined : (await readClientBundle(client)).assets;
+    let manifests: Manifest[];
     try {
-      const { stdout } = await run(process.execPath, ['--import', 'tsx', PROBE, module, name, version, client], { timeout: this.#deps.probeTimeout, maxBuffer: 32_000_000, env: { ...this.#deps.probeEnv } });
-      return Manifest.parse(JSON.parse(stdout));
+      manifests = await this.#deps.builder.manifests(module, { version, client: assets });
     } catch (error) {
-      const stderr: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'stderr') : undefined;
-      throw new InstallRefused(`Its contract couldn't be read: ${typeof stderr === 'string' && stderr.trim() !== '' ? stderr.trim().split(/\r?\n/).slice(-6).join('\n') : error instanceof Error ? error.message : String(error)}`);
+      if (error instanceof ContractError) { throw new InstallRefused(error.message); }
+      throw error;
     }
+    const manifest = manifests.find((found) => found.name === name);
+    if (manifest === undefined) { throw new InstallRefused(`${CONTRACT_ENTRY} exports no contract named ${name}.`); }
+    return manifest;
   }
 }

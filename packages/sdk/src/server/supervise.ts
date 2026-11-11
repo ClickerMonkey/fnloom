@@ -7,15 +7,42 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { backoff } from '@ayepi/core/retry';
 import type { RestartPolicy, SystemPackageManifest } from '@harness/core';
-import { SYSTEM_ENV } from './env.ts';
+import { z } from 'zod';
+import { SYSTEM_ENV, sdkEnv } from './env.ts';
+
+/** Where a running system is (`RunningSystem.status`). */
+export const RunningStatus = z.enum(['connecting', 'pairing', 'needs-config', 'connected', 'disconnected', 'stopped']);
+export type RunningStatus = z.infer<typeof RunningStatus>;
+
+/** The log key a system writes its status changes under. A supervisor reads them from a child's JSON log lines (`HARNESS_LOG_JSON`). */
+export const STATUS_LOG = 'system.status';
+
+/** A status change as a JSON log line. */
+const StatusLine = z.object({ msg: z.literal(STATUS_LOG), status: RunningStatus });
+
+/** The status a line of a child's JSON log reports, if it is a status line. */
+export function statusOfLine(line: string): RunningStatus | undefined {
+  const text = line.trim();
+  if (!text.startsWith('{')) { return undefined; }
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const parsed = StatusLine.safeParse(json);
+  return parsed.success ? parsed.data.status : undefined;
+}
 
 /** How to run a process: the program, its arguments, its working folder and the variables it adds. */
 export interface ProcessCommand {
   readonly run: string;
   readonly args: readonly string[];
   readonly cwd?: string | undefined;
-  /** Set on top of the scrubbed environment (the instance's `HARNESS_*` identity goes here). */
+  /** Set on top of the scrubbed environment (the instance's identity, `SYSTEM_ENV`, goes here). */
   readonly env?: Readonly<Record<string, string>> | undefined;
+  /** Called with each piece of what it prints (stdout and stderr) as it comes; pieces may split lines. */
+  readonly onOutput?: ((text: string) => void) | undefined;
 }
 
 /** How a process ended. */
@@ -42,22 +69,27 @@ export interface ProcessStarter {
 /** The OS variables a child keeps (matched without case, as Windows names them `Path`, `SystemRoot`, ...). */
 export const BASIC_ENV = ['PATH', 'SYSTEMROOT', 'TEMP', 'TMP', 'TMPDIR'] as const;
 
-/** The prefix of the harness's own variables, which a child keeps. */
-export const HARNESS_ENV_PREFIX = 'HARNESS_';
-
 /** The instance identity variables: a child never inherits these from its parent, only from its own command. */
 const IDENTITY_ENV: ReadonlySet<string> = new Set(Object.values(SYSTEM_ENV));
 
 /**
- * The environment a supervised child gets: from `base`, only `PATH`, the OS basics (`BASIC_ENV`) and `HARNESS_*`
- * (never the parent's instance identity, its keys or anything else), then `extra` on top.
+ * The harness variables a child inherits, by name: the SDK runtime tunables (`sdkEnv`: link timing, log level, ...),
+ * never the parent's instance identity. An explicit list, not a `HARNESS_` prefix, so a parent's own settings and
+ * secrets (the hub's admin password, signing and encryption keys) never reach a child.
+ */
+export const SHARED_ENV: readonly string[] = sdkEnv.describe().flatMap((field) => field.vars).filter((name) => !IDENTITY_ENV.has(name));
+
+/**
+ * The environment a supervised child gets: from `base`, only `PATH`, the OS basics (`BASIC_ENV`) and the SDK
+ * tunables (`SHARED_ENV`), never the parent's identity, keys or anything else, then `extra` on top.
  */
 export function scrubbedEnv(base: Readonly<Record<string, string | undefined>>, extra: Readonly<Record<string, string>> = {}): Record<string, string> {
   const basics: ReadonlySet<string> = new Set(BASIC_ENV);
+  const shared: ReadonlySet<string> = new Set(SHARED_ENV);
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(base)) {
-    if (value === undefined || IDENTITY_ENV.has(name)) { continue; }
-    if (basics.has(name.toUpperCase()) || name.startsWith(HARNESS_ENV_PREFIX)) { kept[name] = value; }
+    if (value === undefined) { continue; }
+    if (basics.has(name.toUpperCase()) || shared.has(name)) { kept[name] = value; }
   }
   return { ...kept, ...extra };
 }
@@ -118,7 +150,11 @@ export class NodeStarter implements ProcessStarter {
       windowsHide: true,
     });
     let output = '';
-    const keep = (chunk: Buffer) => { output = (output + chunk.toString('utf8')).slice(-outputTail); };
+    const keep = (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      output = (output + text).slice(-outputTail);
+      command.onOutput?.(text);
+    };
     child.stdout.on('data', keep);
     child.stderr.on('data', keep);
     const exited = new Promise<ProcessExit>((done) => {

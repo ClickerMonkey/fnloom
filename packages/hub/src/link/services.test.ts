@@ -92,8 +92,8 @@ describe('content', () => {
   it('reads a slice back in base64, and 404s for content it doesn\'t have', async () => {
     const { services: s, content } = await services();
     const stored = await content.put(new TextEncoder().encode('abcdef'), 'text/plain');
-    expect(await s.content({ ref: stored, offset: 2, length: 3 })).toEqual({ chunk: Buffer.from('cde').toString('base64') });
-    await expect(s.content({ ref: ref('ab', 1), offset: 0, length: 1 })).rejects.toBeInstanceOf(ApiError);
+    expect(await s.content(FS, { ref: stored, offset: 2, length: 3 })).toEqual({ chunk: Buffer.from('cde').toString('base64') });
+    await expect(s.content(FS, { ref: ref('ab', 1), offset: 0, length: 1 })).rejects.toBeInstanceOf(ApiError);
   });
 });
 
@@ -191,5 +191,18 @@ describe('named types', () => {
     const found = await s.types(SHOP, [QualifiedName.parse('shop/Price'), QualifiedName.parse('shop/Product'), QualifiedName.parse('shop/Gone')]);
     expect(found.types.map((t) => t.name)).toEqual(['shop/Price', 'shop/Product']);
     expect(found.missing).toEqual(['shop/Gone']);
+  });
+
+  it("answers as the run's person when a run is named, else as the system, and refuses another system's run", async () => {
+    const SYSTEM_ACTOR = ActorId.parse('act_fs');
+    const { services: s, types, store: opened } = await services({ access: (actor) => Promise.resolve({ seesType: (type) => actor === SYSTEM_ACTOR || type.system !== 'vault' }) });
+    await opened.table('systems').put({ name: FS.system, description: '', status: 'connected', enabled: { functions: true, renderers: true }, version: '1', manifestHash: '', actor: SYSTEM_ACTOR });
+    types['vault/Secret'] = { name: QualifiedName.parse('vault/Secret'), system: SystemName.parse('vault'), description: '', def: { name: 'obj', props: {} }, display: { label: 'Secret' }, references: [], updatedAt: 0 };
+    await opened.table('runs').update(RUN, { status: 'running' });
+    const names = [QualifiedName.parse('vault/Secret')];
+    expect((await s.types(FS, names)).types.map((t) => t.name)).toEqual(['vault/Secret']);
+    expect(await s.types(FS, names, RUN)).toEqual({ types: [], missing: ['vault/Secret'] });
+    await expect(s.types(SHOP, names, RUN)).rejects.toMatchObject({ status: 403 });
+    await expect(s.content(SHOP, { ref: ref('ab', 1), offset: 0, length: 1, run: RUN })).rejects.toMatchObject({ status: 403 });
   });
 });

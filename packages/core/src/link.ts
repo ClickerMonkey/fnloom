@@ -230,9 +230,10 @@ const linked = use(linkTel, linkSession).group({
   },
   /**
    * Named type definitions another system declared, with every named type they reference (dependencies first), so a
-   * system can load and use them. Names the hub doesn't know come back in `missing`.
+   * system can load and use them. Names the hub doesn't know, or `run`'s person (the system itself without a run) may
+   * not see, come back in `missing`.
    */
-  types: { body: z.object({ names: z.array(QualifiedName).min(1) }), response: TypeDefinitions, ws: 'ty' },
+  types: { body: z.object({ names: z.array(QualifiedName).min(1), run: RunId.optional() }), response: TypeDefinitions, ws: 'ty' },
   resourcesChanged: { body: z.object({ changes: z.array(ResourceChange) }), ws: 'rc' },
   /** The LLM forward behind `ctx.llm` and the aeye provider systems use. */
   llm: { body: LlmForward, streamOut: LlmForwardChunk, ws: 'llm' },
@@ -255,7 +256,8 @@ const linked = use(linkTel, linkSession).group({
   },
   /** Build 6: a resource's sections (`ctx.resources.sections`), as `run`'s person may read it. */
   resourceSections: { body: z.object({ uri: ResourceUri, run: RunId.optional() }), response: z.array(Section), ws: 'rsc' },
-  content: { body: z.object({ ref: ContentRef, offset: z.number().int().min(0), length: z.number().int().min(1) }), response: z.object({ chunk: z.string() }), ws: 'ct' },
+  /** A slice of stored content, read as `run`'s person (the system itself without a run). */
+  content: { body: z.object({ ref: ContentRef, offset: z.number().int().min(0), length: z.number().int().min(1), run: RunId.optional() }), response: z.object({ chunk: z.string() }), ws: 'ct' },
   /** Upload content (base64 chunks); the last chunk returns the ref. */
   upload: { body: z.object({ upload: z.string(), chunk: z.string(), last: z.boolean(), mime: z.string() }), response: z.object({ ref: ContentRef.optional() }), ws: 'up' },
   setting: { body: z.object({ run: RunId, setting: QualifiedName }), response: z.object({ value: Json.optional() }), ws: 'st' },

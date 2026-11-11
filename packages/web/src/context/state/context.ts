@@ -13,7 +13,7 @@ import { linkRequest, memoryRequest, memoryUpdate, type ContextFilter, type Link
 /** How many items a page of the list holds. */
 export const CONTEXT_PAGE = 50;
 
-type ItemApi = Pick<ContextApi, 'item' | 'link' | 'unlink' | 'forget' | 'updateMemory'>;
+type ItemApi = Pick<ContextApi, 'item' | 'list' | 'link' | 'unlink' | 'forget' | 'updateMemory'>;
 
 /** What the context pages need. */
 export interface ContextDeps {
@@ -26,6 +26,8 @@ export class ContextItemStore {
   readonly #api: ItemApi;
   readonly name = ref<QualifiedName | undefined>(undefined);
   readonly view = new Loaded<ContextItemView>();
+  /** The items its choices load, by name (for their titles and sizes); a choice whose item isn't here shows its words alone. */
+  readonly choiceTargets = ref<ReadonlyMap<QualifiedName, ContextRecord>>(new Map());
   readonly linking = new Task();
   readonly unlinking = new Task();
   readonly forgetting = new Task();
@@ -38,14 +40,26 @@ export class ContextItemStore {
   /** Show an item (quietly when it is the one already shown). */
   async open(name: QualifiedName): Promise<void> {
     const same = this.name.value === name && this.view.value.value !== undefined;
-    if (!same) { this.view.reset(); }
+    if (!same) { this.view.reset(); this.choiceTargets.value = new Map(); }
     this.name.value = name;
     await this.view.load(() => this.#api.item.call({ name }), "Couldn't load this context item.", same);
+    await this.#loadChoiceTargets(name);
+  }
+
+  /** Read the items the open item's choices load, in one page. Their words still show when this fails. */
+  async #loadChoiceTargets(name: QualifiedName): Promise<void> {
+    const targets = [...new Set(this.view.value.value?.record.decl.choices?.map((choice) => choice.to) ?? [])];
+    if (targets.length === 0) { this.choiceTargets.value = new Map(); return; }
+    try {
+      const page = await this.#api.list.call({ query: { filters: [{ field: 'name', op: 'in', values: targets }] }, limit: Math.min(targets.length, 200) });
+      if (this.name.value === name) { this.choiceTargets.value = new Map(page.items.map((record) => [record.name, record])); }
+    } catch { /* the choices keep their words; their titles and sizes are extras */ }
   }
 
   close(): void {
     this.name.value = undefined;
     this.view.reset();
+    this.choiceTargets.value = new Map();
   }
 
   /** Whether a change to `name` shows on the open item: the item itself, or an item at either end of its links. */

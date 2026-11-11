@@ -186,6 +186,8 @@ export class LinkHandshake {
       autoPair = await autoPairs.rotate(challenge.autoPair);
       await pairing.autoPaired(ref, hello, addressOf(conn), challenge.autoPair.secret.createdBy);
     }
+    // an update of a hosted instance re-pairs with its key, so its host's approved install is recorded here
+    if (hello.contractHash !== undefined) { await pairing.rehosted(ref, hello.contractHash); }
     const record = await instances.get(ref);
     if (record === undefined) { throw refuse(401, 'BAD_SIGNATURE', 'the signature does not match the paired key'); }
     const first = record.lastSeenAt === undefined;

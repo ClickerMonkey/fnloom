@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
  * One context item (`/context/:system/:local`), titled by its title (else its description): what it is (origin,
- * system, its key for admins, who sees it, `/command`, the agents it is always given to, tags, size in tokens, weight,
- * when it changed), its text, the choices it offers the model (each worded as a decision, opening the item it loads),
+ * system, who sees it, `/command`, the agents it is always given to, tags, size in tokens, weight,
+ * when it changed), its text (without the title and description the header shows), the choices it offers the model
+ * (each worded as a decision, with the title and size of the item it loads, opening it),
  * and its links both ways, grouped by relation. A person
  * adds a link (`?link=1`) and removes links they drew; a memory is edited (`?edit=1`, written anew) or forgotten.
  * Live: a change to this item or one it links with reloads it.
@@ -19,7 +20,7 @@ import LoadState from '../admin/components/LoadState.vue';
 import LinkDialog from '../context/components/LinkDialog.vue';
 import LinkGroups from '../context/components/LinkGroups.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
-import { AUDIENCE_WORDS, contextKey, contextLabel, linkKey, ORIGIN_WORDS, originOf, scopeText, sizeText, type LinkDraft, type MemoryDraft } from '../context/logic/context.ts';
+import { AUDIENCE_WORDS, bodyText, contextLabel, linkKey, ORIGIN_WORDS, originOf, scopeText, sizeText, type LinkDraft, type MemoryDraft } from '../context/logic/context.ts';
 import { targetRoute } from '../context/logic/targets.ts';
 import { useStores } from '../state/stores.ts';
 import { fullTime, relativeTime, UiBadge, UiBanner, UiButton, UiCard, UiIcon, UiMarkdown } from '../ui/index.ts';
@@ -45,7 +46,10 @@ const name = computed(() => {
 const view = computed(() => item.view.value.value);
 const record = computed(() => view.value?.record);
 const title = computed(() => (record.value === undefined ? name.value ?? 'Context' : contextLabel(record.value.decl)));
-const choices = computed(() => record.value?.decl.choices ?? []);
+/** Each choice with the item it loads, when the hub gave it (its title and size). */
+const choices = computed(() => (record.value?.decl.choices ?? []).map((choice) => ({ ...choice, target: item.choiceTargets.value.get(choice.to) })));
+/** Its text without the title and description the header already shows. */
+const body = computed(() => (view.value?.text === undefined || record.value === undefined ? '' : bodyText(view.value.text, record.value.decl)));
 const origin = computed(() => (record.value === undefined ? undefined : ORIGIN_WORDS[originOf(record.value)]));
 const memory = computed(() => (record.value?.origin?.type === 'memory' ? record.value.origin : undefined));
 /** A memory written for its author or one chat stays that way: its sharing card shows it, locked. */
@@ -111,29 +115,37 @@ async function save(draft: MemoryDraft): Promise<void> {
             <dl class="facts" data-testid="context-facts">
               <div><dt>Origin</dt><dd><UiIcon :name="origin.icon" :size="14" /> {{ origin.label }}</dd></div>
               <div><dt>System</dt><dd><code>{{ record.system }}</code></dd></div>
-              <div v-if="admin && originOf(record) === 'system'" data-testid="context-key"><dt>Key</dt><dd><code>{{ contextKey(record.name) }}</code></dd></div>
               <div><dt>Seen by</dt><dd>{{ AUDIENCE_WORDS[record.decl.visible] }}</dd></div>
               <div v-if="memory?.scope.to === 'session'"><dt>For</dt><dd>{{ scopeText(memory.scope) }}</dd></div>
               <div v-if="fromResource"><dt>Made from</dt><dd><RouterLink :to="links.resources({ uri: fromResource.uri })" class="uri">{{ fromResource.uri }}</RouterLink><template v-if="fromResource.section"> § {{ fromResource.section }}</template></dd></div>
               <div v-if="fromResource"><dt>Text</dt><dd>{{ fromResource.copy === 'live' ? 'Live: read when loaded' : 'A snapshot' }}</dd></div>
               <div v-if="record.decl.command"><dt>Command</dt><dd><code>/{{ record.decl.command.name }}</code></dd></div>
               <div v-if="record.decl.alwaysFor.length > 0"><dt>Always given to</dt><dd class="chips"><code v-for="agent in record.decl.alwaysFor" :key="agent">{{ agent }}</code></dd></div>
-              <div v-if="record.tokens"><dt>Size</dt><dd>{{ sizeText(record) }}<template v-if="record.decl.content !== undefined || record.tokens.full > 0">, {{ record.tokens.summary.toLocaleString() }} as a summary</template></dd></div>
+              <div v-if="record.tokens" class="wide"><dt>Size</dt><dd>{{ sizeText(record) }}<template v-if="record.decl.content !== undefined || record.tokens.full > 0">, {{ record.tokens.summary.toLocaleString() }} as a summary</template></dd></div>
               <div><dt>Weight</dt><dd>{{ (record.decl.weight ?? 1).toFixed(2) }}</dd></div>
               <div v-if="record.decl.tags.length > 0"><dt>Tags</dt><dd class="chips"><UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge></dd></div>
               <div><dt>Changed</dt><dd><time :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time></dd></div>
             </dl>
           </UiCard>
           <AccessControl :target="{ kind: 'context', context: record.name }" :fixed="fixedSharing" compact />
-          <UiCard title="Text" compact>
-            <div v-if="view.text !== undefined && view.text !== ''" class="text" data-testid="context-text"><UiMarkdown :source="view.text" :navigate="navigate" /></div>
+          <!-- a text that only repeats the title and description above has no card -->
+          <UiCard v-if="body !== '' || record.decl.content === undefined" title="Text" compact>
+            <div v-if="body !== ''" class="text" data-testid="context-text"><UiMarkdown :source="body" :navigate="navigate" /></div>
             <p v-else class="none">Its system writes this text when it is loaded.</p>
           </UiCard>
         </div>
         <div class="side">
           <UiCard v-if="choices.length > 0" :title="`Choices · ${choices.length}`" subtitle="What the model may load next, and when." compact data-testid="context-choices">
             <ul class="choices">
-              <li v-for="choice in choices" :key="choice.to"><RouterLink :to="links.contextItem(choice.to)" class="choice"><span>{{ choice.when }}</span><code v-if="admin">{{ choice.to }}</code></RouterLink></li>
+              <li v-for="choice in choices" :key="choice.to">
+                <RouterLink :to="links.contextItem(choice.to)" class="choice" data-testid="context-choice">
+                  <span class="choice-top">
+                    <span class="choice-title">{{ choice.target === undefined ? 'Another item' : contextLabel(choice.target.decl) }}</span>
+                    <span v-if="choice.target !== undefined && sizeText(choice.target) !== undefined" class="choice-size">{{ sizeText(choice.target) }}</span>
+                  </span>
+                  <span class="choice-when">{{ choice.when }}</span>
+                </RouterLink>
+              </li>
             </ul>
           </UiCard>
           <UiCard :title="`Links out · ${view.links.length}`" subtitle="What this item links to." compact data-testid="links-out">
@@ -161,6 +173,7 @@ async function save(draft: MemoryDraft): Promise<void> {
 .layout { display: grid; gap: var(--space-4); align-items: start; }
 .main, .side { display: grid; gap: var(--space-4); min-width: 0; }
 .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); gap: var(--space-3) var(--space-5); margin: 0; }
+.facts > .wide { grid-column: span 2; }
 .facts > div { display: grid; align-content: start; gap: 2px; min-width: 0; }
 .facts dt { color: var(--text-faint); font-size: var(--text-xs); }
 .facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
@@ -171,7 +184,10 @@ async function save(draft: MemoryDraft): Promise<void> {
 .choice { display: grid; gap: 2px; padding: var(--space-2); border-radius: var(--radius); color: var(--text); font-size: var(--text-sm); text-decoration: none; }
 .choice:hover { background: var(--surface-2); text-decoration: none; }
 .choice:focus-visible { outline: none; box-shadow: var(--ring); }
-.choice code { color: var(--text-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.choice-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.choice-title { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.choice-size { flex: none; color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
+.choice-when { color: var(--text-dim); }
 .none { margin: 0; color: var(--text-faint); font-size: var(--text-sm); }
 @media (min-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }

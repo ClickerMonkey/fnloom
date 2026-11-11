@@ -217,7 +217,7 @@ describe('the static toolset', () => {
     const { settled } = await answer(r, 'tools/small', 'How many lines does README.md have?');
     expect(settled).toEqual({ status: 'done', result: 'It has 3 lines.' });
     expect(requests[0]?.tools ?? []).toEqual([]);
-    expect(say(requests[0]?.messages[0])).toContain('To use a tool, write a block');
+    expect(say(requests[0]?.messages[0])).toContain('To use a tool, write only the block');
     expect(fs.requests.map((q) => q.args)).toEqual([{ path: 'README.md' }]);
     const streamed = r.chat.streamed.map((s) => s.text ?? '').join('');
     expect(streamed).toContain('I will read it.');

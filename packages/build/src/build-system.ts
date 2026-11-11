@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { PACKAGE_MANIFEST_FILE, type SystemPackageManifest } from '@harness/core';
 import { CONTEXT_FOLDER, formatContextProblem, packageManifestText } from '@harness/sdk/server';
 import { hub } from '@harness/sdk';
-import { summaryOf, type ContractSummary, type SystemBuilder } from './builder.ts';
+import { ContractError, summaryOf, type ContractSummary, type SystemBuilder } from './builder.ts';
 import { checkContextFolder } from './context.ts';
 import type { BuildFiles } from './files.ts';
 import { BUILT, DIST, builtManifest, readSystemJson } from './folder.ts';
@@ -61,7 +61,13 @@ export async function buildSystem(dir: string, deps: BuildDeps, options: BuildOp
     const problems = await builder.typecheck(dir);
     if (problems.length > 0) { return { ok: false, stage: 'typecheck', problems }; }
   }
-  const contracts = await builder.contracts(join(dir, CONTRACT_ENTRY));
+  let contracts: ContractSummary[];
+  try {
+    contracts = await builder.contracts(join(dir, CONTRACT_ENTRY));
+  } catch (error) {
+    if (error instanceof ContractError) { return { ok: false, stage: 'contract', problems: error.message.split(/\r?\n/) }; }
+    throw error;
+  }
   const contract = contracts.find((summary) => summary.name === manifest.name);
   if (contract === undefined) {
     const problem = contracts.length === 0

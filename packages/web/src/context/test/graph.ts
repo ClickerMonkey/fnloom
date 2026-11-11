@@ -97,7 +97,7 @@ export class ContextGraphDouble {
 
   list(input: z.input<typeof ContextQuery>): Page<ContextRecord> {
     const query = ContextQuery.parse(input);
-    // this fake knows the list query's words and its `is` filters on origin and system
+    // this fake knows the list query's words, its `is` filters on origin and system, and an `in` filter on names
     const is = (field: string): string | undefined => {
       const found = query.query?.filters?.find((f) => f.field === field && f.op === 'is');
       return found !== undefined && 'value' in found ? String(found.value) : undefined;
@@ -105,7 +105,10 @@ export class ContextGraphDouble {
     const origin = is('origin');
     const system = is('system');
     const words = query.query?.text?.toLowerCase();
+    const named = query.query?.filters?.find((f) => f.field === 'name' && f.op === 'in');
+    const names = named !== undefined && 'values' in named ? new Set(named.values.map(String)) : undefined;
     const shown = this.records
+      .filter((record) => names === undefined || names.has(record.name))
       .filter((record) => origin === undefined || (record.origin?.type ?? 'system') === origin)
       .filter((record) => system === undefined || record.system === system)
       .filter((record) => words === undefined || `${record.name}\n${record.decl.description}`.toLowerCase().includes(words));

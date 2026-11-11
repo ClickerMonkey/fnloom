@@ -103,15 +103,27 @@ export function earlierBlock(summary: ExchangeSummary): string {
   return `<earlier turn="${summary.turn}">\nUser: ${summary.user}\nAnswer: ${summary.answer}${used}\n</earlier>`;
 }
 
-/** What the text protocol's instructions say. */
+/** What the guide says of a context item shown as a summary (`detail="summary"`): how to read it whole, with `call`. */
+export function summaryHint(call: string): string {
+  return `A context item marked detail="summary" is cut short; when you need the rest, read it whole with ${call}.`;
+}
+
+/**
+ * What the text protocol's instructions say. Small models tend to answer "I can't access files", so the guide says
+ * plainly that the blocks are how it acts, and shows one whole exchange: the block, the result, the answer.
+ */
 export function textProtocolInstructions(): string {
+  const read = callText('fs/read', '{"path": "notes.txt"}', 'text');
   return [
     '## How to use tools',
-    `To use a tool, write a block on its own lines, then stop and wait for its result:`,
-    callText('fs/read', '{"path": "README.md"}', 'text'),
-    `find, inspect, load and unload are tools too: ${callText('find', '{"query": "git status"}', 'text')}`,
-    `When a system has several machines connected, say which one runs it with on: <${RUN_TAG} fn="fs/read" on="laptop">{"path": "README.md"}</${RUN_TAG}>`,
+    'Answer from the context below when it holds the answer.',
+    'You can use tools: reading files, running commands and more. You use one by writing a block, and the hub runs it for you and sends back its result. Never say you cannot access something a tool reaches; write the block instead.',
+    `To use a tool, write only the block, on its own line, then stop and wait for the result:\n${read}`,
+    `find, inspect, load and unload are tools too: ${callText('find', '{"text": "git status"}', 'text')}`,
+    `When a system has several machines connected, say which one runs it with on: <${RUN_TAG} fn="fs/read" on="laptop">{"path": "notes.txt"}</${RUN_TAG}>`,
     `Each result comes back as <${RESULT_TAG} fn="…" status="…">…</${RESULT_TAG}>. Write no block when you are ready to answer.`,
+    summaryHint(callText('inspect', '{"name": "<its name>", "detail": "full"}', 'text')),
+    `Example. The person asks: "What is in notes.txt?" You write:\n${read}\nThe hub sends back:\n${resultText('fs/read', 'done', 'buy milk')}\nYou answer: "notes.txt says: buy milk."`,
   ].join('\n');
 }
 

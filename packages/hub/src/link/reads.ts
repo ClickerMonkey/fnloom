@@ -6,7 +6,7 @@
  */
 import { reject as refuse, spec, type HandlerFor } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { hubLinkSpec, type ActorId, type LinkSession, type ResourceRead, type ResourceUri, type RunId, type SectionKey } from '@harness/core';
+import { hubLinkSpec, instanceLabel, isSettled, type ActorId, type LinkSession, type ResourceRead, type ResourceUri, type RunId, type SectionKey } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import type { Asking, ResourceReader } from '../resources/index.ts';
 import type { HubStore } from '../store/index.ts';
@@ -31,18 +31,28 @@ export interface LinkReadDeps {
   readonly pairing: () => Pick<StorePairingService, 'grant'>;
 }
 
-/** Who a link call reads as: the person of the run it names (one of the asking system's), or the system's own actor. */
-export async function readerOf(deps: Pick<LinkReadDeps, 'store' | 'access'>, link: LinkSession, run: RunId | undefined): Promise<{ asking: Asking; scope: AccessScope }> {
-  const store = deps.store();
+/**
+ * Who a link call reads as: the person of the run it names, or the system's own actor without one. The run must be
+ * the asking instance's own and still acting: not settled, or settled with an undo still to come (an undo acts for
+ * the run it undoes).
+ */
+export async function askingOf(store: HubStore, link: LinkSession, run: RunId | undefined): Promise<Asking> {
   if (run !== undefined) {
     const row = await store.table('runs').get(run);
-    if (row?.system !== link.system) throw refuse(403, 'NOT_YOUR_RUN', `run ${run} is not ${link.system}'s`);
+    if (row?.system !== link.system || (row.instance !== undefined && row.instance !== link.instance)) throw refuse(403, 'NOT_YOUR_RUN', `run ${run} is not ${instanceLabel(link)}'s`);
+    if (isSettled(row.status) && (row.status === 'undone' || row.undo === undefined)) throw refuse(403, 'RUN_SETTLED', `run ${run} has settled`);
     const actor = (await store.table('turns').get(row.turn))?.user.id ?? row.actor;
-    return { asking: { actor, run, ...(row.session === undefined ? {} : { session: row.session }) }, scope: await deps.access(actor) };
+    return { actor, run, ...(row.session === undefined ? {} : { session: row.session }) };
   }
   const actor = (await store.table('systems').get(link.system))?.actor;
   if (actor === undefined) throw refuse(403, 'NO_SYSTEM_ACTOR', `${link.system} has no actor to read as`);
-  return { asking: { actor }, scope: await deps.access(actor) };
+  return { actor };
+}
+
+/** `askingOf` with what that actor may see. */
+export async function readerOf(deps: Pick<LinkReadDeps, 'store' | 'access'>, link: LinkSession, run: RunId | undefined): Promise<{ asking: Asking; scope: AccessScope }> {
+  const asking = await askingOf(deps.store(), link, run);
+  return { asking, scope: await deps.access(asking.actor) };
 }
 
 /** A resource the reader may not see reads as missing, as it does in the browser. */

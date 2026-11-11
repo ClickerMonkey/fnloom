@@ -3,7 +3,7 @@
  * The search bar every searchable list has, the one layout standard: the search box (pills, suggestions, the filter
  * menu) taking the row, the sort button beside it always saying the sort, then whatever the page adds (a layout
  * switch), and the count at the right. No card around it. When the bar is narrow (a phone, a side panel) the box takes
- * its own row and the sort, the page's additions and the count share the row under it. A session filter's pill shows
+ * its own row and the sort, the page's additions and the count (at the row's end) share the row under it. A session filter's pill shows
  * the chat's title, not its id. Mounted outside the app (no stores) it still searches, without the data's values and
  * names. The query is `v-model` (the page keeps it in the URL with `useListQuery`). When the hub's answer is `partial`
  * (it stopped at its scan bound), the count reads as a lower bound and a line under the bar says to narrow the filters.
@@ -60,9 +60,9 @@ const countText = computed(() => (props.count === undefined ? '' : `${props.coun
     <UiSearch ref="box" v-model="model" :fields="fields" :label="`Search ${label}`" :format="formatFigure" :values="values" :name="name" v-bind="placeholder === undefined ? {} : { placeholder }" />
     <div class="side">
       <UiSort v-if="!noSort" v-model="sort" :fields="fields" :default-sort="defaultSort" />
+      <div v-if="$slots['default']" class="extra"><slot /></div>
       <span v-if="countText" class="count" :aria-label="`${countText} ${label}`" data-testid="list-count">{{ countText }}</span>
     </div>
-    <div v-if="$slots['default']" class="extra"><slot /></div>
     <p v-if="partial" class="partial" role="status" data-testid="list-partial">
       <UiIcon name="info" :size="14" />More rows than scanned; narrow the filters.
     </p>
@@ -73,12 +73,14 @@ const countText = computed(() => (props.count === undefined ? '' : `${props.coun
 .list-search { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); min-width: 0; container-type: inline-size; }
 .side { display: flex; align-items: center; gap: var(--space-2); flex: 0 1 auto; min-width: 0; min-height: var(--control); margin-left: auto; }
 .side :deep(.ui-menu-trigger) { min-width: 0; }
-.extra { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-height: var(--control); margin-left: auto; }
-/* narrow: the box takes the row; under it one row holds the sort with its count beside it, then the page's additions at its end */
+/* the page's additions stand as tall as the sort and in its type size, so the row's controls match */
+.extra { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.extra > :deep(*) { height: var(--control); font-size: var(--text-sm); }
+/* narrow: the box takes the row; under it one row holds the sort and the page's additions, the count at its end */
 @container (max-width: 559px) {
   .list-search > :first-child { flex-basis: 100%; }
-  .side { flex: 0 1 auto; margin-left: 0; }
-  .count { text-align: left; }
+  .side { flex: 1 1 100%; margin-left: 0; }
+  .count { margin-left: auto; }
 }
 .partial { display: flex; flex-basis: 100%; align-items: center; gap: var(--space-1); margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
 .count { min-width: 2ch; color: var(--text-faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-align: right; }

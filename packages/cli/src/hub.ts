@@ -21,6 +21,8 @@ export const cliEnv = env({
   HARNESS_ADMIN_PASSWORD: z.string().optional(),
   /** How long `install` waits for a system to connect, in ms. */
   HARNESS_CLI_WAIT: z.number().int().min(0).default(30_000),
+  /** How long reading a system's contract (in a sandboxed child process) may take, in ms. */
+  HARNESS_CLI_PROBE_TIMEOUT: z.number().int().min(1_000).default(60_000),
 });
 
 /** The parsed CLI settings. */

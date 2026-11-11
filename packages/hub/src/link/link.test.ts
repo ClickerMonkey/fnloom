@@ -1,10 +1,11 @@
 import { ApiError } from '@ayepi/core';
-import { ApprovalId, InstanceName, MAIN_INSTANCE, MessageId, noFnStats, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type InstallSubject, type KindDescription, type Manifest } from '@harness/core';
+import { ApprovalId, InstanceName, MAIN_INSTANCE, MessageId, noFnStats, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type InstallSubject, type InstanceRef, type KindDescription, type Manifest } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, declOf, manifestFor, orders, shop, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
 import { fingerprint, makeKeyPair, signNonce } from './keys.ts';
+import { checkedInstall } from './install.ts';
 import { FakeSystem, linkRig, pairDirectly, type LinkRig } from './rig.ts';
 
 const q = (name: string) => QualifiedName.parse(name);
@@ -505,10 +506,67 @@ describe('pairing granted to an approved install run (build 6)', () => {
     expect(await statusOf(again.hello(token))).toEqual({ status: 401, code: 'BAD_PAIRING_TOKEN' });
   });
 
+  it('records an approved update as the host when the hosted instance says hello again with its key', async () => {
+    const { run, subject, host } = await approvedInstall(shopManifest.hash);
+    const { token } = await rig.pairing.grant({ run, subject }, host);
+    const system = new FakeSystem(rig.app, 'shop', shopManifest);
+    await system.connect(token);
+    // the install settled; a restart with no install running changes nothing
+    await rig.store.table('runs').update(run, { status: 'done' });
+    const restarted = new FakeSystem(rig.app, 'shop', shopManifest, system.keys);
+    await restarted.connect();
+    expect((await rig.store.table('instances').get(main('shop')))?.host?.approval).toBe('apr_install');
+    // fs runs an approved update of the same instance: no token, and the hello records what runs now
+    const update = RunId.parse('run_update');
+    const row = await rig.store.table('runs').get(run);
+    if (row === undefined) { throw new Error('no install run'); }
+    await rig.store.table('runs').put({ ...row, id: update, root: update, args: { path: '/systems/shop2' }, status: 'running', createdAt: 1 });
+    const bundleHash = 'd'.repeat(64);
+    await rig.store.table('approvals').put({
+      id: ApprovalId.parse('apr_update'), run: update, fn: q('fs/install_system'), approver: { by: 'admins' }, status: 'approved',
+      decisions: [{ by: ADMIN, approve: true, remember: 'once', at: 1 }], createdAt: 1, preview: { title: 'Update shop', parts: [], irreversible: false, subject: { ...subject, version: '1.1.0', bundleHash } },
+    });
+    const updated = new FakeSystem(rig.app, 'shop', shopManifest, system.keys);
+    await updated.connect();
+    expect((await rig.store.table('instances').get(main('shop')))?.host).toEqual({ host, path: '/systems/shop2', bundleHash, approval: 'apr_update' });
+  });
+
   it('refuses a grant when the approved install names another host than the asking instance', async () => {
     const { run, subject, host } = await approvedInstall(shopManifest.hash);
     const elsewhere = { ...subject, host: { system: host.system, instance: InstanceName.parse('lab') } };
     await rig.store.table('approvals').update(ApprovalId.parse('apr_install'), { preview: { title: 'Install shop on fs/lab', parts: [], irreversible: false, subject: elsewhere } });
     await expect(rig.pairing.grant({ run, subject: elsewhere }, host)).rejects.toThrow(/hosted by fs@lab, not fs@main/);
+  });
+
+  it('refuses a grant for an instance paired now unless the approved card says it replaces it', async () => {
+    await pairDirectly(rig, new FakeSystem(rig.app, 'shop', shopManifest));
+    const { run, subject, host } = await approvedInstall(shopManifest.hash);
+    await expect(rig.pairing.grant({ run, subject }, host)).rejects.toThrow(/shop@main is paired already, and the approved card doesn't say it replaces it/);
+    const replacing = { ...subject, replaces: { version: '1.0.0', manifestHash: shopManifest.hash } };
+    await rig.store.table('approvals').update(ApprovalId.parse('apr_install'), { preview: { title: 'Replace shop', parts: [], irreversible: false, subject: replacing } });
+    await expect(rig.pairing.grant({ run, subject: replacing }, host)).resolves.toHaveProperty('token');
+  });
+});
+
+describe('an install card checked against the hub\'s instances (build 6)', () => {
+  const fs = SystemName.parse('fs');
+  const subject: InstallSubject = {
+    kind: 'system-install', system: SHOP, instance: MAIN_INSTANCE, version: '2.0.0', manifestHash: 'm'.repeat(64), bundleHash: 'b'.repeat(64), sourceHash: 's'.repeat(64),
+    host: { system: fs, instance: MAIN_INSTANCE },
+  };
+  const card = { title: 'Install shop 2.0.0 on fs@main', parts: [{ type: 'text' as const, text: 'Fns: …' }], irreversible: false, subject };
+  const lookup = (ref: InstanceRef) => rig.store.table('instances').get(ref);
+
+  it('leaves a free name alone, refuses a paired one without replace, and says what it replaces with it', async () => {
+    expect(await checkedInstall(card, { path: '/systems/shop' }, lookup)).toEqual({ preview: card });
+    await pairDirectly(rig, new FakeSystem(rig.app, 'shop', shopManifest));
+    const refused = await checkedInstall(card, { path: '/systems/shop' }, lookup);
+    expect('refused' in refused ? refused.refused : '').toMatch(/^shop@main is already paired .*replace: true/);
+    const checked = await checkedInstall(card, { path: '/systems/shop', replace: true }, lookup);
+    if (!('preview' in checked)) { throw new Error(checked.refused); }
+    expect(checked.preview.title).toMatch(/^Replace shop@main /);
+    expect(checked.preview.subject?.replaces).toBeDefined();
+    const first = checked.preview.parts[0];
+    expect(first?.type === 'text' ? first.text : '').toMatch(/^\*\*Replaces shop@main\*\*.*takes over its key/);
   });
 });

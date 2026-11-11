@@ -8,7 +8,7 @@
 import AccessControl from '../../components/access/AccessControl.vue';
 import type { SystemEnabled, SystemView } from '@harness/core';
 import { computed, ref } from 'vue';
-import { UiBadge, UiButton, UiCard, UiCodeBlock, UiInput, UiSwitch, fullTime, relativeTime, shortHash } from '../../ui/index.ts';
+import { copyText, UiBadge, UiButton, UiCard, UiCodeBlock, UiIconButton, UiInput, UiSwitch, fullTime, relativeTime, shortHash } from '../../ui/index.ts';
 import { hostText, INSTALLED_STATUS_LOOK, systemActions, type SystemAction } from '../logic/systems.ts';
 import StatusBadge from './StatusBadge.vue';
 
@@ -37,7 +37,8 @@ interface Fact { readonly label: string; readonly value: string; readonly title?
 const facts = computed<readonly Fact[]>(() => {
   const s = props.system;
   const list: Fact[] = [{ label: 'Version', value: s.version }];
-  if (s.address !== undefined) { list.push({ label: 'Address', value: s.address }); }
+  // a hosted system's card already says where it runs
+  if (s.address !== undefined && s.host === undefined) { list.push({ label: 'Address', value: s.address }); }
   list.push({ label: 'Key', value: s.keyFingerprint });
   if (s.pairedAt !== undefined) { list.push({ label: 'Paired', value: `${relativeTime(s.pairedAt, props.now)}${s.pairedBy === undefined ? '' : ` by ${props.nameOf(s.pairedBy)}`}`, title: fullTime(s.pairedAt) }); }
   if (s.lastSeenAt !== undefined) { list.push({ label: 'Last seen', value: s.status === 'connected' ? 'Online now' : relativeTime(s.lastSeenAt, props.now), title: fullTime(s.lastSeenAt) }); }
@@ -45,6 +46,12 @@ const facts = computed<readonly Fact[]>(() => {
   list.push({ label: 'Manifest', value: s.manifestHash });
   return list;
 });
+
+/** Copy the hosted bundle's whole hash (the card shows it shortened). */
+function copyBundle(): void {
+  const hash = props.system.host?.bundleHash;
+  if (hash !== undefined) { void copyText(hash); }
+}
 
 const busy = (action: SystemAction): boolean => props.acting === action;
 const blocked = computed(() => props.acting !== undefined);
@@ -70,7 +77,13 @@ const blocked = computed(() => props.acting !== undefined);
       <UiCard v-if="system.host" title="Hosted" :subtitle="`By ${hostText(system.host)}`" data-testid="system-host">
         <div class="process">
           <dl class="facts">
-            <div><dt>Bundle</dt><dd :title="system.host.bundleHash"><code>{{ shortHash(system.host.bundleHash) }}</code></dd></div>
+            <div>
+              <dt>Bundle</dt>
+              <dd class="hash">
+                <code :title="system.host.bundleHash">{{ shortHash(system.host.bundleHash) }}</code>
+                <UiIconButton icon="copy" size="sm" label="Copy the bundle hash" data-testid="host-copy-bundle" @click="copyBundle" />
+              </dd>
+            </div>
           </dl>
           <div class="buttons">
             <UiButton v-if="actions.has('start')" variant="primary" icon="play" :loading="busy('start')" :disabled="blocked" data-testid="host-start" @click="emit('act', 'start')">Start</UiButton>
@@ -139,6 +152,7 @@ const blocked = computed(() => props.acting !== undefined);
 .facts > div { display: grid; grid-template-columns: minmax(96px, 30%) minmax(0, 1fr); gap: var(--space-3); }
 dt { color: var(--text-dim); font-size: var(--text-sm); }
 dd { margin: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.hash { display: flex; align-items: center; gap: var(--space-1); }
 .buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .buttons:empty { display: none; }
 .upgrade { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }

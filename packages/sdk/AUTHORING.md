@@ -3567,10 +3567,12 @@ Refers to: [`ContextDecl`](#core-contextdecl).
 function · `import { watchContextFolder } from '@harness/sdk/server'`
 
 Watch a context folder (dev) and send each settled change as a runtime patch, by key. `initial` is what the system
-started with. Returns a stop function.
+started with. One rescan runs at a time (a change during one rescans again after it), so patches reach the hub in
+order; what the hub has only moves on once a patch is sent, and a failed one is tried again with backoff, so no
+change is lost. Returns a stop function.
 
 ```ts
-function watchContextFolder(dir: string, initial: readonly ContextDecl[], send: (change: SystemPatch) => Promise<unknown>, options: { debounce: number; label?: string; events: ContextWatchEvents; }): () => void;
+function watchContextFolder(dir: string, initial: readonly ContextDecl[], send: (change: SystemPatch) => Promise<unknown>, options: ContextWatchOptions): () => void;
 ```
 
 Refers to: [`ContextDecl`](#core-contextdecl).
@@ -3587,12 +3589,31 @@ interface ContextWatchEvents {
   problems(problems: readonly ContextFileProblem[]): void;
   /** A change went to the hub. */
   sent(change: SystemPatch): void;
-  /** Sending a change failed. */
+  /** Reading or sending a change failed; it is tried again. */
   failed(error: unknown): void;
 }
 ```
 
 Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `ContextWatchOptions`
+
+interface · `import { ContextWatchOptions } from '@harness/sdk/server'`
+
+How `watchContextFolder` waits: for the folder to settle, and between tries when sending fails.
+
+```ts
+interface ContextWatchOptions {
+  /** How long the folder must be quiet before it is read. */
+  readonly debounce: number;
+  /** The first wait before sending a failed change again; it doubles up to `retryMax`. */
+  readonly retry: number;
+  readonly retryMax: number;
+  /** Prefixes file names in problems (default `context`). */
+  readonly label?: string;
+  readonly events: ContextWatchEvents;
+}
+```
 
 #### `context`
 
@@ -11760,7 +11781,7 @@ interface ProcessCommand {
   readonly run: string;
   readonly args: readonly string[];
   readonly cwd?: string | undefined;
-  /** Set on top of the scrubbed environment (the instance's `HARNESS_*` identity goes here). */
+  /** Set on top of the scrubbed environment (the instance's identity, `SYSTEM_ENV`, goes here). */
   readonly env?: Readonly<Record<string, string>> | undefined;
 }
 ```
@@ -11799,8 +11820,8 @@ interface SupervisedProcess {
 
 function · `import { scrubbedEnv } from '@harness/sdk/server'`
 
-The environment a supervised child gets: from `base`, only `PATH`, the OS basics (`BASIC_ENV`) and `HARNESS_*`
-(never the parent's instance identity, its keys or anything else), then `extra` on top.
+The environment a supervised child gets: from `base`, only `PATH`, the OS basics (`BASIC_ENV`) and the SDK
+tunables (`SHARED_ENV`), never the parent's identity, keys or anything else, then `extra` on top.
 
 ```ts
 function scrubbedEnv(base: Readonly<Record<string, string | undefined>>, extra?: Readonly<Record<string, string>>): Record<string, string>;
@@ -11816,14 +11837,16 @@ The OS variables a child keeps (matched without case, as Windows names them `Pat
 const BASIC_ENV: readonly ["PATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR"];
 ```
 
-#### `HARNESS_ENV_PREFIX`
+#### `SHARED_ENV`
 
-const · `import { HARNESS_ENV_PREFIX } from '@harness/sdk/server'`
+const · `import { SHARED_ENV } from '@harness/sdk/server'`
 
-The prefix of the harness's own variables, which a child keeps.
+The harness variables a child inherits, by name: the SDK runtime tunables (`sdkEnv`: link timing, log level, ...),
+never the parent's instance identity. An explicit list, not a `HARNESS_` prefix, so a parent's own settings and
+secrets (the hub's admin password, signing and encryption keys) never reach a child.
 
 ```ts
-const HARNESS_ENV_PREFIX: "HARNESS_";
+const SHARED_ENV: readonly string[];
 ```
 
 #### `permissionArgs`

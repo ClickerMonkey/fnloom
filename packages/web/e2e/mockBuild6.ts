@@ -2,10 +2,39 @@
  * The mock hub's build 6 samples: a system fs hosts (installed from the chat), and fs's files for the explorer, read
  * live (a small project folder, its text files' contents made up from their names).
  */
-import { ContextRecord, HostedBy, ResourceRoot, ResourceStat, type ContextDecl, type Page, type ResourceRead } from '@harness/core';
+import { fileURLToPath } from 'node:url';
+import { ApprovalPreview, ContextRecord, Json, HostedBy, ResourceRoot, ResourceStat, type ContextDecl, type Page, type ResourceRead } from '@harness/core';
 
 /** Where the hosted sample system runs. */
 export const HOSTED_RANDOM = HostedBy.parse({ host: { system: 'fs', instance: 'main' }, path: 'systems/random', bundleHash: 'a3f1'.repeat(16), approval: 'apr_random_install' });
+
+/**
+ * What fs's `install_system` card asks for an update of the hosted sample, in the order fs writes it: what it adds,
+ * the diff from the running version, the scan, the hashes, then the scan's lines of concern as code.
+ */
+export const INSTALL_PREVIEW = ApprovalPreview.parse({
+  title: 'Update random 0.1.0 → 0.2.0 on fs/main',
+  irreversible: false,
+  parts: [
+    { type: 'text', text: ['**random** 0.2.0: Dice, coins and random picks.', '', 'Fns:', '- roll (read; tags: dice)', '- flip (read; tags: coins)', '', 'Also adds:', '- type random/Roll'].join('\n') },
+    { type: 'text', text: ['Changes from the running version:', '- adds flip (read)'].join('\n') },
+    { type: 'text', text: ['Scan (a report, not a guarantee):', '- imports node:crypto', '- reads no environment variables', '- no network access'].join('\n') },
+    { type: 'text', text: ['Source: `systems/random`', `Bundle: \`${'b7e2'.repeat(16)}\``, `Contract: \`${'5c09'.repeat(16)}\``].join('\n') },
+    { type: 'code', language: 'js', title: 'server/main.ts:12', code: 'const seed = randomBytes(8).readBigUInt64LE();' },
+  ],
+  subject: {
+    kind: 'system-install', system: 'random', instance: 'main', version: '0.2.0', manifestHash: '5c09'.repeat(16), bundleHash: 'b7e2'.repeat(16), sourceHash: '91d4'.repeat(16),
+    host: { system: 'fs', instance: 'main' }, replaces: { version: '0.1.0', manifestHash: '33aa'.repeat(16) },
+  },
+});
+
+/** What `install_system` answered for the first install of the hosted sample. */
+export const INSTALL_RESULT = Json.parse({ system: 'random', instance: 'main', version: '0.1.0', status: 'connected', fns: ['random/roll'], folder: '/home/ada/projects/systems/random' });
+
+/** fs's client build, which draws the install card (served by the mock hub when it has been built). */
+export const FS_CLIENT = fileURLToPath(new URL('../../../systems/fs/dist/client/index.js', import.meta.url));
+/** Where the mock hub serves it (under `/api`, which the web app's server sends to the hub). */
+export const MOCK_CLIENTS = '/mock-clients/';
 
 const ROOT = ResourceRoot.parse({ uri: 'file:///home/ada/projects', name: 'projects', description: 'Ada’s projects', index: 'none', ignore: [], watch: false });
 const DAY = 86_400_000;
@@ -52,7 +81,7 @@ export class MockExplorer {
 export function contextFolderSamples(at: number): ContextRecord[] {
   const item = (key: string, title: string, description: string, extra: Partial<ContextDecl> = {}): ContextRecord => ContextRecord.parse({
     name: `fs/${key}`, system: 'fs', updatedAt: at, stale: false, mentions: { context: [], fns: [] }, tokens: { full: 640, summary: 40 },
-    decl: { name: key, title, description, content: `# ${title}\n\n${description}`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: ['authoring'], ...extra },
+    decl: { name: key, title, description, content: `# ${title}\n\n${description}\n\nRead the parts this work needs, one at a time; each brings the fns it is about.`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: ['authoring'], ...extra },
   });
   return [
     item('authoring.index', 'Writing a system', 'Where to start when a person wants a new system: pick the part they need next.', {

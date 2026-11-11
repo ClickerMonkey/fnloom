@@ -65,7 +65,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'Context and commands',
     exports: [
       'CONTEXT_FOLDER', 'readContextFolder', 'parseContextFile', 'ContextFile', 'ContextFolder', 'ContextFolderError', 'formatContextProblem', 'contextProblem', 'positionOf',
-      'contextChange', 'watchContextFolder', 'ContextWatchEvents',
+      'contextChange', 'watchContextFolder', 'ContextWatchEvents', 'ContextWatchOptions',
       'context', 'ContextInput', 'ContextDef', 'AnyContextDef', 'ContextImpl', 'ContextLinkDef', 'ContextLinkTarget', 'arg', 'ArgDef', 'ArgsOf', 'ContextRef', 'AnyContextRef'],
   },
   { id: 'hooks', title: 'Hooks', exports: ['hook', 'HookDef', 'HookImpl', 'HookContribution', 'hookBlock', 'HookRef', 'AnyHookRef'] },
@@ -142,7 +142,7 @@ export const OUTLINE: readonly Topic[] = [
       'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'AUTO_PAIR_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
       'OutcomeJournal', 'FileJournal', 'contentHash', 'contentHasher', 'ContentHasher', 'StateConflict', 'LinkGap', 'InvalidValue',
       'LinkTransport', 'LinkSocket', 'WsLinkTransport', 'HubAccess', 'HubLink', 'NodeFiles', 'FilesFactory', 'FilesScope', 'fileUri', 'uriInstance', 'mimeOf', 'NodeProcess', 'ProcessControl',
-      'NodeStarter', 'NodeStarterOptions', 'ProcessStarter', 'ProcessCommand', 'ProcessExit', 'SupervisedProcess', 'scrubbedEnv', 'BASIC_ENV', 'HARNESS_ENV_PREFIX', 'permissionArgs', 'ProcessGrants', 'CrashPolicy', 'CrashPolicyOptions', 'ExitDecision',
+      'NodeStarter', 'NodeStarterOptions', 'ProcessStarter', 'ProcessCommand', 'ProcessExit', 'SupervisedProcess', 'scrubbedEnv', 'BASIC_ENV', 'SHARED_ENV', 'permissionArgs', 'ProcessGrants', 'CrashPolicy', 'CrashPolicyOptions', 'ExitDecision',
       'McpFace', 'McpLimits', 'readClientBundle', 'CLIENT_ENTRY', 'ClientBundle',
       'LlmWire', 'LlmWireOptions', 'LlmDescriptors', 'UNSENDABLE_CONTENT', 'messageFromWire', 'requestFromWire', 'isObjectSchema', 'descriptorsOf', 'applyDescriptors',
       'usageToWire', 'usageFromWire', 'chunkToWire', 'chunkFromWire', 'responseToWire',

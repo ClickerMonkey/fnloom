@@ -3,8 +3,8 @@
  * declares, wired to the server's parts. `createFsImpl` takes every seam (shell, git, snapshots, documents, the
  * file manager, the restarter, the watcher, hosting and the clock), so tests run it against a temp folder with fakes.
  */
-import type { InstanceName, SystemName, PairingGrant, PairingGrantRequest, PreviewAnswer } from '@harness/core';
-import type { FnCtx, FnSearch, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
+import type { PairingGrant, PairingGrantRequest, PreviewAnswer } from '@harness/core';
+import type { FnCtx, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
 import { COMMAND_TIMEOUT_MIN, fs, type FsContract } from '../shared/index.ts';
 import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';
 import { authoringStart, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
@@ -63,12 +63,6 @@ async function attempt<T extends FnTypes>(ctx: Pick<FnCtx<T, FsConfig>, 'fail'>,
 
 /** What the hosting fns say on an fs that can't build systems. */
 const NO_HOSTING = 'This fs can\x27t build systems (it runs without @harness/build). Install the system with the harness CLI, or from an fs that runs from the harness repository.';
-
-/** Whether the hub knows a system instance (it has fns somewhere), searched as the system or the run's person. */
-async function knownTo(search: FnSearch, system: SystemName, instance: InstanceName): Promise<boolean> {
-  const page = await search.searchFns({ systems: [system], instance, available: false, limit: 1 });
-  return page.items.length > 0;
-}
 
 /** Hosting work, turning a refused install into invalid input the model can fix. */
 async function hosted<T extends FnTypes>(ctx: Pick<FnCtx<T, FsConfig>, 'fail' | 'invalid'>, hosting: Hosting | undefined, work: (hosting: Hosting) => Promise<Outcome<T>>): Promise<Outcome<T>> {
@@ -226,8 +220,8 @@ export function createFsImpl(deps: FsDeps): FsServer {
           if (hosting === undefined) { return { refused: NO_HOSTING }; }
           try {
             const at = guard(ctx.config).resolve(args.path, { write: false });
-            const known = (system: SystemName, instance: InstanceName) => knownTo(ctx, system, instance);
-            return { preview: await hosting.preview(at.path, { instance: args.instance, replace: args.replace, known }, ctx.signal) };
+            // `replace` is the hub's to check: only it sees which instances are paired (`checkedInstall`)
+            return { preview: await hosting.preview(at.path, { instance: args.instance }, ctx.signal) };
           } catch (error) {
             if (error instanceof InstallRefused || error instanceof FsProblem) { return { refused: error.message }; }
             throw error;

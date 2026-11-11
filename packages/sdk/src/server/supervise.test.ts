@@ -7,9 +7,9 @@ import { CrashPolicy, NodeStarter, permissionArgs, scrubbedEnv } from './supervi
 const policy = { policy: 'on-failure', backoff: 1_000, maxPerHour: 2 } as const;
 
 describe('scrubbedEnv', () => {
-  it('keeps only the OS basics and HARNESS_*, never the parent identity, then adds the command env', () => {
+  it('keeps only the OS basics and the SDK tunables, never the parent identity or its secrets, then adds the command env', () => {
     const env = scrubbedEnv(
-      { Path: 'p', SystemRoot: 'r', TEMP: 't', OPENAI_API_KEY: 'secret', HOME: 'h', HARNESS_LOG_LEVEL: 'debug', HARNESS_PAIRING_TOKEN: 'fs-token', HARNESS_HUB: 'ws://fs' },
+      { Path: 'p', SystemRoot: 'r', TEMP: 't', OPENAI_API_KEY: 'secret', HOME: 'h', HARNESS_LOG_LEVEL: 'debug', HARNESS_PAIRING_TOKEN: 'fs-token', HARNESS_HUB: 'ws://fs', HARNESS_ADMIN_PASSWORD: 'pw', HARNESS_JWT_SECRET: 'jwt', HARNESS_SECRET_KEY: 'key', HARNESS_FILES_SECRET: 'files', HARNESS_PORT: '4300' },
       { HARNESS_HUB: 'ws://child' },
     );
     expect(env).toEqual({ Path: 'p', SystemRoot: 'r', TEMP: 't', HARNESS_LOG_LEVEL: 'debug', HARNESS_HUB: 'ws://child' });

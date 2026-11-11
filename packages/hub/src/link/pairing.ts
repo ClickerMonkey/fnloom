@@ -18,7 +18,7 @@ import type { Logger } from '@ayepi/log';
 import {
   MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceRecord,
   type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
-  type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath, type FnRecord, type InstallSubject, type PairingGrant, type PairingGrantRequest, type QualifiedName,
+  type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath, type FnRecord, type InstallSubject, type HostedBy, type RunId, type PairingGrant, type PairingGrantRequest, type QualifiedName,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { allRows } from '../catalog/rows.ts';
@@ -28,6 +28,7 @@ import type { AutoPairService } from './auto-pair.ts';
 import type { PairingChoice, PairingService } from './index.ts';
 import { fingerprint, pairingCode, randomToken, sha256Hex } from './keys.ts';
 import type { ConfigSecretKeeper } from './config-secrets.ts';
+import { pairedInstance } from './install.ts';
 import type { InstanceKeeper } from './status.ts';
 
 /** What pairing needs. */
@@ -215,7 +216,9 @@ export class StorePairingService implements PairingService {
   /**
    * Build 6: a one-time token for an approved install run (`grantPairing`). Refused unless `run` is a running run of
    * the asking instance, of a fn whose approval is the admins', approved with a preview whose subject equals the one
-   * asked for, and hosted by the asking instance. The token pairs only the subject's name, instance and manifest hash, and grants auto pair.
+   * asked for, and hosted by the asking instance. An instance the hub has paired now is granted only when the approved
+   * subject says it replaces it (`checkedInstall` wrote that on the card). The token pairs only the subject's name,
+   * instance and manifest hash, and grants auto pair.
    */
   async grant(request: PairingGrantRequest, link: InstanceRef): Promise<PairingGrant> {
     const { store, clock, log } = this.#options;
@@ -228,6 +231,8 @@ export class StorePairingService implements PairingService {
     const subject = approval?.preview?.subject;
     if (approval === undefined || by === undefined || subject === undefined || !sameSubject(subject, request.subject)) { throw refused('what is asked for is not what was approved'); }
     if (subject.host.system !== link.system || subject.host.instance !== link.instance) { throw refused(`the approved install is hosted by ${instanceLabel(subject.host)}, not ${instanceLabel(link)}`); }
+    const existing = await pairedInstance(subject, (ref) => this.#options.instances.get(ref));
+    if (existing !== undefined && subject.replaces === undefined) { throw refused(`${instanceLabel(existing)} is paired already, and the approved card doesn't say it replaces it`); }
     const token = randomToken();
     const expiresAt = clock() + this.#options.grantTtl;
     const row: PairingToken = {
@@ -241,13 +246,35 @@ export class StorePairingService implements PairingService {
 
   /** An instance paired with a granted token: who hosts it, from which folder and bundle, and the approval it ran on. */
   async #hosted(record: InstanceRecord, bound: NonNullable<PairingToken['boundTo']>): Promise<void> {
-    const { store, instances } = this.#options;
-    const run = await store.table('runs').get(bound.run);
-    const approval = (await store.table('approvals').find({ where: { run: bound.run, status: 'approved' }, limit: 1 })).items[0];
+    const installed = await this.#approvedInstall(bound.run);
+    if (installed === undefined) { return; }
+    await this.#options.instances.sync(record, (current) => ({ ...current, host: { host: bound.host, ...installed } }), record);
+  }
+
+  async rehosted(ref: InstanceRef, manifestHash: string): Promise<void> {
+    const { store, instances, log } = this.#options;
+    const host = (await instances.get(ref))?.host;
+    if (host === undefined) { return; }
+    for (const run of await allRows(store.table('runs'), { system: host.host.system, instance: host.host.instance, status: 'running' })) {
+      if ((await this.#options.fn(run.fn))?.decl.approval?.approver !== 'admins') { continue; }
+      const installed = await this.#approvedInstall(run.id, (subject) => subject.system === ref.system && subject.instance === ref.instance
+        && subject.manifestHash === manifestHash && subject.host.system === host.host.system && subject.host.instance === host.host.instance);
+      if (installed === undefined) { continue; }
+      await instances.sync(ref, (current) => ({ ...current, host: { host: host.host, ...installed } }));
+      log.info('system.rehosted', { system: ref.system, instance: ref.instance, run: run.id, approval: installed.approval, bundleHash: installed.bundleHash });
+      return;
+    }
+  }
+
+  /** The folder, bundle and approval of an approved install run (its subject passing `matches`), if it is one. */
+  async #approvedInstall(runId: RunId, matches: (subject: InstallSubject) => boolean = () => true): Promise<Omit<HostedBy, 'host'> | undefined> {
+    const { store } = this.#options;
+    const run = await store.table('runs').get(runId);
+    const approval = (await store.table('approvals').find({ where: { run: runId, status: 'approved' }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
     const subject = approval?.preview?.subject;
     const path = run?.args !== undefined && typeof run.args === 'object' && run.args !== null && !Array.isArray(run.args) ? run.args['path'] : undefined;
-    if (approval === undefined || subject === undefined || typeof path !== 'string') { return; }
-    await instances.sync(record, (current) => ({ ...current, host: { host: bound.host, path, bundleHash: subject.bundleHash, approval: approval.id } }), record);
+    if (approval === undefined || subject === undefined || typeof path !== 'string' || !matches(subject)) { return undefined; }
+    return { path, bundleHash: subject.bundleHash, approval: approval.id };
   }
 
   async pairInstalled(ref: InstanceRef, publicKey: string, version: string, by: ActorId): Promise<InstanceRecord> {

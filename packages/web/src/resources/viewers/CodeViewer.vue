@@ -22,7 +22,8 @@ const emit = defineEmits<{ 'update:line': [line: number] }>();
 const numbers = ref(true);
 const goTo = ref(props.line > 0 ? String(props.line) : '');
 watch(() => props.line, (line) => { goTo.value = line > 0 ? String(line) : ''; });
-const count = computed(() => props.code.split('\n').length);
+/** Its lines, as numbered: a final line break ends the last line, it doesn't start another. */
+const count = computed(() => props.code.replace(/\n$/, '').split('\n').length);
 
 function go(): void {
   const n = Number.parseInt(goTo.value, 10);

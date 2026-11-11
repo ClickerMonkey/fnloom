@@ -19,7 +19,7 @@ import { languageOf } from '../resources/logic/formats.ts';
 import CodeViewer from '../resources/viewers/CodeViewer.vue';
 import { COMPACT_QUERY, TREE_WIDTH } from '../state/layout.ts';
 import { useStores } from '../state/stores.ts';
-import { UiButton, UiIconButton, UiSplitter, useMediaQuery } from '../ui/index.ts';
+import { UiButton, UiIconButton, UiMarkdown, UiSplitter, useMediaQuery } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
 const { resources, layout } = useStores();
@@ -98,6 +98,17 @@ function choose(uri: string): void {
   if (!expanded.value.has(uri)) { toggle(uri); }
   go(path);
 }
+/** The tree follows the page: the open folder and every folder above it are expanded (and read), so it is in view. */
+watch(folderUri, () => {
+  const root = place.value.root;
+  if (root === undefined) { return; }
+  const path = place.value.path;
+  const along = [root.uri, ...path.map((_, at) => uriUnder(root, path.slice(0, at + 1)))];
+  const missing = along.filter((uri) => !expanded.value.has(uri));
+  if (missing.length === 0) { return; }
+  for (const uri of missing) { store.folder(uri); }
+  expanded.value = new Set([...expanded.value, ...missing]);
+}, { immediate: true });
 const childrenOf = (uri: string): ExploreChildren => {
   const paged = store.peek(uri);
   return { folders: (paged?.items.value ?? []).filter((entry) => entry.type === 'folder'), loading: paged?.loading.value ?? true, problem: paged?.problem.value ?? '' };
@@ -123,7 +134,8 @@ const fileOnly = computed(() => fileUri.value !== undefined && !roomy.value);
 
     <section v-if="!fileOnly" class="main" aria-label="Folder">
       <header class="head">
-        <h1 class="title" :class="{ 'sr-only': phone }">{{ title }}</h1>
+        <!-- inside a folder the trail starts with the instance, so the heading is only for screen readers -->
+        <h1 class="title" :class="{ 'sr-only': phone || crumbs.length > 0 }">{{ title }}</h1>
         <nav v-if="crumbs.length > 0" class="crumbs" aria-label="Folder trail" data-testid="explore-crumbs">
           <button type="button" class="crumb" @click="go([])">{{ title }}</button>
           <template v-for="(crumb, at) in crumbs" :key="crumb.path.join('/')">
@@ -154,7 +166,9 @@ const fileOnly = computed(() => fileUri.value !== undefined && !roomy.value);
         :loading="store.file.loading.value" :problem="store.file.problem.value" :ready="file !== undefined" :empty="fileText === undefined"
         empty-title="Too large or not text" empty-body="Only text files show here." empty-icon="file" @retry="fileUri && store.read(fileUri)"
       >
-        <CodeViewer :code="fileText ?? ''" :language="languageOf(file?.stat.format)" :filename="file?.stat.name ?? ''" />
+        <div v-if="file?.stat.format === 'markdown'" class="markdown" data-testid="explore-markdown"><UiMarkdown :source="fileText ?? ''" /></div>
+        <!-- the pane's header already names the file -->
+        <CodeViewer v-else :code="fileText ?? ''" :language="languageOf(file?.stat.format)" />
       </LoadState>
     </section>
   </div>
@@ -180,6 +194,7 @@ const fileOnly = computed(() => fileUri.value !== undefined && !roomy.value);
 .sep { color: var(--text-faint); }
 .more { display: grid; place-items: center; padding: var(--space-3); }
 .file-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.markdown { min-width: 0; }
 .file-name { flex: 1; min-width: 0; overflow: hidden; font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 759px) {
   .main, .file { padding: var(--space-3); }

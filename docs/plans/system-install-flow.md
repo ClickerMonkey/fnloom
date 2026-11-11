@@ -252,7 +252,7 @@ stop for a hosted instance.
 - **Binding:** the token is one-time, short-lived, and bound to the name, instance and manifest hash. The process that
   connects must declare the approved contract, or pairing fails.
 - **Sandbox:**
-  - The process gets only `PATH`, the OS basics (`SystemRoot`, `TEMP`) and `HARNESS_*`. It never gets fs's
+  - The process gets only `PATH`, the OS basics (`SystemRoot`, `TEMP`) and the SDK tunables by name (`SHARED_ENV`, never a `HARNESS_` prefix, so no hub secret reaches it). It never gets fs's
     environment or its keys. Today the hub's `NodeLauncher` passes the hub's whole environment, and the shared
     launcher should take an allowlist too.
   - cwd is its data folder.

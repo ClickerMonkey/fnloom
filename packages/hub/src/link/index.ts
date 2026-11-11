@@ -72,6 +72,12 @@ export interface PairingService {
   pending(): Promise<PairingRequest[]>;
   /** Build 6: a one-time token for an approved install run, bound to what was approved (`grantPairing`). */
   grant(request: PairingGrantRequest, link: InstanceRef): Promise<PairingGrant>;
+  /**
+   * A hosted instance said hello with its key (an update gets no token): when its host is running an approved install
+   * of exactly this instance and contract, that install's folder, bundle and approval become its `host`, so the record
+   * shows what runs now. A plain restart changes nothing.
+   */
+  rehosted(ref: InstanceRef, manifestHash: string): Promise<void>;
   /** One request, for the pairing page; refused when unknown. */
   get(pairing: PairingId): Promise<PairingRequest>;
   /** Pair the instance; with a config, it is checked first (refused with its problems) and set as it pairs. */

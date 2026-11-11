@@ -81,22 +81,22 @@ describe('hosting systems written here', () => {
     const hosting = new Hosting({ builds, runner, hubUrl: 'ws://127.0.0.1:4551/link', host, dataDir: data, limits: { connectTimeout: 30_000, problems: 2, outputTail: 20 } });
     const grants: InstallSubject[] = [];
     const grant = (subject: InstallSubject) => { grants.push(subject); return Promise.resolve({ token: 'tok_1', expiresAt: 1 }); };
-    return { builds, runner, hosting, grants, grant, known: () => Promise.resolve(false) };
+    return { builds, runner, hosting, grants, grant };
   }
 
   it('refuses a folder that does not build with its file:line:col lines, before any card', async () => {
-    const { builds, hosting, known } = setup();
+    const { builds, hosting } = setup();
     builds.problems = ['server/impl.ts:3:10 Cannot find name fn.', 'server/impl.ts:9:5 Property number does not exist on g.', 'shared/index.ts:1:1 Unused import.'];
-    const refused = await hosting.preview(folder(), { known }, signal).catch((error: unknown) => error);
+    const refused = await hosting.preview(folder(), {}, signal).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(InstallRefused);
     expect(String(refused)).toContain('server/impl.ts:3:10 Cannot find name fn.');
     expect(String(refused)).toContain('and 1 more');
   });
 
   it('shows a card bound to the build, starts exactly that bundle with a one-time token, and reports it connected', async () => {
-    const { runner, hosting, grants, grant, known } = setup();
+    const { runner, hosting, grants, grant } = setup();
     const dir = folder();
-    const preview = await hosting.preview(dir, { known }, signal);
+    const preview = await hosting.preview(dir, {}, signal);
     expect(preview.title).toBe('Install random 0.1.0 on fs/main');
     expect(preview.subject).toMatchObject({ kind: 'system-install', system: 'random', instance: 'main', bundleHash: 'b-source-1', sourceHash: 'source-1', host });
     expect(JSON.stringify(preview.parts)).toContain('random/random (read)');
@@ -113,15 +113,15 @@ describe('hosting systems written here', () => {
   });
 
   it('refuses a folder changed after approval, and an update keeps its key and shows the diff', async () => {
-    const { builds, hosting, grants, grant, known } = setup();
+    const { builds, hosting, grants, grant } = setup();
     const dir = folder();
-    const first = (await hosting.preview(dir, { known }, signal)).subject;
+    const first = (await hosting.preview(dir, {}, signal)).subject;
     if (first === undefined) { throw new Error('no subject'); }
     await hosting.install(dir, first, grant, signal);
     builds.source = 'source-2';
     builds.fns = ['random/random (read)', 'random/dice (read)'];
     await expect(hosting.install(dir, first, grant, signal)).rejects.toThrow('The folder changed after approval');
-    const update = await hosting.preview(dir, { known }, signal);
+    const update = await hosting.preview(dir, {}, signal);
     expect(update.title).toBe('Update random 0.1.0 → 0.1.0 on fs/main');
     expect(JSON.stringify(update.parts)).toContain('+ random/dice (read)');
     expect(update.subject?.replaces).toMatchObject({ version: '0.1.0' });
@@ -132,9 +132,9 @@ describe('hosting systems written here', () => {
   });
 
   it('gives the model the exit code and the end of the output when it crashes before connecting', async () => {
-    const { runner, hosting, grant, known } = setup();
+    const { runner, hosting, grant } = setup();
     const dir = folder();
-    const subject = (await hosting.preview(dir, { known }, signal)).subject;
+    const subject = (await hosting.preview(dir, {}, signal)).subject;
     if (subject === undefined) { throw new Error('no subject'); }
     runner.answer = { exited: { code: 1, output: 'boot\nTypeError: g.number is not a function' } };
     await expect(hosting.install(dir, subject, grant, signal)).rejects.toThrow(/exited \(code 1\)[\s\S]*output:\ner is not a function$/);
@@ -142,13 +142,13 @@ describe('hosting systems written here', () => {
   });
 
   it('brings the running version back when an update fails, and never starts a bundle changed since approval', async () => {
-    const { builds, runner, hosting, grant, known } = setup();
+    const { builds, runner, hosting, grant } = setup();
     const dir = folder();
-    const first = (await hosting.preview(dir, { known }, signal)).subject;
+    const first = (await hosting.preview(dir, {}, signal)).subject;
     if (first === undefined) { throw new Error('no subject'); }
     await hosting.install(dir, first, grant, signal);
     builds.source = 'source-2';
-    const update = (await hosting.preview(dir, { known }, signal)).subject;
+    const update = (await hosting.preview(dir, {}, signal)).subject;
     if (update === undefined) { throw new Error('no subject'); }
     runner.answer = { exited: { code: 1, output: 'boom' } };
     await expect(hosting.install(dir, update, grant, signal)).rejects.toThrow('exited (code 1)');
@@ -163,18 +163,25 @@ describe('hosting systems written here', () => {
     expect(runner.started).toHaveLength(starts);
   });
 
-  it('refuses the hub\'s name, and a name that runs elsewhere unless replace is set', async () => {
+  it('refuses the hub\'s name', async () => {
     const { hosting } = setup();
-    await expect(hosting.preview(folder('hub'), { known: () => Promise.resolve(false) }, signal)).rejects.toThrow('reserved for the hub');
-    await expect(hosting.preview(folder(), { known: () => Promise.resolve(true) }, signal)).rejects.toThrow('already runs somewhere else');
-    const replacing = await hosting.preview(folder(), { known: () => Promise.resolve(true), replace: true }, signal);
-    expect(JSON.stringify(replacing.parts)).toContain('Replaces the random/main');
+    await expect(hosting.preview(folder('hub'), {}, signal)).rejects.toThrow('reserved for the hub');
+  });
+
+  it('runs with the permissions of the approved build, not system.json read again, and installs one at a time', async () => {
+    const { runner, hosting, grant } = setup();
+    const dir = folder();
+    const subject = (await hosting.preview(dir, {}, signal)).subject;
+    if (subject === undefined) { throw new Error('no subject'); }
+    writeFileSync(join(dir, 'system.json'), JSON.stringify({ format: 1, name: 'random', version: '0.1.0', description: 'Random numbers.', protocol: 1, server: { entry: 'server/main.ts', external: {} }, permissions: { childProcess: true } }));
+    await Promise.all([hosting.install(dir, subject, grant, signal), hosting.install(dir, subject, grant, signal)]);
+    expect(runner.started.map((start) => start.launch.permissions?.childProcess)).toEqual([undefined, undefined]);
   });
 
   it('restarts the approved bundle, stops it for good, and removes its folders', async () => {
-    const { runner, hosting, grant, known } = setup();
+    const { runner, hosting, grant } = setup();
     const dir = folder();
-    const subject = (await hosting.preview(dir, { known }, signal)).subject;
+    const subject = (await hosting.preview(dir, {}, signal)).subject;
     if (subject === undefined) { throw new Error('no subject'); }
     await hosting.install(dir, subject, grant, signal);
     expect(await hosting.restart('random', undefined)).toBe('connected');

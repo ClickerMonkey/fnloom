@@ -148,10 +148,12 @@ Refers to: [`ContextDecl`](#core-contextdecl).
 function · `import { watchContextFolder } from '@harness/sdk/server'`
 
 Watch a context folder (dev) and send each settled change as a runtime patch, by key. `initial` is what the system
-started with. Returns a stop function.
+started with. One rescan runs at a time (a change during one rescans again after it), so patches reach the hub in
+order; what the hub has only moves on once a patch is sent, and a failed one is tried again with backoff, so no
+change is lost. Returns a stop function.
 
 ```ts
-function watchContextFolder(dir: string, initial: readonly ContextDecl[], send: (change: SystemPatch) => Promise<unknown>, options: { debounce: number; label?: string; events: ContextWatchEvents; }): () => void;
+function watchContextFolder(dir: string, initial: readonly ContextDecl[], send: (change: SystemPatch) => Promise<unknown>, options: ContextWatchOptions): () => void;
 ```
 
 Refers to: [`ContextDecl`](#core-contextdecl).
@@ -168,12 +170,31 @@ interface ContextWatchEvents {
   problems(problems: readonly ContextFileProblem[]): void;
   /** A change went to the hub. */
   sent(change: SystemPatch): void;
-  /** Sending a change failed. */
+  /** Reading or sending a change failed; it is tried again. */
   failed(error: unknown): void;
 }
 ```
 
 Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `ContextWatchOptions`
+
+interface · `import { ContextWatchOptions } from '@harness/sdk/server'`
+
+How `watchContextFolder` waits: for the folder to settle, and between tries when sending fails.
+
+```ts
+interface ContextWatchOptions {
+  /** How long the folder must be quiet before it is read. */
+  readonly debounce: number;
+  /** The first wait before sending a failed change again; it doubles up to `retryMax`. */
+  readonly retry: number;
+  readonly retryMax: number;
+  /** Prefixes file names in problems (default `context`). */
+  readonly label?: string;
+  readonly events: ContextWatchEvents;
+}
+```
 
 #### `context`
 

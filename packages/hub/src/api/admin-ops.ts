@@ -14,6 +14,7 @@ import {
 import type { ADMIN_ENDPOINTS, AdminFnName } from '@harness/sdk';
 import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
+import type { LimitResolver, RunService } from '../execution/index.ts';
 import { findUserByEmail, normalEmail } from './auth.ts';
 import { collect, first, PAGE } from './paging.ts';
 import { userInfo } from './web/access.ts';
@@ -88,7 +89,12 @@ export async function hostOf(hub: Pick<HubServices, 'store'>, system: SystemName
  * Run one of a host's fns (`fs/restart_system`, `fs/stop_system`) for an admin, in a turn of their own, and wait for
  * it: the host restarts the approved bundle as it is, so no new code runs and no approval card is needed.
  */
-export async function hostCall(hub: Pick<HubServices, 'store' | 'execution' | 'clock'>, hosted: HostedBy, fn: string, args: Json, by: ActorId): Promise<{ ok: boolean }> {
+/** What `hostCall` uses of the hub. */
+export interface HostCallDeps extends Pick<HubServices, 'store' | 'clock'> {
+  readonly execution: { readonly limits: Pick<LimitResolver, 'resolve'>; readonly runs: Pick<RunService, 'start'> };
+}
+
+export async function hostCall(hub: HostCallDeps, hosted: HostedBy, fn: string, args: Json, by: ActorId): Promise<{ ok: boolean }> {
   const actor = await hub.store.table('actors').get(by);
   if (actor?.kind !== 'user') throw reject(403, 'NOT_A_PERSON', 'only a person can restart or stop a hosted system');
   const user = await userInfo(hub, actor);
@@ -98,12 +104,27 @@ export async function hostCall(hub: Pick<HubServices, 'store' | 'execution' | 'c
   await hub.store.table('turns').insert({ id: turn, actor: by, user, time: timeInfo(now, user.timeZone), status: 'running', limits, cost: 0, errors: { max: 1 }, createdAt: now });
   const { run, settled } = await hub.execution.runs.start({
     fn: qualify(hosted.host.system, fn), args, turn, key: `host:${fn}`, actor: by, caller: by, priority: limits.priority, background: false, handlers: [],
+    // the host instance that builds and runs it, not whichever instance of the host the hub would pick
+    on: hosted.host.instance,
   });
   await hub.store.table('turns').update(turn, { root: run });
   const outcome = await settled;
   await hub.store.table('turns').update(turn, { status: outcome.status === 'done' ? 'done' : 'failed', endedAt: hub.clock() });
   if (outcome.status === 'failed') throw reject(502, 'HOST_REFUSED', `${hosted.host.system} could not ${fn.replace('_system', '')} it: ${outcome.error.message}`);
   return { ok: outcome.status === 'done' };
+}
+
+/**
+ * Start, stop or restart an instance another system hosts, through its host's fn, naming the instance (left out for
+ * `main`, which the host assumes). `undefined` when no system hosts it, so the hub's supervisor handles it.
+ */
+export async function viaHost(
+  hub: HostCallDeps, target: { system: SystemName; instance?: InstanceName | undefined }, fn: 'restart_system' | 'stop_system', by: ActorId, reason?: string,
+): Promise<{ ok: boolean } | undefined> {
+  const hosted = await hostOf(hub, target.system, target.instance);
+  if (hosted === undefined) return undefined;
+  const args = { system: target.system, ...(target.instance === undefined ? {} : { instance: target.instance }), ...(reason === undefined ? {} : { reason }) };
+  return hostCall(hub, hosted, fn, args, by);
 }
 
 /** The admin operations on the hub's services. */
@@ -232,20 +253,20 @@ export function adminOperations(hub: HubServices): AdminOperations {
     },
     // a hosted instance (installed from the chat) is started, stopped and restarted by its host's fns, as the admin
     start_system: async (data, by) => {
-      const hosted = await hostOf(hub, data.system, data.instance);
-      if (hosted !== undefined) return hostCall(hub, hosted, 'restart_system', { system: data.system, reason: 'started from the Systems page' }, by);
+      const hosted = await viaHost(hub, data, 'restart_system', by, 'started from the Systems page');
+      if (hosted !== undefined) return hosted;
       await link.supervisor.start(data.system, data.instance);
       return { ok: true };
     },
     stop_system: async (data, by) => {
-      const hosted = await hostOf(hub, data.system, data.instance);
-      if (hosted !== undefined) return hostCall(hub, hosted, 'stop_system', { system: data.system }, by);
+      const hosted = await viaHost(hub, data, 'stop_system', by);
+      if (hosted !== undefined) return hosted;
       await link.supervisor.stop(data.system, 'shutdown', data.instance);
       return { ok: true };
     },
     restart_system: async (data, by) => {
-      const hosted = await hostOf(hub, data.system, data.instance);
-      if (hosted !== undefined) return hostCall(hub, hosted, 'restart_system', { system: data.system, reason: data.reason }, by);
+      const hosted = await viaHost(hub, data, 'restart_system', by, data.reason);
+      if (hosted !== undefined) return hosted;
       await link.supervisor.stop(data.system, 'restart', data.instance);
       await link.supervisor.start(data.system, data.instance);
       hub.log.info('system.restarted', { system: data.system, instance: data.instance ?? null, by, reason: data.reason });
