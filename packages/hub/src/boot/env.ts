@@ -51,7 +51,7 @@ export const authEnv = env({
   HARNESS_JWT_SECRET: z.string().min(32).optional().describe('Signs access and refresh tokens (at least 32 characters). Made and stored when not given.'),
   HARNESS_SECRET_KEY: z.string().min(32).optional().describe('Encrypts stored secrets such as provider keys (at least 32 characters). Made and stored when not given.'),
   HARNESS_ADMIN_EMAIL: z.email().optional().describe('The single admin account\'s email. Made on the first start.'),
-  HARNESS_ADMIN_PASSWORD: z.string().min(10).optional().describe('The single admin account\'s password (at least 10 characters).'),
+  HARNESS_ADMIN_PASSWORD: z.string().min(8).optional().describe('The single admin account\'s password (at least 8 characters).'),
   HARNESS_ACCESS_TTL: z.number().int().min(60_000).default(900_000).describe('How long an access token lasts.'),
   HARNESS_REFRESH_TTL: z.number().int().min(3_600_000).default(30 * 86_400_000).describe('How long a refresh token lasts.'),
   HARNESS_SIGN_IN_LIMIT: z.number().int().min(1).default(10).describe('Most sign-in attempts from one address in a window.'),

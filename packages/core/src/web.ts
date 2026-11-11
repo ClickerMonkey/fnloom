@@ -154,7 +154,7 @@ export const authSlice = mergeSpecs(
     endpoints: use(tel).group({
       setup: { method: 'GET', response: SetupState, ws: 'setup' },
       /** Make the single admin account. Only works while `setup.needsAdmin`. */
-      createAdmin: { body: z.object({ email: z.email(), name: z.string().min(1), password: z.string().min(10) }), response: Tokens, ws: 'createAdmin' },
+      createAdmin: { body: z.object({ email: z.email(), name: z.string().min(1), password: z.string().min(8) }), response: Tokens, ws: 'createAdmin' },
       signIn: { body: z.object({ email: z.email(), password: z.string() }), response: Tokens, errors: { 401: z.object({ reason: z.string() }) }, ws: 'signIn' },
       refresh: { body: z.object({ refresh: z.string() }), response: Tokens, ws: 'refresh' },
     }),

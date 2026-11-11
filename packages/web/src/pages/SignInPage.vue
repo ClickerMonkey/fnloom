@@ -44,7 +44,7 @@ async function submit(): Promise<void> {
         <UiInput v-model="input.email" label="Email" type="email" autocomplete="email" required :error="form.fields.value.email ?? ''" :autofocus="!form.needsAdmin" />
         <UiInput
           v-model="input.password" label="Password" type="password" :autocomplete="form.needsAdmin ? 'new-password' : 'current-password'" required
-          :hint="form.needsAdmin ? 'At least 10 characters.' : ''" :error="form.fields.value.password ?? ''"
+          :hint="form.needsAdmin ? 'At least 8 characters.' : ''" :error="form.fields.value.password ?? ''"
         />
         <UiButton type="submit" variant="primary" size="lg" block :loading="form.busy.value">{{ form.needsAdmin ? 'Create account and sign in' : 'Sign in' }}</UiButton>
       </form>
