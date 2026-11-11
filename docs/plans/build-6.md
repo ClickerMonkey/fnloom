@@ -68,3 +68,48 @@ How I read it (the owner can overrule):
 
   The same goes for the hub and system API as it grows: it is grouped and searchable, with a short index, so a small
   model can find what it needs.
+
+## Build 5 leftovers (from its finish report and lanes, 2026-11-11)
+
+- **The database system still keeps a local store.** `systems/database/server/store.ts` writes `database.json`, with
+  each table's enrichment, its schema hash and the shapes the types were made from. Stored hub types need a
+  meta/hash property, readable through `ctx.types`. Then the system keeps only the changes still waiting.
+- **One search.** Retire `hub/search_fns` (and the other overlapping searches) in favour of `hub/fns_search`, and
+  switch the chat's default tools to it.
+- **Hub fns:**
+  - The hub's older fns in `packages/sdk/src/hub.ts` need instructions and examples. So do the endpoint-backed fns.
+  - The SDK's `fn()` must accept `effects` and `promptExamples`.
+- **Kinds estimate their own cost:** a kind-level cost hook in the contract and the SDK, so `database/query` and
+  `input/form` estimate cost from a payload.
+- **Database system:**
+  - **Fn routing:** saved query fns route to their instance, and `get_query`, `edit_query`, `create_table` and
+    `alter_table` route to any instance. The SDK and core need routing for this.
+  - **Fleet listing:** `get_query` can see every database, not only its own.
+  - **One result shape:** `QueryResult` uses the SDK's `ResultBlock`.
+  - **Previews:** the hub sends `kind` and `payload` in preview requests, and copies the kind's approval rule onto the
+    stored fn.
+- **Visuals:**
+  - The SDK client gets an injection key for the visuals runtime, so contributed visuals render. They also get a
+    label.
+- **Pairing:** `SystemView` and `PairingRequest` carry `configSecrets`, so a secret field is never shown as plain text
+  and is sealed across a hub restart.
+- **Approvals:**
+  - an `admins` approver
+  - a declined run is `cancelled` with a reason
+  - the policy is checked before the preview is asked for
+- **Still not done:**
+  - the fs file explorer (live, with no resources saved)
+  - `ctx.ai()` / `hubAi()` anywhere, with real models
+  - runtime add/update/remove beyond types
+  - a context bringing its fns in every contextor
+- **Tests:**
+  - the build 4 e2e suite
+  - qwen2.5:3b pulled and used for the contextor suite
+  - the approval card on the runs page
+  - dialect tests run against real SQLite JSON functions
+- **Docs:** `docs/architecture.md` gets the `fns/` module row and the new tables (fnExamples, fnFacts, fnTypes,
+  fnUses, fnVersions).
+- **Not re-checked at the end of build 5:** the hub-surface departures, and the UI fixes from the owner's feedback (no
+  browser test was run). Check both first.
+- **aits:** uncommitted changes to `packages/resources` (utils, html test, the parsers doc) were left by a build 5
+  agent. Review them and commit or drop them.
