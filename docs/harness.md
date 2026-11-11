@@ -1087,6 +1087,10 @@ Already checked: type-checking all of the types and examples takes about two sec
     and later API and code). Inside it, a sub-agent on `ctx.ai()` follows a forced tool workflow with progressive
     disclosure of types, schemas and examples, so the huge context stays inside the fn. It ports product's tested
     logic and runs on one reusable SDK authoring-agent helper.
+  - **Generated table fns:** for any table type, one fn lists every fn that could be generated (CRUD: create,
+    update, updateWhere, remove, removeWhere, selectOne, selectPage; and helpers from its columns and foreign keys:
+    aggregates, group-bys, date buckets, lookups, parent/child). Another creates or updates them by name.
+    Generation is deterministic, comes from `@aeye/query`, and keeps version history.
   - **Testing is native to a system:** one SDK test kit covers a fake hub and ctx, typed fn calls, mocked and replayed
     LLM replies plus a few real ones, component previews in named states with screenshots for review, and kind and
     context-folder checks. `harness test` runs it, and `install_system` runs it before approval.
