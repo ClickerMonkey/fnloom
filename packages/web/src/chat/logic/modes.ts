@@ -5,7 +5,7 @@
  * and the chosen items ranked by weight. Pure, so it is tested alone.
  */
 import {
-  BUDGET_POOLS, ChatModeConfig, ContextorConfig, isJsonObject, Json, type ChatModeType, type ContextorType, type Detail, type GinTypeDef, type SelectionReport, type SelectedItem,
+  BUDGET_POOLS, CHAT_FN_MODES, ChatModeConfig, type ChatFnMode, ContextorConfig, isJsonObject, Json, type ChatModeType, type ContextorType, type Detail, type GinTypeDef, type SelectionReport, type SelectedItem,
 } from '@harness/core';
 import { ginOf, wireType } from '@harness/sdk';
 import type { z } from 'zod';
@@ -24,6 +24,21 @@ const MODE_WORDS = {
   tools: { label: 'Strict tools', about: 'Every fn the agent may use is a native tool. Exact, but costs more tokens.' },
   static: { label: 'Static toolset', about: 'Five fixed tools; fns show as cards and the agent runs any with run(). Cheaper, looser.' },
 } as const satisfies Record<ChatModeType, { label: string; about: string }>;
+
+/** How far a chat lets its agent go with fns, in plain words, mildest first (`Session.fnMode`). */
+export const FN_MODE_WORDS = {
+  none: { label: 'No fns', about: 'The agent only talks: it runs no fns.' },
+  read: { label: 'Read only', about: 'The agent may run fns that only read.' },
+  write: { label: 'Read and write', about: 'The agent may also run fns that add or change things, but none that delete.' },
+  delete: { label: 'Full access', about: 'The agent may run any fn the policies allow, deleting included.' },
+  auto: { label: 'Auto', about: 'Reads go ahead; a model checks each call that writes or deletes before it runs.' },
+} as const satisfies Record<ChatFnMode, { label: string; about: string }>;
+
+/** A chat's fn mode, where none is set: as far as the policies allow. */
+export const DEFAULT_FN_MODE: ChatFnMode = 'delete';
+
+/** The fn modes a chat can pick, mildest first. */
+export const FN_MODE_CHOICES: readonly ChatFnMode[] = CHAT_FN_MODES;
 
 /** What each contextor is, in plain words. */
 const CONTEXTOR_WORDS = {

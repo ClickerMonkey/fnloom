@@ -49,7 +49,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'outcomes',
     title: 'Outcomes: done, invalid input, failed, paused, cancelled, undo',
-    exports: ['ResultBlock', 'ResultBlockType', 'ResultColumnInfo', 'ResultFn', 'NextPage', 'resultBlock', 'ResultBlockOptions', 'cosine', 'embedOne', 'Outcome', 'Resume', 'Suspended', 'ACTIVE_RUN_STATUSES', 'SETTLED_RUN_STATUSES', 'isSettled', 'isUnsettled', 'ActiveRunStatus', 'SettledRunStatus'],
+    exports: ['ResultBlock', 'ResultBlockType', 'ResultColumnInfo', 'ResultFn', 'NextPage', 'resultBlock', 'ResultBlockOptions', 'rendererFolder', 'RendererPlace', 'Outcome', 'Resume', 'Suspended', 'ACTIVE_RUN_STATUSES', 'SETTLED_RUN_STATUSES', 'isSettled', 'isUnsettled', 'ActiveRunStatus', 'SettledRunStatus'],
   },
   {
     id: 'kinds-agents',
@@ -79,7 +79,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'The hub contract',
     exports: [
       'hub', 'HubContract', 'ADMIN_ENDPOINTS', 'AdminFnName', 'HUB_READ_ENDPOINTS', 'HubReadFnName', 'HUB_WRITE_ENDPOINTS', 'HubWriteFnName', 'FIND_KINDS',
-      'LlmPayloadType', 'ModelChoiceType', 'ChatModeType', 'ContextorType', 'FnErrorType',
+      'LlmPayloadType', 'ModelChoiceType', 'ChatModeType', 'ContextorType', 'FnErrorType', 'StoredFn', 'SaveFnArgs', 'SAVE_FN_TAKEN',
     ],
   },
   {
@@ -96,7 +96,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'The run context and services',
     exports: [
       'FnCtx', 'Services', 'SystemCtx', 'SystemPlace', 'UndoCtx', 'AskerCtx', 'BudgetInfo', 'RunStatusView', 'Llm', 'ForwardModality', 'ModelInput', 'ModelOutput', 'Files', 'Resources', 'Types', 'Log',
-      'Proposals', 'ProposeOptions', 'Decisions', 'DecideOptions', 'Fleets',
+      'Proposals', 'ProposeOptions', 'Decisions', 'DecideOptions', 'Fleets', 'FnSearch',
       'harnessAi', 'harnessAiOf', 'HarnessAi', 'HarnessProvider', 'HarnessProviderConfig', 'HarnessMetadata', 'HubLlm', 'HubLlmError', 'HubModels', 'HUB_MODEL', 'wireRequest',
     ],
   },
@@ -122,7 +122,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'testing',
     title: 'Testing',
-    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal'],
+    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal', 'FakeHubFns', 'KeptFn'],
   },
   { id: 'mistakes', title: 'Common mistakes', exports: [] },
   { id: 'examples', title: 'Worked examples', exports: [] },

@@ -100,7 +100,7 @@ export const QUERIES = {
   [ROUTES.turnTree]: CHAT_QUERY,
   [ROUTES.inbox]: z.object({ q: z.string(), filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
   [ROUTES.systems]: z.object({ pairing: PairingId, q: z.string() }).partial(),
-  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1') }).partial(),
+  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), classifier: z.literal('1') }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
   [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
   [ROUTES.llmCalls]: z.object({ q: z.string(), call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
@@ -158,7 +158,7 @@ export const links = {
   },
   /** Every fn of every system with its stats; `q` narrows and sorts it. */
   fns: (query: RouteQuery<typeof ROUTES.fns> = {}): RouteLocationRaw => ({ name: ROUTES.fns, ...queryOf(ROUTES.fns, query) }),
-  /** The providers and models page, on a tab; `query` opens a role (`role`), a model's limits (`model`) or the decision model (`decision`). */
+  /** The providers and models page, on a tab; `query` opens a role (`role`), a model's limits (`model`), the decision model (`decision`) or the auto classifier (`classifier`). */
   models: (tab: ModelsTab = 'providers', query: RouteQuery<typeof ROUTES.models> = {}): RouteLocationRaw => ({
     name: ROUTES.models, params: tab === 'providers' ? {} : { tab }, ...queryOf(ROUTES.models, query),
   }),

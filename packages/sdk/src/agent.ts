@@ -1,6 +1,8 @@
 /** Declaring agents: fns of the hub's `llm` kind, with tools and context given as refs. */
 import type { Audience, ModelChoice } from '@harness/core';
-import type { FnDef, FnExampleOf, KindFnTypes } from './fn.ts';
+import type { FnDef, FnExampleOf, FnValidators, KindFnTypes } from './fn.ts';
+import type { StatusTemplates } from '@harness/core';
+import type { StatusInput } from './status.ts';
 import type { GinType, Infer } from './gin.ts';
 import { hub, type LlmPayloadType } from './hub.ts';
 import type { AnyContextRef, AnyFnRef, AnyHookRef } from './refs.ts';
@@ -15,13 +17,18 @@ export type LlmKind = typeof hub.kinds.llm;
 export type AgentFnTypes<A, R> = KindFnTypes<LlmKind, LlmPayload, A, R>;
 
 /** What `agent()` takes. */
-export interface AgentInput<A, R> {
+export interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   description: string;
   args: GinType<A>;
   /** Text for a chat-style agent; any type for a structured answer. */
   returns: GinType<R>;
-  /** Handlebars; `{{args.x}}` reads the args. */
+  /**
+   * The agent's own prompt (Handlebars; `{{args.x}}` reads the args): its job, how to use its tools step by step,
+   * what to answer with, and worked examples. Write it for the model.
+   */
   instructions: string;
+  /** What callers read (the fn's `instructions`): when to use it, how to call it, what it returns, pitfalls. */
+  usage?: string;
   model?: ModelChoice;
   tools?: AnyFnRef[];
   /** Fns the agent may add to its toolset while running. Default `none`. */
@@ -43,22 +50,29 @@ export interface AgentInput<A, R> {
   visibility?: Audience;
   tags?: string[];
   /** Example calls (args of its own args type), shown to other agents on its card. */
-  examples?: FnExampleOf<NoInfer<A>>[];
+  examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
+  /** Checks its system runs on the args before it starts and on its answer after (`retry` sends the model back with why). */
+  validate?: FnValidators<NoInfer<A>, NoInfer<R>, {}>;
+  /** What its runs say they are doing; the hub's agent words when absent. Tokens are checked against `args` and `returns`. */
+  status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
 }
 
 /**
  * Declare an agent: an LLM with instructions, tools and context, callable like any fn. A system can ship its own
  * agents (a code reviewer, a planner) with tools from any system.
  */
-export function agent<A, R>(def: AgentInput<A, R>): FnDef<AgentFnTypes<A, R>> {
+export function agent<A, R, const T extends StatusTemplates = StatusTemplates>(def: AgentInput<A, R, T>): FnDef<AgentFnTypes<A, R>> {
   const canLoad = def.canLoad ?? 'none';
   return hub.kinds.llm.fn({
     description: def.description,
+    ...(def.usage === undefined ? {} : { instructions: def.usage }),
     args: def.args,
     returns: def.returns,
     ...(def.visibility === undefined ? {} : { visibility: def.visibility }),
     ...(def.tags === undefined ? {} : { tags: def.tags }),
     ...(def.examples === undefined ? {} : { examples: def.examples }),
+    ...(def.validate === undefined ? {} : { validate: def.validate }),
+    ...(def.status === undefined ? {} : { status: def.status }),
     payload: {
       instructions: def.instructions,
       ...(def.model === undefined ? {} : { model: def.model }),

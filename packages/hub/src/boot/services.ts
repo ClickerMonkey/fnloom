@@ -70,7 +70,7 @@ export interface Assembly {
 }
 
 /** The modules in the order `builds` builds them (an order only; each still builds what it reads first). */
-const MODULE_ORDER = ['catalog', 'link', 'index', 'metrics', 'models', 'execution', 'contextor', 'resources', 'chat', 'mcp', 'access', 'connections'] as const satisfies readonly ModuleKey[];
+const MODULE_ORDER = ['catalog', 'link', 'index', 'metrics', 'models', 'execution', 'contextor', 'resources', 'chat', 'mcp', 'access', 'connections', 'fns'] as const satisfies readonly ModuleKey[];
 
 /** Put the hub's services together. */
 export function assemble(base: BaseServices, api: HubServices['api'], modules: HubModules, extras: Omit<ModuleContext, 'hub'>): Assembly {
@@ -105,6 +105,7 @@ export function assemble(base: BaseServices, api: HubServices['api'], modules: H
     models: once('models', modules.models),
     access: once('access', modules.access),
     connections: once('connections', modules.connections),
+    fns: once('fns', modules.fns),
   } as const satisfies { readonly [K in ModuleKey]: () => ModuleBuild<HubServices[K]> };
   const hub: HubServices = {
     ...base,
@@ -121,6 +122,7 @@ export function assemble(base: BaseServices, api: HubServices['api'], modules: H
     get models() { return built.models().services; },
     get access() { return built.access().services; },
     get connections() { return built.connections().services; },
+    get fns() { return built.fns().services; },
   };
   const context: ModuleContext = { ...extras, hub };
   return { hub, builds: () => MODULE_ORDER.map((key) => built[key]()) };

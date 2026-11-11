@@ -1,10 +1,11 @@
 import { agent, fn, g, hub, type FnRef } from '@harness/sdk';
-import { ActorId, QualifiedName, SystemName, type Json, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
+import { ActorId, LinkSession, QualifiedName, SystemName, type Json, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
 import { openScope, type AccessScope } from '../access/index.ts';
 import { registerHubFns } from './hub-fns.ts';
+import { linkPayload } from '../testing.ts';
 
 let rig: ExecutionRig | undefined;
 afterEach(async () => { await rig?.module.stop(); rig = undefined; });
@@ -47,6 +48,8 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, a
     }),
     handlers: () => r.module.handlers,
     access: (actor) => Promise.resolve(access(actor)),
+    sharing: () => ({ sharing: () => Promise.reject(new Error('no sharing here')), own: () => Promise.reject(new Error('no sharing here')) }),
+    fns: () => ({ search: { search: () => Promise.reject(new Error('no fns search here')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples here')), forPrompt: () => Promise.resolve([]) } }),
   });
   await r.session({ systems: [SystemName.parse('fs'), SystemName.parse('shop')], ...session });
   await r.module.start();
@@ -214,5 +217,62 @@ describe('the chat agent reaching system fns', () => {
     expect(await answer(r, turn)).toEqual({ status: 'done', result: 'ok' });
     // shop/buy is unavailable, fs/off switched off, other/peek of a system the session doesn't use; the cap of 4 drops fs/read
     expect(sent(r, 0).tools).toEqual(['fs__write', 'hub__load_context', 'hub__load_fns', 'hub__search_fns']);
+  });
+});
+
+describe('saved fns (build 5)', () => {
+  it('lets a kind\'s system save fns of it, refuses a taken name, keeps the old version, and reads one back', async () => {
+    const r = await executionRig();
+    rig = r;
+    addHubFn(r, hub.fns.save_fn);
+    addHubFn(r, hub.fns.fn_get);
+    const asker = r.catalog.add('input', 'ask', fn({ description: 'Ask.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
+    r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.save_fn.name, hub.fns.fn_get.name] } });
+    const owned: Array<{ fn: string; owner: string; visibility: string }> = [];
+    registerHubFns(r.module.hubFns, {
+      store: () => r.store,
+      catalog: () => ({
+        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name),
+        declare: (system, decl, by) => {
+          const name = QualifiedName.parse(`${system}/${decl.name}`);
+          const existing = r.catalog.records.get(name);
+          if (existing === undefined) r.catalog.add(system, decl.name, fn({ description: decl.description, args: g.obj({}), returns: g.bool(), tags: ['read'] }));
+          r.catalog.set(name, { decl, origin: 'runtime', addedBy: by, updatedAt: 3 });
+          return Promise.resolve({ added: existing === undefined ? [name] : [], updated: existing === undefined ? [] : [name], removed: [], refused: [] });
+        },
+      }),
+      search: () => ({ search: () => Promise.resolve([]) }),
+      sessions: () => ({ load: () => Promise.reject(new Error('no loads here')) }),
+      handlers: () => r.module.handlers,
+      access: (actor) => Promise.resolve(openScope(actor)),
+      sharing: () => ({
+        sharing: () => Promise.resolve({ owner: ALICE, visibility: 'private', with: [] }),
+        own: (target, owner, rule) => { if (target.kind === 'fn') owned.push({ fn: target.fn, owner, visibility: rule.visibility }); return Promise.resolve({ target, sharing: { owner, ...rule }, editable: true }); },
+      }),
+      fns: () => ({ search: { search: () => Promise.reject(new Error('no search')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples')), forPrompt: () => Promise.resolve([]) } }),
+    });
+    await r.module.start();
+    const input = r.connect('input');
+    const results: unknown[] = [];
+    const save = { kind: 'input/form', name: 'trip', description: 'Asks for a trip.', payload: { title: 'Trip' }, examples: [{ args: { to: 'Oslo' } }] };
+    input.behaviour.run = async (request) => {
+      const callHub = async (name: string, args: Json) => r.module.linkHandlers.call(linkPayload({ parent: request.run.id, fn: `hub/${name}`, args, key: `${name}-${results.length}`, handlers: [], background: false }, LinkSession.parse({ system: 'input', instance: 'main', boot: 'b' })));
+      results.push(await callHub('save_fn', save));
+      results.push(await callHub('save_fn', save));
+      results.push(await callHub('save_fn', { ...save, description: 'Asks for a trip and who goes.', replace: true }));
+      results.push(await callHub('fn_get', { fn: 'input/trip' }));
+      results.push(await callHub('save_fn', { ...save, kind: 'database/query' }));
+      return { status: 'done', result: true };
+    };
+    const turn = await r.turn();
+    const { settled } = await r.module.runs.start({ fn: QualifiedName.parse('input/ask'), args: {}, turn: turn.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] });
+    await settled;
+    expect(results[0]).toEqual({ status: 'done', result: { fn: 'input/trip', version: 1, created: true } });
+    expect(results[1]).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'fn-taken' } });
+    expect(results[2]).toEqual({ status: 'done', result: { fn: 'input/trip', version: 2, created: false } });
+    expect(results[3]).toMatchObject({ status: 'done', result: { fn: 'input/trip', kind: 'input/form', description: 'Asks for a trip and who goes.', payload: { title: 'Trip' }, version: 2, owner: ALICE, available: true } });
+    expect(results[4]).toMatchObject({ status: 'failed', error: { code: 'not-your-kind' } });
+    expect(owned).toEqual([{ fn: 'input/trip', owner: ALICE, visibility: 'private' }]);
+    expect((await r.store.table('fnVersions').find({ limit: 5 })).items).toMatchObject([{ fn: 'input/trip', number: 1, decl: { description: 'Asks for a trip.' } }]);
   });
 });

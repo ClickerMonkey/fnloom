@@ -76,6 +76,11 @@ export class TableCatalog {
     return describeEngine(this.engine, { maxExamples: 1 });
   }
 
+  /** Its tables, each with what it holds when known (`orders (one per checkout)`). */
+  tableList(): string[] {
+    return this.tables.map((table) => `${table.scanned.spec.name}${table.enrichment === undefined ? '' : ` (${table.enrichment.description})`}`);
+  }
+
   /** A few words on what the database holds, for matching descriptions to databases. */
   summary(label: string): string {
     return `${label}: ${this.tables.map((table) => `${table.scanned.spec.name} (${table.scanned.spec.columns.map((column) => column.name).join(', ')})${table.enrichment === undefined ? '' : ` — ${table.enrichment.description}`}`).join('; ')}`;

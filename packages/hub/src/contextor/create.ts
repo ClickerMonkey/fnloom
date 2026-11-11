@@ -15,6 +15,7 @@ import type { ActorId, ManifestSection, ModelInfo, SystemName } from '@harness/c
 import { openScope, type AccessScope } from '../access/index.ts';
 import type { InstanceRouter } from '../link/index.ts';
 import type { ModelRoles } from '../models/index.ts';
+import type { FnsForPrompt } from '../fns/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { StoreTokenEstimates } from './calibration.ts';
 import type { ContextorEnv } from './env.ts';
@@ -47,6 +48,8 @@ export interface ContextorModuleInput {
   readonly dynamic?: DynamicContext;
   /** What a person may see and use (default: everything, for tests and the hub's own work). */
   readonly access?: (actor: ActorId) => Promise<AccessScope>;
+  /** Examples by relevance and fns' modes (default: declared examples, no chat fn mode filtering). */
+  readonly fns?: FnsForPrompt;
 }
 
 /** Build the contextor's services. */
@@ -64,7 +67,9 @@ export function createContextor(input: ContextorModuleInput): ContextorServices 
   const instances = input.instances ?? { connected: () => [] };
   const dynamic = input.dynamic ?? NO_DYNAMIC_CONTEXT;
   const access = input.access ?? ((actor: ActorId) => Promise.resolve(openScope(actor)));
-  const planner = new HubPromptPlanner({ store, catalog, search, views, graph, instances, dynamic, access, settings, log, clock, limits, tokens, models: input.models, resolver });
+  const planner = new HubPromptPlanner({
+    store, catalog, search, views, graph, instances, dynamic, access, settings, log, clock, limits, tokens, models: input.models, resolver, ...(input.fns === undefined ? {} : { fns: input.fns }),
+  });
   return { planner, limits, tokens, graph, views, dynamic };
 }
 
@@ -84,6 +89,10 @@ export const contextorModule: ModuleFactory<'contextor'> = ({ hub }) => ({
     log: hub.log,
     clock: () => hub.clock(),
     instances: { connected: (system) => hub.link.instances.connected(system) },
+    fns: {
+      examples: (fn, text) => hub.fns.examples.forPrompt(fn, text, fn.decl.promptExamples ?? hub.settings.fnsEnv.HARNESS_FN_PROMPT_EXAMPLES),
+      modes: (names) => hub.fns.facts.modes(names),
+    },
     roles: { resolve: (role) => hub.models.roles.resolve(role) },
     dynamic: new LinkDynamicContext({
       write: (system, body, timeout) => {

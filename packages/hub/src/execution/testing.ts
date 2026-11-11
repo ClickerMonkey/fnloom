@@ -310,7 +310,7 @@ export interface ChatRecord {
   readonly finished: Array<{ message: MessageId; parts: MessagePart[]; status: 'done' | 'failed' }>;
   readonly settled: Array<{ turn: TurnId; status: Exclude<TurnStatus, 'running' | 'paused' | 'undone'> }>;
   /** Runs recorded on assistant messages (`track`). */
-  readonly tracked: Array<{ message: MessageId; runs: readonly RunId[] }>;
+  readonly tracked: Array<{ message: MessageId; calls: ReadonlyArray<{ readonly run: RunId; readonly fn: QualifiedName }> }>;
   readonly suggested: Array<{ message: MessageId; record: SuggestionRecord }>;
   /** Follow-up turns the agent loop asked for. */
   readonly followUps: Array<{ turn: TurnId; agent: ActorId }>;
@@ -380,7 +380,7 @@ export async function executionRig(options: {
         return Promise.resolve({ ...begun, parts, status });
       },
       settle: (turn, status) => { chat.settled.push({ turn, status }); return Promise.resolve(); },
-      track: (message, runs) => { chat.tracked.push({ message, runs }); return Promise.resolve(); },
+      track: (message, calls) => { chat.tracked.push({ message, calls }); return Promise.resolve(); },
       suggested: (message, record) => { chat.suggested.push({ message, record }); return Promise.resolve(); },
       followUp: (input) => { chat.followUps.push(input); return Promise.resolve(undefined); },
     },

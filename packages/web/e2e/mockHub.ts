@@ -35,6 +35,7 @@ import { MockBuild3 } from './mockBuild3.ts';
 import { MockBuild4, readAccess, readActors } from './mockBuild4.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
+import { MockFns } from './mockBuild5.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
@@ -120,6 +121,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const library = new MockResources(Date.now());
   const build2 = new MockBuild2(admin, chat, Date.now);
   const build4 = new MockBuild4(admin, owner);
+  const fns = new MockFns();
   const graph = new ContextGraphDouble(owner(), Date.now);
   // build 5: the database system, one instance (`shop`) with its tables and saved queries
   const shopConfig = { value: SHOP_CONFIG, version: 3, setBy: owner(), setAt: Date.now() - 86_400_000 };
@@ -201,6 +203,12 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       waiting: ({ data }) => chat.waiting(data.session),
       approvals: ({ data }) => chat.approvalsOf(data.runs),
       contributions: () => [],
+      searchFns: ({ data }) => fns.search(data),
+      fnFacts: ({ data }) => fns.facts(data.fn),
+      fnExamples: ({ data }) => fns.examples(data),
+      autoClassifier: () => fns.classifier(),
+      setAutoClassifier: ({ data, user }) => fns.setClassifier(data, user.id),
+      clientLogs: ({ data }) => fns.log(data),
       approve: ({ data }) => chat.approve(data.approval, data.approve),
       presence: () => undefined,
       systems: () => admin.list().map(withInstances),
@@ -324,6 +332,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'setup', 'createAdmin', 'signIn', 'refresh', 'signOut', 'me', 'notifications', 'readNotifications',
     'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
     'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
+    'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs',
     'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',

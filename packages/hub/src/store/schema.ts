@@ -80,6 +80,11 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   notifications: [['user', 'createdAt'], ['user', 'read']],
   pushSubscriptions: [['user']],
   reservations: [['createdAt']],
+  fnExamples: [['fn', 'order']],
+  fnFacts: [['system'], ['kind'], ['mode']],
+  fnTypes: [['type', 'use'], ['fn']],
+  fnUses: [['uses'], ['fn']],
+  fnVersions: [['fn', 'number']],
 };
 
 /** The columns of one table: field name → how it is stored. */

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
  * The resource browser (`/resources`), every part of it in the URL: a list (sortable), a grid of thumbnails (three
- * card sizes), or groups made by the hub by type, source, folder or date ("Show all" narrows to one); a folder tree
- * beside them on wide screens; the list's search bar (words, filter pills, the sort, which the hub applies) on one row;
+ * card sizes), or groups made by the hub by type, source, folder or date ("Show all" narrows to one); the folder tree
+ * in a column of its own at the left on wide screens, as wide as its divider is dragged (saved per device); the list's search bar (words, filter pills, the sort, which the hub applies) on one row;
  * the folder trail; bulk select with the actions every
  * selected resource allows; the uploader (files, a pasted image, a web address); and the opened resource in the
- * viewer beside the list on roomy screens or in a sheet, with its mode, page and line in the URL too. Live: resource
- * changes refresh what is shown.
+ * viewer beside the list on roomy screens or in a sheet, with its mode, page and line in the URL too. The page takes the
+ * whole width and height: the tree, the list and the viewer each scroll on their own, never one inside another. Live:
+ * resource changes refresh what is shown.
  */
 import AccessControl from '../components/access/AccessControl.vue';
 import CrawlSummary from '../resources/browser/CrawlSummary.vue';
@@ -25,10 +26,10 @@ import LoadState from '../admin/components/LoadState.vue';
 import PanelFrame from '../chat/components/PanelFrame.vue';
 import PanelHost from '../chat/components/PanelHost.vue';
 import { formatBytes } from '../chat/logic/format.ts';
-import { COMPACT_QUERY } from '../state/layout.ts';
+import { COMPACT_QUERY, TREE_WIDTH } from '../state/layout.ts';
 import { useStores } from '../state/stores.ts';
 import {
-  copyText, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, useMediaQuery, type SegmentOption, type SelectOption,
+  copyText, UiButton, UiDialog, UiInput, UiSegmented, UiSelect, UiSplitter, useMediaQuery, type SegmentOption, type SelectOption,
 } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 import ResourceViewer from '../resources/ResourceViewer.vue';
@@ -42,7 +43,7 @@ import { columnSort, crumbsOf, DEFAULTS, isFiltered, isHubResource, nameOf, SORT
 import { FORM_LABEL, typeWord } from '../resources/logic/formats.ts';
 import { useBrowserUrl } from '../resources/state/url.ts';
 
-const { resources, toasts } = useStores();
+const { resources, toasts, layout } = useStores();
 const router = useRouter();
 const browser = resources.browser;
 const url = useBrowserUrl();
@@ -50,7 +51,6 @@ const query = url.query;
 const now = useNow();
 const roomy = useMediaQuery('(min-width: 1360px)');
 const wide = useMediaQuery('(min-width: 1100px)');
-const spacious = useMediaQuery('(min-width: 1720px)');
 const phone = useMediaQuery(COMPACT_QUERY);
 
 const VIEWS: readonly SegmentOption<BrowserView>[] = [{ value: 'list', label: 'List', icon: 'list' }, { value: 'grid', label: 'Grid', icon: 'grid' }, { value: 'groups', label: 'Groups', icon: 'layers' }];
@@ -112,8 +112,9 @@ const panelSubtitle = computed(() => {
   return stat.size === undefined ? typeWord(stat) : `${typeWord(stat)} · ${formatBytes(stat.size)}`;
 });
 const panel = computed({ get: () => opened.value !== '', set: (open: boolean) => { if (!open) { url.set({ uri: '', mode: '', page: '', section: '' }); } } });
-/** The folder tree shows on wide screens, and beside an open resource only where there is room for all three. */
-const rail = computed(() => wide.value && (!panel.value || !roomy.value || spacious.value));
+/** The folder tree shows in its own column on wide screens. */
+const rail = wide;
+const treeWidth = computed({ get: () => layout.treeWidth, set: (width: number) => { layout.treeWidth = width; } });
 function open(uri: string): void {
   const parsed = ResourceUri.safeParse(uri);
   if (parsed.success) { url.set({ uri: parsed.data, mode: '', page: '', section: '' }, { push: true }); }
@@ -206,17 +207,20 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
 </script>
 
 <template>
-  <AppPage title="Resources" description="Files, pages and uploads, as the hub keeps them: open any to see it, its converted forms, and what is known about it.">
-    <template #actions>
-      <UiButton variant="primary" icon="upload" data-testid="open-uploader" @click="uploading = true">Add</UiButton>
-    </template>
-
-    <div class="resources" :class="{ split: roomy && panel, rail }" data-testid="resources-page">
-      <aside v-if="rail" class="rail">
+  <div class="resources" :class="{ split: roomy && panel, rail }" :style="rail ? { '--tree': `${treeWidth}px` } : undefined" data-testid="resources-page">
+    <template v-if="rail">
+      <aside class="tree" aria-label="Folders">
         <FolderTree :folders="browser.folders.value" :under="query.under ?? ''" @open="browser.openFolder($event)" @choose="url.set({ under: $event, in: '' })" />
       </aside>
+      <UiSplitter v-model="treeWidth" label="Folder tree width" :min="TREE_WIDTH.min" :max="TREE_WIDTH.max" :reset="TREE_WIDTH.reset" />
+    </template>
 
-      <section class="main" aria-label="Resources">
+    <AppPage class="main" width="full" title="Resources" description="Files, pages and uploads, as the hub keeps them: open any to see it, its converted forms, and what is known about it.">
+      <template #actions>
+        <UiButton variant="primary" icon="upload" data-testid="open-uploader" @click="uploading = true">Add</UiButton>
+      </template>
+
+      <section class="list" aria-label="Resources">
         <div class="toolbar" role="search" aria-label="Filter resources">
           <!-- one row: the search bar with the sort, then what the layout adds (grouping, card size) beside the layout switch -->
           <ListSearch v-model="search" list="resources" label="resources" placeholder="Search names, addresses and contents" :count="showGroups ? undefined : records.length" :more="browser.list.hasMore.value" :partial="browser.list.partial.value" data-testid="resource-search">
@@ -269,16 +273,16 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
           </div>
         </LoadState>
       </section>
+    </AppPage>
 
-      <PanelHost v-model:open="panel" :inline="roomy" :phone="phone" :label="panelTitle">
-        <PanelFrame :title="panelTitle" :subtitle="panelSubtitle" @close="panel = false">
-          <ResourceViewer
-            v-if="opened !== '' && query.uri" v-model:mode="mode" v-model:page="page" v-model:line="line" :uri="query.uri" v-bind="query.section === undefined ? {} : { section: query.section }"
-            @navigate="open" @notice="notice" @context="(made) => toastContextMade(toasts, made, openContext)" @opened="openedStat = $event"
-          />
-        </PanelFrame>
-      </PanelHost>
-    </div>
+    <PanelHost v-model:open="panel" :inline="roomy" :phone="phone" :label="panelTitle">
+      <PanelFrame :title="panelTitle" :subtitle="panelSubtitle" @close="panel = false">
+        <ResourceViewer
+          v-if="opened !== '' && query.uri" v-model:mode="mode" v-model:page="page" v-model:line="line" :uri="query.uri" v-bind="query.section === undefined ? {} : { section: query.section }"
+          @navigate="open" @notice="notice" @context="(made) => toastContextMade(toasts, made, openContext)" @opened="openedStat = $event"
+        />
+      </PanelFrame>
+    </PanelHost>
 
     <ResourceUploader
       v-model:open="uploading" :uploads="browser.uploads.value" :importing="browser.importing.busy.value" :problem="browser.importing.problem.value"
@@ -300,21 +304,19 @@ function notice(text: string, tone: 'ok' | 'danger'): void {
     <ConfirmDialog
       v-model:open="contextOpen" :title="contextText.title" :body="contextText.body" :confirm="contextText.confirm" :danger="false" @confirm="makeContext"
     />
-  </AppPage>
+  </div>
 </template>
 
 <style scoped>
-.resources { display: grid; gap: var(--space-4); min-width: 0; }
-.resources.rail { grid-template-columns: 220px minmax(0, 1fr); }
-.resources.rail.split { grid-template-columns: 220px minmax(0, 1fr) 460px; }
-.resources.split:not(.rail) { grid-template-columns: minmax(0, 1fr) 460px; }
-/* the opened resource: a column pinned in view whose header stays and whose body scrolls (as `BrowserFrame`'s) */
-.resources.split :deep([data-testid='chat-panel']) {
-  position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); height: calc(100dvh - var(--pinned-top, 0px) - var(--space-4) - var(--space-7)); overflow: hidden; align-self: start;
-  border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
-}
-.rail { position: sticky; top: calc(var(--pinned-top, 0px) + var(--space-4)); align-self: start; max-height: calc(100dvh - var(--pinned-top, 0px) - 2 * var(--space-4)); overflow: auto; }
-.main { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
+/* the page fills the shell's height: each column scrolls by itself */
+.resources { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; }
+.resources.rail { grid-template-columns: var(--tree) 1px minmax(0, 1fr); }
+.resources.split { grid-template-columns: minmax(0, 1fr) minmax(420px, 1fr); }
+.resources.rail.split { grid-template-columns: var(--tree) 1px minmax(0, 1fr) minmax(420px, 1fr); }
+.tree { min-width: 0; min-height: 0; overflow: auto; padding: var(--space-5) var(--space-3); }
+.main { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.resources.split :deep([data-testid='chat-panel']) { min-height: 0; overflow: hidden; }
+.list { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
 .toolbar { display: grid; min-width: 0; }
 .pick { width: auto; min-width: 128px; flex: 0 1 160px; }
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); font-size: var(--text-sm); }

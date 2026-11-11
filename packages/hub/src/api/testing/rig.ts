@@ -59,6 +59,7 @@ export interface Fakes {
   connections?: Partial<HubServices['connections']>;
   metrics?: { [K in keyof HubServices['metrics']]?: Partial<HubServices['metrics'][K]> };
   models?: { [K in keyof HubServices['models']]?: Partial<HubServices['models'][K]> };
+  fns?: { [K in keyof HubServices['fns']]?: Partial<HubServices['fns'][K]> };
 }
 
 /** Every key of a service group, from a record that must name them all (so a new service can't be left unfaked). */
@@ -214,6 +215,7 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
     models: group('models', keysOf<HubServices['models']>({ roles: true, gateway: true }), fakes.models),
     access: fake<HubServices['access']>('access', { scope: (actor) => Promise.resolve(openScope(actor)), ...fakes.access }),
     connections: fake<HubServices['connections']>('connections', fakes.connections),
+    fns: group('fns', keysOf<HubServices['fns']>({ search: true, examples: true, facts: true, gate: true, classifier: true, clientLogs: true }), fakes.fns),
   };
 }
 
@@ -234,6 +236,7 @@ export function fakeModules(fakes: Fakes = {}): HubModules {
     models: () => ({ services: services.models }),
     access: () => ({ services: services.access }),
     connections: () => ({ services: services.connections }),
+    fns: () => ({ services: services.fns }),
   };
 }
 

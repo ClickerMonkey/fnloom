@@ -4,7 +4,7 @@
  * boot factory around it.
  */
 import { fn, g } from '@harness/sdk';
-import { ActorId, MessageId, RunId, SessionId, SystemName, TurnId, type ChatMessage } from '@harness/core';
+import { ActorId, MessageId, QualifiedName, RunId, SessionId, SystemName, TurnId, type ChatMessage } from '@harness/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fake, fakeServices, rig as apiRig } from '../api/testing/rig.ts';
 import type { ModuleContext } from '../boot/index.ts';
@@ -105,7 +105,7 @@ describe('chatPorts', () => {
       }).chat,
     };
     const ports = chatPorts(hub);
-    const runs = [RunId.parse('run_1')];
+    const runs = [{ run: RunId.parse('run_1'), fn: QualifiedName.parse('fs/read') }];
     await expect(ports.presence.active(message.session)).resolves.toBe(true);
     await expect(ports.turns.begin({ turn, author: agent })).resolves.toBe(message);
     ports.turns.stream(message.id, { text: 'hi' });

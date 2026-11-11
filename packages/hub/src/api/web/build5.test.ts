@@ -1,8 +1,9 @@
-import { ApprovalId, RunId, SessionId, SystemName, TurnId, type Manifest, type Run } from '@harness/core';
+import { ApprovalId, ResourceUri, RunId, type FnFacts, SessionId, SystemName, TurnId, type Manifest, type Run } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { openScope } from '../../access/index.ts';
 import type { SystemConnection } from '../../link/index.ts';
-import { linkServer, TestSystem } from '../../execution/testing.ts';
+import { linkServer, TestCatalog, TestSystem } from '../../execution/testing.ts';
+import { fn, g } from '@harness/sdk';
 import { rig, webRig } from '../testing/rig.ts';
 
 const DB = SystemName.parse('database');
@@ -47,5 +48,44 @@ describe('build 5 endpoints', () => {
     });
     const approvals = await web.client.call('approvals', { runs: [RUN, RunId.parse('run_gone')] }, as);
     expect(approvals).toEqual([expect.objectContaining({ id: 'apr_1', preview, proposed: true })]);
+  });
+});
+
+/** A fn record of the books system. */
+const books = new TestCatalog();
+const catalogFn = (name: string) => books.add('books', name.slice('books/'.length), fn({ description: name, args: g.obj({}), returns: g.text(), tags: ['read'] }));
+
+describe('fns endpoints (build 5 feedback)', () => {
+  it('search, page examples, read facts of fns the person sees, take browser logs, and set the auto classifier', async () => {
+    const searched: unknown[] = [];
+    const logged: unknown[] = [];
+    const facts: FnFacts = { fn: 'books/overdue', kind: 'native', mode: 'read', reads: [], writes: [], uses: [], free: true, cost: { min: 0, typical: 0, max: 0, basis: 'free', runs: 0 }, longRunning: false };
+    const r = await rig({
+      catalog: { fn: (name) => Promise.resolve(name === 'books/overdue' || name === 'books/secret' ? catalogFn(name) : undefined) },
+      access: { scope: (actor) => Promise.resolve({ ...openScope(actor), seesFn: (f) => f.name !== 'books/secret' }) },
+      fns: {
+        search: { search: (query, asker) => { searched.push({ query, actor: asker.actor }); return Promise.resolve({ items: [] }); } },
+        examples: { page: (query) => Promise.resolve({ fn: query.fn, items: [], total: 0 }) },
+        facts: { facts: () => Promise.resolve(facts) },
+        clientLogs: { write: (user, batch) => { logged.push({ user, batch }); return Promise.resolve({ uri: ResourceUri.parse('hub://resources/logs/x/a.jsonl'), written: batch.entries.length }); } },
+        classifier: {
+          setting: () => Promise.resolve({ value: { messages: 4 } }),
+          set: (value, by) => Promise.resolve({ value, setBy: by, updatedAt: 1 }),
+        },
+      },
+    });
+    const web = await webRig(r);
+    const as = web.as(await web.admin());
+    expect(await web.client.call('searchFns', { text: 'overdue', kinds: ['database/query'], order: 'score' }, as)).toEqual({ items: [] });
+    const anyText: unknown = expect.any(String);
+    expect(searched).toEqual([{ query: { text: 'overdue', kinds: ['database/query'], order: 'score' }, actor: anyText }]);
+    expect(await web.client.call('fnExamples', { fn: 'books/overdue', query: 'late' }, as)).toEqual({ fn: 'books/overdue', items: [], total: 0 });
+    expect(await web.client.call('fnFacts', { fn: 'books/overdue' }, as)).toEqual(facts);
+    await expect(web.client.call('fnFacts', { fn: 'books/secret' }, as)).rejects.toThrow(/no fn/);
+    const batch = { entries: [{ type: 'traffic' as const, at: 1, method: 'POST', endpoint: 'send', status: 200, duration: 12 }] };
+    expect(await web.client.call('clientLogs', batch, as)).toEqual({ uri: 'hub://resources/logs/x/a.jsonl', written: 1 });
+    expect(logged).toEqual([{ user: anyText, batch }]);
+    expect(await web.client.call('setAutoClassifier', { model: { model: { model: 'cheap' } }, messages: 2 }, as)).toMatchObject({ value: { messages: 2 }, updatedAt: 1 });
+    expect(await web.client.call('autoClassifier', {}, as)).toEqual({ value: { messages: 4 } });
   });
 });

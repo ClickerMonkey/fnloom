@@ -20,7 +20,15 @@ export const Entry = type({
   display: { label: 'File', plural: 'Files', icon: 'file', color: '#8a8f98', title: 'path', subtitle: 'type' },
   methods: {
     // offered on a file's mention card; people and code can call it, the LLM can't (visibility)
-    reveal: fn({ description: 'Show it in the file manager.', args: g.obj({}), returns: g.bool(), visibility: 'user' }),
+    reveal: fn({
+      description: 'Show it in the file manager.',
+      instructions: 'Opens the system\'s file manager at the file or folder, on the machine fs runs on. True when the file manager opened.',
+      args: g.obj({}),
+      returns: g.bool(),
+      examples: [{ args: {}, result: true }],
+      effects: { mode: 'read', free: true },
+      visibility: 'user',
+    }),
   },
 });
 
@@ -85,6 +93,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
     fns: {
       read: fn({
         description: 'Read a text file, or part of it by line.',
+        instructions: 'Read a file before you change or explain it. Paths are relative to a root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, from 0) and `limit` (how many lines); `truncated` says more follows. Binary files are refused: use the resource tools for those.',
+        examples: [
+          { args: { path: 'README.md' }, note: 'The whole file.' },
+          { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
+        ],
+        effects: { mode: 'read', free: true },
         args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
         status: {
@@ -97,6 +111,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       write: fn({
         description: 'Write a file, creating it if needed.',
+        instructions: 'Use it for a new file, or to replace a whole small file. For a change to an existing file use edit, so the rest stays as it is. Folders are made as needed. The old content is kept, so the write can be undone.',
+        examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
+        effects: { mode: 'write', free: true },
         args: g.obj({ path: path(), text: hub.types.LongText }),
         returns: g.obj({ created: g.bool() }),
         status: {
@@ -109,6 +126,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       edit: fn({
         description: 'Replace exact text in a file.',
+        instructions: 'Read the file first and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
+        examples: [
+          { args: { path: 'src/config.ts', find: 'timeout: 30_000,', replace: 'timeout: 60_000,' }, result: { replacements: 1 } },
+          { args: { path: 'docs/guide.md', find: 'colour', replace: 'color', all: true }, result: { replacements: 4 }, note: 'Every match.' },
+        ],
+        effects: { mode: 'write', free: true },
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
         returns: g.obj({ replacements: g.num() }),
         status: {
@@ -121,6 +144,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       list: fn({
         description: 'List a folder.',
+        instructions: 'Use it to see what a folder holds before guessing names. `depth` 2 or more lists inside subfolders too (up to 5); prefer glob to find files by name anywhere. `.` is the root.',
+        examples: [{ args: { path: '.' }, note: 'The root\'s top level.' }, { args: { path: 'src', depth: 2 } }],
+        effects: { mode: 'read', free: true },
         args: g.obj({ path: path(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
         returns: g.obj({ entries: g.list(Entry.shape) }),
         status: {
@@ -133,7 +159,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       glob: fn({
         description: 'Find paths matching a glob.',
-        instructions: 'The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth.',
+        instructions: 'Use it to find files by name or path. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
+        examples: [
+          { args: { pattern: '*.md' }, note: 'Every markdown file.' },
+          { args: { pattern: 'src/**/*.test.ts', root: 'app' }, note: 'Tests under src in one root.' },
+        ],
+        effects: { mode: 'read', free: true },
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
         returns: g.obj({ paths: g.list(g.text()) }),
         status: {
@@ -146,7 +177,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       grep: fn({
         description: 'Search file contents with a regular expression.',
-        instructions: 'The pattern is a JavaScript regular expression tested on each line. Narrow big searches with glob (`*.ts`, `src/**/*.vue`).',
+        instructions: 'Use it to find where something is used or defined before reading files. The pattern is a JavaScript regular expression tested on each line (escape `.`, `(` and the like). Narrow big searches with `glob` (`*.ts`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next.',
+        examples: [
+          { args: { pattern: 'function createHub\\(', glob: '*.ts' }, note: 'Where a function is defined.' },
+          { args: { pattern: 'TODO|FIXME', glob: 'src/**', limit: 50 } },
+        ],
+        effects: { mode: 'read', free: true },
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()), glob: g.optional(g.text()), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })) }),
         progress: linear,
@@ -160,6 +196,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       cd: fn({
         description: 'Change the working folder for later commands in this chat.',
+        instructions: 'Set it once instead of passing `cwd` to every bash call; it lasts for this chat. The folder must be inside a root.',
+        examples: [{ args: { path: 'packages/web' }, result: { cwd: 'packages/web' } }],
+        effects: { mode: 'read', free: true },
         args: g.obj({ path: path() }),
         returns: g.obj({ cwd: g.text() }),
         // shared with bash through session state; the LLM never has to pass it around
@@ -168,6 +207,14 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       bash: fn({
         description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
+        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call.',
+        examples: [
+          { args: { command: 'git status --short' }, note: 'What changed.' },
+          { args: { command: 'npm test -- --run src/app.test.ts', timeout: 120_000 }, note: 'One test file, with two minutes.' },
+          { args: { command: 'ls -la', cwd: 'docs' } },
+        ],
+        // a command can do anything a shell can, deleting included; it spends no model money itself
+        effects: { mode: 'delete', free: true },
         args: g.obj({ command: g.text(), cwd: g.optional(g.text()), timeout: g.field(g.optional(g.duration()), { docs: `How long the command may run, in milliseconds (30000 is 30 seconds); at least ${String(COMMAND_TIMEOUT_MIN)}. Leave empty for the default.` }) }),
         returns: CommandResult,
         state: Shell,
@@ -189,6 +236,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       remove: fn({
         description: 'Delete a file.',
+        instructions: 'Only for a file the person asked to delete or one you made and no longer need. Folders are refused. The content is kept, so it can be undone.',
+        examples: [{ args: { path: 'notes/scratch.md' }, result: { removed: true } }],
+        effects: { mode: 'delete', free: true },
         args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
         status: {
@@ -201,6 +251,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       restart: fn({
         description: 'Restart this system so changes to its code go live. It reconnects on its own.',
+        instructions: 'Only after changing this system\'s own code (its `self` folder) and checking it builds. Say why in `reason`; runs in progress stop.',
+        examples: [{ args: { reason: 'Added the tree command; reload it.' } }],
+        effects: { mode: 'write', free: true },
         args: g.obj({ reason: g.text() }),
         returns: g.obj({ restarting: g.literal(true) }),
         operations: { cancel: false, background: false },
@@ -217,8 +270,13 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
     context: {
       guide: context({
         description: 'How to work with files here: read before editing, prefer edit over write.',
-        content: 'Read a file before editing it. Use edit for small changes and write only for new files. Search with grep and glob before guessing paths.',
-        fns: [fns.read, fns.edit, fns.grep, fns.glob],
+        content: [
+          'Read a file before editing it. Use edit for small changes and write only for new files. Search with grep and glob before guessing paths, and list to see a folder.',
+          'Run builds, tests and git with bash (set the folder once with cd); a command your shell setting does not mark safe asks the person first.',
+          'Delete with remove only what the person asked for. Writes, edits and deletes can be undone.',
+        ].join(' '),
+        // the guide brings the fns it is about, so finding it finds them
+        fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
       }),
       tree: context({
         description: 'The folder tree of a root, as it is now.',
@@ -240,9 +298,25 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
     fns: {
       explore: agent({
         description: 'Answers questions about the code by reading it.',
+        usage: 'Use it for a question that needs several files read (how a feature works, where something is decided) so your own context stays small. Ask one clear question; the answer quotes paths and lines.',
         args: g.obj({ question: g.text() }),
         returns: g.text(),
-        instructions: 'Answer {{args.question}} by reading the code. Quote paths and lines.',
+        instructions: [
+          'Answer this question about the code by reading it: {{args.question}}',
+          '',
+          'Work in this order:',
+          '1. Find where to look: grep for the names in the question (a function, a type, a message), glob for files by name, or hub/search_resources by meaning.',
+          '2. Read the files that matter, a window at a time for long ones (offset and limit), and follow the calls and imports the answer depends on.',
+          '3. Stop once you can answer; do not read everything.',
+          '',
+          'Answer in a few short paragraphs or a list. Quote each path with its line (`src/hub/link.ts:120`) for every claim, and say plainly what you could not find.',
+          'Example: asked "where is the session timeout set?", grep for `timeout`, read the config file it points to, and answer',
+          '"The timeout is HARNESS_SESSION_TIMEOUT in packages/hub/src/env.ts:42 (default 30 minutes); packages/hub/src/auth/sessions.ts:88 reads it."',
+        ].join('\n'),
+        examples: [
+          { args: { question: 'How does the hub decide which instance runs a call?' } },
+          { args: { question: 'Where are uploaded files stored, and how big may one be?' } },
+        ],
         tools: [fns.read, fns.glob, fns.grep, hub.fns.search_resources],
         context: [ctx.guide],
       }),

@@ -89,6 +89,13 @@ export class StoreAccessService implements AccessService {
     return this.#write(target, run.actor, share.share, run.actor);
   }
 
+  async own(target: AccessTarget, owner: ActorId, rule: ShareRule): Promise<AccessView> {
+    const current = (await this.#load()).get(accessKey(target));
+    const same = current?.sharing.owner === owner && current.sharing.visibility === rule.visibility && current.sharing.with.join() === rule.with.join();
+    if (current !== undefined && same) return { target, sharing: current.sharing, editable: true };
+    return this.#write(target, owner, rule, this.#deps.hubActor);
+  }
+
   async usable(system: SystemName, query: FnUsable): Promise<string[]> {
     const run = await this.#runOf(system, query.run);
     const scope = await this.scope(run.actor);

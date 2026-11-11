@@ -56,6 +56,12 @@ export const NO_ENRICHER: Enricher = { enrich: () => Promise.resolve({ problems:
 export class RecordingHub implements HubSide {
   readonly upserts: string[][] = [];
   readonly removals: string[][] = [];
+  /** The saved query fns the hub says read each type. */
+  readonly reading = new Map<string, string[]>();
+
+  readers(type: string): Promise<string[]> {
+    return Promise.resolve(this.reading.get(type) ?? []);
+  }
 
   types(upsert: readonly { name: string }[], remove: readonly string[]): Promise<void> {
     this.upserts.push(upsert.map((decl) => decl.name));

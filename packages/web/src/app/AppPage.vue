@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * A page's frame: its title, a line about it, actions on the right (`actions` slot) and its content, centred at a
- * readable width with the same spacing on every page. A `crumb` slot above the title leads back to where the page
+ * readable or wide width, or across the whole width (`full`, for a page of panes), with the same spacing on every page. A `crumb` slot above the title leads back to where the page
  * sits. On phones the top bar already shows the page's name, so the title is kept for screen readers only, unless
  * `keepTitle` (a page about one thing, whose name the top bar can't know); then the name takes the row and the actions
  * wrap under it.
@@ -9,7 +9,7 @@
 import { COMPACT_QUERY } from '../state/layout.ts';
 import { useMediaQuery } from '../ui/index.ts';
 
-withDefaults(defineProps<{ title: string; description?: string; width?: 'readable' | 'wide'; keepTitle?: boolean }>(), { description: '', width: 'wide', keepTitle: false });
+withDefaults(defineProps<{ title: string; description?: string; width?: 'readable' | 'wide' | 'full'; keepTitle?: boolean }>(), { description: '', width: 'wide', keepTitle: false });
 const slots = defineSlots<{ default: () => unknown; actions?: () => unknown; crumb?: () => unknown }>();
 const compact = useMediaQuery(COMPACT_QUERY);
 </script>

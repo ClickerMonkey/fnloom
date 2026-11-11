@@ -10,7 +10,7 @@
  */
 import { ginTypeToTable, type TableSpec } from '@aeye/query';
 import { randomUUID } from 'node:crypto';
-import { type InstanceName, type Json, type PreviewPart, type TypeDecl } from '@harness/core';
+import { type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
 import type { Llm } from '@harness/sdk';
 import { Connection, dialectOf, type DatabaseConfig, type DatabaseInfo, type QueryPayload, type SortArg } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
@@ -25,6 +25,26 @@ import { hubTypeOf, identifierOf, qualifiedTypeOf, typeNameOf, type TableEnrichm
 export interface HubSide {
   /** Add or replace these table types, and take these away (local names). */
   types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void>;
+  /**
+   * The saved query fns of this instance that read a table type (`database/main.orders`), found in the hub's database
+   * (`searchFns` by kind, instance and the types they read).
+   */
+  readers(type: QualifiedName): Promise<string[]>;
+}
+
+/**
+ * Whether a table's new shape keeps every query of the old one working: each old column is still there with the same
+ * type and nullability (an optional column may become required only the other way), any closed set of values only
+ * grows, and the keys are the same. Added columns are fine.
+ */
+export function widens(before: TableSpec, after: TableSpec): boolean {
+  const has = new Map(after.columns.map((column) => [column.name, column]));
+  const keys = JSON.stringify(before.primaryKey) === JSON.stringify(after.primaryKey) && JSON.stringify(before.foreignKeys) === JSON.stringify(after.foreignKeys);
+  return keys && before.columns.every((old) => {
+    const now = has.get(old.name);
+    if (now === undefined || JSON.stringify(now.type) !== JSON.stringify(old.type) || (old.nullable && !now.nullable)) { return false; }
+    return old.values === undefined ? now.values === undefined : now.values === undefined || old.values.every((value) => now.values?.includes(value) === true);
+  });
 }
 
 /** What a rescan found. */
@@ -137,7 +157,6 @@ export class DatabaseInstance {
       if (enrichment !== undefined) { enrichments.set(schemaHash(table.spec), enrichment); }
     }
     this.#catalog = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, enrichments);
-    const saved = (await this.#deps.store.queries()).filter((query) => query.payload.instance === this.instance);
     const added: string[] = [];
     const changed: string[] = [];
     const waiting: ScannedTable[] = [];
@@ -150,12 +169,9 @@ export class DatabaseInstance {
       if (decl === undefined) { continue; }
       if (before === undefined) { added.push(table.scanned.spec.name); upsert.push(decl); continue; }
       if (schemaHash(before) === table.hash) { upsert.push(decl); continue; }
-      const breaks = saved
-        .filter((query) => this.#reads(query.payload, table.scanned.spec.name))
-        .flatMap((query) => {
-          const compiled = compileQuery(this.#catalog.engine, query.payload.query);
-          return 'query' in compiled ? [] : [{ fn: `database/${query.name}`, why: compiled.problems.join(' ') }];
-        });
+      // only a change that narrows the table can break a saved query; the hub knows which saved queries read it
+      const breaks = widens(before, table.scanned.spec) ? [] : (await this.#deps.hub.readers(qualifiedTypeOf(this.instance, table.scanned.spec.name)))
+        .map((fn) => ({ fn, why: `It reads ${table.scanned.spec.name}: ${changeWords(before, table.scanned.spec).join(' ')}` }));
       if (breaks.length === 0) { changed.push(table.scanned.spec.name); upsert.push(decl); continue; }
       waiting.push(table.scanned);
       parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, table.scanned.spec.name), before: hubTypeOf(before), after: table.hubType, changes: changeWords(before, table.scanned.spec), breaks });
@@ -164,7 +180,7 @@ export class DatabaseInstance {
     const dropped = [...this.#applied.keys()].filter((name) => !present.has(name));
     for (const name of dropped) {
       const before = this.#applied.get(name);
-      const breaks = saved.filter((query) => this.#reads(query.payload, name)).map((query) => ({ fn: `database/${query.name}`, why: `It reads ${name}, which is gone.` }));
+      const breaks = (await this.#deps.hub.readers(qualifiedTypeOf(this.instance, name))).map((fn) => ({ fn, why: `It reads ${name}, which is gone.` }));
       parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, name), ...(before === undefined ? {} : { before: hubTypeOf(before) }), changes: changeWords(before, undefined), breaks });
     }
     await this.#deps.hub.types(upsert, []);
@@ -280,11 +296,6 @@ export class DatabaseInstance {
 
   close(): Promise<void> {
     return this.db.close();
-  }
-
-  /** Whether a saved query reads or writes a table. */
-  #reads(payload: QueryPayload, table: string): boolean {
-    return JSON.stringify(payload.query).includes(`"${identifierOf(table)}"`);
   }
 
   async #enrichment(table: ScannedTable, catalog: TableCatalog, llm: Llm | undefined): Promise<TableEnrichment | undefined> {

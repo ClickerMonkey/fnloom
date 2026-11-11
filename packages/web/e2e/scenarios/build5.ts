@@ -1,7 +1,8 @@
 /**
  * Build 5's views that only rendering can check: query results as a bar chart and as a wide table (scrolling inside
- * its frame, never the page), the approval card with a write's preview above the composer, and the inbox's approval
- * cards.
+ * its frame, never the page), the approval card with a write's preview above the composer, the inbox's approval
+ * cards, and the resources page across the whole width: the folder tree in its own column with a divider that drags
+ * its width (wide screens), and no scroll area inside another.
  */
 import type { Scenario } from '../harness.ts';
 import { check, settle, signedIn, tracked } from './steps.ts';
@@ -32,6 +33,28 @@ export const build5: Scenario = {
       await page.waitForSelector('[data-testid="inbox-approvals"] [data-testid="approval-preview"]');
       await settle(page);
       await shot('inbox');
+
+      await page.goto(url('/resources?uri=fs://work/README.md'), { waitUntil: 'networkidle0' });
+      await page.waitForSelector('[data-testid="chat-panel"]');
+      await settle(page);
+      // no scroll area holds another that scrolls too
+      const nested = await page.evaluate(() => {
+        const scrolls = (el: Element): boolean => /(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1;
+        return [...document.querySelectorAll('[data-testid="resources-page"] *')].filter((el) => scrolls(el) && [...el.querySelectorAll('*')].some(scrolls)).length;
+      });
+      check(nested === 0, 'the resources page should have no scroll area inside another');
+      const splitter = await page.$('[data-testid="splitter"]');
+      const box = await splitter?.boundingBox();
+      if (box !== undefined && box !== null) {
+        const before = await page.$eval('[data-testid="resources-page"] .tree', (el) => el.getBoundingClientRect().width);
+        await page.mouse.move(box.x + box.width / 2, box.y + 100);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 80, box.y + 100, { steps: 4 });
+        await page.mouse.up();
+        const after = await page.$eval('[data-testid="resources-page"] .tree', (el) => el.getBoundingClientRect().width);
+        check(Math.round(after - before) === 80, 'dragging the divider should widen the folder tree');
+      }
+      await shot('resources');
     });
   },
 };

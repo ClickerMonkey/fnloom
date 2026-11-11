@@ -216,6 +216,10 @@ export class FakeRuns implements RunService {
 
   propose(): Promise<never> { return Promise.reject(new Error('proposals are not in chat tests')); }
 
+  gateWith(): void {
+    // chat tests have no fn mode gate
+  }
+
   async start(input: RunInput): Promise<{ run: RunId; settled: Promise<RunSettled> }> {
     this.started.push(input);
     const refused = this.refuseStart;

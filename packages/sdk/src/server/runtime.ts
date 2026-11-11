@@ -22,7 +22,7 @@ import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
 import type { RunRegistry } from './runs.ts';
-import { fleets, proposals } from './asks.ts';
+import { fleets, fnSearch, proposals } from './asks.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { SystemTable } from './table.ts';
 import { decode, decodeOrThrow, encodeOrThrow, messageOf, thrownError, withTimeout } from './wire.ts';
@@ -142,6 +142,7 @@ export class SystemRuntime<C extends ContractShape> {
       signal,
       ...proposals({ system: env.system, hub: env.hub, signal }),
       ...fleets(env.hub, signal),
+      ...fnSearch(env.hub, undefined, signal),
     };
   }
 
@@ -316,7 +317,9 @@ export class SystemRuntime<C extends ContractShape> {
    */
   async #validate(data: ValidateRequest, signal: AbortSignal): Promise<ValidateAnswer> {
     const { table, env } = this.#parts;
-    const target = table.target(data.fn, 'native');
+    // a contract fn of any kind (an agent's answer is checked here too); a method or a native fn through its target
+    const declared = table.fnDef(data.fn);
+    const target = declared !== undefined && declared.kind !== 'native' ? { kind: 'declared' as const, def: declared } : table.target(data.fn, 'native');
     if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }
     if (target.kind === 'kind') { return { ok: true }; }
     const { def } = target;

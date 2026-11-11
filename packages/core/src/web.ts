@@ -38,6 +38,7 @@ import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
 import { AccessInfo, AccessTarget, AccessView, Sharing } from './access.ts';
 import { ConnectionChange, ConnectionView, ConnectPage } from './connections.ts';
 import { PickOption, PickQuery } from './pickers.ts';
+import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, FnExamplesPage, FnExamplesQuery, FnFacts, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
 import { ContributionView } from './registries.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
@@ -189,6 +190,7 @@ export const SessionPatch = Session.pick({ title: true, systems: true, agent: tr
   model: Session.shape.model.unwrap().nullable().optional(),
   mode: Session.shape.mode.unwrap().nullable().optional(),
   contextor: Session.shape.contextor.unwrap().nullable().optional(),
+  fnMode: Session.shape.fnMode.unwrap().nullable().optional(),
 });
 export type SessionPatch = z.infer<typeof SessionPatch>;
 
@@ -600,12 +602,34 @@ export const registriesSlice = spec({
   }),
 });
 
+/**
+ * Fns (build 5 feedback): search fns and context in the hub's database, page a fn's examples, read a fn's facts (with
+ * a call's cost estimate), send the browser's logs and traffic, and the auto classifier setting (admins).
+ */
+export const fnsSlice = mergeSpecs(
+  spec({
+    endpoints: use(tel, hubAuth).group({
+      searchFns: { body: FnSearchQuery, response: FnSearchPage, ws: 'searchFns' },
+      fnExamples: { body: FnExamplesQuery, response: FnExamplesPage, ws: 'fnExamples' },
+      /** A fn's facts; with `args`, the cost estimate is for that call. */
+      fnFacts: { body: z.object({ fn: QualifiedName, args: Json.optional() }), response: FnFacts, ws: 'fnFacts' },
+      clientLogs: { body: ClientLogBatch, response: ClientLogReceipt, ws: 'clientLogs' },
+    }),
+  }),
+  spec({
+    endpoints: use(tel, hubAuth, adminOnly).group({
+      autoClassifier: { body: z.object({}), response: AutoClassifierView, ws: 'autoClassifier' },
+      setAutoClassifier: { body: AutoClassifier, response: AutoClassifierView, ws: 'setAutoClassifier' },
+    }),
+  }),
+);
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
   resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
   querySlice, suggestionsSlice, autoPairSlice,
   accessSlice, connectionsSlice, pickerSlice,
-  approvalsSlice, registriesSlice,
+  approvalsSlice, registriesSlice, fnsSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

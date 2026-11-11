@@ -391,7 +391,10 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       const interpreted = await Promise.all(made.calls.map(async (call) => ({ ...call, plan: await this.#deps.planner.interpret(call.out, planned) })));
       const pending = await this.#startCalls(run, state.iteration, interpreted, last?.interaction);
       await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used: pending.flatMap((call) => (call.run === undefined || call.invalid !== undefined ? [] : [QualifiedName.parse(call.fn)])) });
-      if (message !== undefined) await this.#deps.turns.track(message, pending.flatMap((call) => (call.run === undefined ? [] : [call.run])));
+      if (message !== undefined) await this.#deps.turns.track(message, pending.flatMap((call) => {
+        const fn = QualifiedName.safeParse(call.fn);
+        return call.run === undefined || !fn.success ? [] : [{ run: call.run, fn: fn.data }];
+      }));
       const next: AgentState = { ...state, iteration: state.iteration + 1, pending, anchor: at + made.index, ...this.#saved(conversation) };
       await store.table('runs').update(run.id, { status: 'waiting', resume: Json.parse(next) });
       void this.#await(run, next);

@@ -289,8 +289,11 @@ describe('an agent\'s answer', () => {
     expect(answer).toMatchObject({ role: 'assistant', status: 'streaming', replyTo: sent.message.id, parts: [] });
     w.chat.turns.stream(answer.id, { text: 'Hel' });
     w.chat.turns.stream(answer.id, { text: 'lo', reasoning: 'greet' });
-    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([{ type: 'reasoning', text: 'greet' }, { type: 'text', text: 'Hello' }]);
-    // the reasoning is kept with the answer, so it is still there after a reload
+    // pieces keep the order they came in: text, then reasoning (a delta's reasoning comes before its text), then text
+    expect((await w.chat.sessions.messages(w.session.id, w.admin.id, {})).items[0]?.parts).toEqual([
+      { type: 'text', text: 'Hel' }, { type: 'reasoning', text: 'greet' }, { type: 'text', text: 'lo' },
+    ]);
+    // the reasoning is kept with the answer, so it is still there after a reload; the answer stands for the text after the last call
     const done = await w.chat.turns.finish(answer.id, [{ type: 'text', text: 'Hello!' }], 'done');
     expect(done).toMatchObject({ status: 'done', parts: [{ type: 'reasoning', text: 'greet' }, { type: 'text', text: 'Hello!' }] });
     w.chat.turns.stream(answer.id, { text: 'late' });
@@ -401,8 +404,8 @@ describe('runs and attachments on an assistant message', () => {
 
   it('records the tool runs the agent started on its message, once each, and announces the change', async () => {
     const { w, answer, run } = await answering();
-    await w.chat.turns.track(answer.id, [run.id]);
-    await w.chat.turns.track(answer.id, [run.id]);
+    await w.chat.turns.track(answer.id, [{ run: run.id, fn: run.fn }]);
+    await w.chat.turns.track(answer.id, [{ run: run.id, fn: run.fn }]);
     await settle();
     expect((await w.store.table('messages').get(answer.id))?.runs).toEqual([run.id]);
     expect(w.bus.of('message').filter((e) => e.message.id === answer.id && e.message.runs.length === 1)).toHaveLength(1);

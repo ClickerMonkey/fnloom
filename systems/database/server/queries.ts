@@ -1,38 +1,53 @@
 /**
- * Saved queries on one instance, from the model's side: finding one to reuse for a request (names, embeddings and
- * the decision model), writing and keeping a new one, editing one (its old version kept), and running one into what
- * the model reads. Reads run straight away, their rows attached for the person; a write is proposed as a run of its
- * fn that waits for the person's approval, with a preview of what it would do.
+ * Queries on one instance, as the query agents' tools use them: the tables to write against, checking a draft, keeping
+ * a checked one in the hub as a `database/query` fn of this instance (`hub/save_fn`), and running a saved one into
+ * what the model reads. Saved queries are the hub's: their payload is read back with `hub/fn_get`, as the run's
+ * person, so who may use one is always the hub's to say. Reads run straight away, their rows attached for the person;
+ * a write is proposed as a run of its fn that waits for the person's approval, with a preview of what it would do.
  */
-import { InstanceName, Json, qualify, type ApprovalPreview, type DecideAnswer, type DecideCandidate, type ProposedRun, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
-import type { AnyFnDef, Llm, Log, ResultBlock } from '@harness/sdk';
-import { cosine, embedOne, resultBlock } from '@harness/sdk/server';
-import { database } from '../shared/index.ts';
-import { QueryPayload, SortArg, type QueryAnswer, type QueryHow, type WriteResult } from '../shared/shapes.ts';
-import { WrittenQuery, type QueryAuthor } from './author.ts';
+import { CallFailed, SAVE_FN_TAKEN, type Log, type ResultBlock } from '@harness/sdk';
+import { InstanceName, Json, qualify, type ApprovalPreview, type FnExample, type ProposedRun, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
+import { resultBlock } from '@harness/sdk/server';
+import { QUERY_KIND, database } from '../shared/index.ts';
+import { QueryPayload, SortArg, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
 import { argsTypeOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
 import type { DatabaseSettings } from './env.ts';
 import type { DatabaseInstance } from './instance.ts';
 import { resultTable } from './results.ts';
-import type { InstanceStore, SavedQuery } from './store.ts';
 
-/** What running a query needs from the run it is part of. */
+/** A saved fn as `hub/fn_get` gives it (the parts a query needs). */
+export interface StoredQuery {
+  readonly fn: string;
+  readonly kind: string;
+  readonly payload?: Json | undefined;
+  readonly version: number;
+}
+
+/** What `hub/save_fn` is given for a query. */
+export interface SaveQuery {
+  readonly kind: string;
+  readonly name: string;
+  readonly description: string;
+  readonly instructions: string;
+  readonly payload: Json;
+  readonly examples: FnExample[];
+  readonly tags: string[];
+  readonly share: ShareRule;
+  readonly routing: { to: 'instance'; instance: InstanceName };
+  readonly replace?: boolean;
+}
+
+/** What running and saving a query need from the run they are part of. */
 export interface QueryRunCtx {
-  readonly llm: Llm;
   readonly run: RunInfo;
   readonly log: Log;
-  usableFns(fns: readonly string[]): Promise<string[]>;
-  shareFn(fn: string, share: ShareRule): Promise<void>;
-  decide(question: string, candidates: readonly DecideCandidate[], options?: { max?: number }): Promise<DecideAnswer>;
   propose(fn: string, args: Json, options: { preview: ApprovalPreview; approver?: 'person' | 'admins' }): Promise<ProposedRun>;
   /** Attach rows for the person. */
   attach(table: ResultTable, title: string): void;
-}
-
-/** Adds and removes fns at runtime (the running system's `add` and `remove`). */
-export interface RuntimeFns {
-  add(name: string, def: AnyFnDef): Promise<void>;
-  remove(name: string): Promise<void>;
+  /** `hub/fn_get`: a saved fn, as the run's person may see it. */
+  getFn(fn: string): Promise<StoredQuery>;
+  /** `hub/save_fn`. */
+  saveFn(save: SaveQuery): Promise<{ fn: string; version: number; created: boolean }>;
 }
 
 /** Why a request couldn't be answered: the caller's to fix (`invalid`), or a failure. */
@@ -68,17 +83,6 @@ export function savedQueryName(name: string, here: string): { instance: string; 
   return dot <= 0 ? { instance: here, stored: `${here}.${unqualified}` } : { instance: unqualified.slice(0, dot), stored: unqualified };
 }
 
-/** The kind fn a saved query becomes. */
-export function queryFn(query: SavedQuery, compiled: CompiledQuery | undefined): AnyFnDef {
-  return database.kinds.query.fn({
-    description: compiled?.writes === true ? `${query.payload.description} (Writes: waits for approval.)` : query.payload.description,
-    payload: query.payload,
-    tags: ['database', 'query', ...(compiled?.writes === true ? ['write'] : [])],
-    // a saved query reads its own database, so it always runs on that instance
-    routing: { to: 'instance', instance: InstanceName.parse(query.payload.instance) },
-  });
-}
-
 /** The call's args a saved query's fn takes, read out of JSON: its params, the page and the sort. */
 export function callArgs(args: Json): { values: Record<string, Json>; sort: SortArg } {
   const values: Record<string, Json> = {};
@@ -89,109 +93,111 @@ export function callArgs(args: Json): { values: Record<string, Json>; sort: Sort
   return { values, sort: sort.success ? sort.data : [] };
 }
 
-/** The saved queries of one instance, and running them for the model. */
+/** Whether an answer is a problem rather than what was asked for. */
+export function isProblem<T extends object>(answer: T | QueryProblem): answer is QueryProblem {
+  return 'invalid' in answer || 'failed' in answer;
+}
+
+/** Whether a hub call failed because the name is taken. */
+function nameTaken(error: unknown): boolean {
+  return error instanceof CallFailed && error.error.class !== 'cancelled' && error.error.code === SAVE_FN_TAKEN;
+}
+
+/** Where a saved query fn points: its instance and its local name (`database/main.orders` gives `main`, `main.orders`). */
+export function queryInstance(fn: string): { instance: string; local: string } | undefined {
+  const local = fn.replace(/^database\//, '');
+  const dot = local.indexOf('.');
+  return dot <= 0 ? undefined : { instance: local.slice(0, dot), local };
+}
+
+/** One instance's queries, for the query agents' tools. */
 export class QueryService {
   readonly #instance: () => DatabaseInstance | undefined;
-  readonly #store: InstanceStore;
-  readonly #author: QueryAuthor;
   readonly #settings: DatabaseSettings;
-  readonly #runtime: () => RuntimeFns | undefined;
-  readonly #now: () => number;
 
-  constructor(deps: { instance: () => DatabaseInstance | undefined; store: InstanceStore; author: QueryAuthor; settings: DatabaseSettings; runtime: () => RuntimeFns | undefined; now: () => number }) {
+  constructor(deps: { instance: () => DatabaseInstance | undefined; settings: DatabaseSettings }) {
     this.#instance = deps.instance;
-    this.#store = deps.store;
-    this.#author = deps.author;
     this.#settings = deps.settings;
-    this.#runtime = deps.runtime;
-    this.#now = deps.now;
   }
 
-  /** The configured instance, or why there is none. */
-  instance(): DatabaseInstance | QueryProblem {
-    return this.#instance() ?? { failed: 'This database is not configured yet: an admin sets its connection on the system\'s page.' };
+  /** The configured instance the person may use, or why not. */
+  instance(user: UserInfo): DatabaseInstance | QueryProblem {
+    const instance = this.#instance();
+    if (instance === undefined) { return { failed: 'This database is not configured yet: an admin sets its connection on the system\'s page.' }; }
+    return mayUse(instance.config.audience, user) ? instance : notYours(instance.config.label);
   }
 
-  /** `get_query`: reuse a saved query that fits the request, else write and keep one; then run it. */
-  async get(request: string, ctx: QueryRunCtx): Promise<QueryAnswer | QueryProblem> {
-    const instance = this.instance();
-    if (!('db' in instance)) { return instance; }
-    if (!mayUse(instance.config.audience, ctx.run.user)) { return notYours(instance.config.label); }
-    // tables a scan outside a run left plain are enriched now, with this run's model
-    await instance.enrichLater(ctx.llm);
-    const reuse = await this.#reusable(instance, request, ctx);
-    if (reuse !== undefined) {
-      const signature = this.signature(instance, reuse.query);
-      const args = await this.#author.argsFor(request, signature, ctx.llm);
-      ctx.log.info('database.reused', { query: reuse.query.name });
-      return this.execute(instance, reuse.query, args, 'reused', reuse.why, ctx);
+  /** `tables`: what the agent writes against. */
+  tables(instance: DatabaseInstance): TablesInfo {
+    return { database: instance.info, writes: instance.writes, schema: instance.catalog.describe() };
+  }
+
+  /** `check_query`: whether a draft runs here, its SQL and signature, or what to fix. */
+  check(instance: DatabaseInstance, draft: QueryDraft): QueryCheck {
+    const compiled = instance.compile(this.#payload(instance, draft));
+    if (!('query' in compiled)) { return { ok: false, problems: compiled.problems }; }
+    const problems = compiled.writes && !instance.writes ? [`${instance.config.label} is read-only: only select queries.`] : [];
+    const plan = instance.plan(compiled, {}, []);
+    const fn = qualify(database.name, `${instance.instance}.${draft.name}`);
+    return { ok: problems.length === 0, problems, sql: plan.sql, signature: signatureOf(fn, argsTypeOf(compiled, draft.sorters ?? [], this.#limits())), writes: compiled.writes };
+  }
+
+  /** `save_query`: keep a checked draft in the hub as this instance's query fn; a taken name gets the next free one. */
+  async save(
+    instance: DatabaseInstance, draft: QueryDraft,
+    extra: { args?: Readonly<Record<string, Json>> | undefined; askedFor?: string | undefined; replace?: boolean | undefined }, ctx: QueryRunCtx,
+  ): Promise<SavedQueryRef | QueryProblem> {
+    const compiled = instance.compile(this.#payload(instance, draft));
+    if (!('query' in compiled)) { return { invalid: `The draft doesn't run here: ${compiled.problems.join(' ')} Fix it with check_query first.` }; }
+    if (compiled.writes && !instance.writes) { return { invalid: `${instance.config.label} is read-only: a query that writes can't be saved.` }; }
+    const payload = this.#payload(instance, draft, compiled);
+    const example: FnExample = { args: Json.parse({ ...extra.args }), ...(extra.askedFor === undefined ? {} : { note: extra.askedFor }) };
+    for (let attempt = 0; attempt < this.#settings.DATABASE_NAME_TRIES; attempt += 1) {
+      const name = `${instance.instance}.${attempt === 0 ? draft.name : `${draft.name}_${attempt + 1}`}`;
+      try {
+        const saved = await ctx.saveFn({
+          kind: QUERY_KIND, name, payload: Json.parse(payload),
+          description: compiled.writes ? `${draft.description} (Writes: waits for approval.)` : draft.description,
+          instructions: `${draft.title}, on the ${instance.config.label} database. ${compiled.writes ? 'A write: every run waits for the person to approve it.' : 'Its rows are shown to the person; you get the columns, counts and first rows. Page with limit and offset.'}`,
+          examples: [example],
+          tags: ['database', 'query', ...(compiled.writes ? ['write'] : [])],
+          share: instance.config.audience,
+          // a saved query reads its own database, so it always runs on that instance
+          routing: { to: 'instance', instance: instance.instance },
+          ...(extra.replace === true ? { replace: true } : {}),
+        });
+        ctx.log.info('database.saved', { query: saved.fn, version: saved.version, writes: compiled.writes });
+        return { fn: saved.fn, signature: signatureOf(saved.fn, argsTypeOf(compiled, payload.sorters, this.#limits())), version: saved.version, created: saved.created };
+      } catch (error) {
+        if (extra.replace === true || !nameTaken(error)) { throw error; }
+      }
     }
-    const authored = await this.#author.write(request, instance.catalog, { writes: instance.writes }, ctx.llm);
-    if ('problems' in authored) { return { invalid: `The query agent couldn't write a query for this: ${authored.problems.join(' ')} Describe the rows and columns more exactly, using the table and column names.` }; }
-    const saved = await this.#save(instance, authored.written, ctx);
-    ctx.log.info('database.created', { query: saved.name, writes: authored.compiled.writes });
-    return this.execute(instance, saved, authored.written.args, 'created', 'No saved query fit, so a new one was written and kept.', ctx);
+    return { invalid: `Every name tried for ${draft.name} is taken; choose another name.` };
   }
 
-  /** `edit_query`: change a saved query by instructions, keep its old version, and run the new one. */
-  async edit(name: string, instructions: string, ctx: QueryRunCtx): Promise<QueryAnswer | QueryProblem> {
-    const instance = this.instance();
-    if (!('db' in instance)) { return instance; }
-    if (!mayUse(instance.config.audience, ctx.run.user)) { return notYours(instance.config.label); }
-    const { stored } = savedQueryName(name, instance.instance);
-    const saved = (await this.#store.queries()).find((query) => query.name === stored);
-    if (saved === undefined || !(await ctx.usableFns([saved.name])).includes(saved.name)) {
-      return { invalid: `There is no saved query ${name} you may use here. Saved query fns are named database/${instance.instance}.<name>.` };
-    }
-    const current = WrittenQuery.parse({ name: saved.name.slice(instance.instance.length + 1), title: saved.title, description: saved.payload.description, query: saved.payload.query, sorters: saved.payload.sorters });
-    const authored = await this.#author.edit(current, instructions, instance.catalog, { writes: instance.writes }, ctx.llm);
-    if ('problems' in authored) { return { invalid: `The query agent couldn't make that change: ${authored.problems.join(' ')}` }; }
-    const payload = this.#payload(instance, authored.written, authored.compiled);
-    const edited: SavedQuery = {
-      ...saved,
-      title: authored.written.title,
-      payload,
-      vector: await embedOne(ctx.llm, `${authored.written.title}. ${payload.description}`),
-      savedAt: this.#now(),
-      history: [...saved.history, { payload: saved.payload, savedAt: saved.savedAt, note: instructions }],
-    };
-    const runtime = this.#runtime();
-    if (runtime === undefined) { return { failed: 'The database system is not serving yet.' }; }
-    await runtime.remove(saved.name);
-    await runtime.add(saved.name, queryFn(edited, authored.compiled));
-    await this.#store.putQuery(edited);
-    ctx.log.info('database.edited', { query: saved.name, versions: edited.history.length + 1 });
-    return this.execute(instance, edited, authored.written.args, 'edited', `Changed as asked; the version before is kept (${edited.history.length} earlier).`, ctx);
-  }
-
-  /** A saved query's one-line signature. */
-  signature(instance: DatabaseInstance, query: SavedQuery): string {
-    const compiled = instance.compile(query.payload);
-    const fn = qualify(database.name, query.name);
-    return 'query' in compiled ? signatureOf(fn, argsTypeOf(compiled, query.payload.sorters, this.#limits())) : `${fn}(…)`;
-  }
-
-  /** Run a saved query for the model: a read's result, or a write proposed for approval. */
-  async execute(instance: DatabaseInstance, query: SavedQuery, args: Readonly<Record<string, Json>>, how: QueryHow, why: string, ctx: QueryRunCtx): Promise<QueryAnswer | QueryProblem> {
-    const compiled = instance.compile(query.payload);
-    if (!('query' in compiled)) { return this.#stale(query, compiled); }
-    const { values, sort } = callArgs(args);
+  /** `run_query`: run a saved query for the model: a read's result, or a write proposed for approval. */
+  async run(instance: DatabaseInstance, fn: string, args: Readonly<Record<string, Json>>, ctx: QueryRunCtx): Promise<QueryRun | QueryProblem> {
+    const stored = await ctx.getFn(fn);
+    const payload = QueryPayload.safeParse(stored.payload);
+    if (stored.kind !== QUERY_KIND || !payload.success) { return { invalid: `${fn} is not a saved database query.` }; }
+    if (payload.data.instance !== instance.instance) { return { invalid: `${fn} runs on the ${payload.data.instance} database, not this one.` }; }
+    const compiled = instance.compile(payload.data);
+    if (!('query' in compiled)) { return this.#stale(fn, compiled); }
+    const { values, sort } = callArgs(Json.parse({ ...args }));
     const plan = instance.plan(compiled, values, sort);
-    const fn = { name: qualify(database.name, query.name), signature: this.signature(instance, query) };
-    const base = {
-      database: instance.info,
-      fn: { ...fn, how, why },
-      query: { sql: plan.sql, structured: Json.parse(compiled.def), params: plan.bound, writes: compiled.writes },
-    };
+    const called = { name: stored.fn, signature: signatureOf(stored.fn, argsTypeOf(compiled, payload.data.sorters, this.#limits())) };
+    const base = { database: instance.info, fn: called, query: { sql: plan.sql, structured: Json.parse(compiled.def), params: plan.bound, writes: compiled.writes } };
     if (compiled.writes) {
-      const preview = await this.preview(instance, compiled, plan, query.payload.description);
-      const proposed = await ctx.propose(query.name, values, { preview, approver: 'person' });
+      if (!instance.writes) { return { invalid: `${instance.config.label} is read-only now.` }; }
+      const preview = await this.preview(instance, compiled, plan, payload.data.description);
+      const local = queryInstance(stored.fn)?.local ?? stored.fn;
+      const proposed = await ctx.propose(local, Json.parse({ ...values, ...(sort.length === 0 ? {} : { sort }) }), { preview, approver: 'person' });
       return {
         ...base,
         approval: { run: proposed.run, state: 'waiting', says: `${preview.title}: this waits for the person to approve it in the chat. Tell them what it will do and end your turn; once approved it runs and its result shows, and if they decline you are told why.` },
       };
     }
-    return { ...base, result: await this.read(instance, compiled, plan, fn, values, ctx) };
+    return { ...base, result: await this.read(instance, compiled, plan, called, values, ctx) };
   }
 
   /** Read rows for a call: attach them for the person, and give the model its result block. */
@@ -225,25 +231,13 @@ export class QueryService {
     return { title: `${verb} ${dry.affected} ${dry.affected === 1 ? 'row' : 'rows'} in ${target}`, parts, irreversible: compiled.def.kind === 'delete' };
   }
 
-  /** Add every saved query of this instance as a fn again (after a restart). */
-  async restore(instance: DatabaseInstance): Promise<number> {
-    const runtime = this.#runtime();
-    if (runtime === undefined) { return 0; }
-    const saved = (await this.#store.queries()).filter((query) => query.payload.instance === instance.instance);
-    for (const query of saved) {
-      const compiled = instance.compile(query.payload);
-      await runtime.add(query.name, queryFn(query, 'query' in compiled ? compiled : undefined));
-    }
-    return saved.length;
-  }
-
   #limits(): { page: number; max: number } {
     return { page: this.#settings.DATABASE_PAGE_ROWS, max: this.#settings.DATABASE_MAX_ROWS };
   }
 
   /** A saved query the tables no longer fit. */
-  #stale(query: SavedQuery, refusal: Refusal): QueryProblem {
-    return { invalid: `The saved query database/${query.name} no longer fits the tables: ${refusal.problems.join(' ')} Fix it with edit_query.` };
+  #stale(fn: string, refusal: Refusal): QueryProblem {
+    return { invalid: `The saved query ${fn} no longer fits the tables: ${refusal.problems.join(' ')} Fix it with edit_query.` };
   }
 
   /** The rows an update or delete matches now, read with the same joins and conditions. */
@@ -269,75 +263,15 @@ export class QueryService {
     return resultTable(await instance.read(matchPlan), match.columns, matchPlan);
   }
 
-  /** The saved query to reuse for a request, and why: one it names, else the decision model's pick, else the closest. */
-  async #reusable(instance: DatabaseInstance, request: string, ctx: QueryRunCtx): Promise<{ query: SavedQuery; why: string } | undefined> {
-    const mine = (await this.#store.queries()).filter((query) => query.payload.instance === instance.instance && 'query' in instance.compile(query.payload));
-    if (mine.length === 0) { return undefined; }
-    const allowed = new Set(await ctx.usableFns(mine.map((query) => query.name)));
-    const usable = mine.filter((query) => allowed.has(query.name));
-    if (usable.length === 0) { return undefined; }
-    const asked = request.toLowerCase();
-    const named = usable.find((query) => asked.includes(query.name.toLowerCase()) || asked.includes(`database/${query.name}`.toLowerCase()));
-    if (named !== undefined) { return { query: named, why: 'The request names it.' }; }
-    const vector = await embedOne(ctx.llm, request);
-    const scored = usable
-      .map((query) => ({ query, score: Math.max(0, cosine(vector, query.vector)) }))
-      .filter((item) => item.score >= this.#settings.DATABASE_CANDIDATE_SCORE)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, this.#settings.DATABASE_CANDIDATES);
-    if (scored.length === 0) { return undefined; }
-    const answer = await ctx.decide(
-      `A database query for this request: ${request}`,
-      scored.map((item) => ({ id: item.query.name, text: `${item.query.title}: ${item.query.payload.description} Signature: ${this.signature(instance, item.query)}`, score: item.score })),
-      { max: 1 },
-    );
-    if (answer.by === 'decision') {
-      const pick = answer.picked[0];
-      const query = scored.find((item) => item.query.name === pick?.id)?.query;
-      return query === undefined ? undefined : { query, why: pick?.why ?? 'The decision model picked it.' };
-    }
-    const best = scored[0];
-    return best !== undefined && best.score >= this.#settings.DATABASE_REUSE_SCORE ? { query: best.query, why: `Its description matches the request (${best.score.toFixed(2)}).` } : undefined;
-  }
-
-  /** The payload of a written query. */
-  #payload(instance: DatabaseInstance, written: WrittenQuery, compiled: CompiledQuery): QueryPayload {
+  /** The payload of a draft: checked against the tables when `compiled` is given (only its output columns kept as sorters). */
+  #payload(instance: DatabaseInstance, draft: QueryDraft, compiled?: CompiledQuery): QueryPayload {
+    const sorters = draft.sorters ?? [];
     return QueryPayload.parse({
       instance: instance.instance,
-      description: written.description,
-      query: Json.parse(compiled.def),
-      sorters: written.sorters.filter((name) => compiled.columns.some((column) => column.name === name)),
-      list: compiled.list,
+      description: draft.description,
+      query: compiled === undefined ? draft.query : Json.parse(compiled.def),
+      sorters: compiled === undefined ? sorters : sorters.filter((name) => compiled.columns.some((column) => column.name === name)),
+      list: compiled?.list ?? true,
     });
-  }
-
-  /** Keep a new query: add its fn, give it to the instance's audience, then store it. */
-  async #save(instance: DatabaseInstance, written: WrittenQuery, ctx: QueryRunCtx): Promise<SavedQuery> {
-    const compiled = instance.compile({ instance: instance.instance, description: written.description, query: Json.parse(written.query), sorters: [], list: true });
-    if (!('query' in compiled)) { throw new Error(`A checked query failed to compile again: ${compiled.problems.join(' ')}`); }
-    const taken = new Set([...Object.keys(database.defs.fns), ...(await this.#store.queries()).map((query) => query.name)]);
-    const base = `${instance.instance}.${slugOf(written.name)}`;
-    let name = base;
-    for (let n = 2; taken.has(name); n += 1) { name = `${base}_${n}`; }
-    const saved: SavedQuery = {
-      name,
-      title: written.title,
-      payload: this.#payload(instance, written, compiled),
-      owner: ctx.run.user.id,
-      vector: await embedOne(ctx.llm, `${written.title}. ${written.description}`),
-      savedAt: this.#now(),
-      history: [],
-    };
-    const runtime = this.#runtime();
-    if (runtime === undefined) { throw new Error('The database system is not serving yet.'); }
-    await runtime.add(name, queryFn(saved, compiled));
-    try {
-      await ctx.shareFn(name, instance.config.audience);
-    } catch (error) {
-      await runtime.remove(name);
-      throw error;
-    }
-    await this.#store.putQuery(saved);
-    return saved;
   }
 }

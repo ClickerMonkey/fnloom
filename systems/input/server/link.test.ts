@@ -1,22 +1,21 @@
 /**
- * The input system over the SDK's real link runtime and an in-memory hub: the quick forms, `get_input` writing a form
- * with the form agent (a refused form tried again), saving a form as an `input/form` fn, reusing it by name, running
- * it through its kind, and adding the saved forms again after a restart.
+ * The input system over the SDK's real link runtime and an in-memory hub: `get_input` declared as an agent (its
+ * prompt, tools and examples), its answer checked by the output hook, `check_form`, the quick forms, saving a form in
+ * the hub (`hub/save_fn`, a taken name tried again), and running a saved form through its kind. Nothing is kept here.
  */
 import { readFileSync } from 'node:fs';
-import { SystemPackageManifest, mintId, type Json, type LlmForwardChunk, type OutcomeWire } from '@harness/core';
+import { SystemPackageManifest, type Json, type OutcomeWire } from '@harness/core';
+import { hub as hubContract } from '@harness/sdk';
 import { serve, type RunningSystem } from '@harness/sdk/server';
-import { FakeHub, TEST_USER, streamOf } from '@harness/sdk/server/testing';
+import { FakeHub } from '@harness/sdk/server/testing';
 import { afterEach, describe, expect, it } from 'vitest';
-import { WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
+import { FORM_KIND, WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
 import { ANSWER_FIELD, answerText, formProblems, quickForms } from '../shared/forms.ts';
-import { LlmFormAuthor, readWritten } from './author.ts';
 import { inputEnv } from './env.ts';
-import { cosine } from '@harness/sdk/server';
-import { bestMatch, createInputImpl, slugOf, type InputServer } from './impl.ts';
-import { MemoryForms, type SavedRecord } from './store.ts';
+import { createInputImpl, nameFor, slugOf } from './impl.ts';
 
 const packageManifest = SystemPackageManifest.parse(JSON.parse(readFileSync(new URL('../system.json', import.meta.url), 'utf8')));
+inputEnv.set({ INPUT_MAX_FIELDS: '3' });
 const settings = inputEnv.parse();
 
 function done(outcome: OutcomeWire): Json {
@@ -24,44 +23,21 @@ function done(outcome: OutcomeWire): Json {
   return outcome.result;
 }
 
-/** A form the model "writes": a trip form. */
+/** A trip form. */
 const TRIP = {
   title: 'Trip details',
   description: 'Where and when you are going.',
   type: { name: 'obj', props: { city: { docs: 'Which city?', type: { name: 'text' } }, nights: { type: { name: 'optional', generic: { T: { name: 'num', options: { whole: true } } } } } } },
 };
 
-function answers(...texts: string[]): FakeHub['onLlm'] {
-  let next = 0;
-  return () => {
-    const content = texts[Math.min(next, texts.length - 1)] ?? '';
-    next += 1;
-    const chunks: LlmForwardChunk[] = [
-      { type: 'chunk', chunk: { content } },
-      { type: 'chunk', chunk: { finishReason: 'stop' } },
-      { type: 'done', usage: { input: 1, output: 1 }, cost: 0, interaction: mintId('llmInteraction'), model: 'test/model' },
-    ];
-    return streamOf(chunks);
-  };
-}
 
 describe('input over the link', () => {
   let running: RunningSystem<'input'> | undefined;
   let hub: FakeHub;
-  let store: MemoryForms;
-  let server: InputServer;
-  const removed: string[] = [];
 
   async function start(): Promise<void> {
     hub = new FakeHub({ config: {} });
-    server = createInputImpl({
-      settings, store, author: new LlmFormAuthor({ retries: 2, maxFields: 10 }), now: () => 1_000,
-      runtime: () => (running === undefined ? undefined : {
-        add: async (name, def) => { await running?.add(name, def); },
-        remove: async (name) => { removed.push(name); },
-      }),
-    });
-    running = await serve(input, server.impl, { hub: 'ws://hub.test/link', state: 'unused', version: packageManifest.version }, hub.host());
+    running = await serve(input, createInputImpl({ settings }), { hub: 'ws://hub.test/link', state: 'unused', version: packageManifest.version }, hub.host());
     await running.ready();
   }
 
@@ -70,18 +46,37 @@ describe('input over the link', () => {
     running = undefined;
   });
 
-  it('is named as system.json says, and declares its fns, the form kind and the guide', async () => {
-    store = new MemoryForms();
+  it('declares get_input as an agent with its prompt, tools and examples, and every fn with instructions', async () => {
     await start();
     expect(input.name).toBe(packageManifest.name);
     const manifest = hub.manifests[0];
     expect(manifest?.kinds.map((k) => k.name)).toEqual(['form']);
-    expect(manifest?.fns.map((f) => f.name).sort()).toEqual(['ask_choice', 'ask_confirm', 'ask_date', 'ask_number', 'ask_text', 'get_input', 'save_form']);
+    expect(manifest?.fns.map((f) => f.name).sort()).toEqual(['ask_choice', 'ask_confirm', 'ask_date', 'ask_number', 'ask_text', 'check_form', 'get_input', 'save_form']);
+    const agent = manifest?.fns.find((f) => f.name === 'get_input');
+    expect(agent).toMatchObject({ kind: 'hub/llm', validate: { input: false, output: true } });
+    expect(agent?.payload).toMatchObject({ tools: [hubContract.fns.fns_search.name, hubContract.fns.fn_get.name, 'input/check_form'], toolExecution: 'sequential' });
+    expect(JSON.stringify(agent?.payload)).toContain('{{args.detailedDescription}}');
+    expect(agent?.examples?.[0]).toMatchObject({ result: { form: { title: 'Trip details' }, next: WAIT_FOR_ANSWERS } });
+    for (const decl of manifest?.fns ?? []) {
+      expect(decl.instructions, decl.name).toBeTruthy();
+      expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);
+    }
+    expect(manifest?.fns.find((f) => f.name === 'check_form')?.visibility).toBe('llm');
     expect(manifest?.fns.find((f) => f.name === 'save_form')?.visibility).toBe('user');
   });
 
+  it('checks a draft form for the agent, and sends a bad answer back to it', async () => {
+    await start();
+    expect(done(await hub.run('input/check_form', { form: TRIP }))).toEqual({ ok: true, problems: [], fields: 2 });
+    const wide = { ...TRIP, type: { name: 'obj', props: { a: { type: { name: 'text' } }, b: { type: { name: 'text' } }, c: { type: { name: 'text' } }, d: { type: { name: 'bool' } } } } };
+    expect(done(await hub.run('input/check_form', { form: wide }))).toMatchObject({ ok: false, fields: 4, problems: [expect.stringContaining('at most 3')] });
+    expect(done(await hub.run('input/check_form', { form: { ...TRIP, type: { name: 'obj', props: { a: { type: { name: 'color' } } } } } }))).toMatchObject({ ok: false, problems: [expect.stringContaining('"color"')] });
+    const check = (result: Json) => hub.peer().call('validate', { phase: 'output', run: hub.runInfo('input/get_input'), fn: 'get_input', args: { detailedDescription: 'x' }, result, attempt: 1 });
+    expect(await check({ form: TRIP, next: WAIT_FOR_ANSWERS })).toEqual({ ok: true });
+    expect(await check({ form: { ...TRIP, type: { name: 'text' } }, next: WAIT_FOR_ANSWERS })).toMatchObject({ ok: false, action: 'retry', reason: expect.stringContaining('check_form') });
+  });
+
   it('asks quick questions as one-field forms, and refuses a choice of one', async () => {
-    store = new MemoryForms();
     await start();
     expect(done(await hub.run('input/ask_confirm', { question: 'Book it?' }))).toMatchObject({ form: { title: 'Book it?', type: { name: 'obj', props: { answer: { docs: 'Book it?', type: { name: 'bool' } } } } } });
     expect(done(await hub.run('input/ask_choice', { question: 'Size?', options: ['S', 'M', 'M'], multiple: true }))).toMatchObject({ form: { type: { props: { answer: { type: { name: 'list' } } } } } });
@@ -89,74 +84,33 @@ describe('input over the link', () => {
     expect(await hub.run('input/ask_number', { question: 'How many?', min: 5, max: 1 })).toMatchObject({ status: 'invalid-input' });
   });
 
-  it('writes a form for get_input, trying again when gin refuses the first', async () => {
-    store = new MemoryForms();
+  it('keeps a saved form in the hub as the person\'s input/form fn, tries the next name when one is taken, and runs it through its kind', async () => {
     await start();
-    hub.onLlm = answers('```json\n{"title":"Trip","description":"x","type":{"name":"obj","props":{"city":{"type":{"name":"Place"}}}}}\n```', JSON.stringify(TRIP));
-    const result = done(await hub.run('input/get_input', { detailedDescription: 'The city they go to, and how many nights (optional).' }));
-    expect(result).toMatchObject({ form: { title: 'Trip details', type: TRIP.type }, next: WAIT_FOR_ANSWERS });
-    expect(result).not.toHaveProperty('saved');
-    hub.onLlm = answers('not json');
-    expect(await hub.run('input/get_input', { detailedDescription: 'Anything.' })).toMatchObject({ status: 'failed', error: { code: 'form-refused' } });
-  });
-
-  it('saves a form as an input/form fn, reuses it by name, runs it through its kind, and adds it again after a restart', async () => {
-    store = new MemoryForms();
-    await start();
-    const saved = done(await hub.run('input/save_form', { name: 'Trip details', description: 'Where and when you go.', form: TRIP, visibility: 'public' }));
+    const saved = done(await hub.run('input/save_form', { name: 'Trip details', description: 'Where and when you go.', form: TRIP, visibility: 'public', askedFor: 'the city and nights' }));
     expect(saved).toEqual({ fn: 'input/trip_details', name: 'Trip details' });
-    expect(hub.patches.at(-1)?.upsert.fns?.[0]).toMatchObject({ name: 'trip_details', kind: 'input/form', payload: TRIP });
-    expect(store.records.get('trip_details')).toMatchObject({ owner: TEST_USER.id, visibility: 'public' });
-    expect(hub.shares.at(-1)).toMatchObject({ fn: 'trip_details', share: { visibility: 'public', with: [] } });
-    expect(store.records.get('trip_details')?.vector).toHaveLength(2);
-
-    hub.onLlm = () => { throw new Error('the agent is not needed'); };
-    expect(done(await hub.run('input/get_input', { detailedDescription: 'Use the trip details form.' }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' } });
-    // reuse follows the hub's visibility now, not the copy kept at save: made private to someone else, it is not reused
-    const asked: string[][] = [];
-    hub.usable = (_run, fn) => { asked.push([fn]); return false; };
-    hub.onLlm = answers(JSON.stringify({ ...TRIP, title: 'Fresh trip' }));
-    const fresh = done(await hub.run('input/get_input', { detailedDescription: 'Use the trip details form.' }));
-    expect(fresh).toMatchObject({ form: { title: 'Fresh trip' } });
-    expect(fresh).not.toHaveProperty('saved');
-    expect(asked).toEqual([['trip_details']]);
-    hub.usable = () => true;
-    expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' } });
-    // the same name again, or a contract fn's name, gets a free one (the SDK refuses a fn added twice)
+    expect(hub.fns.kept.get('input/trip_details')?.saved).toMatchObject({
+      kind: FORM_KIND, name: 'trip_details', payload: TRIP, share: { visibility: 'public', with: [] }, examples: [{ args: {}, note: 'Made for: the city and nights' }],
+    });
+    // nothing is added to the system's own manifest: the form is the hub's
+    expect(hub.patches).toEqual([]);
     expect(done(await hub.run('input/save_form', { name: 'Trip details', description: 'Again.', form: TRIP }))).toEqual({ fn: 'input/trip_details_2', name: 'Trip details' });
-    expect(done(await hub.run('input/save_form', { name: 'Ask text', description: 'A clash.', form: TRIP }))).toEqual({ fn: 'input/ask_text_2', name: 'Ask text' });
+    expect(hub.fns.kept.get('input/trip_details_2')?.saved.share).toEqual({ visibility: 'private', with: [] });
+    expect(done(await hub.run('input/save_form', { name: 'Ask text', description: 'A clash with a contract fn.', form: TRIP }))).toEqual({ fn: 'input/ask_text_form', name: 'Ask text' });
     expect(await hub.run('input/save_form', { name: 'Bad', description: 'x', form: { ...TRIP, type: { name: 'text' } } })).toMatchObject({ status: 'invalid-input' });
-    // shared names its people; shared with nobody is refused
     expect(await hub.run('input/save_form', { name: 'Nobody', description: 'x', form: TRIP, visibility: 'shared' })).toMatchObject({ status: 'invalid-input' });
-    // a form fn that isn't kept (still being saved, or its sharing failed) doesn't run
-    expect(await hub.run('input/unkept', {}, { kind: 'input/form', payload: TRIP })).toMatchObject({ status: 'failed', error: { code: 'form-unsaved' } });
-    expect(removed).toEqual([]);
-
-    await running?.stop();
-    running = undefined;
-    await start();
-    expect(await server.restore()).toBe(3);
-    expect(hub.patches.slice(-3).map((patch) => patch.upsert.fns?.[0]?.name).sort()).toEqual(['ask_text_2', 'trip_details', 'trip_details_2']);
+    // the hub finds it for the agent by its words and kind
+    expect(hub.fns.search({ text: 'trip where you go', kinds: [FORM_KIND] }).items[0]).toMatchObject({ name: 'input/trip_details', kind: FORM_KIND });
+    expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' }, next: WAIT_FOR_ANSWERS });
   });
 });
 
 describe('input helpers', () => {
-  const record = (over: Partial<SavedRecord>): SavedRecord => ({
-    name: 'trip', title: 'Trip details', description: 'd', form: TRIP, owner: TEST_USER.id, visibility: 'private', with: [], vector: [1, 0], savedAt: 0, ...over,
-  });
-
-  it('matches by named title, else by cosine above the threshold', () => {
-    expect(cosine([1, 0], [1, 0])).toBe(1);
-    expect(cosine([1, 0], [0, 1])).toBe(0);
-    expect(cosine([], [1])).toBe(0);
-    expect(bestMatch('please use TRIP DETAILS', [], [record({})], 0.9)?.name).toBe('trip');
-    // a title matches as whole words only
-    expect(bestMatch('the stripe payment', [], [record({ title: 'Trip' })], 0.9)).toBeUndefined();
-    expect(bestMatch('book a trip, please', [], [record({ title: 'Trip' })], 0.9)?.name).toBe('trip');
-    expect(bestMatch('something', [0.9, 0.1], [record({}), record({ name: 'far', title: 'Far away', vector: [0, 1] })], 0.8)?.name).toBe('trip');
-    expect(bestMatch('something', [0, 1], [record({})], 0.8)).toBeUndefined();
+  it('names saved forms from their names', () => {
     expect(slugOf('Trip details!')).toBe('trip_details');
     expect(slugOf('2026 plan')).toBe('form_2026_plan');
+    expect(nameFor('trip', 0)).toBe('trip');
+    expect(nameFor('trip', 2)).toBe('trip_3');
+    expect(nameFor('get_input', 0)).toBe('get_input_form');
   });
 
   it('checks form types and writes answers as label lines', () => {
@@ -168,6 +122,5 @@ describe('input helpers', () => {
     const form = quickForms.choice({ question: 'Pick', options: ['a', 'b'], multiple: true });
     expect(answerText(form.type, { [ANSWER_FIELD]: ['a', 'b'] })).toBe('Pick: a, b');
     expect(answerText(quickForms.confirm({ question: 'Ok?' }).type, { answer: false })).toBe('Ok?: no');
-    expect(readWritten('{"title":""}')).toHaveProperty('problem');
   });
 });

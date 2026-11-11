@@ -9,14 +9,14 @@ import type { HandlerCall, Json } from '@harness/core';
 import { computed } from 'vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
 import GinForm from '../../gin/GinForm.vue';
-import { confirmVerb, humanize } from '../logic/labels.ts';
+import { confirmVerb, humanize, isConfirm } from '../logic/labels.ts';
 import ArgList from './ArgList.vue';
 
 const props = withDefaults(defineProps<{ call: HandlerCall; fnLabel: string; busy?: boolean }>(), { busy: false });
 const emit = defineEmits<{ answer: [value: Json] }>();
 
 /** A yes-or-no question: answered with two buttons instead of a form. */
-const confirm = computed(() => props.call.decl.returns.name === 'bool');
+const confirm = computed(() => isConfirm(props.call));
 const question = computed(() => props.call.decl.description.trim() || `${humanize(props.call.handler)}?`);
 const yes = computed(() => confirmVerb(question.value));
 </script>

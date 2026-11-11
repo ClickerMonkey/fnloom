@@ -9,6 +9,8 @@ import { XhrFileSender } from '../chat/api.ts';
 import { browserClient, ChatStore } from '../chat/state/chat.ts';
 import { browserSpeech, MediaRecorderSource } from '../chat/state/voice.ts';
 import { createHub } from '../api/client.ts';
+import { withTraffic } from '../api/traffic.ts';
+import { ClientLogs, clientLogsCaller } from '../state/client-logs.ts';
 import { BrowserLock, SessionKeeper, SignInForm } from '../state/auth.ts';
 import { ConnectionStore } from '../state/connection.ts';
 import { InboxStore } from '../state/inbox.ts';
@@ -18,6 +20,7 @@ import { windowStorageChanges } from '../state/persisted.ts';
 import { SessionStore } from '../state/session.ts';
 import { ResourcesStore } from '../resources/state/resources.ts';
 import { ContextStore } from '../context/state/context.ts';
+import { FnInfoStore } from '../fns/state/fn-info.ts';
 import type { Stores } from '../state/stores.ts';
 
 /** The stores that fetch again after a reconnect. */
@@ -42,7 +45,11 @@ import { Toasts } from '../state/toasts.ts';
 /** Build the app's stores for `win`. */
 export function createStores(win: Window): Stores {
   const session = new SessionStore(win.localStorage, Date.now, windowStorageChanges(win));
-  const { hub } = createHub({ origin: win.location.origin, token: () => session.accessToken.value, unauthorized: () => keeper.recover() });
+  const { hub: plain } = createHub({ origin: win.location.origin, token: () => session.accessToken.value, unauthorized: () => keeper.recover() });
+  // the logs go out through the plain client, so sending them is never itself traffic
+  const logs = new ClientLogs({ send: clientLogsCaller(plain), signedIn: () => session.signedIn.value, page: () => win.location.pathname });
+  logs.watch(win);
+  const hub = withTraffic(plain, (call) => { logs.traffic(call); });
   const api = createApi(hub);
   const keeper = new SessionKeeper(api.auth, session, Date.now, new BrowserLock(win.navigator));
   const connection = new ConnectionStore(api.connection);
@@ -78,6 +85,8 @@ export function createStores(win: Window): Stores {
     signInForm: () => new SignInForm(api.auth, session),
     resources,
     context: new ContextStore({ api: api.context, events: api.contextEvents }),
+    fns: new FnInfoStore(api.fns, api.userEvents),
+    logs,
     push: new PushStore(api.notifications, new BrowserPush(win, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built), () => win.navigator.userAgent),
   };
 }

@@ -17,6 +17,7 @@ import type {
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
+import type { FnModeGate } from '../fns/index.ts';
 import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { SpendReader } from './spend.ts';
 
@@ -56,6 +57,8 @@ export interface RunInput {
 
 /** Runs: create (after the policy check), queue, execute on the right system, control, settle and undo. */
 export interface RunService {
+  /** Build 5: check the calls a session's agent makes against the chat's fn mode with this gate from now on. */
+  gateWith(gate: FnModeGate): void;
   /** Create a run. It may wait for approval first; the result settles when the run does (or goes to the background). */
   start(input: RunInput): Promise<{ run: RunId; settled: Promise<RunSettled> }>;
   /**
@@ -93,7 +96,11 @@ export interface PolicyEngine {
    * approval is made (not for a run denied, allowed or remembered) and kept on it; when it gives nothing (the system
    * refused), no approval is made and the run is denied.
    */
-  decide(input: { fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver; preview?: () => Promise<ApprovalPreview | undefined> }): Promise<RunDecision>;
+  decide(input: {
+    fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver; preview?: () => Promise<ApprovalPreview | undefined>;
+    /** A chat in auto mode let this call go ahead: no matching policy means allow rather than ask (a fn that always asks still asks). */
+    autoAllowed?: boolean;
+  }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
   propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId }): Promise<Approval>;
   /** Answer an approval. For a fn whose approvals may not be remembered, any `remember` counts as `once`. */

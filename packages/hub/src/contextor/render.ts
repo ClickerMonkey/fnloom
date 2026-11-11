@@ -4,7 +4,7 @@
  * thing, used by every place that shows it (the prompt, `inspect`, an invalid-input reply), so they always read the
  * same.
  */
-import { problemLine, type Detail, type InputProblem, type QualifiedName } from '@harness/core';
+import { problemLine, type Detail, type FnExample, type FnRecord, type InputProblem, type QualifiedName } from '@harness/core';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
 
 /** How calls come back in a prompt (`CallProtocol`, named for the renderers' signatures). */
@@ -35,14 +35,29 @@ export function callText(fn: string, args: string, protocol: Protocol): string {
  * types (gin's `toCode()`); `full` adds its instructions, examples, and the definition of each named type it uses
  * that `shown` doesn't have yet (they are added to it, so a prompt prints each type once).
  */
-export function fnCard(view: FnView, detail: Detail, protocol: Protocol, shown: Set<QualifiedName> = new Set()): string {
+/**
+ * A fn's example lines for a prompt: the examples chosen for this turn (`ChosenFn.examples`), else its first declared
+ * ones up to its `promptExamples`, then where the rest are when it has more.
+ */
+export function exampleLines(record: FnRecord, protocol: Protocol, chosen?: readonly FnExample[]): string[] {
+  const declared = record.decl.examples ?? [];
+  const examples = chosen ?? (record.decl.promptExamples === undefined ? declared : declared.slice(0, record.decl.promptExamples));
+  const lines = examples.map((example) => {
+    const result = example.result === undefined ? '' : ` → ${JSON.stringify(example.result)}`;
+    return `Example: ${callText(record.name, JSON.stringify(example.args), protocol)}${result}${example.note === undefined ? '' : ` — ${example.note}`}`;
+  });
+  if (declared.length > examples.length) lines.push(`More examples: ${callText('hub/fn_examples', JSON.stringify({ fn: record.name, query: 'what you are about to do' }), protocol)}`);
+  return lines;
+}
+
+export function fnCard(view: FnView, detail: Detail, protocol: Protocol, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[]): string {
   const { decl, name } = view.record;
   const lines = [`### ${listedLine(name, decl.description)}`];
   if (detail === 'listed') return lines[0] ?? '';
   lines.push(`${callText(name, view.args, protocol)} → ${view.returns}`);
   if (detail === 'signature') return lines.join('\n');
   if (decl.instructions !== undefined && decl.instructions.trim() !== '') lines.push(decl.instructions.trim());
-  for (const example of decl.examples ?? []) lines.push(`Example: ${callText(name, JSON.stringify(example.args), protocol)}${example.note === undefined ? '' : ` — ${example.note}`}`);
+  lines.push(...exampleLines(view.record, protocol, examples));
   for (const [type, definition] of view.types) {
     if (shown.has(type)) continue;
     shown.add(type);

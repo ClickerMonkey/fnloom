@@ -71,8 +71,11 @@ export interface TurnService {
    * message. Refused when the run belongs to no session turn or the turn has no assistant message yet.
    */
   attach(run: RunId, part: AttachedPart): Promise<ChatMessage>;
-  /** Record runs an assistant message's tool calls started, so the chat shows their cards under it (from the agent loop). */
-  track(message: MessageId, runs: readonly RunId[]): Promise<void>;
+  /**
+   * Record the runs an assistant message's tool calls started, each as a `call` part in the place the model made it
+   * (after what it streamed before), so the chat shows them in order (from the agent loop).
+   */
+  track(message: MessageId, calls: ReadonlyArray<{ readonly run: RunId; readonly fn: QualifiedName }>): Promise<void>;
   /** Record what a graph prompt chose for a user message as its suggestions (its first cycle only; a message that has them keeps them). */
   suggested(message: MessageId, record: SuggestionRecord): Promise<void>;
   /** A turn ended (the agent answered without tool calls, failed, or was cancelled): record it and tell people who are away. */

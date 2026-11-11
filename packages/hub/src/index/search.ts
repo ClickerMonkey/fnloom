@@ -41,8 +41,11 @@ export class IndexSearch implements Search {
     const { store, hybrid, document, overfetch } = this.#options;
     const bySystem = query.systems !== undefined && query.systems !== 'all';
     const filtered = bySystem || query.keep !== undefined;
-    const vector = await this.#vector(query.text);
-    const words: HybridQuery = { text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit };
+    const vector = query.match === 'text' ? undefined : await this.#vector(query.text);
+    const words: HybridQuery = {
+      text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit,
+      ...(query.within === undefined ? {} : { within: query.within }), ...(query.match === undefined ? {} : { match: query.match }),
+    };
     const hits = vector === undefined ? await hybrid.search(words) : await this.#hybrid({ ...words, vector: { embedder: document, values: vector } }, words);
     const allowed = bySystem ? new Set<string>(query.systems) : undefined;
     const out: SearchHit[] = [];

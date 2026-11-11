@@ -2,10 +2,10 @@
 /**
  * One run in full, in a side panel whose header names the fn (its name and id, so neither repeats here): its status and timing, cost (its own and with everything it called), progress,
  * args (by their gin type when it is known, so system components draw named types) and result (readable, and as JSON), why its input was refused (softly: the agent retries), the error of every failed attempt, where it came from (the LLM call that
- * asked for it, its parent) and what may be done with it now (move to the background, open the turn's tree, undo
+ * asked for it, its parent) and what may be done with it now (look into its fn, move to the background, open the turn's tree, undo
  * the turn; for admins, its model calls). Live while the run is going.
  */
-import type { GinTypeDef, Json, LlmInteractionId, Run, RunId } from '@harness/core';
+import type { GinTypeDef, Json, LlmInteractionId, QualifiedName, Run, RunId } from '@harness/core';
 import { computed } from 'vue';
 import { UiBanner, UiButton, UiCodeBlock, UiSkeleton, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<{
   /** The gin type of the fn's args (`GinTypeDef`), when the browser knows it: the args then draw by their type, with system components for named types. */
   argsType?: GinTypeDef | undefined;
 }>(), { record: undefined, problem: '', canSeeCalls: false, argsType: undefined });
-const emit = defineEmits<{ background: []; tree: []; undo: []; llm: [id: LlmInteractionId]; run: [id: RunId]; retry: []; calls: [id: RunId] }>();
+const emit = defineEmits<{ background: []; tree: []; undo: []; llm: [id: LlmInteractionId]; run: [id: RunId]; retry: []; calls: [id: RunId]; fn: [fn: QualifiedName] }>();
 
 /** The tab shown; a parent binds it to the URL so a refresh keeps it. */
 const tab = defineModel<Tab>('tab', { default: 'overview' });
@@ -83,6 +83,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
       <RunProgress v-if="run.progress && !isSettled(run.status)" :progress="run.progress" />
       <div class="ops">
         <UiButton v-if="run.allowed?.background && !run.background && !isSettled(run.status)" size="sm" icon="arrow-right" @click="emit('background')">Move to background</UiButton>
+        <UiButton size="sm" variant="ghost" icon="fn" data-testid="run-about-fn" @click="run && emit('fn', run.fn)">About this fn</UiButton>
         <UiButton v-if="run.turn" size="sm" variant="ghost" icon="tree" @click="emit('tree')">Turn tree</UiButton>
         <UiButton v-if="run.llmCall" size="sm" variant="ghost" icon="sparkles" @click="run.llmCall && emit('llm', run.llmCall)">LLM call that asked</UiButton>
         <UiButton v-if="canSeeCalls" size="sm" variant="ghost" icon="cpu" data-testid="run-model-calls" @click="run && emit('calls', run.id)">Model calls</UiButton>

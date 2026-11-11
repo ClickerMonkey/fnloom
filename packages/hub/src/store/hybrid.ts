@@ -30,6 +30,10 @@ export interface HybridQuery {
   readonly limit: number;
   /** The query's embedding and the embedder whose vectors to compare it with. */
   readonly vector?: { readonly embedder: QualifiedName; readonly values: readonly number[] };
+  /** Only these items (filters the database applied first); absent searches everything of `kinds`. */
+  readonly within?: readonly Ranked[];
+  /** Leave out the words (`semantic`), or the vectors (`text`); both by default. */
+  readonly match?: 'text' | 'semantic' | 'hybrid';
 }
 
 /**
@@ -80,13 +84,15 @@ export class HybridSearch {
   async search(query: HybridQuery): Promise<FusedHit[]> {
     if (query.limit < 1 || query.kinds.length === 0) return [];
     const depth = Math.floor(query.limit) * this.#tuning.HARNESS_SEARCH_DEPTH;
+    const useVector = query.vector !== undefined && query.match !== 'text';
+    const useText = query.match !== 'semantic' || query.vector === undefined;
     const [vector, text] = await Promise.all([
-      query.vector === undefined ? Promise.resolve([]) : this.#vectors.nearest(query.vector.embedder, query.vector.values, depth, query.kinds),
-      this.#text.search({ text: query.text, kinds: query.kinds, limit: depth }),
+      query.vector === undefined || !useVector ? Promise.resolve([]) : this.#vectors.nearest(query.vector.embedder, query.vector.values, depth, query.kinds, query.within),
+      useText ? this.#text.search({ text: query.text, kinds: query.kinds, limit: depth, ...(query.within === undefined ? {} : { within: query.within }) }) : Promise.resolve([]),
     ]);
     // only the lists actually searched count toward the best possible score: words alone can still reach 1
     const k = this.#tuning.HARNESS_SEARCH_RRF_K;
-    const fused: FusedHit[] = query.vector === undefined ? fuseRanks({ text }, k) : fuseRanks({ vector, text }, k);
+    const fused: FusedHit[] = !useVector ? fuseRanks({ text }, k) : useText ? fuseRanks({ vector, text }, k) : fuseRanks({ vector }, k);
     return fused.slice(0, Math.floor(query.limit));
   }
 }

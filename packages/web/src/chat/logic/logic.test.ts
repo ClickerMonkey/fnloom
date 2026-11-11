@@ -16,7 +16,7 @@ import { abilities, contextText, findModels, isFree, priceText, type ModelQuery 
 import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, skipText, whoAnswers } from './session.ts';
 import { choosableRuns, controlPlan, toggleRun } from './controls.ts';
 import {
-  answerPieces, appendToken, dayLabel, invocationCarriers, messageText, messageTextLength, prependPage, resendParts, splitParts, storedReasoning, threadItems, undoneTurns, upsertMessage,
+  addSegment, answerPieces, appendToken, dayLabel, invocationCarriers, messageText, prependPage, resendParts, settleSegments, splitParts, storedSegments, threadItems, undoneTurns, upsertMessage,
 } from './thread.ts';
 
 const caps: ChatCapabilities = capabilities();
@@ -161,17 +161,30 @@ describe('thread', () => {
     expect(items[1]?.kind === 'note' && items[1].undone.map((m) => m.id)).toEqual([asked.id, answered.id]);
   });
 
-  it('orders an answer as it happened: runs, then attachments, then the reply; live runs where the text had got to', () => {
+  it('orders an answer as it happened: stored parts in their order, runs the parts do not place before the words', () => {
     const attachment = { type: 'attachment', attachment: 'fs/diff', data: {}, title: 'Diff' } as const;
     const done = message({ role: 'assistant', runs: ['run_1', 'run_2'], parts: [{ type: 'reasoning', text: 'hmm' }, { type: 'text', text: 'All done.' }, attachment] });
-    expect(answerPieces(done, new Map([[RunId.parse('run_2'), 4]])).map((p) => p.kind)).toEqual(['runs', 'attachment', 'text']);
-    expect(storedReasoning(done)).toBe('hmm');
-    expect(messageTextLength(done)).toBe(9);
-    const live = { ...done, status: 'streaming' as const, parts: [{ type: 'text' as const, text: 'Let me look. Found it.' }] };
-    const pieces = answerPieces(live, new Map([[RunId.parse('run_1'), 0], [RunId.parse('run_2'), 13]]));
-    expect(pieces.map((p) => (p.kind === 'text' ? p.text : p.kind === 'runs' ? p.runs.join(',') : p.kind))).toEqual(['run_1', 'Let me look. ', 'run_2', 'Found it.']);
-    expect(answerPieces({ ...live, runs: [] }, new Map()).map((p) => p.kind)).toEqual(['text']);
-    expect(answerPieces({ ...live, runs: ['run_9'] }, new Map([[RunId.parse('run_9'), 99]])).map((p) => p.kind)).toEqual(['text', 'runs']);
+    expect(answerPieces(done).map((p) => p.kind)).toEqual(['reasoning', 'runs', 'attachment', 'text']);
+    // parts that place their runs keep the exact order
+    const ordered = message({
+      role: 'assistant', runs: ['run_1', 'run_2'],
+      parts: [{ type: 'reasoning', text: 'a' }, { type: 'text', text: 'Looking. ' }, { type: 'call', run: 'run_1', fn: 'fs/bash' }, { type: 'reasoning', text: 'b' }, { type: 'text', text: 'Again.' }, { type: 'call', run: 'run_2', fn: 'fs/bash' }],
+    });
+    expect(storedSegments(ordered).map((s) => s.kind)).toEqual(['reasoning', 'text', 'runs', 'reasoning', 'text', 'runs']);
+  });
+
+  it('keeps live segments in arrival order and settles the stored reply into them', () => {
+    let live = addSegment([], { kind: 'reasoning', text: 'Think' });
+    live = addSegment(live, { kind: 'reasoning', text: 'ing' });
+    live = addSegment(live, { kind: 'text', text: 'Let me look. ' });
+    live = addSegment(live, { kind: 'runs', runs: [RunId.parse('run_1')] });
+    live = addSegment(live, { kind: 'runs', runs: [RunId.parse('run_1'), RunId.parse('run_2')] });
+    live = addSegment(live, { kind: 'text', text: 'Found it.' });
+    expect(live).toEqual([{ kind: 'reasoning', text: 'Thinking' }, { kind: 'text', text: 'Let me look. ' }, { kind: 'runs', runs: ['run_1', 'run_2'] }, { kind: 'text', text: 'Found it.' }]);
+    const pieces = answerPieces(message({ role: 'assistant', runs: ['run_1', 'run_2', 'run_3'], parts: [] }), live);
+    expect(pieces.map((p) => (p.kind === 'runs' ? p.runs.join(',') : p.kind))).toEqual(['reasoning', 'run_3', 'text', 'run_1,run_2', 'text']);
+    expect(settleSegments(live, { parts: [{ type: 'text', text: 'Found it.' }] })).toEqual(live);
+    expect(settleSegments(live, { parts: [{ type: 'text', text: 'Cancelled.' }] }).at(-1)).toEqual({ kind: 'text', text: 'Found it.Cancelled.' });
   });
 
   it('names days', () => {

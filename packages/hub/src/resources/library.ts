@@ -100,6 +100,11 @@ export class HubResourceLibrary implements ResourceLibrary {
     return this.#keepAt({ ...place, source: { from: 'run', run: input.run, fn: input.fn } }, { actor: this.#o.hubActor, run: input.run });
   }
 
+  async keepMade(input: { content: ContentRef; path: string; name: string; source: ResourceSource }, who: Asking): Promise<ResourceRecord> {
+    this.#checkSize(input.content.size);
+    return this.#keepAt({ path: input.path, segment: input.name, name: input.name, content: input.content, source: input.source, type: 'file', replace: true }, who);
+  }
+
   async rename(uri: ResourceUri, name: string, _who: Asking): Promise<ResourceRecord> {
     const record = await this.#own(uri);
     const renamed: ResourceRecord = { ...record, stat: { ...record.stat, name: name.trim() } };

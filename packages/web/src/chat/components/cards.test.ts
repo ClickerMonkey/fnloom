@@ -132,11 +132,21 @@ describe('ComposerMeta', () => {
     const meta = mount(ComposerMeta, {
       props: {
         agent: 'Chat agent', agents: [{ fn: 'hub/chat', name: 'Chat agent' }, { fn: 'fs/explore', name: 'Explore agent' }], model: 'Llama (free)',
-        systems: { total: 2, offline: 0 }, background: 1, spent: 0, compact: false,
+        systems: { total: 2, offline: 0 }, background: 1, spent: 0, compact: false, fnMode: 'auto',
       },
       attachTo: document.body,
     });
     expect(meta.get('[data-testid=model-chip]').text()).toBe('Llama (free)');
+    // what the agent may do: every mode, mildest first; picking one asks for it
+    expect(meta.get('[data-testid=fn-mode-picker]').text()).toBe('Auto');
+    await meta.get('[data-testid=fn-mode-picker]').trigger('click');
+    await nextTick();
+    await nextTick();
+    const modes = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')];
+    expect(modes.map((i) => i.textContent.trim())).toEqual(['No fns', 'Read only', 'Read and write', 'Full access', 'Auto']);
+    modes[1]?.click();
+    expect(meta.emitted('fnMode')).toEqual([['read']]);
+    await nextTick();
     await meta.get('[data-testid=agent-picker]').trigger('click');
     await nextTick();
     await nextTick();

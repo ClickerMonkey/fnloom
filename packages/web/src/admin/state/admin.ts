@@ -5,6 +5,7 @@
  */
 import { AutoPairStore } from './auto-pair.ts';
 import { SuggestionsStore } from './suggestions.ts';
+import { ClassifierStore } from './classifier.ts';
 import type { UserEvents } from '../../api/notifications.ts';
 import type { ChatApi, FileSender } from '../../chat/api.ts';
 import type { McpProbe } from '../probe.ts';
@@ -68,6 +69,8 @@ export class AdminStore {
   readonly fns: Paged<FnRecord, ListQuery>;
   /** The decision model for suggestions. */
   readonly suggestions: SuggestionsStore;
+  /** The model a chat in auto mode asks about calls that write or delete. */
+  readonly classifier: ClassifierStore;
   /** A system's auto pair secrets. */
   readonly autoPairs: AutoPairStore;
 
@@ -94,6 +97,7 @@ export class AdminStore {
     this.pairing = new PairingPageStore(api, deps.userEvents);
     this.resources = resourcesBrowser(api, deps.chat);
     this.suggestions = new SuggestionsStore(api);
+    this.classifier = new ClassifierStore(api);
     this.autoPairs = new AutoPairStore(api);
     this.fns = new Paged({
       fetch: (query, cursor, limit) => api.fns.call({ ...query, limit, ...(cursor === undefined ? {} : { cursor }) }),

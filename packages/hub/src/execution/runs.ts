@@ -27,6 +27,7 @@ import type { ControlAnswer, ExecutionDeps, RunCosts, RunEvents, RunExecutor, Ru
 import type { ExecutionQueues } from './queues.ts';
 import { timeInfo } from './time.ts';
 import { RunWording } from './wording.ts';
+import type { FnModeGate, ModeVerdict } from '../fns/index.ts';
 
 /** Why a signal aborted, as an error. */
 function abortError(signal: AbortSignal): Error {
@@ -145,6 +146,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   readonly #wording: RunWording;
   /** A timer per started run, at its deadline (`deadlines.ts`). */
   readonly #deadlines: DeadlineTimers;
+  /** What a chat's fn mode lets its agent run (the fns module sets it at start). */
+  #gate: FnModeGate | undefined;
 
   constructor(deps: RunServiceDeps) {
     this.#deps = deps;
@@ -156,6 +159,10 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
         deps.log.error('run.approval-failed', { run: approval.run, error: messageOf(error) });
       });
     });
+  }
+
+  gateWith(gate: FnModeGate): void {
+    this.#gate = gate;
   }
 
   /** Set the executor for one kind of target. */
@@ -240,8 +247,15 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       await this.settle(id, { status: 'invalid-input', invalid });
       return { run: id, settled };
     }
+    // a chat's fn mode stands in front of the policies for the calls its agent makes
+    const mode = await this.#mode(run, fn, parent);
+    if (mode.effect === 'refuse') {
+      await this.settle(id, { status: 'failed', error: fnError('caller', mode.reason, 'chat-mode') });
+      return { run: id, settled };
+    }
     // the preview is asked for only when an approval is made; a refusal settles the run with the system's reason
     const previewed: { refused?: OutcomeWire } = {};
+    const asked: ApprovalPreview | undefined = mode.effect === 'ask' ? { title: `Auto mode asks you about ${fn.name}`, parts: [{ type: 'text', text: mode.reason }], irreversible: false } : undefined;
     const preview = fn.decl.approval?.preview === true
       ? async (): Promise<ApprovalPreview | undefined> => {
         const answer = await this.#preview(run, fn, turn.user);
@@ -249,10 +263,12 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
         previewed.refused = answer.refused;
         return undefined;
       }
-      : undefined;
+      : asked === undefined ? undefined : () => Promise.resolve(asked);
     const decision = await this.#deps.policies.decide({
       fn: fn.name, actor: input.actor, turnUser: turn.user.id, args: input.args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
       ...(preview === undefined ? {} : { preview }),
+      ...(mode.effect === 'ask' ? { ask: { by: 'turn-user' } } : {}),
+      ...(mode.effect === 'allow' ? { autoAllowed: true } : {}),
       // a per-person fn its person keeps on 'ask first' waits for the connection's owner
       ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
     });
@@ -267,6 +283,16 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     }
     if (input.background) await this.background(id);
     return { run: id, settled };
+  }
+
+  /** What the run's chat's fn mode says about it: only calls an agent makes in a session are checked. */
+  async #mode(run: Run, fn: FnRecord, parent: Run | undefined): Promise<ModeVerdict> {
+    if (this.#gate === undefined || parent?.kind !== AGENT_KIND || run.session === undefined) return { effect: 'pass' };
+    const session = await this.#deps.store.table('sessions').get(run.session);
+    if (session === undefined) return { effect: 'pass' };
+    const verdict = await this.#gate.check({ session, fn, args: run.args, run: run.id });
+    if (verdict.effect !== 'pass') this.#deps.log.info('run.chat-mode', { run: run.id, fn: fn.name, mode: session.fnMode ?? null, effect: verdict.effect });
+    return verdict;
   }
 
   /**

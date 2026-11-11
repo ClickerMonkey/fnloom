@@ -25,7 +25,10 @@ export const chat: Scenario = {
     await shot('list');
 
     await page.waitForSelector('[data-testid="session-row"] .open');
-    await page.click('[data-testid="session-row"] .open');
+    // the router chat holds the history this walks through (newer chats sort above it)
+    for (const row of await page.$$('[data-testid="session-row"] .open')) {
+      if ((await row.evaluate((el) => el.textContent)).includes('Refactor the router')) { await row.click(); break; }
+    }
     await page.waitForSelector('[data-testid="assistant-answer"]');
     await settle(page, 600);
     await shot('history');
@@ -59,6 +62,9 @@ export const chat: Scenario = {
     const composerInView = await page.$eval('[data-testid="composer"]', (el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight + 1; });
     check(composerInView, 'the composer should be fully on screen');
 
+    // the answer's fn calls fold into one section once they settle: open the last one
+    const groups = await page.$$('[data-testid="run-group-toggle"][aria-expanded="false"]');
+    await groups.at(-1)?.click();
     const cards = await page.$$('[data-testid="run-card"] .summary');
     const last = cards.at(-1);
     check(last !== undefined, 'the new answer should have a run card');

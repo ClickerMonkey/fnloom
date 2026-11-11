@@ -26,7 +26,7 @@ import { forModel, modelMayUse } from './views.ts';
 /** What `find` looks for, as an index kind. */
 type FindKind = (typeof FIND_KINDS)[number];
 const INDEX_KIND: Readonly<Record<FindKind, IndexedKind>> = { fn: 'fn', context: 'context', type: 'type', resource: 'section' };
-const FIND_KIND: Readonly<Record<IndexedKind, FindKind | undefined>> = { fn: 'fn', context: 'context', type: 'type', section: 'resource', message: undefined };
+const FIND_KIND: Readonly<Record<IndexedKind, FindKind | undefined>> = { fn: 'fn', context: 'context', type: 'type', section: 'resource', message: undefined, example: undefined };
 
 /** How many hits `find` returns when the model doesn't say, and the most it looks through. */
 const FIND_LIMIT = 8;

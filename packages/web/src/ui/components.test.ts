@@ -10,6 +10,7 @@ import UiIconButton from './UiIconButton.vue';
 import UiInput from './UiInput.vue';
 import UiMenu from './UiMenu.vue';
 import UiPopover from './UiPopover.vue';
+import UiSplitter from './UiSplitter.vue';
 import UiSegmented from './UiSegmented.vue';
 import UiSwitch from './UiSwitch.vue';
 import UiTabs from './UiTabs.vue';
@@ -313,5 +314,23 @@ describe('display', () => {
     const badge = mount(UiBadge, { props: { tone: 'ok', dot: true, live: true }, slots: { default: 'Running' } });
     expect(badge.classes()).toContain('tone-ok');
     expect(badge.find('.dot.live').exists()).toBe(true);
+  });
+});
+
+describe('UiSplitter', () => {
+  it('sets the pane width by keyboard within its limits, and double-click puts it back', async () => {
+    const width = ref(260);
+    const splitter = mount(UiSplitter, {
+      props: { label: 'Tree width', min: 180, max: 520, reset: 260, modelValue: width.value, 'onUpdate:modelValue': (next: number) => { width.value = next; void splitter.setProps({ modelValue: next }); } },
+    });
+    await splitter.trigger('keydown', { key: 'ArrowRight' });
+    expect(width.value).toBe(276);
+    await splitter.trigger('keydown', { key: 'Home' });
+    expect(width.value).toBe(180);
+    await splitter.trigger('keydown', { key: 'ArrowLeft' });
+    expect(width.value).toBe(180);
+    await splitter.trigger('dblclick');
+    expect(width.value).toBe(260);
+    expect(splitter.attributes('role')).toBe('separator');
   });
 });

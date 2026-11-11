@@ -69,6 +69,15 @@ export interface Table<Row, Key> {
 /** The table of one hub table name. */
 export type HubTable<K extends TableName> = Table<RowOf<K>, KeyOf<K>>;
 
+/** One indexed item: its kind and its key within that kind. */
+export interface IndexedItem {
+  readonly kind: IndexedKind;
+  readonly key: string;
+}
+
+/** The most items a `within` filter sends to the database in one statement; longer lists go in several. */
+export const WITHIN_CHUNK = 500;
+
 /**
  * A vector index per embedder (sqlite-vec now, pgvector later). An embedder's dimensions come from its declaration
  * (`EmbedderDecl.dimensions`): `ensure` makes its table at that size, and remakes it (dropping vectors of another
@@ -81,15 +90,19 @@ export interface VectorIndex {
   upsert(embedder: QualifiedName, entries: ReadonlyArray<{ kind: IndexedKind; key: string; vector: readonly number[] }>): Promise<void>;
   /** Remove vectors by key; nothing to do for an embedder with no table yet. */
   remove(embedder: QualifiedName, kind: IndexedKind, keys: readonly string[]): Promise<void>;
-  /** Nearest by cosine distance; `score` is similarity in [0, 1]. An embedder with no table yet has no vectors, so none. */
-  nearest(embedder: QualifiedName, vector: readonly number[], limit: number, kinds?: readonly IndexedKind[]): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
+  /**
+   * Nearest by cosine distance; `score` is similarity in [0, 1]. An embedder with no table yet has no vectors, so none.
+   * `within` keeps the search to those items (the database filters them inside the nearest-neighbour search).
+   */
+  nearest(embedder: QualifiedName, vector: readonly number[], limit: number, kinds?: readonly IndexedKind[], within?: ReadonlyArray<IndexedItem>): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
 }
 
 /** Full-text search over indexed text (SQLite FTS5 now). `score` is higher for better matches. */
 export interface TextIndex {
   upsert(entries: ReadonlyArray<{ kind: IndexedKind; key: string; text: string }>): Promise<void>;
   remove(kind: IndexedKind, keys: readonly string[]): Promise<void>;
-  search(query: { text: string; kinds: readonly IndexedKind[]; limit: number }): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
+  /** `within` keeps the search to those items. */
+  search(query: { text: string; kinds: readonly IndexedKind[]; limit: number; within?: ReadonlyArray<IndexedItem> }): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
 }
 
 /**

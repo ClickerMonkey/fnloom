@@ -56,11 +56,17 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     visibility: def.visibility,
     tags: [...def.tags],
     ...(def.examples.length === 0 ? {} : {
-      examples: def.examples.map((example) => ({ args: encodeValue(def.args, example.args), ...(example.note === undefined ? {} : { note: example.note }) })),
+      examples: def.examples.map((example) => ({
+        args: encodeValue(def.args, example.args),
+        ...(example.result === undefined ? {} : { result: encodeValue(def.returns, example.result) }),
+        ...(example.note === undefined ? {} : { note: example.note }),
+      })),
     }),
     ...withValidation(validationOf(def.validate)),
     ...(def.approval === undefined ? {} : { approval: { ...def.approval } }),
     ...(def.routing === undefined ? {} : { routing: def.routing }),
+    ...(def.effects === undefined ? {} : { effects: def.effects }),
+    ...(def.promptExamples === undefined ? {} : { promptExamples: def.promptExamples }),
   };
 }
 

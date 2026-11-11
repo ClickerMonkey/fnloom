@@ -81,10 +81,17 @@ export const SearchHit = g.obj({
   published: g.optional(g.text()),
 });
 
-/** What a search gives: Tavily's short answer when asked, and the results, best first. */
+/** What a search provider finds: Tavily's short answer when asked, and the results, best first. */
+export const SearchFound = g.obj({
+  answer: g.optional(g.text()),
+  results: g.list(SearchHit),
+});
+
+/** What `web/search` gives: what was found, and the hub resource the results are kept as. */
 export const SearchResults = g.obj({
   answer: g.optional(g.text()),
   results: g.list(SearchHit),
+  uri: g.field(g.text(), { docs: 'The hub resource the results are kept as: read it again with hub/resource_read, or search it later.' }),
 });
 
 /** What `web/read` gives: the page as a hub resource, and its clean text. */
@@ -124,7 +131,11 @@ export const web = system('web', { description: 'Search the web and read web pag
     fns: {
       search: fn({
         description: 'Search the web. Gives titles, URLs and short snippets, best first, and a short answer when there is one.',
-        instructions: 'Search first, then read the one or two best pages with web/read before answering from them. Cite the URLs you used.',
+        instructions: [
+          'Use it for anything current or outside what you know: search first, then read the one or two best pages with web/read before answering; snippets alone are often out of context.',
+          'Write the query as a search engine wants it (a few key words, names in full), not a question to a person. Use `topic: "news"` with `days` for recent events, `include` to keep to sites you trust, and `depth: "advanced"` only when basic results miss (it costs twice as much).',
+          'The results are kept as a hub resource (`uri`). Cite the URLs you used.',
+        ].join(' '),
         args: g.obj({
           query: g.text({ minLength: 1 }),
           limit: g.optional(g.num({ min: 1, max: SEARCH_LIMIT_MAX, whole: true })),
@@ -135,6 +146,16 @@ export const web = system('web', { description: 'Search the web and read web pag
           exclude: g.field(g.optional(g.list(g.text())), { docs: 'Never these domains.' }),
         }),
         returns: SearchResults,
+        deps: { importResource: hub.fns.resource_import },
+        examples: [
+          {
+            args: { query: 'Lisbon tram 28 timetable', limit: 5 },
+            result: { results: [{ title: 'Tram 28 - Carris', url: 'https://www.carris.pt/en/tram-28', snippet: 'Tram 28 runs every 10 to 15 minutes from 7am…', score: 0.91 }], uri: 'hub://resources/searches/lisbon-tram-28-timetable' },
+          },
+          { args: { query: 'EU AI Act enforcement', topic: 'news', days: 7 }, note: 'This week\'s news.' },
+          { args: { query: 'vue 3 defineModel', include: ['vuejs.org'] }, note: 'Only the official docs.' },
+        ],
+        effects: { mode: 'read' },
         status: {
           active: { one: 'Searching the web for {args.query}…', many: 'Running {n} web searches…' },
           retry: { one: 'Searching the web for {args.query} again…', many: 'Retrying {n} web searches…' },
@@ -145,7 +166,10 @@ export const web = system('web', { description: 'Search the web and read web pag
       }),
       read: fn({
         description: 'Read a web page as clean markdown. The page is kept as a hub resource, so it can be read again, searched and made into context.',
-        instructions: 'Give `maxChars` for long pages; read more of a kept page with hub/resource_read and its `uri` and an `offset`.',
+        instructions: [
+          'Use it on a URL from a search, the person or another page. The page is cleaned to its main text (no menus or ads) and kept as a hub resource (`uri`), so read more of it later with hub/resource_read and an `offset` instead of reading the URL again.',
+          'Give `maxChars` for long pages and check `truncated`. Pages built by scripts are run in a headless browser first (`render: "auto"`); use `always` when a page reads empty. Cite `finalUrl`.',
+        ].join(' '),
         args: g.obj({
           url: url(),
           render: g.field(g.optional(RenderMode), { docs: 'Run the page in the headless browser first: `auto` (default), `always` or `never`.' }),
@@ -153,6 +177,11 @@ export const web = system('web', { description: 'Search the web and read web pag
         }),
         returns: ReadResult,
         deps: { importResource: hub.fns.resource_import, readResource: hub.fns.resource_read },
+        examples: [
+          { args: { url: 'https://vuejs.org/guide/components/v-model.html', maxChars: 8000 } },
+          { args: { url: 'example.com/pricing', render: 'always' }, note: 'A bare address is read as https; a script-built page is rendered first.' },
+        ],
+        effects: { mode: 'read' },
         status: {
           active: { one: 'Reading {args.url}…', many: 'Reading {n} web pages…' },
           retry: { one: 'Reading {args.url} again…', many: 'Retrying {n} web pages…' },
@@ -163,7 +192,7 @@ export const web = system('web', { description: 'Search the web and read web pag
       }),
       crawl: fn({
         description: 'Crawl a site from a start page: follow its links a few levels deep and keep every page as a hub resource under one folder, so the pages can be searched and made into context.',
-        instructions: 'Use it when a question needs a whole site or section (docs, a blog), not one page. Keep `maxPages` small and narrow with `include` (`/docs/**`). Then search the pages under `root`, or read them with hub/resource_read. The site\'s robots.txt is respected.',
+        instructions: 'Use it when a question needs a whole site or section (docs, a blog), not one page. Keep `maxPages` small and narrow with `include` (`/docs/**`); `depth` 1 is the start page and the pages it links to. Then search the pages under `root` with hub/search_resources, or read them with hub/resource_read. The site\'s robots.txt is respected, and only links (not images or scripts) are followed.',
         args: g.obj({
           url: url(),
           depth: g.field(g.optional(g.num({ min: 0, max: CRAWL_DEPTH_MAX, whole: true })), { docs: 'How many links away from the start page to go: 0 is the start page only. Default 1.' }),
@@ -176,6 +205,11 @@ export const web = system('web', { description: 'Search the web and read web pag
         returns: CrawlResult,
         progress: linear,
         deps: { importResource: hub.fns.resource_import },
+        examples: [
+          { args: { url: 'https://docs.example.com/', depth: 2, maxPages: 30, include: ['/guide/**'] }, note: 'One section of a docs site.' },
+          { args: { url: 'https://blog.example.com/2026/', depth: 1, maxPages: 10 } },
+        ],
+        effects: { mode: 'read' },
         status: {
           active: { one: 'Crawling {args.url}…', many: 'Crawling {n} sites…' },
           retry: { one: 'Crawling {args.url} again…', many: 'Retrying {n} crawls…' },
@@ -186,6 +220,9 @@ export const web = system('web', { description: 'Search the web and read web pag
       }),
       fetch_raw: fn({
         description: 'Fetch a URL\'s raw content for the hub: its bytes by ref, type, final URL and status. Script-built pages are rendered first.',
+        instructions: 'The hub calls it while importing a URL as a resource; people and models use web/read. Private and loopback addresses are refused unless the config allows them.',
+        examples: [{ args: { url: 'https://example.com/report.pdf' } }],
+        effects: { mode: 'read' },
         args: g.obj({ url: url(), render: g.optional(RenderMode) }),
         returns: RawPage,
         // the hub calls it while importing a URL; people and the LLM use web/read
@@ -225,6 +262,8 @@ export type RenderModeValue = Infer<typeof RenderMode>;
 export type SearchHitValue = Infer<typeof SearchHit>;
 /** What a search gives. */
 export type SearchResultsValue = Infer<typeof SearchResults>;
+/** What a search provider finds. */
+export type SearchFoundValue = Infer<typeof SearchFound>;
 /** What `web/read` gives. */
 export type ReadResultValue = Infer<typeof ReadResult>;
 /** What `web/crawl` gives. */

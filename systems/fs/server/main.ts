@@ -7,9 +7,8 @@
  */
 import { existsSync, watch } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { loggedHost, placeFolders, serve, type RunningSystem } from '@harness/sdk/server';
+import { loggedHost, placeFolders, rendererFolder, serve, type RunningSystem } from '@harness/sdk/server';
 import { fs } from '../shared/index.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
@@ -54,21 +53,10 @@ const server = createFsImpl({
   now: () => Date.now(),
 });
 
-/**
- * Where the renderers are: a packed fs (`harness system pack`) runs the bundle built beside it; from source they are
- * built on every start, so a restart after editing them uploads the new bundle. The build tools load only then.
- */
-async function renderers(): Promise<string> {
-  const packed = fileURLToPath(new URL('../client/', import.meta.url));
-  if (existsSync(join(packed, 'index.js'))) { return packed; }
-  const folder = join(cacheDir, 'client');
-  const started = performance.now();
-  const { buildClient } = await import('@harness/sdk/build');
-  await buildClient({ entry: fileURLToPath(new URL('../client/index.ts', import.meta.url)), outDir: folder });
-  log.info('fs.client.built', { folder, took: Math.round(performance.now() - started) });
-  return folder;
-}
-const clientFolder = await renderers();
+// a packed fs runs the bundle built beside it; from source the renderers are built on every start
+const started = performance.now();
+const clientFolder = await rendererFolder({ main: import.meta.url, outDir: join(cacheDir, 'client') });
+log.info('fs.client.ready', { folder: clientFolder, took: Math.round(performance.now() - started) });
 
 log.info('fs.serving', { hub: settings.HARNESS_HUB, shell: shell.type === 'posix' ? shell.path : 'system' });
 const running: RunningSystem<'fs'> = await serve(fs, server.impl, {

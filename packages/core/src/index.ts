@@ -71,3 +71,4 @@ export * from './registries.ts';
 export * from './approvals.ts';
 export * from './decisions.ts';
 export * from './config-secrets.ts';
+export * from './fn-facts.ts';

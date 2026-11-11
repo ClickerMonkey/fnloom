@@ -168,8 +168,8 @@ describe('AssistantAnswer', () => {
     const answer = mount(AssistantAnswer, {
       props: {
         messages: [first, second], authorName: 'Chat agent', now: T0, streaming: true, failed: false, runsOf: (m: ChatMessage) => runs.get(m.id) ?? [],
-        reasoningOf: () => '', collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: ['copy'],
-        statusLine: statusLine([], T0), waiting: false,
+        collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: ['copy'],
+        statusLine: statusLine([], T0), waiting: false, grouped: false,
       },
     });
     expect(answer.findAll('.avatar')).toHaveLength(1);
@@ -178,12 +178,45 @@ describe('AssistantAnswer', () => {
     expect(answer.find('strong').text()).toBe('now');
   });
 
+  it('collapses fn calls in a row into one section, latest fn first, and opens it to show the cards in call order', async () => {
+    const m = message({ role: 'assistant', author: 'act_agent', parts: [{ type: 'text', text: 'Done.' }], runs: ['run_a', 'run_b', 'run_c'] });
+    const runs = [run({ id: 'run_a', fn: 'fs/read_file', status: 'done' }), run({ id: 'run_b', fn: 'fs/bash', status: 'failed' }), run({ id: 'run_c', fn: 'fs/read_file', status: 'done' })];
+    const answer = mount(AssistantAnswer, {
+      props: {
+        messages: [m], authorName: 'Chat agent', now: T0, streaming: false, failed: false, runsOf: () => runs,
+        collapsed: () => true, viewOf: () => undefined, attachmentView: () => undefined, actions: [],
+      },
+    });
+    const group = answer.get('[data-testid=run-group]');
+    expect(group.text()).toContain('3 fn calls, 1 failed');
+    expect(group.text()).toContain('Read file ×2 · Bash');
+    expect(answer.findAll('[data-testid=run-card]')).toHaveLength(0);
+    await answer.get('[data-testid=run-group-toggle]').trigger('click');
+    expect(answer.findAll('[data-testid=run-card]').map((c) => c.attributes('data-run'))).toEqual(['run_a', 'run_b', 'run_c']);
+  });
+
+  it('draws reasoning, runs and words in the order they streamed', () => {
+    const live = message({ role: 'assistant', author: 'act_agent', status: 'streaming', parts: [{ type: 'text', text: 'Looking. Found it.' }], runs: ['run_x'] });
+    const segments = [
+      { kind: 'reasoning', text: 'First, look.' }, { kind: 'text', text: 'Looking. ' }, { kind: 'runs', runs: [RunId.parse('run_x')] },
+      { kind: 'reasoning', text: 'It is there.' }, { kind: 'text', text: 'Found it.' },
+    ] as const;
+    const answer = mount(AssistantAnswer, {
+      props: {
+        messages: [live], authorName: 'Chat agent', now: T0, streaming: true, failed: false, runsOf: () => [run({ id: 'run_x' })], liveOf: () => segments,
+        collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: [],
+      },
+    });
+    const order = answer.findAll('[data-testid=reasoning], [data-testid=answer-text], [data-testid=run-card]').map((el) => el.attributes('data-testid'));
+    expect(order).toEqual(['reasoning', 'answer-text', 'run-card', 'reasoning', 'answer-text']);
+  });
+
   it('shows the agent working, and no actions, until something of a streaming answer arrives', async () => {
     const empty = message({ role: 'assistant', author: 'act_agent', status: 'streaming', parts: [] });
     const answer = mount(AssistantAnswer, {
       props: {
         messages: [empty], authorName: 'Chat agent', now: T0, streaming: true, failed: false, runsOf: () => [],
-        reasoningOf: () => '', collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: ['copy', 'reply'],
+        collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: ['copy', 'reply'],
       },
     });
     expect(answer.find('[data-testid=answer-typing]').exists()).toBe(true);
@@ -197,8 +230,8 @@ describe('AssistantAnswer', () => {
     const m = message({ role: 'assistant', author: 'act_agent', runs: ['run_1', 'run_2'] });
     const answer = mount(AssistantAnswer, {
       props: {
-        messages: [m], authorName: 'Chat agent', now: T0, streaming: false, failed: false, runsOf: () => [run({ id: 'run_1' }), run({ id: 'run_2' })],
-        reasoningOf: () => 'Because the file is there.', collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: [],
+        messages: [{ ...m, parts: [{ type: 'reasoning', text: 'Because the file is there.' }] }], authorName: 'Chat agent', now: T0, streaming: false, failed: false,
+        runsOf: () => [run({ id: 'run_1' }), run({ id: 'run_2' })], collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: [], grouped: false,
       },
     });
     await answer.get('.collapse-all').trigger('click');

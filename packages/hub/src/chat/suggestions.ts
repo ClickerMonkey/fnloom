@@ -12,6 +12,7 @@ import {
 import { z } from 'zod';
 import type { AccessScope } from '../access/index.ts';
 import { mayOffer } from '../access/hits.ts';
+import { pinnedModel } from '../models/pinned.ts';
 import type { ChatDeps } from './deps.ts';
 import type { DecidedSuggestions, SuggestionDecider } from './index.ts';
 import { plainText } from './turns.ts';
@@ -67,7 +68,7 @@ export class HubSuggestions implements SuggestionDecider {
 
   async setting(): Promise<SuggestDecisionView> {
     const row = await this.#deps.store.table('hubOptions').get('suggestDecision');
-    return row === undefined ? { value: SuggestDecision.parse({}) } : { value: row.value, setBy: row.setBy, updatedAt: row.updatedAt };
+    return row?.key !== 'suggestDecision' ? { value: SuggestDecision.parse({}) } : { value: row.value, setBy: row.setBy, updatedAt: row.updatedAt };
   }
 
   async set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView> {
@@ -150,10 +151,8 @@ export class HubSuggestions implements SuggestionDecider {
   }
 
   /** The decision model, and the kind of provider it is pinned to (the gateway's name for it), as the gateway takes them. */
-  async #model(decision: SuggestDecision): Promise<{ model?: ModelChoice; provider?: string }> {
-    if (decision.model === undefined) { return {}; }
-    const pinned = decision.model.provider === undefined ? undefined : (await this.#deps.store.table('providers').get(decision.model.provider))?.config.provider;
-    return { model: decision.model.model, ...(pinned === undefined ? {} : { provider: pinned }) };
+  #model(decision: SuggestDecision): Promise<{ model?: ModelChoice; provider?: string }> {
+    return pinnedModel(this.#deps.store, decision.model);
   }
 
   /** The session's last user messages before this one, oldest first, as plain text. */

@@ -7,6 +7,7 @@ import { ResourceReadResult, ResourceRecord, type InputProblem, type ResourceImp
 import { CallFailed, type FnCtx, type FnTypes, type Outcome, type SystemImpl } from '@harness/sdk';
 import { CRAWL_PAGES_DEFAULT, type RenderModeValue, type WebContract } from '../shared/index.ts';
 import { parseWebUrl, redactUrl } from '../shared/urls.ts';
+import { searchPage } from './searches.ts';
 import { Crawler, FetchedPages, crawlFolder, crawlRoot } from './crawl.ts';
 import type { WebSettings } from './env.ts';
 import type { ContentUploads, FetchSettings, PageSource, SearchArgs, SearchProvider, WebConfig } from './index.ts';
@@ -84,8 +85,13 @@ export function createWebImpl(deps: WebDeps): WebServer {
           const results = await deps.search.search(args, { key: ctx.config.tavilyKey ?? s.TAVILY_API_KEY, signal: ctx.signal });
           const credits = searchCredits(args.depth);
           ctx.budget.spend(credits * s.WEB_TAVILY_CREDIT, `Tavily search (${credits} ${credits === 1 ? 'credit' : 'credits'})`);
-          ctx.log.info('web.search.done', { results: results.results.length, depth: args.depth ?? 'basic', topic: args.topic ?? 'general', answer: results.answer !== undefined });
-          return ctx.done(results);
+          // the results are kept as a hub resource, so they can be read again, searched and made into context
+          const page = searchPage(args.query, results, new Date(deps.now()).toISOString());
+          const content = await deps.uploads.upload(ctx.signal, new TextEncoder().encode(page.markdown), 'text/markdown');
+          const importing: ResourceImportArgs = { content, name: page.name };
+          const record = ResourceRecord.parse(await ctx.fns.importResource({ input: importing }));
+          ctx.log.info('web.search.done', { results: results.results.length, depth: args.depth ?? 'basic', topic: args.topic ?? 'general', answer: results.answer !== undefined, uri: record.uri });
+          return ctx.done({ ...results, uri: record.uri });
         }),
       },
       fetch_raw: {

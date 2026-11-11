@@ -12,6 +12,8 @@ import type { LayoutStore } from './layout.ts';
 import type { PushStore } from './push.ts';
 import type { ResourcesStore } from '../resources/state/resources.ts';
 import type { ContextStore } from '../context/state/context.ts';
+import type { FnInfoStore } from '../fns/state/fn-info.ts';
+import type { ClientLogs } from './client-logs.ts';
 import type { SessionStore } from './session.ts';
 import type { ThemeStore } from './theme.ts';
 import type { Toasts } from './toasts.ts';
@@ -37,6 +39,10 @@ export interface Stores {
   readonly resources: ResourcesStore;
   /** Every context item, one item with its links, memory and links drawn by people. */
   readonly context: ContextStore;
+  /** One fn's view (the fn modal and the fn page): what it is, its facts and its examples. */
+  readonly fns: FnInfoStore;
+  /** The browser's logs and API traffic, sent to the hub. */
+  readonly logs: ClientLogs;
 }
 
 export const STORES: InjectionKey<Stores> = Symbol('stores');

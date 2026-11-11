@@ -440,6 +440,8 @@ export const template = system('template', { description: 'TODO: what this syste
     // fns: native fns, each made with `fn({ description, args, returns, ... })`. Optional parts change what the server
     // must implement: `undo` (an undo implementation), `resume` (it can pause), `progress` (`linear` or `steps`),
     // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`.
+    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), `examples`
+    // (`{ args, result?, note? }`, checked against its types) and `effects` (`{ mode, reads, writes, free }`).
     // TODO: declare fns, or delete this comment.
 
     // hooks: user-message hooks that add information before the LLM sees a message, each made with
@@ -1659,8 +1661,11 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   /** Default `both`. */
   visibility?: Audience;
   tags?: string[];
-  /** Example calls (args of its own args type), shown to agents on its card and when they get its args wrong. */
-  examples?: FnExampleOf<NoInfer<A>>[];
+  /**
+   * Example calls (args of its own args type, optionally the result of its returns type, and a note), shown to agents
+   * on its card and when they get its args wrong. Give real, varied ones: they teach a model more than the description.
+   */
+  examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
   /**
    * Checks the hub runs before a run starts (`input`) and after it is done (`output`):
    * `{ input: (ctx, args, state) => args.path === '' ? { ok: false, reason: 'No file is open.' } : { ok: true } }`.
@@ -1674,21 +1679,31 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   approval?: { preview?: boolean; remember?: boolean };
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
+  /**
+   * What it does to data: its mode (`read`, `write`, `delete`), the named types it reads and writes, and whether its own
+   * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
+   */
+  effects?: FnEffects;
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  promptExamples?: number;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
 
 #### `FnExampleOf`
 
 interface · `import { FnExampleOf } from '@harness/sdk'`
 
-One example call of a fn, shown on its card at `full` detail and in its invalid-input replies: args of the fn's own
-args type (a wrong example does not compile), and what the example shows.
+One example call of a fn, shown on its card at `full` detail, in its invalid-input replies and by `hub/fn_examples`:
+args of the fn's own args type (a wrong example does not compile), optionally the result it gave (of its returns
+type), and what the example shows. The hub keeps every example in its own table, embedded, so the ones closest to
+the turn go into the prompt with the fn.
 
 ```ts
-interface FnExampleOf<A> {
+interface FnExampleOf<A, R = unknown> {
   readonly args: A;
+  readonly result?: R;
   readonly note?: string;
 }
 ```
@@ -1723,19 +1738,23 @@ interface FnDef<T extends FnTypes> {
   readonly visibility: Audience;
   readonly tags: readonly string[];
   /** Example calls, checked against its args type. */
-  readonly examples: readonly FnExampleOf<T['args']>[];
+  readonly examples: readonly FnExampleOf<T['args'], T['result']>[];
   /** Its validation hooks, run in its system before and after a run. */
   readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
   /** Every run waits for approval; with `preview`, its implementation's `preview` says what the run would do. */
   readonly approval: FnApproval | undefined;
   /** Which instance of a fleet runs it: always one (`{ to: 'instance', instance }`), or the first available (`{ to: 'any' }`). */
   readonly routing: FnRouting | undefined;
+  /** What it does to data, as declared. */
+  readonly effects: FnEffects | undefined;
+  /** How many examples go into the prompt with it. */
+  readonly promptExamples: number | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
 
 #### `AnyFnDef`
 
@@ -2629,24 +2648,31 @@ interface ResultBlockOptions {
 
 Refers to: [`Json`](#core-json).
 
-#### `cosine`
+#### `rendererFolder`
 
-function · `import { cosine } from '@harness/sdk/server'`
+function · `import { rendererFolder } from '@harness/sdk/server'`
 
-Cosine similarity of two vectors; 0 when either is empty or their lengths differ.
+The folder of the system's built renderers: the packed bundle when there is one, else built from source now.
 
 ```ts
-function cosine(a: readonly number[], b: readonly number[]): number;
+function rendererFolder(place: RendererPlace): Promise<string>;
 ```
 
-#### `embedOne`
+#### `RendererPlace`
 
-function · `import { embedOne } from '@harness/sdk/server'`
+interface · `import { RendererPlace } from '@harness/sdk/server'`
 
-Embed one text, or nothing when the hub has no embedder for it.
+Where to find or build a system's renderers.
 
 ```ts
-function embedOne(llm: Llm, text: string): Promise<number[]>;
+interface RendererPlace {
+  /** The server entry's own `import.meta.url`. */
+  readonly main: string;
+  /** Where to build them from source (the system's state or cache folder); emptied first. */
+  readonly outDir: string;
+  /** The client entry, relative to the server entry (default `../client/index.ts`). */
+  readonly entry?: string;
+}
 ```
 
 #### `Outcome`
@@ -3021,14 +3047,23 @@ interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
   status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
   visibility?: Audience;
   tags?: string[];
-  /** Example calls, of the `args` type when given (JSON otherwise). */
-  examples?: FnExampleOf<NoInfer<A>>[];
+  /** Example calls, of the `args` and `returns` types when given (JSON otherwise). */
+  examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
   /** For a fleet: always one instance (a saved query of one database), or whichever is first available. */
   routing?: FnRouting;
+  /** Checks its system runs before a run starts and after it is done (an agent's answer checked, retried with why). */
+  validate?: FnValidators<NoInfer<A>, NoInfer<R>, {}>;
+  /**
+   * What it does to data: its mode (`read`, `write`, `delete`), the named types it reads and writes, and whether its own
+   * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
+   */
+  effects?: FnEffects;
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  promptExamples?: number;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`FnRouting`](#core-fnrouting).
+Refers to: [`Audience`](#core-audience), [`FnEffects`](#core-fneffects), [`FnRouting`](#core-fnrouting).
 
 #### `KindFnTypes`
 
@@ -3064,7 +3099,7 @@ Declare an agent: an LLM with instructions, tools and context, callable like any
 agents (a code reviewer, a planner) with tools from any system.
 
 ```ts
-function agent<A, R>(def: AgentInput<A, R>): FnDef<AgentFnTypes<A, R>>;
+function agent<A, R, const T extends StatusTemplates = { active: { one: string; many: string; }; retry: { one: string; many: string; }; done: { one: string; many: string; }; failed: { one: string; many: string; }; }>(def: AgentInput<A, R, T>): FnDef<AgentFnTypes<A, R>>;
 ```
 
 #### `AgentInput`
@@ -3074,13 +3109,18 @@ interface · `import { AgentInput } from '@harness/sdk'`
 What `agent()` takes.
 
 ```ts
-interface AgentInput<A, R> {
+interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   description: string;
   args: GinType<A>;
   /** Text for a chat-style agent; any type for a structured answer. */
   returns: GinType<R>;
-  /** Handlebars; `{{args.x}}` reads the args. */
+  /**
+   * The agent's own prompt (Handlebars; `{{args.x}}` reads the args): its job, how to use its tools step by step,
+   * what to answer with, and worked examples. Write it for the model.
+   */
   instructions: string;
+  /** What callers read (the fn's `instructions`): when to use it, how to call it, what it returns, pitfalls. */
+  usage?: string;
   model?: ModelChoice;
   tools?: AnyFnRef[];
   /** Fns the agent may add to its toolset while running. Default `none`. */
@@ -3102,7 +3142,11 @@ interface AgentInput<A, R> {
   visibility?: Audience;
   tags?: string[];
   /** Example calls (args of its own args type), shown to other agents on its card. */
-  examples?: FnExampleOf<NoInfer<A>>[];
+  examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
+  /** Checks its system runs on the args before it starts and on its answer after (`retry` sends the model back with why). */
+  validate?: FnValidators<NoInfer<A>, NoInfer<R>, {}>;
+  /** What its runs say they are doing; the hub's agent words when absent. Tokens are checked against `args` and `returns`. */
+  status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
 }
 ```
 
@@ -4242,6 +4286,66 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{fns: list<text>{minLength=1}}) => obj{dropped: list<text>}
   ```
+- `hub/fns_search`: Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
+
+  ```text
+  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, available?, order?, offset?, limit? … }) => obj{
+    items: list<obj{
+      item: enum<text>{fn, context},
+      name: text,
+      system: text,
+      description: text,
+      kind?: text,
+      mode?: enum<text>{read, write, delete},
+      signature?: text,
+      instance?: text,
+      score?: num,
+      available: bool,
+      unavailable?: text
+    }>,
+    next?: num{whole=true, min=0}
+  }
+  ```
+- `hub/fn_examples`: A page of a fn's examples (args, the result when kept, and what each shows), the closest to a query first. Tags: `read`.
+
+  ```text
+  (obj{
+    fn: text,
+    query?: text,
+    offset?: num{whole=true, min=0},
+    limit?: num{whole=true, min=1, max=50}
+  }) => obj{
+    fn: text,
+    items: list<obj{args: any, result?: any, note?: text, /* fnExample id */ id: text, score?: num}>,
+    total: num{whole=true, min=0},
+    next?: num{whole=true, min=0}
+  }
+  ```
+- `hub/fn_get`: One fn as the hub keeps it: its kind, description, instructions, payload (for a fn of a kind), version and where it runs. Tags: `read`.
+
+  ```text
+  (obj{
+    /* The qualified fn name. */ fn: text{minLength=1}
+  }) => obj{
+    fn: text,
+    kind: text,
+    description: text,
+    instructions?: text,
+    payload?: any,
+    version: num{min=1, whole=true},
+    owner?: text,
+    routing?: or<obj{
+      to: literal<text>{value="instance"},
+      instance: text
+    }, obj{to: literal<text>{value="any"}}>,
+    available: bool
+  }
+  ```
+- `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history.
+
+  ```text
+  (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text, version: num{min=1, whole=true}, created: bool}
+  ```
 - `hub/search_context`: Find context (guides, skills, references) by what it covers. Tags: `read`.
 
   ```text
@@ -4919,7 +5023,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`Section`](#core-section).
+Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`Section`](#core-section).
 
 #### `HubContract`
 
@@ -5145,6 +5249,51 @@ A failure, as a gin type (the same shape as core's `FnError`).
 const FnErrorType: ObjType<{ class: "retry" | "caller" | "fatal"; message: string; code?: string | undefined; data?: z.core.util.JSONType | undefined; }>;
 ```
 
+#### `StoredFn`
+
+const · `import { StoredFn } from '@harness/sdk'`
+
+A fn as `hub/fn_get` gives it.
+
+```ts
+const StoredFn: ObjType<{ fn: string; kind: string; description: string; version: number; available: boolean; instructions?: string | undefined; payload?: z.core.util.JSONType | undefined; owner?: string | undefined; routing?: { to: "instance"; instance: string; } | { to: "any"; } | undefined; }>;
+```
+
+Refers to: [`FnRouting`](#core-fnrouting).
+
+#### `SaveFnArgs`
+
+const · `import { SaveFnArgs } from '@harness/sdk'`
+
+`hub/save_fn`'s args.
+
+```ts
+const SaveFnArgs = g.obj({
+  kind: g.field(g.text({ minLength: 1 }), { docs: 'The qualified kind (`input/form`): one of the calling system\'s own kinds.' }),
+  name: g.field(g.text({ minLength: 1 }), { docs: 'Its local name (`trip_details`, `main.overdue_invoices`); the hub names it `<system>/<name>`.' }),
+  description: g.text({ minLength: 1 }),
+  instructions: g.optional(g.text()),
+  payload: json(),
+  examples: g.optional(g.list(ginAs(FnExample))),
+  tags: g.optional(g.list(g.text())),
+  share: g.field(g.optional(ginAs(ShareRule)), { docs: 'Who else may use it: private to the run\'s person when absent on a new fn; saving again keeps the current sharing when absent.' }),
+  routing: g.optional(ginAs(FnRouting)),
+  replace: g.field(g.optional(g.bool()), { docs: 'Save over the fn of this name, keeping the old version; otherwise a taken name is refused.' }),
+});
+```
+
+Refers to: [`FnExample`](#core-fnexample), [`FnRouting`](#core-fnrouting), [`ShareRule`](#core-sharerule).
+
+#### `SAVE_FN_TAKEN`
+
+const · `import { SAVE_FN_TAKEN } from '@harness/sdk'`
+
+The error code `hub/save_fn` fails with (class `caller`) when the name is taken and `replace` is not set.
+
+```ts
+const SAVE_FN_TAKEN: "fn-taken";
+```
+
 ## 19. The server: serve and the implementation
 
 `serve(contract, impl, options, host?)` (from `@harness/sdk/server`) connects to the hub, pairs the first time, sends the
@@ -5338,7 +5487,7 @@ interface · `import { RunningSystem } from '@harness/sdk/server'`
 A running system.
 
 ```ts
-interface RunningSystem<N extends string> {
+interface RunningSystem<N extends string> extends FnSearch {
   readonly name: N;
   readonly status: RunningStatus;
   /** Calls `listener` on every status change; returns the unsubscribe. */
@@ -5814,7 +5963,7 @@ What a run gets besides its args. Typed by its fn: only its deps can be called, 
 progress steps can be reported, and the outcome helpers take its result, undo and resume types.
 
 ```ts
-interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets {
+interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets, FnSearch {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
@@ -5910,7 +6059,7 @@ Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
 interface · `import { SystemCtx } from '@harness/sdk'`
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets {
+interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -6227,6 +6376,23 @@ interface Fleets {
 ```
 
 Refers to: [`FleetInstance`](#core-fleetinstance).
+
+#### `FnSearch`
+
+interface · `import { FnSearch } from '@harness/sdk'`
+
+Searching what the hub keeps, in the hub's database: fns and context by words, meaning or both, with filters by kind,
+system, instance, sharing, types and mode (`searchFns`), and a page of one fn's examples (`fnExamples`). In a run
+the hub answers as the run's person sees them; outside one, as the system itself.
+
+```ts
+interface FnSearch {
+  searchFns(query: FnSearchQuery): Promise<FnSearchPage>;
+  fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage>;
+}
+```
+
+Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery).
 
 #### `harnessAi`
 
@@ -7892,7 +8058,9 @@ class FakeHub {
   readonly settings: Map<string, z.core.util.JSONType>;
   /** Content by hash. */
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
-  /** Settles a child call. Default: done with `null`. */
+  /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
+  readonly fns: FakeHubFns;
+  /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled>;
   /** Answers a run's handler. Default: refused. */
   onHandle: (call: FakeHub['handled'][number]) => Promise<HandlerAnswer>;
@@ -8032,7 +8200,7 @@ const · `import { NO_ASKS } from '@harness/sdk/server/testing'`
 expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
 
 ```ts
-const NO_ASKS: Proposals & Decisions & Fleets;
+const NO_ASKS: Proposals & Decisions & Fleets & FnSearch;
 ```
 
 #### `HubBody`
@@ -8149,6 +8317,46 @@ class MemoryJournal implements OutcomeJournal {
 ```
 
 Refers to: [`OutcomeWire`](#core-outcomewire), [`RunId`](#core-runid).
+
+#### `FakeHubFns`
+
+class · `import { FakeHubFns } from '@harness/sdk/server/testing'`
+
+The hub's kept fns in memory.
+
+```ts
+class FakeHubFns {
+  readonly kept: Map<string, KeptFn>;
+  /** The hub fns called and link searches made, in order (`hub/save_fn`, `searchFns`, …). */
+  readonly called: string[];
+  /** Settle a call to `hub/save_fn` or `hub/fn_get`; `undefined` for any other fn. */
+  settle(call: HubCall): RunSettled | undefined;
+  /** Keep a fn as `hub/save_fn` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
+  save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.save_fn.returns>;
+  /** Search the kept fns as the link's `searchFns` does, by words, with the kind, system and instance filters. */
+  search(query: FnSearchQuery): FnSearchPage;
+  /** A page of a kept fn's examples, as the link's `fnExamples` gives it (in their saved order). */
+  examples(query: FnExamplesQuery): FnExamplesPage;
+}
+```
+
+Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`RunSettled`](#core-runsettled).
+
+#### `KeptFn`
+
+interface · `import { KeptFn } from '@harness/sdk/server/testing'`
+
+A fn kept in the fake hub: the latest save, its version and the saves before it.
+
+```ts
+interface KeptFn {
+  readonly fn: string;
+  readonly saved: Infer<typeof SaveFnArgs>;
+  readonly version: number;
+  /** Every earlier save, oldest first. */
+  readonly history: ReadonlyArray<Infer<typeof SaveFnArgs>>;
+}
+```
 
 ## 26. Common mistakes
 
@@ -9681,7 +9889,15 @@ export const Entry = type({
   display: { label: 'File', plural: 'Files', icon: 'file', color: '#8a8f98', title: 'path', subtitle: 'type' },
   methods: {
     // offered on a file's mention card; people and code can call it, the LLM can't (visibility)
-    reveal: fn({ description: 'Show it in the file manager.', args: g.obj({}), returns: g.bool(), visibility: 'user' }),
+    reveal: fn({
+      description: 'Show it in the file manager.',
+      instructions: 'Opens the system\'s file manager at the file or folder, on the machine fs runs on. True when the file manager opened.',
+      args: g.obj({}),
+      returns: g.bool(),
+      examples: [{ args: {}, result: true }],
+      effects: { mode: 'read', free: true },
+      visibility: 'user',
+    }),
   },
 });
 
@@ -9746,6 +9962,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
     fns: {
       read: fn({
         description: 'Read a text file, or part of it by line.',
+        instructions: 'Read a file before you change or explain it. Paths are relative to a root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, from 0) and `limit` (how many lines); `truncated` says more follows. Binary files are refused: use the resource tools for those.',
+        examples: [
+          { args: { path: 'README.md' }, note: 'The whole file.' },
+          { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
+        ],
+        effects: { mode: 'read', free: true },
         args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
         status: {
@@ -9758,6 +9980,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       write: fn({
         description: 'Write a file, creating it if needed.',
+        instructions: 'Use it for a new file, or to replace a whole small file. For a change to an existing file use edit, so the rest stays as it is. Folders are made as needed. The old content is kept, so the write can be undone.',
+        examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
+        effects: { mode: 'write', free: true },
         args: g.obj({ path: path(), text: hub.types.LongText }),
         returns: g.obj({ created: g.bool() }),
         status: {
@@ -9770,6 +9995,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       edit: fn({
         description: 'Replace exact text in a file.',
+        instructions: 'Read the file first and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
+        examples: [
+          { args: { path: 'src/config.ts', find: 'timeout: 30_000,', replace: 'timeout: 60_000,' }, result: { replacements: 1 } },
+          { args: { path: 'docs/guide.md', find: 'colour', replace: 'color', all: true }, result: { replacements: 4 }, note: 'Every match.' },
+        ],
+        effects: { mode: 'write', free: true },
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
         returns: g.obj({ replacements: g.num() }),
         status: {
@@ -9782,6 +10013,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       list: fn({
         description: 'List a folder.',
+        instructions: 'Use it to see what a folder holds before guessing names. `depth` 2 or more lists inside subfolders too (up to 5); prefer glob to find files by name anywhere. `.` is the root.',
+        examples: [{ args: { path: '.' }, note: 'The root\'s top level.' }, { args: { path: 'src', depth: 2 } }],
+        effects: { mode: 'read', free: true },
         args: g.obj({ path: path(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
         returns: g.obj({ entries: g.list(Entry.shape) }),
         status: {
@@ -9794,7 +10028,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       glob: fn({
         description: 'Find paths matching a glob.',
-        instructions: 'The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth.',
+        instructions: 'Use it to find files by name or path. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
+        examples: [
+          { args: { pattern: '*.md' }, note: 'Every markdown file.' },
+          { args: { pattern: 'src/**/*.test.ts', root: 'app' }, note: 'Tests under src in one root.' },
+        ],
+        effects: { mode: 'read', free: true },
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
         returns: g.obj({ paths: g.list(g.text()) }),
         status: {
@@ -9807,7 +10046,12 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       grep: fn({
         description: 'Search file contents with a regular expression.',
-        instructions: 'The pattern is a JavaScript regular expression tested on each line. Narrow big searches with glob (`*.ts`, `src/**/*.vue`).',
+        instructions: 'Use it to find where something is used or defined before reading files. The pattern is a JavaScript regular expression tested on each line (escape `.`, `(` and the like). Narrow big searches with `glob` (`*.ts`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next.',
+        examples: [
+          { args: { pattern: 'function createHub\\(', glob: '*.ts' }, note: 'Where a function is defined.' },
+          { args: { pattern: 'TODO|FIXME', glob: 'src/**', limit: 50 } },
+        ],
+        effects: { mode: 'read', free: true },
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()), glob: g.optional(g.text()), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })) }),
         progress: linear,
@@ -9821,6 +10065,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       cd: fn({
         description: 'Change the working folder for later commands in this chat.',
+        instructions: 'Set it once instead of passing `cwd` to every bash call; it lasts for this chat. The folder must be inside a root.',
+        examples: [{ args: { path: 'packages/web' }, result: { cwd: 'packages/web' } }],
+        effects: { mode: 'read', free: true },
         args: g.obj({ path: path() }),
         returns: g.obj({ cwd: g.text() }),
         // shared with bash through session state; the LLM never has to pass it around
@@ -9829,6 +10076,14 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       bash: fn({
         description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
+        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call.',
+        examples: [
+          { args: { command: 'git status --short' }, note: 'What changed.' },
+          { args: { command: 'npm test -- --run src/app.test.ts', timeout: 120_000 }, note: 'One test file, with two minutes.' },
+          { args: { command: 'ls -la', cwd: 'docs' } },
+        ],
+        // a command can do anything a shell can, deleting included; it spends no model money itself
+        effects: { mode: 'delete', free: true },
         args: g.obj({ command: g.text(), cwd: g.optional(g.text()), timeout: g.field(g.optional(g.duration()), { docs: `How long the command may run, in milliseconds (30000 is 30 seconds); at least ${String(COMMAND_TIMEOUT_MIN)}. Leave empty for the default.` }) }),
         returns: CommandResult,
         state: Shell,
@@ -9850,6 +10105,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       remove: fn({
         description: 'Delete a file.',
+        instructions: 'Only for a file the person asked to delete or one you made and no longer need. Folders are refused. The content is kept, so it can be undone.',
+        examples: [{ args: { path: 'notes/scratch.md' }, result: { removed: true } }],
+        effects: { mode: 'delete', free: true },
         args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
         status: {
@@ -9862,6 +10120,9 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
       }),
       restart: fn({
         description: 'Restart this system so changes to its code go live. It reconnects on its own.',
+        instructions: 'Only after changing this system\'s own code (its `self` folder) and checking it builds. Say why in `reason`; runs in progress stop.',
+        examples: [{ args: { reason: 'Added the tree command; reload it.' } }],
+        effects: { mode: 'write', free: true },
         args: g.obj({ reason: g.text() }),
         returns: g.obj({ restarting: g.literal(true) }),
         operations: { cancel: false, background: false },
@@ -9878,8 +10139,13 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
     context: {
       guide: context({
         description: 'How to work with files here: read before editing, prefer edit over write.',
-        content: 'Read a file before editing it. Use edit for small changes and write only for new files. Search with grep and glob before guessing paths.',
-        fns: [fns.read, fns.edit, fns.grep, fns.glob],
+        content: [
+          'Read a file before editing it. Use edit for small changes and write only for new files. Search with grep and glob before guessing paths, and list to see a folder.',
+          'Run builds, tests and git with bash (set the folder once with cd); a command your shell setting does not mark safe asks the person first.',
+          'Delete with remove only what the person asked for. Writes, edits and deletes can be undone.',
+        ].join(' '),
+        // the guide brings the fns it is about, so finding it finds them
+        fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
       }),
       tree: context({
         description: 'The folder tree of a root, as it is now.',
@@ -9901,9 +10167,25 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
     fns: {
       explore: agent({
         description: 'Answers questions about the code by reading it.',
+        usage: 'Use it for a question that needs several files read (how a feature works, where something is decided) so your own context stays small. Ask one clear question; the answer quotes paths and lines.',
         args: g.obj({ question: g.text() }),
         returns: g.text(),
-        instructions: 'Answer {{args.question}} by reading the code. Quote paths and lines.',
+        instructions: [
+          'Answer this question about the code by reading it: {{args.question}}',
+          '',
+          'Work in this order:',
+          '1. Find where to look: grep for the names in the question (a function, a type, a message), glob for files by name, or hub/search_resources by meaning.',
+          '2. Read the files that matter, a window at a time for long ones (offset and limit), and follow the calls and imports the answer depends on.',
+          '3. Stop once you can answer; do not read everything.',
+          '',
+          'Answer in a few short paragraphs or a list. Quote each path with its line (`src/hub/link.ts:120`) for every claim, and say plainly what you could not find.',
+          'Example: asked "where is the session timeout set?", grep for `timeout`, read the config file it points to, and answer',
+          '"The timeout is HARNESS_SESSION_TIMEOUT in packages/hub/src/env.ts:42 (default 30 minutes); packages/hub/src/auth/sessions.ts:88 reads it."',
+        ].join('\n'),
+        examples: [
+          { args: { question: 'How does the hub decide which instance runs a call?' } },
+          { args: { question: 'Where are uploaded files stored, and how big may one be?' } },
+        ],
         tools: [fns.read, fns.glob, fns.grep, hub.fns.search_resources],
         context: [ctx.guide],
       }),
@@ -11255,7 +11537,7 @@ type DecideCandidate = {
 const, type · declared in `packages/core/src/context-graph.ts`
 
 ```ts
-type DeclarableRelation = "about" | "parent" | "imports" | "next" | "brings" | "suggests" | "related";
+type DeclarableRelation = "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
 ```
 
 #### <a id="core-deliveryid"></a>`DeliveryId`
@@ -11348,6 +11630,23 @@ type FnApproval = {
 };
 ```
 
+#### <a id="core-fneffects"></a>`FnEffects`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, and whether its
+own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
+from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
+
+```ts
+type FnEffects = {
+  mode?: "read" | "write" | "delete" | undefined;
+  reads?: `${string}/${string}`[] | undefined;
+  writes?: `${string}/${string}`[] | undefined;
+  free?: boolean | undefined;
+};
+```
+
 #### <a id="core-fnerror"></a>`FnError`
 
 const, type · declared in `packages/core/src/run.ts`
@@ -11360,6 +11659,56 @@ type FnError = {
   message: string;
   code?: string | undefined;
   data?: z.core.util.JSONType | undefined;
+};
+```
+
+#### <a id="core-fnexample"></a>`FnExample`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+One example call of a fn: its args, optionally what it returned, and what the example shows.
+
+```ts
+type FnExample = {
+  args: z.core.util.JSONType;
+  result?: z.core.util.JSONType | undefined;
+  note?: string | undefined;
+};
+```
+
+#### <a id="core-fnexamplespage"></a>`FnExamplesPage`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+A page of a fn's examples: `total` of them, `next` the offset of the next page (absent on the last).
+
+```ts
+type FnExamplesPage = {
+  fn: `${string}/${string}`;
+  items: {
+    args: z.core.util.JSONType;
+    id: string;
+    result?: z.core.util.JSONType | undefined;
+    note?: string | undefined;
+    score?: number | undefined;
+  }[];
+  total: number;
+  next?: number | undefined;
+};
+```
+
+#### <a id="core-fnexamplesquery"></a>`FnExamplesQuery`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+What `fnExamples` asks for: one fn's examples, the most relevant to `query` first (declared order without one).
+
+```ts
+type FnExamplesQuery = {
+  fn: `${string}/${string}`;
+  query?: string | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
 };
 ```
 
@@ -11392,6 +11741,61 @@ type FnRouting = {
   instance: string & z.core.$brand<"InstanceName">;
 } | {
   to: "any";
+};
+```
+
+#### <a id="core-fnsearchpage"></a>`FnSearchPage`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+A page of hits; `next` is the offset of the next page, absent on the last.
+
+```ts
+type FnSearchPage = {
+  items: {
+    item: "fn" | "context";
+    name: `${string}/${string}`;
+    system: string & z.core.$brand<"SystemName">;
+    description: string;
+    available: boolean;
+    kind?: string | undefined;
+    mode?: "read" | "write" | "delete" | undefined;
+    signature?: string | undefined;
+    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    score?: number | undefined;
+    unavailable?: string | undefined;
+  }[];
+  next?: number | undefined;
+};
+```
+
+#### <a id="core-fnsearchquery"></a>`FnSearchQuery`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+A search over fns and context, done in the hub's database. Without `text` it lists what the filters let through,
+by name. Every filter narrows: `kinds` (the fn kinds, such as `input/form` or `database/query`), `systems`,
+`instance` (a fleet instance's own fns), `visibility` (what the asker shares: `mine` they own, `shared` others gave
+them), `types` (fns that read or write any of these named types), and `modes` (fns of these modes).
+
+```ts
+type FnSearchQuery = {
+  text?: string | undefined;
+  match?: "text" | "semantic" | "hybrid" | undefined;
+  items?: ("fn" | "context")[] | undefined;
+  kinds?: (`${string}/${string}` | "native")[] | undefined;
+  systems?: (string & z.core.$brand<"SystemName">)[] | undefined;
+  instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+  visibility?: "mine" | "shared" | "public" | undefined;
+  types?: {
+    reads?: `${string}/${string}`[] | undefined;
+    writes?: `${string}/${string}`[] | undefined;
+  } | undefined;
+  modes?: ("read" | "write" | "delete")[] | undefined;
+  available?: boolean | undefined;
+  order?: "score" | "alphabetical" | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
 };
 ```
 
@@ -11556,7 +11960,7 @@ problems back to the agent and the chat shows the run softly as "Retried". A rea
 
 ```ts
 type InvalidInput = {
-  source: "json" | "result" | "schema" | "unavailable" | "validation";
+  source: "json" | "result" | "unavailable" | "schema" | "validation";
   problems: {
     path: string;
     message: string;
@@ -11650,6 +12054,12 @@ type KindDescription = {
   approval?: {
     preview: boolean;
     remember: boolean;
+  } | undefined;
+  effects?: {
+    mode?: "read" | "write" | "delete" | undefined;
+    reads?: `${string}/${string}`[] | undefined;
+    writes?: `${string}/${string}`[] | undefined;
+    free?: boolean | undefined;
   } | undefined;
 };
 ```
@@ -11998,6 +12408,7 @@ type Manifest = {
     form?: TypeDef<any> | undefined;
     examples?: {
       args: z.core.util.JSONType;
+      result?: z.core.util.JSONType | undefined;
       note?: string | undefined;
     }[] | undefined;
     validate?: {
@@ -12014,6 +12425,13 @@ type Manifest = {
     } | {
       to: "any";
     } | undefined;
+    effects?: {
+      mode?: "read" | "write" | "delete" | undefined;
+      reads?: `${string}/${string}`[] | undefined;
+      writes?: `${string}/${string}`[] | undefined;
+      free?: boolean | undefined;
+    } | undefined;
+    promptExamples?: number | undefined;
   }[];
   context: {
     name: string;
@@ -12053,7 +12471,7 @@ type Manifest = {
         uri: `${string}://${string}`;
         section?: (string & z.core.$brand<"SectionKey">) | undefined;
       };
-      relation: "about" | "parent" | "imports" | "next" | "brings" | "suggests" | "related";
+      relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
       weight: number;
     }[] | undefined;
   }[];
@@ -12281,6 +12699,7 @@ type ManifestPatch = {
       form?: TypeDef<any> | undefined;
       examples?: {
         args: z.core.util.JSONType;
+        result?: z.core.util.JSONType | undefined;
         note?: string | undefined;
       }[] | undefined;
       validate?: {
@@ -12297,6 +12716,13 @@ type ManifestPatch = {
       } | {
         to: "any";
       } | undefined;
+      effects?: {
+        mode?: "read" | "write" | "delete" | undefined;
+        reads?: `${string}/${string}`[] | undefined;
+        writes?: `${string}/${string}`[] | undefined;
+        free?: boolean | undefined;
+      } | undefined;
+      promptExamples?: number | undefined;
     }[] | undefined;
     context?: {
       name: string;
@@ -12336,7 +12762,7 @@ type ManifestPatch = {
           uri: `${string}://${string}`;
           section?: (string & z.core.$brand<"SectionKey">) | undefined;
         };
-        relation: "about" | "parent" | "imports" | "next" | "brings" | "suggests" | "related";
+        relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
         weight: number;
       }[] | undefined;
     }[] | undefined;
@@ -12444,6 +12870,10 @@ type MessagePart = {
   args: Record<string, string>;
 } | {
   type: "invocation";
+  run: string;
+  fn: `${string}/${string}`;
+} | {
+  type: "call";
   run: string;
   fn: `${string}/${string}`;
 } | {
@@ -12740,7 +13170,7 @@ type OutcomeWire = {
 } | {
   status: "invalid-input";
   invalid: {
-    source: "json" | "result" | "schema" | "unavailable" | "validation";
+    source: "json" | "result" | "unavailable" | "schema" | "validation";
     problems: {
       path: string;
       message: string;
@@ -13506,7 +13936,7 @@ A visibility without its owner, for things whose owner is kept elsewhere (a conn
 ```ts
 type ShareRule = {
   with: string[];
-  visibility: "private" | "shared" | "public";
+  visibility: "shared" | "public" | "private";
 };
 ```
 
@@ -13556,7 +13986,7 @@ type SystemEvent = {
   message: {
     id: string;
     session: string;
-    role: "user" | "assistant" | "note";
+    role: "user" | "note" | "assistant";
     createdAt: number;
     author: string;
     replyAll: boolean;

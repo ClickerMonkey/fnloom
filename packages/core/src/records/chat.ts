@@ -5,7 +5,7 @@ import { GinTypeDef } from '../gin.ts';
 import { LlmMessage, ModelChoice } from '../llm.ts';
 import { DICTATION_ENGINES } from '../model-calls.ts';
 import { ChatModeConfig, ContextorConfig, GraphSelection } from '../modes.ts';
-import { CommandArg, HookBlock } from '../manifest.ts';
+import { ChatFnMode, CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, ModelCallId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
 import { ContentRef, Link } from '../resources.ts';
 import { SystemStatus } from './systems.ts';
@@ -40,6 +40,8 @@ export const Session = z.object({
   /** The chat mode and contextor here, instead of the agent fn's. */
   mode: ChatModeConfig.optional(),
   contextor: ContextorConfig.optional(),
+  /** Build 5: how far the agent may go with fns here (absent: as far as the policies allow, like `delete`). */
+  fnMode: ChatFnMode.optional(),
   /** What the graph contextor chose last, rewritten every cycle. */
   selection: GraphSelection.optional(),
   participants: z.array(Participant),
@@ -87,6 +89,11 @@ export const MessagePart = z.discriminatedUnion('type', [
   MentionPart,
   CommandPart,
   z.object({ type: z.literal('invocation'), run: RunId, fn: QualifiedName }),
+  /**
+   * Build 5: a fn call the assistant made, in the place it made it among its reasoning and text, so a message keeps
+   * the order the model produced them in.
+   */
+  z.object({ type: z.literal('call'), run: RunId, fn: QualifiedName }),
   FilePart,
   InputAnswerPart,
   /** What the hub added by itself. Shown dimmed; the LLM sees it tagged. */

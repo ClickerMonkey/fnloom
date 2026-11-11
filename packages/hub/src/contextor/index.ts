@@ -20,7 +20,7 @@
  * implementation. Tunables are the `contextorEnv` slice (`env.ts`).
  */
 import type {
-  ActorId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnRecord,
+  ActorId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnExample, FnRecord,
   InstanceName, InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
   Session, SuggestionRecord, SessionId, Turn, TurnId, UserInfo,
 } from '@harness/core';
@@ -28,6 +28,7 @@ import type { Logger } from '@ayepi/log';
 import type { LlmPayload } from '@harness/sdk';
 import type { z } from 'zod';
 import type { Catalog, FnSignature } from '../catalog/index.ts';
+import type { FnsForPrompt } from '../fns/index.ts';
 import type { AccessScope } from '../access/index.ts';
 import type { Search } from '../index/index.ts';
 import type { InstanceRouter } from '../link/index.ts';
@@ -110,6 +111,8 @@ export interface ChosenFn {
   readonly view: FnView;
   readonly detail: Detail;
   readonly activation: number;
+  /** Build 5: the examples its card shows this turn, the most relevant first (its first declared ones when absent). */
+  readonly examples?: readonly FnExample[];
 }
 
 /** An earlier exchange, summarised for the system prompt without a model call. */
@@ -297,6 +300,8 @@ export interface ContextorDeps {
   readonly clock: () => number;
   /** What a person may see and use (the access module). */
   readonly access: (actor: ActorId) => Promise<AccessScope>;
+  /** Build 5: examples for a fn's card by relevance, and fns' modes for a chat's fn mode (none: declared examples, every fn). */
+  readonly fns?: FnsForPrompt;
 }
 
 /** Fn views, built once per fn version, and named types as cards show them. */

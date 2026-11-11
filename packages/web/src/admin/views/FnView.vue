@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * One fn's page (`/admin/systems/:name/fns/:fn`): what it is and whether it can be used now, its metrics over a period
+ * One fn's page (`/admin/systems/:name/fns/:fn`): its overview (the same as the chat's fn modal: what it does to data,
+ * its signature, facts and examples), its metrics over a period
  * in the URL (`?days=7|30|90`) as a strip (runs, retried input apart from failures, typical and p95 time, waiting,
  * cost, tokens), its runs and its typical time per day, and its latest runs (each opens in the runs browser, with a
  * link to all of them), and for a fn of a kind (a database's saved query) what it runs. Live: a settled run updates it.
@@ -14,21 +15,19 @@ import { z } from 'zod';
 import AppPage from '../../app/AppPage.vue';
 import { links, ROUTES } from '../../app/routes.ts';
 import { useRouteQuery } from '../../app/url.ts';
-import { formatCost, formatDuration } from '../../chat/logic/format.ts';
+import { formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
-import { argSummary, runElapsed, STATUS_LOOK } from '../../chat/logic/runs.ts';
-import RunDot from '../../chat/components/RunDot.vue';
 import { useStores } from '../../state/stores.ts';
+import FnOverview from '../../fns/components/FnOverview.vue';
+import FnRuns from '../../fns/components/FnRuns.vue';
 import { UiBadge, UiButton, UiCard, UiCodeBlock, UiEmpty, UiIcon, UiSegmented, type SegmentOption } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
-import BrowserRow from '../components/BrowserRow.vue';
 import DayBars from '../components/DayBars.vue';
 import LoadState from '../components/LoadState.vue';
 import { dayBars, figures } from '../logic/metrics.ts';
-import { availabilityText } from '../logic/systems.ts';
 import { FN_PERIODS, type FnPeriod } from '../state/fn.ts';
 
-const { admin } = useStores();
+const { admin, fns } = useStores();
 const store = admin.fn;
 const route = useRoute();
 const router = useRouter();
@@ -58,7 +57,8 @@ const payload = computed(() => (record.value?.decl.payload === undefined ? '' : 
 const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time', dayWindow.value));
 
 watch([name, period], ([fn, d]) => { if (fn !== undefined) { void store.open(fn, d); } }, { immediate: true });
-onBeforeUnmount(() => { store.close(); });
+watch(name, (fn) => { if (fn !== undefined) { void fns.open(fn); } }, { immediate: true });
+onBeforeUnmount(() => { store.close(); fns.close(); });
 </script>
 
 <template>
@@ -70,12 +70,18 @@ onBeforeUnmount(() => { store.close(); });
     </template>
     <LoadState :loading="store.record.loading.value" :problem="store.record.problem.value" :ready="record !== undefined" :empty="false" :lines="6" @retry="name && store.open(name, period)">
       <template v-if="record && name">
-        <div class="head">
-          <code class="qualified">{{ name }}</code>
-          <UiBadge v-if="record.available !== true" tone="warn" :title="record.available.detail">{{ availabilityText(record.available) }}</UiBadge>
-          <UiBadge v-if="record.paused">Paused</UiBadge>
-          <UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge>
-          <span class="grow" />
+        <FnOverview
+          :name="name" :about="fns.about.value.value" :facts="fns.facts.value.value" :loading="fns.facts.loading.value" :problem="fns.facts.problem.value" :describe="false"
+          :examples="fns.examples.value" :examples-total="fns.examplesTotal.value" :more-examples="fns.examplesNext.value !== undefined" :examples-loading="fns.examplesLoading.value"
+          :examples-problem="fns.examplesProblem.value" @fn="router.push(links.fn($event))" @more="fns.moreExamples()" @retry="fns.open(name)"
+        >
+          <template #badges>
+            <UiBadge v-if="record.paused">Paused</UiBadge>
+            <UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge>
+          </template>
+        </FnOverview>
+        <div class="period">
+          <h2 class="period-title">Over the last {{ days }} days</h2>
           <UiSegmented v-model="days" :options="PERIODS" label="Period" data-testid="fn-period" />
         </div>
         <LoadState
@@ -99,45 +105,25 @@ onBeforeUnmount(() => { store.close(); });
           <UiCodeBlock :code="payload" language="json" :max-height="360" />
         </UiCard>
         <AccessControl :target="{ kind: 'fn', fn: name }" />
-        <UiCard class="runs" title="Latest runs" flush compact data-testid="fn-recent">
+        <FnRuns
+          :runs="recent" :now="now" title="Latest runs" :loading="store.recent.loading.value" :problem="store.recent.problem.value" @open="router.push(links.runs({ run: $event }))"
+        >
           <template #actions><UiButton size="sm" variant="ghost" icon="arrow-right" data-testid="fn-runs" @click="router.push(links.fnRuns(name))">All its runs</UiButton></template>
-          <p v-if="store.recent.problem.value !== ''" class="problem" role="alert">{{ store.recent.problem.value }}</p>
-          <p v-else-if="recent.length === 0" class="none">{{ store.recent.loading.value ? 'Loading…' : 'No runs yet.' }}</p>
-          <ul v-else class="list">
-            <BrowserRow
-              v-for="run in recent" :key="run.id" :title="argSummary(run.args) || fnLabel(run.fn)" :at="run.createdAt" :now="now" :testid="`fn-run-${run.id}`"
-              @open="router.push(links.runs({ run: run.id }))"
-            >
-              <template #mark><RunDot :status="run.status" :size="10" /></template>
-              <template #badges>
-                <UiBadge v-if="run.status === 'failed' || run.status === 'awaiting-approval'" :tone="STATUS_LOOK[run.status].tone">{{ STATUS_LOOK[run.status].word }}</UiBadge>
-                <UiBadge v-if="run.attempt > 1" tone="warn">Try {{ run.attempt }}</UiBadge>
-              </template>
-              <template #figures>
-                <span>{{ formatCost(run.totalCost) }}</span>
-                <span v-if="runElapsed(run, now) !== undefined">{{ formatDuration(runElapsed(run, now) ?? 0) }}</span>
-              </template>
-            </BrowserRow>
-          </ul>
-        </UiCard>
+        </FnRuns>
       </template>
     </LoadState>
   </AppPage>
 </template>
 
 <style scoped>
-.head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.qualified { color: var(--text-dim); font-size: var(--text-sm); }
-.grow { flex: 1; }
+.period { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.period-title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); }
 .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 128px), 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
 .figure { display: grid; align-content: start; gap: 2px; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .label { color: var(--text-dim); font-size: var(--text-xs); }
 .value { font-size: var(--text-lg); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
 .detail { color: var(--text-faint); font-size: var(--text-xs); }
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--space-4); }
-.list { margin: 0; padding: 0; list-style: none; }
-.none, .problem { margin: 0; padding: var(--space-3) var(--space-4); color: var(--text-faint); font-size: var(--text-sm); }
-.problem { color: var(--danger); }
 .crumb { display: inline-flex; align-items: center; gap: 2px; margin-left: -2px; color: var(--text-dim); font-weight: var(--weight-medium); text-decoration: none; }
 .crumb:hover { color: var(--accent); }
 </style>

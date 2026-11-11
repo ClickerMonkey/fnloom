@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
- * The quiet row under the composer: the agent answering (a menu switches it), the model it answers with (opening the
- * model picker to change it), how many systems the chat uses (and how many are offline), background work, and the
+ * The quiet row under the composer: the agent answering (a menu switches it), how far it may go with fns (a menu of
+ * the chat's fn modes: none, read, write, delete, auto), the model it answers with (opening the model picker to change it), how many systems the chat uses (and how many are offline), background work, and the
  * cost and budget meter. On a phone it keeps to one line, dropping words before numbers.
  */
-import type { QualifiedName } from '@harness/core';
+import type { ChatFnMode, QualifiedName } from '@harness/core';
 import { computed } from 'vue';
 import { UiIcon, UiMenu, type MenuItem } from '../../ui/index.ts';
+import { FN_MODE_CHOICES, FN_MODE_WORDS } from '../logic/modes.ts';
 import type { BudgetMeter as Meter } from '../logic/session.ts';
 import BudgetMeter from './BudgetMeter.vue';
 
@@ -14,6 +15,8 @@ const props = withDefaults(defineProps<{
   agent: string;
   /** The agents the chat can switch to, the current one first. */
   agents?: readonly { readonly fn: QualifiedName; readonly name: string }[];
+  /** How far the agent may go with fns here. */
+  fnMode: ChatFnMode;
   /** The model the agent answers with, in words. */
   model?: string;
   systems: { readonly total: number; readonly offline: number };
@@ -23,7 +26,16 @@ const props = withDefaults(defineProps<{
   compact: boolean;
 }>(), { agents: () => [], model: '', meter: undefined });
 
-const emit = defineEmits<{ settings: []; model: []; background: []; agent: [fn: QualifiedName] }>();
+const emit = defineEmits<{ settings: []; model: []; background: []; agent: [fn: QualifiedName]; fnMode: [mode: ChatFnMode] }>();
+
+/** The fn mode menu: every mode with what it allows, the current one checked. */
+const modeItems = computed<MenuItem<ChatFnMode>[]>(() => FN_MODE_CHOICES.map((mode) => ({
+  value: mode, label: FN_MODE_WORDS[mode].label, icon: mode === props.fnMode ? 'check' : 'shield',
+})));
+
+function chooseMode(mode: ChatFnMode): void {
+  if (mode !== props.fnMode) { emit('fnMode', mode); }
+}
 
 /** The agent menu: every agent (the current one checked), then the chat's settings. */
 const agentItems = computed<MenuItem<QualifiedName | 'settings'>[]>(() => [
@@ -45,6 +57,18 @@ function chooseAgent(value: QualifiedName | 'settings'): void {
         <button type="button" class="item agent" :title="`${agent} answers here`" v-bind="attrs" data-testid="agent-picker" @click="toggle">
           <UiIcon name="sparkles" :size="14" />
           <span class="text">{{ agent }}</span>
+          <UiIcon name="chevron-down" :size="12" />
+        </button>
+      </template>
+    </UiMenu>
+    <UiMenu :items="modeItems" label="What the agent may do" side="top" align="start" @select="chooseMode">
+      <template #trigger="{ toggle, attrs }">
+        <button
+          type="button" class="item mode" :class="{ warn: fnMode === 'delete' }" :title="FN_MODE_WORDS[fnMode].about" v-bind="attrs" data-testid="fn-mode-picker"
+          :data-mode="fnMode" @click="toggle"
+        >
+          <UiIcon name="shield" :size="14" />
+          <span class="text">{{ FN_MODE_WORDS[fnMode].label }}</span>
           <UiIcon name="chevron-down" :size="12" />
         </button>
       </template>
@@ -75,7 +99,7 @@ function chooseAgent(value: QualifiedName | 'settings'): void {
 .item:hover { background: var(--surface-2); color: var(--text-dim); }
 .item:focus-visible { outline: none; box-shadow: var(--ring); }
 .item.warn { color: var(--warn); }
-.agent, .model { flex-shrink: 1; }
+.agent, .model, .mode { flex-shrink: 1; }
 .model { max-width: 220px; }
 .text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .spacer { flex: 1; }

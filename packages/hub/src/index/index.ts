@@ -95,6 +95,10 @@ export interface SearchQuery {
    * Used to keep to what the person asking may see (`access/hits.ts`).
    */
   readonly keep?: (hit: SearchHit) => boolean | Promise<boolean>;
+  /** Only these items: the ones a filter in the database let through (build 5). */
+  readonly within?: ReadonlyArray<{ readonly kind: IndexedKind; readonly key: string }>;
+  /** Words, meaning, or both (the default). */
+  readonly match?: 'text' | 'semantic' | 'hybrid';
 }
 
 /** Hybrid search. Falls back to words alone while no embedder is connected. */

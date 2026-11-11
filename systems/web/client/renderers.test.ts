@@ -25,7 +25,7 @@ const readProps = (props: Partial<ReadProps>): ReadProps => ({
 
 describe('SearchView', () => {
   it('shows the query, the answer and the first results with their sites, without credentials', () => {
-    const card = mount(SearchView, { props: searchProps({ result: { answer: 'They sleep.', results: hits } }) });
+    const card = mount(SearchView, { props: searchProps({ result: { uri: 'hub://resources/searches/s', answer: 'They sleep.', results: hits } }) });
     expect(card.find('.query').text()).toBe('cats');
     expect(card.find('.chip').text()).toBe('Done');
     expect(card.find('.answer').text()).toContain('They sleep.');
@@ -37,7 +37,7 @@ describe('SearchView', () => {
   });
 
   it('shows every result when asked, and the filters it ran with', async () => {
-    const card = mount(SearchView, { props: searchProps({ args: { query: 'x', topic: 'news', depth: 'advanced', days: 1, include: ['a.example'], exclude: ['b.example'] }, result: { results: hits } }) });
+    const card = mount(SearchView, { props: searchProps({ args: { query: 'x', topic: 'news', depth: 'advanced', days: 1, include: ['a.example'], exclude: ['b.example'] }, result: { uri: 'hub://resources/searches/s', results: hits } }) });
     expect(card.findAll('.filter').map((f) => f.text())).toEqual(['News', 'Deep', 'Last 1 day', 'Only a.example', 'Not b.example']);
     await card.find('.more').trigger('click');
     expect(card.findAll('.result')).toHaveLength(7);
@@ -48,13 +48,13 @@ describe('SearchView', () => {
     const running = mount(SearchView, { props: searchProps({ status: 'running' }) });
     expect(running.find('.placeholder').exists()).toBe(true);
     expect(running.attributes('aria-busy')).toBe('true');
-    const empty = mount(SearchView, { props: searchProps({ result: { results: [] } }) });
+    const empty = mount(SearchView, { props: searchProps({ result: { uri: 'hub://resources/searches/s', results: [] } }) });
     expect(empty.find('.empty').text()).toContain('No results');
   });
 
   it('starts a web/read of a result, and says when it started or why it could not', async () => {
     const fake = fakeWebSystem();
-    const card = mount(SearchView, { props: searchProps({ result: { results: hits.slice(0, 2) }, system: fake.system }) });
+    const card = mount(SearchView, { props: searchProps({ result: { uri: 'hub://resources/searches/s', results: hits.slice(0, 2) }, system: fake.system }) });
     await card.findAll('button.action')[0]?.trigger('click');
     expect(fake.started).toEqual([{ fn: 'read', args: { url: hits[0]?.url } }]);
     expect(card.findAll('button.action')[0]?.text()).toBe('Starting…');
@@ -68,7 +68,7 @@ describe('SearchView', () => {
   });
 
   it('turns Read off while the system is offline, and shows a failure', () => {
-    const card = mount(SearchView, { props: searchProps({ result: { results: hits.slice(0, 1) }, system: fakeWebSystem(false).system }) });
+    const card = mount(SearchView, { props: searchProps({ result: { uri: 'hub://resources/searches/s', results: hits.slice(0, 1) }, system: fakeWebSystem(false).system }) });
     expect(card.find('button.action').attributes('disabled')).toBeDefined();
     expect(card.text()).toContain('web is offline');
     const failed = mount(SearchView, { props: searchProps({ status: 'failed', error: { class: 'fatal', message: 'No Tavily API key is set', code: 'no-search-key' } }) });
@@ -77,7 +77,7 @@ describe('SearchView', () => {
   });
 
   it('opens a clamped snippet when clicked, or from the keyboard', async () => {
-    const card = mount(SearchView, { props: searchProps({ result: { results: hits.slice(0, 1) } }) });
+    const card = mount(SearchView, { props: searchProps({ result: { uri: 'hub://resources/searches/s', results: hits.slice(0, 1) } }) });
     await card.find('.snippet').trigger('click');
     expect(card.find('.snippet').classes()).toContain('open');
     expect(card.find('.snippet').attributes('aria-expanded')).toBe('true');

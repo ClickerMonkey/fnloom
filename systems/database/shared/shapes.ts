@@ -117,21 +117,97 @@ export const ApprovalState = z.object({
 });
 export type ApprovalState = z.infer<typeof ApprovalState>;
 
-/** What `get_query` and `edit_query` give: the database, the fn, the query, and its result or where its approval is. */
-export const QueryAnswer = z.object({
+/** What `run_query` gives: the database, the fn, the query as it ran, and its result or where its approval is. */
+export const QueryRun = z.object({
   database: DatabaseInfo,
-  fn: ResultFn.extend({ how: QueryHow, why: z.string() }),
+  fn: ResultFn,
   query: z.object({
     sql: z.string().describe('The SQL it runs, readable.'),
-    structured: Json.describe('The `@aeye/query` JSON, for edit_query.'),
+    structured: Json.describe('The `@aeye/query` JSON, to change it with edit_query.'),
     params: z.record(z.string(), Json).describe('The values it ran with.'),
     writes: z.boolean(),
   }),
   result: ResultBlock.optional(),
-  write: WriteResult.optional(),
   approval: ApprovalState.optional(),
 });
-export type QueryAnswer = z.infer<typeof QueryAnswer>;
+export type QueryRun = z.infer<typeof QueryRun>;
+
+// ─── The query agent's tools ─────────────────────────────────────────────────
+
+/** A query the agent wrote, before it is checked and saved. */
+export const QueryDraft = z.object({
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,47}$/).describe('A snake_case name (`overdue_invoices`); it is saved as `database/<database>.<name>`.'),
+  title: z.string().min(1).describe('A short title (`Overdue invoices`).'),
+  description: z.string().min(1).describe('One sentence: what it returns (or changes) and what its params are for. Later requests are matched against it.'),
+  query: Json.describe('The query as `@aeye/query` JSON (`{ "kind": "select", … }`).'),
+  sorters: z.array(z.string().min(1)).optional().describe('Output columns a caller may sort by.'),
+});
+export type QueryDraft = z.infer<typeof QueryDraft>;
+
+/** What `check_query` says about a draft: whether it runs here, its SQL and signature, or what to fix. */
+export const QueryCheck = z.object({
+  ok: z.boolean(),
+  problems: z.array(z.string()).describe('Each problem, with what to change; empty when `ok`.'),
+  sql: z.string().optional().describe('The SQL it would run.'),
+  signature: z.string().optional().describe('The fn it would be, as one line: its args and what it returns.'),
+  writes: z.boolean().optional(),
+});
+export type QueryCheck = z.infer<typeof QueryCheck>;
+
+/** What `tables` gives: one database's tables, columns and relations, and the query language, as the agent writes against. */
+export const TablesInfo = z.object({
+  database: DatabaseInfo,
+  writes: z.boolean().describe('Whether queries may insert, update and delete (each after approval).'),
+  schema: z.string().describe('The table types, their columns (with choices, formats and ranges where known), relations, and how to write queries.'),
+});
+export type TablesInfo = z.infer<typeof TablesInfo>;
+
+/** A query `save_query` kept in the hub. */
+export const SavedQueryRef = z.object({
+  fn: z.string().describe('The saved fn (`database/main.overdue_invoices`).'),
+  signature: z.string(),
+  version: z.number().int().min(1).describe('1 for a new query; more when an edit replaced an earlier version (kept in its history).'),
+  created: z.boolean(),
+});
+export type SavedQueryRef = z.infer<typeof SavedQueryRef>;
+
+/** One database as `databases` lists it. */
+export const DatabaseSummary = z.object({
+  instance: z.string(),
+  label: z.string(),
+  tables: z.array(z.string()).describe('Its tables, each with what it holds when known.'),
+});
+export type DatabaseSummary = z.infer<typeof DatabaseSummary>;
+
+/** What the query agents (`get_query`, `edit_query`) answer with; the rows themselves are shown to the person. */
+export const QueryAgentAnswer = z.object({
+  database: z.string().describe('The database instance it ran on.'),
+  fn: z.string().describe('The saved query fn (`database/main.overdue_invoices`): call it directly next time.'),
+  how: QueryHow,
+  why: z.string().describe('Why this query: the saved one that fit, or what was written or changed.'),
+  summary: z.string().describe('What the result says (counts, what stands out), or that a write waits for approval. Never the rows themselves.'),
+});
+export type QueryAgentAnswer = z.infer<typeof QueryAgentAnswer>;
+
+/** What one instance is asked to do for a tool another instance answered (`at_instance`). */
+export const InstanceOp = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('tables') }),
+  z.object({ op: z.literal('check'), draft: QueryDraft }),
+  z.object({
+    op: z.literal('save'), draft: QueryDraft, args: z.record(z.string(), Json).optional(), askedFor: z.string().optional(), replace: z.boolean().optional(),
+  }),
+  z.object({ op: z.literal('run'), fn: z.string().min(1), args: z.record(z.string(), Json).optional() }),
+]);
+export type InstanceOp = z.infer<typeof InstanceOp>;
+
+/** What an instance answers an `InstanceOp` with, by the same `op`. */
+export const InstanceAnswer = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('tables'), tables: TablesInfo }),
+  z.object({ op: z.literal('check'), check: QueryCheck }),
+  z.object({ op: z.literal('save'), saved: SavedQueryRef }),
+  z.object({ op: z.literal('run'), run: QueryRun }),
+]);
+export type InstanceAnswer = z.infer<typeof InstanceAnswer>;
 
 /** A table made or changed from a type (`create_table`, `alter_table`, `apply_type_changes`). */
 export const SchemaChanged = z.object({

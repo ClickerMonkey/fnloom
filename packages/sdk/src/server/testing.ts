@@ -20,7 +20,8 @@ import {
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
-import type { Decisions, Fleets, Proposals, SystemPlace } from '../ctx.ts';
+import type { Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
+import { FakeHubFns } from './fake-hub-fns.ts';
 import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
 import { MemoryJournal } from './journal.ts';
@@ -44,10 +45,12 @@ export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.har
  * `ctx.propose` and `ctx.decide` for a hand-made test context that has no hub: proposing fails (the test didn't
  * expect it) and the decision model is off. Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
  */
-export const NO_ASKS: Proposals & Decisions & Fleets = {
+export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch = {
   propose: () => Promise.reject(new Error('This test context proposes no runs; serve against FakeHub to record them.')),
   decide: () => Promise.resolve({ by: 'off' }),
   fleet: () => Promise.resolve([]),
+  searchFns: () => Promise.resolve({ items: [] }),
+  fnExamples: (query) => Promise.resolve({ fn: query.fn, items: [], total: 0 }),
 };
 
 /** The person fake runs are for. */
@@ -242,8 +245,10 @@ export class FakeHub {
   readonly content = new Map<string, Uint8Array>();
 
   // ─── Scripted behaviour ─────────────────────────────────────────────────────
-  /** Settles a child call. Default: done with `null`. */
-  onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled> = () => Promise.resolve({ status: 'done', result: null });
+  /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
+  readonly fns = new FakeHubFns();
+  /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
+  onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled> = (call) => Promise.resolve(this.fns.settle(call) ?? { status: 'done', result: null });
   /** Answers a run's handler. Default: refused. */
   onHandle: (call: FakeHub['handled'][number]) => Promise<HandlerAnswer> = () => Promise.resolve({ ok: false, error: { class: 'caller', message: 'no one answers handlers here' } });
   /** Answers `ctx.types.definitions` (the real hub sends the closure, dependencies first). Default: every name missing. */
@@ -585,6 +590,8 @@ export class FakeHub {
           return await this.onDecide(data);
         },
         fleet: () => this.onFleet(),
+        searchFns: ({ data }) => Promise.resolve(this.fns.search(data)),
+        fnExamples: ({ data }) => Promise.resolve(this.fns.examples(data)),
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);
@@ -608,3 +615,4 @@ function emptyReport(): ImportReport {
   return { added: [], updated: [], removed: [], refused: [] };
 }
 export { liveEnv, liveModels } from './live.ts';
+export { FakeHubFns, type KeptFn } from './fake-hub-fns.ts';

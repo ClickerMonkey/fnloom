@@ -3,7 +3,7 @@
  * see "Read file", never a raw id. The words themselves (`humanize`, `fnLabel`, `lowerFirst`) are core's, so the
  * hub's status text and the chat say the same. Pure, so they are tested alone.
  */
-import { fnLabel, splitName, type QualifiedName } from '@harness/core';
+import { fnLabel, splitName, type HandlerCall, type QualifiedName } from '@harness/core';
 
 export { fnLabel, humanize, lowerFirst } from '@harness/core';
 
@@ -21,6 +21,11 @@ export function systemOf(name: QualifiedName): string {
 export function agentName(agent: QualifiedName): string {
   const label = fnLabel(agent);
   return /\bagent$/i.test(label) ? label : `${label} agent`;
+}
+
+/** A yes-or-no question a run asks through a handler that returns a bool (the shell's "Run this command?"). */
+export function isConfirm(call: Pick<HandlerCall, 'decl'>): boolean {
+  return call.decl.returns.name === 'bool';
 }
 
 /**

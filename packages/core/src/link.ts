@@ -17,6 +17,7 @@ import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from 
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
 import { PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
 import { DecideAnswer, DecideRequest } from './decisions.ts';
+import { FnExamplesPage, FnExamplesQuery, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
 import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, FnKindName, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
@@ -260,6 +261,13 @@ const linked = use(linkTel, linkSession).group({
   decide: { body: DecideRequest, response: DecideAnswer, ws: 'de' },
   /** Build 5: every paired instance of the asking system, with its config (secrets kept back) and its own types. */
   fleet: { body: z.object({}), response: z.array(FleetInstance), ws: 'fl' },
+  /**
+   * Build 5: search fns and context in the hub's database (`ctx.searchFns`), as `run`'s person sees them (as the system
+   * itself without one: its own fns and what is public). How `get_input` and `get_query` find saved fns.
+   */
+  searchFns: { body: FnSearchQuery.extend({ run: RunId.optional() }), response: FnSearchPage, ws: 'sf' },
+  /** Build 5: a page of a fn's examples, the most relevant to `query` first (`ctx.fnExamples`). */
+  fnExamples: { body: FnExamplesQuery, response: FnExamplesPage, ws: 'fx' },
 });
 
 /** What a system calls on the hub. */

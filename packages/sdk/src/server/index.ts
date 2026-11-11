@@ -7,6 +7,7 @@
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
 import type { AutoPairGrant, Duration, QualifiedName, TypeDecl } from '@harness/core';
+import type { FnSearch } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
@@ -53,7 +54,7 @@ export type McpServe = { stdio: true } | { http: { port: number; host?: string }
 export type RunningStatus = 'connecting' | 'pairing' | 'needs-config' | 'connected' | 'disconnected' | 'stopped';
 
 /** A running system. */
-export interface RunningSystem<N extends string> {
+export interface RunningSystem<N extends string> extends FnSearch {
   readonly name: N;
   readonly status: RunningStatus;
   /** Calls `listener` on every status change; returns the unsubscribe. */
@@ -130,7 +131,6 @@ export {
 } from './pairing.ts';
 export { LinkGap, InvalidValue } from './wire.ts';
 export { resultBlock, type ResultBlockOptions } from './results.ts';
-export { cosine, embedOne } from './vectors.ts';
 export { readClientBundle, CLIENT_ENTRY, type ClientBundle } from './assets.ts';
 export {
   PackageManifestError, parsePackageManifest, readPackageManifest, findPackageManifest, packageProblems, checkPackage, builtPackageManifest,
@@ -140,3 +140,4 @@ export {
   addressVerdict, followRedirects, isLocalName, isPrivateAddress, systemLookup, REDIRECT_STATUSES, type AddressRefusal, type AddressRules, type AddressVerdict,
   type FollowedResponse, type HostLookup, type RedirectOptions, type RedirectProblems,
 } from './address.ts';
+export { rendererFolder, type RendererPlace } from './renderers.ts';

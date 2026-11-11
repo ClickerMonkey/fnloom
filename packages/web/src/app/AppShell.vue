@@ -106,10 +106,10 @@ async function readAll(): Promise<void> {
           {{ connection.state.value === 'offline' ? 'Reconnecting to the hub…' : 'Back online' }}
         </UiBanner>
       </div>
+      <!-- no <Transition mode="out-in"> here: a route change during its leave unmounted a page Vue had already let go
+           of ("Cannot destructure property 'bum'"); the new page fades in by itself (`.routed`'s animation) -->
       <RouterView v-slot="{ Component, route: shown }">
-        <Transition name="page" mode="out-in">
-          <component :is="Component" :key="shown.meta.group ?? shown.matched[0]?.path ?? shown.path" class="routed" />
-        </Transition>
+        <component :is="Component" :key="shown.meta.group ?? shown.matched[0]?.path ?? shown.path" class="routed" />
       </RouterView>
     </main>
 
@@ -137,8 +137,7 @@ async function readAll(): Promise<void> {
 /* the banner's height comes out of the page's: the page below it shrinks (and scrolls) instead of being pushed off screen */
 .page { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; }
 .connection { grid-row: 1; z-index: var(--z-sticky); padding: var(--space-2) var(--space-4); }
-.routed { grid-row: 2; position: relative; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.page-enter-active, .page-leave-active { transition: opacity var(--fast) var(--ease), transform var(--medium) var(--ease); }
-.page-enter-from { opacity: 0; transform: translateY(6px); }
-.page-leave-to { opacity: 0; }
+.routed { grid-row: 2; position: relative; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; animation: page-in var(--medium) var(--ease); }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .routed { animation: none; } }
 </style>

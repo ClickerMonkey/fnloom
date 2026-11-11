@@ -5,8 +5,12 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { QualifiedName, splitName, type ActorId, type IndexedKind, type Session, type SessionId } from '@harness/core';
-import { hub, parseValue, wireType } from '@harness/sdk';
+import { FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type ActorId, type FnDecl, type IndexedKind, type Session, type SessionId } from '@harness/core';
+import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
+import type { AccessService } from '../access/index.ts';
+import type { FnsServices } from '../fns/index.ts';
+import { fnError, RunRefused } from '../execution/errors.ts';
+import { InvalidArgs } from '../execution/executors.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
 import type { Search } from '../index/index.ts';
@@ -27,7 +31,7 @@ const PREVIEW = 280;
 /** What the hub fns read, each looked up when a fn runs. */
 export interface HubFnDeps {
   readonly store: () => HubStore;
-  readonly catalog: () => Pick<Catalog, 'fn' | 'fns' | 'availability' | 'context'>;
+  readonly catalog: () => Pick<Catalog, 'fn' | 'fns' | 'availability' | 'context' | 'declare'>;
   readonly search: () => Search;
   /** Where a session's loaded fns and context are kept. */
   readonly sessions: () => Pick<SessionService, 'load'>;
@@ -35,6 +39,10 @@ export interface HubFnDeps {
   readonly handlers: () => Pick<HandlerRelay, 'askPerson'>;
   /** What a person may see and use now. */
   readonly access: (actor: ActorId) => Promise<AccessScope>;
+  /** Who owns and sees each fn (a saved fn is its person's). */
+  readonly sharing: () => Pick<AccessService, 'sharing' | 'own'>;
+  /** Fns search and examples (build 5). */
+  readonly fns: () => Pick<FnsServices, 'search' | 'examples'>;
 }
 
 /** The session a run belongs to and what its person may see. */
@@ -139,6 +147,65 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
         uri: at.uri, ...('section' in at ? { section: at.section } : {}),
         title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), score: hit.score,
       }));
+  });
+
+  fns.register(hub.fns.fns_search, async (args, ctx) => {
+    const actor = ctx.request.run.user.id;
+    return deps.fns().search.search(FnSearchQuery.parse(args), { actor, access: await deps.access(actor) });
+  });
+
+  fns.register(hub.fns.fn_examples, async (args, ctx) => {
+    const actor = ctx.request.run.user.id;
+    return deps.fns().examples.page(FnExamplesQuery.parse(args), { actor, access: await deps.access(actor) });
+  });
+
+  fns.register(hub.fns.fn_get, async (args, ctx) => {
+    const name = QualifiedName.safeParse(args.fn);
+    const access = await deps.access(ctx.request.run.user.id);
+    const fn = name.success ? await deps.catalog().fn(name.data) : undefined;
+    if (fn === undefined || !access.seesFn(fn)) throw new InvalidArgs(`no such fn: ${args.fn}`);
+    const versions = await deps.store().table('fnVersions').count({ fn: fn.name });
+    const owner = fn.origin === 'runtime' ? (await deps.sharing().sharing({ kind: 'fn', fn: fn.name })).owner : undefined;
+    return {
+      fn: fn.name, kind: fn.decl.kind, description: fn.decl.description,
+      ...(fn.decl.instructions === undefined ? {} : { instructions: fn.decl.instructions }),
+      ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
+      version: versions + 1, ...(owner === undefined ? {} : { owner }),
+      ...(fn.decl.routing === undefined ? {} : { routing: fn.decl.routing }),
+      available: access.mayUse(fn) && (await deps.catalog().availability(fn.name)) === true,
+    };
+  });
+
+  fns.register(hub.fns.save_fn, async (args, ctx) => {
+    const kind = QualifiedName.safeParse(args.kind);
+    if (!kind.success) throw new InvalidArgs([{ path: 'kind', message: 'a kind is a qualified name, like input/form' }]);
+    const system = SystemName.parse(splitName(kind.data).system);
+    // only the kind's own system saves fns of it: the hub fn's caller is a run of that system
+    const parent = ctx.request.run.parent === undefined ? undefined : await deps.store().table('runs').get(ctx.request.run.parent);
+    if (parent?.system !== system) throw new RunRefused(fnError('caller', `only ${system} may save fns of ${kind.data}`, 'not-your-kind'));
+    const name = qualify(system, args.name);
+    const existing = await deps.catalog().fn(name);
+    if (existing !== undefined && args.replace !== true) throw new RunRefused(fnError('caller', `${name} is taken: pick another name, or save over it with replace`, SAVE_FN_TAKEN));
+    if (existing?.origin === 'contract') throw new RunRefused(fnError('caller', `${name} is one of ${system}'s own fns and can't be saved over`, SAVE_FN_TAKEN));
+    const person = ctx.request.run.user.id;
+    const decl: FnDecl = {
+      name: args.name, description: args.description, ...(args.instructions === undefined ? {} : { instructions: args.instructions }), kind: kind.data, payload: args.payload,
+      // its kind works out the signature from the payload
+      args: { name: 'any' }, returns: { name: 'any' }, deps: [], handlers: {}, progress: { type: 'none' },
+      operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {}, visibility: 'both', tags: args.tags ?? [],
+      ...(args.examples === undefined ? {} : { examples: args.examples }),
+      ...(args.routing === undefined ? {} : { routing: FnRouting.parse(args.routing) }),
+    };
+    const versions = deps.store().table('fnVersions');
+    const number = (await versions.count({ fn: name })) + 1;
+    const report = await deps.catalog().declare(system, decl, person);
+    const refused = report.refused[0];
+    if (refused !== undefined) throw new InvalidArgs(refused.problems.join('; ') || `${name} was refused`);
+    // the version saved over is kept, numbered from 1
+    if (existing !== undefined) await versions.put({ id: `${name}#${number}`, fn: name, number, decl: existing.decl, ...(existing.addedBy === undefined ? {} : { savedBy: existing.addedBy }), savedAt: existing.updatedAt });
+    const share = args.share ?? (existing === undefined ? { visibility: 'private' as const, with: [] } : undefined);
+    if (share !== undefined) await deps.sharing().own({ kind: 'fn', fn: name }, existing === undefined ? person : (await deps.sharing().sharing({ kind: 'fn', fn: name })).owner, share);
+    return { fn: name, version: existing === undefined ? 1 : number + 1, created: existing === undefined };
   });
 
   const ask = hub.fns.ask_user;

@@ -8,7 +8,7 @@
  */
 import { hub, type AnyFnRef } from '@harness/sdk';
 import {
-  InstanceName, Json, JsonObject, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
+  InstanceName, Json, JsonObject, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type FnExample, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
 } from '@harness/core';
 import { z } from 'zod';
 import { executingSystem } from '../execution/runs.ts';
@@ -17,7 +17,7 @@ import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { cardsSection, fnCard, listedLine, moreFns, problemLines, textProtocolInstructions } from './render.ts';
+import { cardsSection, exampleLines, fnCard, listedLine, moreFns, problemLines, textProtocolInstructions } from './render.ts';
 import { modelMayUse } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
@@ -61,16 +61,18 @@ export function machinesOf(view: FnView, instances: ContextorDeps['instances']):
  * A fn's native tool (build 1's `fnTool` definition), or none when its args aren't an object. Given a fleet's
  * machines, its args gain an optional `on` naming one (`fleetArgs` takes it out again).
  */
-export function fnModeTool(view: FnView, machines: readonly InstanceName[] = []): ModeTool | undefined {
+export function fnModeTool(view: FnView, machines: readonly InstanceName[] = [], examples?: readonly FnExample[]): ModeTool | undefined {
   const schema = view.signature.argsSchema;
   if (!isObjectSchema(schema)) return undefined;
   const name = toolName(view.record.name);
   const [first, ...rest] = machines;
-  if (first === undefined || !(schema instanceof z.ZodObject)) return modeTool(name, view.record.decl.description, schema, view.signature.argsJsonSchema, view.record.decl.instructions);
+  const shown = exampleLines(view.record, 'native', examples);
+  const instructions = [view.record.decl.instructions, ...shown].filter((line) => line !== undefined && line.trim() !== '').join('\n') || undefined;
+  if (first === undefined || !(schema instanceof z.ZodObject)) return modeTool(name, view.record.decl.description, schema, view.signature.argsJsonSchema, instructions);
   const on = z.enum([first, ...rest]).describe(ON_DESCRIPTION);
   const parameters = JsonObject.parse(view.signature.argsJsonSchema);
   const properties = JsonObject.safeParse(parameters['properties']).data ?? {};
-  return modeTool(name, view.record.decl.description, schema.extend({ on: on.optional() }), { ...parameters, properties: { ...properties, on: Json.parse(z.toJSONSchema(on)) } }, view.record.decl.instructions);
+  return modeTool(name, view.record.decl.description, schema.extend({ on: on.optional() }), { ...parameters, properties: { ...properties, on: Json.parse(z.toJSONSchema(on)) } }, instructions);
 }
 
 /** A fleet call's args without its `on`, and the instance it names; an `on` that names no instance is refused. */
@@ -147,7 +149,7 @@ export class ToolsChatMode implements ChatMode {
     for (const chosen of selection.fns) {
       if (chosen.detail === 'listed') { listed.push(listedLine(chosen.view.record.name, chosen.view.record.decl.description)); continue; }
       const machines = machinesOf(chosen.view, this.#deps.instances);
-      const tool = fnModeTool(chosen.view, machines);
+      const tool = fnModeTool(chosen.view, machines, chosen.examples);
       if (tool === undefined || fns.has(tool.name)) continue;
       tools.push(tool);
       fns.set(tool.name, chosen.view.record.name);
@@ -214,7 +216,7 @@ export class StaticChatMode implements ChatMode {
 
   async render(selection: Selection, ctx: ModeContext): Promise<RenderedIteration> {
     const shown = new Set<QualifiedName>();
-    const cards = selection.fns.map((chosen) => fnCard(chosen.view, chosen.detail, ctx.protocol, shown));
+    const cards = selection.fns.map((chosen) => fnCard(chosen.view, chosen.detail, ctx.protocol, shown, chosen.examples));
     const section = cardsSection(cards, ctx.protocol);
     const tools = await this.fixedTools(ctx);
     const fns = new Map<string, QualifiedName>(Object.entries(STATIC_HUB_FNS).map(([tool, { ref }]) => [tool, ref.name]));
@@ -248,7 +250,7 @@ export class StaticChatMode implements ChatMode {
 
   exposed(views: readonly ChosenFn[], ctx: ModeContext): string {
     const shown = new Set<QualifiedName>();
-    return views.map((chosen) => fnCard(chosen.view, chosen.detail, ctx.protocol, shown)).join('\n\n');
+    return views.map((chosen) => fnCard(chosen.view, chosen.detail, ctx.protocol, shown, chosen.examples)).join('\n\n');
   }
 
   /** A run of a fn by name: one of the toolset's own, or any fn the session may use, its args checked first. */

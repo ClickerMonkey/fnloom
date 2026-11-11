@@ -5,7 +5,7 @@
 import {
   messageOf,
   type Audience, type Display, type FnError, type FnLimits, type FnValidation, type InputVerdict, type InvalidInput, type Json, type Operations, type OutputVerdict, type ProgressDecl, type ProgressWire,
-  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnRouting,
+  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnEffects, type FnRouting,
 } from '@harness/core';
 import { encodeValue, json, type GinType } from './gin.ts';
 import type { ValidateCtx } from './ctx.ts';
@@ -116,23 +116,30 @@ export interface FnTypes {
 }
 
 /**
- * One example call of a fn, shown on its card at `full` detail and in its invalid-input replies: args of the fn's own
- * args type (a wrong example does not compile), and what the example shows.
+ * One example call of a fn, shown on its card at `full` detail, in its invalid-input replies and by `hub/fn_examples`:
+ * args of the fn's own args type (a wrong example does not compile), optionally the result it gave (of its returns
+ * type), and what the example shows. The hub keeps every example in its own table, embedded, so the ones closest to
+ * the turn go into the prompt with the fn.
  */
-export interface FnExampleOf<A> {
+export interface FnExampleOf<A, R = unknown> {
   readonly args: A;
+  readonly result?: R;
   readonly note?: string;
 }
 
-/** Check each example against the args type now, so a contract with a wrong example fails as it is built. */
-function checkedExamples<A>(what: string, args: GinType<A>, examples: readonly FnExampleOf<A>[] | undefined): readonly FnExampleOf<A>[] {
-  return (examples ?? []).map((example, index) => {
+/** Check each example against the args (and returns) type now, so a contract with a wrong example fails as it is built. */
+function checkedExamples<A, R>(what: string, args: GinType<A>, returns: GinType<R>, examples: readonly FnExampleOf<A, R>[] | undefined): readonly FnExampleOf<A, R>[] {
+  const check = <T>(index: number, part: 'args' | 'returns', type: GinType<T>, value: T): void => {
     try {
-      encodeValue(args, example.args);
+      encodeValue(type, value);
     } catch (error) {
-      throw new Error(`${what}: example ${index + 1} does not fit the args type: ${messageOf(error)}`, { cause: error });
+      throw new Error(`${what}: example ${index + 1} does not fit the ${part} type: ${messageOf(error)}`, { cause: error });
     }
-    return { args: example.args, ...(example.note === undefined ? {} : { note: example.note }) };
+  };
+  return (examples ?? []).map((example, index) => {
+    check(index, 'args', args, example.args);
+    if (example.result !== undefined) { check(index, 'returns', returns, example.result); }
+    return { args: example.args, ...(example.result === undefined ? {} : { result: example.result }), ...(example.note === undefined ? {} : { note: example.note }) };
   });
 }
 
@@ -183,13 +190,17 @@ export interface FnDef<T extends FnTypes> {
   readonly visibility: Audience;
   readonly tags: readonly string[];
   /** Example calls, checked against its args type. */
-  readonly examples: readonly FnExampleOf<T['args']>[];
+  readonly examples: readonly FnExampleOf<T['args'], T['result']>[];
   /** Its validation hooks, run in its system before and after a run. */
   readonly validate: FnValidators<T['args'], T['result'], T['state']> | undefined;
   /** Every run waits for approval; with `preview`, its implementation's `preview` says what the run would do. */
   readonly approval: FnApproval | undefined;
   /** Which instance of a fleet runs it: always one (`{ to: 'instance', instance }`), or the first available (`{ to: 'any' }`). */
   readonly routing: FnRouting | undefined;
+  /** What it does to data, as declared. */
+  readonly effects: FnEffects | undefined;
+  /** How many examples go into the prompt with it. */
+  readonly promptExamples: number | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -235,8 +246,11 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   /** Default `both`. */
   visibility?: Audience;
   tags?: string[];
-  /** Example calls (args of its own args type), shown to agents on its card and when they get its args wrong. */
-  examples?: FnExampleOf<NoInfer<A>>[];
+  /**
+   * Example calls (args of its own args type, optionally the result of its returns type, and a note), shown to agents
+   * on its card and when they get its args wrong. Give real, varied ones: they teach a model more than the description.
+   */
+  examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
   /**
    * Checks the hub runs before a run starts (`input`) and after it is done (`output`):
    * `{ input: (ctx, args, state) => args.path === '' ? { ok: false, reason: 'No file is open.' } : { ok: true } }`.
@@ -250,6 +264,13 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   approval?: { preview?: boolean; remember?: boolean };
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
+  /**
+   * What it does to data: its mode (`read`, `write`, `delete`), the named types it reads and writes, and whether its own
+   * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
+   */
+  effects?: FnEffects;
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  promptExamples?: number;
 }
 
 /** The types of a native fn. */
@@ -289,10 +310,12 @@ export function fn<
     limits: def.limits ?? {},
     visibility: def.visibility ?? 'both',
     tags: def.tags ?? [],
-    examples: checkedExamples(def.description, def.args, def.examples),
+    examples: checkedExamples(def.description, def.args, def.returns, def.examples),
     validate: def.validate,
     approval: def.approval === undefined ? undefined : { preview: def.approval.preview ?? true, remember: def.approval.remember ?? false },
     routing: def.routing,
+    effects: def.effects,
+    promptExamples: def.promptExamples,
   };
 }
 
@@ -313,10 +336,19 @@ export interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplate
   status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
   visibility?: Audience;
   tags?: string[];
-  /** Example calls, of the `args` type when given (JSON otherwise). */
-  examples?: FnExampleOf<NoInfer<A>>[];
+  /** Example calls, of the `args` and `returns` types when given (JSON otherwise). */
+  examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
   /** For a fleet: always one instance (a saved query of one database), or whichever is first available. */
   routing?: FnRouting;
+  /** Checks its system runs before a run starts and after it is done (an agent's answer checked, retried with why). */
+  validate?: FnValidators<NoInfer<A>, NoInfer<R>, {}>;
+  /**
+   * What it does to data: its mode (`read`, `write`, `delete`), the named types it reads and writes, and whether its own
+   * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
+   */
+  effects?: FnEffects;
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  promptExamples?: number;
 }
 
 /** The types of a fn of some kind. Its deps, handlers and progress come from the kind at runtime. */
@@ -353,10 +385,12 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     limits: {},
     visibility: def.visibility ?? 'both',
     tags: def.tags ?? [],
-    examples: def.args === undefined ? (def.examples ?? []) : checkedExamples(def.description, def.args, def.examples),
-    validate: undefined,
+    examples: def.args === undefined ? (def.examples ?? []) : checkedExamples(def.description, def.args, orDefault<GinType<R>, GinType>(def.returns, json()), def.examples),
+    validate: def.validate,
     approval: undefined,
     routing: def.routing,
+    effects: def.effects,
+    promptExamples: def.promptExamples,
   };
 }
 

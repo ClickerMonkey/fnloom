@@ -5,8 +5,8 @@
  * approval" narrows it to the runs waiting for one; such a run opens with its approval card (what it will do, Approve
  * or Deny) above its record.
  */
-import { RunId } from '@harness/core';
-import { computed, watch } from 'vue';
+import { RunId, type QualifiedName } from '@harness/core';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
 import { useLive } from '../../app/live.ts';
@@ -27,6 +27,7 @@ import { hasFilter, toggledFilter } from '../../ui/search.ts';
 import { useNow } from '../../ui/now.ts';
 import BrowserFrame from '../components/BrowserFrame.vue';
 import BrowserRow from '../components/BrowserRow.vue';
+import FnModal from '../../fns/components/FnModal.vue';
 import { BROWSER_REFRESH } from '../logic/browsers.ts';
 
 const { admin, toasts } = useStores();
@@ -42,6 +43,9 @@ const runTab = query.choice(TAB_KEYS.run, RunTab, 'overview');
 const filter = computed(() => hubListQuery(search.value));
 const narrowed = computed(() => Object.keys(filter.value).some((key) => key !== 'sort'));
 const items = computed(() => runs.list.items.value);
+/** The fn looked into from the open run, and the listed runs in call order (oldest first) for its runs. */
+const fnOpen = ref<QualifiedName | undefined>(undefined);
+const listedInOrder = computed(() => [...items.value].reverse());
 const record = computed(() => runs.opened.value.value);
 const waitingOnly = computed(() => hasFilter(search.value, NEEDS_APPROVAL));
 /** The opened run's pending approval, while it still waits. */
@@ -126,9 +130,11 @@ function openTree(): void {
         <RunDetails
           v-model:tab="runTab" :run="record" :record="record" :loading="runs.opened.loading.value" :problem="runs.opened.problem.value" :now="now"
           @llm="router.push(links.llmCalls({ call: $event }))" @run="opened = $event" @tree="openTree" @background="background" @undo="undo" @retry="runs.openedId.value && runs.open(runs.openedId.value)"
+          @fn="fnOpen = $event"
         />
       </template>
     </BrowserFrame>
+    <FnModal v-if="fnOpen" v-model:fn="fnOpen" :runs="listedInOrder" can-open-page @run="(id) => { fnOpen = undefined; opened = id; }" @page="router.push(links.fn($event))" />
   </AppPage>
 </template>
 

@@ -39,6 +39,7 @@ const PUSH_TEXT = {
 } as const satisfies Record<PushState, string>;
 
 const collapsed = computed({ get: () => layout.collapsed, set: (value: boolean) => { layout.collapsed = value; } });
+const groupRuns = computed({ get: () => layout.groupRuns, set: (value: boolean) => { layout.groupRuns = value; } });
 const user = session.user;
 const pushOn = computed({
   get: () => push.state.value === 'on',
@@ -58,6 +59,12 @@ onMounted(() => { void push.check(); });
           </UiCard>
           <UiCard title="Layout">
             <UiSwitch v-model="collapsed" label="Compact sidebar" description="Show only icons in the sidebar on wide screens." />
+          </UiCard>
+          <UiCard title="Chat">
+            <UiSwitch
+              v-model="groupRuns" label="Group fn calls" description="Fn calls made one after another fold into one section that lists them by fn, the latest first."
+              data-testid="group-runs-switch"
+            />
           </UiCard>
         </div>
         <div v-else-if="value === 'notifications'" class="stack">

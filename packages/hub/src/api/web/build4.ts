@@ -6,7 +6,7 @@ import { plugin } from '@ayepi/plugin';
 import { pickerSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import type { FullHandlers } from './access.ts';
-import { pick } from './pickers.ts';
+import { pick, type PickerDeps } from './pickers.ts';
 import type { systemsPlugin } from './systems.ts';
 import { accessPlugin, connectionsPlugin } from './visibility.ts';
 
@@ -17,7 +17,7 @@ export function build4Plugins(hub: HubServices, systems: ReturnType<typeof syste
     connectionsPlugin(hub, systems),
     plugin({ name: 'web.picker', spec: pickerSlice, requires: [systems] })
       .handlers((): FullHandlers<typeof pickerSlice> => {
-        const deps = { access: hub.access, catalog: hub.catalog, store: hub.store, llm: hub.execution.llm, settings: hub.settings.queryEnv };
+        const deps: PickerDeps = { access: hub.access, catalog: hub.catalog, fns: { search: (query, asker) => hub.fns.search.search(query, asker) }, store: hub.store, llm: hub.execution.llm, settings: hub.settings.queryEnv };
         return { pick: ({ data, user }) => pick(deps, user.id, data) };
       }),
   ] as const;

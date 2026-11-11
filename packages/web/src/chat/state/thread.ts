@@ -1,6 +1,6 @@
 /**
  * One open session: its record, its messages (paged backwards from the newest), and everything live about it from
- * the session channel: streamed tokens and reasoning, runs and their progress and cost, approvals and handler calls
+ * the session channel: streamed tokens and reasoning (kept in the order they arrive, with the runs between them), runs and their progress and cost, approvals and handler calls
  * waiting on the person, deliveries, presence, controls and session state. Sending, invoking, stopping, undoing,
  * retrying and editing go through here, as do approvals and answers, so every view of the session agrees.
  *
@@ -16,8 +16,9 @@ import { computed, ref, shallowRef } from 'vue';
 import { problemText } from '../../state/problems.ts';
 import type { BodyOf } from '../../api/client.ts';
 import type { ChatApi, SessionEvents } from '../api.ts';
+import { isConfirm } from '../logic/labels.ts';
 import { applyRunUpdate, emptyRun, isActive, mergeRecord, type RunView } from '../logic/runs.ts';
-import { appendToken, messageTextLength, prependPage, resendParts, storedReasoning, undoneTurns, upsertMessage } from '../logic/thread.ts';
+import { addSegment, appendToken, prependPage, resendParts, settleSegments, storedSegments, undoneTurns, upsertMessage, type AnswerSegment } from '../logic/thread.ts';
 import { RETRY, retryUntil, type RetryPolicy } from '../../state/retry.ts';
 import { summaryOf } from './sessions.ts';
 
@@ -150,6 +151,8 @@ export class ThreadStore {
   readonly #typingTimers = new Map<ActorId, ReturnType<typeof setTimeout>>();
   readonly #followers = new Map<DeliveryId, Follower[]>();
   readonly #loadingState = new Set<RunId>();
+  /** Runs the person approved here: approving runs them, so a yes-or-no question one asks after is answered yes. */
+  readonly #approved = new Set<RunId>();
   #lastPresence = 0;
   #typing = false;
   #focused = false;
@@ -158,9 +161,11 @@ export class ThreadStore {
   readonly session = shallowRef<Session | undefined>(undefined);
   /** Oldest first. */
   readonly messages = shallowRef<readonly ChatMessage[]>([]);
-  readonly reasoning = shallowRef<ReadonlyMap<MessageId, string>>(new Map());
-  /** Where each run appeared in its streaming answer: the length of the answer's text then (see `answerPieces`). */
-  readonly marks = shallowRef<ReadonlyMap<RunId, number>>(new Map());
+  /**
+   * What streamed into each answer seen streaming here, in the order it arrived: reasoning, words and runs (see
+   * `answerPieces`). A message never seen streaming shows in the order its parts keep.
+   */
+  readonly live = shallowRef<ReadonlyMap<MessageId, readonly AnswerSegment[]>>(new Map());
   readonly runs = shallowRef<ReadonlyMap<RunId, RunView>>(new Map());
   /** Waiting on the person, oldest first. */
   readonly approvals = shallowRef<readonly Approval[]>([]);
@@ -385,7 +390,7 @@ export class ThreadStore {
     const waiting = await this.#deps.api.waiting.call({ session: this.id });
     this.approvals.value = [...waiting.approvals].sort((a, b) => a.createdAt - b.createdAt);
     const me = this.#deps.me();
-    this.handlers.value = waiting.handlers.filter((h) => 'user' in h.answerer && h.answerer.user === me);
+    this.handlers.value = this.#ask(waiting.handlers.filter((h) => 'user' in h.answerer && h.answerer.user === me));
     void this.#fetchRuns([...waiting.approvals.map((a) => a.run), ...waiting.handlers.map((h) => h.run)]);
   }
 
@@ -532,15 +537,30 @@ export class ThreadStore {
   /** Approve or deny a run. It leaves the queue at once; the hub's event confirms. */
   async approve(approval: ApprovalId, approve: boolean, remember: Remember, reason?: string): Promise<boolean> {
     const before = this.approvals.value;
+    const run = before.find((a) => a.id === approval)?.run;
     this.approvals.value = before.filter((a) => a.id !== approval);
     try {
+      if (approve && run !== undefined) { this.#approved.add(run); }
       await this.#deps.api.approve.call({ approval, approve, remember, ...(reason === undefined || reason === '' ? {} : { reason }) });
       return true;
     } catch (error) {
+      if (run !== undefined) { this.#approved.delete(run); }
       this.approvals.value = before;
       this.problem.value = problemText(error, "Couldn't send your answer.");
       return false;
     }
+  }
+
+  /**
+   * The person's questions to show: a yes-or-no question from a run they approved is answered yes instead (approving
+   * a run is saying yes to running it, so no second "Run" button follows).
+   */
+  #ask(calls: readonly HandlerCall[]): HandlerCall[] {
+    const shown: HandlerCall[] = [];
+    for (const call of calls) {
+      if (this.#approved.has(call.run) && isConfirm(call)) { void this.answer(call.id, true); } else { shown.push(call); }
+    }
+    return shown;
   }
 
   /** Approve or deny every waiting run. */
@@ -639,13 +659,18 @@ export class ThreadStore {
     void this.#deps.api.presence.call({ session: this.id, typing, focused }).catch(() => undefined);
   }
 
-  /** An answer's reasoning: as it streams live, else what the message kept. */
-  reasoningOf(message: ChatMessage): string {
-    return this.reasoning.value.get(message.id) ?? storedReasoning(message);
+  /** An answer's segments in the order they streamed, when it was seen streaming here. */
+  liveOf(message: Pick<ChatMessage, 'id'>): readonly AnswerSegment[] | undefined {
+    return this.live.value.get(message.id);
   }
 
-  /** The runs a message made, in call order, as far as known, as they show (see `shown`). */
+  /**
+   * The runs a message made, in call order, as they show (see `shown`). A run not read yet is read now (any message
+   * on screen, however far back), and shows once it is.
+   */
   runsOf(message: Pick<ChatMessage, 'runs'>): RunView[] {
+    const missing = message.runs.filter((id) => !this.runs.value.has(id));
+    if (missing.length > 0) { void this.#fetchRuns(missing); }
     return message.runs.flatMap((id) => {
       const run = this.runs.value.get(id);
       return run === undefined ? [] : [this.shown(run)];
@@ -714,7 +739,7 @@ export class ThreadStore {
         const buffered = this.#pendingTokens.get(event.message.id);
         this.#pendingTokens.delete(event.message.id);
         const message = buffered !== undefined && event.message.status === 'streaming' ? appendToken(event.message, buffered) : event.message;
-        this.#markRuns(message);
+        this.#liveRuns(message);
         this.messages.value = upsertMessage(this.messages.value, message);
         if (message.role === 'assistant' && message.turn === this.awaiting.value) { this.awaiting.value = undefined; }
         void this.#fetchRuns(message.runs);
@@ -723,6 +748,7 @@ export class ThreadStore {
       case 'token': {
         const index = this.messages.value.findIndex((m) => m.id === event.message);
         const current = this.messages.value[index];
+        this.#stream(event.message, { kind: 'text', text: event.text });
         if (current === undefined) {
           this.#pendingTokens.set(event.message, (this.#pendingTokens.get(event.message) ?? '') + event.text);
           return;
@@ -733,12 +759,7 @@ export class ThreadStore {
         if (current.turn === this.awaiting.value) { this.awaiting.value = undefined; }
         return;
       }
-      case 'reasoning': {
-        const reasoning = new Map(this.reasoning.value);
-        reasoning.set(event.message, (reasoning.get(event.message) ?? '') + event.text);
-        this.reasoning.value = reasoning;
-        return;
-      }
+      case 'reasoning': this.#stream(event.message, { kind: 'reasoning', text: event.text }); return;
       case 'run': {
         const known = this.runs.value.get(event.run) ?? emptyRun(event.run, event.fn);
         this.#upsertRun(applyRunUpdate(known, event.update, this.#deps.clock()));
@@ -759,7 +780,7 @@ export class ThreadStore {
       case 'handler': {
         const others = this.handlers.value.filter((h) => h.id !== event.call.id);
         const mine = 'user' in event.call.answerer && event.call.answerer.user === this.#deps.me();
-        this.handlers.value = event.call.status === 'pending' && mine ? [...others, event.call] : others;
+        this.handlers.value = event.call.status === 'pending' && mine ? [...others, ...this.#ask([event.call])] : others;
         return;
       }
       case 'delivery': {
@@ -817,16 +838,34 @@ export class ThreadStore {
     if (this.budgets.value.some((b) => b.run === run)) { this.budgets.value = this.budgets.value.filter((b) => b.run !== run); }
   }
 
-  /** Note where in a streaming answer's text each of its new runs appeared. */
-  #markRuns(message: ChatMessage): void {
-    if (message.role !== 'assistant' || message.status !== 'streaming') { return; }
-    const held = this.messages.value.find((m) => m.id === message.id);
-    const fresh = message.runs.filter((run) => !this.marks.value.has(run) && held?.runs.includes(run) !== true);
-    if (fresh.length === 0) { return; }
-    const at = held === undefined ? 0 : messageTextLength(held);
-    const marks = new Map(this.marks.value);
-    for (const run of fresh) { marks.set(run, at); }
-    this.marks.value = marks;
+  /**
+   * Add what streamed into an answer to its live segments. The first piece seen starts from what the message held
+   * already (a chat opened mid-answer), so nothing streamed before is lost.
+   */
+  #stream(id: MessageId, next: AnswerSegment): void {
+    const held = this.messages.value.find((m) => m.id === id);
+    const before = this.live.value.get(id) ?? (held === undefined ? [] : storedSegments(held));
+    const live = new Map(this.live.value);
+    live.set(id, addSegment(before, next));
+    this.live.value = live;
+  }
+
+  /**
+   * The runs a streaming answer started since it was last seen, after what streamed before them. Before anything
+   * streamed, the message's stored order stands (its runs first), so there is nothing to note.
+   */
+  #liveRuns(message: ChatMessage): void {
+    const known = this.live.value.get(message.id);
+    if (known === undefined || message.role !== 'assistant') { return; }
+    if (message.status !== 'streaming') {
+      const live = new Map(this.live.value);
+      live.set(message.id, settleSegments(known, message));
+      this.live.value = live;
+      return;
+    }
+    const placed = new Set(known.flatMap((segment) => (segment.kind === 'runs' ? segment.runs : [])));
+    const fresh = message.runs.filter((run) => !placed.has(run));
+    if (fresh.length > 0) { this.#stream(message.id, { kind: 'runs', runs: fresh }); }
   }
 
   #onPresence(presence: Presence): void {

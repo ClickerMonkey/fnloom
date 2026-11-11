@@ -1,13 +1,16 @@
 /**
  * Build 5's web slices: the approvals of runs (`approvalsSlice`), with their previews, for the runs the person may see
  * or is asked about; and the entries connected systems contribute to a registry (`registriesSlice`), so the app loads
- * the client bundles that draw them.
+ * the client bundles that draw them. From the owner's feedback, `fnsSlice`: fns and context search, a fn's examples
+ * and facts (each only for fns the person sees), the browser's logs and traffic, and the auto classifier setting.
  */
 import { plugin } from '@ayepi/plugin';
-import { approvalsSlice, registriesSlice, type Approval, type ContributionView, type QualifiedName, type RunId, type SystemName } from '@harness/core';
+import { reject } from '@ayepi/core';
+import { approvalsSlice, fnsSlice, registriesSlice, type Approval, type FnFacts, type Json, type ContributionView, type QualifiedName, type RunId, type SystemName } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { mayView, type FullHandlers, type Viewer } from './access.ts';
 import type { systemsPlugin } from './systems.ts';
+import type { Asker } from '../../fns/index.ts';
 
 /** What the approvals read uses. */
 export type ApprovalsHub = Pick<HubServices, 'chat' | 'execution' | 'store'>;
@@ -50,9 +53,33 @@ export async function contributionsTo(hub: ContributionsHub, registry: Qualified
   return out.sort((a, b) => a.system.localeCompare(b.system) || a.name.localeCompare(b.name));
 }
 
+/** What the fns reads use. */
+export type FnsHub = Pick<HubServices, 'fns' | 'access' | 'catalog'>;
+
+/** Who a fns read is for. */
+async function askerOf(hub: Pick<HubServices, 'access'>, user: Viewer): Promise<Asker> {
+  return { actor: user.id, access: await hub.access.scope(user.id) };
+}
+
+/** A fn's facts for a person who may see it (404 otherwise, as for a fn that isn't there). */
+export async function factsFor(hub: FnsHub, fn: QualifiedName, args: Json | undefined, user: Viewer): Promise<FnFacts> {
+  const record = await hub.catalog.fn(fn);
+  if (record === undefined || !(await hub.access.scope(user.id)).seesFn(record)) throw reject(404, 'NO_FN', `there is no fn ${fn}`);
+  return hub.fns.facts.facts(fn, args);
+}
+
 /** The build 5 plugins. Require the systems plugin, which binds `hubAuth`. */
 export function build5Plugins(hub: HubServices, systems: ReturnType<typeof systemsPlugin>) {
   return [
+    plugin({ name: 'web.fns', spec: fnsSlice, requires: [systems] })
+      .handlers((): FullHandlers<typeof fnsSlice> => ({
+        searchFns: async ({ data, user }) => hub.fns.search.search(data, await askerOf(hub, user)),
+        fnExamples: async ({ data, user }) => hub.fns.examples.page(data, await askerOf(hub, user)),
+        fnFacts: ({ data, user }) => factsFor(hub, data.fn, data.args, user),
+        clientLogs: ({ data, user }) => hub.fns.clientLogs.write(user.id, data),
+        autoClassifier: () => hub.fns.classifier.setting(),
+        setAutoClassifier: ({ data, user }) => hub.fns.classifier.set(data, user.id),
+      })),
     plugin({ name: 'web.approvals', spec: approvalsSlice, requires: [systems] })
       .handlers((): FullHandlers<typeof approvalsSlice> => ({ approvals: ({ data, user }) => approvalsOf(hub, data.runs, user) })),
     plugin({ name: 'web.registries', spec: registriesSlice, requires: [systems] })

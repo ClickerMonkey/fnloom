@@ -1,7 +1,7 @@
 import { FormRecord, ResourceRecord, type FormKind, type ResourceStat } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { actionsFor, bulkActions, contextConfirm, isMake, madeBy, webAddress } from './actions.ts';
-import { columnSort, crumbsOf, folderQuery, groupQuery, hubQuery, mergeFacets, nameOf, patchQuery, readQuery, sortFor } from './browse.ts';
+import { columnSort, crumbsOf, folderQuery, groupQuery, hubQuery, linkTarget, mergeFacets, nameOf, patchQuery, readQuery, sortFor } from './browse.ts';
 import { crawlLabel, crawlOf, isCrawlRoot } from './crawls.ts';
 import { familyOfStat, languageOf } from './formats.ts';
 import { matchPaths, parseJson, pathsTo, treeRows, valueAt } from './json-tree.ts';
@@ -59,6 +59,15 @@ describe('viewerFor', () => {
     expect(tabbed.modes.map((m) => m.id)).toEqual(['source', 'system:db', 'info']);
     expect(modeOf(tabbed, 'system:db').label).toBe('Schema');
     expect(modeOf(tabbed, 'nonsense').id).toBe('source');
+  });
+});
+
+describe('linkTarget', () => {
+  it('opens a link by its address, else by what it says resolved against the resource it is in', () => {
+    const base = 'file:///C:/repo/packages/cli/src/';
+    expect(linkTarget({ uri: 'file:///C:/elsewhere/a.ts', raw: './a.ts' }, base)).toBe('file:///C:/elsewhere/a.ts');
+    expect(linkTarget({ raw: 'hub-client.ts' }, base)).toBe('file:///C:/repo/packages/cli/src/hub-client.ts');
+    expect(linkTarget({ raw: 'commands/' }, base)).toBe('file:///C:/repo/packages/cli/src/commands/');
   });
 });
 

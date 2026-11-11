@@ -241,20 +241,20 @@ describe('ThreadStore', () => {
     expect(t.store.approvals.value.map((a) => a.id)).toEqual(['apr_live']);
   });
 
-  it('marks where each run appeared in a streaming answer, and keeps reasoning the message stored', async () => {
+  it('keeps a streaming answer in the order it arrived: reasoning, words, then the runs between them', async () => {
     const t = thread();
     await t.store.open();
     const id = MessageId.parse('msg_live');
-    const live = (runs: string[], text: string, status: 'streaming' | 'done' = 'streaming') => message({ id, role: 'assistant', author: 'act_agent', status, runs, parts: text === '' ? [] : [{ type: 'text', text }] });
-    t.push({ type: 'message', message: live(['run_1'], '') });
+    const live = (runs: string[], status: 'streaming' | 'done' = 'streaming', text = '') => message({ id, role: 'assistant', author: 'act_agent', status, runs, parts: text === '' ? [] : [{ type: 'text', text }] });
+    t.push({ type: 'message', message: live([]) });
+    t.push({ type: 'reasoning', message: id, text: 'Look first.' });
     t.push({ type: 'token', message: id, text: 'Let me look. ' });
-    t.push({ type: 'message', message: live(['run_1', 'run_2'], 'Let me look. ') });
-    t.push({ type: 'message', message: live(['run_1', 'run_2'], 'Let me look. ') });
-    expect([...t.store.marks.value]).toEqual([['run_1', 0], ['run_2', 13]]);
-    const done = message({ id, role: 'assistant', author: 'act_agent', status: 'done', parts: [{ type: 'reasoning', text: 'Read it first.' }, { type: 'text', text: 'Here.' }] });
-    expect(t.store.reasoningOf(done)).toBe('Read it first.');
-    t.push({ type: 'reasoning', message: id, text: 'live' });
-    expect(t.store.reasoningOf(done)).toBe('live');
+    t.push({ type: 'message', message: live(['run_1']) });
+    t.push({ type: 'message', message: live(['run_1']) });
+    t.push({ type: 'token', message: id, text: 'Found it.' });
+    expect(t.store.liveOf({ id })?.map((s) => s.kind)).toEqual(['reasoning', 'text', 'runs', 'text']);
+    t.push({ type: 'message', message: live(['run_1'], 'done', 'Found it.') });
+    expect(t.store.liveOf({ id })?.map((s) => s.kind)).toEqual(['reasoning', 'text', 'runs', 'text']);
   });
 
   it('treats an undone turn as gone: not the last turn, not undone again by an edit, not a failure', async () => {
@@ -280,7 +280,7 @@ describe('ThreadStore', () => {
     t.push({ type: 'token', message: id, text: 'lo' });
     t.push({ type: 'reasoning', message: id, text: 'thinking' });
     expect(t.store.messages.value.at(-1)?.parts).toEqual([{ type: 'text', text: 'Hello' }]);
-    expect(t.store.reasoning.value.get(id)).toBe('thinking');
+    expect(t.store.liveOf({ id })).toEqual([{ kind: 'text', text: 'Hello' }, { kind: 'reasoning', text: 'thinking' }]);
     t.push({ type: 'message', message: message({ id, role: 'assistant', author: 'act_agent', status: 'done', parts: [{ type: 'text', text: 'Hello!' }] }) });
     expect(t.store.messages.value.at(-1)?.parts).toEqual([{ type: 'text', text: 'Hello!' }]);
   });
@@ -392,6 +392,21 @@ describe('ThreadStore', () => {
     expect(summaryOfEdit?.reports).toHaveLength(3);
     expect(t.api.send.calls.at(-1)?.[0].parts).toEqual([{ type: 'text', text: 'first, edited' }]);
     expect(undoSummary([]).undone).toBe(0);
+  });
+
+  it('answers yes for the person when a run they approved asks to go ahead: approving runs it', async () => {
+    const t = thread();
+    await t.store.open();
+    const waiting = approval({ run: 'run_ok' });
+    t.push({ type: 'approval', approval: waiting });
+    await t.store.approve(waiting.id, true, 'once');
+    const confirm = handlerCall({ run: 'run_ok' });
+    t.push({ type: 'handler', call: confirm });
+    expect(t.store.handlers.value).toEqual([]);
+    expect(t.api.answer.calls[0]?.[0]).toEqual({ call: confirm.id, value: true });
+    // a question from a run nobody approved here still asks
+    t.push({ type: 'handler', call: handlerCall({ run: 'run_other' }) });
+    expect(t.store.handlers.value).toHaveLength(1);
   });
 
   it('approves at once, putting it back if the hub refuses; follows deliveries to their result', async () => {

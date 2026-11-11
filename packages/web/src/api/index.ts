@@ -6,6 +6,7 @@ import type { Hub } from './client.ts';
 import { notificationsApi, userEvents } from './notifications.ts';
 import { resourceEvents, resourcesApi } from '../resources/api/resources.ts';
 import { contextApi, contextEvents } from '../context/api/context.ts';
+import { fnsApi } from '../fns/api.ts';
 
 /** Make the app's callers. */
 export function createApi(hub: Hub) {
@@ -20,6 +21,7 @@ export function createApi(hub: Hub) {
     resources: resourcesApi(hub),
     resourceEvents: resourceEvents(userEvents(hub)),
     context: contextApi(hub),
+    fns: fnsApi(hub),
     contextEvents: contextEvents(userEvents(hub)),
     connection: hub.connection,
   };

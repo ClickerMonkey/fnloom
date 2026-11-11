@@ -82,6 +82,9 @@ export function adminApi(hub: Hub) {
     suggestDecision: hub.caller('suggestDecision', { dedupe: true }),
     setSuggestDecision: hub.caller('setSuggestDecision'),
     previewSuggestions: hub.caller('previewSuggestions', { lastOnly: true }),
+    // the model a chat in auto mode asks about calls that write or delete
+    autoClassifier: hub.caller('autoClassifier', { dedupe: true }),
+    setAutoClassifier: hub.caller('setAutoClassifier'),
     upload: hub.caller('upload'),
     uploaded: hub.caller('uploaded'),
     search: hub.caller('search', { lastOnly: true }),

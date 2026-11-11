@@ -4,7 +4,7 @@
  * half-read result. Snippets are cleaned (whitespace, markdown leftovers) and cut at a word near the limit.
  */
 import { z } from 'zod';
-import { SEARCH_DEPTHS, SEARCH_TOPICS, type SearchResultsValue } from '../shared/index.ts';
+import { SEARCH_DEPTHS, SEARCH_TOPICS, type SearchFoundValue } from '../shared/index.ts';
 import type { SearchArgs, SearchProvider } from './index.ts';
 import { WebProblem, isAbort, isTimeout } from './problem.ts';
 
@@ -79,7 +79,7 @@ export function tavilyRequest(args: SearchArgs, defaultLimit: number): TavilyReq
 }
 
 /** A response as search results: best first, untitled results named by their URL, snippets cleaned. */
-export function shapeResults(response: TavilyResponse, snippetChars: number, limit: number): SearchResultsValue {
+export function shapeResults(response: TavilyResponse, snippetChars: number, limit: number): SearchFoundValue {
   const results = response.results
     .filter((result) => URL.canParse(result.url))
     .map((result) => ({
@@ -113,7 +113,7 @@ export class TavilySearch implements SearchProvider {
     this.#options = options;
   }
 
-  async search(args: SearchArgs, options: { key: string | undefined; signal?: AbortSignal }): Promise<SearchResultsValue> {
+  async search(args: SearchArgs, options: { key: string | undefined; signal?: AbortSignal }): Promise<SearchFoundValue> {
     if (options.key === undefined) {
       throw new WebProblem('no-search-key', 'No Tavily API key is set: an admin sets it in the web system\'s config, or the system\'s TAVILY_API_KEY.');
     }

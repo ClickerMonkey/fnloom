@@ -100,9 +100,36 @@ export const FnRouting = z.discriminatedUnion('to', [
 export type FnRouting = z.infer<typeof FnRouting>;
 
 
-/** One example call of a fn: its args, and what the example shows. */
-export const FnExample = z.object({ args: Json, note: z.string().optional() });
+/** One example call of a fn: its args, optionally what it returned, and what the example shows. */
+export const FnExample = z.object({ args: Json, result: Json.optional(), note: z.string().optional() });
 export type FnExample = z.infer<typeof FnExample>;
+
+/** What a fn does to data, mildest first: only reads, writes (adds or changes), or deletes. */
+export const FN_MODES = ['read', 'write', 'delete'] as const;
+export const FnMode = z.enum(FN_MODES);
+export type FnMode = z.infer<typeof FnMode>;
+
+/**
+ * How far a chat lets its agent go: `none` offers no fns, `read` / `write` / `delete` allow fns up to that mode, and
+ * `auto` asks the hub's classifier model (`AutoClassifier`) about each call above `read`, as Claude Code's auto mode does.
+ */
+export const CHAT_FN_MODES = ['none', 'read', 'write', 'delete', 'auto'] as const;
+export const ChatFnMode = z.enum(CHAT_FN_MODES);
+export type ChatFnMode = z.infer<typeof ChatFnMode>;
+
+/**
+ * What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, and whether its
+ * own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
+ * from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
+ */
+export const FnEffects = z.object({
+  mode: FnMode.optional(),
+  reads: z.array(QualifiedName).optional(),
+  writes: z.array(QualifiedName).optional(),
+  /** Its own work spends nothing (reading a file); what it calls may still cost. */
+  free: z.boolean().optional(),
+});
+export type FnEffects = z.infer<typeof FnEffects>;
 
 /**
  * A fn. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a payload; the hub
@@ -143,6 +170,13 @@ export const FnDecl = z.object({
   approval: FnApproval.optional(),
   /** Build 5: which fleet instance runs it. */
   routing: FnRouting.optional(),
+  /** Build 5: what it does to data (see `FnFacts` for what the hub works out). */
+  effects: FnEffects.optional(),
+  /**
+   * Build 5: how many of its examples go into the model's prompt with it, the most relevant to the turn first (the
+   * hub's `HARNESS_FN_PROMPT_EXAMPLES` when absent). The rest are a `hub/fn_examples` call away.
+   */
+  promptExamples: z.number().int().min(0).max(20).optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 
@@ -330,6 +364,8 @@ export const KindDescription = z.object({
   display: Display.optional(),
   /** Build 5: every run of this payload's fn waits for approval (a write query), as `FnDecl.approval`. */
   approval: FnApproval.optional(),
+  /** Build 5: what this payload's fn does to data (a query's mode and the tables it reads and writes), over the fn's own. */
+  effects: FnEffects.optional(),
 });
 export type KindDescription = z.infer<typeof KindDescription>;
 

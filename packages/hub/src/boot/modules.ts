@@ -36,6 +36,7 @@ import { resourcesModule } from '../resources/create.ts';
 import { registerResourceFns } from '../resources/fns.ts';
 import { accessModule } from '../access/create.ts';
 import { connectionsModule } from '../connections/create.ts';
+import { fnsModule } from '../fns/create.ts';
 
 /** What the production modules can be given instead of their defaults (tests, the e2e hub). */
 export interface ModuleSeams {
@@ -142,7 +143,7 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
 export function registerHubContract(module: { readonly hubFns: ExecutionModule['hubFns']; readonly handlers: Pick<ExecutionModule['handlers'], 'askPerson'> }, hub: HubServices): void {
   registerHubFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
-    access: (actor) => hub.access.scope(actor),
+    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns,
   });
   let ops: AdminOperations | undefined;
   registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));
@@ -173,6 +174,7 @@ export function hubModules(seams: ModuleSeams = {}): HubModules {
     chat: chatModule,
     ...BUILD_2_MODULES,
     ...BUILD_4_MODULES,
+    ...BUILD_5_MODULES,
   };
 }
 
@@ -190,3 +192,8 @@ export const BUILD_4_MODULES = {
   access: accessModule,
   connections: connectionsModule,
 } as const satisfies Pick<HubModules, 'access' | 'connections'>;
+
+/** Build 5's modules: fns search, examples, facts, the chat fn mode, browser logs. */
+export const BUILD_5_MODULES = {
+  fns: fnsModule,
+} as const satisfies Pick<HubModules, 'fns'>;

@@ -7,7 +7,7 @@
 import type {
   AllowedOperations, ConnectFinish, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
-import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
   ActionImpl, AnyTypeDef, ContextImpl, EmbedderImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
@@ -44,7 +44,7 @@ export interface OutcomeHelpers {
 }
 
 /** What every run context has besides its calls, handlers and progress. */
-export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Decisions, Fleets {
+export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Decisions, Fleets, FnSearch {
   readonly config: unknown;
   readonly run: RunInfo;
   readonly budget: BudgetInfo;

@@ -5,7 +5,7 @@
 import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
-  Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun,
+  Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun, FnSearchQuery, FnSearchPage, FnExamplesQuery, FnExamplesPage,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -169,7 +169,17 @@ export interface Fleets {
   fleet(): Promise<FleetInstance[]>;
 }
 
-export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets {
+/**
+ * Searching what the hub keeps, in the hub's database: fns and context by words, meaning or both, with filters by kind,
+ * system, instance, sharing, types and mode (`searchFns`), and a page of one fn's examples (`fnExamples`). In a run
+ * the hub answers as the run's person sees them; outside one, as the system itself.
+ */
+export interface FnSearch {
+  searchFns(query: FnSearchQuery): Promise<FnSearchPage>;
+  fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage>;
+}
+
+export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -312,7 +322,7 @@ export interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
  * What a run gets besides its args. Typed by its fn: only its deps can be called, only its handlers exist, only its
  * progress steps can be reported, and the outcome helpers take its result, undo and resume types.
  */
-export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets {
+export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets, FnSearch {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */

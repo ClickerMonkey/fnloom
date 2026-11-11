@@ -6,6 +6,9 @@
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { findSlice, INDEXED_KINDS, type Suggestion } from '@harness/core';
+
+/** What a search without kinds looks through: everything but fn examples, which are read through their fn (`fnExamples`). */
+const SEARCHED_KINDS = INDEXED_KINDS.filter((kind) => kind !== 'example');
 import type { HubServices } from '../../boot/index.ts';
 import { keepSeen, mayOffer } from '../../access/hits.ts';
 import { visibleSession, type FullHandlers } from './access.ts';
@@ -37,7 +40,7 @@ export function findPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         return offered;
       },
       search: async ({ data, user }) => index.search.search({
-        text: data.query, kinds: data.kinds ?? INDEXED_KINDS, limit: data.limit ?? SEARCH_LIMIT, keep: keepSeen(await hub.access.scope(user.id), lookup),
+        text: data.query, kinds: data.kinds ?? SEARCHED_KINDS, limit: data.limit ?? SEARCH_LIMIT, keep: keepSeen(await hub.access.scope(user.id), lookup),
       }),
       mentions: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);

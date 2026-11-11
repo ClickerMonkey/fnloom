@@ -198,7 +198,7 @@ export function chatPorts(hub: Pick<HubServices, 'chat'>): ChatPorts {
       stream: (message, delta) => { hub.chat.turns.stream(message, delta); },
       finish: (message, parts, status) => hub.chat.turns.finish(message, parts, status),
       settle: (turn, status) => hub.chat.turns.settle(turn, status),
-      track: (message, runs) => hub.chat.turns.track(message, runs),
+      track: (message, calls) => hub.chat.turns.track(message, calls),
       suggested: (message, record) => hub.chat.turns.suggested(message, record),
       followUp: (input) => hub.chat.turns.followUp(input),
     },

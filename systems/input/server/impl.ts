@@ -1,40 +1,19 @@
 /**
- * The input system's implementation. `get_input` reuses the best saved form the hub says the person may use now (by name, or by how
- * close its description's embedding is), else has the form agent write one; the `ask_*` fns make quick forms;
- * `save_form` keeps a form and adds it as an `input/form` fn at runtime; the `form` kind runs those fns. Every input
- * fn returns the form, which the chat draws; nothing here waits for the answers.
+ * The input system's implementation. `get_input` is an agent the hub runs (its prompt and tools are in the contract);
+ * here are its tool `check_form`, the `ask_*` fns that make quick forms, `save_form`, which keeps a form in the hub as
+ * an `input/form` fn of its person (`hub/save_fn`), and the `form` kind that runs those fns. Nothing is stored here:
+ * saved forms, their embeddings and who may use them are the hub's. Every input fn returns the form, which the chat
+ * draws; nothing here waits for the answers.
  */
-import { qualify, type ActorId, type QualifiedName, type ShareRule, type Visibility } from '@harness/core';
-import { encodeValue, g, parseValue, wireType, type AnyFnDef, type Llm, type SystemImpl } from '@harness/sdk';
-import { cosine, embedOne } from '@harness/sdk/server';
-import { Asked, WAIT_FOR_ANSWERS, input, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
-import { formProblems, quickForms } from '../shared/forms.ts';
-import type { FormAuthor } from './author.ts';
+import type { ActorId } from '@harness/core';
+import { CallFailed, SAVE_FN_TAKEN, encodeValue, g, parseValue, wireType, type SystemImpl } from '@harness/sdk';
+import { Asked, FORM_KIND, WAIT_FOR_ANSWERS, input, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
+import { fieldsOf, formProblems, quickForms } from '../shared/forms.ts';
 import type { InputSettings } from './env.ts';
-import type { FormStore, SavedRecord } from './store.ts';
-
-/** Adds and removes fns at runtime (the running system's `add` and `remove`). */
-export interface RuntimeFns {
-  add(name: string, def: AnyFnDef): Promise<void>;
-  /** Take back a fn `add` added (a save that couldn't be kept to its person). */
-  remove(name: string): Promise<void>;
-}
 
 /** Everything the implementation is built from. */
 export interface InputDeps {
   readonly settings: InputSettings;
-  readonly store: FormStore;
-  readonly author: FormAuthor;
-  /** Where saved forms are added as fns; set once the system is serving. */
-  readonly runtime: () => RuntimeFns | undefined;
-  readonly now: () => number;
-}
-
-/** The implementation, and re-adding the saved forms once the system is serving. */
-export interface InputServer {
-  readonly impl: SystemImpl<InputContract['defs']>;
-  /** Add every saved form as a fn again (after a restart). */
-  restore(): Promise<number>;
 }
 
 /** A fn name from a form's name: `Trip details!` becomes `trip_details`. */
@@ -44,102 +23,34 @@ export function slugOf(name: string): string {
 }
 
 /**
- * A fn name for a new saved form: `base`, else `base_2`, `base_3`, … so it never takes the name of one of the
- * contract's fns or of a form already saved (the SDK refuses to add a fn twice).
+ * The name to try a saved form under on its `attempt`th try (0 first): `base`, else `base_2`, `base_3`, …, never one
+ * of the contract's own fns.
  */
-export function freeName(base: string, records: readonly Pick<SavedRecord, 'name'>[]): string {
-  const taken = new Set([...Object.keys(input.defs.fns), ...records.map((record) => record.name)]);
-  let name = base;
-  for (let n = 2; taken.has(name); n += 1) { name = `${base}_${n}`; }
-  return name;
+export function nameFor(base: string, attempt: number): string {
+  const own = new Set(Object.keys(input.defs.fns));
+  const first = own.has(base) ? `${base}_form` : base;
+  return attempt === 0 ? first : `${first}_${attempt + 1}`;
 }
 
-/** The words a form is matched by. */
-function matchText(record: Pick<SavedRecord, 'title' | 'description'>): string {
-  return `${record.title}. ${record.description}`;
-}
+const asked = (form: InputFormValue, saved?: string): AskedValue => ({ form, next: WAIT_FOR_ANSWERS, ...(saved === undefined ? {} : { saved }) });
 
-/** A text as a literal in a regular expression. */
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * The saved form to reuse for a description: one whose title the description names, else the closest by embedding
- * at or above `threshold`.
- */
-export function bestMatch(description: string, vector: readonly number[], records: readonly SavedRecord[], threshold: number): SavedRecord | undefined {
-  const asked = description.toLowerCase();
-  const named = records.find((record) => record.title.length >= 4 && new RegExp(`(^|\\W)${escapeRegExp(record.title.toLowerCase())}($|\\W)`).test(asked));
-  if (named !== undefined) { return named; }
-  let best: { record: SavedRecord; score: number } | undefined;
-  for (const record of records) {
-    const score = cosine(vector, record.vector);
-    if (score >= threshold && (best === undefined || score > best.score)) { best = { record, score }; }
-  }
-  return best?.record;
-}
-
-const asked = (form: InputFormValue, saved?: QualifiedName): AskedValue => ({ form, next: WAIT_FOR_ANSWERS, ...(saved === undefined ? {} : { saved }) });
-
-/** The kind fn a saved form becomes. */
-function formFn(record: SavedRecord): AnyFnDef {
-  return input.kinds.form.fn({ description: record.description, payload: record.form, tags: ['input'] });
+/** Whether a hub fn failed because the name is taken. */
+function taken(error: unknown): boolean {
+  return error instanceof CallFailed && error.error.class !== 'cancelled' && error.error.code === SAVE_FN_TAKEN;
 }
 
 /** Build the input implementation. */
-export function createInputImpl(deps: InputDeps): InputServer {
+export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs']> {
   const s = deps.settings;
-
-  /**
-   * Save a form: add its fn, hand it to its person with who may use it (`share`), and only then keep it. A fn with no
-   * access row is public, so until the hub has the person's rule the kind refuses to run it (it isn't kept yet), and
-   * when the hub refuses the rule the fn is taken back, so a private form is never left open to everyone.
-   */
-  async function save(
-    args: { name: string; description: string; form: InputFormValue; visibility: Visibility; with: readonly ActorId[] },
-    owner: ActorId, llm: Llm, share: (name: string, rule: ShareRule) => Promise<void>,
-  ): Promise<SavedRecord> {
-    const records = await deps.store.all();
-    const name = freeName(slugOf(args.name), records);
-    const record: SavedRecord = {
-      name, title: args.name.trim(), description: args.description.trim(), form: args.form, owner, visibility: args.visibility,
-      with: args.visibility === 'shared' ? [...new Set(args.with)] : [],
-      vector: await embedOne(llm, matchText({ title: args.name, description: args.description })), savedAt: deps.now(),
-    };
-    const runtime = deps.runtime();
-    if (runtime === undefined) { throw new Error('The input system is not serving yet.'); }
-    await runtime.add(name, formFn(record));
-    try {
-      await share(name, { visibility: record.visibility, with: record.with });
-    } catch (error) {
-      await runtime.remove(name);
-      throw error;
-    }
-    await deps.store.put(record);
-    return record;
-  }
-
-  const impl: SystemImpl<InputContract['defs']> = {
+  return {
     fns: {
-      get_input: {
-        async run(args, ctx) {
-          // who may reuse a form is the hub's to say: its owner or an admin may have changed it since it was saved
-          const records = await deps.store.all();
-          const allowed = new Set(await ctx.usableFns(records.map((record) => record.name)));
-          const usable = records.filter((record) => allowed.has(record.name));
-          if (usable.length > 0) {
-            const vector = await embedOne(ctx.llm, args.detailedDescription);
-            const match = bestMatch(args.detailedDescription, vector, usable, s.INPUT_REUSE_SCORE);
-            if (match !== undefined) {
-              ctx.log.info('input.reused', { form: match.name });
-              return ctx.done(asked(match.form, qualify(input.name, match.name)));
-            }
-          }
-          const written = await deps.author.write(args.detailedDescription, ctx.llm);
-          if ('problems' in written) { return ctx.fail('retry', `The form agent couldn't write a valid form: ${written.problems.join(' ')}`, { code: 'form-refused' }); }
-          ctx.log.info('input.written', { fields: Object.keys(written.type.props ?? {}).length });
-          return ctx.done(asked(written));
+      check_form: {
+        run(args, ctx) {
+          const problems = formProblems(args.form.type);
+          const fields = fieldsOf(args.form.type).length;
+          if (problems.length === 0 && fields > s.INPUT_MAX_FIELDS) { problems.push(`A form has at most ${s.INPUT_MAX_FIELDS} fields; this one has ${fields}. Ask for less, or split it.`); }
+          if (args.form.title.trim() === '') { problems.push('Give the form a title of a few words.'); }
+          return Promise.resolve(ctx.done({ ok: problems.length === 0, problems, fields }));
         },
       },
       ask_text: { run: (args, ctx) => Promise.resolve(ctx.done(asked(quickForms.text(args)))) },
@@ -161,11 +72,29 @@ export function createInputImpl(deps: InputDeps): InputServer {
           const problems = formProblems(args.form.type);
           if (problems.length > 0) { return ctx.invalid([{ path: 'form.type', message: problems.join(' ') }]); }
           const visibility = args.visibility ?? 'private';
-          if (visibility === 'shared' && (args.with ?? []).length === 0) { return ctx.invalid([{ path: 'with', message: 'Name the people or groups to share it with.' }]); }
-          // the person who saved it owns the new fn on the hub, which then keeps it to whom they chose
-          const record = await save({ ...args, visibility, with: args.with ?? [] }, ctx.run.user.id, ctx.llm, (name, rule) => ctx.shareFn(name, rule));
-          ctx.log.info('input.saved', { form: record.name, visibility: record.visibility });
-          return ctx.done({ fn: qualify(input.name, record.name), name: record.title });
+          const shareWith: ActorId[] = visibility === 'shared' ? [...new Set(args.with ?? [])] : [];
+          if (visibility === 'shared' && shareWith.length === 0) { return ctx.invalid([{ path: 'with', message: 'Name the people or groups to share it with.' }]); }
+          const base = slugOf(args.name);
+          // the hub keeps it as the person's fn, embedded for search, its first example the description it was made for
+          for (let attempt = 0; attempt < s.INPUT_NAME_TRIES; attempt += 1) {
+            try {
+              const saved = await ctx.fns.saveFn({
+                kind: FORM_KIND,
+                name: nameFor(base, attempt),
+                description: args.description.trim(),
+                instructions: `Shows the "${args.form.title}" form to the person. ${WAIT_FOR_ANSWERS}`,
+                payload: encodeValue(input.kinds.form.payload, args.form),
+                examples: [{ args: {}, ...(args.askedFor === undefined ? {} : { note: `Made for: ${args.askedFor}` }) }],
+                tags: ['input'],
+                share: { visibility, with: shareWith },
+              });
+              ctx.log.info('input.saved', { form: saved.fn, visibility });
+              return ctx.done({ fn: saved.fn, name: args.name.trim() });
+            } catch (error) {
+              if (!taken(error)) { throw error; }
+            }
+          }
+          return ctx.fail('caller', `Every name tried for "${args.name}" is taken; give it another name.`, { code: SAVE_FN_TAKEN });
         },
       },
     },
@@ -178,24 +107,8 @@ export function createInputImpl(deps: InputDeps): InputServer {
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: false },
         }),
-        async run(payload, _args, ctx) {
-          // a form is kept only once the hub has who may use it; until then (or if that failed) it is not offered
-          const kept = (await deps.store.all()).some((record) => qualify(input.name, record.name) === ctx.run.fn);
-          if (!kept) { return ctx.fail('caller', 'This form is still being saved, or its saving failed; try again in a moment.', { code: 'form-unsaved' }); }
-          return ctx.done(encodeValue(Asked, asked(parseValue(input.kinds.form.payload, payload), ctx.run.fn)));
-        },
+        run: (payload, _args, ctx) => Promise.resolve(ctx.done(encodeValue(Asked, asked(parseValue(input.kinds.form.payload, payload), ctx.run.fn)))),
       },
-    },
-  };
-
-  return {
-    impl,
-    async restore() {
-      const runtime = deps.runtime();
-      if (runtime === undefined) { return 0; }
-      const records = await deps.store.all();
-      for (const record of records) { await runtime.add(record.name, formFn(record)); }
-      return records.length;
     },
   };
 }

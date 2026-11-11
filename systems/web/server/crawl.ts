@@ -4,7 +4,8 @@
  * links read from its html), held in `FetchedPages` and imported through the hub, which fetches it back through
  * `web/fetch_raw` and finds it waiting, so no page crosses the network twice.
  */
-import { descendants, parseHtml } from '@aeye/resources';
+import { extractLinksFromHtml } from '@aeye/resources';
+import { z } from 'zod';
 import type { ResourceUri } from '@harness/core';
 import { CallFailed, type Infer } from '@harness/sdk';
 import type { CrawledPage, CrawlSkipReason, SkippedPageValue } from '../shared/index.ts';
@@ -131,23 +132,26 @@ export function globMatches(glob: string, url: URL): boolean {
   return new RegExp(`^${pattern}$`).test(subject);
 }
 
-/** The links of an html page, absolute, without fragments, http(s) only; `rel="nofollow"` links are left out. */
+/** The tag and `rel` words `@aeye/resources` records on each html link. */
+const LinkFacts = z.object({ tag: z.string(), rel: z.array(z.string()).optional() });
+
+/**
+ * The pages an html page links to, as `@aeye/resources` extracts them (`extractLinksFromHtml`): anchors only, made
+ * absolute against the page's `<base href>` (else its URL), without fragments, http(s) only; `rel="nofollow"` links
+ * are left out.
+ */
 export function linksOf(html: string, base: string): URL[] {
-  const root = parseHtml(html);
-  const baseHref = [...descendants(root)].find((element) => element.name === 'base' && element.attributes['href'] !== undefined)?.attributes['href'];
+  const links = extractLinksFromHtml(html, base).map((link) => ({ value: link.value.trim(), facts: LinkFacts.safeParse(link.metadata) }));
+  const baseHref = links.find((link) => link.facts.success && link.facts.data.tag === 'base')?.value;
   const resolveFrom = baseHref !== undefined && URL.canParse(baseHref, base) ? new URL(baseHref, base).href : base;
-  const links: URL[] = [];
-  for (const element of descendants(root)) {
-    const href = element.attributes['href'];
-    if (element.name !== 'a' || href === undefined || href.trim() === '') { continue; }
-    if ((element.attributes['rel'] ?? '').toLowerCase().split(/\s+/).includes('nofollow')) { continue; }
-    if (!URL.canParse(href.trim(), resolveFrom)) { continue; }
-    const url = new URL(href.trim(), resolveFrom);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') { continue; }
+  return links.flatMap((link) => {
+    const facts = link.facts.success ? link.facts.data : undefined;
+    if (facts?.tag !== 'a' || facts.rel?.includes('nofollow') === true || link.value === '' || !URL.canParse(link.value, resolveFrom)) { return []; }
+    const url = new URL(link.value, resolveFrom);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') { return []; }
     url.hash = '';
-    links.push(url);
-  }
-  return links;
+    return [url];
+  });
 }
 
 /** A crawl's walk. One instance per crawl. */

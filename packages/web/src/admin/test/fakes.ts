@@ -4,7 +4,7 @@
  * pushes into, and the admin store built on them. The mock hub's admin data is made from the same builders.
  */
 import {
-  Actor, ActorSetting, FnRecord, ImportReport, ModelCategory, PairingRequest, Policy, PriorityRule, ResourceRecord, SystemView,
+  Actor, ActorSetting, AutoClassifier, FnRecord, ImportReport, ModelCategory, PairingRequest, Policy, PriorityRule, ResourceRecord, SystemView,
   type LlmInteraction, type SystemName, type UserEvent,
 } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
@@ -177,6 +177,8 @@ export function fakeAdminApi() {
     revokeAutoPair: fakeCaller<'revokeAutoPair'>(() => Promise.resolve({ ok: true })),
     suggestDecision: fakeCaller<'suggestDecision'>(() => Promise.resolve({ value: SuggestDecision.parse({}) })),
     setSuggestDecision: fakeCaller<'setSuggestDecision'>((value) => Promise.resolve({ value: SuggestDecision.parse(value) })),
+    autoClassifier: fakeCaller<'autoClassifier'>(() => Promise.resolve({ value: AutoClassifier.parse({}) })),
+    setAutoClassifier: fakeCaller<'setAutoClassifier'>((value) => Promise.resolve({ value: AutoClassifier.parse(value) })),
     previewSuggestions: fakeCaller<'previewSuggestions'>(() => Promise.resolve({ by: 'score' as const, threshold: 0.5, items: [] })),
     runs: fakeCaller<'runs'>(() => Promise.resolve({ items: [run({ id: 'run_a' }), run({ id: 'run_b', status: 'failed' })] })),
     llmCalls: fakeCaller<'llmCalls'>(() => Promise.resolve({ items: [llmSummary({ id: 'llm_a' })] })),

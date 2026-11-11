@@ -17,7 +17,8 @@ export type ContextLookup = (name: QualifiedName) => Promise<ContextRef | undefi
  */
 export async function seesHit(access: AccessScope, context: ContextLookup, hit: Pick<SearchHit, 'kind' | 'key'>, session?: SessionId): Promise<boolean> {
   if (hit.kind === 'section') return access.seesUri(parseSectionIndexKey(hit.key).uri);
-  if (hit.kind === 'message') return false;
+  // messages carry no session the person could be checked against; examples are read through their fn (`hub/fn_examples`)
+  if (hit.kind === 'message' || hit.kind === 'example') return false;
   const name = QualifiedName.safeParse(hit.key);
   if (!name.success) return false;
   const { system } = splitName(name.data);

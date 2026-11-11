@@ -4,6 +4,7 @@
  * chat shows a compact icon row with counts and, opened, the used and the not-used items with their reasons.
  */
 import { z } from 'zod';
+import { AutoClassifier } from './fn-facts.ts';
 import { RoleModel } from './model-calls.ts';
 import { ActorId, ModelCallId, QualifiedName, Timestamp } from './primitives.ts';
 
@@ -71,5 +72,6 @@ export type SuggestDecisionView = z.infer<typeof SuggestDecisionView>;
  */
 export const HubOption = z.discriminatedUnion('key', [
   z.object({ key: z.literal('suggestDecision'), value: SuggestDecision, setBy: ActorId, updatedAt: Timestamp }),
+  z.object({ key: z.literal('autoClassifier'), value: AutoClassifier, setBy: ActorId, updatedAt: Timestamp }),
 ]);
 export type HubOption = z.infer<typeof HubOption>;

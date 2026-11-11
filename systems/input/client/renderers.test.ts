@@ -26,7 +26,7 @@ function fakeSystem(): { system: SystemClient<InputContract['defs']>; saved: unk
   const run = (args: unknown): Promise<RunId> => { saved.push(args); return Promise.resolve(mintId('run')); };
   const system: SystemClient<InputContract['defs']> = {
     online: true, send: {},
-    run: { get_input: run, ask_text: run, ask_choice: run, ask_confirm: run, ask_number: run, ask_date: run, save_form: run },
+    run: { get_input: run, check_form: run, ask_text: run, ask_choice: run, ask_confirm: run, ask_number: run, ask_date: run, save_form: run },
   };
   return { system, saved };
 }

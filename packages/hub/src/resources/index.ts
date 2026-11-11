@@ -21,7 +21,7 @@
 import type {
   ActorId, ContentRef, ContextFromResourceArgs, ContextFromResourceResult, ContextItemView, ContextLink, ContextQuery, ContextRecord, ConvertedVersion,
   DeclarableRelation, FormKind, FormRecord, LinkTarget, LlmContentPart, MadeFormKind, ModelCallId, ModelInfo, Page, QualifiedName, RememberArgs, UpdateMemoryArgs,
-  ResourceForms, ResourceImportArgs, ResourcePage, ResourceQuery, ResourceReadArgs, ResourceReadResult, ResourceRecord, ResourceUri, RunId, Section, SectionKey,
+  ResourceForms, ResourceImportArgs, ResourcePage, ResourceQuery, ResourceReadArgs, ResourceReadResult, ResourceRecord, ResourceSource, ResourceUri, RunId, Section, SectionKey,
   SessionId,
 } from '@harness/core';
 import type { PrimaryText } from '../index/index.ts';
@@ -41,6 +41,11 @@ export interface ResourceLibrary {
   import(args: ResourceImportArgs, who: Asking): Promise<ResourceRecord>;
   /** A fn's output (an attachment, a generated image, a recording) kept as a hub resource. */
   keep(input: { content: ContentRef; name: string; run: RunId; fn: QualifiedName }): Promise<ResourceRecord>;
+  /**
+   * Build 5: keep content the hub made itself at `path/name` (a person's browser log), replacing what was kept there
+   * before (a new version of the same file).
+   */
+  keepMade(input: { content: ContentRef; path: string; name: string; source: ResourceSource }, who: Asking): Promise<ResourceRecord>;
   rename(uri: ResourceUri, name: string, who: Asking): Promise<ResourceRecord>;
   /** Hub resources only; refused with the count of what still refers to it unless nothing does. */
   remove(uri: ResourceUri, who: Asking): Promise<{ deleted: boolean; referencedBy: number }>;

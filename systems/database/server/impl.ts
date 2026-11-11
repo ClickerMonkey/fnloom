@@ -1,37 +1,34 @@
 /**
  * The database system's implementation: one instance per database. The lifecycle opens the configured database and
  * rescans it (on start and on every config change), proposing an admin approval for type changes that would break
- * saved queries or drop a type. `get_query` / `edit_query` / `create_table` / `alter_table` pick the database and
- * forward to it (`query_on`, `edit_on`, `change_schema`) when it is another instance; the `query` kind runs saved
- * queries, and previews the writes among them for their approval.
+ * saved queries or drop a type. `get_query` and `edit_query` are agents the hub runs; here are their tools: `databases`
+ * (the fleet), and `tables`, `check_query`, `save_query` and `run_query`, each done by the instance that has the
+ * database (`at_instance`, forwarded with `on` when that is another one). Saved queries live in the hub; the `query`
+ * kind runs them, and previews the writes among them for their approval.
  */
-import { InstanceName, Json, qualify, ShareRule, type ApprovalPreview, type PreviewAnswer } from '@harness/core';
-import { CallFailed, ResultBlockType, g, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf, type UntypedFn } from '@harness/sdk';
+import { InstanceName, Json, ShareRule, qualify, type ApprovalPreview, type PreviewAnswer, type QualifiedName } from '@harness/core';
+import { CallFailed, ResultBlockType, g, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { z } from 'zod';
-import { database, type DatabaseContract } from '../shared/index.ts';
-import { QueryPayload, WriteResult, type Connection, type DatabaseConfig, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
-import type { Enricher, QueryAuthor } from './author.ts';
+import { QUERY_KIND, database, type DatabaseContract } from '../shared/index.ts';
+import { QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
+import type { Enricher } from './author.ts';
 import { argsTypeOf, signatureOf } from './compile.ts';
 import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, type HubSide, type ScanReport } from './instance.ts';
-import { QueryService, callArgs, mayUse, notYours, savedQueryName, type QueryProblem, type QueryRunCtx, type RuntimeFns } from './queries.ts';
+import { QueryService, callArgs, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
 import type { InstanceStore } from './store.ts';
 import { hubTypeOf, qualifiedTypeOf } from './types.ts';
-import { cosine, embedOne } from '@harness/sdk/server';
 
 /** The run context of one of the contract's fns. */
 type CtxOf<K extends keyof DatabaseContract['defs']['fns']> = FnCtx<TypesOf<DatabaseContract['defs']['fns'][K]>, DatabaseConfig>;
-
-/** What a query needs from any run's context (the same members on every fn's and kind's). */
-type RunSide = Pick<FnCtx<UntypedFn>, 'llm' | 'run' | 'log' | 'usableFns' | 'shareFn' | 'decide' | 'propose' | 'attach'>;
 
 /** Another database instance of this system, as get_query chooses between them. */
 export interface FleetMember {
   readonly instance: string;
   readonly label: string;
-  /** Its tables and what they hold, in a line. */
-  readonly summary: string;
+  /** Its tables, each with what it holds when known (`orders (one per checkout)`). */
+  readonly tables: readonly string[];
   /** Who may use it; absent when the fleet doesn't say (then its own instance decides). */
   readonly audience?: ShareRule;
 }
@@ -49,8 +46,8 @@ const LabelOnly = z.object({ label: z.string().min(1), audience: ShareRule });
 
 /**
  * The fleet as the hub lists it (`ctx.fleet()`): every online, configured instance, this one included, each described
- * the same way, by its label and its table types as the hub keeps them (enriched descriptions and columns), so the
- * embedding match compares like with like. This instance comes from `self` when the hub doesn't list it yet.
+ * the same way, by its label and its table types as the hub keeps them (with their enriched descriptions), so the
+ * query agent compares like with like. This instance comes from `self` when the hub doesn't list it yet.
  */
 export const HUB_FLEET: Fleet = {
   async members(self, fleets) {
@@ -58,11 +55,19 @@ export const HUB_FLEET: Fleet = {
       const label = LabelOnly.safeParse(member.config);
       if ((member.instance !== self.instance && !member.online) || !label.success || member.types.length === 0) { return []; }
       const tables = member.types.map((type) => `${type.name.slice(type.name.lastIndexOf('.') + 1)}${type.description === '' ? '' : ` (${type.description})`}`);
-      return [{ instance: member.instance, label: label.data.label, audience: label.data.audience, summary: `${label.data.label}: ${tables.join('; ')}` }];
+      return [{ instance: member.instance, label: label.data.label, audience: label.data.audience, tables }];
     });
     return listed.some((member) => member.instance === self.instance) ? listed : [self, ...listed];
   },
 };
+
+/** The hub's side of this instance, as the running system gives it. */
+export interface HubLink {
+  /** Add or replace these table types, and take these away (local names). */
+  types: HubSide['types'];
+  /** Search the hub's fns as the system (`ctx.searchFns` outside a run). */
+  searchFns: SystemCtx['searchFns'];
+}
 
 /** Everything the implementation is built from. */
 export interface DatabaseDeps {
@@ -70,13 +75,10 @@ export interface DatabaseDeps {
   readonly instance: InstanceName;
   readonly dataDir: string;
   readonly store: InstanceStore;
-  readonly author: QueryAuthor;
   readonly enricher: Enricher;
   readonly fleet: Fleet;
-  /** The hub's side of this instance's types; set once the system is serving. */
-  readonly hub: () => HubSide | undefined;
-  /** Where saved queries are added as fns; set once the system is serving. */
-  readonly runtime: () => RuntimeFns | undefined;
+  /** The hub's side of this instance; set once the system is serving. */
+  readonly hub: () => HubLink | undefined;
   readonly now: () => number;
   /** Opens the database (tests may pass their own). */
   readonly open?: (connection: Connection, options: { dataDir: string; readonly: boolean }) => Database;
@@ -93,8 +95,17 @@ export interface DatabaseServer {
   close(): Promise<void>;
 }
 
-/** The hub's side when the system isn't serving yet: nothing is sent. */
-const NO_HUB: HubSide = { types: () => Promise.resolve() };
+/** The saved query fns that read a type, by the hub's search (every page). */
+async function readersOf(link: HubLink, instance: InstanceName, type: QualifiedName): Promise<string[]> {
+  const found: string[] = [];
+  let offset: number | undefined = 0;
+  while (offset !== undefined) {
+    const page = await link.searchFns({ kinds: [QUERY_KIND], instance, types: { reads: [type] }, available: false, order: 'alphabetical', offset, limit: 100 });
+    found.push(...page.items.map((hit) => hit.name));
+    offset = page.next;
+  }
+  return found;
+}
 
 /** What a schema change will do: its DDL steps, the table before and after, or why it can't. */
 function schemaPlan(instance: DatabaseInstance, args: SchemaArgs): { steps: ReturnType<DatabaseInstance['catalog']['dialect']['ddl']['alterTable']>; preview: ApprovalPreview } | { refused: string } {
@@ -138,16 +149,23 @@ function schemaPlan(instance: DatabaseInstance, args: SchemaArgs): { steps: Retu
 export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   const s = deps.settings;
   let instance: DatabaseInstance | undefined;
-  const queries = new QueryService({ instance: () => instance, store: deps.store, author: deps.author, settings: s, runtime: deps.runtime, now: deps.now });
+  const queries = new QueryService({ instance: () => instance, settings: s });
   const limits = { page: s.DATABASE_PAGE_ROWS, max: s.DATABASE_MAX_ROWS };
-  const hub: HubSide = { types: (upsert, remove) => (deps.hub() ?? NO_HUB).types(upsert, remove) };
+  // before the system serves, nothing is sent and no saved query is known
+  const hubSide: HubSide = {
+    types: (upsert, remove) => deps.hub()?.types(upsert, remove) ?? Promise.resolve(),
+    readers: async (type) => {
+      const link = deps.hub();
+      return link === undefined ? [] : await readersOf(link, deps.instance, type);
+    },
+  };
 
   async function configure(config: DatabaseConfig, ctx: Pick<SystemCtx, 'llm' | 'log' | 'propose'>): Promise<ScanReport> {
     const before = instance;
     instance = undefined;
     await before?.close();
     const opened = new DatabaseInstance(config, {
-      instance: deps.instance, dataDir: deps.dataDir, store: deps.store, enricher: deps.enricher, hub, limits,
+      instance: deps.instance, dataDir: deps.dataDir, store: deps.store, enricher: deps.enricher, hub: hubSide, limits,
       distinctMax: s.DATABASE_DISTINCT_MAX, now: deps.now, ...(deps.open === undefined ? {} : { open: deps.open }),
     });
     const report = await opened.rescan(ctx.llm);
@@ -160,37 +178,63 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         preview: { title: `Apply ${report.parts.length} table type ${report.parts.length === 1 ? 'change' : 'changes'} in ${config.label}`, parts: [...report.parts], irreversible: report.pending.dropped.length > 0 },
       });
     }
-    await queries.restore(opened);
     return report;
   }
 
-  /** Which instance a request is for: the one named, the only one, the best match, or a question back. */
-  async function pick(named: string | undefined, request: string, ctx: QueryRunCtx, here: DatabaseInstance, fleets: Fleets): Promise<string | QueryProblem> {
-    if (named !== undefined) { return named.replace(/^database\//, ''); }
-    const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, summary: here.catalog.summary(here.config.label), audience: here.config.audience }, fleets))
-      .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
-    if (members.length <= 1) { return members[0]?.instance ?? here.instance; }
-    const vector = await embedOne(ctx.llm, request);
-    const scored = await Promise.all(members.map(async (member) => ({ member, score: Math.max(0, cosine(vector, await embedOne(ctx.llm, member.summary))) })));
-    scored.sort((a, b) => b.score - a.score);
-    ctx.log.info('database.picking', { request, scores: scored.map((item) => `${item.member.instance} ${item.score.toFixed(3)}`) });
-    const [best, next] = scored;
-    if (best !== undefined && (next === undefined || best.score - next.score > 0.05)) { return best.member.instance; }
-    const answer = await ctx.decide(`Which database answers this request: ${request}`, scored.map((item) => ({ id: item.member.instance, text: item.member.summary, score: item.score })), { max: 1 });
-    const picked = answer.by === 'decision' ? answer.picked[0]?.id : undefined;
-    return picked ?? { invalid: `Several databases could answer this; ask the person which (with ask_choice), then call again with database set to one of: ${members.map((member) => `${member.instance} (${member.label})`).join(', ')}.` };
-  }
-
-  /** The run's side of a query, from a native fn's or a kind's context. */
-  function runCtx(ctx: RunSide): QueryRunCtx {
+  /** The run's side of a query tool: its approvals, attachments and the hub's fns as its person. */
+  function runCtx(ctx: CtxOf<'at_instance'>): QueryRunCtx {
     return {
-      llm: ctx.llm, run: ctx.run, log: ctx.log,
-      usableFns: (fns) => ctx.usableFns(fns),
-      shareFn: (fn, rule) => ctx.shareFn(fn, rule),
-      decide: (question, candidates, options) => ctx.decide(question, candidates, options),
+      run: ctx.run, log: ctx.log,
       propose: (fn, args, options) => ctx.propose(fn, args, options),
       attach: (table, title) => { ctx.attach(database.attachments.result, table, title); },
+      getFn: async (fn) => await ctx.fns.getFn({ fn }),
+      saveFn: async (save) => await ctx.fns.saveFn(save),
     };
+  }
+
+  /** Do one tool's work here. */
+  async function atHere(op: InstanceOp, ctx: CtxOf<'at_instance'>): Promise<InstanceAnswer | QueryProblem> {
+    const here = queries.instance(ctx.run.user);
+    if (!('db' in here)) { return here; }
+    // tables a scan outside a run left plain are enriched now, with this run's model
+    await here.enrichLater(ctx.llm);
+    switch (op.op) {
+      case 'tables': return { op: 'tables', tables: queries.tables(here) };
+      case 'check': return { op: 'check', check: queries.check(here, op.draft) };
+      case 'save': {
+        const saved = await queries.save(here, op.draft, { args: op.args, askedFor: op.askedFor, replace: op.replace }, runCtx(ctx));
+        return 'fn' in saved ? { op: 'save', saved } : saved;
+      }
+      case 'run': {
+        const ran = await queries.run(here, op.fn, op.args ?? {}, runCtx(ctx));
+        return 'database' in ran ? { op: 'run', run: ran } : ran;
+      }
+    }
+  }
+
+  /**
+   * A tool's work on the instance that has the database: here, or forwarded with `on`. The answer is the one for the
+   * op asked (`pick` narrows it); a problem is the caller's to fix.
+   */
+  async function at<T>(
+    ctx: Pick<CtxOf<'tables'>, 'fns'>, target: string, op: InstanceOp, pick: (answer: InstanceAnswer) => T | undefined,
+  ): Promise<T | QueryProblem> {
+    const on = InstanceName.safeParse(target.replace(/^database\//, ''));
+    if (!on.success) { return { invalid: `"${target}" isn't a database instance name; call database/databases for them.` }; }
+    try {
+      const answer = await ctx.fns.at(op, { on: on.data });
+      return pick(answer) ?? { failed: `The ${on.data} database answered another question than asked.` };
+    } catch (error) {
+      if (error instanceof CallFailed && error.error.class !== 'cancelled') {
+        return error.error.class === 'caller' ? { invalid: error.error.message } : { failed: error.error.message };
+      }
+      throw error;
+    }
+  }
+
+  /** A problem as the run's outcome: the caller's to fix, or a failure. */
+  function refuse<O>(ctx: { invalid(problems: string): O; fail(cls: 'caller', message: string): O }, problem: QueryProblem): O {
+    return 'invalid' in problem ? ctx.invalid(problem.invalid) : ctx.fail('caller', problem.failed);
   }
 
   async function changeSchema(args: SchemaArgs, llm: Parameters<DatabaseInstance['rescan']>[0]): Promise<SchemaChanged | QueryProblem> {
@@ -214,37 +258,50 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       stopping: async () => { await instance?.close(); },
     },
     fns: {
-      get_query: {
-        async run(args, ctx) {
-          const here = queries.instance();
-          if (!('db' in here)) { return 'failed' in here ? ctx.fail('caller', here.failed) : ctx.invalid(here.invalid); }
-          const target = await pick(args.database, args.detailedDescription, runCtx(ctx), here, ctx);
-          if (typeof target !== 'string') { return 'failed' in target ? ctx.fail('caller', target.failed) : ctx.invalid(target.invalid); }
-          if (target !== here.instance) { return ctx.done(await ctx.fns.query_on({ detailedDescription: args.detailedDescription, database: target }, { on: InstanceName.parse(target) })); }
-          const answer = await queries.get(args.detailedDescription, runCtx(ctx));
-          return 'database' in answer ? ctx.done(answer) : 'failed' in answer ? ctx.fail('caller', answer.failed) : ctx.invalid(answer.invalid);
+      databases: {
+        async run(_args, ctx) {
+          const here = instance;
+          if (here === undefined) { return ctx.fail('caller', 'This database is not configured yet: an admin sets its connection on the system\'s page.'); }
+          const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
+            .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
+          return ctx.done(members.map((member) => ({ instance: member.instance, label: member.label, tables: [...member.tables] })));
         },
       },
-      query_on: {
+      at_instance: {
         async run(args, ctx) {
-          const answer = await queries.get(args.detailedDescription, runCtx(ctx));
-          return 'database' in answer ? ctx.done(answer) : 'failed' in answer ? ctx.fail('caller', answer.failed) : ctx.invalid(answer.invalid);
+          const answer = await atHere(args, ctx);
+          return 'op' in answer ? ctx.done(answer) : 'failed' in answer ? ctx.fail('caller', answer.failed) : ctx.invalid(answer.invalid);
         },
       },
-      edit_query: {
+      tables: {
         async run(args, ctx) {
-          const here = queries.instance();
-          if (!('db' in here)) { return 'failed' in here ? ctx.fail('caller', here.failed) : ctx.invalid(here.invalid); }
-          const target = savedQueryName(args.name, here.instance).instance;
-          if (target !== here.instance) { return ctx.done(await ctx.fns.edit_on(args, { on: InstanceName.parse(target) })); }
-          const answer = await queries.edit(args.name, args.instructions, runCtx(ctx));
-          return 'database' in answer ? ctx.done(answer) : 'failed' in answer ? ctx.fail('caller', answer.failed) : ctx.invalid(answer.invalid);
+          const answer = await at(ctx, args.database, { op: 'tables' }, (found) => (found.op === 'tables' ? found.tables : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
       },
-      edit_on: {
+      check_query: {
         async run(args, ctx) {
-          const answer = await queries.edit(args.name, args.instructions, runCtx(ctx));
-          return 'database' in answer ? ctx.done(answer) : 'failed' in answer ? ctx.fail('caller', answer.failed) : ctx.invalid(answer.invalid);
+          const answer = await at(ctx, args.database, { op: 'check', draft: args.draft }, (found) => (found.op === 'check' ? found.check : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
+      save_query: {
+        async run(args, ctx) {
+          const answer = await at(ctx, args.database, {
+            op: 'save', draft: args.draft,
+            ...(args.args === undefined ? {} : { args: args.args }),
+            ...(args.askedFor === undefined ? {} : { askedFor: args.askedFor }),
+            ...(args.replace === undefined ? {} : { replace: args.replace }),
+          }, (found) => (found.op === 'save' ? found.saved : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
+      run_query: {
+        async run(args, ctx) {
+          const target = queryInstance(args.fn);
+          if (target === undefined) { return ctx.invalid([{ path: 'fn', message: `"${args.fn}" isn't a saved query fn; they are named database/<database>.<name>.` }]); }
+          const answer = await at(ctx, target.instance, { op: 'run', fn: qualify(database.name, target.local), ...(args.args === undefined ? {} : { args: args.args }) }, (found) => (found.op === 'run' ? found.run : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
       },
       create_table: { run: (args, ctx) => forwardSchema('create', args, ctx) },
@@ -328,6 +385,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       },
     },
   };
+
 
   /** `create_table` / `alter_table`: hand the change to its instance's `change_schema`, which waits for approval. */
   async function forwardSchema(action: 'create' | 'alter', args: { table: string; type: SchemaArgs['type']; database?: string | undefined }, ctx: CtxOf<'create_table'>) {

@@ -176,7 +176,7 @@ async function makeContext(): Promise<void> {
         <PagesViewer v-else-if="current.draws === 'pages'" :pages="pages" :page="page" @update:page="emit('update:page', $event)" />
         <MediaViewer v-else-if="current.draws === 'audio' || current.draws === 'video'" :src="url" :kind="current.draws" :transcript="transcript" :title="opened.stat.name" />
         <JsonTree v-else-if="current.draws === 'json'" :text="text" :lines="format === 'jsonl'" :compact="compact" @copied="emit('notice', $event, 'ok')" />
-        <FolderViewer v-else-if="current.draws === 'folder'" :links="opened.links" @open="emit('navigate', $event)" />
+        <FolderViewer v-else-if="current.draws === 'folder'" :links="opened.links" :base="uri" @open="emit('navigate', $event)" />
         <component :is="systemViewer.component" v-else-if="current.draws === 'system' && systemViewer && systemProps" v-bind="systemProps" />
         <OfferCard v-else-if="current.draws === 'offer' && current.offer" :offer="current.offer" :busy="store.making.busy.value" :problem="store.making.problem.value" @make="make" />
         <InfoPanel v-else-if="current.draws === 'info'" :stat="opened.stat" :record="opened.record" :forms="opened.forms" :links="opened.links" @open="emit('navigate', $event)" />

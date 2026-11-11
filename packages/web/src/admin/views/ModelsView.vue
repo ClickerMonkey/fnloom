@@ -3,9 +3,10 @@
  * Providers and models, the tab in the URL: the configured providers (add or replace one, remove one), every model
  * they offer, the model categories agents choose from, the model roles (which model transcribes, dictates, speaks,
  * describes images and reads text in them; `?role=` opens one), the decision model that picks suggestions
- * (`?decision=1` opens it) and each model's limits (`?model=` opens one).
+ * (`?decision=1` opens it), the auto mode classifier that checks a chat's calls in auto mode (`?classifier=1` opens it)
+ * and each model's limits (`?model=` opens one).
  */
-import { ModelRole, type ModelCategory, type SessionId, type SuggestDecision, type ModelLimits, type ProviderInput, type RoleChoice } from '@harness/core';
+import { ModelRole, type AutoClassifier, type ModelCategory, type SessionId, type SuggestDecision, type ModelLimits, type ProviderInput, type RoleChoice } from '@harness/core';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import AppPage from '../../app/AppPage.vue';
 import { useParamChoice, useRouteQuery } from '../../app/url.ts';
@@ -14,6 +15,8 @@ import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiButton, UiEmpty, UiTabs, type TabItem } from '../../ui/index.ts';
 import CategoryDialog from '../components/CategoryDialog.vue';
 import DecisionDialog from '../components/DecisionDialog.vue';
+import ClassifierDialog from '../components/ClassifierDialog.vue';
+import { classifierText } from '../logic/classifier.ts';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import LoadState from '../components/LoadState.vue';
 import ModelLimitsDialog from '../components/ModelLimitsDialog.vue';
@@ -32,6 +35,7 @@ import type { ProviderRow } from '../state/models.ts';
 
 const { admin, toasts, chat } = useStores();
 const suggestions = admin.suggestions;
+const classifier = admin.classifier;
 const models = admin.models;
 const tab = useParamChoice('tab', ModelsTab, 'providers');
 /** The models search, kept in the URL (`?q=`) once typing pauses. */
@@ -45,6 +49,8 @@ const openModel = query.text('model', { push: true });
 const roleOpen = computed({ get: () => openRole.value !== undefined, set: (isOpen) => { if (!isOpen) { roleParam.value = ''; } } });
 const decisionParam = query.text('decision', { push: true });
 const decisionOpen = computed({ get: () => decisionParam.value === '1', set: (isOpen) => { decisionParam.value = isOpen ? '1' : ''; } });
+const classifierParam = query.text('classifier', { push: true });
+const classifierOpen = computed({ get: () => classifierParam.value === '1', set: (isOpen) => { classifierParam.value = isOpen ? '1' : ''; } });
 const limitsOpen = computed({ get: () => openModel.value !== '', set: (isOpen) => { if (!isOpen) { openModel.value = ''; } } });
 const editingRole = computed(() => (openRole.value === undefined ? undefined : roles.role(openRole.value)));
 const editingLimits = computed(() => roles.limits.value.value?.find((l) => l.model === openModel.value));
@@ -69,7 +75,7 @@ const providerName = (model: ModelInfo): string => modelProviderName(model.provi
 
 onMounted(() => { void models.load(ready.value); });
 watch(tab, (current) => {
-  if (current === 'roles') { void roles.loadRoles(roles.roles.value.value !== undefined); void suggestions.load(suggestions.decision.value.value !== undefined); }
+  if (current === 'roles') { void roles.loadRoles(roles.roles.value.value !== undefined); void suggestions.load(suggestions.decision.value.value !== undefined); void classifier.load(classifier.setting.value.value !== undefined); }
   if (current === 'limits') { void roles.loadLimits(roles.limits.value.value !== undefined); }
 }, { immediate: true });
 
@@ -96,6 +102,13 @@ async function saveDecision(value: SuggestDecision): Promise<void> {
   if (!result.ok) { return; }
   decisionOpen.value = false;
   toasts.ok('Decision model saved', decisionModelText(result.value));
+}
+
+async function saveClassifier(value: AutoClassifier): Promise<void> {
+  const result = await classifier.save(value);
+  if (!result.ok) { return; }
+  classifierOpen.value = false;
+  toasts.ok('Auto mode classifier saved', classifierText(result.value));
 }
 
 function tryDecision(session: SessionId, text: string): void {
@@ -194,6 +207,14 @@ async function confirmRemove(): Promise<void> {
             <template #badges><UiBadge :tone="suggestions.decision.value.value?.value.enabled === true ? 'accent' : 'neutral'">{{ suggestions.decision.value.value?.value.enabled === true ? 'On' : 'Off' }}</UiBadge></template>
           </RuleRow>
         </RuleList>
+        <RuleList title="Chat modes" description="How a chat set to Auto decides whether a call that writes or deletes goes ahead." testid="chat-modes">
+          <RuleRow
+            icon="shield" title="Auto mode classifier" :detail="classifierText(classifier.setting.value.value)" label="Auto mode classifier" :removable="false" data-testid="classifier-row"
+            @edit="classifierOpen = true"
+          >
+            <template #badges><UiBadge :tone="classifier.setting.value.value?.value.model ? 'accent' : 'neutral'">{{ classifier.setting.value.value?.value.model ? 'On' : 'Off' }}</UiBadge></template>
+          </RuleRow>
+        </RuleList>
       </LoadState>
 
       <LoadState
@@ -224,6 +245,10 @@ async function confirmRemove(): Promise<void> {
       v-model:open="decisionOpen" :view="suggestions.decision.value.value" :models="models.models.value.value ?? []" :sessions="chat.sessions.items.value"
       :busy="suggestions.saving.busy.value" :problem="suggestions.saving.problem.value" :preview="suggestions.preview.value.value" :previewing="suggestions.preview.loading.value"
       :preview-problem="suggestions.preview.problem.value" @save="saveDecision" @try="tryDecision"
+    />
+    <ClassifierDialog
+      v-model:open="classifierOpen" :view="classifier.setting.value.value" :models="models.models.value.value ?? []" :busy="classifier.saving.busy.value"
+      :problem="classifier.saving.problem.value" @save="saveClassifier"
     />
     <ModelLimitsDialog v-model:open="limitsOpen" :view="editingLimits" :busy="roles.save.busy.value" :problem="roles.save.problem.value" @save="saveLimits" />
     <ProviderDialog v-model:open="providerOpen" :busy="models.save.busy.value" :problem="models.save.problem.value" @save="saveProvider" />

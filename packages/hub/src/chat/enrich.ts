@@ -63,7 +63,8 @@ export class HubMessageEnricher implements MessageEnricher {
     for (const part of message.parts) {
       switch (part.type) {
         case 'text': inline.push(part.text); break;
-        case 'reasoning': break;
+        // the model reads its own reasoning and fn calls from the transcript, never from the message
+        case 'reasoning': case 'call': break;
         case 'mention':
           inline.push(`<mention provider="${escapeAttribute(part.provider)}" label="${escapeAttribute(part.label)}">${escapeBody(part.text)}</mention>`);
           break;

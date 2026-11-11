@@ -40,7 +40,7 @@ export const SectionDiff = z.object({
 export type SectionDiff = z.infer<typeof SectionDiff>;
 
 /** What the hub indexes. */
-export const INDEXED_KINDS = ['fn', 'context', 'section', 'message', 'type'] as const;
+export const INDEXED_KINDS = ['fn', 'context', 'section', 'message', 'type', 'example'] as const;
 export const IndexedKind = z.enum(INDEXED_KINDS);
 export type IndexedKind = z.infer<typeof IndexedKind>;
 

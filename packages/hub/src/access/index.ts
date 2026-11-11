@@ -82,6 +82,11 @@ export interface AccessService {
    * unless the run is that system's and still going. Fns the person may not use are left out.
    */
   usable(system: SystemName, query: FnUsable): Promise<string[]>;
+  /**
+   * Build 5: the hub hands something it made to a person, with who else may see it (a person's browser log folder,
+   * private to them; admins see everything anyway). Only the hub's own code calls this.
+   */
+  own(target: AccessTarget, owner: ActorId, rule: ShareRule): Promise<AccessView>;
 }
 
 /** A scope that sees and may use everything, acting as `actor` (the hub's own work, tests). */

@@ -5,7 +5,7 @@
  */
 import type { FetchFn } from '@aeye/resources';
 import type { HostLookup } from '@harness/sdk/server';
-import type { SearchResultsValue } from '../shared/index.ts';
+import type { SearchFoundValue } from '../shared/index.ts';
 import type { FetchedPage, FetchSettings, PageSource, SearchArgs, SearchProvider } from './index.ts';
 import type { BrowserTab, HeadlessBrowser, LaunchBrowser, LoadedTab, TabLoad } from './renderer.ts';
 
@@ -113,13 +113,13 @@ export function fakeLauncher(script: TabScript): LaunchBrowser & { readonly brow
 /** A search provider that answers with `results` and records what it was asked. */
 export class FakeSearch implements SearchProvider {
   readonly asked: Array<{ args: SearchArgs; key: string | undefined }> = [];
-  results: SearchResultsValue | Error;
+  results: SearchFoundValue | Error;
 
-  constructor(results: SearchResultsValue | Error) {
+  constructor(results: SearchFoundValue | Error) {
     this.results = results;
   }
 
-  search(args: SearchArgs, options: { key: string | undefined }): Promise<SearchResultsValue> {
+  search(args: SearchArgs, options: { key: string | undefined }): Promise<SearchFoundValue> {
     this.asked.push({ args, key: options.key });
     return this.results instanceof Error ? Promise.reject(this.results) : Promise.resolve(this.results);
   }

@@ -22,7 +22,10 @@ const WIDE = table([{ name: 'id', kind: 'integer', nullable: false }, { name: 'n
 const run = (): Promise<RunId> => Promise.resolve(mintId('run'));
 const system: SystemClient<DatabaseContract['defs']> = {
   online: true, send: {},
-  run: { query_on: run, edit_on: run, change_schema: run, apply_type_changes: run, get_query: run, edit_query: run, create_table: run, alter_table: run },
+  run: {
+    at_instance: run, change_schema: run, apply_type_changes: run, databases: run, tables: run, check_query: run, save_query: run, run_query: run,
+    get_query: run, edit_query: run, create_table: run, alter_table: run,
+  },
 };
 
 describe('query visuals', () => {

@@ -19,6 +19,14 @@ async function world(scope: Partial<AccessScope> = {}): Promise<PickerDeps> {
   return {
     access: { scope: (actor) => Promise.resolve({ ...openScope(actor), ...scope }) },
     catalog,
+    // the fns search stands in for the hub's database: words in the name or description, only what the asker sees
+    fns: {
+      search: async (query, asker) => {
+        const words = query.text?.toLowerCase() ?? '';
+        const seen = (await catalog.fns({})).filter((fn) => asker.access.seesFn(fn) && `${fn.name} ${fn.decl.description}`.toLowerCase().includes(words));
+        return { items: seen.map((fn) => ({ item: 'fn' as const, name: fn.name, system: fn.system, description: fn.decl.description, available: true })) };
+      },
+    },
     store,
     llm: { models: () => Promise.resolve([{ id: 'qwen2.5:3b', provider: 'ollama', name: 'Qwen 2.5 3B', capabilities: ['chat'] }]) },
     settings: queryEnv.parse(),
@@ -39,6 +47,7 @@ describe('pick', () => {
     expect((await pick(deps, ADA, { source: 'fn', text: '' })).map((o) => o.value)).toEqual(['fs/read', 'fs/grep']);
     expect((await pick(deps, ADA, { source: 'fn', text: 'grep' })).map((o) => o.value)).toEqual(['fs/grep']);
     expect((await pick(deps, ADA, { source: 'fn', text: 'search' })).map((o) => o.value)).toEqual(['fs/grep']);
+    expect(await pick(deps, ADA, { source: 'fn', text: 'grep' })).toEqual([{ value: 'fs/grep', label: 'fs/grep', hint: 'Search files for text.', icon: 'fn' }]);
     expect(await pick(deps, ADA, { source: 'person', text: 'be' })).toEqual([{ value: 'act_ben', label: 'Ben', hint: 'Ben@x', icon: 'person' }]);
     expect(await pick(deps, ADA, { source: 'model', text: 'qwen' })).toEqual([{ value: 'qwen2.5:3b', label: 'Qwen 2.5 3B', hint: 'ollama' }]);
   });

@@ -172,7 +172,7 @@ export function messageText(parts: readonly MessagePart[]): string {
       case 'file': return `[${part.name}]`;
       case 'link': return 'title' in part.link && part.link.title !== undefined ? part.link.title : '';
       case 'attachment': return part.title;
-      case 'reasoning': case 'invocation': case 'extra': case 'hook': case 'input-answer': return '';
+      case 'reasoning': case 'invocation': case 'call': case 'extra': case 'hook': case 'input-answer': return '';
     }
   }).filter((text) => text !== '').join(' ').replace(/ {2,}/g, ' ').trim();
 }
@@ -188,7 +188,7 @@ export function resendParts(parts: readonly MessagePart[]): OutgoingPart[] {
       case 'file': out.push({ type: 'file', ref: part.ref, name: part.name }); break;
       // the rest are added by the hub or the agent, never sent by a person
       // a form's answers belong to the run that asked, which a resend doesn't repeat
-      case 'reasoning': case 'invocation': case 'extra': case 'hook': case 'input-answer': case 'attachment': case 'link': break;
+      case 'reasoning': case 'invocation': case 'call': case 'extra': case 'hook': case 'input-answer': case 'attachment': case 'link': break;
     }
   }
   return out;
@@ -227,48 +227,91 @@ export function splitParts(parts: readonly MessagePart[]): { readonly shown: Mes
   return { shown, added };
 }
 
+/**
+ * What an answer message holds, in the order the model produced it: reasoning, words, and the fns it called (a
+ * `runs` segment holds the runs of calls made together). Kept live while the message streams, so the thread shows
+ * each thing where it happened.
+ */
+export type AnswerSegment =
+  | { readonly kind: 'reasoning'; readonly text: string }
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'runs'; readonly runs: readonly RunId[] };
+
+/** Add to an answer's segments: more of the same kind joins the last segment, anything else starts a new one. */
+export function addSegment(segments: readonly AnswerSegment[], next: AnswerSegment): AnswerSegment[] {
+  const last = segments.at(-1);
+  if (last === undefined || last.kind !== next.kind) { return [...segments, next]; }
+  if (last.kind === 'runs' && next.kind === 'runs') {
+    return [...segments.slice(0, -1), { kind: 'runs', runs: [...last.runs, ...next.runs.filter((run) => !last.runs.includes(run))] }];
+  }
+  if (last.kind !== 'runs' && next.kind !== 'runs') { return [...segments.slice(0, -1), { kind: last.kind, text: last.text + next.text }]; }
+  return [...segments, next];
+}
+
+/**
+ * An answer's live segments once it is finished: the words it ended with that never streamed (a "Cancelled.", or
+ * the rest of a reply the stream cut short) are added at the end, so the stored reply always shows.
+ */
+export function settleSegments(live: readonly AnswerSegment[], message: Pick<ChatMessage, 'parts'>): AnswerSegment[] {
+  const said = live.map((segment) => (segment.kind === 'text' ? segment.text : '')).join('');
+  const final = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
+  if (final === '' || said.endsWith(final)) { return [...live]; }
+  return addSegment(live, { kind: 'text', text: final.startsWith(said) ? final.slice(said.length) : final });
+}
+
+/** The runs an answer's segments place. */
+function placedRuns(segments: readonly AnswerSegment[]): ReadonlySet<RunId> {
+  return new Set(segments.flatMap((segment) => (segment.kind === 'runs' ? segment.runs : [])));
+}
+
+/**
+ * A stored answer message's segments, in the order its parts keep: reasoning and words as they are, a `call` part as
+ * the run it started. Runs the parts don't place came before the words (an answer's reply follows the fns it
+ * ran), so they go after the reasoning that opens the message.
+ */
+export function storedSegments(message: Pick<ChatMessage, 'parts' | 'runs'>): AnswerSegment[] {
+  let segments: AnswerSegment[] = [];
+  for (const part of message.parts) {
+    if (part.type === 'reasoning' || part.type === 'text') { segments = addSegment(segments, { kind: part.type, text: part.text }); }
+    if (part.type === 'call') { segments = addSegment(segments, { kind: 'runs', runs: [part.run] }); }
+  }
+  return withRuns(segments, message.runs);
+}
+
+/** Segments with every one of `runs`: those not placed yet go after the opening reasoning, before anything else. */
+export function withRuns(segments: readonly AnswerSegment[], runs: readonly RunId[]): AnswerSegment[] {
+  const placed = placedRuns(segments);
+  const missing = runs.filter((run) => !placed.has(run));
+  if (missing.length === 0) { return [...segments]; }
+  const at = segments.findIndex((segment) => segment.kind !== 'reasoning');
+  const cut = at === -1 ? segments.length : at;
+  return [...segments.slice(0, cut), ...segments.slice(cut).reduce<AnswerSegment[]>(addSegment, [{ kind: 'runs', runs: missing }])];
+}
+
 /** One piece of an answer, in the order it happened. */
 export type AnswerPiece =
+  | { readonly kind: 'reasoning'; readonly key: string; readonly text: string }
   | { readonly kind: 'text'; readonly key: string; readonly text: string }
   | { readonly kind: 'runs'; readonly key: string; readonly runs: readonly RunId[] }
   | { readonly kind: 'attachment'; readonly key: string; readonly part: Extract<MessagePart, { type: 'attachment' }> }
   | { readonly kind: 'link'; readonly key: string; readonly link: Link };
 
 /**
- * An answer message's pieces in the order they happened. A finished message holds the agent's final reply, which
- * came after every fn it ran, so its runs come first, then what they attached, then the reply. While it streams, each
- * run sits where the text had got to when the run appeared (`marks`, text offsets the thread saw live); a run the
- * thread didn't see appear sits before the text.
+ * An answer message's pieces in the order they happened: its segments (the live ones the thread saw stream, else
+ * the stored ones), with what its runs attached right after the last of its runs (before the words when it ran none).
  */
-export function answerPieces(message: Pick<ChatMessage, 'parts' | 'runs' | 'status'>, marks: ReadonlyMap<RunId, number>): AnswerPiece[] {
-  const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
+export function answerPieces(message: Pick<ChatMessage, 'parts' | 'runs'>, live?: readonly AnswerSegment[]): AnswerPiece[] {
+  const segments = live === undefined ? storedSegments(message) : withRuns(live, message.runs);
+  const pieces: AnswerPiece[] = segments.map((segment, i) => (segment.kind === 'runs'
+    ? { kind: 'runs', key: `s${i}`, runs: segment.runs }
+    : { kind: segment.kind, key: `s${i}`, text: segment.text }));
   const extras = message.parts.flatMap((part, i): AnswerPiece[] => {
     if (part.type === 'attachment') { return [{ kind: 'attachment', key: `a${i}`, part }]; }
     if (part.type === 'link') { return [{ kind: 'link', key: `l${i}`, link: part.link }]; }
     return [];
   });
-  const live = message.status === 'streaming';
-  const at = (run: RunId): number => (live ? Math.min(marks.get(run) ?? 0, text.length) : 0);
-  const groups = new Map<number, RunId[]>();
-  for (const run of message.runs) { groups.set(at(run), [...(groups.get(at(run)) ?? []), run]); }
-  const out: AnswerPiece[] = [];
-  let from = 0;
-  for (const offset of [...groups.keys()].sort((a, b) => a - b)) {
-    if (offset > from) { out.push({ kind: 'text', key: `t${from}`, text: text.slice(from, offset) }); }
-    out.push({ kind: 'runs', key: `r${offset}`, runs: groups.get(offset) ?? [] });
-    from = offset;
-  }
-  out.push(...extras);
-  if (text.length > from) { out.push({ kind: 'text', key: `t${from}`, text: text.slice(from) }); }
-  return out;
-}
-
-/** How long a message's text is: where a run appearing now would sit in it. */
-export function messageTextLength(message: Pick<ChatMessage, 'parts'>): number {
-  return message.parts.reduce((length, part) => length + (part.type === 'text' ? part.text.length : 0), 0);
-}
-
-/** The reasoning an answer message kept (its `reasoning` parts), '' when it has none. */
-export function storedReasoning(message: Pick<ChatMessage, 'parts'>): string {
-  return message.parts.map((part) => (part.type === 'reasoning' ? part.text : '')).join('');
+  const lastRuns = pieces.findLastIndex((piece) => piece.kind === 'runs');
+  const firstText = pieces.findIndex((piece) => piece.kind === 'text');
+  const at = lastRuns !== -1 ? lastRuns + 1 : firstText !== -1 ? firstText : pieces.length;
+  return [...pieces.slice(0, at), ...extras, ...pieces.slice(at)];
 }

@@ -15,6 +15,7 @@ import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import type { ModelResolver } from '../execution/models.ts';
 import { visibleMade } from '../resources/context.ts';
+import { MODE_RANK } from '../fns/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { budgetPlan } from './budget.ts';
 import { CONTEXTORS } from './contextors.ts';
@@ -210,7 +211,7 @@ export class HubPromptPlanner implements PromptPlanner {
       ...asked, asked: { ...asked.asked, fns: shown(asked.asked.fns) }, person: planning.turn?.user,
       mode, ctx, plan, cached: planning.cached,
     };
-    let selection = await contextor.select(input);
+    let selection = await this.#forTurn(await contextor.select(input), session, query);
     let rendered = await mode.render(selection, ctx);
     let assembled = this.#assemble(planning.instructions, guide, selection, rendered, estimator);
     // the parts' estimates can add up to less than the whole's: choose again with less room for the optional parts
@@ -221,7 +222,7 @@ export class HubPromptPlanner implements PromptPlanner {
       if (tries >= MAX_RESELECTS || taken >= room) throw this.#tooLarge(model, assembled.estimate, plan, selection);
       taken = Math.min(room, Math.max(taken * 2, taken + assembled.estimate - plan.available));
       const tighter: BudgetPlan = { ...plan, flexible: plan.flexible - taken };
-      selection = await contextor.select({ ...input, plan: tighter });
+      selection = await this.#forTurn(await contextor.select({ ...input, plan: tighter }), session, query);
       rendered = await mode.render(selection, ctx);
       assembled = this.#assemble(planning.instructions, guide, selection, rendered, estimator);
     }
@@ -236,6 +237,23 @@ export class HubPromptPlanner implements PromptPlanner {
       model, context: assembled.context, messages: assembled.messages, tools: rendered.tools, maxTokens: plan.output + plan.reasoning, contextWindow: view.limits.contextWindow,
       estimate: assembled.estimate, rendered, report, mode, ctx, session, access: input.access, ...(selection.considered === undefined ? {} : { considered: selection.considered }),
     };
+  }
+
+  /**
+   * A selection as this turn shows it: only the fns the chat's fn mode allows (none at all in `none`; in `auto` all,
+   * since each call is asked about), each card with the examples most relevant to the turn.
+   */
+  async #forTurn(selection: Selection, session: Session | undefined, query: string): Promise<Selection> {
+    const fns = this.#deps.fns;
+    if (fns === undefined) return selection;
+    const mode = session?.fnMode;
+    let chosen = mode === 'none' ? [] : selection.fns;
+    if (mode === 'read' || mode === 'write' || mode === 'delete') {
+      const modes = await fns.modes(chosen.map((fn) => fn.view.record.name));
+      chosen = chosen.filter((fn) => MODE_RANK[modes.get(fn.view.record.name) ?? 'write'] <= MODE_RANK[mode]);
+    }
+    const withExamples = await Promise.all(chosen.map(async (fn): Promise<ChosenFn> => (fn.detail === 'listed' ? fn : { ...fn, examples: await fns.examples(fn.view.record, query) })));
+    return { ...selection, fns: withExamples };
   }
 
   /** The system region, the messages and the request's estimate. */

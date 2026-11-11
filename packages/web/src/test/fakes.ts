@@ -20,6 +20,9 @@ import { fakeChat } from '../chat/test/fakes.ts';
 import { fakeAdmin } from '../admin/test/fakes.ts';
 import { fakeResources } from '../resources/test/fakes.ts';
 import { fakeContext } from '../context/test/fakes.ts';
+import { fakeFnsApi } from '../fns/test/fakes.ts';
+import { FnInfoStore } from '../fns/state/fn-info.ts';
+import { ClientLogs } from '../state/client-logs.ts';
 
 type EndpointOf<K extends Endpoint> = HubWebSpec['endpoints'][K];
 
@@ -180,6 +183,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
   const admin = fakeAdmin();
   const resources = fakeResources();
   const context = fakeContext();
+  const fns = fakeFnsApi();
   const stores: Stores = {
     session,
     keeper: new SessionKeeper(api.auth, session),
@@ -193,7 +197,9 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     signInForm: () => new SignInForm(api.auth, session),
     resources: resources.resources,
     context: context.context,
+    fns: new FnInfoStore(fns, events.subscribe),
+    logs: new ClientLogs({ send: fakeCaller<'clientLogs'>(() => Promise.resolve({ uri: 'hub://logs/test.jsonl', written: 1 })), signedIn: () => false, page: () => '/' }),
     push: new PushStore(api.notifications, fakePush(), () => 'Test browser'),
   };
-  return { stores, api, events, connection, store, chat, admin, resources, context };
+  return { stores, api, events, connection, store, chat, admin, resources, context, fns };
 }

@@ -13,10 +13,13 @@ export const random = system('random', { description: 'Generates a random number
       random: fn({
         description: 'Returns a random integer between min (inclusive) and max (inclusive).',
         args: g.obj({
-          min: g.num({ description: 'Lower bound, inclusive.' }),
-          max: g.num({ description: 'Upper bound, inclusive.' }),
+          min: g.field(g.num({ whole: true }), { docs: 'Lower bound, inclusive.' }),
+          max: g.field(g.num({ whole: true }), { docs: 'Upper bound, inclusive.' }),
         }),
-        returns: g.num({ description: 'A random integer between min and max.' }),
+        returns: g.num({ whole: true }),
+        instructions: 'Use it whenever a choice must be random (a dice roll, a pick from a numbered list); never make one up. Both bounds are included; give min below max.',
+        examples: [{ args: { min: 1, max: 6 }, result: 4, note: 'A dice roll.' }, { args: { min: 0, max: 99 } }],
+        effects: { mode: 'read', free: true },
         tags: ['math'],
       }),
     },

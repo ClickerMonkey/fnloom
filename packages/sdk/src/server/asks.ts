@@ -1,10 +1,12 @@
 /**
- * The runtime's side of `ctx.propose` and `ctx.decide`: proposing a run that waits for approval (`propose` on the hub
+ * The runtime's side of `ctx.propose`, `ctx.decide`, `ctx.fleet` and `ctx.searchFns`: proposing a run that waits for approval (`propose` on the hub
  * link) and asking the decision model to choose (`decide`). One builder each, used by the run context and, for
  * proposals, the system context.
  */
-import { Json, LocalName, type DecideAnswer, type DecideCandidate, type FleetInstance, type ProposedRun, type RunId } from '@harness/core';
-import type { DecideOptions, Decisions, Fleets, ProposeOptions, Proposals } from '../ctx.ts';
+import {
+  Json, LocalName, type DecideAnswer, type DecideCandidate, type FleetInstance, type FnExamplesPage, type FnSearchPage, type ProposedRun, type RunId,
+} from '@harness/core';
+import type { DecideOptions, Decisions, Fleets, FnSearch, ProposeOptions, Proposals } from '../ctx.ts';
 import { canonicalJson, sha256 } from '../manifest.ts';
 import type { AnyFnRef } from '../refs.ts';
 import type { HubAccess } from './link.ts';
@@ -57,6 +59,20 @@ export function fleets(hub: HubAccess, signal: AbortSignal): Fleets {
     fleet: async (): Promise<FleetInstance[]> => {
       const link = await hub.ready(signal);
       return await link.call('fleet', {});
+    },
+  };
+}
+
+/** `searchFns` and `fnExamples` for a context: as the run's person in a run, as the system outside one. */
+export function fnSearch(hub: HubAccess, run: RunId | undefined, signal: AbortSignal): FnSearch {
+  return {
+    searchFns: async (query): Promise<FnSearchPage> => {
+      const link = await hub.ready(signal);
+      return await link.call('searchFns', { ...query, ...(run === undefined ? {} : { run }) });
+    },
+    fnExamples: async (query): Promise<FnExamplesPage> => {
+      const link = await hub.ready(signal);
+      return await link.call('fnExamples', query);
     },
   };
 }

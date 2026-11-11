@@ -25,6 +25,7 @@ import type { AutoPairService } from '../link/auto-pair.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
 import type { AccessService } from '../access/index.ts';
 import type { ConnectionService } from '../connections/index.ts';
+import type { FnsServices } from '../fns/index.ts';
 import type { ContextorServices } from '../contextor/index.ts';
 import type { McpServices } from '../mcp/index.ts';
 import type { MetricsServices } from '../metrics/index.ts';
@@ -77,6 +78,9 @@ export interface HubServices {
   readonly access: AccessService;
   /** Per-person connections to the systems that act as a person. */
   readonly connections: ConnectionService;
+  // build 5
+  /** Fns and context search, fn examples and facts, the chat fn mode gate, and browser logs. */
+  readonly fns: FnsServices;
 }
 
 /** The updown component names, in start order. The lifecycle is typed by them, so a misspelt name or dependency cannot compile. */
@@ -101,7 +105,7 @@ export interface StageHooks {
 }
 
 /** The modules other lanes build; boot builds the base services and the api module itself. */
-export type ModuleKey = 'catalog' | 'link' | 'execution' | 'chat' | 'index' | 'contextor' | 'resources' | 'mcp' | 'metrics' | 'models' | 'access' | 'connections';
+export type ModuleKey = 'catalog' | 'link' | 'execution' | 'chat' | 'index' | 'contextor' | 'resources' | 'mcp' | 'metrics' | 'models' | 'access' | 'connections' | 'fns';
 
 /** What building a module gives the hub. */
 export interface ModuleBuild<T> {

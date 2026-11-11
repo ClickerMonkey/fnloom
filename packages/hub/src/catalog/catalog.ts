@@ -594,6 +594,8 @@ export class StoreCatalog implements Catalog {
       display: description.display ?? decl.display,
       // a write query asks every time: its kind says so for the payload, over whatever the fn declared
       ...(description.approval === undefined ? {} : { approval: description.approval }),
+      // so are its effects: what the payload reads, writes or deletes
+      ...(description.effects === undefined ? {} : { effects: { ...decl.effects, ...description.effects } }),
       // the fn's own status words win over what its kind says for the payload
       ...(decl.status === undefined && description.status !== undefined ? { status: description.status } : {}),
     });

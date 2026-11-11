@@ -20,8 +20,10 @@ import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
   type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
+  type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery,
 } from '@harness/core';
 import type { Log, SystemPlace } from '../ctx.ts';
+import { fnSearch } from './asks.ts';
 import { wireType } from '../gin.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
@@ -317,6 +319,14 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     const report = await hub.call('patch', await this.#manifestState().types(upsert, remove));
     const refused = report.refused.filter((r) => upsert.some((decl) => r.name === decl.name || r.name === qualify(this.name, decl.name)));
     if (refused.length > 0) { throw new Error(`The hub refused ${refused.map((r) => `${r.name}: ${r.problems.join('; ')}`).join(' | ')}`); }
+  }
+
+  searchFns(query: FnSearchQuery): Promise<FnSearchPage> {
+    return fnSearch(this.#access, undefined, this.#stop.signal).searchFns(query);
+  }
+
+  fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage> {
+    return fnSearch(this.#access, undefined, this.#stop.signal).fnExamples(query);
   }
 
   async restart(reason: string): Promise<never> {

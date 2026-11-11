@@ -5,7 +5,7 @@
  */
 import type { ContentRef } from '@harness/core';
 import type { ConfigOf, TypesOf } from '@harness/sdk';
-import type { RenderModeValue, SearchResultsValue, WebContract } from '../shared/index.ts';
+import type { RenderModeValue, SearchFoundValue, WebContract } from '../shared/index.ts';
 
 /** The web system's config. */
 export type WebConfig = ConfigOf<WebContract['defs']>;
@@ -16,7 +16,7 @@ export type SearchArgs = TypesOf<WebContract['defs']['fns']['search']>['args'];
 /** Searches the web. */
 export interface SearchProvider {
   /** Results for the args, best first. Throws `WebProblem` (`no-search-key`, `search-refused`, …). */
-  search(args: SearchArgs, options: { key: string | undefined; signal?: AbortSignal }): Promise<SearchResultsValue>;
+  search(args: SearchArgs, options: { key: string | undefined; signal?: AbortSignal }): Promise<SearchFoundValue>;
 }
 
 /** How one fetch behaves: the config's values where it has them, the system's settings otherwise. */

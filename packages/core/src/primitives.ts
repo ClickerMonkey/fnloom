@@ -49,6 +49,7 @@ export const ID_PREFIXES = {
   mcp: 'mcp',
   autoPair: 'apk',
   connection: 'cnx',
+  fnExample: 'fex',
 } as const;
 
 /** The kinds of id. */

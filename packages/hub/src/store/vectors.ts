@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { VectorMeta, createAuxTable } from './auxTables.ts';
 import type { Scope } from './db.ts';
 import { StoreError } from './errors.ts';
-import type { VectorIndex } from './index.ts';
+import { WITHIN_CHUNK, type IndexedItem, type VectorIndex } from './index.ts';
 
 const Nearest = z.object({ kind: IndexedKind, key: z.string(), distance: z.number() });
 
@@ -28,6 +28,13 @@ export function vectorTable(embedder: string): string {
 /** A vector as sqlite-vec reads it: little-endian float32s. */
 function vectorBlob(vector: readonly number[]): Uint8Array {
   return new Uint8Array(Float32Array.from(vector).buffer);
+}
+
+/** A list in pieces of at most `size`. */
+export function chunks<T>(list: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
 }
 
 /** Similarity in [0, 1] from cosine distance in [0, 2]: 1 − distance, floored at 0 (opposite vectors aren't similar). */
@@ -123,21 +130,27 @@ export class SqliteVectorIndex implements VectorIndex {
     vector: readonly number[],
     limit: number,
     kinds?: readonly IndexedKind[],
+    within?: ReadonlyArray<IndexedItem>,
   ): Promise<Array<{ kind: IndexedKind; key: string; score: number }>> {
     const table = this.#table(embedder);
     if (table === undefined) return [];
     this.#check(embedder, vector);
     const k = Math.floor(limit);
-    if (k < 1 || kinds?.length === 0) return [];
+    if (k < 1 || kinds?.length === 0 || within?.length === 0) return [];
     const byKind = kinds === undefined ? sql`` : sql`and kind in (${sql.join([...kinds])})`;
-    const result = await sql`
-      select kind, key, distance from ${sql.table(table)}
-      where embedding match ${vectorBlob(vector)} and k = ${k} ${byKind}
-      order by distance`.execute(this.#scope.db);
-    return result.rows.map((row) => {
-      const hit = Nearest.parse(row);
-      return { kind: hit.kind, key: hit.key, score: similarity(hit.distance) };
-    });
+    const search = async (ids: readonly string[] | undefined) => {
+      const byId = ids === undefined ? sql`` : sql`and id in (${sql.join([...ids])})`;
+      const result = await sql`
+        select kind, key, distance from ${sql.table(table)}
+        where embedding match ${vectorBlob(vector)} and k = ${k} ${byKind} ${byId}
+        order by distance`.execute(this.#scope.db);
+      return result.rows.map((row) => Nearest.parse(row));
+    };
+    // a long `within` list is searched in pieces; each piece's nearest are the database's, the best of them are kept
+    const found = within === undefined
+      ? await search(undefined)
+      : (await Promise.all(chunks(within.map((item) => compositeKey(item.kind, item.key)), WITHIN_CHUNK).map(search))).flat().sort((a, b) => a.distance - b.distance).slice(0, k);
+    return found.map((hit) => ({ kind: hit.kind, key: hit.key, score: similarity(hit.distance) }));
   }
 
   /** The embedder's table, or undefined while it has none (no size ensured yet). */

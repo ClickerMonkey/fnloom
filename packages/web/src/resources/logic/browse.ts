@@ -174,6 +174,17 @@ export function linkLabel(link: Pick<ResourceLink, 'title' | 'raw'>): string {
   return plain(link.title ?? '') || plain(link.raw) || link.raw;
 }
 
+/**
+ * Where a link goes: its address when the system resolved one, else what it says as written resolved against the
+ * resource it is in (a folder's `./child`). Undefined when neither makes a resource address.
+ */
+export function linkTarget(link: Pick<ResourceLink, 'uri' | 'raw'>, base: string): ResourceUri | undefined {
+  if (link.uri !== undefined) { return link.uri; }
+  if (!URL.canParse(link.raw, base)) { return undefined; }
+  const parsed = ResourceUri.safeParse(new URL(link.raw, base).href);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** Whether a resource lives in the hub (an upload, a web page, a fn's output): only these rename and delete. */
 export function isHubResource(uri: string): boolean {
   return uri.startsWith(HUB_RESOURCE_ROOT);

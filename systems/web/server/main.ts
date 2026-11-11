@@ -4,10 +4,8 @@
  * the hub. `npm run dev` starts it when `TAVILY_API_KEY` is set.
  */
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { buildClient } from '@harness/sdk/build';
-import { loggedHost, serve, systemLookup } from '@harness/sdk/server';
+import { loggedHost, rendererFolder, serve, systemLookup } from '@harness/sdk/server';
 import { web } from '../shared/index.ts';
 import { launchChrome } from './chrome.ts';
 import { webEnv } from './env.ts';
@@ -51,9 +49,8 @@ const server = createWebImpl({
   now: () => Date.now(),
 });
 
-const clientFolder = join(settings.HARNESS_SYSTEM_STATE, 'client');
 const built = performance.now();
-await buildClient({ entry: fileURLToPath(new URL('../client/index.ts', import.meta.url)), outDir: clientFolder });
+const clientFolder = await rendererFolder({ main: import.meta.url, outDir: join(settings.HARNESS_SYSTEM_STATE, 'client') });
 log.info('web.client.built', { folder: clientFolder, took: Math.round(performance.now() - built) });
 
 log.info('web.serving', { hub: settings.HARNESS_HUB, search: settings.TAVILY_API_KEY !== undefined, render: settings.WEB_RENDER });

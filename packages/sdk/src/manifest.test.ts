@@ -98,6 +98,14 @@ describe('fn examples', () => {
     Reflect.set(wrong, 'q', 3);
     expect(() => fn({ description: 'Find.', args, returns: g.text(), examples: [{ args: wrong }] })).toThrow(/Find\.: example 1 does not fit the args type/);
   });
+
+  it('keep a result of the returns type, checked too, into the manifest', () => {
+    const args = g.obj({ q: g.text() });
+    expect(fn({ description: 'Find.', args, returns: g.num(), examples: [{ args: { q: 'x' }, result: 3 }] }).examples).toEqual([{ args: { q: 'x' }, result: 3 }]);
+    const wrong = { value: 3 };
+    Reflect.set(wrong, 'value', 'three');
+    expect(() => fn({ description: 'Find.', args, returns: g.num(), examples: [{ args: { q: 'x' }, result: wrong.value }] })).toThrow(/does not fit the returns type/);
+  });
 });
 
 describe('context links', () => {

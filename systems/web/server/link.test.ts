@@ -87,6 +87,11 @@ describe('web over the link', () => {
     const manifest = hub.manifests[0];
     expect(manifest?.name).toBe('web');
     const fns = new Map(manifest?.fns.map((f) => [f.name, f]));
+    for (const decl of manifest?.fns ?? []) {
+      expect(decl.instructions, decl.name).toBeTruthy();
+      expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);
+      expect(decl.effects, decl.name).toEqual({ mode: 'read' });
+    }
     expect(fns.get('search')?.tags).toContain('read');
     expect(fns.get('read')?.tags).toContain('read');
     expect(fns.get('fetch_raw')).toMatchObject({ visibility: 'none', display: 'hidden' });
@@ -94,10 +99,23 @@ describe('web over the link', () => {
     for (const name of ['Page', 'pages', 'guide', 'hub/resource_import', 'hub/resource_read']) { expect(text).toContain(`"${name}"`); }
   });
 
-  it('searches with the config\'s key over the system\'s, and reports the credits to the budget', async () => {
+  it('searches with the config\'s key over the system\'s, keeps the results as a hub resource, and reports the credits to the budget', async () => {
+    hub.onCall = (call): Promise<RunSettled> => Promise.resolve(call.fn === 'hub/resource_import'
+      ? { status: 'done', result: Json.parse(ResourceRecord.parse({
+        uri: 'hub://resources/searches/cats', system: 'hub', links: [], primary: 'markdown', seenAt: 1,
+        stat: { uri: 'hub://resources/searches/cats', name: 'Web search: cats', type: 'file', mime: 'text/markdown', format: 'markdown', version: 'v1' },
+      })) }
+      : { status: 'done', result: null });
     const basic = await hub.run('web/search', { query: 'cats' });
     expect(basic).toMatchObject({ cost: 0.01 });
-    expect(done(basic)).toEqual({ answer: 'Cats sleep a lot.', results: [{ title: 'Cats', url: 'https://example.com/cats', snippet: 'About cats', score: 0.9 }] });
+    expect(done(basic)).toEqual({ answer: 'Cats sleep a lot.', results: [{ title: 'Cats', url: 'https://example.com/cats', snippet: 'About cats', score: 0.9 }], uri: 'hub://resources/searches/cats' });
+    const imported = hub.calls.find((call) => call.fn === 'hub/resource_import')?.args;
+    expect(imported).toMatchObject({ input: { name: 'Web search: cats', content: { mime: 'text/markdown' } } });
+    const hash = JSON.stringify(imported).match(/"hash":"([^"]+)"/)?.[1] ?? '';
+    const page = new TextDecoder().decode(hub.content.get(hash));
+    expect(page).toContain('# Web search: cats');
+    expect(page).toContain('## 1. [Cats](https://example.com/cats)');
+    expect(page).toContain('About cats');
     expect(search.asked.at(-1)?.key).toBe('tvly-env');
     await hub.configure({ tavilyKey: 'tvly-config' });
     expect(await hub.run('web/search', { query: 'dogs', depth: 'advanced' })).toMatchObject({ status: 'done', cost: 0.02 });

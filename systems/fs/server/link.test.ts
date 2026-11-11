@@ -109,4 +109,31 @@ describe('fs over the link', () => {
     const blocks = await peer.call('hook', { hook: 'git', message: { session: asker.session, turn: 'trn_1', text: 'hi', user: TEST_USER, time } });
     expect(JSON.stringify(blocks)).toContain('branch main');
   });
+
+  it('serves a root that is never indexed live, for the file explorer: listed and read on request, nothing reported or kept', async () => {
+    await hub.configure(configFor(root, { index: 'none' }));
+    const peer = hub.peer();
+    const roots = await peer.call('roots', undefined);
+    expect(roots).toMatchObject([{ name: 'work', index: 'none' }]);
+    const uri = roots[0]?.uri;
+    if (uri === undefined) { throw new Error('no root'); }
+    const listed = await peer.call('list', { uri });
+    expect(listed.items.map((item) => item.name).sort()).toEqual(['a.txt', 'src']);
+    const file = listed.items.find((item) => item.name === 'a.txt');
+    if (file === undefined) { throw new Error('no a.txt'); }
+    const read = await peer.call('read', { uri: file.uri, want: ['text'] });
+    expect(JSON.stringify(read)).toContain('alpha');
+    expect(hub.changes).toEqual([]);
+  });
+
+  it('brings every file fn with its guide, and gives each fn instructions, examples and what it does to data', () => {
+    const manifest = hub.manifests[0];
+    expect(manifest?.context.find((item) => item.name === 'guide')?.fns.sort()).toEqual(['fs/bash', 'fs/cd', 'fs/edit', 'fs/glob', 'fs/grep', 'fs/list', 'fs/read', 'fs/remove', 'fs/write']);
+    for (const decl of manifest?.fns ?? []) {
+      expect(decl.instructions, decl.name).toBeTruthy();
+      expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);
+    }
+    expect(manifest?.fns.find((item) => item.name === 'read')?.effects).toEqual({ mode: 'read', free: true });
+    expect(manifest?.fns.find((item) => item.name === 'remove')?.effects).toEqual({ mode: 'delete', free: true });
+  });
 });

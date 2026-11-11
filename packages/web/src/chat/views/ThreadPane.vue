@@ -8,7 +8,7 @@
  * marks answers the model wrote without its prompt cache, and in debug mode shows the messages the chat hides.
  */
 import {
-  ResourceUri, splitName, type Display, type QualifiedName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
+  ResourceUri, splitName, type ChatFnMode, type Display, type QualifiedName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
   type RunId, type SessionId, type TurnId,
 } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
@@ -47,6 +47,7 @@ import ShareEditor from '../../components/access/ShareEditor.vue';
 import { mentionToken, methodArgs, methodsOf, placeholderFor, type DraftMention, type MethodOffer } from '../logic/composer.ts';
 import { clamp } from '../logic/format.ts';
 import { agentName, fnLabel, humanize, localName } from '../logic/labels.ts';
+import { DEFAULT_FN_MODE, FN_MODE_WORDS } from '../logic/modes.ts';
 import { STATUS_LINE, statusLine, type RunView } from '../logic/runs.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelLabel, whoAnswers, type SuggestionItem } from '../logic/session.ts';
 import { messageText, threadItems, type MentionPart } from '../logic/thread.ts';
@@ -71,7 +72,7 @@ const emit = defineEmits<{
   panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: []; remove: []; debug: [on: boolean];
 }>();
 
-const { chat, toasts, session: auth, connection } = useStores();
+const { chat, toasts, session: auth, connection, layout } = useStores();
 const router = useRouter();
 const thread = chat.thread(props.session);
 const composer = chat.composer(props.session);
@@ -416,6 +417,10 @@ async function switchAgent(fn: QualifiedName): Promise<void> {
   if (await thread.update({ agent: fn })) { toasts.ok(`${agentName(fn)} answers from now on`); } else { toasts.error("Couldn't switch agents", thread.problem.value); }
 }
 
+async function setFnMode(fnMode: ChatFnMode): Promise<void> {
+  if (await thread.update({ fnMode })) { toasts.ok(FN_MODE_WORDS[fnMode].label, FN_MODE_WORDS[fnMode].about); } else { toasts.error("Couldn't change what the agent may do", thread.problem.value); }
+}
+
 async function rename(title: string): Promise<void> {
   if (!(await thread.update({ title }))) { toasts.error("Couldn't rename", thread.problem.value); }
 }
@@ -497,9 +502,9 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         />
         <AssistantAnswer
           v-else-if="item.kind === 'answer'" :messages="item.messages" :author-name="nameOf(item.author)" :now="now" :streaming="item.streaming" :failed="item.failed"
-          :runs-of="(m: ChatMessage) => thread.runsOf(m)" :marks="thread.marks.value" :reasoning-of="(m: ChatMessage) => thread.reasoningOf(m)" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
+          :runs-of="(m: ChatMessage) => thread.runsOf(m)" :live-of="(m: ChatMessage) => thread.liveOf(m)" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
           :view-of="viewOf" :display-of="displayOf" :attachment-view="attachmentView" :actions="answerActions(item.turn)" :flash="item.messages.some((m) => m.id === flash)"
-          :status-line="item.turn === liveTurn ? liveLine : undefined" :navigate="navigate"
+          :status-line="item.turn === liveTurn ? liveLine : undefined" :navigate="navigate" :grouped="layout.groupRuns"
           @action="act($event, item.messages)" @run-open="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
           @collapse-all="(collapsed) => chat.collapse.setAll(item.messages.flatMap((m) => m.runs), collapsed)" @background="thread.toBackground($event)"
           @tree="emit('tree', item.turn)" @link="openLink"
@@ -543,6 +548,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         />
         <ComposerMeta
           :agent="agent" :agents="agents" :model="modelLabel(record?.model, caps.value.value?.models ?? [])" :systems="systems" :background="thread.background.value.length" :spent="thread.spent.value" :meter="meter" :compact="compact || narrow"
+          :fn-mode="record?.fnMode ?? DEFAULT_FN_MODE" @fn-mode="setFnMode"
           @settings="emit('panel', 'settings')" @model="emit('panel', 'model')" @agent="switchAgent" @background="thread.background.value[0] && emit('run', thread.background.value[0].id)"
         />
       </div>

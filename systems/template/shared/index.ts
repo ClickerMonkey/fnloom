@@ -39,6 +39,8 @@ export const template = system('template', { description: 'TODO: what this syste
     // fns: native fns, each made with `fn({ description, args, returns, ... })`. Optional parts change what the server
     // must implement: `undo` (an undo implementation), `resume` (it can pause), `progress` (`linear` or `steps`),
     // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`.
+    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), `examples`
+    // (`{ args, result?, note? }`, checked against its types) and `effects` (`{ mode, reads, writes, free }`).
     // TODO: declare fns, or delete this comment.
 
     // hooks: user-message hooks that add information before the LLM sees a message, each made with

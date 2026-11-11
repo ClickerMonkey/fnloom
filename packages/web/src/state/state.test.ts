@@ -6,7 +6,7 @@ import { failingCaller, fakeApi, fakeCaller, fakeConnection, fakeMedia, fakeUser
 import { BrowserLock, LocalLock, REFRESH_AHEAD, REFRESH_LOCK, SessionKeeper, SignInForm } from './auth.ts';
 import { BACK_ONLINE_FOR, ConnectionStore, OFFLINE_AFTER } from './connection.ts';
 import { INBOX_PAGE, InboxStore } from './inbox.ts';
-import { LAYOUT_KEY, LayoutStore } from './layout.ts';
+import { LAYOUT_KEY, LayoutStore, TREE_WIDTH } from './layout.ts';
 import { persisted, readStored, type KeyValueStore, type StorageChanges } from './persisted.ts';
 import { checkForm, problemText } from './problems.ts';
 import { SESSION_KEY, SessionStore } from './session.ts';
@@ -239,15 +239,22 @@ describe('ThemeStore', () => {
 });
 
 describe('LayoutStore', () => {
-  it('saves the collapsed sidebar, not the drawer', () => {
+  it('saves the collapsed sidebar, the tree width and fn grouping, not the drawer; a layout saved before them keeps working', () => {
     const store = memoryStore();
+    store.setItem(LAYOUT_KEY, '{"collapsed":false}');
     const layout = new LayoutStore(store);
     expect(layout.collapsed).toBe(false);
+    expect(layout.treeWidth).toBe(TREE_WIDTH.reset);
+    expect(layout.groupRuns).toBe(true);
     layout.toggleSidebar();
+    layout.treeWidth = 320;
     layout.drawerOpen.value = true;
-    expect(store.data.get(LAYOUT_KEY)).toBe('{"collapsed":true}');
+    layout.groupRuns = false;
+    expect(store.data.get(LAYOUT_KEY)).toBe('{"collapsed":true,"treeWidth":320,"groupRuns":false}');
     const reloaded = new LayoutStore(store);
     expect(reloaded.collapsed).toBe(true);
+    expect(reloaded.treeWidth).toBe(320);
+    expect(reloaded.groupRuns).toBe(false);
     expect(reloaded.drawerOpen.value).toBe(false);
   });
 });

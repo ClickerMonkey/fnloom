@@ -6,7 +6,7 @@
  * call is recorded.
  */
 import {
-  mintId, type ActorId, type HandlerAnswer, type HandlerCall, type HandlerCallId, type Json, type Run, type RunId,
+  mintId, type ActorId, type GinTypeDef, type HandlerAnswer, type HandlerCall, type HandlerCallId, type Json, type Run, type RunId,
 } from '@harness/core';
 import type { HandlerAnswers } from '../boot/index.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -66,7 +66,11 @@ export class HandlerRelay implements HandlerAnswers {
       createdAt: this.#deps.clock(),
     };
     await store.table('handlerCalls').insert(call);
-    const answer = 'system' in answerer ? await this.#ask(call, answerer, parent, signal) : await this.#wait(call, run, signal);
+    // a person who just approved this run has said yes already: its "go ahead?" question is answered for them
+    const approvedBy = 'user' in answerer && isConfirmation(decl.returns) ? await this.#approvedBy(run, answerer.user) : false;
+    if (approvedBy) this.#deps.log.info('run.handler.approved-before', { run: run.id, handler: input.handler, call: call.id });
+    const answer: HandlerAnswer = approvedBy ? { ok: true, value: true }
+      : 'system' in answerer ? await this.#ask(call, answerer, parent, signal) : await this.#wait(call, run, signal);
     await this.#record(call, run, answer);
     return answer;
   }
@@ -101,6 +105,12 @@ export class HandlerRelay implements HandlerAnswers {
     return answer;
   }
 
+  /** Whether `user` approved this run (its approval's last decision is theirs, and it was approved). */
+  async #approvedBy(run: Run, user: ActorId): Promise<boolean> {
+    const page = await this.#deps.store.table('approvals').find({ where: { run: run.id, status: 'approved' }, order: [['createdAt', 'desc']], limit: 1 });
+    return page.items[0]?.decisions.at(-1)?.by === user;
+  }
+
   /** Ask the system whose run made the call. */
   async #ask(call: HandlerCall, answerer: { system: Run['system']; run: RunId }, parent: Run | undefined, signal: AbortSignal): Promise<HandlerAnswer> {
     const connection = this.#deps.link.connection(answerer.system);
@@ -132,6 +142,11 @@ export class HandlerRelay implements HandlerAnswers {
     this.#deps.bus.publish('handler', { call: updated, ...(run.session === undefined ? {} : { session: run.session }) });
     this.#deps.log.info('run.handler', { run: run.id, handler: call.handler, call: call.id, ok: answer.ok });
   }
+}
+
+/** Whether a handler is a yes-or-no question (it returns a bool): a confirmation an approval already answers. */
+export function isConfirmation(returns: GinTypeDef): boolean {
+  return returns.name === 'bool';
 }
 
 function refused(message: string): HandlerAnswer {

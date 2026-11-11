@@ -12,7 +12,7 @@ import {
   splitName, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome, type RunControlAction,
 } from '@harness/core';
 import type { SystemConnection } from '../link/index.ts';
-import { fnError, messageOf, RunStopped } from './errors.ts';
+import { causeOf, fnError, messageOf, RunRefused, RunStopped } from './errors.ts';
 import type { ControlAnswer, ExecutionDeps, ExecutionJob, RunExecutor, UndoJob } from './ports.ts';
 
 /** A run's system went away while it ran; the run is sent again when the system reconnects. */
@@ -167,6 +167,9 @@ export class HubFns implements RunExecutor {
     } catch (error) {
       if (signal.aborted && signal.reason instanceof RunStopped) throw signal.reason;
       if (error instanceof InvalidArgs) return { status: 'invalid-input', invalid: error.invalid };
+      // a hub fn that refuses with its own error (a taken name, say) fails with that error's class and code
+      const refused = causeOf(error, RunRefused);
+      if (refused !== undefined) return { status: 'failed', error: refused.error };
       return { status: 'failed', error: fnError('caller', messageOf(error)) };
     }
   }

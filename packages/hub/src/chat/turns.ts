@@ -12,6 +12,7 @@ import {
 import type { AccessScope } from '../access/index.ts';
 import { seesContextNamed } from '../access/scope.ts';
 import { cacheMissOf } from './cache.ts';
+import { finishedParts } from './streams.ts';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
@@ -39,7 +40,7 @@ export function plainText(parts: readonly MessagePart[]): string {
       case 'file': return part.name;
       case 'link': return part.link.title ?? '';
       case 'attachment': return part.title;
-      case 'reasoning': case 'extra': case 'hook': case 'input-answer': return '';
+      case 'reasoning': case 'extra': case 'hook': case 'input-answer': case 'call': return '';
     }
   }).join('').trim();
 }
@@ -188,14 +189,16 @@ export class StoreTurnService implements TurnService {
     this.#deps.bus.publish('message', { message: updated });
   }
 
-  async track(message: MessageId, runs: readonly RunId[]): Promise<void> {
-    if (runs.length === 0) { return; }
+  async track(message: MessageId, calls: ReadonlyArray<{ readonly run: RunId; readonly fn: QualifiedName }>): Promise<void> {
+    if (calls.length === 0) { return; }
     const row = await this.#deps.store.table('messages').get(message);
     if (row === undefined) { throw new ChatError('not-found', `No message ${message}.`); }
-    const added = runs.filter((run) => !row.runs.includes(run));
-    if (added.length === 0) { return; }
-    const updated = await this.#deps.store.table('messages').update(message, { runs: [...row.runs, ...added] });
-    // Mid-stream, the browser's copy has the streamed reasoning and text, so the update carries them too.
+    // each call takes its place after what streamed before it, so the message keeps the model's order
+    const placed = this.#parts.streams.call(message, calls);
+    const added = calls.map((call) => call.run).filter((run) => !row.runs.includes(run));
+    if (added.length === 0 && placed === 0) { return; }
+    const updated = added.length === 0 ? row : await this.#deps.store.table('messages').update(message, { runs: [...row.runs, ...added] });
+    // Mid-stream, the browser's copy has the streamed reasoning, text and calls, so the update carries them too.
     this.#deps.bus.publish('message', { message: this.#parts.streams.overlay(updated) });
   }
 
@@ -236,12 +239,12 @@ export class StoreTurnService implements TurnService {
     if (row === undefined) { throw new ChatError('not-found', `No message ${message}.`); }
     if (row.role !== 'assistant') { throw new ChatError('conflict', 'Only an assistant message is finished.'); }
     const streamed = this.#parts.streams.close(message);
-    const reasoning: MessagePart[] = streamed === undefined || streamed.reasoning === '' ? [] : [{ type: 'reasoning', text: streamed.reasoning }];
+    const body = streamed === undefined ? parts : finishedParts(streamed.parts, parts);
     const cacheMiss = await cacheMissOf(this.#deps, row).catch((error: unknown) => {
       this.#deps.log.warn('chat.cache-miss.failed', { message, error: messageOf(error) });
       return undefined;
     });
-    const finished = await this.#deps.store.table('messages').update(message, { parts: [...reasoning, ...parts, ...row.parts.filter(isAttached)], status, ...(cacheMiss === undefined ? {} : { cacheMiss }) });
+    const finished = await this.#deps.store.table('messages').update(message, { parts: [...body, ...row.parts.filter(isAttached)], status, ...(cacheMiss === undefined ? {} : { cacheMiss }) });
     this.#deps.bus.publish('message', { message: finished });
     const session = await this.#deps.store.table('sessions').get(row.session);
     const repliedTo = row.replyTo === undefined ? undefined : await this.#deps.store.table('messages').get(row.replyTo);

@@ -154,10 +154,9 @@ describe('a SQLite database instance', () => {
     const { instance, store, hub } = shopInstance();
     open.push(instance);
     await instance.rescan(undefined);
-    await store.putQuery({
-      name: 'main.paid', title: 'Paid', owner: 'actor_1', vector: [], savedAt: 1, history: [],
-      payload: { instance: 'main', description: 'paid orders', query: ORDERS_BY_STATUS, sorters: [], list: true },
-    });
+    // the hub knows which saved queries read a table
+    hub.reading.set('database/main.orders', ['database/main.paid']);
+    hub.reading.set('database/main.customers', ['database/main.paid']);
     await instance.db.write([{ sql: 'ALTER TABLE customers ADD COLUMN phone TEXT', params: [] }]);
     const added = await instance.rescan(undefined);
     expect(added.changed).toEqual(['customers']);
@@ -215,7 +214,7 @@ describe('the fleet as the hub lists it', () => {
       member('stock', false, { label: 'Stock', audience }, [{ name: QualifiedName.parse('database/stock.products'), description: 'Products.' }]),
       member('fresh', true, null, []),
     ];
-    const members = await HUB_FLEET.members({ instance: 'shop', label: 'Shop', summary: 'unused' }, { fleet: () => Promise.resolve(listed) });
-    expect(members).toEqual([{ instance: 'shop', label: 'Shop', audience, summary: 'Shop: customers (Customers. Columns: id, name.)' }]);
+    const members = await HUB_FLEET.members({ instance: 'shop', label: 'Shop', tables: [] }, { fleet: () => Promise.resolve(listed) });
+    expect(members).toEqual([{ instance: 'shop', label: 'Shop', audience, tables: ['customers (Customers. Columns: id, name.)'] }]);
   });
 });
