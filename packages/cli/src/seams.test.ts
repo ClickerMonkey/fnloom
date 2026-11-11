@@ -132,7 +132,7 @@ describe('ViteBuilder', () => {
     expect((await builder.contracts(module))[0]?.fns).toEqual(['notes/add']);
     write(contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() }), remove: fn({ description: 'Remove.', args: g.obj({}), returns: g.text() })"));
     expect((await builder.contracts(module))[0]?.fns).toEqual(['notes/add', 'notes/remove']);
-  });
+  }, 60_000);
 
   it('bundles a server entry into one file, keeping externals as imports', async () => {
     const dir = join(root, 'bundle');

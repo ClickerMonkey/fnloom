@@ -92,6 +92,17 @@ describe('FileMentions', () => {
     expect(card?.fields?.[1]?.value).toBe('22 B');
   });
 
+  it('draws a folder or the root without size or preview, and a short file of no known format whole', async () => {
+    const folder = await mentions.hover(guard, { root: 'work', path: 'docs' }, user);
+    expect(folder?.fields?.map((f) => [f.label, f.value])[0]).toEqual(['Type', 'folder']);
+    expect(folder?.body).toBeUndefined();
+    expect((await mentions.hover(guard, { root: 'work', path: '' }, user))?.subtitle).toBe(tmp.path);
+    await writeFile(`${tmp.path}/notes.xyz`, 'hi\n');
+    const plain = await mentions.hover(guard, { root: 'work', path: 'notes.xyz' }, user);
+    expect(plain?.fields?.[0]?.value).toBe('file');
+    expect(plain?.body).toBe('```\nhi\n```');
+  });
+
   it('has no card for something gone, outside, or in an unknown root', async () => {
     expect(await mentions.hover(guard, { root: 'work', path: 'nope.md' }, user)).toBeUndefined();
     expect(await mentions.hover(guard, { root: 'work', path: '../../etc/passwd' }, user)).toBeUndefined();

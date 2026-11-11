@@ -3,7 +3,7 @@
 A web-based agent harness: one **hub** that owns every LLM call, user, permission and record, and **systems**
 that connect over WebSocket to add fns, kinds, types, resources, context and UI renderers.
 
-Status: **build 4 done** (of 7). The hub, the SDK and CLI, the fs, embedder and web systems and the Vue chat and admin
+Status: **build 6 done** (of 7). The hub, the SDK and CLI, the fs, embedder and web systems and the Vue chat and admin
 app run together. The chat agent reads and searches files, runs commands (with approval), searches and reads the web,
 and streams its answers, in strict-tools or static-toolset mode with a plain, suggesting or graph contextor that fits
 each prompt in the model's window (local Ollama models included). Resources keep their raw bytes and converted forms
@@ -11,7 +11,13 @@ and become context; systems are packed, installed and run in fleets; admins make
 on the hub (build 3). Build 4 adds providers that systems declare, an AWS Bedrock provider (access keys or an API key),
 web crawls into a resource root, private/shared/public visibility (shown only when the hub has more than one person),
 per-person connections (the Google Calendar system), forms the agent asks for (the input system), fn validation hooks,
-search pickers in place of free-text lists, and a wavy line where a chat call missed the prompt cache. See "Build order" in
+search pickers in place of free-text lists, and a wavy line where a chat call missed the prompt cache. Build 5 adds the database system,
+registries and result visuals, approvals with previews, one fn search in the hub database, fn examples and facts
+(mode, types, cost) and chat fn modes. Build 6 installs systems from chat (fs builds, scans and hosts them after an
+admin approves the install card), adds `@harness/build`, context folders checked at build time (`context/**/*.md`
+with YAML headers, imports, choices and brought fns), runtime add/update/remove of every manifest section, type
+versions, `ctx.ai()` / `hubAi()` for systems, declared fn effects, a file explorer (`/explore/…`) and a hub fn for
+every web operation. What build 6 left is listed at the end of [`docs/plans/build-6-design.md`](docs/plans/build-6-design.md). See "Build order" in
 [`docs/harness.md`](docs/harness.md).
 
 - [`docs/harness.md`](docs/harness.md): the design in plain language.
@@ -77,7 +83,7 @@ package suite's, 4480 and 4481 `npm run ui-tests:mock`, 8760 the embedder servic
 
 | System | Folder | What it adds |
 |---|---|---|
-| fs | `systems/fs` | files and folders as resources, read/write/search fns, `fs/bash` with approval, the system authoring guide as context (`/new-system`); many instances can attach (`fs@laptop`) |
+| fs | `systems/fs` | files and folders as resources, read/write/search fns, `fs/bash` with approval, the system authoring guide as a context graph (`/new-system`), installing and hosting systems (`install_system`, `system_status`, `restart_system`, `stop_system`); many instances can attach (`fs@laptop`) |
 | embedder | `systems/embedder` | embeddings from the EmbeddingGemma service, for search and suggestions |
 | web | `systems/web` | Tavily search, page reading (pages that need it are rendered with puppeteer) and `web/crawl` (a site, up to 3 links deep, into one resource root); pages become hub resources with a markdown form |
 | input | `systems/input` | forms the agent asks for: `get_input` (an agent: reuses a saved form fn kept in the hub, or writes a gin type), `ask_text` / `ask_choice` / `ask_confirm` / `ask_number` / `ask_date`, and `save_form` ("Save this form for next time"); answers come back as a hidden `input-answer` part |
@@ -118,7 +124,7 @@ URL with the secret as its bearer token, or, for clients that speak stdio only, 
 
 ```sh
 harness system new <name>            # a system folder from the template
-harness system build [dir]           # typecheck, then bundle server and client into dist/
+harness system build [dir]           # typecheck, check the contract and context/ folder, then bundle into dist/
 harness system pack [dir]            # zip dist/ with every file hashed: a package the hub installs
 harness system install <zip|folder|npm-spec> [--instance <name>] [--config <file.json>]
 harness system list | start | stop | upgrade | uninstall <system>
@@ -168,7 +174,9 @@ in [`docs/architecture.md`](docs/architecture.md).
   list queries (filters and sorts on the hub, `hub/query`, a bad field refused), suggestion records and the decision
   model, stopping one run by id, and auto pair (pairing with a secret, re-pairing after the key is lost, rotation). Build 5's `build5` suite runs over two SQLite database instances: tables as hub types, `get_query`
 writing, saving and reusing a query fn with the free model, paging and sorting a saved query, a write approved and one
-declined, and a table made through approval. Set `HARNESS_E2E_URL`
+declined, and a table made through approval. Build 6's `install` suite (API-level) writes a small system and calls
+`fs/install_system`: an admin approves the card, fs builds, hosts and connects it and its fn runs; runtime additions are
+stored with versions; a broken context folder fails the build; `load_context` and `fns_search` are checked. Set `HARNESS_E2E_URL`
   to test a stack that is already running instead.
 - `npm run ui-tests` boots nothing. Start a stack (a fresh one is best: `HARNESS_DATA=.harness/ui npm run dev`), then
   point it there: `HARNESS_UI_URL=http://127.0.0.1:4300 HARNESS_UI_EMAIL=… HARNESS_UI_PASSWORD=… npm run ui-tests`

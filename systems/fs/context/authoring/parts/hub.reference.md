@@ -57,6 +57,7 @@ const ADMIN_ENDPOINTS = {
   create_pairing_token: systemsSlice.endpoints.createPairingToken,
   configure_system: systemsSlice.endpoints.configureSystem,
   enable_system: systemsSlice.endpoints.enableSystem,
+  switch_item: systemsSlice.endpoints.switchItem,
   remove_system: systemsSlice.endpoints.removeSystem,
   install_system: systemsSlice.endpoints.installSystem,
   start_system: systemsSlice.endpoints.startSystem,

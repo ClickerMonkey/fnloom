@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core';
-import { IDS, LIST_FIELDS, ResourceUri, SystemName, noFnStats, type ActorId, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
+import { IDS, LIST_FIELDS, QualifiedName, ResourceUri, SystemName, TypeRecord, noFnStats, type ActorId, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { chatWorld, FixtureCatalog, makeRun } from '../chat/testing.ts';
 import { testStore } from '../testing.ts';
@@ -150,7 +150,8 @@ describe('the lists', () => {
       id: IDS.notification.parse('ntf_1'), user: admin.id, reason: 'message', title: 'Hi', body: 'A message', link: { session: w.session.id }, read: false, pushed: false, createdAt: 4,
     });
     await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_w'), fn: 'fs/read', turn: IDS.turn.parse('trn_w'), actor: admin.id, status: 'done', cost: 0.01, createdAt: 5, endedAt: 9 }));
-    for (const list of ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems'] as const) {
+    await w.store.table('types').insert(TypeRecord.parse({ name: QualifiedName.parse('fs/Entry'), system: SystemName.parse('fs'), description: 'A file.', def: { name: 'text' }, display: { label: 'Entry' }, references: [], updatedAt: 1 }));
+    for (const list of ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems', 'types'] as const) {
       const all = (await lists.page(list, {}, admin)).items.length;
       for (const [field, decl] of Object.entries<FieldDecl>(LIST_FIELDS[list].fields)) {
         const [yes, no]: [Filter, Filter] = decl.type === 'boolean'

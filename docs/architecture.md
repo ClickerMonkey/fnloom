@@ -32,10 +32,11 @@ packages/
     typetests/                  compile-time DX tests (ported from types/examples.ts), checked by `npm run typecheck`
   hub/         @harness/hub     the hub: one folder per module, each with an index.ts interface
   web/         @harness/web     Vue 3 + Vite + vue-router chat and admin app
-  cli/         @harness/cli     the `harness` CLI: system new|build|pack|install|export-data, mcp (build 2, packaging lane)
+  cli/         @harness/cli     the `harness` CLI: system new|build|pack|install|export-data, mcp (build 2, packaging lane); its bin runs under tsx (build 6)
+  build/       @harness/build   building a system folder (build 6): `buildSystem` (typecheck, contract name, `checkContextFolder`, server bundle, client, `dist/context/`), `ViteBuilder`, the bundle scan; used by the CLI and by fs `install_system`
     e2e/                        reusable puppeteer scenarios (every viewport, light and dark, layout checks)
 systems/
-  fs/          @harness/system-fs        shared/ (contract), server/, client/ (Vue renderers)
+  fs/          @harness/system-fs        shared/ (contract), server/, client/ (Vue renderers), context/ (the authoring guide as a context graph); build 6: hosting (`hosting.ts`, `builds.ts`, `runner.ts`: `install_system`, `system_status`, `restart_system`, `stop_system`, hosted folders)
   embedder/    @harness/system-embedder  shared/ (contract + service schemas), server/
   web/         @harness/system-web       Tavily search, page reading and rendering (build 2), `web/crawl` into a resource root (build 4)
   template/    the template system `harness system new` copies: system.json, shared/, server/, client/ (build 2)
@@ -110,6 +111,8 @@ mentions, sectioners and the `ContentRef` / `LongText` types), `manifestOf` (con
 
 A type ref (`fs.types.Entry`) is a real gin extension registered in `g` under its qualified name, so it is usable as a
 field and serializes by name; its methods' args are `self` plus their own args.
+
+**Build 6** adds `ctx.ai()` on every ctx and `hubAi(system)` (an `@aeye/ai` instance over the hub link `models`), `RunningSystem.patch` / `examples()`, the `context/` watch in dev, and `server/supervise.ts` (env allowlist, permission flags, crash backoff), which the hub supervisor and fs hosting share.
 
 **Built by the SDK lane** (interfaces in `sdk/src/server/index.ts` and `sdk/src/ctx.ts`): `LinkHost implements
 SystemHost` (the WebSocket link with ayepi peers, pairing keys via `KeyStore`, `FnCtx` / `ActionCtx` /

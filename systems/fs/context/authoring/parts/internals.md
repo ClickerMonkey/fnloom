@@ -631,6 +631,8 @@ interface ProcessCommand {
   readonly cwd?: string | undefined;
   /** Set on top of the scrubbed environment (the instance's identity, `SYSTEM_ENV`, goes here). */
   readonly env?: Readonly<Record<string, string>> | undefined;
+  /** Called with each piece of what it prints (stdout and stderr) as it comes; pieces may split lines. */
+  readonly onOutput?: ((text: string) => void) | undefined;
 }
 ```
 
@@ -774,6 +776,26 @@ type ExitDecision =
 | { readonly action: 'restart-now' }
 | { readonly action: 'restart'; readonly wait: number; readonly crashes: number }
 | { readonly action: 'give-up'; readonly crashes: number };
+```
+
+#### `STATUS_LOG`
+
+const · `import { STATUS_LOG } from '@harness/sdk/server'`
+
+The log key a system writes its status changes under. A supervisor reads them from a child's JSON log lines (`HARNESS_LOG_JSON`).
+
+```ts
+const STATUS_LOG: "system.status";
+```
+
+#### `statusOfLine`
+
+function · `import { statusOfLine } from '@harness/sdk/server'`
+
+The status a line of a child's JSON log reports, if it is a status line.
+
+```ts
+function statusOfLine(line: string): RunningStatus | undefined;
 ```
 
 #### `McpFace`

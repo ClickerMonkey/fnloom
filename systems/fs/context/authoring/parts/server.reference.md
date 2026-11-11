@@ -146,12 +146,12 @@ Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-im
 
 #### `RunningStatus`
 
-type · `import { RunningStatus } from '@harness/sdk/server'`
+const, type · `import { RunningStatus } from '@harness/sdk/server'`
 
-Where a running system is.
+Where a running system is (`RunningSystem.status`).
 
 ```ts
-type RunningStatus = 'connecting' | 'pairing' | 'needs-config' | 'connected' | 'disconnected' | 'stopped';
+type RunningStatus = "pairing" | "needs-config" | "connected" | "disconnected" | "stopped" | "connecting";
 ```
 
 #### `SystemImpl`

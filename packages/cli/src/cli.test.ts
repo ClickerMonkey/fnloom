@@ -159,6 +159,14 @@ describe('system build', () => {
     expect(io.warnings.at(-1)).toBe('shared/index.ts exports no system contract');
   });
 
+  it('says how many lines of the bundle the scan is concerned about', async () => {
+    const io = testIo();
+    notesFolder(io);
+    io.built.bundleBody = "const run = eval('1');\n";
+    expect(await runCli(['system', 'build', 'notes'], io)).toBe(0);
+    expect(io.lines.at(-1)).toMatch(/^built notes .* 1 lines of concern in the scan\)$/);
+  });
+
   it('refuses a system.json that is not JSON or not a manifest', async () => {
     const io = testIo();
     putFolder(io.memory, NOTES, { 'system.json': '{ nope' });
@@ -219,6 +227,19 @@ describe('system install', () => {
     expect(io.lines).toEqual(['installed notes@laptop', 'notes@laptop is connected']);
     expect(hub.called).toEqual(['installPackage', 'instances']);
     expect(hub.closed).toBe(1);
+  });
+
+  it('installs a zip alone (no instance, data or config) without starting it when asked', async () => {
+    const fields: string[][] = [];
+    const hub = new FakeHub({
+      installPackage: (body) => { fields.push(Object.keys(body).sort()); return { system: SystemName.parse('notes'), instance: MAIN_INSTANCE }; },
+    });
+    const io = testIo({ hub });
+    io.memory.put(join(WORK, 'notes-1.2.0.zip'), text('zip'));
+    expect(await runCli(['system', 'install', 'notes-1.2.0.zip', '--no-start'], io)).toBe(0);
+    expect(fields).toEqual([['autoStart', 'zip']]);
+    expect(io.lines).toEqual([`installed notes@${MAIN_INSTANCE}`]);
+    expect(hub.called).toEqual(['installPackage']);
   });
 
   it('installs a folder in place and an npm package by spec, and says when one needs config or has not connected', async () => {

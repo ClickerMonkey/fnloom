@@ -93,6 +93,19 @@ describe('hosting systems written here', () => {
     expect(String(refused)).toContain('and 1 more');
   });
 
+  it('refuses a folder without a readable system.json, and an instance name that is not one, saying why', async () => {
+    const { hosting } = setup();
+    const refusal = (dir: string, instance?: string) => hosting.preview(dir, { instance }, signal).then(() => '', (error: unknown) => (error instanceof InstallRefused ? error.message : 'other'));
+    const dir = folder();
+    expect(await refusal(dir, 'Not An Instance')).toContain("isn't an instance name");
+    expect(await refusal(dir, 'versions')).toContain("isn't an instance name");
+    writeFileSync(join(dir, 'system.json'), '{ nope');
+    expect(await refusal(dir)).toContain("system.json isn't JSON");
+    writeFileSync(join(dir, 'system.json'), '{"name":"random"}');
+    expect(await refusal(dir)).toContain('system.json is wrong:');
+    expect(await refusal(join(dir, 'missing'))).toContain('has no system.json');
+  });
+
   it('shows a card bound to the build, starts exactly that bundle with a one-time token, and reports it connected', async () => {
     const { runner, hosting, grants, grant } = setup();
     const dir = folder();

@@ -4527,7 +4527,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/fns_search`: Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
 
   ```text
-  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, names?, available?, order?, offset?, limit? … }) => obj{
+  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, order?, offset?, limit? … }) => obj{
     items: list<obj{
       item: enum<text>{fn, context},
       name: text,
@@ -4536,6 +4536,7 @@ This is the hub contract as the SDK declares it now:
       kind?: text,
       mode?: enum<text>{read, write, delete},
       signature?: text,
+      effects?: text,
       instance?: text,
       score?: num,
       available: bool,
@@ -5147,12 +5148,21 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, config: any, instance?: text}) => or<obj{version: num{whole=true}}, obj{problems: list<text>}>
   ```
-- `hub/enable_system`: Turn a system's functions and its renderers on or off. Tags: `admin`.
+- `hub/enable_system`: Turn a system's functions, its renderers and all of its context on or off. Tags: `admin`.
 
   ```text
-  (obj{system: text, functions?: bool, renderers?: bool}) => obj{
-    enabled: obj{functions: bool, renderers: bool}
+  (obj{system: text, functions?: bool, renderers?: bool, context?: bool}) => obj{
+    enabled: obj{functions: bool, renderers: bool, context?: bool}
   }
+  ```
+- `hub/switch_item`: Turn one fn or context item of a system on or off. Tags: `admin`.
+
+  ```text
+  (obj{
+    section: enum<text>{fns, context},
+    name: text,
+    on: bool
+  }) => obj{on: bool}
   ```
 - `hub/remove_system`: Remove a system; its fns become unavailable until it pairs again. Tags: `admin`.
 
@@ -5545,6 +5555,7 @@ const ADMIN_ENDPOINTS = {
   create_pairing_token: systemsSlice.endpoints.createPairingToken,
   configure_system: systemsSlice.endpoints.configureSystem,
   enable_system: systemsSlice.endpoints.enableSystem,
+  switch_item: systemsSlice.endpoints.switchItem,
   remove_system: systemsSlice.endpoints.removeSystem,
   install_system: systemsSlice.endpoints.installSystem,
   start_system: systemsSlice.endpoints.startSystem,
@@ -6125,12 +6136,12 @@ Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-im
 
 #### `RunningStatus`
 
-type · `import { RunningStatus } from '@harness/sdk/server'`
+const, type · `import { RunningStatus } from '@harness/sdk/server'`
 
-Where a running system is.
+Where a running system is (`RunningSystem.status`).
 
 ```ts
-type RunningStatus = 'connecting' | 'pairing' | 'needs-config' | 'connected' | 'disconnected' | 'stopped';
+type RunningStatus = "pairing" | "needs-config" | "connected" | "disconnected" | "stopped" | "connecting";
 ```
 
 #### `SystemImpl`
@@ -11783,6 +11794,8 @@ interface ProcessCommand {
   readonly cwd?: string | undefined;
   /** Set on top of the scrubbed environment (the instance's identity, `SYSTEM_ENV`, goes here). */
   readonly env?: Readonly<Record<string, string>> | undefined;
+  /** Called with each piece of what it prints (stdout and stderr) as it comes; pieces may split lines. */
+  readonly onOutput?: ((text: string) => void) | undefined;
 }
 ```
 
@@ -11926,6 +11939,26 @@ type ExitDecision =
 | { readonly action: 'restart-now' }
 | { readonly action: 'restart'; readonly wait: number; readonly crashes: number }
 | { readonly action: 'give-up'; readonly crashes: number };
+```
+
+#### `STATUS_LOG`
+
+const · `import { STATUS_LOG } from '@harness/sdk/server'`
+
+The log key a system writes its status changes under. A supervisor reads them from a child's JSON log lines (`HARNESS_LOG_JSON`).
+
+```ts
+const STATUS_LOG: "system.status";
+```
+
+#### `statusOfLine`
+
+function · `import { statusOfLine } from '@harness/sdk/server'`
+
+The status a line of a child's JSON log reports, if it is a status line.
+
+```ts
+function statusOfLine(line: string): RunningStatus | undefined;
 ```
 
 #### `McpFace`
@@ -13053,8 +13086,8 @@ type FnApproval = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, and whether its
-own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
+What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, what it creates,
+updates or removes in the hub, and whether its own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
 from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
 
 ```ts
@@ -13063,6 +13096,11 @@ type FnEffects = {
   reads?: `${string}/${string}`[] | undefined;
   writes?: `${string}/${string}`[] | undefined;
   free?: boolean | undefined;
+  registry?: {
+    thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    action: "create" | "update" | "remove";
+    kind?: `${string}/${string}` | "native" | undefined;
+  }[] | undefined;
 };
 ```
 
@@ -13200,6 +13238,7 @@ type FnSearchPage = {
     kind?: string | undefined;
     mode?: "read" | "write" | "delete" | undefined;
     signature?: string | undefined;
+    effects?: string | undefined;
     instance?: (string & z.core.$brand<"InstanceName">) | undefined;
     score?: number | undefined;
     unavailable?: string | undefined;
@@ -13232,6 +13271,11 @@ type FnSearchQuery = {
     writes?: `${string}/${string}`[] | undefined;
   } | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
+  effects?: {
+    thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    action?: "create" | "update" | "remove" | undefined;
+    kind?: string | undefined;
+  }[] | undefined;
   names?: `${string}/${string}`[] | undefined;
   available?: boolean | undefined;
   order?: "name" | "score" | undefined;
@@ -13545,6 +13589,11 @@ type KindDescription = {
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
+    registry?: {
+      thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      action: "create" | "update" | "remove";
+      kind?: `${string}/${string}` | "native" | undefined;
+    }[] | undefined;
   } | undefined;
   readable?: {
     language: string;
@@ -13972,6 +14021,11 @@ type Manifest = {
       reads?: `${string}/${string}`[] | undefined;
       writes?: `${string}/${string}`[] | undefined;
       free?: boolean | undefined;
+      registry?: {
+        thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+        action: "create" | "update" | "remove";
+        kind?: `${string}/${string}` | "native" | undefined;
+      }[] | undefined;
     } | undefined;
     promptExamples?: number | undefined;
   }[];
@@ -14119,6 +14173,7 @@ type Manifest = {
     icon?: string | undefined;
   }[] | undefined;
   configSecrets?: string[] | undefined;
+  runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
 };
 ```
 
@@ -14284,6 +14339,11 @@ type ManifestPatch = {
         reads?: `${string}/${string}`[] | undefined;
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
+        registry?: {
+          thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+          action: "create" | "update" | "remove";
+          kind?: `${string}/${string}` | "native" | undefined;
+        }[] | undefined;
       } | undefined;
       promptExamples?: number | undefined;
     }[] | undefined;

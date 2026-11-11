@@ -258,7 +258,9 @@ describe('saved fns (build 5)', () => {
     addHubFn(r, hub.fns.fn_get);
     const asker = r.catalog.add('input', 'ask', fn({ description: 'Ask.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
     // it declares that it creates and updates input/form fns (build 6): the hub refuses what it did not declare
-    const declares = (registry: RegistryEffect[]) => r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.save_fn.name, hub.fns.fn_get.name], effects: { registry } } });
+    const declares = (registry: RegistryEffect[]): void => {
+      r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.save_fn.name, hub.fns.fn_get.name], effects: { registry } } });
+    };
     declares([{ thing: 'fns', action: 'create', kind: 'input/form' }, { thing: 'fns', action: 'update', kind: 'input/form' }]);
     const owned: Array<{ fn: string; owner: string; visibility: string }> = [];
     registerHubFns(r.module.hubFns, {

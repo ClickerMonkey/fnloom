@@ -745,8 +745,8 @@ type FnApproval = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, and whether its
-own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
+What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, what it creates,
+updates or removes in the hub, and whether its own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
 from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
 
 ```ts
@@ -755,6 +755,11 @@ type FnEffects = {
   reads?: `${string}/${string}`[] | undefined;
   writes?: `${string}/${string}`[] | undefined;
   free?: boolean | undefined;
+  registry?: {
+    thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    action: "create" | "update" | "remove";
+    kind?: `${string}/${string}` | "native" | undefined;
+  }[] | undefined;
 };
 ```
 
@@ -892,6 +897,7 @@ type FnSearchPage = {
     kind?: string | undefined;
     mode?: "read" | "write" | "delete" | undefined;
     signature?: string | undefined;
+    effects?: string | undefined;
     instance?: (string & z.core.$brand<"InstanceName">) | undefined;
     score?: number | undefined;
     unavailable?: string | undefined;
@@ -924,6 +930,11 @@ type FnSearchQuery = {
     writes?: `${string}/${string}`[] | undefined;
   } | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
+  effects?: {
+    thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    action?: "create" | "update" | "remove" | undefined;
+    kind?: string | undefined;
+  }[] | undefined;
   names?: `${string}/${string}`[] | undefined;
   available?: boolean | undefined;
   order?: "name" | "score" | undefined;
@@ -1237,6 +1248,11 @@ type KindDescription = {
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
+    registry?: {
+      thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      action: "create" | "update" | "remove";
+      kind?: `${string}/${string}` | "native" | undefined;
+    }[] | undefined;
   } | undefined;
   readable?: {
     language: string;
@@ -1664,6 +1680,11 @@ type Manifest = {
       reads?: `${string}/${string}`[] | undefined;
       writes?: `${string}/${string}`[] | undefined;
       free?: boolean | undefined;
+      registry?: {
+        thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+        action: "create" | "update" | "remove";
+        kind?: `${string}/${string}` | "native" | undefined;
+      }[] | undefined;
     } | undefined;
     promptExamples?: number | undefined;
   }[];
@@ -1811,6 +1832,7 @@ type Manifest = {
     icon?: string | undefined;
   }[] | undefined;
   configSecrets?: string[] | undefined;
+  runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
 };
 ```
 
@@ -1976,6 +1998,11 @@ type ManifestPatch = {
         reads?: `${string}/${string}`[] | undefined;
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
+        registry?: {
+          thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+          action: "create" | "update" | "remove";
+          kind?: `${string}/${string}` | "native" | undefined;
+        }[] | undefined;
       } | undefined;
       promptExamples?: number | undefined;
     }[] | undefined;

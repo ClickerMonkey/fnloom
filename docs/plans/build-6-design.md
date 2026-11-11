@@ -160,3 +160,34 @@ The build 3 contracts the task named (`ListQuery`/`LIST_FIELDS`, `SuggestionReco
   screens only, at 390x844 and 1440x900.
 - **Library gaps.** Anything a library can't do goes in the report as `LIBRARY GAP:`, with no workaround.
 - **Generated manifest.** After a `web.ts` change, run `npm run web:manifest`.
+
+## Status (end of build 6)
+
+Checked against the code at the end of the build. **Done** means in the code with tests; the rest is listed under
+"Not finished" and carries into build 7.
+
+| Item | Status |
+|---|---|
+| 1. Install from chat, part 1 | Done: `contextor/brought.ts` (`broughtFns`) for every contextor and `hub/load_context` (closest names, `name: description` input), the fns line, suggestions with `broughtBy`, the fs start item's fns |
+| 1. Install from chat, part 2 | Done: `@harness/build` (builder, checks, scan), `sdk/server/supervise.ts` (env allowlist, permission flags, backoff, `STATUS_LOG`), `admins` approvers, `ctx.approved`, `grantPairing` with `boundTo`, `InstanceRecord.host`, hosted start/stop/restart, fs `install_system` / `system_status` / `restart_system` / `stop_system`, the install card, the approval card subject, the Systems host row; e2e `install.e2e.test.ts` |
+| 2. One search | Done: `hub/search_fns`, `search_context`, `find` and the web `search` retired for `fns_search` / `searchFns`; the chat's default tools as listed |
+| 2. Runtime add/update/remove | Done: `ManifestPatch.lists` / `roots`, link `examples`, one `RunningSystem.patch`, `origin: 'runtime'` kept |
+| 2. Type versions and meta | Done: `typeVersions`, `meta` through `types`; the database system's `store.ts` is gone |
+| 2. Hub fns | Mostly done: instructions and examples, `effects` and `promptExamples`, a hub fn per web operation (`person-ops.ts`, `person-fns.ts`). Not done: the `{ input }` wrapper is still on `resource_import`, `configure_provider`, `remove_rule` and `set_model_role` |
+| 2. Kind cost, database, visuals, pairing, approvals, link visibility | Done (`estimate` with `database/query` and `input/form`; the hub link `embed` and `ctx.budget.spend` are gone) |
+| 2. fs file explorer, browser logs, build 5 UI fixes | Done: `/explore/:system/:instance/*path`, `state/client-logs.ts` |
+| 2. Tests and docs | Done: build 4 e2e suite, contextor suite on `qwen2.5:3b`, approval card component test; architecture rows and AUTHORING regenerated |
+| 3. `ctx.ai()` / `hubAi()` | Done, with the fake and the live test over a free OpenRouter model |
+| 4. Library gaps | Done on the `harness` branches: gin `RefWalker` (and `FnSearchQuery.order: 'name'` restored), resources graph nodes (and `web/crawl` on `buildResourceGraph`) |
+| 5. Context folders | Done: `checkContextFolder` (build fails on problems), `contextDeclOf` in the built manifest, the SDK's `context/` watch, update by name, `choices` rendered with sizes, the fs authoring guide as an index with choices. Not done: the hub and system API grouped with an index context item per group |
+| Owner feedback (2026-11-11) | Done: search pills and sort row, the system page's context switch and "everything it added" tabs, hub-made context commands served by the hub (4xx with the reason, greyed out in the composer), declared effects (shown to the model, filtered in `fns_search`, enforced with `undeclared-change`). Not done: `npm run live` (a pinned stack with no file watching) |
+
+### Not finished
+
+- The hub and system API grouped and indexed with an index context item per group (item 5, last point).
+- The `{ input }` wrapper on four hub fns (item 2, Hub fns).
+- `npm run live` from the owner feedback; the README's "Running a stable stack" section it refers to is not written.
+- The SDK's fake hub (`sdk/server/testing.ts`) still refuses `grantPairing` and answers `resourceSections` with nothing.
+- The e2e checks that need embeddings (`runs`: the index's embedding calls; `chat`: suggestions from a draft) failed at
+  the end of the build because the local embedder service (:8760) answered `/embed` with nothing for 60 s; the rest of
+  the suite passed (`restart` and `package` only when run apart from the full suite on a loaded machine).

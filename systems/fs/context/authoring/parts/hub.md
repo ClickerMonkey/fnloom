@@ -44,7 +44,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/fns_search`: Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
 
   ```text
-  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, names?, available?, order?, offset?, limit? … }) => obj{
+  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, order?, offset?, limit? … }) => obj{
     items: list<obj{
       item: enum<text>{fn, context},
       name: text,
@@ -53,6 +53,7 @@ This is the hub contract as the SDK declares it now:
       kind?: text,
       mode?: enum<text>{read, write, delete},
       signature?: text,
+      effects?: text,
       instance?: text,
       score?: num,
       available: bool,
@@ -664,12 +665,21 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, config: any, instance?: text}) => or<obj{version: num{whole=true}}, obj{problems: list<text>}>
   ```
-- `hub/enable_system`: Turn a system's functions and its renderers on or off. Tags: `admin`.
+- `hub/enable_system`: Turn a system's functions, its renderers and all of its context on or off. Tags: `admin`.
 
   ```text
-  (obj{system: text, functions?: bool, renderers?: bool}) => obj{
-    enabled: obj{functions: bool, renderers: bool}
+  (obj{system: text, functions?: bool, renderers?: bool, context?: bool}) => obj{
+    enabled: obj{functions: bool, renderers: bool, context?: bool}
   }
+  ```
+- `hub/switch_item`: Turn one fn or context item of a system on or off. Tags: `admin`.
+
+  ```text
+  (obj{
+    section: enum<text>{fns, context},
+    name: text,
+    on: bool
+  }) => obj{on: bool}
   ```
 - `hub/remove_system`: Remove a system; its fns become unavailable until it pairs again. Tags: `admin`.
 

@@ -76,6 +76,8 @@ export class FakeBuilder implements SystemBuilder {
   readonly calls: string[] = [];
   problems: string[] = [];
   names: string[] = [];
+  /** What a bundled server file says after its first line (none by default). */
+  bundleBody = '';
   readonly #files: MemoryFiles;
 
   constructor(files: MemoryFiles) {
@@ -99,7 +101,7 @@ export class FakeBuilder implements SystemBuilder {
 
   bundleServer(input: { entry: string; outDir: string; fileName: string; external: readonly string[] }): Promise<void> {
     this.calls.push(`server ${input.entry} -> ${join(input.outDir, input.fileName)} external=${input.external.join(',')}`);
-    this.#files.put(join(input.outDir, input.fileName), `// bundled ${input.entry}`);
+    this.#files.put(join(input.outDir, input.fileName), `// bundled ${input.entry}\n${this.bundleBody}`);
     return Promise.resolve();
   }
 

@@ -142,7 +142,7 @@ export const OUTLINE: readonly Topic[] = [
       'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'AUTO_PAIR_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
       'OutcomeJournal', 'FileJournal', 'contentHash', 'contentHasher', 'ContentHasher', 'StateConflict', 'LinkGap', 'InvalidValue',
       'LinkTransport', 'LinkSocket', 'WsLinkTransport', 'HubAccess', 'HubLink', 'NodeFiles', 'FilesFactory', 'FilesScope', 'fileUri', 'uriInstance', 'mimeOf', 'NodeProcess', 'ProcessControl',
-      'NodeStarter', 'NodeStarterOptions', 'ProcessStarter', 'ProcessCommand', 'ProcessExit', 'SupervisedProcess', 'scrubbedEnv', 'BASIC_ENV', 'SHARED_ENV', 'permissionArgs', 'ProcessGrants', 'CrashPolicy', 'CrashPolicyOptions', 'ExitDecision',
+      'NodeStarter', 'NodeStarterOptions', 'ProcessStarter', 'ProcessCommand', 'ProcessExit', 'SupervisedProcess', 'scrubbedEnv', 'BASIC_ENV', 'SHARED_ENV', 'permissionArgs', 'ProcessGrants', 'CrashPolicy', 'CrashPolicyOptions', 'ExitDecision', 'STATUS_LOG', 'statusOfLine',
       'McpFace', 'McpLimits', 'readClientBundle', 'CLIENT_ENTRY', 'ClientBundle',
       'LlmWire', 'LlmWireOptions', 'LlmDescriptors', 'UNSENDABLE_CONTENT', 'messageFromWire', 'requestFromWire', 'isObjectSchema', 'descriptorsOf', 'applyDescriptors',
       'usageToWire', 'usageFromWire', 'chunkToWire', 'chunkFromWire', 'responseToWire',

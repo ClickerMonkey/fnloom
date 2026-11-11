@@ -7,7 +7,8 @@
  * system, which builds the renderers again so changes to them go live too.
  */
 import { existsSync, watch } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { NodeFiles, ViteBuilder } from '@harness/build';
 import { SystemName } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
@@ -88,7 +89,10 @@ const clientFolder = await rendererFolder({ main: import.meta.url, outDir: join(
 log.info('fs.client.ready', { folder: clientFolder, took: Math.round(performance.now() - started) });
 
 log.info('fs.serving', { hub: settings.HARNESS_HUB, shell: shell.type === 'posix' ? shell.path : 'system' });
+// its own folder (the one with system.json and context/: systems/fs from source, dist/ when packed), wherever it was
+// started from, so every instance sends the same context folder
 const running: RunningSystem<'fs'> = await serve(fs, server.impl, {
+  package: dirname(dirname(fileURLToPath(import.meta.url))),
   hub: settings.HARNESS_HUB,
   state: settings.HARNESS_SYSTEM_STATE,
   client: clientFolder,
