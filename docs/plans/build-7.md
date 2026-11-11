@@ -211,7 +211,48 @@ page and enforced over the link, with tests:
 
 ## Carry-overs
 
-Whatever build 6 leaves open.
+Build 6 left these open (from its finish report). Do them in this build, in the lane that owns them.
+
+- **Hub:** switch hub/link/supervisor.ts and process.ts to the SDK NodeStarter, scrubbedEnv and CrashPolicy, and delete the copies there.
+- **Hub:** add a `context` part to SystemEnabled with hub handling, so a system can have one switch for all its context.
+- **Hub:** add per-item enable plus hub lists for every kind of contribution: kinds, resources and roots, commands, components, registry contributions, examples and providers. The web system page then gets a tab for each.
+- **Hub:** fill `ChatCapabilities.commands[].unavailable` correctly. Context the hub makes itself, such as memories, is always available. Refused commands come back as a readable 4xx.
+- **Hub:** chat mode picker doesn't save the chosen mode.
+- **Hub:** the hub's `models` endpoint, plus charging system budgets for ctx.ai().
+- **Hub:** a live OpenRouter test of ctx.ai().
+- **Hub:** move the hosted source path onto InstallSubject, so the hub stops reading fs's argument.
+- **Hub:** check the link `content` endpoint as the run's person.
+- **Hub:** `checkContextFolder` must not follow `fn:` and `context:` references inside fenced code. Then re-run `npm run docs:authoring`.
+- **Hub/SDK:** give a built bundle's exact hello or manifest hash without running its server code, so pairing doesn't refuse systems whose hello adds events, resources, a context folder or patches.
+- **Security:** model-written contract code runs before an admin approves. Use a built contract artifact or the hash above.
+- **Core:** rename FnSearchQuery.order "alphabetical" back to "name".
+- **zod-gin:** add a top-level choice type to remove the `{ input }` wrapper. It still wraps configure_provider, remove_rule, set_model_role and resource_import.
+- **SDK:** `ProcessGrants.permissions` takes core's manifest permissions type. fs runner.ts:105 doesn't typecheck until then.
+- **SDK:** add `FnCtx.approved`, an `approver` for fn() approval, and `RunningSystem.grantPairing`.
+- **SDK:** add a way for a system to notify admins, e.g. when a hosted system is disabled after too many crashes.
+- **SDK:** add a `routing` option to agent(), so get_query and edit_query can be routed to instances.
+- **SDK:** the SDK runtime answers `estimate`, so the kind cost hooks take effect.
+- **SDK:** `ResourceProvider.read` can reach LocalContent, so the fs explorer can serve bytes.
+- **Build:** the CLI passes the hub catalog to buildSystem as `known`.
+- **fs:**
+  - install_system uses NodeStarter with permissionArgs and @harness/build's buildSystem and scan.
+  - At start, kill any stale pid recorded in host.json.
+  - Prune a failed update's folder.
+  - Replace the needs-config text heuristic.
+- **Web:** treat a 409 `unavailable` refusal as readable text, and treat a declined run as cancelled with code "denied".
+- **Web:** make the "Needs approval" button on the Runs page sort row the same height as the sort button.
+- **Owner:** `npm run live` (a pinned stack with no file watching that reuses the main data folder) needs a design: a bundled build, or a pinned copy of the libraries. Propose one; don't touch the owner's running stack on :4320.
+- **Owner calls, open:**
+  - Approving and answering stay web-only rather than becoming hub fns.
+  - A hosted system's cwd is its bundle folder, not its data folder.
+- **Not run in build 6:**
+  - the build 4 e2e suite
+  - contextor on qwen2.5:3b
+  - dialect tests on real SQLite
+  - the e2e install scenario
+  - configSecrets staying sealed across a restart
+
+  Run them where they matter.
 
 ## Rules
 
