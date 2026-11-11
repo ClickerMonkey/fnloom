@@ -1,20 +1,22 @@
 <script setup lang="ts">
 /**
- * The table visual: a result's rows under a sticky header, each column formatted for its kind (numbers right-aligned
+ * The table visual: a result's rows under a header, each column formatted for its kind (numbers right-aligned
  * in tabular figures, empty cells marked, long text on one line with the full value on hover), sortable by a header
- * click, paged 25 at a time. When the rows held are the whole result, sorting and paging happen here; when they are a slice,
+ * click, paged 25 at a time. The table is as tall as its page (never a scroll inside the chat or page); a table wider
+ * than its frame scrolls sideways, with its first column pinned and the cut side faded so the hidden columns show. When the rows held are the whole result, sorting and paging happen here; when they are a slice,
  * moving past them or sorting asks the fn again (`pager`), and without a pager the sort orders the rows held.
  */
 import type { ResultSort } from '@harness/core';
 import { computed, ref, watch } from 'vue';
-import { UiIcon, UiIconButton } from '../../ui/index.ts';
+import { UiIcon, UiIconButton, useMoreEdges } from '../../ui/index.ts';
 import { cellText, gridWindow, isComplete, isNumeric, nextSort, sortRows, windowLabel } from './table.ts';
 import type { VisualProps } from './visuals.ts';
 
-const props = withDefaults(defineProps<VisualProps & {
-  /** Show every row held at full height (inside a box that scrolls already); it still scrolls sideways when wide. */
-  uncapped?: boolean;
-}>(), { pager: undefined, uncapped: false });
+const props = withDefaults(defineProps<VisualProps>(), { pager: undefined });
+
+const strip = ref<HTMLElement | null>(null);
+/** The sides with columns beyond them; any at all pins the first column. */
+const edges = useMoreEdges(strip);
 
 /** The sort picked here (rows held), over the sort the table was read with. */
 const picked = ref<ResultSort | undefined>(undefined);
@@ -52,29 +54,31 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
 
 <template>
   <div class="grid" data-testid="result-grid">
-    <div class="scroll" :class="{ uncapped }" tabindex="0" role="region" :aria-label="title">
-      <table>
-        <thead>
-          <tr>
-            <th v-for="column in table.columns" :key="column.name" scope="col" :class="{ num: isNumeric(column) }" :aria-sort="ariaSort(column.name)">
-              <button type="button" class="sort" :title="`Sort by ${column.label ?? column.name}`" @click="sortBy(column.name)">
-                <span class="name">{{ column.label ?? column.name }}</span>
-                <span class="kind">{{ column.kind }}</span>
-                <UiIcon v-if="sort?.column === column.name" :name="sort.dir === 'asc' ? 'chevron-up' : 'chevron-down'" :size="12" />
-              </button>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, r) in window.rows" :key="window.from + r">
-            <td v-for="(column, c) in table.columns" :key="column.name" :class="{ num: isNumeric(column), mono: column.kind === 'json' || column.kind === 'uuid' }">
-              <span v-if="cellText(row[c], column) === undefined" class="empty">null</span>
-              <span v-else class="cell" :title="cellText(row[c], column)">{{ cellText(row[c], column) }}</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="table.rows.length === 0" class="none">No rows.</p>
+    <div class="frame">
+      <div ref="strip" class="scroll edge-fade" :class="{ pinned: edges !== '' }" :data-more="edges" tabindex="0" role="region" :aria-label="title">
+        <table>
+          <thead>
+            <tr>
+              <th v-for="column in table.columns" :key="column.name" scope="col" :class="{ num: isNumeric(column) }" :aria-sort="ariaSort(column.name)">
+                <button type="button" class="sort" :title="`Sort by ${column.label ?? column.name}`" @click="sortBy(column.name)">
+                  <span class="name">{{ column.label ?? column.name }}</span>
+                  <span class="kind">{{ column.kind }}</span>
+                  <UiIcon v-if="sort?.column === column.name" :name="sort.dir === 'asc' ? 'chevron-up' : 'chevron-down'" :size="12" />
+                </button>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, r) in window.rows" :key="window.from + r">
+              <td v-for="(column, c) in table.columns" :key="column.name" :class="{ num: isNumeric(column), mono: column.kind === 'json' || column.kind === 'uuid' }">
+                <span v-if="cellText(row[c], column) === undefined" class="empty">null</span>
+                <span v-else class="cell" :title="cellText(row[c], column)">{{ cellText(row[c], column) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="table.rows.length === 0" class="none">No rows.</p>
+      </div>
     </div>
     <footer v-if="hasPrev || hasNext || !complete" class="foot">
       <span class="count" data-testid="result-count">{{ label }}</span>
@@ -89,11 +93,11 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
 
 <style scoped>
 .grid { display: grid; gap: var(--space-2); min-width: 0; }
-.scroll { max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.scroll.uncapped { max-height: none; }
-.scroll:focus-visible { outline: none; box-shadow: var(--ring); }
+.frame { container-type: inline-size; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.scroll { overflow-x: auto; overflow-y: hidden; }
+.scroll:focus-visible { outline: none; box-shadow: inset var(--ring); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); }
-th { position: sticky; top: 0; z-index: 1; padding: 0; border-bottom: 1px solid var(--border-strong); background: var(--surface-2); text-align: left; white-space: nowrap; }
+th { padding: 0; border-bottom: 1px solid var(--border-strong); background: var(--surface-2); text-align: left; white-space: nowrap; }
 .sort {
   display: flex; align-items: baseline; gap: 6px; width: 100%; padding: var(--space-2) var(--space-3); border: 0; background: transparent;
   color: var(--text); font: inherit; font-weight: var(--weight-strong); text-align: inherit; cursor: pointer;
@@ -107,6 +111,12 @@ tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background: var(--surface-2); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--mono); font-size: var(--text-xs); }
+/* wide: the first column stays put while the rest scroll under it, at most 40% of the frame */
+.pinned th:first-child, .pinned td:first-child { position: sticky; left: 0; z-index: 1; box-shadow: inset -1px 0 0 var(--border); }
+.scroll.pinned { --fade-start: 0px; }
+.pinned td:first-child { background: var(--surface); }
+.pinned tbody tr:hover td:first-child { background: var(--surface-2); }
+.pinned td:first-child .cell, .pinned th:first-child .name { max-width: 40cqi; overflow: hidden; text-overflow: ellipsis; }
 .cell { display: block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { color: var(--text-faint); font-style: italic; }
 .none { margin: 0; padding: var(--space-3); color: var(--text-dim); font-size: var(--text-sm); }

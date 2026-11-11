@@ -1,12 +1,12 @@
 /**
- * What an instance keeps in its data folder (its saved queries are the hub's fns, not kept here): the enrichment
- * of each table schema it has seen (by hash, so a model refines a table once per schema), and the type
- * changes a rescan found that wait for an admin. `FileStore` keeps them as JSON files; `MemoryStore` is for tests.
+ * What an instance keeps in its data folder: only the enrichment of each table schema it has seen, by schema hash, so
+ * a model refines a table once per schema. It is a cache of model work, never the record: the table types (and the
+ * changes waiting for an admin, worked out again by every scan) come from the hub. `FileStore` keeps it as a JSON file;
+ * `MemoryStore` is for tests.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Timestamp } from '@harness/core';
-import { TableSpec } from '@aeye/query';
 import { z } from 'zod';
 import { ScannedTable } from './schema.ts';
 import { TableEnrichment } from './types.ts';
@@ -22,28 +22,20 @@ export const PendingChanges = z.object({
 });
 export type PendingChanges = z.infer<typeof PendingChanges>;
 
-/** An instance's kept state. */
+/** An instance's cache of table enrichments. */
 export interface InstanceStore {
   enrichment(hash: string): Promise<TableEnrichment | undefined>;
   putEnrichment(hash: string, enrichment: TableEnrichment): Promise<void>;
-  pending(): Promise<PendingChanges | undefined>;
-  /** Keep the changes that wait for an admin, or clear them (`undefined`). */
-  setPending(changes: PendingChanges | undefined): Promise<void>;
-  /** The table shapes the hub's types were last made from, by table name. */
-  applied(): Promise<Map<string, TableSpec>>;
-  setApplied(tables: ReadonlyMap<string, TableSpec>): Promise<void>;
 }
 
 const Stored = z.object({
   enrichments: z.record(z.string(), TableEnrichment).default({}),
-  pending: PendingChanges.optional(),
-  applied: z.record(z.string(), TableSpec).default({}),
 });
 type Stored = z.infer<typeof Stored>;
 
-/** The kept state in memory, written out by `persist` after each change. */
+/** The cache in memory, written out by `persist` after each change. */
 class StoreBase implements InstanceStore {
-  protected state: Stored = { enrichments: {}, applied: {} };
+  protected state: Stored = { enrichments: {} };
 
   async enrichment(hash: string): Promise<TableEnrichment | undefined> {
     return (await this.load()).enrichments[hash];
@@ -52,26 +44,6 @@ class StoreBase implements InstanceStore {
   async putEnrichment(hash: string, enrichment: TableEnrichment): Promise<void> {
     const state = await this.load();
     this.state = { ...state, enrichments: { ...state.enrichments, [hash]: enrichment } };
-    await this.persist();
-  }
-
-  async pending(): Promise<PendingChanges | undefined> {
-    return (await this.load()).pending;
-  }
-
-  async setPending(changes: PendingChanges | undefined): Promise<void> {
-    const { pending: _pending, ...rest } = await this.load();
-    this.state = changes === undefined ? rest : { ...rest, pending: changes };
-    await this.persist();
-  }
-
-  async applied(): Promise<Map<string, TableSpec>> {
-    return new Map(Object.entries((await this.load()).applied));
-  }
-
-  async setApplied(tables: ReadonlyMap<string, TableSpec>): Promise<void> {
-    const state = await this.load();
-    this.state = { ...state, applied: Object.fromEntries(tables) };
     await this.persist();
   }
 
@@ -84,10 +56,10 @@ class StoreBase implements InstanceStore {
   }
 }
 
-/** The kept state in memory. */
+/** The cache in memory. */
 export class MemoryStore extends StoreBase {}
 
-/** The kept state in `<dataDir>/database.json`, written whole (through a temp file) on each change. */
+/** The cache in `<dataDir>/database.json`, written whole (through a temp file) on each change. */
 export class FileStore extends StoreBase {
   readonly #file: string;
   #loaded = false;

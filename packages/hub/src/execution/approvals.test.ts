@@ -129,6 +129,20 @@ describe('runs a system proposes', () => {
     await until(() => r.chat.settled.some((s) => s.turn === run?.turn), 'the system turn to end');
   });
 
+  it('outside a run, proposes afresh under a key whose earlier proposal settled', async () => {
+    const r = await started();
+    r.connect('fs');
+    const ask = { fn: 'write', args: { table: 'b' }, key: 'scan-2', approver: 'admins' as const, preview: PREVIEW, system: SystemName.parse('fs'), instance: MAIN_INSTANCE };
+    const first = await r.module.runs.propose(ask);
+    // cancelled here; a decline settles it the same way
+    await r.module.runs.cancel(first.run, ALICE);
+    expect(await r.module.runs.wait(first.run)).toMatchObject({ status: 'cancelled' });
+    const again = await r.module.runs.propose(ask);
+    expect(again.run).not.toBe(first.run);
+    expect(await r.module.runs.get(again.run)).toMatchObject({ status: 'awaiting-approval' });
+    await r.module.runs.cancel(again.run, ALICE);
+  });
+
   it('refuses a fn of another system and args that don’t fit', async () => {
     const r = await started();
     r.connect('fs');

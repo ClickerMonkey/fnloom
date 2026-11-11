@@ -17,6 +17,12 @@ export interface FnRef {
   readonly system: string;
 }
 
+/** The parts of a type record access looks at. */
+export interface TypeRef {
+  readonly system: string;
+  readonly audience?: ShareRule | undefined;
+}
+
 /** The parts of a context record access looks at. */
 export interface ContextRef {
   readonly name: ContextRecord['name'];
@@ -52,6 +58,8 @@ export interface AccessScope {
   seesFn(record: FnRef): boolean;
   /** `seesFn`, and a per-person fn has a connection to act as. What tool lists and run starts ask. */
   mayUse(record: FnRef): boolean;
+  /** A type: its system visible, and its audience (`TypeDecl.audience`) letting the person in when it has one. */
+  seesType(record: TypeRef): boolean;
   /** A context item: its system and itself visible, and the resource it was made from when it was. */
   seesContext(record: ContextRef): boolean;
   /** A resource: the closest root above it with a visibility, and the system serving it, visible. */
@@ -97,6 +105,7 @@ export function openScope(actor: ActorId): AccessScope {
     sees: () => true,
     seesSystem: () => true,
     seesFn: () => true,
+    seesType: () => true,
     mayUse: () => true,
     seesContext: () => true,
     seesUri: () => true,

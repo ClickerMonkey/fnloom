@@ -104,7 +104,7 @@ async function optionsOf(deps: PickerDeps, scope: AccessScope, source: Exclude<P
     }
     case 'type': {
       const rows = await store.table('types').find({ limit });
-      return rows.items.filter((row) => scope.seesSystem(row.system)).map((row) => ({ value: row.name, label: row.name, hint: row.description }));
+      return rows.items.filter((row) => scope.seesType(row)).map((row) => ({ value: row.name, label: row.name, hint: row.description }));
     }
     case 'kind': {
       const rows = await store.table('kinds').find({ limit });

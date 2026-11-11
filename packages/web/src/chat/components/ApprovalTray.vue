@@ -2,7 +2,7 @@
 /**
  * Runs waiting for approval, just above the composer so they can't be lost at the foot of a long thread. The oldest
  * shows as an approval card (what it will do, then Approve or Deny with how long to remember the answer where that
- * is allowed); its buttons stay in sight while only its body scrolls. With several waiting, the rest are listed under
+ * is allowed); its buttons stay in sight, and a body too tall for the room is cut and shown whole on Review. With several waiting, the rest are listed under
  * it, and Deny all answers every one while Approve all answers only those with no preview: a write or schema change is
  * approved from its own card, once the person has seen what it does.
  */
@@ -60,7 +60,7 @@ function decide(approve: boolean, remember: Remember, reason: string): void {
 </template>
 
 <style scoped>
-.tray { max-height: min(45dvh, 560px); animation: ui-rise-in var(--medium) var(--ease); }
+.tray { max-height: min(42dvh, 440px); animation: ui-rise-in var(--medium) var(--ease); }
 .others { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); min-width: 0; color: var(--text-dim); font-size: var(--text-xs); }
 .lead { font-weight: var(--weight-strong); }
 ul { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-width: 0; margin: 0; padding: 0; list-style: none; }

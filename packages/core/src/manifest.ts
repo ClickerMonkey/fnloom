@@ -16,6 +16,7 @@ import { FnValidation } from './validation.ts';
 import { FnApproval } from './approvals.ts';
 import { ConfigSecrets } from './config-secrets.ts';
 import { ContributionDecl, RegistryDecl } from './registries.ts';
+import { ShareRule } from './access.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -46,6 +47,12 @@ export const TypeDecl = z.object({
    * instance of the system leaves it alone; absent, the type is the whole system's.
    */
   instance: InstanceName.optional(),
+  /**
+   * Build 5: who may see the type, besides admins, when it is narrower than its system (a database's table types,
+   * whose descriptions carry sample values, follow the database's audience). `private` leaves it to admins. Absent:
+   * whoever sees its system.
+   */
+  audience: ShareRule.optional(),
 });
 export type TypeDecl = z.infer<typeof TypeDecl>;
 

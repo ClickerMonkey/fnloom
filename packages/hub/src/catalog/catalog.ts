@@ -630,6 +630,8 @@ export class StoreCatalog implements Catalog {
       references: this.#scopes.references(decl.def), updatedAt: now,
       // a fleet's type keeps the instance that owns it (a database's table types)
       ...(decl.instance === undefined ? {} : { instance: decl.instance }),
+      // and who may see it, when that is narrower than its system
+      ...(decl.audience === undefined ? {} : { audience: decl.audience }),
     };
   }
 

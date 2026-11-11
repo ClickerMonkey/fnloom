@@ -330,10 +330,10 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'> & { read
         lastSeenAt: (s) => s.lastSeenAt,
       },
     }),
-    // types are readable by everyone signed in, as the `types` endpoint serves them
+    // a type is listed to whoever sees it: its system, and its audience when it has one (a database's table types)
     types: new RowsSource({
       list: 'types', page,
-      load: (_viewer, query) => newest(store.table('types'), column('system', oneOf(allowed(query.filters, 'system', SystemName))), [['name', 'asc']], max),
+      load: (viewer, query) => seen(viewer, newest(store.table('types'), column('system', oneOf(allowed(query.filters, 'system', SystemName))), [['name', 'asc']], max), (access, row) => access.seesType(row)),
       search: (t) => t.description,
       fields: {
         name: (t) => t.name, system: (t) => t.system, instance: (t) => t.instance, references: (t) => t.references.length, updatedAt: (t) => t.updatedAt,

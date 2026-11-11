@@ -3,10 +3,10 @@
  * without further reads.
  */
 import { accessKey, seesOrigin, splitName, SystemName, type QualifiedName, type SessionId, type AccessRecord, type AccessTarget, type ActorId, type Sharing, type ShareRule } from '@harness/core';
-import type { AccessScope, ConnectionGate, ContextRef, FnConnection, FnRef } from './index.ts';
+import type { AccessScope, ConnectionGate, ContextRef, FnConnection, FnRef, TypeRef } from './index.ts';
 
-/** Whether a sharing lets a person (in these groups) in. */
-export function letsIn(sharing: Pick<Sharing, 'owner'> & ShareRule, actor: ActorId, groups: ReadonlySet<ActorId>): boolean {
+/** Whether a sharing lets a person (in these groups) in. A rule with no owner (a type's audience) is private to nobody. */
+export function letsIn(sharing: Partial<Pick<Sharing, 'owner'>> & ShareRule, actor: ActorId, groups: ReadonlySet<ActorId>): boolean {
   switch (sharing.visibility) {
     case 'public': return true;
     case 'private': return sharing.owner === actor;
@@ -71,6 +71,11 @@ export class ActorScope implements AccessScope {
     return connection === undefined || connection.state === 'ready';
   }
 
+  seesType(record: TypeRef): boolean {
+    if (!this.seesSystem(record.system)) return false;
+    return this.admin || record.audience === undefined || letsIn(record.audience, this.actor, this.#parts.groups);
+  }
+
   seesContext(record: ContextRef): boolean {
     if (!this.seesSystem(record.system) || !this.sees({ kind: 'context', context: record.name })) return false;
     return record.origin?.type !== 'resource' || this.seesUri(record.origin.uri);
@@ -115,4 +120,12 @@ export function seesContextAs(access: AccessScope, record: ContextRef, session?:
 export async function seesContextNamed(access: AccessScope, lookup: (name: QualifiedName) => Promise<ContextRef | undefined>, name: QualifiedName, session?: SessionId): Promise<boolean> {
   const record = await lookup(name);
   return seesContextAs(access, record ?? { name, system: splitName(name).system, origin: undefined }, session);
+}
+
+/** Looks up a type's record by name (the catalog's `type`). */
+export type TypeLookup = (name: QualifiedName) => Promise<TypeRef | undefined>;
+
+/** Whether a person may see a type by name: by its record (`seesType`), or by its system when the hub doesn't know it. */
+export async function seesTypeNamed(access: AccessScope, lookup: TypeLookup, name: QualifiedName): Promise<boolean> {
+  return access.seesType((await lookup(name)) ?? { system: splitName(name).system });
 }

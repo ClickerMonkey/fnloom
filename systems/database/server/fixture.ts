@@ -4,7 +4,7 @@
  */
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
-import { InstanceName } from '@harness/core';
+import { InstanceName, SystemName, TypeRecord, qualify, type FleetInstance, type GinTypeDef, type Json, type TypeDecl, type TypeDefinitions } from '@harness/core';
 import BetterSqlite3 from 'better-sqlite3';
 import type { DatabaseConfig } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
@@ -52,20 +52,41 @@ export function shopConfig(overrides: Partial<DatabaseConfig> = {}): DatabaseCon
 /** An enricher that never runs (enrichment is off), or one that answers from a script. */
 export const NO_ENRICHER: Enricher = { enrich: () => Promise.resolve({ problems: ['not in this test'] }) };
 
-/** The hub's side, recording what it was given. */
+/** The hub's side, recording what it was given and keeping the table types as the hub would. */
 export class RecordingHub implements HubSide {
   readonly upserts: string[][] = [];
   readonly removals: string[][] = [];
   /** The saved query fns the hub says read each type. */
   readonly reading = new Map<string, string[]>();
+  /** The table types the hub keeps, by local name. */
+  readonly kept = new Map<string, TypeDecl>();
+
+  known(): Promise<ReadonlyMap<string, GinTypeDef>> {
+    return Promise.resolve(new Map([...this.kept].map(([name, decl]) => [name, decl.def])));
+  }
+
+  /** The hub's fleet as `ctx.fleet()` lists it: one online instance with this config and the kept types. */
+  fleet(instance: InstanceName, config: Json): FleetInstance[] {
+    return [{ instance, description: '', online: true, config, types: [...this.kept.values()].map((decl) => ({ name: qualify('database', decl.name), description: decl.description })) }];
+  }
+
+  /** The kept types' definitions, as `ctx.types.definitions` answers. */
+  definitions(names: readonly string[]): TypeDefinitions {
+    const types = [...this.kept.values()].flatMap(({ name, methods: _methods, ...decl }) => (names.includes(qualify('database', name))
+      ? [TypeRecord.parse({ ...decl, name: qualify('database', name), system: SystemName.parse('database'), references: [], updatedAt: 1_000 })]
+      : []));
+    return { types, missing: [] };
+  }
 
   readers(type: string): Promise<string[]> {
     return Promise.resolve(this.reading.get(type) ?? []);
   }
 
-  types(upsert: readonly { name: string }[], remove: readonly string[]): Promise<void> {
+  types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void> {
     this.upserts.push(upsert.map((decl) => decl.name));
     this.removals.push([...remove]);
+    for (const decl of upsert) { this.kept.set(decl.name, decl); }
+    for (const name of remove) { this.kept.delete(name); }
     return Promise.resolve();
   }
 }

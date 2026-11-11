@@ -1,15 +1,15 @@
 <script setup lang="ts">
 /**
  * What a run would do, as its system worked it out before approval: a warning when it can't be undone, then each part
- * in order — words (markdown), code to run (highlighted SQL or DDL), the rows it would touch, a type's change. With
- * `fill` (inside a card that scrolls its body), the code and rows show at full height so nothing scrolls inside a scroll.
+ * in order — words (markdown), code to run (highlighted SQL or DDL), the rows it would touch, a type's change. Code and
+ * rows show at full height wherever it sits (a page, a dialog), so nothing scrolls inside a scroll.
  */
 import type { ApprovalPreview } from '@harness/core';
 import { UiBanner, UiCodeBlock, UiMarkdown } from '../../ui/index.ts';
 import ResultGrid from '../results/ResultGrid.vue';
 import TypeDiff from './TypeDiff.vue';
 
-withDefaults(defineProps<{ preview: ApprovalPreview; fill?: boolean }>(), { fill: false });
+defineProps<{ preview: ApprovalPreview }>();
 </script>
 
 <template>
@@ -17,10 +17,10 @@ withDefaults(defineProps<{ preview: ApprovalPreview; fill?: boolean }>(), { fill
     <UiBanner v-if="preview.irreversible" tone="danger">This can't be undone once it runs.</UiBanner>
     <template v-for="(part, i) in preview.parts" :key="i">
       <UiMarkdown v-if="part.type === 'text'" class="text" :source="part.text" />
-      <UiCodeBlock v-else-if="part.type === 'code'" :code="part.code" :language="part.language" :filename="part.title ?? ''" wrap :max-height="fill ? 0 : 240" />
+      <UiCodeBlock v-else-if="part.type === 'code'" :code="part.code" :language="part.language" :filename="part.title ?? ''" wrap :max-height="0" />
       <section v-else-if="part.type === 'table'" class="rows">
         <h4 class="title">{{ part.title }}</h4>
-        <ResultGrid :table="part.table" :title="part.title" :uncapped="fill" />
+        <ResultGrid :table="part.table" :title="part.title" />
       </section>
       <TypeDiff v-else :part="part" />
     </template>

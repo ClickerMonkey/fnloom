@@ -46,7 +46,7 @@ describe('a SQLite database instance', () => {
     expect(hub.upserts[0]?.sort()).toEqual(['main.customers', 'main.orders']);
     const customers = instance.catalog.table('customers');
     expect(customers?.hubType.props?.['tier']?.type).toMatchObject({ name: 'enum' });
-    const decl = instance.catalog.typeDecls('Shop').find((item) => item.name === 'main.customers');
+    const decl = instance.catalog.typeDecls({ label: 'Shop', audience: { visibility: 'public', with: [] } }).find((item) => item.name === 'main.customers');
     expect(decl).toMatchObject({ instance: 'main', display: { title: 'name' } });
     expect(instance.catalog.describe()).toContain('orders');
   });
@@ -151,7 +151,7 @@ describe('a SQLite database instance', () => {
   });
 
   it('patches compatible changes and holds back ones that break a saved query', async () => {
-    const { instance, store, hub } = shopInstance();
+    const { instance, hub } = shopInstance();
     open.push(instance);
     await instance.rescan(undefined);
     // the hub knows which saved queries read a table
@@ -170,7 +170,22 @@ describe('a SQLite database instance', () => {
     expect(await instance.applyPending('scan_other')).toHaveProperty('problem');
     expect(await instance.applyPending(scan)).toEqual({ applied: ['main.orders'], removed: [] });
     expect(hub.upserts.at(-1)).toEqual(['main.orders']);
-    expect(await store.pending()).toBeUndefined();
+    expect(instance.pending).toBeUndefined();
+  });
+
+  it('compares with the types the hub keeps, so a fresh data folder still sees what changed and what was dropped', async () => {
+    const first = shopInstance();
+    open.push(first.instance);
+    await first.instance.rescan(undefined);
+    await first.instance.db.write([{ sql: 'DROP TABLE orders', params: [] }]);
+    // a new process with nothing in its data folder, over the same hub
+    const { instance } = shopInstance({ hub: first.hub, dir: first.dir });
+    open.push(instance);
+    const report = await instance.rescan(undefined);
+    expect(report.added).toEqual([]);
+    expect(report.pending?.dropped).toEqual(['orders']);
+    expect(await instance.applyPending(report.pending?.scan ?? '')).toEqual({ applied: [], removed: ['main.orders'] });
+    expect([...first.hub.kept.keys()]).toEqual(['main.customers']);
   });
 
   it('plans CREATE TABLE and ALTER TABLE from a gin type', async () => {
@@ -206,15 +221,16 @@ const fakeLlm = {
 };
 
 describe('the fleet as the hub lists it', () => {
-  it('describes every online, configured instance by its label and table types, this one included', async () => {
+  it('describes every online, configured instance by its label and table types, this one and empty ones included', async () => {
     const member = (instance: string, online: boolean, config: Json, types: FleetInstance['types']): FleetInstance => ({ instance: InstanceName.parse(instance), description: '', online, config, types });
     const audience = { visibility: 'public', with: [] };
     const listed = [
       member('shop', true, { label: 'Shop', audience }, [{ name: QualifiedName.parse('database/shop.customers'), description: 'Customers. Columns: id, name.' }]),
       member('stock', false, { label: 'Stock', audience }, [{ name: QualifiedName.parse('database/stock.products'), description: 'Products.' }]),
       member('fresh', true, null, []),
+      member('notes', true, { label: 'Notes', audience }, []),
     ];
     const members = await HUB_FLEET.members({ instance: 'shop', label: 'Shop', tables: [] }, { fleet: () => Promise.resolve(listed) });
-    expect(members).toEqual([{ instance: 'shop', label: 'Shop', audience, tables: ['customers (Customers. Columns: id, name.)'] }]);
+    expect(members).toEqual([{ instance: 'shop', label: 'Shop', audience, tables: ['customers (Customers. Columns: id, name.)'] }, { instance: 'notes', label: 'Notes', audience, tables: [] }]);
   });
 });

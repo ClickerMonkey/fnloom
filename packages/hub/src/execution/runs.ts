@@ -11,7 +11,7 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  compact, INVALID_INPUT_CODE, isSettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  compact, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
   type ApprovalPreview, type Approver, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, qualify,
@@ -357,11 +357,15 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     return { run: id, approval: approval.id };
   }
 
-  /** A run proposed outside any run under this key, if one was. */
+  /**
+   * A run proposed outside any run under this key that is still open (waiting or running), if one is. A settled one
+   * (done, declined, cancelled) doesn't count: nothing replays a system's own proposal, so the same key proposes afresh
+   * (a rescan finding the same changes again after an admin declined them, or after they were applied).
+   */
   async #proposedBefore(fn: Run['fn'], key: string): Promise<Run | undefined> {
     // the same key may also name a child proposed under some run, so look past those
     for await (const run of rows(this.#deps.store.table('runs'), { where: { fn, key } })) {
-      if (run.parent === undefined) { return run; }
+      if (run.parent === undefined && isUnsettled(run.status)) { return run; }
     }
     return undefined;
   }

@@ -5,7 +5,7 @@
  */
 import { QueryEngine, createRegistry, describeEngine, type Dialect, type TableSpec, type TypeBacking } from '@aeye/query';
 import type { GinTypeDef, InstanceName, TypeDecl } from '@harness/core';
-import type { DialectName } from '../shared/shapes.ts';
+import type { DatabaseConfig, DialectName } from '../shared/shapes.ts';
 import { dialectFor } from './dialects.ts';
 import { schemaHash, type ScannedTable } from './schema.ts';
 import { engineTypeOf, hubTypeOf, identifierOf, titleOf, typeNameOf, type TableEnrichment } from './types.ts';
@@ -56,8 +56,11 @@ export class TableCatalog {
     return this.table(name)?.scanned.spec;
   }
 
-  /** The hub's declaration of each table's type, belonging to this instance. */
-  typeDecls(label: string): TypeDecl[] {
+  /**
+   * The hub's declaration of each table's type, belonging to this instance and seen only by the database's audience
+   * (the descriptions carry sample values from its rows).
+   */
+  typeDecls({ label, audience }: Pick<DatabaseConfig, 'label' | 'audience'>): TypeDecl[] {
     return this.tables.map((table) => {
       const title = titleOf(table.scanned.spec);
       return {
@@ -67,6 +70,7 @@ export class TableCatalog {
         display: { label: table.scanned.spec.name, icon: 'table', ...(title === undefined ? {} : { title }) },
         methods: [],
         instance: this.instance,
+        audience,
       };
     });
   }

@@ -116,6 +116,28 @@ describe('approval cards', () => {
     expect(card.emitted('decide')?.[0]).toEqual([true, 'once', '']);
   });
 
+  it('in the chat’s tray, cuts a body too tall for the room and asks for Review before Approve, never scrolling inside', async () => {
+    const box = (el: HTMLElement): boolean => el.dataset['testid'] === 'approval-body';
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) { return box(this) ? 900 : 0; });
+    const client = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return box(this) ? 120 : 0; });
+    try {
+      const card = mount(ApprovalCard, { props: { fn: QualifiedName.parse('database/delete'), description: '', args: undefined, preview, rememberable: false, bounded: true }, attachTo: document.body });
+      await flushPromises();
+      expect(card.get('[data-testid=approval-body]').classes()).toContain('clipped');
+      expect(card.find('[data-testid=approve]').exists()).toBe(false);
+      await card.get('[data-testid=review]').trigger('click');
+      await flushPromises();
+      const dialog = document.body.querySelector('[data-testid=approval-review]');
+      expect(dialog?.textContent).toContain('shop.by_city');
+      document.body.querySelector<HTMLButtonElement>('[role=dialog] [data-testid=approve]')?.click();
+      expect(card.emitted('decide')?.[0]).toEqual([true, 'once', '']);
+      card.unmount();
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+    }
+  });
+
   it('keeps the inbox’s approvals by run and puts one back when the hub refuses', async () => {
     const desk = new ApprovalDesk({ ...fakeChatApi(), approve: failingCaller<'approve'>(new Error('gone')) });
     const run = RunId.parse('run_1');

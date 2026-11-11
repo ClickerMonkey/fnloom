@@ -232,7 +232,7 @@ describe('saved fns (build 5)', () => {
     registerHubFns(r.module.hubFns, {
       store: () => r.store,
       catalog: () => ({
-        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name),
+        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(),
         declare: (system, decl, by) => {
           const name = QualifiedName.parse(`${system}/${decl.name}`);
           const existing = r.catalog.records.get(name);

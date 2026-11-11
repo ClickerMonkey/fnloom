@@ -41,3 +41,47 @@ export function useMoreEdges(strip: Ref<HTMLElement | null>): Readonly<ShallowRe
   onBeforeUnmount(release);
   return edges;
 }
+
+/** Whether a box cut to its height holds more than it shows (a pixel of slack for rounding). */
+export function isClipped(clientHeight: number, scrollHeight: number): boolean {
+  return scrollHeight > clientHeight + 1;
+}
+
+/**
+ * Whether `box` (cut to its height with `overflow: hidden`, never scrolled) holds more than it shows, kept current as
+ * it or its content resizes or its content changes: the box can then fade its foot and offer the whole of it elsewhere.
+ */
+export function useClipped(box: Ref<HTMLElement | null>): Readonly<ShallowRef<boolean>> {
+  const clipped = shallowRef(false);
+  let sizer: ResizeObserver | undefined;
+  let watcher: MutationObserver | undefined;
+  let current: HTMLElement | null = null;
+  const measure = (): void => {
+    if (current !== null) { clipped.value = isClipped(current.clientHeight, current.scrollHeight); }
+  };
+  const observeContent = (): void => {
+    if (sizer === undefined || current === null) { return; }
+    sizer.disconnect();
+    sizer.observe(current);
+    for (const child of current.children) { sizer.observe(child); }
+  };
+  const release = (): void => {
+    sizer?.disconnect();
+    watcher?.disconnect();
+    sizer = undefined;
+    watcher = undefined;
+  };
+  watch(box, (el) => {
+    release();
+    current = el;
+    if (el === null) { return; }
+    if (typeof ResizeObserver !== 'undefined') { sizer = new ResizeObserver(measure); observeContent(); }
+    if (typeof MutationObserver !== 'undefined') {
+      watcher = new MutationObserver(() => { observeContent(); measure(); });
+      watcher.observe(el, { childList: true, subtree: true, characterData: true });
+    }
+    measure();
+  }, { immediate: true, flush: 'post' });
+  onBeforeUnmount(release);
+  return clipped;
+}

@@ -19,7 +19,7 @@ import type { ContextorServices, FnViewSource } from './index.ts';
 import { limitsFor } from './limits.ts';
 import type { McpScope } from '../mcp/index.ts';
 import type { AccessScope } from '../access/index.ts';
-import { seesContextNamed } from '../access/scope.ts';
+import { seesContextNamed, seesTypeNamed } from '../access/scope.ts';
 import { fnCard, listedLine } from './render.ts';
 import { forModel, modelMayUse } from './views.ts';
 
@@ -70,7 +70,7 @@ async function seesHit(deps: ContextorFnDeps, access: AccessScope, kind: FindKin
   switch (kind) {
     case 'fn': return access.seesFn({ name: name.data, system });
     case 'context': return seesContextNamed(access, (n) => deps.catalog().context(n), name.data);
-    case 'type': return access.seesSystem(system);
+    case 'type': return seesTypeNamed(access, (n) => deps.catalog().type(n), name.data);
   }
 }
 
@@ -130,7 +130,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
       return { name: name.data, kind: 'context' as const, detail, text: contextText(context, contextDetailAtMost(context, detail)) };
     }
     const type = await deps.catalog().type(name.data);
-    if (type !== undefined) {
+    if (type !== undefined && access.seesType(type)) {
       const code = detail === 'listed' ? undefined : await deps.views().typeText(name.data);
       return { name: name.data, kind: 'type' as const, detail, text: code ?? listedLine(type.name, type.description) };
     }

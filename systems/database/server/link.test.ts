@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ActorId, InstanceName, SystemPackageManifest, mintId, type FnSearchQuery, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
+import { ActorId, InstanceName, Json, SystemPackageManifest, mintId, type FnSearchQuery, type OutcomeWire, type RunSettled } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
 import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
@@ -63,10 +63,15 @@ describe('the database system over the link', () => {
   let server: DatabaseServer;
   let types: RecordingHub;
   let dir: string;
+  /** Called after each table type patch reaches the hub (the real hub describes saved queries again then). */
+  let afterPatch: (() => Promise<void>) | undefined;
 
   async function start(store = new MemoryStore(), config = shopConfig()): Promise<void> {
     hub = new FakeHub({ config });
     types = new RecordingHub();
+    // the hub keeps the table types the system sends, and lists them on its fleet
+    hub.onFleet = () => Promise.resolve(types.fleet(InstanceName.parse('main'), Json.parse(config)));
+    hub.onTypes = (names) => Promise.resolve(types.definitions(names));
     // the hub's search: by the fake's words, and the saved queries whose payload reads a table for `types.reads`
     const searchFns = (query: FnSearchQuery) => {
       const reads = query.types?.reads?.map((type) => type.slice(type.lastIndexOf('.') + 1)) ?? [];
@@ -77,7 +82,7 @@ describe('the database system over the link', () => {
     };
     server = createDatabaseImpl({
       settings, instance: InstanceName.parse('main'), dataDir: dir, store, fleet: SELF_FLEET, enricher: NO_ENRICHER, now: () => 1_000,
-      hub: () => ({ types: (upsert, remove) => types.types(upsert, remove), searchFns }),
+      hub: () => ({ types: async (upsert, remove) => { await types.types(upsert, remove); await afterPatch?.(); }, searchFns }),
     });
     // a tool's work is forwarded through the hub to the instance with the database: here, the one serving
     hub.onCall = async (call) => hub.fns.settle(call) ?? settled(await hub.run(call.fn, call.args));
@@ -90,6 +95,7 @@ describe('the database system over the link', () => {
     await running?.stop();
     await server.close();
     running = undefined;
+    afterPatch = undefined;
   });
 
   it('declares the query agents with their tools, every fn with instructions and examples, the query kind, the registry and the secrets', async () => {
@@ -220,6 +226,25 @@ describe('the database system over the link', () => {
     const refused = await hub.run('database/at_instance', { op: 'tables' }, as({ ...TEST_USER, id: ActorId.parse('act_cy'), role: 'member' }));
     expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.message) : refused).toEqual(['You may not use the Shop database; an admin chooses who may on its config.']);
     expect(done(await hub.run('database/at_instance', { op: 'tables' }, as(bo)))).toHaveProperty('tables.schema');
+    // a saved query fn called directly is held to the database's audience as it is now
+    done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }));
+    const payload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
+    const cy = { ...TEST_USER, id: ActorId.parse('act_cy'), role: 'member' as const };
+    const direct = await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: 'database/query', payload, run: hub.runInfo('database/main.orders_by_status', { user: cy }) });
+    expect(direct).toMatchObject({ status: 'invalid-input' });
+    expect(done(await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: 'database/query', payload, run: hub.runInfo('database/main.orders_by_status', { user: bo }) }))).toMatchObject({ rowCount: 2 });
+  });
+
+  it('describes saved queries against the scanned tables while the types of a rescan reach the hub', async () => {
+    dir = shopFile().dir;
+    await start();
+    done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }));
+    const payload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
+    const described: unknown[] = [];
+    afterPatch = async () => { described.push(await hub.peer().call('check', { kind: 'query', payload })); };
+    await hub.configure(shopConfig({ label: 'Shop (renamed)' }));
+    for (let wait = 0; described.length === 0 && wait < 200; wait += 1) { await new Promise((resolve) => setTimeout(resolve, 10)); }
+    expect(described[0]).toMatchObject({ problems: [], description: { args: { name: 'obj', props: { status: {} } }, effects: { mode: 'read' } } });
   });
 
   it('previews and makes a table from a type, and refuses one that exists', async () => {
@@ -248,7 +273,7 @@ describe('the database system over the link', () => {
     for (let wait = 0; hub.proposals.length === 0 && wait < 200; wait += 1) { await new Promise((resolve) => setTimeout(resolve, 10)); }
     const proposal = hub.proposals.at(-1);
     expect(proposal).toMatchObject({ fn: 'apply_type_changes', approver: 'admins', preview: { parts: [{ type: 'type-diff', name: 'database/main.orders', breaks: [{ fn: 'database/main.orders_by_status' }] }] } });
-    const scan = (await store.pending())?.scan ?? '';
+    const scan = server.current()?.pending?.scan ?? '';
     expect(done(await hub.run('database/apply_type_changes', { scan }))).toMatchObject({ types: ['database/main.orders'] });
     expect(await hub.run('database/apply_type_changes', { scan })).toMatchObject({ status: 'invalid-input' });
   });

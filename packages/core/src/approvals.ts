@@ -88,7 +88,11 @@ export type ProposalApprover = z.infer<typeof ProposalApprover>;
 export const ProposeRun = z.object({
   fn: LocalName,
   args: Json,
-  /** The caller's key, so a retried proposal makes no second run. */
+  /**
+   * The caller's key, so a retried proposal makes no second run. Under a run it names that run's child for good (a
+   * replayed parent gets the same answer); outside any run it holds only while the proposal is open, so once it
+   * settles (done, declined, cancelled) the same key proposes afresh.
+   */
   key: z.string().min(1),
   parent: RunId.optional(),
   approver: ProposalApprover,

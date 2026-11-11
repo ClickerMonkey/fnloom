@@ -36,7 +36,7 @@ function keptExample(example: { readonly args: Json; readonly result?: Json | un
 /** What the hub fns read, each looked up when a fn runs. */
 export interface HubFnDeps {
   readonly store: () => HubStore;
-  readonly catalog: () => Pick<Catalog, 'fn' | 'fns' | 'availability' | 'context' | 'declare'>;
+  readonly catalog: () => Pick<Catalog, 'fn' | 'fns' | 'availability' | 'context' | 'type' | 'declare'>;
   readonly search: () => Search;
   /** Where a session's loaded fns and context are kept. */
   readonly sessions: () => Pick<SessionService, 'load'>;
@@ -71,7 +71,7 @@ async function askerOf(deps: HubFnDeps, ctx: HubFnCtx): Promise<Asker> {
 async function hits(deps: HubFnDeps, { session, access }: Asker, kind: IndexedKind, query: string, limit: number | undefined) {
   return deps.search().search({
     text: query, kinds: [kind], limit: limit ?? DEFAULT_LIMIT, systems: searchSystems(session),
-    keep: keepSeen(access, (name) => deps.catalog().context(name), session.id),
+    keep: keepSeen(access, { context: (name) => deps.catalog().context(name), type: (name) => deps.catalog().type(name) }, session.id),
   });
 }
 

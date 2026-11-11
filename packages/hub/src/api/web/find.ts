@@ -40,7 +40,7 @@ export function findPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         return offered;
       },
       search: async ({ data, user }) => index.search.search({
-        text: data.query, kinds: data.kinds ?? SEARCHED_KINDS, limit: data.limit ?? SEARCH_LIMIT, keep: keepSeen(await hub.access.scope(user.id), lookup),
+        text: data.query, kinds: data.kinds ?? SEARCHED_KINDS, limit: data.limit ?? SEARCH_LIMIT, keep: keepSeen(await hub.access.scope(user.id), { context: lookup, type: (name) => catalog.type(name) }),
       }),
       mentions: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);

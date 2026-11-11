@@ -2,15 +2,17 @@
  * One database instance: its connection, its tables as types, and running queries against it. Nothing here knows
  * the link: the implementation (`impl.ts`) hands it the hub's side through `HubSide` and the run's model calls.
  *
- * - **Scan** (`rescan`, on configure and start): read the schema, enrich new and changed tables (cached by schema
- *   hash), rebuild the query engine, and work out what changed since the types the hub has. New tables and changes
- *   no saved query minds go to the hub straight away; a dropped table, or a change that breaks a saved query, waits
- *   for an admin as pending changes (with a type diff per table).
+ * - **Scan** (`scan`, on configure and start): read the schema, enrich new and changed tables (cached by schema
+ *   hash) and rebuild the query engine, so saved queries can be checked and described against it.
+ * - **Publish** (`publish`, right after): work out what changed since the table types the hub keeps for this
+ *   instance (read from the hub each time, so nothing here remembers them). New tables and changes no saved query
+ *   minds go to the hub straight away; a dropped table, or a change that breaks a saved query, waits for an admin as
+ *   pending changes (with a type diff per table). `rescan` does both.
  * - **Run** (`read`, `write`, `dryRun`): a saved query's payload and a call's args become SQL for this dialect.
  */
 import { ginTypeToTable, type TableSpec } from '@aeye/query';
 import { createHash } from 'node:crypto';
-import { type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
+import { type GinTypeDef, type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
 import type { Llm } from '@harness/sdk';
 import { Connection, dialectOf, type DatabaseConfig, type DatabaseInfo, type QueryPayload, type SortArg } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
@@ -25,6 +27,8 @@ import { hubTypeOf, identifierOf, qualifiedTypeOf, typeNameOf, type TableEnrichm
 export interface HubSide {
   /** Add or replace these table types, and take these away (local names). */
   types(upsert: readonly TypeDecl[], remove: readonly string[]): Promise<void>;
+  /** The table types the hub keeps for this instance now, by local name (`main.orders`), with their definitions. */
+  known(): Promise<ReadonlyMap<string, GinTypeDef>>;
   /**
    * The saved query fns of this instance that read a table type (`database/main.orders`), found in the hub's database
    * (`searchFns` by kind, instance and the types they read).
@@ -45,6 +49,23 @@ export function widens(before: TableSpec, after: TableSpec): boolean {
     if (now === undefined || JSON.stringify(now.type) !== JSON.stringify(old.type) || (old.nullable && !now.nullable)) { return false; }
     return old.values === undefined ? now.values === undefined : now.values === undefined || old.values.every((value) => now.values?.includes(value) === true);
   });
+}
+
+/** Whether two shapes of a table hold the same columns, types and keys (each widens the other). */
+function sameShape(a: TableSpec, b: TableSpec): boolean {
+  return a.columns.length === b.columns.length && widens(a, b) && widens(b, a);
+}
+
+/**
+ * The table a type the hub keeps describes, with the physical details (keys, defaults) of the table as scanned, so
+ * only what the type says (columns, their types, nullability) is compared. `undefined` when it isn't a table's type.
+ */
+function keptSpec(current: TableSpec, kept: GinTypeDef): TableSpec | undefined {
+  try {
+    return ginTypeToTable(current.name, kept, { current });
+  } catch {
+    return undefined;
+  }
 }
 
 /** A rescan's id from the changes it found: the same waiting changes always get the same id (and so one proposal). */
@@ -112,8 +133,10 @@ export class DatabaseInstance {
   readonly db: Database;
   readonly #deps: InstanceDeps;
   #catalog: TableCatalog;
-  /** The table shapes the hub's types were made from, by table name. */
+  /** The table shapes the hub's types were made from, by table name, as the last publish found them. */
   #applied = new Map<string, TableSpec>();
+  /** The changes the last publish left waiting for an admin (worked out again by every publish, so never kept). */
+  #pending: PendingChanges | undefined;
   /**
    * Tables whose enrichment couldn't run yet: the hub only takes a system's model calls inside a run, so a scan at
    * start or configure (outside any run) leaves them plain, and the next run on this database enriches them.
@@ -151,9 +174,14 @@ export class DatabaseInstance {
     return this.config.schema === 'allowed';
   }
 
-  /** Read the schema again; see the file's docs. `llm` makes enrichment possible (when it is on). */
+  /** Read the schema again and tell the hub; see the file's docs. `llm` makes enrichment possible (when it is on). */
   async rescan(llm: Llm | undefined): Promise<ScanReport> {
-    this.#applied = await this.#deps.store.applied();
+    await this.scan(llm);
+    return await this.publish();
+  }
+
+  /** Read the schema, enrich it and rebuild the query engine; the hub is not told (`publish` does that). */
+  async scan(llm: Llm | undefined): Promise<void> {
     const scanned = await this.db.schema();
     // the enricher reads samples through a plain catalog of the tables as they are
     const plain = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, new Map());
@@ -163,40 +191,48 @@ export class DatabaseInstance {
       if (enrichment !== undefined) { enrichments.set(schemaHash(table.spec), enrichment); }
     }
     this.#catalog = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, enrichments);
+  }
+
+  /** Compare the scanned tables with the table types the hub keeps for this instance; see the file's docs. */
+  async publish(): Promise<ScanReport> {
+    const known = await this.#deps.hub.known();
+    const applied = new Map<string, TableSpec>();
     const added: string[] = [];
     const changed: string[] = [];
     const waiting: ScannedTable[] = [];
     const parts: PreviewPart[] = [];
     const upsert: TypeDecl[] = [];
-    const decls = new Map(this.#catalog.typeDecls(this.config.label).map((decl) => [decl.name, decl]));
+    const decls = new Map(this.#catalog.typeDecls(this.config).map((decl) => [decl.name, decl]));
     for (const table of this.#catalog.tables) {
-      const before = this.#applied.get(table.scanned.spec.name);
+      const spec = table.scanned.spec;
       const decl = decls.get(table.typeName);
       if (decl === undefined) { continue; }
-      if (before === undefined) { added.push(table.scanned.spec.name); upsert.push(decl); continue; }
-      if (schemaHash(before) === table.hash) { upsert.push(decl); continue; }
+      const kept = known.get(table.typeName);
+      const before = kept === undefined ? undefined : keptSpec(spec, kept);
+      if (before === undefined) { added.push(spec.name); upsert.push(decl); applied.set(spec.name, spec); continue; }
+      if (sameShape(before, spec)) { upsert.push(decl); applied.set(spec.name, spec); continue; }
       // only a change that narrows the table can break a saved query; the hub knows which saved queries read it
-      const breaks = widens(before, table.scanned.spec) ? [] : (await this.#deps.hub.readers(qualifiedTypeOf(this.instance, table.scanned.spec.name)))
-        .map((fn) => ({ fn, why: `It reads ${table.scanned.spec.name}: ${changeWords(before, table.scanned.spec).join(' ')}` }));
-      if (breaks.length === 0) { changed.push(table.scanned.spec.name); upsert.push(decl); continue; }
+      const breaks = widens(before, spec) ? [] : (await this.#deps.hub.readers(qualifiedTypeOf(this.instance, spec.name)))
+        .map((fn) => ({ fn, why: `It reads ${spec.name}: ${changeWords(before, spec).join(' ')}` }));
+      if (breaks.length === 0) { changed.push(spec.name); upsert.push(decl); applied.set(spec.name, spec); continue; }
+      // the hub keeps the type it has until an admin applies the change
       waiting.push(table.scanned);
-      parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, table.scanned.spec.name), before: hubTypeOf(before), after: table.hubType, changes: changeWords(before, table.scanned.spec), breaks });
+      applied.set(spec.name, before);
+      parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, spec.name), before: kept ?? hubTypeOf(before), after: table.hubType, changes: changeWords(before, spec), breaks });
     }
-    const present = new Set(scanned.map((table) => table.spec.name));
-    const dropped = [...this.#applied.keys()].filter((name) => !present.has(name));
+    // a type the hub keeps for this instance with no table behind it any more is a dropped table's
+    const present = new Set(this.#catalog.tables.map((table) => table.typeName));
+    const prefix = `${this.instance}.`;
+    const dropped = [...known.keys()].filter((name) => name.startsWith(prefix) && !present.has(name)).map((name) => name.slice(prefix.length));
     for (const name of dropped) {
-      const before = this.#applied.get(name);
+      const before = known.get(typeNameOf(this.instance, name));
       const breaks = (await this.#deps.hub.readers(qualifiedTypeOf(this.instance, name))).map((fn) => ({ fn, why: `It reads ${name}, which is gone.` }));
-      parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, name), ...(before === undefined ? {} : { before: hubTypeOf(before) }), changes: changeWords(before, undefined), breaks });
+      parts.push({ type: 'type-diff', name: qualifiedTypeOf(this.instance, name), ...(before === undefined ? {} : { before }), changes: changeWords(undefined, undefined), breaks });
     }
     await this.#deps.hub.types(upsert, []);
-    for (const decl of upsert) {
-      const table = this.#catalog.tables.find((item) => item.typeName === decl.name);
-      if (table !== undefined) { this.#applied.set(table.scanned.spec.name, table.scanned.spec); }
-    }
-    await this.#deps.store.setApplied(this.#applied);
+    this.#applied = applied;
     const pending = waiting.length === 0 && dropped.length === 0 ? undefined : { scan: scanId(waiting, dropped), tables: waiting, dropped, foundAt: this.#deps.now() };
-    await this.#deps.store.setPending(pending);
+    this.#pending = pending;
     return { added, changed, pending, parts };
   }
 
@@ -222,9 +258,14 @@ export class DatabaseInstance {
       const applied = this.#applied.get(table.scanned.spec.name);
       return done.has(table.scanned.spec.name) && applied !== undefined && schemaHash(applied) === table.hash;
     }).map((table) => table.typeName));
-    const upsert = this.#catalog.typeDecls(this.config.label).filter((decl) => current.has(decl.name));
+    const upsert = this.#catalog.typeDecls(this.config).filter((decl) => current.has(decl.name));
     if (upsert.length > 0) { await this.#deps.hub.types(upsert, []); }
     return upsert.length;
+  }
+
+  /** The changes waiting for an admin, as the last publish found them. */
+  get pending(): PendingChanges | undefined {
+    return this.#pending;
   }
 
   /** The table shapes the hub's types now come from. */
@@ -234,9 +275,9 @@ export class DatabaseInstance {
 
   /** Apply the changes a rescan left waiting: the hub's types follow the tables, and dropped tables' types go. */
   async applyPending(scan: string): Promise<{ applied: string[]; removed: string[] } | { problem: string }> {
-    const pending = await this.#deps.store.pending();
+    const pending = this.#pending;
     if (pending?.scan !== scan) { return { problem: 'These changes were replaced by a newer rescan, or were applied already.' }; }
-    const decls = new Map(this.#catalog.typeDecls(this.config.label).map((decl) => [decl.name, decl]));
+    const decls = new Map(this.#catalog.typeDecls(this.config).map((decl) => [decl.name, decl]));
     const upsert = pending.tables.flatMap((table) => {
       const decl = decls.get(typeNameOf(this.instance, table.spec.name));
       return decl === undefined ? [] : [decl];
@@ -245,8 +286,7 @@ export class DatabaseInstance {
     await this.#deps.hub.types(upsert, removed);
     for (const table of pending.tables) { this.#applied.set(table.spec.name, table.spec); }
     for (const name of pending.dropped) { this.#applied.delete(name); }
-    await this.#deps.store.setApplied(this.#applied);
-    await this.#deps.store.setPending(undefined);
+    this.#pending = undefined;
     return { applied: upsert.map((decl) => decl.name), removed };
   }
 

@@ -6,16 +6,22 @@
 import { QualifiedName, splitName, type SearchHit, type SessionId, type Suggestion } from '@harness/core';
 import { parseSectionIndexKey } from '../index/indexer.ts';
 import type { AccessScope, ContextRef } from './index.ts';
-import { seesContextNamed } from './scope.ts';
+import { seesContextNamed, seesTypeNamed, type TypeLookup } from './scope.ts';
 
 /** Looks up a context item's record by name (the catalog's `context`). */
 export type ContextLookup = (name: QualifiedName) => Promise<ContextRef | undefined>;
+
+/** How hits are checked against their records: context items and types (the catalog's `context` and `type`). */
+export interface HitLookups {
+  readonly context: ContextLookup;
+  readonly type: TypeLookup;
+}
 
 /**
  * Whether `access` sees a hit. A session-scoped memory needs `session`. Message hits are never shown: they carry no
  * session the person could be checked against.
  */
-export async function seesHit(access: AccessScope, context: ContextLookup, hit: Pick<SearchHit, 'kind' | 'key'>, session?: SessionId): Promise<boolean> {
+export async function seesHit(access: AccessScope, lookups: HitLookups, hit: Pick<SearchHit, 'kind' | 'key'>, session?: SessionId): Promise<boolean> {
   if (hit.kind === 'section') return access.seesUri(parseSectionIndexKey(hit.key).uri);
   // messages carry no session the person could be checked against; examples are read through their fn (`hub/fn_examples`)
   if (hit.kind === 'message' || hit.kind === 'example') return false;
@@ -24,14 +30,14 @@ export async function seesHit(access: AccessScope, context: ContextLookup, hit: 
   const { system } = splitName(name.data);
   switch (hit.kind) {
     case 'fn': return access.seesFn({ name: name.data, system });
-    case 'context': return seesContextNamed(access, context, name.data, session);
-    case 'type': return access.seesSystem(system);
+    case 'context': return seesContextNamed(access, lookups.context, name.data, session);
+    case 'type': return seesTypeNamed(access, lookups.type, name.data);
   }
 }
 
 /** The `keep` a search takes so only hits `access` sees count toward its limit. */
-export function keepSeen(access: AccessScope, context: ContextLookup, session?: SessionId): (hit: SearchHit) => Promise<boolean> {
-  return (hit) => seesHit(access, context, hit, session);
+export function keepSeen(access: AccessScope, lookups: HitLookups, session?: SessionId): (hit: SearchHit) => Promise<boolean> {
+  return (hit) => seesHit(access, lookups, hit, session);
 }
 
 /**

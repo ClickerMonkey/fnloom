@@ -11,6 +11,7 @@ import type { HubServices } from '../../boot/index.ts';
 import { mayView, type FullHandlers, type Viewer } from './access.ts';
 import type { systemsPlugin } from './systems.ts';
 import type { Asker } from '../../fns/index.ts';
+import { seesTypeNamed } from '../../access/scope.ts';
 
 /** What the approvals read uses. */
 export type ApprovalsHub = Pick<HubServices, 'chat' | 'execution' | 'store'>;
@@ -61,11 +62,19 @@ async function askerOf(hub: Pick<HubServices, 'access'>, user: Viewer): Promise<
   return { actor: user.id, access: await hub.access.scope(user.id) };
 }
 
-/** A fn's facts for a person who may see it (404 otherwise, as for a fn that isn't there). */
+/**
+ * A fn's facts for a person who may see it (404 otherwise, as for a fn that isn't there), naming only the types they
+ * may see among those it reads and writes.
+ */
 export async function factsFor(hub: FnsHub, fn: QualifiedName, args: Json | undefined, user: Viewer): Promise<FnFacts> {
-  const record = await hub.catalog.fn(fn);
-  if (record === undefined || !(await hub.access.scope(user.id)).seesFn(record)) throw reject(404, 'NO_FN', `there is no fn ${fn}`);
-  return hub.fns.facts.facts(fn, args);
+  const [record, access] = await Promise.all([hub.catalog.fn(fn), hub.access.scope(user.id)]);
+  if (record === undefined || !access.seesFn(record)) throw reject(404, 'NO_FN', `there is no fn ${fn}`);
+  const facts = await hub.fns.facts.facts(fn, args);
+  const seen = async (names: readonly QualifiedName[]): Promise<QualifiedName[]> => {
+    const kept = await Promise.all(names.map((name) => seesTypeNamed(access, (n) => hub.catalog.type(n), name)));
+    return names.filter((_, at) => kept[at] === true);
+  };
+  return { ...facts, reads: await seen(facts.reads), writes: await seen(facts.writes) };
 }
 
 /** The build 5 plugins. Require the systems plugin, which binds `hubAuth`. */

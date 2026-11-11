@@ -12,7 +12,7 @@
 import { reject } from '@ayepi/core';
 import { ResourceOutlineArgs, ResourceSendArgs, splitName, type ActorId, type ContextLink, type LinkTarget, type QualifiedName } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
-import { seesContextAs } from '../access/scope.ts';
+import { seesContextAs, seesTypeNamed } from '../access/scope.ts';
 import { hub, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, toolArgsOf } from '@harness/sdk';
 import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 import type { LlmGateway } from '../execution/index.ts';
@@ -81,7 +81,7 @@ async function reachOf(deps: ResourceFnDeps, ctx: HubFnCtx): Promise<Reach> {
       switch (target.kind) {
         case 'context': return context(target.name);
         case 'fn': return access.seesFn({ name: target.name, system: splitName(target.name).system });
-        case 'type': return access.seesSystem(splitName(target.name).system);
+        case 'type': return seesTypeNamed(access, (name) => deps.store().table('types').get(name), target.name);
         case 'resource': return resource(target.uri);
       }
     },

@@ -46,6 +46,6 @@ export { countLabel, fullTime, hueOf, initials, relativeTime } from './format.ts
 export { copyText } from './clipboard.ts';
 export { listSource, onePicked, pickChoices, stepActive, withoutPicked, withPicked, type PickChoice, type PickerSource } from './picker.ts';
 export { useMediaQuery, useOverlay } from './overlay.ts';
-export { moreEdges, useMoreEdges, type MoreEdges } from './edges.ts';
+export { isClipped, moreEdges, useClipped, useMoreEdges, type MoreEdges } from './edges.ts';
 export { layers, LayerStack, type Layer } from './layers.ts';
 export * from './types.ts';

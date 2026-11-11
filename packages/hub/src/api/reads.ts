@@ -59,7 +59,10 @@ export function hubReads(hub: HubServices): HubReads {
   return {
     lists,
     query: (data, who) => lists.query(data, who),
-    types_get: (data) => typeDefinitions(catalog, data.names),
+    types_get: async (data, who) => {
+      const access = await hub.access.scope(who.id);
+      return typeDefinitions(catalog, data.names, (record) => access.seesType(record));
+    },
     runs_list: async (data, who) => {
       if (data.query !== undefined) { return lists.page('runs', data.query, who); }
       // a member sees the runs they started

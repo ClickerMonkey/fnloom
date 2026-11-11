@@ -52,6 +52,18 @@ describe('visibility', () => {
     expect((await access.scope(BEN)).seesSystem('fs')).toBe(false);
   });
 
+  it('shows a type with an audience only to that audience and admins, and one without to whoever sees its system', async () => {
+    const { access } = await world();
+    const table = { system: 'database', audience: { visibility: 'shared' as const, with: [TEAM] } };
+    expect((await access.scope(CAL)).seesType(table)).toBe(true);
+    expect((await access.scope(BEN)).seesType(table)).toBe(false);
+    expect((await access.scope(ADA)).seesType({ system: 'database', audience: { visibility: 'private', with: [] } })).toBe(true);
+    expect((await access.scope(CAL)).seesType({ system: 'database', audience: { visibility: 'private', with: [] } })).toBe(false);
+    expect((await access.scope(BEN)).seesType({ system: 'fs' })).toBe(true);
+    await access.set(ADA, { kind: 'system', system: FS }, { visibility: 'private', with: [] });
+    expect((await access.scope(BEN)).seesType({ system: 'fs', audience: { visibility: 'public', with: [] } })).toBe(false);
+  });
+
   it('refuses a change by anyone but the owner or an admin, and leaves out targets the asker cannot see', async () => {
     const { access } = await world();
     await expect(access.set(BEN, { kind: 'fn', fn: READ }, { visibility: 'private', with: [] })).rejects.toThrow(/owner or an admin/);

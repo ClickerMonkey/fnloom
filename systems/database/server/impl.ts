@@ -6,8 +6,8 @@
  * database (`at_instance`, forwarded with `on` when that is another one). Saved queries live in the hub; the `query`
  * kind runs them, and previews the writes among them for their approval.
  */
-import { InstanceName, Json, ShareRule, qualify, type ApprovalPreview, type FnEffects, type PreviewAnswer, type QualifiedName } from '@harness/core';
-import { CallFailed, ResultBlockType, g, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
+import { InstanceName, Json, ShareRule, qualify, splitName, type ApprovalPreview, type FnEffects, type PreviewAnswer, type QualifiedName } from '@harness/core';
+import { CallFailed, ResultBlockType, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { z } from 'zod';
 import { QUERY_KIND, database, type DatabaseContract } from '../shared/index.ts';
 import { ParamValues, QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
@@ -47,13 +47,14 @@ const LabelOnly = z.object({ label: z.string().min(1), audience: ShareRule });
 /**
  * The fleet as the hub lists it (`ctx.fleet()`): every online, configured instance, this one included, each described
  * the same way, by its label and its table types as the hub keeps them (with their enriched descriptions), so the
- * query agent compares like with like. This instance comes from `self` when the hub doesn't list it yet.
+ * query agent compares like with like. A database with no tables yet is listed too (a new one to create tables in),
+ * so every instance sees the same fleet. This instance comes from `self` when the hub doesn't list it yet.
  */
 export const HUB_FLEET: Fleet = {
   async members(self, fleets) {
     const listed = (await fleets.fleet()).flatMap((member): FleetMember[] => {
       const label = LabelOnly.safeParse(member.config);
-      if ((member.instance !== self.instance && !member.online) || !label.success || member.types.length === 0) { return []; }
+      if ((member.instance !== self.instance && !member.online) || !label.success) { return []; }
       const tables = member.types.map((type) => `${type.name.slice(type.name.lastIndexOf('.') + 1)}${type.description === '' ? '' : ` (${type.description})`}`);
       return [{ instance: member.instance, label: label.data.label, audience: label.data.audience, tables }];
     });
@@ -84,6 +85,16 @@ export interface DatabaseDeps {
   readonly open?: (connection: Connection, options: { dataDir: string; readonly: boolean }) => Database;
 }
 
+/** What configuring needs from the system: its model, log and proposals, and the hub's fleet and types. */
+export type ConfigureCtx = Pick<SystemCtx, 'llm' | 'log' | 'propose' | 'fleet' | 'types'>;
+
+/** A kind's check or describe before the database is open: the hub keeps the fn's last description then. */
+class NotOpenYet extends Error {
+  constructor() {
+    super('This database is not open yet; its saved queries are described once it is.');
+  }
+}
+
 /** The implementation, and the instance it serves. */
 export interface DatabaseServer {
   readonly impl: SystemImpl<DatabaseContract['defs']>;
@@ -91,7 +102,7 @@ export interface DatabaseServer {
   /** The open instance, once configured. */
   current(): DatabaseInstance | undefined;
   /** Open (or reopen) the database for a config and rescan it. */
-  configure(config: DatabaseConfig, ctx: Pick<SystemCtx, 'llm' | 'log' | 'propose'>): Promise<ScanReport>;
+  configure(config: DatabaseConfig, ctx: ConfigureCtx): Promise<ScanReport>;
   close(): Promise<void>;
 }
 
@@ -173,11 +184,25 @@ function effectsOfQuery(instance: string, compiled: CompiledQuery): FnEffects {
 export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   const s = deps.settings;
   let instance: DatabaseInstance | undefined;
+  // the instance once its tables are scanned (or none, when opening failed): the hub describes saved queries while a
+  // scan's types are on their way to it, so check and describe wait for this, never for the whole configure
+  let scanned: Promise<DatabaseInstance | undefined> = Promise.resolve(undefined);
+  // the system's side of the hub (its fleet and types), as the last configure gave it
+  let system: Pick<ConfigureCtx, 'fleet' | 'types'> | undefined;
   const queries = new QueryService({ instance: () => instance, settings: s });
   const limits = { page: s.DATABASE_PAGE_ROWS, max: s.DATABASE_MAX_ROWS };
   // before the system serves, nothing is sent and no saved query is known
   const hubSide: HubSide = {
     types: (upsert, remove) => deps.hub()?.types(upsert, remove) ?? Promise.resolve(),
+    known: async () => {
+      if (system === undefined) { return new Map(); }
+      const names = (await system.fleet()).find((member) => member.instance === deps.instance)?.types.map((type) => type.name) ?? [];
+      if (names.length === 0) { return new Map(); }
+      const wanted = new Set<string>(names);
+      // the closure comes with what the types reference; only this instance's own table types are wanted
+      const found = (await system.types.definitions(names)).types.filter((type) => wanted.has(type.name));
+      return new Map(found.map((type) => [splitName(type.name).local, type.def]));
+    },
     readers: async (type) => {
       const link = deps.hub();
       return link === undefined ? [] : await readersOf(link, deps.instance, type);
@@ -197,31 +222,50 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   // configs are applied one at a time, so a second one never opens a database beside the first
   let configuring: Promise<unknown> = Promise.resolve();
 
-  function configure(config: DatabaseConfig, ctx: Pick<SystemCtx, 'llm' | 'log' | 'propose'>): Promise<ScanReport> {
+  function configure(config: DatabaseConfig, ctx: ConfigureCtx): Promise<ScanReport> {
     const next = configuring.catch(() => undefined).then(() => reconfigure(config, ctx));
     configuring = next;
     return next;
   }
 
-  async function reconfigure(config: DatabaseConfig, ctx: Pick<SystemCtx, 'llm' | 'log' | 'propose'>): Promise<ScanReport> {
-    const before = instance;
-    instance = undefined;
-    await before?.close();
-    const opened = new DatabaseInstance(config, {
-      instance: deps.instance, dataDir: deps.dataDir, store: deps.store, enricher: deps.enricher, hub: hubSide, limits,
-      distinctMax: s.DATABASE_DISTINCT_MAX, now: deps.now, ...(deps.open === undefined ? {} : { open: deps.open }),
-    });
-    let report: ScanReport;
-    try {
-      report = await opened.rescan(ctx.llm);
-    } catch (error) {
-      await opened.close();
-      throw error;
-    }
-    instance = opened;
+  async function reconfigure(config: DatabaseConfig, ctx: ConfigureCtx): Promise<ScanReport> {
+    system = ctx;
+    const scanning = (async () => {
+      const before = instance;
+      instance = undefined;
+      await before?.close();
+      const opening = new DatabaseInstance(config, {
+        instance: deps.instance, dataDir: deps.dataDir, store: deps.store, enricher: deps.enricher, hub: hubSide, limits,
+        distinctMax: s.DATABASE_DISTINCT_MAX, now: deps.now, ...(deps.open === undefined ? {} : { open: deps.open }),
+      });
+      try {
+        await opening.scan(ctx.llm);
+      } catch (error) {
+        await opening.close();
+        throw error;
+      }
+      // open before the hub hears of the tables, so the saved queries it describes again see them
+      instance = opening;
+      return opening;
+    })();
+    scanned = scanning.catch(() => undefined);
+    const opened = await scanning;
+    const report = await opened.publish();
     ctx.log.info('database.scanned', { tables: opened.catalog.tables.length, added: report.added.length, changed: report.changed.length, waiting: report.pending === undefined ? 0 : report.parts.length });
     await proposePending(report, config.label, ctx);
     return report;
+  }
+
+  /**
+   * The open instance a saved query of `payload` is for, once its tables are scanned. Throws while there is none (or
+   * the payload is another instance's), so the hub keeps the fn's last description rather than one made without tables.
+   */
+  async function openFor(payloadInstance: string): Promise<DatabaseInstance> {
+    await scanned;
+    const here = instance;
+    if (here === undefined) { throw new NotOpenYet(); }
+    if (payloadInstance !== here.instance) { throw new Error(`This is the ${here.instance} database; the saved query is for ${payloadInstance}.`); }
+    return here;
   }
 
   /** The run's side of a query tool: its approvals, attachments and the hub's fns as its person. */
@@ -291,7 +335,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       database: instance.info,
       shown: `${planned.preview.title}: done.`,
       steps: planned.steps.map((step) => ({ sql: step.sql.join(';\n'), irreversible: step.irreversible })),
-      types: instance.catalog.typeDecls(instance.config.label).map((decl) => qualify(database.name, decl.name)),
+      types: instance.catalog.typeDecls(instance.config).map((decl) => qualify(database.name, decl.name)),
     };
   }
 
@@ -381,21 +425,20 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     },
     kinds: {
       query: {
-        check(payload) {
-          if (instance === undefined || payload.instance !== instance.instance) { return Promise.resolve([]); }
-          const compiled = instance.compile(QueryPayload.parse(payload));
+        async check(payload) {
+          const here = await openFor(payload.instance);
+          const compiled = here.compile(QueryPayload.parse(payload));
           const problems = 'query' in compiled ? [] : compiled.problems;
-          if ('query' in compiled && compiled.writes && !instance.writes) { problems.push(`${instance.config.label} is read-only: a query that writes can't be saved.`); }
-          return Promise.resolve(problems);
+          if ('query' in compiled && compiled.writes && !here.writes) { problems.push(`${here.config.label} is read-only: a query that writes can't be saved.`); }
+          return problems;
         },
-        describe(payload) {
+        async describe(payload) {
+          const here = await openFor(payload.instance);
           const parsed = QueryPayload.parse(payload);
-          const compiled = instance?.compile(parsed);
-          if (instance === undefined || compiled === undefined || !('query' in compiled)) {
-            // a payload that doesn't fit the tables (yet) takes no args; running it says why
-            return Promise.resolve({ args: wireType(g.obj({})), returns: wireType(ResultBlockType), deps: [], operations: { cancel: true, pause: false, undo: false, background: false } });
-          }
-          return Promise.resolve({
+          const compiled = here.compile(parsed);
+          // check refused a payload that doesn't fit the tables; one that stopped fitting since keeps its last description
+          if (!('query' in compiled)) { throw new Error(`The saved query no longer fits the tables: ${compiled.problems.join(' ')}`); }
+          return {
             args: argsTypeOf(compiled, parsed.sorters, limits),
             returns: wireType(compiled.writes ? ginAs(WriteResult) : ResultBlockType),
             deps: [],
@@ -403,14 +446,16 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             // what it reads and writes, for its facts (and so for the hub's search by type, and the tables a schema change breaks)
             effects: effectsOfQuery(parsed.instance, compiled),
             // its SQL in this database's dialect, params as placeholders, for the fn's page
-            readable: { language: 'sql', code: instance.plan(compiled, {}, []).sql },
+            readable: { language: 'sql', code: here.plan(compiled, {}, []).sql },
             operations: { cancel: true, pause: false, undo: false, background: false },
             ...(compiled.writes ? { approval: { preview: true, remember: false } } : {}),
-          });
+          };
         },
         async run(payload, args, ctx) {
           const parsed = QueryPayload.parse(payload);
           if (instance === undefined) { return ctx.fail('caller', 'This database is not configured yet.'); }
+          // who may use the database is its config's say now, whoever the fn was shared with when it was saved
+          if (!mayUse(instance.config.audience, ctx.run.user)) { return ctx.invalid(notYours(instance.config.label).invalid); }
           const compiled = instance.compile(parsed);
           if (!('query' in compiled)) { return ctx.invalid(`This saved query no longer fits the tables: ${compiled.problems.join(' ')} Fix it with edit_query.`); }
           const { values, sort } = callArgs(args);
@@ -423,8 +468,9 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           }
           return ctx.done(Json.parse(await queries.read(instance, compiled, plan, fn, callOf(values, sort), { attach })));
         },
-        async preview(payload, args): Promise<PreviewAnswer> {
+        async preview(payload, args, ctx): Promise<PreviewAnswer> {
           if (instance === undefined) { return { refused: 'This database is not configured yet.' }; }
+          if (!mayUse(instance.config.audience, ctx.user)) { return { refused: notYours(instance.config.label).invalid }; }
           const parsed = QueryPayload.parse(payload);
           const compiled = instance.compile(parsed);
           if (!('query' in compiled)) { return { refused: `This saved query no longer fits the tables: ${compiled.problems.join(' ')}` }; }
