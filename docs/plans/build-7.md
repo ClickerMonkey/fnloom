@@ -84,6 +84,37 @@ rules are in the "Decided" section of `docs/harness.md`.
 - **One pattern for every generator:** it's the authoring pattern of section 1, made deterministic (no LLM needed) and
   library-backed: the generators live in `@aeye/query`, beside `tableToQueryType`. Product's auto-CRUD is the
   prior art; port its tested parts.
+- **Relationships (owner, 2026-11-11):**
+
+  > And make sure it understands relationships... So if a table is projects ( id, name, owner, value ) and owner is ( id, name ) then owner might have fns like project count or project avg value or project total value. A project might have project owner relative amount rank or something like that (a record comparing it to others in related). Actually here are some notes I've captured before. This is a separate idea for building a graph from a table, but it has similar concepts as can borrow for this:
+
+  The notes are in `docs/plans/database-graph.md`, word for word. What build 7 takes from them for generated fns:
+  - **Derived fields from relations, computed in SQL by `@aeye/query`:**
+    - **hasMany:** count; sum, avg, min, max and median of number and date fields; order rank (asc/desc) per sortable
+      column; and all of these again split per enum value (`projectStatusDoneAvgAmount`).
+    - **belongsTo:** the parent's fields and its own derived fields (`ownerProjectAvgAmount`).
+    - **Table-wide:** the same aggregates over the whole table (`avgAmount`).
+    - **Depth:** repeated across relations up to a depth N (default 2).
+  - **Normalized comparisons, so a record can be compared with others in the same relation:**
+    - count or order / count, for rank and percentile
+    - value / sum, for share
+    - (value − min) / (max − min), for position
+    - value / max
+
+    Each is labelled with what it means (progress, portion or relative). For example, a project's rank by amount among
+    its owner's projects, and its share of the owner's total.
+  - **Compatibility:** every derived field records its table and column, so only compatible numerators and
+    denominators are combined.
+  - **Fns from all of this:**
+    - **In `table_fns_available`:** derived fields are offered as fns. Owner gets `projectCount`,
+      `projectAvgValue` and `projectTotalValue`. Project gets `ownerRelativeValueRank` and
+      `shareOfOwnerTotal`.
+    - **As `selectPage` columns:** derived fields can also be added there, and `selectPage` can sort and filter on
+      them.
+    - **Limits:** the list stays readable for a small model. It is grouped by relation, with the most useful entries
+      first and a cap with "more".
+  - **Tests:** the projects/owners example end to end (SQL generated and run on SQLite), enum splits, a depth-2
+    relation, and an incompatible combination being refused.
 - **Tests:**
   - the list for a sample schema with an enum, a number, a date, a unique column and a foreign key
   - generation is idempotent
