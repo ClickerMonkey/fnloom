@@ -29,7 +29,9 @@ import { LinkKindDescriber } from './describer.ts';
 import { SystemEventRelay } from './events.ts';
 import { LinkHandshake, linkPlugin } from './handlers.ts';
 import type { SystemTokens } from './index.ts';
-import type { PackagingEnv } from './env.ts';
+import type { PackagingEnv, ReviewEnv } from './env.ts';
+import { SystemGrantGuard } from './grants.ts';
+import { SystemLifecycle } from './lifecycle.ts';
 import { migrateLegacyInstances } from './migrate.ts';
 import { contentBytes, HubPackages, type PackageContent } from './packages.ts';
 import { StoreAutoPairs } from './auto-pair.ts';
@@ -52,6 +54,7 @@ export interface SystemsSettings {
   readonly model: Pick<HubSettings['modelEnv'], 'HARNESS_EMBEDDER_DOCUMENT' | 'HARNESS_EMBEDDER_QUERY' | 'HARNESS_EMBED_BATCH'>;
   readonly index: IndexTuning;
   readonly search: Pick<StoreTuning, 'HARNESS_SEARCH_RRF_K' | 'HARNESS_SEARCH_DEPTH'>;
+  readonly review: ReviewEnv;
 }
 
 /** What the system side is built from. */
@@ -100,7 +103,9 @@ export function buildSystems(options: SystemsOptions) {
     store, log, clock, rate: store.ports.rate, limit: settings.packaging.HARNESS_AUTO_PAIR_LIMIT, window: settings.packaging.HARNESS_AUTO_PAIR_WINDOW,
     expiry: settings.packaging.HARNESS_AUTO_PAIR_EXPIRY,
   });
+  const lifecycle = new SystemLifecycle({ store, catalog, bus, log, clock, settings: settings.review });
   const pairing = new StorePairingService({
+    firstStage: () => lifecycle.firstStage, keepChecks: (system, checks) => lifecycle.setChecks(system, checks),
     store, bus, log, clock, instances, autoPairs, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,
     grantTtl: settings.link.HARNESS_PAIRING_GRANT_TTL, fn: (name) => catalog.fn(name),
     check: (system, type, value) => catalog.check(system, type, value),
@@ -110,6 +115,7 @@ export function buildSystems(options: SystemsOptions) {
   const config = new StoreConfigService({ log, clock, catalog, bus, links: connections, instances, secrets: configSecrets });
   const resources = new PeerResourceRouter({ links: connections, catalog, bus, log, maxChunk: settings.link.HARNESS_MAX_CHUNK });
   const admin = new StoreSystemAdmin({ store, log, catalog, links: connections, instances, autoPairs, stopTimeout: settings.link.HARNESS_STOP_TIMEOUT });
+  const grants = new SystemGrantGuard({ store, catalog, bus, log, clock, admin: () => admin, settings: settings.review });
   const router = new FleetRouter({ links: connections, resources, store, instances });
   const installer = options.installer ?? new NodeInstaller({
     npm: settings.packaging.HARNESS_NPM, maxBytes: settings.packaging.HARNESS_PACKAGE_MAX, zips: { bytes: (hash) => contentBytes(options.content(), hash) },
@@ -146,14 +152,14 @@ export function buildSystems(options: SystemsOptions) {
   });
 
   const handshake = new LinkHandshake({
-    log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output,
+    log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output, lifecycle, grants,
     limits: { maxFrame: settings.link.HARNESS_MAX_FRAME, maxChunk: settings.link.HARNESS_MAX_CHUNK, heartbeat: settings.link.HARNESS_HEARTBEAT },
   });
 
   let stopIndexer: (() => void) | undefined;
   let stopOutput: (() => void) | undefined;
   return {
-    catalog, connections, pairing, autoPairs, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output,
+    catalog, connections, pairing, autoPairs, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output, lifecycle, grants,
     index: { embedders, indexer, search, suggest, sectioning, batcher },
     /** The link plugin to install on the hub link server. */
     plugin: linkPlugin(handshake, { log, clock }),

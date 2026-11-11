@@ -4,12 +4,12 @@
  * the hub (`hub/save_fn`, a taken name tried again), and running a saved form through its kind. Nothing is kept here.
  */
 import { readFileSync } from 'node:fs';
-import { SystemPackageManifest, type Json, type OutcomeWire } from '@harness/core';
+import { QualifiedName, SystemPackageManifest, type Json, type OutcomeWire } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
 import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub } from '@harness/sdk/server/testing';
 import { afterEach, describe, expect, it } from 'vitest';
-import { FORM_KIND, WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
+import { FORM_KIND, HEADLESS_ASKED, WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
 import { ANSWER_FIELD, answerText, formProblems, quickForms } from '../shared/forms.ts';
 import { inputEnv } from './env.ts';
 import { createInputImpl, nameFor, slugOf } from './impl.ts';
@@ -102,7 +102,10 @@ describe('input over the link', () => {
     expect(await hub.run('input/save_form', { name: 'Nobody', description: 'x', form: TRIP, visibility: 'shared' })).toMatchObject({ status: 'invalid-input' });
     // the hub finds it for the agent by its words and kind
     expect(hub.fns.search({ text: 'trip where you go', kinds: [FORM_KIND] }).items[0]).toMatchObject({ name: 'input/trip_details', kind: FORM_KIND });
-    expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' }, next: WAIT_FOR_ANSWERS });
+    const watched = hub.runInfo(QualifiedName.parse('input/trip_details'), { watched: true });
+    expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP, run: watched }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' }, next: WAIT_FOR_ANSWERS });
+    // with nobody watching (a nested agent, an MCP call) the caller is told not to wait for answers
+    expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP }))).toMatchObject({ next: HEADLESS_ASKED });
   });
 });
 

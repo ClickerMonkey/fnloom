@@ -120,9 +120,13 @@ export class QueryService {
   readonly #instance: () => DatabaseInstance | undefined;
   readonly #settings: DatabaseSettings;
 
-  constructor(deps: { instance: () => DatabaseInstance | undefined; settings: DatabaseSettings }) {
+  readonly #refresh: (instance: DatabaseInstance, payload: QueryPayload) => QueryPayload;
+
+  /** `refresh` rebuilds a generated fn's payload from the tables as they are now (`TableFnService.refreshPayload`). */
+  constructor(deps: { instance: () => DatabaseInstance | undefined; settings: DatabaseSettings; refresh: (instance: DatabaseInstance, payload: QueryPayload) => QueryPayload }) {
     this.#instance = deps.instance;
     this.#settings = deps.settings;
+    this.#refresh = deps.refresh;
   }
 
   /** The configured instance the person may use, or why not. */
@@ -163,7 +167,7 @@ export class QueryService {
         const saved = await ctx.saveFn({
           kind: QUERY_KIND, name, payload: Json.parse(payload),
           description: compiled.writes ? `${draft.description} (Writes: waits for approval.)` : draft.description,
-          instructions: `${draft.title}, on the ${instance.config.label} database. ${compiled.writes ? 'A write: every run waits for the person to approve it.' : 'Its rows are shown to the person; you get the columns, counts and first rows. Page with limit and offset.'}`,
+          instructions: `${draft.title}, on the ${instance.config.label} database. ${compiled.writes ? 'A write: every run waits for the person to approve it.' : 'You get the columns, counts and first rows; a person watching the chat is shown the rows too. Page with limit and offset.'}`,
           examples: [example],
           tags: ['database', 'query', ...(compiled.writes ? ['write'] : [])],
           share: instance.config.audience,
@@ -183,12 +187,13 @@ export class QueryService {
   /** `run_query`: run a saved query for the model: a read's result, or a write proposed for approval. */
   async run(instance: DatabaseInstance, fn: string, args: Readonly<Record<string, Json>>, ctx: QueryRunCtx): Promise<QueryRun | QueryProblem> {
     const stored = await ctx.getFn(fn);
-    const payload = QueryPayload.safeParse(stored.payload);
-    if (stored.kind !== QUERY_KIND || !payload.success) { return { invalid: `${fn} is not a saved database query.` }; }
-    if (payload.data.instance !== instance.instance) { return { invalid: `${fn} runs on the ${payload.data.instance} database, not this one.` }; }
-    const compiled = instance.compile(payload.data);
+    const parsed = QueryPayload.safeParse(stored.payload);
+    if (stored.kind !== QUERY_KIND || !parsed.success) { return { invalid: `${fn} is not a saved database query.` }; }
+    if (parsed.data.instance !== instance.instance) { return { invalid: `${fn} runs on the ${parsed.data.instance} database, not this one.` }; }
+    const payload = this.#refresh(instance, parsed.data);
+    const compiled = instance.compile(payload);
     if (!('query' in compiled)) { return this.#stale(fn, compiled); }
-    const argsType = argsTypeOf(compiled, payload.data.sorters, this.#limits());
+    const argsType = argsTypeOf(compiled, payload.sorters, this.#limits(), payload.optional);
     const called = { name: stored.fn, signature: signatureOf(stored.fn, argsType) };
     // the hub checks a direct call's args against the fn's type; through run_query they are checked here the same way
     const problems = argProblems(argsType, Json.parse({ ...args }));
@@ -198,7 +203,7 @@ export class QueryService {
     const base = { database: instance.info, fn: called, query: { sql: plan.sql, structured: Json.parse(compiled.def), params: plan.bound, writes: compiled.writes } };
     if (compiled.writes) {
       if (!instance.writes) { return { invalid: `${instance.config.label} is read-only now.` }; }
-      const preview = await this.preview(instance, compiled, plan, payload.data.description);
+      const preview = await this.preview(instance, compiled, plan, payload.description);
       const local = queryInstance(stored.fn)?.local ?? stored.fn;
       const proposed = await ctx.propose(local, Json.parse(callOf(values, sort)), { preview, approver: 'person' });
       return {

@@ -30,7 +30,7 @@ export const Asked = g.obj({
   form: InputForm,
   /** The saved form's fn (`input/trip_details`) when one was reused. */
   saved: g.optional(g.text()),
-  /** What the model does now: end its turn and wait for the answers. */
+  /** What the model does now: end its turn and wait for the answers (or, with nobody watching, go on without them). */
   next: g.text(),
 });
 
@@ -47,6 +47,17 @@ export const FormCheck = g.obj({
 
 /** What the model is told after asking: wait for the person. */
 export const WAIT_FOR_ANSWERS = 'The form is shown to the person. End your turn now and wait: their answers arrive as the next user message, in <input-answer> tags.';
+
+/**
+ * What the model is told after asking in a run nobody is watching (a nested agent, an MCP call, a background run): the
+ * form waits in the person's chat, so the caller must not wait for the answers.
+ */
+export const HEADLESS_ASKED = "Nobody is watching this run, so the form waits in the person's chat and the answers will not come back to you. Don't wait for them: go on with what you have, or end your run saying what you still need.";
+
+/** The sentence an input fn answers with: wait for the person when one is watching, else don't. */
+export function nextAfterAsking(watched: boolean | undefined): string {
+  return watched === true ? WAIT_FOR_ANSWERS : HEADLESS_ASKED;
+}
 
 /** The kind of every saved form, qualified. */
 export const FORM_KIND = 'input/form';
@@ -158,6 +169,7 @@ export const input = system('input', { description: 'Ask the person for input wi
         ],
         visibility: 'llm',
         display: 'hidden',
+        effects: { mode: 'read', free: true },
         tags: ['input', 'read'],
       }),
       ask_text: fn({
@@ -174,6 +186,7 @@ export const input = system('input', { description: 'Ask the person for input wi
           { args: { question: 'What went wrong, and what did you expect instead?', long: true }, note: 'A paragraph.' },
         ],
         status: status('a question'),
+        effects: { mode: 'read', free: true },
         tags: ['input'],
       }),
       ask_choice: fn({
@@ -190,6 +203,7 @@ export const input = system('input', { description: 'Ask the person for input wi
           { args: { question: 'Which days work for you?', options: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], multiple: true }, note: 'Several.' },
         ],
         status: status('for a choice'),
+        effects: { mode: 'read', free: true },
         tags: ['input'],
       }),
       ask_confirm: fn({
@@ -199,6 +213,7 @@ export const input = system('input', { description: 'Ask the person for input wi
         returns: Asked,
         examples: [{ args: { question: 'Send the summary to the whole team?' } }],
         status: status('yes or no'),
+        effects: { mode: 'read', free: true },
         tags: ['input'],
       }),
       ask_number: fn({
@@ -211,6 +226,7 @@ export const input = system('input', { description: 'Ask the person for input wi
           { args: { question: 'What budget should I keep to, in dollars?', min: 0 } },
         ],
         status: status('for a number'),
+        effects: { mode: 'read', free: true },
         tags: ['input'],
       }),
       ask_date: fn({
@@ -220,6 +236,7 @@ export const input = system('input', { description: 'Ask the person for input wi
         returns: Asked,
         examples: [{ args: { question: 'When is the report due?' } }],
         status: status('for a date'),
+        effects: { mode: 'read', free: true },
         tags: ['input'],
       }),
       save_form: fn({
@@ -247,6 +264,7 @@ export const input = system('input', { description: 'Ask the person for input wi
           done: { one: 'Saved {args.name}', many: 'Saved {n} forms' },
           failed: { one: 'Saving {args.name} failed', many: '{n} forms were not saved' },
         },
+        effects: { mode: 'write', free: true, registry: [{ thing: 'fns', action: 'create', kind: FORM_KIND }] },
         tags: ['input', 'write'],
       }),
     },

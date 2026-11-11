@@ -5,9 +5,9 @@
  * saved forms, their embeddings and who may use them are the hub's. Every input fn returns the form, which the chat
  * draws; nothing here waits for the answers.
  */
-import type { ActorId } from '@harness/core';
+import type { ActorId, RunInfo } from '@harness/core';
 import { CallFailed, SAVE_FN_TAKEN, encodeValue, g, parseValue, wireType, type SystemImpl } from '@harness/sdk';
-import { Asked, FORM_KIND, WAIT_FOR_ANSWERS, input, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
+import { Asked, FORM_KIND, WAIT_FOR_ANSWERS, input, nextAfterAsking, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
 import { fieldsOf, formProblems, quickForms } from '../shared/forms.ts';
 import type { InputSettings } from './env.ts';
 
@@ -32,7 +32,8 @@ export function nameFor(base: string, attempt: number): string {
   return attempt === 0 ? first : `${first}_${attempt + 1}`;
 }
 
-const asked = (form: InputFormValue, saved?: string): AskedValue => ({ form, next: WAIT_FOR_ANSWERS, ...(saved === undefined ? {} : { saved }) });
+/** An input fn's answer: the form, the saved form it came from, and what the caller does next (by whether anyone watches). */
+const asked = (ctx: { run: RunInfo }, form: InputFormValue, saved?: string): AskedValue => ({ form, next: nextAfterAsking(ctx.run.watched), ...(saved === undefined ? {} : { saved }) });
 
 /** Whether a hub fn failed because the name is taken. */
 function taken(error: unknown): boolean {
@@ -53,20 +54,20 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
           return Promise.resolve(ctx.done({ ok: problems.length === 0, problems, fields }));
         },
       },
-      ask_text: { run: (args, ctx) => Promise.resolve(ctx.done(asked(quickForms.text(args)))) },
+      ask_text: { run: (args, ctx) => Promise.resolve(ctx.done(asked(ctx, quickForms.text(args)))) },
       ask_choice: {
         run: (args, ctx) => {
           const options = new Set(args.options.map((option) => option.trim()).filter((option) => option !== ''));
-          return Promise.resolve(options.size < 2 ? ctx.invalid([{ path: 'options', message: 'Give at least two different options.' }]) : ctx.done(asked(quickForms.choice(args))));
+          return Promise.resolve(options.size < 2 ? ctx.invalid([{ path: 'options', message: 'Give at least two different options.' }]) : ctx.done(asked(ctx, quickForms.choice(args))));
         },
       },
-      ask_confirm: { run: (args, ctx) => Promise.resolve(ctx.done(asked(quickForms.confirm(args)))) },
+      ask_confirm: { run: (args, ctx) => Promise.resolve(ctx.done(asked(ctx, quickForms.confirm(args)))) },
       ask_number: {
         run: (args, ctx) => Promise.resolve(args.min !== undefined && args.max !== undefined && args.min > args.max
           ? ctx.invalid([{ path: 'max', message: 'max is below min.' }])
-          : ctx.done(asked(quickForms.number(args)))),
+          : ctx.done(asked(ctx, quickForms.number(args)))),
       },
-      ask_date: { run: (args, ctx) => Promise.resolve(ctx.done(asked(quickForms.date(args)))) },
+      ask_date: { run: (args, ctx) => Promise.resolve(ctx.done(asked(ctx, quickForms.date(args)))) },
       save_form: {
         async run(args, ctx) {
           const problems = formProblems(args.form.type);
@@ -109,7 +110,7 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: false },
         }),
-        run: (payload, _args, ctx) => Promise.resolve(ctx.done(encodeValue(Asked, asked(parseValue(input.kinds.form.payload, payload), ctx.run.fn)))),
+        run: (payload, _args, ctx) => Promise.resolve(ctx.done(encodeValue(Asked, asked(ctx, parseValue(input.kinds.form.payload, payload), ctx.run.fn)))),
       },
     },
   };

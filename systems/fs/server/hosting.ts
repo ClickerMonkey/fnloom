@@ -18,7 +18,7 @@
  */
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, SystemName, SystemPackageManifest, type ApprovalPreview, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
+import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, ScanReport, SystemName, SystemPackageManifest, type ApprovalPreview, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
 import { z } from 'zod';
 import type { HostedStatusValue, HostedStateValue, InstallResultValue } from '../shared/hosting.ts';
 
@@ -39,10 +39,8 @@ export const BuiltSystem = z.object({
   fns: z.array(z.string()),
   /** What else it adds (kinds, hooks, mentions, providers, config, renderers), a line each. */
   adds: z.array(z.string()),
-  /** The scan report, a line each: built-ins imported, dynamic code, URLs and hosts, the size. */
-  scan: z.array(z.string()),
-  /** Lines of concern the scan found, as code to show. */
-  concerns: z.array(z.object({ file: z.string(), line: z.number().int().min(1), code: z.string() })),
+  /** What the scan of the server bundle found (`scanLines` words it for the card). */
+  scan: ScanReport,
 });
 export type BuiltSystem = z.infer<typeof BuiltSystem>;
 
@@ -54,6 +52,26 @@ export interface SystemBuilds {
   bundleHash(file: string): Promise<string>;
   /** Typecheck, bundle into `outDir`, check names and scan; the problems as `file:line:col message` lines when it doesn't build. */
   build(dir: string, outDir: string, signal: AbortSignal): Promise<{ readonly problems: readonly string[] } | { readonly built: BuiltSystem }>;
+}
+
+/**
+ * Runs a system folder's own tests (the SDK test kit, `harness test`) before its install card is shown. The runner
+ * must sandbox them as the build sandboxes the contract (no network, no writes outside a temp folder, no child
+ * processes): this is code no admin has approved yet. Undefined when the folder has no tests.
+ */
+export interface SystemTests {
+  run(dir: string, signal: AbortSignal): Promise<SystemTestReport | undefined>;
+}
+
+/** The scan report, a line each, for the card: built-ins imported, dynamic code, web hosts, the size. */
+export function scanLines(scan: ScanReport): string[] {
+  const kb = Math.max(1, Math.round(scan.size / 1024));
+  return [
+    scan.builtins.length === 0 ? 'Imports no Node built-ins.' : `Node built-ins: ${scan.builtins.join(', ')}.`,
+    scan.concerns.length === 0 ? 'No dynamic imports or requires, eval or new Function.' : `${String(scan.concerns.length)} lines of concern (below).`,
+    scan.hosts.length === 0 ? 'Names no web hosts.' : `Web hosts it names: ${scan.hosts.join(', ')}.`,
+    `Bundle: ${String(kb)} KB.`,
+  ];
 }
 
 /** What the runner starts: a bundle under tsx, in its folders, with only the environment given. */
@@ -98,6 +116,8 @@ export type GrantPairing = (subject: InstallSubject) => Promise<PairingGrant>;
 /** What hosting is built from. */
 export interface HostingDeps {
   readonly builds: SystemBuilds;
+  /** Runs the folder's tests for the card; without it the card carries the scan only. */
+  readonly tests?: SystemTests;
   readonly runner: HostedRunner;
   /** The hub's link URL, for the hosted processes. */
   readonly hubUrl: string;
@@ -201,6 +221,9 @@ export class Hosting {
     if (RESERVED.has(manifest.name)) { throw new InstallRefused(`"${manifest.name}" is reserved for the hub: rename the system in system.json and its contract.`); }
     const built = await this.#serial(manifest.name, () => this.#build(folder, manifest.name, signal));
     const sourceHash = await this.#deps.builds.sourceHash(folder);
+    // the folder's own tests run before an admin is asked, and their result goes on the card beside the scan
+    const tests = await this.#deps.tests?.run(folder, signal);
+    const checks: InstallChecks = { scan: built.scan, ...(tests === undefined ? {} : { tests }) };
     const subject: InstallSubject = {
       kind: 'system-install',
       system: manifest.name,
@@ -210,6 +233,7 @@ export class Hosting {
       bundleHash: built.bundleHash,
       sourceHash,
       host: this.#deps.host,
+      source: folder,
       ...(hosted === undefined ? {} : { replaces: { version: hosted.version, manifestHash: hosted.manifestHash } }),
     };
     const where = `${this.#deps.host.system}/${this.#deps.host.instance}`;
@@ -233,10 +257,10 @@ export class Hosting {
         ].join('\n'),
       },
       ...(hosted === undefined ? [] : [{ type: 'text' as const, text: ['Changes from the running version:', ...(diff.length === 0 ? ['- no fns added, removed or changed'] : diff.map((line) => `- ${line}`))].join('\n') }]),
-      { type: 'text', text: ['Scan (a report, not a guarantee):', ...built.scan.map((line) => `- ${line}`)].join('\n') },
-      ...built.concerns.map((concern) => ({ type: 'code' as const, language: 'js', code: concern.code, title: `${concern.file}:${String(concern.line)}` })),
+      { type: 'text', text: ['Scan (a report, not a guarantee):', ...scanLines(built.scan).map((line) => `- ${line}`)].join('\n') },
+      ...built.scan.concerns.map((concern) => ({ type: 'code' as const, language: 'js', code: `${concern.code}  // ${concern.detail}`, title: `Bundle line ${String(concern.line)}` })),
     ];
-    return { title, parts, irreversible: false, subject };
+    return { title, parts, irreversible: false, subject, checks };
   }
 
   /** Start what an admin approved; see the file's docs. Installs of one system wait for each other. */

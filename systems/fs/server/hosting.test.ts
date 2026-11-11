@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { InstanceName, SystemName, type InstallSubject } from '@harness/core';
+import { InstanceName, SystemName, type InstallSubject, type SystemTestReport } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Hosting, InstallRefused, capped, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds } from './hosting.ts';
+import { Hosting, InstallRefused, capped, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
 
 const host = { system: SystemName.parse('fs'), instance: InstanceName.parse('main') };
 const signal = new AbortController().signal;
@@ -41,7 +41,7 @@ class FakeBuilds implements SystemBuilds {
       built: {
         manifest: { format: 1, name: SystemName.parse('random'), version, description: 'Random numbers.', protocol: 1, server: { entry: 'server/main.js', external: {} }, instances: 'one' },
         manifestHash: `m-${this.fns.join(',')}`, bundleHash: `b-${this.source}`, entry: join(outDir, 'server', 'main.js'),
-        fns: this.fns, adds: [], scan: ['Imports no Node built-ins.', 'Bundle: 2 KB.'], concerns: [],
+        fns: this.fns, adds: [], scan: { size: 2048, builtins: [], concerns: [], urls: [], hosts: [] },
       },
     });
   }
@@ -73,12 +73,12 @@ describe('hosting systems written here', () => {
   const made: string[] = [];
   afterEach(() => { made.length = 0; });
 
-  function setup() {
+  function setup(tests?: SystemTests) {
     const builds = new FakeBuilds();
     const runner = new FakeRunner();
     const data = folder('fs-data');
     made.push(data);
-    const hosting = new Hosting({ builds, runner, hubUrl: 'ws://127.0.0.1:4551/link', host, dataDir: data, limits: { connectTimeout: 30_000, problems: 2, outputTail: 20 } });
+    const hosting = new Hosting({ builds, runner, ...(tests === undefined ? {} : { tests }), hubUrl: 'ws://127.0.0.1:4551/link', host, dataDir: data, limits: { connectTimeout: 30_000, problems: 2, outputTail: 20 } });
     const grants: InstallSubject[] = [];
     const grant = (subject: InstallSubject) => { grants.push(subject); return Promise.resolve({ token: 'tok_1', expiresAt: 1 }); };
     return { builds, runner, hosting, grants, grant };
@@ -123,6 +123,23 @@ describe('hosting systems written here', () => {
     expect(Object.keys(launch?.env ?? {}).every((name) => name.startsWith('HARNESS_'))).toBe(true);
     expect(launch?.entry.replaceAll('\\', '/')).toContain('/hosted/random/versions/b-source-1/server/main.js');
     expect(await hosting.status()).toMatchObject([{ system: 'random', state: 'connected', pid: 4120 }]);
+  });
+
+  it('runs the folder tests before the card and puts them beside the scan, with the source folder on the subject', async () => {
+    const report: SystemTestReport = {
+      system: SystemName.parse('random'), version: '0.1.0', ranAt: 1, duration: 40, passed: 3, failed: 1, skipped: 1,
+      cases: [{ file: 'server/impl.test.ts', name: 'rolls a die', status: 'failed', duration: 3, error: 'expected 7 to be at most 6' }],
+    };
+    const ran: string[] = [];
+    const { hosting } = setup({ run: (dir) => { ran.push(dir); return Promise.resolve(report); } });
+    const dir = folder();
+    const preview = await hosting.preview(dir, {}, signal);
+    expect(ran).toEqual([dir]);
+    expect(preview.checks).toEqual({ scan: { size: 2048, builtins: [], concerns: [], urls: [], hosts: [] }, tests: report });
+    expect(preview.subject?.source).toBe(dir);
+    const plain = await setup().hosting.preview(folder(), {}, signal);
+    expect(plain.checks?.tests).toBeUndefined();
+    expect(JSON.stringify(plain.parts)).toContain('Bundle: 2 KB.');
   });
 
   it('refuses a folder changed after approval, and an update keeps its key and shows the diff', async () => {

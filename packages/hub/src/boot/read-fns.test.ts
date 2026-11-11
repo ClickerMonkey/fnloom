@@ -87,6 +87,7 @@ type ArgsOf<F> = F extends FnRef<QualifiedName, infer A, unknown> ? A : never;
 /** One valid body for every read fn answered here (the compiler checks each against its fn's args). */
 const READ_EXAMPLES: { readonly [N in (typeof HUB_READ_NAMES)[number]]: ArgsOf<(typeof hub.fns)[N]> } = {
   types_get: { names: ['fs/Path'] },
+  graph: { systems: ['fs'] },
   runs_list: {},
   run_get: { run: 'run_1' },
   run_tree: { turn: 'trn_1' },

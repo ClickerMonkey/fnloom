@@ -19,6 +19,14 @@ export const databaseEnv = env({
   DATABASE_PREVIEW_ROWS: z.number().int().min(1).default(20),
   /** A text column with at most this many distinct values has them all shown to the enricher. */
   DATABASE_DISTINCT_MAX: z.number().int().min(1).default(12),
+  /** How many relation hops a table's generated fns follow for derived fields. */
+  DATABASE_TABLE_FNS_DEPTH: z.number().int().min(0).max(4).default(2),
+  /** The most fns table_fns_available lists for a table (the rest are counted as more). */
+  DATABASE_TABLE_FNS_CAP: z.number().int().min(5).max(200).default(40),
+  /** With the decision model off or failed: the least share of a request's words a database's tables must match to be picked. */
+  DATABASE_PICK_MIN: z.number().min(0).max(1).default(0.2),
+  /** With the decision model off or failed: how far the best database's match must lead the next one to be picked without asking. */
+  DATABASE_PICK_MARGIN: z.number().min(0).max(1).default(0.15),
 }).add(systemState('database'));
 
 /** The database system's settings, resolved. */

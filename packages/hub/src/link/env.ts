@@ -18,3 +18,22 @@ export const packagingEnv = env({
 
 /** The parsed packaging tunables. */
 export type PackagingEnv = ReturnType<typeof packagingEnv.parse>;
+
+/**
+ * Build 7: review before going live, and enforcing what systems declare. A newly paired system waits for an admin to
+ * review it and go live; a live system's contract changes wait as a pending review. Every call past a system's grants
+ * is refused and logged; one that keeps going is paused.
+ */
+export const reviewEnv = env({
+  HARNESS_REVIEW_SYSTEMS: z.boolean().default(true).describe(
+    'Whether a newly paired system waits for an admin to review it and go live, and a live system\'s contract changes wait for approval. Off: systems go live as they pair (tests, a hub only you use).',
+  ),
+  HARNESS_GRANTS: z.enum(['enforce', 'log']).default('enforce').describe(
+    'What the hub does with a call past what a system declared (its grants, fn modes, types and calls): `enforce` refuses and logs it; `log` only logs it (development).',
+  ),
+  HARNESS_REFUSALS_PAUSE: z.number().int().min(1).default(20).describe('Refusals of one system within HARNESS_REFUSALS_WINDOW that switch its functions off and tell the admins.'),
+  HARNESS_REFUSALS_WINDOW: z.number().int().min(1_000).default(600_000).describe('The window refusals are counted in, in milliseconds.'),
+});
+
+/** The parsed review tunables. */
+export type ReviewEnv = ReturnType<typeof reviewEnv.parse>;

@@ -26,6 +26,8 @@ import { autoPairRefused, type AutoPairMatch, type AutoPairService } from './aut
 import type { StorePairingService } from './pairing.ts';
 import type { InstanceKeeper } from './status.ts';
 import { maskSecrets } from './config-secrets.ts';
+import type { SystemGrantGuard } from './grants.ts';
+import type { SystemLifecycle } from './lifecycle.ts';
 
 const endpoints = hubLinkSpec.endpoints;
 
@@ -58,6 +60,10 @@ export interface LinkHandlerOptions {
   readonly limits: LinkLimits;
   /** Where each system's lines go for the admin page. */
   readonly output: SystemOutput;
+  /** Build 7: contract changes of a live system wait for review. */
+  readonly lifecycle: Pick<SystemLifecycle, 'contractChanged'>;
+  /** Build 7: what a system may do through the hub, checked before every endpoint. */
+  readonly grants: Pick<SystemGrantGuard, 'check'>;
 }
 
 /** Where a socket came from, as far as its upgrade request says. */
@@ -99,6 +105,7 @@ export class LinkHandshake {
     const conn = io.ws?.conn;
     const session = conn === undefined ? undefined : this.#options.links.session(conn);
     if (session === undefined) { throw refuse(401, 'NOT_LINKED', 'say hello and prove your key first'); }
+    if (io.route.kind === 'endpoint') { await this.#options.grants.check(session, io.route.name, io.body); }
     return io.next({ link: session });
   };
 
@@ -115,13 +122,17 @@ export class LinkHandshake {
       },
       manifest: async ({ data, link }) => {
         if (data.name !== link.system) { throw refuse(403, 'WRONG_SYSTEM', `this link is ${link.system}, not ${data.name}`); }
+        const before = await catalog.manifest(link.system);
         const report = await catalog.importManifest(data, link.instance);
+        await this.#options.lifecycle.contractChanged(link.system, before, await catalog.manifest(link.system));
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', { description: data.description, version: data.version });
         if (data.resources) { await resources.refresh(link.system, link.instance); }
         return report;
       },
       patch: async ({ data, link }) => {
+        const before = await catalog.manifest(link.system);
         const report = await catalog.importPatch(link.system, data, link.instance);
+        await this.#options.lifecycle.contractChanged(link.system, before, await catalog.manifest(link.system));
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', {});
         // its resource roots changed: ask for them again
         if (data.roots === true) { await resources.refresh(link.system, link.instance); }

@@ -8,12 +8,12 @@
  * system adds to the `query-visuals` registry, best fit first); the model gets a
  * `ResultBlock` that says so. Writes and schema changes only run once a person approves them.
  */
-import { QualifiedName, ResultTable, type OutputVerdict } from '@harness/core';
+import { QualifiedName, ResultTable, type FnEffects, type OutputVerdict } from '@harness/core';
 import { agent, attachment, context, fn, g, ginAs, hub, kind, system, type Infer, type ValidateCtx } from '@harness/sdk';
 import {
-  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabaseSummary, InstanceAnswer, InstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
+  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
   type QueryHow,
-  SavedQueryRef, SchemaArgs, SchemaChanged, TableArgs, TablesInfo,
+  SavedQueryRef, SchemaArgs, SchemaChanged, TableArgs, TableFnsArgs, TableFnsGenerateArgs, TableFnsGenerated, TableFnsList, TablesInfo,
 } from './shapes.ts';
 
 export * from './shapes.ts';
@@ -35,6 +35,13 @@ const status = (active: string, done: string, failed: string) => ({
   failed: { one: failed, many: failed },
 });
 
+/** What a fn that keeps queries does: it creates and updates `database/query` fns in the hub (no table changes). */
+const SAVES_QUERIES = {
+  mode: 'write',
+  free: true,
+  registry: [{ thing: 'fns', action: 'create', kind: QUERY_KIND }, { thing: 'fns', action: 'update', kind: QUERY_KIND }],
+} as const satisfies FnEffects;
+
 /** `get_query`'s args. */
 export const QueryArgs = g.obj({
   detailedDescription: g.field(g.text({ minLength: 1 }), { docs: 'What the query does: the rows, columns, filters, grouping, order, and the values to use.' }),
@@ -49,7 +56,7 @@ export const EditArgs = g.obj({
 
 const databaseArg = () => g.field(g.text({ minLength: 1 }), { docs: 'The database instance (`main`), as `databases` lists it.' });
 
-const RESULT_GUIDE = 'The rows are shown to the person (as a table or another visual); you get the columns, counts and the first rows. Don\'t repeat the rows: summarize or point out what matters. Page with `limit` and `offset`.';
+const RESULT_GUIDE = 'You get the columns, counts and the first rows. When a person is watching, the rows are also shown to them (as a table or another visual) and the result\'s `shown` says so: don\'t repeat them, summarize or point out what matters. Page with `limit` and `offset`.';
 
 /** A query over the shop example's tables, as the examples write it. */
 const ORDERS_BY_STATUS = {
@@ -156,7 +163,7 @@ async function checkAnswer(ctx: ValidateCtx, answer: QueryAgentAnswer, asking: b
 /** A worked answer for the examples: run_query's answer for paid or open orders, with how and why. */
 function exampleAnswer(how: QueryHow, why: string, status: string, rows: { id: number; total: number; customer: string }[], total: number): QueryAnswer {
   const name = 'database/main.orders_by_status';
-  const signature = `${name}(status?: text, limit?: num, offset?: num, sort?: list<{ column: "total" | "customer", dir: "asc" | "desc" }>)`;
+  const signature = `${name}(status: text, limit?: num, offset?: num, sort?: list<{ column: "total" | "customer", dir: "asc" | "desc" }>)`;
   return {
     database: { instance: 'main', label: 'Shop', dialect: 'sqlite' },
     fn: { name, signature, how, why },
@@ -207,6 +214,7 @@ export const database = system('database', {
         examples: [{ args: { op: 'tables' }, note: 'The tables of the instance it runs on.' }],
         visibility: 'none',
         display: 'hidden',
+        effects: SAVES_QUERIES,
         tags: ['database', 'read'],
       }),
       change_schema: fn({
@@ -218,6 +226,7 @@ export const database = system('database', {
         visibility: 'none',
         approval: { preview: true, remember: false },
         status: status('Changing {args.table}…', 'Changed {args.table}', 'Changing {args.table} failed'),
+        effects: { mode: 'delete', free: true, registry: [{ thing: 'types', action: 'create' }, { thing: 'types', action: 'update' }, { thing: 'types', action: 'remove' }] },
         tags: ['database', 'schema', 'write'],
       }),
       apply_type_changes: fn({
@@ -229,7 +238,24 @@ export const database = system('database', {
         // only the system proposes it, for admins to approve: nobody calls it directly
         visibility: 'none',
         status: status('Applying type changes…', 'Applied type changes', 'Applying type changes failed'),
+        effects: { mode: 'write', free: true, registry: [{ thing: 'types', action: 'update' }, { thing: 'types', action: 'remove' }] },
         tags: ['database', 'schema'],
+      }),
+      pick_database: fn({
+        description: 'Which database a request is for: the one it names, the only one the person may use, the decision model\'s pick between them, or the question to ask the person.',
+        instructions: 'get_query\'s first step. When the answer is `ask`, run nothing: the person picks the database (input/ask_choice with the labels as options) and the request comes again with it.',
+        args: ginAs(PickArgs),
+        returns: ginAs(DatabasePick),
+        examples: [
+          { args: { detailedDescription: 'Paid orders, biggest first.', database: 'main' }, result: { database: 'main', label: 'Shop', by: 'asked', why: 'The request names the Shop database.' } },
+          { args: { detailedDescription: 'Every invoice that is overdue.' }, result: { ask: 'Which database: Shop or Billing?', databases: ['main', 'billing'] }, note: 'Two databases could hold invoices.' },
+        ],
+        visibility: 'llm',
+        display: 'hidden',
+        routing: { to: 'any' },
+        // the decision model it may ask is a model call of the run
+        effects: { mode: 'read' },
+        tags: ['database', 'read'],
       }),
       databases: fn({
         description: 'The databases this system serves: each instance, its label and its tables.',
@@ -240,6 +266,7 @@ export const database = system('database', {
         visibility: 'llm',
         display: 'hidden',
         routing: { to: 'any' },
+        effects: { mode: 'read', free: true },
         tags: ['database', 'read'],
       }),
     },
@@ -256,6 +283,7 @@ export const database = system('database', {
         visibility: 'llm',
         display: 'hidden',
         routing: { to: 'any' },
+        effects: { mode: 'read', free: true },
         tags: ['database', 'read'],
       }),
       check_query: fn({
@@ -271,6 +299,7 @@ export const database = system('database', {
         visibility: 'llm',
         display: 'hidden',
         routing: { to: 'any' },
+        effects: { mode: 'read', free: true },
         tags: ['database', 'read'],
       }),
       save_query: fn({
@@ -292,12 +321,46 @@ export const database = system('database', {
         visibility: 'llm',
         display: 'hidden',
         routing: { to: 'any' },
-        // keeping a query changes no table (it is a hub fn); a write query asks for approval each time it runs
+        // keeping a query changes no table, but it creates or updates a hub fn; a write query asks for approval each time it runs
+        effects: SAVES_QUERIES,
+        tags: ['database', 'query'],
+      }),
+      table_fns_available: fn({
+        description: 'Every fn that could be generated for a table, grouped (CRUD, column helpers, the whole table, and each relation), the most useful first: its name, what it does, its signature, whether it writes, and whether it exists already (with its version).',
+        instructions: 'Use it to offer a table\'s ready-made fns (create, update, selectPage, counts, sums, a parent\'s child counts, a row\'s rank among its siblings) before writing a query by hand. Pass the names you want to database/table_fns_generate. `stale` means the table changed since it was made: generate it again.',
+        args: ginAs(TableFnsArgs),
+        returns: ginAs(TableFnsList),
+        deps: { at: fns.at_instance },
+        examples: [
+          { args: { table: 'database/main.projects' }, note: 'The fns of the projects table of the main database.' },
+          { args: { table: 'owners', database: 'main' }, note: 'An owner gets projectCount, projectAvgValue and projectTotalValue from its projects.' },
+        ],
+        visibility: 'llm',
+        display: 'hidden',
+        routing: { to: 'any' },
         effects: { mode: 'read', free: true },
+        tags: ['database', 'read'],
+      }),
+      table_fns_generate: fn({
+        description: 'Make (or bring up to date) a table\'s generated fns by name, as saved query fns of its database with instructions and examples. Unchanged ones are left as they are; changed ones get a new version.',
+        instructions: 'Give the names table_fns_available lists. Fns that write wait for the person\'s approval every time they run. `derived` adds derived fields (projectCount) to selectPage, to show, sort and filter on. The answer names each fn: call it directly.',
+        args: ginAs(TableFnsGenerateArgs),
+        returns: ginAs(TableFnsGenerated),
+        deps: { at: fns.at_instance },
+        examples: [
+          {
+            args: { table: 'database/main.projects', names: ['selectPage', 'create', 'ownerRelativeValueRank'] },
+            result: { database: { instance: 'main', label: 'Projects', dialect: 'sqlite' }, table: 'projects', fns: [{ fn: 'database/main.projects_selectPage', signature: 'database/main.projects_selectPage(owner?: num, limit?: num, offset?: num)', version: 1, status: 'created' }] },
+          },
+          { args: { table: 'owners', database: 'main', names: ['selectPage'], derived: ['projectCount', 'projectTotalValue'] }, note: 'Owners with their project count and total, sortable by them.' },
+        ],
+        visibility: 'llm',
+        routing: { to: 'any' },
+        effects: SAVES_QUERIES,
         tags: ['database', 'query'],
       }),
       run_query: fn({
-        description: 'Run a saved query fn with args: a read shows its rows to the person and gives you the columns, counts and first rows; a write waits for the person\'s approval.',
+        description: 'Run a saved query fn with args: a read gives you the columns, counts and first rows (and shows the rows to the person when one is watching); a write waits for the person\'s approval.',
         instructions: `Give the args by the fn's signature (its params, and \`limit\`, \`offset\`, \`sort\` for a list). ${RESULT_GUIDE}`,
         args: g.obj({
           fn: g.field(g.text({ minLength: 1 }), { docs: 'The saved query fn (`database/main.orders_by_status`).' }),
@@ -311,8 +374,8 @@ export const database = system('database', {
         ],
         visibility: 'llm',
         routing: { to: 'any' },
-        // a read only reads; the run of a write query it starts asks the person itself
-        effects: { mode: 'read', free: true },
+        // it runs any saved query, writes included; each write still waits for the person's approval
+        effects: { mode: 'write', free: true },
         tags: ['database'],
       }),
     },
@@ -373,6 +436,7 @@ export const database = system('database', {
         deps: { change_schema: fns.change_schema },
         examples: [{ args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, due: { type: { name: 'optional', generic: { T: { name: 'date' } } } } } } } }],
         status: status('Creating {args.table}…', 'Created {args.table}', 'Creating {args.table} failed'),
+        effects: { mode: 'write', free: true, registry: [{ thing: 'types', action: 'create' }] },
         tags: ['database', 'schema', 'write'],
         // any instance answers: it picks the database and forwards there with `on`
         routing: { to: 'any' },
@@ -385,6 +449,7 @@ export const database = system('database', {
         deps: { change_schema: fns.change_schema },
         examples: [{ args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, done: { type: { name: 'bool' } } } } }, note: 'Adds `done`, drops `due`.' }],
         status: status('Changing {args.table}…', 'Changed {args.table}', 'Changing {args.table} failed'),
+        effects: { mode: 'delete', free: true, registry: [{ thing: 'types', action: 'update' }] },
         tags: ['database', 'schema', 'write'],
         // any instance answers: it picks the database and forwards there with `on`
         routing: { to: 'any' },
@@ -398,10 +463,11 @@ export const database = system('database', {
         content: [
           'Each table of each database is a type (`<database>.<table>`), and saved queries are fns (`database/<database>.<name>`).',
           'To read or change data, call a saved query fn when one fits, else get_query with a detailed description; edit_query changes one.',
+          "For a table's everyday fns (create, update, remove, selectPage, counts and sums, a parent's child counts), list them with table_fns_available and make them with table_fns_generate.",
           RESULT_GUIDE,
           'Writes and schema changes (create_table, alter_table) wait for the person to approve them: say what will happen and wait.',
         ].join(' '),
-        fns: [fns.get_query, fns.edit_query, fns.create_table, fns.alter_table],
+        fns: [fns.get_query, fns.edit_query, fns.table_fns_available, fns.table_fns_generate, fns.create_table, fns.alter_table],
         tags: ['database'],
       }),
     },

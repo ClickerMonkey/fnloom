@@ -137,6 +137,7 @@ export class StoreNotifications implements NotificationService {
       bus.subscribe('pairing', (e) => { this.#guard('pairing', this.#pairing(e.pairing)); }),
       bus.subscribe('system.status', (e) => { this.#guard('system', this.#system(e.system, e.status)); }),
       bus.subscribe('budget.reached', (e) => { this.#guard('budget', this.#budget(e.budget, e.run, e.reason)); }),
+      bus.subscribe('system.paused', (e) => { this.#guard('system', this.#paused(e.system, e.refusals)); }),
       bus.subscribe('run.update', (e) => {
         if (e.update.type === 'status' && isSettled(e.update.status)) {
           this.#guard('run', this.#resolve(RUN_ITEMS, (link) => 'run' in link && link.run === e.run, RUN_END[e.update.status]));
@@ -222,6 +223,13 @@ export class StoreNotifications implements NotificationService {
     const reason = status === 'disconnected' ? 'system-disconnected' : 'config-needed';
     const body = status === 'disconnected' ? 'Its fns are unavailable until it connects again.' : 'It connected without a valid config, so it can\'t be used yet.';
     await this.#admins((user) => this.notify({ user, reason, title: status === 'disconnected' ? `${system} disconnected` : `${system} needs config`, body, link: { system } }));
+  }
+
+  /** Tell the admins a system was paused for going past what it declared. */
+  async #paused(system: SystemName, refusals: number): Promise<void> {
+    await this.#admins((user) => this.notify({
+      user, reason: 'system-paused', title: `${system} was paused`, body: `It was refused ${String(refusals)} times for going past what it declared. Its functions are off until you switch them on.`, link: { system },
+    }));
   }
 
   /** Ask the admins once per budget and run to raise a used-up budget that says `ask`; the run waits meanwhile. */

@@ -305,12 +305,13 @@ export class DatabaseInstance {
 
   /** Check a payload's query against the tables as they are now. */
   compile(payload: QueryPayload): CompiledQuery | Refusal {
-    return compileQuery(this.#catalog.engine, payload.query);
+    // a generated table fn is written against the library's own table types
+    return compileQuery(payload.generated === undefined ? this.#catalog.engine : this.#catalog.tableEngine, payload.query);
   }
 
   /** The SQL for a call. */
   plan(compiled: CompiledQuery, args: Readonly<Record<string, Json>>, sort: SortArg): CallPlan {
-    return planCall(this.#catalog.engine, compiled, this.#catalog.dialect, args, sort, this.#deps.limits);
+    return planCall(compiled, this.#catalog.dialect, args, sort, this.#deps.limits);
   }
 
   read(plan: CallPlan): Promise<Rows> {

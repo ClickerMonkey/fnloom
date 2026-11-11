@@ -34,13 +34,14 @@ export const RIG_SETTINGS: SystemsSettings = {
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
   index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000, HARNESS_INDEX_EMBED_BATCH: 8, HARNESS_INDEX_RETRY: 50, HARNESS_INDEX_RETRY_MOST: 200 },
   search: { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 },
+  review: { HARNESS_REVIEW_SYSTEMS: false, HARNESS_GRANTS: 'log', HARNESS_REFUSALS_PAUSE: 5, HARNESS_REFUSALS_WINDOW: 60_000 },
 };
 
 /** A launcher for rigs that never start processes. */
 const noLauncher: ProcessStarter = { launch: () => { throw new Error('the rig starts no processes'); } };
 
 /** The system side over fakes, with a running hub link server. */
-export async function linkRig(options: { publicUrl?: string } = {}) {
+export async function linkRig(options: { publicUrl?: string; review?: Partial<SystemsSettings['review']> } = {}) {
   const store = await testStore();
   const bus = new RecordingBus();
   const { log, records } = memoryLog();
@@ -48,7 +49,11 @@ export async function linkRig(options: { publicUrl?: string } = {}) {
   const clock = () => time.now;
   const content = new MemoryContent();
   const vault = new AesSecretVault({ store, box: new SecretBox('a-key-that-is-long-enough-for-the-hub-0123'), clock });
-  const settings: SystemsSettings = options.publicUrl === undefined ? RIG_SETTINGS : { ...RIG_SETTINGS, packaging: { ...RIG_SETTINGS.packaging, HARNESS_PUBLIC_URL: options.publicUrl } };
+  const settings: SystemsSettings = {
+    ...RIG_SETTINGS,
+    ...(options.publicUrl === undefined ? {} : { packaging: { ...RIG_SETTINGS.packaging, HARNESS_PUBLIC_URL: options.publicUrl } }),
+    review: { ...RIG_SETTINGS.review, ...options.review },
+  };
   const systems = buildSystems({
     store, bus, log, clock, settings, launcher: noLauncher, content: () => content, secrets: () => vault,
     tokens: new JwtSystemTokens({ secret: 's'.repeat(32), ttl: 60_000 }),

@@ -14,6 +14,7 @@ import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
 import { typeDefinitions } from '../catalog/definitions.ts';
 import type { Where } from '../store/index.ts';
+import { HubGraph } from '../graph/graph.ts';
 import { HubQuery } from '../query/service.ts';
 import { listSources } from '../query/sources.ts';
 import { knownSystem } from './admin-ops.ts';
@@ -56,8 +57,10 @@ function adminOnly(who: Viewer, what: string): void {
 export function hubReads(hub: HubServices): HubReads {
   const { store, catalog, chat } = hub;
   const lists = new HubQuery(listSources(hub, hub.settings.queryEnv));
+  const graph = new HubGraph({ store, catalog, limit: hub.settings.queryEnv.HARNESS_GRAPH_LIMIT });
   return {
     lists,
+    graph: async (data, who) => graph.query(data, await hub.access.scope(who.id)),
     query: (data, who) => lists.query(data, who),
     types_get: async (data, who) => {
       const access = await hub.access.scope(who.id);

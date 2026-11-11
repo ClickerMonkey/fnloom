@@ -3,7 +3,7 @@
  * valid config. A fn also needs its functions switched on, not to be paused, its kind to exist on a usable system,
  * and every fn it depends on to be available. These rules are pure, so the catalog and its tests share them.
  */
-import { SystemName, splitName, type Availability, type FnRecord, type FnUnavailable, type KindRecord, type QualifiedName, type SystemRecord } from '@harness/core';
+import { QualifiedName, SystemName, splitName, type Availability, type FnRecord, type FnUnavailable, type KindRecord, type SystemRecord, type SystemReviewRecord } from '@harness/core';
 import { hub } from '@harness/sdk';
 
 /**
@@ -26,12 +26,15 @@ export function unavailable(reason: FnUnavailable, detail: string): Availability
   return { unavailable: reason, detail };
 }
 
-/** Whether a system's contributions can be used now. */
-export function systemAvailability(system: SystemName, record: SystemRecord | undefined): Availability {
+/**
+ * Whether a system's contributions can be used now. An `installed` system (paired, not yet live) offers nothing, unless
+ * `staged` is false: the hub itself still asks it to describe its kinds, and an admin's test calls still run.
+ */
+export function systemAvailability(system: SystemName, record: SystemRecord | undefined, options: { readonly staged?: boolean } = {}): Availability {
   if (system === HUB_SYSTEM) { return true; }
   if (record === undefined) { return unavailable('system-disconnected', `${system} has never connected`); }
   switch (record.status) {
-    case 'connected': return true;
+    case 'connected': return options.staged !== false && record.stage === 'installed' ? unavailable('disabled', `${system} is installed and waits for an admin to review it and go live`) : true;
     case 'needs-config': return unavailable('system-needs-config', `${system} needs a valid config before it can be used`);
     case 'removed': return unavailable('system-removed', `${system} was removed; pair it again to use it`);
     case 'pairing': return unavailable('system-disconnected', `${system} is waiting to be paired`);
@@ -44,6 +47,10 @@ export interface AvailabilityInputs {
   readonly systems: ReadonlyMap<string, SystemRecord>;
   readonly kinds: ReadonlyMap<string, KindRecord>;
   readonly fns: ReadonlyMap<string, FnRecord>;
+  /** Fns held off while their system's pending review waits (`SystemLifecycle.held`). */
+  readonly held?: ReadonlySet<string>;
+  /** Kinds an admin switched off (`itemSwitches`): their fns are off with them. */
+  readonly kindsOff?: ReadonlySet<string>;
 }
 
 /**
@@ -156,9 +163,11 @@ export class AvailabilityRules {
     const system = this.inputs.systems.get(record.system);
     if (record.disabled || system?.enabled.functions === false) { return unavailable('disabled', `${record.name} is switched off`); }
     if (record.paused) { return unavailable('paused', `${record.name} is paused`); }
+    if (this.inputs.held?.has(record.name) === true) { return unavailable('disabled', `${record.name} changed and waits for an admin to approve it`); }
     if (record.decl.kind !== 'native') {
       const kind = this.inputs.kinds.get(record.decl.kind);
       if (kind === undefined) { return unavailable('kind-missing', `its kind ${record.decl.kind} does not exist`); }
+      if (this.inputs.kindsOff?.has(kind.name) === true) { return unavailable('disabled', `its kind ${kind.name} is switched off`); }
       const owner = systemOf(kind.name);
       const kindSystem = owner === undefined ? unavailable('kind-system-disconnected', `${kind.name} names no valid system`) : this.system(owner);
       if (kindSystem !== true) { return unavailable('kind-system-disconnected', `its kind ${kind.name}: ${kindSystem.detail}`); }
@@ -170,4 +179,13 @@ export class AvailabilityRules {
 /** Whether two availabilities say the same thing. */
 export function sameAvailability(a: Availability, b: Availability): boolean {
   return a === true || b === true ? a === b : a.unavailable === b.unavailable && a.detail === b.detail;
+}
+
+/** The fns held off by pending reviews: added or changed, waiting for an admin to approve them. */
+export function heldFns(reviews: readonly SystemReviewRecord[]): Set<QualifiedName> {
+  const out = new Set<QualifiedName>();
+  for (const review of reviews) {
+    for (const change of review.pending?.changes ?? []) { if (change.section === 'fns' && change.change !== 'removed') { out.add(QualifiedName.parse(change.name)); } }
+  }
+  return out;
 }

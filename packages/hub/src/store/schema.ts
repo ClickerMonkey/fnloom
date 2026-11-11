@@ -76,7 +76,6 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   resources: [['system']],
   sections: [['uri', 'version']],
   index: [['kind'], ['system'], ['embedder']],
-  ledger: [['at'], ['actor', 'at'], ['session', 'at'], ['run']],
   notifications: [['user', 'createdAt'], ['user', 'read']],
   pushSubscriptions: [['user']],
   reservations: [['createdAt']],
@@ -85,6 +84,9 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   fnTypes: [['type', 'use'], ['fn']],
   fnUses: [['uses'], ['fn']],
   fnVersions: [['fn', 'number']],
+  ledger: [['at'], ['actor', 'at'], ['session', 'at'], ['run'], ['system', 'at']],
+  itemSwitches: [['system'], ['section']],
+  refusals: [['system', 'at'], ['at'], ['rule', 'at']],
 };
 
 /** The columns of one table: field name → how it is stored. */

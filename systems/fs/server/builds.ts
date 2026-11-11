@@ -8,7 +8,7 @@
  */
 import { cp, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { BUILT, CONTRACT_ENTRY, ContractError, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type ScanReport, type SystemBuilder } from '@harness/build';
+import { BUILT, CONTRACT_ENTRY, ContractError, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type SystemBuilder } from '@harness/build';
 import type { Manifest } from '@harness/core';
 import { contractHash } from '@harness/sdk';
 import { contentHash, contentHasher, readClientBundle } from '@harness/sdk/server';
@@ -39,17 +39,6 @@ function addsOf(manifest: Manifest): string[] {
     ...named('Model providers', (manifest.providers ?? []).map((provider) => provider.name)),
     ...(Object.keys(manifest.config.props ?? {}).length === 0 ? [] : [`Config: ${Object.keys(manifest.config.props ?? {}).join(', ')}`]),
     ...(manifest.client === undefined ? [] : [`Client renderers (${String(manifest.client.files.length)} files)`]),
-  ];
-}
-
-/** The scan report, a line each. */
-function scanLines(scan: ScanReport): string[] {
-  const kb = Math.max(1, Math.round(scan.size / 1024));
-  return [
-    scan.builtins.length === 0 ? 'Imports no Node built-ins.' : `Node built-ins: ${scan.builtins.join(', ')}.`,
-    scan.concerns.length === 0 ? 'No dynamic imports or requires, eval or new Function.' : `${String(scan.concerns.length)} lines of concern (below).`,
-    scan.hosts.length === 0 ? 'Names no web hosts.' : `Web hosts it names: ${scan.hosts.join(', ')}.`,
-    `Bundle: ${String(kb)} KB.`,
   ];
 }
 
@@ -99,8 +88,7 @@ export class HarnessBuilds implements SystemBuilds {
         entry,
         fns: manifest.fns.map((decl) => fnLine(manifest.name, decl)),
         adds: addsOf(manifest),
-        scan: scanLines(result.scan),
-        concerns: result.scan.concerns.map((concern) => ({ file: BUILT.server, line: concern.line, code: `${concern.code}  // ${concern.detail}` })),
+        scan: result.scan,
       },
     };
   }

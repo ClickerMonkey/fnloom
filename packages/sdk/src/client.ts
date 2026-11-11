@@ -8,7 +8,7 @@ import type { AccessInfo, DeliveryId, DeliveryStatus, FnError, FormKind, Json, M
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
-import type { Infer } from './gin.ts';
+import type { GinType, Infer } from './gin.ts';
 import type { AnyContract, ContractShape, SystemContract } from './system.ts';
 
 /** A renderer is a Vue component whose props are P. */
@@ -72,6 +72,23 @@ export interface InputView<T> {
    * editor and its viewer everywhere a value of the type is drawn.
    */
   readonly: boolean;
+}
+
+/**
+ * The props of a system's own config component (`system({ configComponent })`), drawn instead of or beside the gin
+ * form on the review, system and pairing pages. It edits a draft and hands it back with `change`; the page saves it,
+ * and the hub checks it with the config's gin type before it is stored. `system` (from `WithSystem`) reaches the
+ * system for live checks, such as testing a connection through an action.
+ */
+export interface ConfigView<Cfg> {
+  /** The config as saved now; undefined before the first save. */
+  config: Cfg | undefined;
+  /** The config's gin type, for its fields' docs and checks. */
+  type: GinType<Cfg>;
+  /** Check a candidate with the gin type and the hub's own checks: the problems, one per line; empty when it fits. */
+  validate(value: Cfg): Promise<string[]>;
+  /** Hand the edited config to the page, which saves it after checking. */
+  change(value: Cfg): void;
 }
 
 /** The props of a custom mention hover card. */
@@ -144,6 +161,7 @@ export interface AnyViews {
   input: WithSystem<ContractShape>;
   mention: MentionView<unknown> & WithSystem<ContractShape>;
   resource: ResourceView & WithSystem<ContractShape>;
+  config: ConfigView<unknown> & WithSystem<ContractShape>;
 }
 
 /**
@@ -207,6 +225,11 @@ export interface ClientRenderers<C extends ContractShape> {
    * the contract's `contributes`, which is how the hub and the web app know to load this bundle for that registry.
    */
   visuals?: Readonly<Record<QualifiedName, Readonly<Record<string, VisualEntry<C>>>>>;
+  /**
+   * Config components by name. The one the contract's `configComponent` names is drawn for the system's config; it must
+   * be here, and every component here must be the one named.
+   */
+  configs?: Readonly<Record<string, Renderer<ConfigView<Infer<C['config']>> & WithSystem<C>>>>;
 }
 
 /**
@@ -227,6 +250,13 @@ export function client<N extends string, C extends ContractShape>(contract: Syst
         throw new Error(`system ${contract.name}: visual ${registry} ${name} is not in the contract's contributes.`);
       }
     }
+  }
+  const named = contract.configComponent?.component;
+  for (const name of Object.keys(renderers.configs ?? {})) {
+    if (name !== named) { throw new Error(`system ${contract.name}: config component ${name} is not the contract's configComponent.`); }
+  }
+  if (named !== undefined && renderers.configs?.[named] === undefined) {
+    throw new Error(`system ${contract.name}: the contract's configComponent ${named} has no component in client({ configs }).`);
   }
   return { system: contract.name, contract, renderers };
 }

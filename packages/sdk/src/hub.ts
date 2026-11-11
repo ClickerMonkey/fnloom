@@ -10,7 +10,7 @@
  */
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  graphSlice, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
   FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule, type RegistryEffect,
 } from '@harness/core';
@@ -51,6 +51,8 @@ export const HUB_READ_ENDPOINTS = {
   model_limits: contextorSlice.endpoints.modelLimits,
   /** Any list by the query standard (`LIST_FIELDS`): filters, sort, paging. */
   query: querySlice.endpoints.query,
+  /** Build 7: the graph of systems' fns, context, types and parts, and how they connect. */
+  graph: graphSlice.endpoints.graph,
 } as const satisfies Record<string, EndpointLike>;
 
 /** A hub read fn's name. */
@@ -255,6 +257,16 @@ const readFns = {
   model_roles: readFn('Which model (and provider) the hub uses for each job: chat, transcription, dictation, speech, describing images, reading text in them.', 'Use it to say which model does which job (chat, transcription, describing images, ...); to change one an admin uses hub/set_model_role.', HUB_READ_ENDPOINTS.model_roles, [{ args: {}, note: 'Which model does what.' }]),
   model_limits: readFn('Each model\'s context window, output limit, reasoning reserve and characters per token, with where each came from.', 'Use it when a prompt does not fit or an answer is cut: each model\'s window and output limit, and where the numbers came from.', HUB_READ_ENDPOINTS.model_limits, [{ args: { model: 'qwen2.5:3b' } }]),
   query: readFn(`Any list (${LIST_NAMES.join(', ')}) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging.`, 'Use it for any list question with conditions (runs that failed this week, the biggest resources, fns of one system): name the list, add filters on its fields, a sort and a small page size, and page on. Never ask for everything.', HUB_READ_ENDPOINTS.query, [{ args: { list: 'runs', query: { text: 'install', limit: 10 } }, note: 'Runs whose words match.' }, { args: { list: 'contexts', query: { limit: 20 } }, note: 'A page of context items.' }]),
+  graph: readFn(
+    'The graph of what systems add (fns, context, types, kinds, commands, components, providers) and how they connect: what brings, calls, reads, writes, creates or refers to what.',
+    'Use it to explain how things connect ("how does the fs authoring context reach the database fns?"): give `systems` for one system graph (what it references elsewhere comes back as `external`), or `focus` on one node (`fn:database/query_run`, `context:fs/authoring`, `type:database/main.projects`) with `hops` for its neighbourhood. Narrow with `nodeKinds`, `edgeKinds`, `fnKinds`, `modes` or `effects`, and keep `limit` small; `more` says what was left out, so focus on that node to see it. The `label` of each edge says the relation in plain words.',
+    HUB_READ_ENDPOINTS.graph,
+    [
+      { args: { focus: { node: 'context:fs/authoring', hops: 2 }, limit: 40 }, note: 'What a context item brings and what those reach, two hops out.' },
+      { args: { systems: ['database'], nodeKinds: ['fn', 'type'], edgeKinds: ['reads', 'writes'] }, note: 'Which database fns read and write which types.' },
+      { args: { effects: ['fns'], nodeKinds: ['fn', 'kind'] }, note: 'Every fn that creates or changes fns, and the kinds it makes.' },
+    ],
+  ),
 } satisfies Record<HubReadFnName, unknown>;
 
 /** The hub's write fns on resources, context and memory (`HUB_WRITE_ENDPOINTS`). */

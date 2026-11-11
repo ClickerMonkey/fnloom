@@ -133,7 +133,8 @@ export function recordingPush(status: (endpoint: string) => number = () => 201):
 /** Settings for tests: the defaults, with a cheap password hash. */
 export function testSettings(): HubSettings {
   const settings = parseHubSettings();
-  return { ...settings, authEnv: { ...settings.authEnv, HARNESS_PASSWORD_COST: 10 } };
+  // systems in tests go live as they pair, and what they do past their grants is only logged, unless a test says so
+  return { ...settings, authEnv: { ...settings.authEnv, HARNESS_PASSWORD_COST: 10 }, reviewEnv: { ...settings.reviewEnv, HARNESS_REVIEW_SYSTEMS: false, HARNESS_GRANTS: 'log' } };
 }
 
 /** Every hub service: real base and api services, fakes for the other modules. */
@@ -202,7 +203,11 @@ export async function webRig(r: Rig): Promise<WebRig> {
 export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
   return {
     catalog: fake('catalog', fakes.catalog),
-    link: group('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true, packages: true, instances: true, autoPairs: true }), fakes.link),
+    link: group<HubServices['link']>('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true, packages: true, instances: true, autoPairs: true, lifecycle: true, grants: true }), {
+      ...fakes.link,
+      // nothing is switched off or waiting for review unless a test says so
+      lifecycle: { off: () => Promise.resolve(new Set<string>()), offItems: () => Promise.resolve([]), stage: () => Promise.resolve('live'), ...fakes.link?.lifecycle },
+    }),
     execution: group('execution', keysOf<HubServices['execution']>({ runs: true, agents: true, llm: true, limits: true, ledger: true, policies: true, handlers: true, providers: true }), fakes.execution),
     chat: group('chat', keysOf<HubServices['chat']>({
       sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true, suggestions: true,

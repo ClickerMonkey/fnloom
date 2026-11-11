@@ -68,6 +68,8 @@ export type SearchHit = z.infer<typeof SearchHit>;
 /** Why someone is notified. */
 export const NotificationReason = z.enum([
   'approval-needed', 'input-needed', 'config-needed', 'message', 'replied', 'turn-finished', 'turn-failed', 'pairing-requested', 'system-disconnected', 'spend-limit',
+  /** Build 7: a system kept going past what it declared and was paused. */
+  'system-paused',
 ]);
 export type NotificationReason = z.infer<typeof NotificationReason>;
 

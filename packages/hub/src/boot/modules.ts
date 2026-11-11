@@ -72,7 +72,7 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       store: hub.store, bus: hub.bus, log: hub.log, clock: hub.clock, peers: context.peers, tokens: context.systemTokens,
       settings: {
         hub: hub.settings.hubEnv, link: hub.settings.linkEnv, packaging: hub.settings.packagingEnv, model: hub.settings.modelEnv, index: hub.settings.indexEnv,
-        search: hub.settings.storeEnv,
+        search: hub.settings.storeEnv, review: hub.settings.reviewEnv,
       },
       launcher: seams.launcher ?? new NodeStarter({ baseEnv: process.env, nodeArgs: process.execArgv, outputTail: hub.settings.linkEnv.HARNESS_PROCESS_OUTPUT_TAIL }),
       ...(seams.installer === undefined ? {} : { installer: seams.installer }),
@@ -92,9 +92,9 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     link: (context) => {
       const { hub } = context;
       const systems = systemsOf(context);
-      const { connections, pairing, config, supervisor, admin, resources, output, packages, router, autoPairs } = systems;
+      const { connections, pairing, config, supervisor, admin, resources, output, packages, router, autoPairs, lifecycle, grants } = systems;
       return {
-        services: { connections, pairing, config, supervisor, admin, resources, output, packages, instances: router, autoPairs, tokens: context.systemTokens },
+        services: { connections, pairing, config, supervisor, admin, resources, output, packages, instances: router, autoPairs, tokens: context.systemTokens, lifecycle, grants },
         hooks: {
           // build 1's single-instance rows move onto instances before any system can connect
           work: { up: async () => { await systems.migrate(); } },

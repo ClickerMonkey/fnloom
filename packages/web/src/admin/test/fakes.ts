@@ -15,6 +15,7 @@ import type { SystemLogEvents } from '../api.ts';
 import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView, SuggestDecision } from '@harness/core';
 import { AdminStore } from '../state/admin.ts';
 import { fakeBuild2Api } from './build2.ts';
+import { fakeReviewApi } from './review.ts';
 
 export { T0 };
 
@@ -190,6 +191,7 @@ export function fakeAdminApi() {
     resources: fakeCaller<'resources'>(() => Promise.resolve({ items: [resourceRecord()] })),
     pairing: fakeCaller<'pairing'>(({ pairing: id }) => Promise.resolve(pairing({ id, description: 'Files on Phil’s laptop', instance: 'laptop', configType: FS_CONFIG }))),
     ...fakeBuild2Api(),
+    ...fakeReviewApi(),
   };
 }
 

@@ -28,6 +28,8 @@ import { build3Plugins } from './build3.ts';
 import { build4Plugins } from './build4.ts';
 import { build5Plugins } from './build5.ts';
 import { explorerPlugin } from './explorer.ts';
+import { graphPlugin } from './graph.ts';
+import { reviewPlugin } from './review.ts';
 
 /** The realtime plugin: while installed, bus events reach browsers as `session` and `user` events. */
 export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
@@ -68,6 +70,8 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     ...build4Plugins(hub, systems),
     ...build5Plugins(hub, systems),
     explorerPlugin(hub, systems),
+    reviewPlugin(hub, systems),
+    graphPlugin(auth, reads),
     eventsPlugin(hub, auth),
   ];
 }

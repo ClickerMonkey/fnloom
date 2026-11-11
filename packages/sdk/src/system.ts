@@ -3,7 +3,7 @@
  * call can use the refs declared before it. The implementation's type (`SystemImpl`) is computed from the contract,
  * so everything declared must be implemented and nothing undeclared can be.
  */
-import { ConfigPath, ConnectDecl, ContributionDecl, SystemName, qualify, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
+import { ConfigComponentDecl, ConfigPath, ConnectDecl, ContributionDecl, SystemGrants, SystemName, qualify, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
 import type { SystemCtx } from './ctx.ts';
 import type {
   ActionDef, ActionImpl, AnyContextDef, AnyTypeDef, AttachmentDef, ContextDef, ContextImpl, EmbedderDef, EmbedderImpl, HookDef, HookImpl,
@@ -102,6 +102,10 @@ export interface SystemContract<N extends string, C extends ContractShape> exten
   readonly contributes: readonly ContributionDecl[];
   /** The dot paths of its config's secret text fields. */
   readonly configSecrets: readonly ConfigPath[];
+  /** What it may do through the hub (and, hosted, on its machine); `undefined` gets the base only. */
+  readonly grants: SystemGrants | undefined;
+  /** Its own config component (a client export), drawn instead of or beside the gin form. */
+  readonly configComponent: ConfigComponentDecl | undefined;
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
@@ -142,10 +146,22 @@ export interface SystemInfo {
    * saved and only `configure` carries the plain value. Each must be a text field of the config type.
    */
   configSecrets?: ConfigPath[];
+  /**
+   * What the system may do through the hub beyond the base: the hub capabilities it calls (`ai`, `embed`, `fns`,
+   * …), model roles and spend, secrets, the fns it calls, and (when fs hosts it) the hosts and paths it reaches. The
+   * hub enforces them over the link, logs every refusal, and shows them on the review page. Absent, the base only.
+   */
+  grants?: SystemGrants;
+  /**
+   * Its own config component: the name of a Vue component its client exports (`client({ components })`), drawn
+   * `replace` (instead of the gin form) or `beside` it on the review, system and pairing pages. The hub still checks
+   * the value with the config's gin type before saving.
+   */
+  configComponent?: ConfigComponentDecl;
 }
 
 /** The parts of a contract that are not declaration sections. */
-type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' | 'registries' | 'contributes' | 'configSecrets'>;
+type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' | 'registries' | 'contributes' | 'configSecrets' | 'grants' | 'configComponent'>;
 
 /** The ref of a named type: a gin extension registered in `g` under its qualified name, carrying display and methods. */
 function typeRef(system: string, local: string, def: AnyTypeDef): TypeRef<QualifiedName, unknown, Methods> {
@@ -260,6 +276,8 @@ export function system<const N extends string>(name: N, info: SystemInfo): Syste
     registries: { ...info.registries },
     contributes: (info.contributes ?? []).map((c) => ContributionDecl.parse(c)),
     configSecrets: (info.configSecrets ?? []).map((p) => ConfigPath.parse(p)),
+    grants: info.grants === undefined ? undefined : SystemGrants.parse(info.grants),
+    configComponent: info.configComponent === undefined ? undefined : ConfigComponentDecl.parse(info.configComponent),
   };
   return assemble(name, extras, defs, EMPTY_SECTIONS());
 }

@@ -350,6 +350,9 @@ export class StoreTurnService implements TurnService {
       if (!allowsSystem(session, context.system)) { throw new ChatError('unavailable', `The ${context.system} system is not enabled in this session.`); }
       const available = await this.#deps.catalog.availability(part.context);
       if (available !== true) { throw new ChatError('unavailable', `/${context.decl.command.name} can't be used now: ${available.detail}.`); }
+      if (await this.#deps.store.table('itemSwitches').get({ system: context.system, section: 'commands', name: `/${context.decl.command.name}` }) !== undefined) {
+        throw new ChatError('unavailable', `/${context.decl.command.name} can't be used now: an admin switched it off.`);
+      }
       const missing = context.decl.command.args.filter((arg) => arg.required && (part.args[arg.name] ?? '').trim() === '').map((arg) => arg.name);
       if (missing.length > 0) { throw new ChatError('invalid', `/${context.decl.command.name} needs ${missing.join(', ')}.`); }
       names.push(context.name);

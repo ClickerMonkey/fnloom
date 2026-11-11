@@ -3,18 +3,19 @@
  * One system's page, its tab in the URL: the overview (switches, facts, process and maintenance), its instances (a
  * fleet's copies, each with its own page; another copy can be installed from a package zip), its config form, what it
  * added to the hub (its fns and its context items, each switched on or off by itself and with its own page; its named
- * types; everything else it added: resource roots, kinds, commands, providers, components, examples, …), and its live
- * output. Removing asks first.
+ * types; everything else it added: resource roots, kinds, commands, providers, components, examples, …, one kind at a
+ * time and each with its own switch), the calls the hub refused, and its live output. Its stage (installed or live)
+ * shows beside its status, with a link to its review. Removing asks first.
  */
-import { MAIN_INSTANCE, SystemName, type AutoPairId, type InstanceName, type Json, type QualifiedName, type ResourceRoot, type SystemEnabled, type SystemPartSection } from '@harness/core';
+import { MAIN_INSTANCE, SystemName, type AutoPairId, type InstanceName, type ItemRef, type Json, type QualifiedName, type RefusalRule, type ResourceRoot, type RunId, type SystemEnabled, type SystemPartSection } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
-import { links } from '../../app/routes.ts';
-import { useParamChoice } from '../../app/url.ts';
+import { links, ROUTES } from '../../app/routes.ts';
+import { useParamChoice, useRouteQuery } from '../../app/url.ts';
 import { useStores } from '../../state/stores.ts';
-import { UiBanner, UiButton, UiIcon, UiSwitch, UiTabs, type TabItem } from '../../ui/index.ts';
+import { UiBanner, UiButton, UiEmpty, UiIcon, UiSwitch, UiTabs, type TabItem } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import FnList from '../components/FnList.vue';
 import InstallDialog from '../components/InstallDialog.vue';
@@ -28,23 +29,28 @@ import LoadState from '../components/LoadState.vue';
 import LogView from '../components/LogView.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import ConnectSetup from '../components/ConnectSetup.vue';
-import SystemConfig from '../components/SystemConfig.vue';
+import ConfigWithCustom from '../components/ConfigWithCustom.vue';
+import PartsByKind from '../components/PartsByKind.vue';
+import RefusalList from '../components/RefusalList.vue';
 import SystemOverview from '../components/SystemOverview.vue';
-import SystemPartList from '../components/SystemPartList.vue';
 import { partGroups, SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
 import { contextLabel } from '../../context/logic/context.ts';
 import { secretFields } from '../logic/instances.ts';
-import { SystemTab } from '../sections.ts';
+import { STAGE_LOOK } from '../logic/review.ts';
+import { PartTab, SystemTab } from '../sections.ts';
+import { configComponentsOf, configTarget } from '../state/config-component.ts';
 
 const { admin, toasts, chat } = useStores();
 const store = admin.system;
 const parts = admin.systemParts;
+const reviews = admin.review;
 /** No change waits on a system's own types here; an instance's page shows those. */
 const NO_CHANGES: ReadonlySet<string> = new Set();
 const route = useRoute();
 const router = useRouter();
 const now = useNow();
 const tab = useParamChoice('tab', SystemTab, 'overview');
+const part = useRouteQuery(ROUTES.system).choice('part', PartTab, 'roots');
 const name = computed(() => { const parsed = SystemName.safeParse(route.params['name']); return parsed.success ? parsed.data : undefined; });
 const view = computed(() => store.view.value.value);
 const problems = ref<readonly string[]>([]);
@@ -73,6 +79,21 @@ async function installZip(zip: File, options: PackageOptions): Promise<void> {
   if (name.value !== undefined) { void store.open(name.value); }
 }
 
+/** Its review: its stage, the items switched off, its own config component and its refusals (build 7). */
+const review = computed(() => reviews.review.value.value);
+const stage = computed(() => review.value?.stage ?? view.value?.stage ?? 'live');
+const loader = configComponentsOf(chat);
+const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value.manifest)));
+const rule = ref<RefusalRule | 'all'>('all');
+watch(rule, (picked) => { if (name.value !== undefined) { void reviews.loadRefusals(name.value, picked === 'all' ? undefined : picked); } });
+const runPage = (run: RunId): RouteLocationRaw => links.runs({ run });
+const partOn = (item: ItemRef): boolean => reviews.isOn(item);
+
+async function switchPart(item: ItemRef, on: boolean): Promise<void> {
+  if (!await reviews.switch(item, on)) { toasts.error(reviews.switching.problem.value); return; }
+  if (name.value !== undefined) { void parts.loadOthers(name.value); }
+}
+
 const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'instances', label: 'Instances', count: view.value?.instances.length ?? 0 },
@@ -81,12 +102,13 @@ const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'context', label: 'Context', ...(parts.contextCount.value === undefined ? {} : { count: parts.contextCount.value }) },
   { value: 'types', label: 'Types', ...(parts.typeCount.value === undefined ? {} : { count: parts.typeCount.value }) },
   { value: 'parts', label: 'Other parts', ...(others.value === undefined ? {} : { count: otherCount.value }) },
+  { value: 'refusals', label: 'Refusals', count: review.value?.refusals.total ?? 0 },
   // every system's output reaches the hub (an installed one's process, a paired one's log lines), so the tab is always there
   { value: 'logs', label: 'Output' },
 ]);
 
 watch(name, (system) => {
-  if (system !== undefined) { void store.open(system); void admin.actors.load(); }
+  if (system !== undefined) { void store.open(system); void reviews.open(system); void admin.actors.load(); }
 }, { immediate: true });
 
 watch([tab, name], ([current, system]) => {
@@ -95,10 +117,11 @@ watch([tab, name], ([current, system]) => {
   if (current === 'context' && system !== undefined) { void parts.loadContext(system); }
   if (current === 'types' && system !== undefined) { void parts.loadTypes(system); }
   if (current === 'parts' && system !== undefined) { void parts.loadOthers(system); }
+  if (current === 'refusals' && system !== undefined) { void reviews.loadRefusals(system, rule.value === 'all' ? undefined : rule.value); }
   if (current === 'logs') { void store.followLogs(); } else { store.unfollowLogs(); }
 }, { immediate: true });
 
-onBeforeUnmount(() => { store.close(); parts.close(); });
+onBeforeUnmount(() => { store.close(); parts.close(); reviews.close(); });
 
 async function save(config: Json): Promise<void> {
   const result = await store.configure(config);
@@ -164,10 +187,22 @@ async function act(action: SystemAction, version?: string): Promise<void> {
     <template v-if="view" #actions>
       <RouterLink v-if="name !== undefined && view.status === 'connected'" :to="links.explore(name, MAIN_INSTANCE)" class="waiting" data-testid="system-explore"><UiIcon name="folder" :size="14" />Files</RouterLink>
       <RouterLink v-if="name !== undefined" :to="links.waitingRuns(name)" class="waiting" data-testid="system-waiting-runs"><UiIcon name="shield" :size="14" />Waiting runs</RouterLink>
+      <RouterLink v-if="name !== undefined" :to="links.review(name, review?.pending ? 'pending' : 'fns')" class="waiting" data-testid="system-review">
+        <UiIcon name="eye" :size="14" />{{ review?.pending ? 'Review changes' : 'Review' }}
+      </RouterLink>
+      <StatusBadge :look="STAGE_LOOK[stage]" data-testid="system-stage" />
       <StatusBadge :look="SYSTEM_STATUS_LOOK[view.status]" />
     </template>
     <LoadState :loading="store.view.loading.value" :problem="store.view.problem.value" :ready="view !== undefined" :empty="false" :lines="8" @retry="name && store.open(name)">
       <template v-if="view">
+        <UiBanner v-if="stage === 'installed'" tone="warn" data-testid="system-installed">
+          It is installed but not live: nothing it offers is used until it is reviewed.
+          <template #actions><RouterLink v-if="name !== undefined" :to="links.review(name)">Review and go live</RouterLink></template>
+        </UiBanner>
+        <UiBanner v-else-if="review?.pending" tone="warn" data-testid="system-pending">
+          Changes wait for review; the live version keeps working.
+          <template #actions><RouterLink v-if="name !== undefined" :to="links.review(name, 'pending')">Review changes</RouterLink></template>
+        </UiBanner>
         <UiTabs v-model="tab" :tabs="tabs" label="System" />
         <SystemOverview v-if="tab === 'overview'" :system="view" :now="now" :acting="store.acting.value" :name-of="admin.actors.nameOf" @enable="enable" @act="act" />
         <div v-else-if="tab === 'instances'" class="instances">
@@ -186,9 +221,9 @@ async function act(action: SystemAction, version?: string): Promise<void> {
             v-if="connectPage !== undefined" :title="connectPage.decl.title" :redirect="redirect" :ready="connectPage.ready" :page="links.connect(connectPage.system)"
             @copied="(ok) => (ok ? toasts.ok('Copied') : toasts.error('Couldn’t copy.'))"
           />
-          <SystemConfig
-            :type="view.configType" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt"
-            :needs-config="view.needsConfig" :now="now" :busy="store.config.busy.value" :problems="problems" :secrets="secretFields(view.configSecrets, view.config?.value)" @save="save"
+          <ConfigWithCustom
+            :type="view.configType" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt" :needs-config="view.needsConfig" :now="now"
+            :busy="store.config.busy.value" :problems="problems" :secrets="secretFields(view.configSecrets, view.config?.value)" :target="target" :loader="loader" @save="save"
           />
         </div>
         <LoadState
@@ -203,7 +238,13 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           :empty="parts.context.items.value.length === 0" empty-icon="layers" empty-title="No context" empty-body="This system doesn't add any context." @retry="name && parts.loadContext(name)"
         >
           <RouterLink v-if="name !== undefined" :to="links.systemContext(name)" class="search-fns" data-testid="search-system-context"><UiIcon name="search" :size="14" />Search and sort in Context</RouterLink>
-          <UiBanner v-if="contextOff" tone="warn" data-testid="system-context-off">All of {{ name }}’s context is switched off on the Overview; each item keeps its own switch for when it is back on.</UiBanner>
+          <div class="all-context">
+            <UiSwitch
+              :model-value="!contextOff" label="Use its context"
+              :description="contextOff ? 'All of it is off; each item keeps its own switch for when it is back on.' : 'Every item below can be selected, searched and loaded, unless switched off by itself.'"
+              data-testid="system-context-all" @update:model-value="enable('context', $event)"
+            />
+          </div>
           <div class="list" data-testid="system-context">
             <div v-for="item in parts.context.items.value" :key="item.name" class="switch-row">
               <UiSwitch :model-value="item.disabled !== true" :label="`Use ${contextLabel(item.decl)}`" hide-label data-testid="context-switch" @update:model-value="switchContext(item.name, $event)" />
@@ -223,7 +264,18 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           v-else-if="tab === 'parts'" :loading="parts.others.loading.value" :problem="parts.others.problem.value || parts.roots.problem.value" :ready="others !== undefined"
           :empty="otherCount === 0" empty-icon="layers" empty-title="Nothing else" empty-body="This system adds only fns, context and types." @retry="name && parts.loadOthers(name)"
         >
-          <SystemPartList :groups="groups" :roots="roots" :root-page="rootPage" :owner-page="ownerPage" />
+          <PartsByKind
+            v-model:part="part" :groups="groups" :roots="roots" :root-page="rootPage" :owner-page="ownerPage" :is-on="review === undefined ? undefined : partOn"
+            :busy="reviews.switching.busy.value" @switch="switchPart"
+          />
+        </LoadState>
+        <LoadState
+          v-else-if="tab === 'refusals'" :loading="reviews.refusals.loading.value" :problem="reviews.refusals.problem.value" :ready="reviews.refusals.loaded.value" :empty="false"
+          @retry="reviews.refusals.load()"
+        >
+          <RefusalList v-model:rule="rule" :refusals="reviews.refusals.items.value" :now="now" :run-page="runPage" />
+          <UiEmpty v-if="reviews.refusals.items.value.length === 0" icon="shield" title="No refusals" body="The hub hasn't refused anything it tried." />
+          <UiButton v-if="reviews.refusals.hasMore.value" class="more" variant="ghost" size="sm" :loading="reviews.refusals.loadingMore.value" @click="reviews.refusals.more()">Show more</UiButton>
         </LoadState>
         <LoadState v-else :loading="store.logs.loading.value" :problem="store.logs.problem.value" :ready="store.logs.value.value !== undefined" :empty="false" @retry="store.followLogs()">
           <LogView :lines="store.logs.value.value ?? []" />
@@ -252,6 +304,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
 .switch-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; padding-left: var(--space-4); }
 .more { justify-self: start; margin-top: var(--space-2); }
 .config-tab { display: grid; gap: var(--space-4); }
+.all-context { margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .search-fns { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-sm); }
 .waiting { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }
 .sub { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }

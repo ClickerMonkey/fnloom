@@ -26,6 +26,7 @@ import { ModelsStore } from './models.ts';
 import { PoliciesStore } from './policies.ts';
 import { ModelRolesStore } from './roles.ts';
 import { ActorSettingsStore } from './settings.ts';
+import { ReviewStore } from './review.ts';
 import { SystemStore } from './system.ts';
 import { SystemPartsStore } from './system-parts.ts';
 import { SystemsStore } from './systems.ts';
@@ -49,6 +50,8 @@ export class AdminStore {
   readonly system: SystemStore;
   /** The open system's context and types. */
   readonly systemParts: SystemPartsStore;
+  /** The open system's review: its stage, what it declares, what is off, what waits, and its refusals (build 7). */
+  readonly review: ReviewStore;
   readonly models: ModelsStore;
   readonly roles: ModelRolesStore;
   readonly limits: LimitsStore;
@@ -83,6 +86,7 @@ export class AdminStore {
     this.systems = new SystemsStore(api, deps.userEvents);
     this.system = new SystemStore(api, deps.userEvents, deps.systemLogs);
     this.systemParts = new SystemPartsStore(api);
+    this.review = new ReviewStore(api);
     this.models = new ModelsStore(api);
     this.roles = new ModelRolesStore(api);
     this.limits = new LimitsStore(api);

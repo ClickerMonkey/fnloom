@@ -71,6 +71,27 @@ export const CONFIG_SECRETS = ['connection.url', 'connection.password'] as const
 
 // ─── The query kind ──────────────────────────────────────────────────────────
 
+/** How a generated fn's query is built (`@aeye/query`'s `TableFnOp`, which `toTableFnOp` turns it back into): JSON, so it is stored and rebuilt. */
+export const TableFnOpSchema = z.object({
+  kind: z.enum([
+    'create', 'update', 'updateWhere', 'remove', 'removeWhere', 'selectOne', 'selectPage',
+    'countBy', 'stats', 'buckets', 'exists', 'findOrCreate', 'childrenOf', 'countPerParent', 'derived',
+  ]),
+  table: z.string().min(1),
+  column: z.string().min(1).optional(),
+  child: z.string().min(1).optional(),
+  bucket: z.enum(['day', 'week', 'month']).optional(),
+  derived: z.array(z.string().min(1)).optional(),
+});
+export type TableFnOpValue = z.infer<typeof TableFnOpSchema>;
+
+/** What a generated query fn was made from: its op, and the hash of its table's schema then. */
+export const GeneratedFrom = z.object({
+  op: TableFnOpSchema,
+  hash: z.string().min(1).describe('The table schema hash (`tableSchemaHash`) it was generated for.'),
+});
+export type GeneratedFrom = z.infer<typeof GeneratedFrom>;
+
 /** A saved query: an `@aeye/query` query over this database's table types, and how callers may page and sort it. */
 export const QueryPayload = z.object({
   /** The database instance it runs on. */
@@ -83,6 +104,10 @@ export const QueryPayload = z.object({
   sorters: z.array(z.string().min(1)),
   /** Whether it returns a list of rows that pages with `limit` / `offset`. */
   list: z.boolean(),
+  /** Params a caller may leave out, bound as NULL (no filter, no change); every other param is required. */
+  optional: z.array(z.string().min(1)).optional(),
+  /** Set when `table_fns_generate` made it: what it was generated from, so it is rebuilt when the table changes. */
+  generated: GeneratedFrom.optional(),
 });
 export type QueryPayload = z.infer<typeof QueryPayload>;
 
@@ -208,26 +233,6 @@ export type AskWhichDatabase = z.infer<typeof AskWhichDatabase>;
 export const QueryAgentAnswer = z.union([QueryAnswer, AskWhichDatabase]);
 export type QueryAgentAnswer = z.infer<typeof QueryAgentAnswer>;
 
-/** What one instance is asked to do for a tool another instance answered (`at_instance`). */
-export const InstanceOp = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('tables') }),
-  z.object({ op: z.literal('check'), draft: QueryDraft }),
-  z.object({
-    op: z.literal('save'), draft: QueryDraft, args: ParamValues.optional(), askedFor: z.string().optional(), replace: z.boolean().optional(),
-  }),
-  z.object({ op: z.literal('run'), fn: z.string().min(1), args: ParamValues.optional() }),
-]);
-export type InstanceOp = z.infer<typeof InstanceOp>;
-
-/** What an instance answers an `InstanceOp` with, by the same `op`. */
-export const InstanceAnswer = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('tables'), tables: TablesInfo }),
-  z.object({ op: z.literal('check'), check: QueryCheck }),
-  z.object({ op: z.literal('save'), saved: SavedQueryRef }),
-  z.object({ op: z.literal('run'), run: QueryRun }),
-]);
-export type InstanceAnswer = z.infer<typeof InstanceAnswer>;
-
 /** A table made or changed from a type (`create_table`, `alter_table`, `apply_type_changes`). */
 export const SchemaChanged = z.object({
   database: DatabaseInfo,
@@ -252,3 +257,111 @@ export type SchemaArgs = z.infer<typeof SchemaArgs>;
 /** `apply_type_changes` args: the rescan whose changes an admin approves. */
 export const ApplyArgs = z.object({ scan: z.string().min(1).describe('The rescan these changes came from.') });
 export type ApplyArgs = z.infer<typeof ApplyArgs>;
+
+/** `pick_database` args: the request, and the database it names, if any. */
+export const PickArgs = z.object({
+  detailedDescription: z.string().min(1).describe('The request, as get_query was given it.'),
+  database: z.string().min(1).optional().describe('The database instance the request names, if any.'),
+});
+export type PickArgs = z.infer<typeof PickArgs>;
+
+/** How a database was picked: named in the request, the only one, by the decision model, or by its tables' match. */
+export const PickedBy = z.enum(['asked', 'only', 'decision', 'score']);
+export type PickedBy = z.infer<typeof PickedBy>;
+
+/** The database a request is for, and why. */
+export const PickedDatabase = z.object({
+  database: z.string().min(1).describe('The database instance to use.'),
+  label: z.string(),
+  by: PickedBy,
+  why: z.string().describe('Why this database, in one sentence.'),
+});
+export type PickedDatabase = z.infer<typeof PickedDatabase>;
+
+/** What `pick_database` answers: the database, or the question for the person when it stays unclear. */
+export const DatabasePick = z.union([PickedDatabase, AskWhichDatabase]);
+export type DatabasePick = z.infer<typeof DatabasePick>;
+
+// ─── Generated table fns ─────────────────────────────────────────────────────
+
+/** `table_fns_available` args. */
+export const TableFnsArgs = z.object({
+  table: z.string().min(1).describe('The table, by name (`projects`) or as its type (`database/main.projects`).'),
+  database: z.string().min(1).optional().describe('The database instance; read from the type name, else the only one.'),
+});
+export type TableFnsArgs = z.infer<typeof TableFnsArgs>;
+
+/** How a listed fn stands in the hub: not made yet, made for this schema, or made for an older one (regenerate it). */
+export const TableFnState = z.enum(['new', 'current', 'stale']);
+export type TableFnState = z.infer<typeof TableFnState>;
+
+/** One fn a table could have. */
+export const TableFnEntry = z.object({
+  name: z.string().describe('Its name within the table (`selectPage`, `projectCount`): what `table_fns_generate` takes.'),
+  fn: z.string().describe('The fn it is, or would be, in the hub (`database/main.projects_selectPage`).'),
+  about: z.string(),
+  signature: z.string(),
+  mode: z.enum(['read', 'write', 'delete']).describe('Whether it reads, writes (after approval) or deletes rows.'),
+  state: TableFnState,
+  version: z.number().int().min(1).optional().describe('The saved version, when it exists.'),
+});
+export type TableFnEntry = z.infer<typeof TableFnEntry>;
+
+/** A table's fns from one place: `crud`, `columns`, `table`, or the relation they come from. */
+export const TableFnGroup = z.object({ group: z.string(), fns: z.array(TableFnEntry) });
+export type TableFnGroup = z.infer<typeof TableFnGroup>;
+
+/** What `table_fns_available` lists: the table's fns by group, the most useful first, and how many more there are. */
+export const TableFnsList = z.object({
+  database: DatabaseInfo,
+  table: z.string(),
+  type: z.string().describe('The type of the table in the hub.'),
+  hash: z.string().describe('The schema hash of the table now.'),
+  groups: z.array(TableFnGroup),
+  more: z.number().int().min(0).describe('Fns left out past the cap.'),
+});
+export type TableFnsList = z.infer<typeof TableFnsList>;
+
+/** `table_fns_generate` args. */
+export const TableFnsGenerateArgs = TableFnsArgs.extend({
+  names: z.array(z.string().min(1)).min(1).max(50).describe('The fns to make or bring up to date, by their names in `table_fns_available`.'),
+  derived: z.array(z.string().min(1)).optional().describe('Derived fields `selectPage` also shows, sorts and filters on (`projectCount`).'),
+});
+export type TableFnsGenerateArgs = z.infer<typeof TableFnsGenerateArgs>;
+
+/** One fn `table_fns_generate` made: its name, signature and version, and what happened to it. */
+export const GeneratedTableFn = z.object({
+  fn: z.string(),
+  signature: z.string(),
+  version: z.number().int().min(1),
+  status: z.enum(['created', 'updated', 'unchanged']),
+});
+export type GeneratedTableFn = z.infer<typeof GeneratedTableFn>;
+
+/** What `table_fns_generate` gives. */
+export const TableFnsGenerated = z.object({ database: DatabaseInfo, table: z.string(), fns: z.array(GeneratedTableFn) });
+export type TableFnsGenerated = z.infer<typeof TableFnsGenerated>;
+
+/** What one instance is asked to do for a tool another instance answered (`at_instance`). */
+export const InstanceOp = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('tables') }),
+  z.object({ op: z.literal('check'), draft: QueryDraft }),
+  z.object({
+    op: z.literal('save'), draft: QueryDraft, args: ParamValues.optional(), askedFor: z.string().optional(), replace: z.boolean().optional(),
+  }),
+  z.object({ op: z.literal('run'), fn: z.string().min(1), args: ParamValues.optional() }),
+  z.object({ op: z.literal('table-fns'), table: z.string().min(1) }),
+  z.object({ op: z.literal('table-fns-generate'), table: z.string().min(1), names: z.array(z.string().min(1)).min(1), derived: z.array(z.string().min(1)).optional() }),
+]);
+export type InstanceOp = z.infer<typeof InstanceOp>;
+
+/** What an instance answers an `InstanceOp` with, by the same `op`. */
+export const InstanceAnswer = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('tables'), tables: TablesInfo }),
+  z.object({ op: z.literal('check'), check: QueryCheck }),
+  z.object({ op: z.literal('save'), saved: SavedQueryRef }),
+  z.object({ op: z.literal('run'), run: QueryRun }),
+  z.object({ op: z.literal('table-fns'), list: TableFnsList }),
+  z.object({ op: z.literal('table-fns-generate'), generated: TableFnsGenerated }),
+]);
+export type InstanceAnswer = z.infer<typeof InstanceAnswer>;

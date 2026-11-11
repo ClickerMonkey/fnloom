@@ -12,7 +12,7 @@ import { manifestOf } from '@harness/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fs } from '../shared/index.ts';
 import { HarnessBuilds } from './builds.ts';
-import { InstallRefused } from './hosting.ts';
+import { InstallRefused, scanLines } from './hosting.ts';
 
 const dirs: string[] = [];
 async function folder(files: Record<string, string>): Promise<string> {
@@ -57,8 +57,8 @@ describe('HarnessBuilds', () => {
     expect(built.manifestHash).toMatch(/\S/);
     expect(built.fns.some((line) => line.startsWith('fs/read'))).toBe(true);
     expect(built.adds.some((line) => line.startsWith('Types: '))).toBe(true);
-    expect(built.scan).toContain('Node built-ins: child_process.');
-    expect(built.scan.at(-1)).toMatch(/^Bundle: \d+ KB\.$/);
+    expect(built.scan.builtins).toEqual(['child_process']);
+    expect(scanLines(built.scan)).toContain('Node built-ins: child_process.');
   });
 
   it('returns typecheck problems and refuses a folder without system.json or a missing contract', async () => {

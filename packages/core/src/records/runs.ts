@@ -40,6 +40,8 @@ export const Run = z.object({
   llmCall: LlmInteractionId.optional(),
   toolCallId: z.string().optional(),
   args: Json,
+  /** Build 7: an admin's test call of an installed system or an item waiting for review; the calls it makes are tests too. */
+  test: z.boolean().optional(),
   status: RunStatus,
   /** What it says it is doing, resolved from its fn's status templates when it last changed phase. */
   text: RunText.optional(),

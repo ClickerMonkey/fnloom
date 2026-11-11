@@ -1,5 +1,5 @@
 import { fn, g } from '@harness/sdk';
-import { ActorId, SystemName, type FnRecord, type QualifiedName, type SystemRecord } from '@harness/core';
+import { ActorId, KindRecord, SystemName, type FnRecord, type QualifiedName, type SystemRecord } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { TestCatalog } from '../execution/testing.ts';
 import { AvailabilityRules, systemAvailability } from './availability.ts';
@@ -27,6 +27,24 @@ function fns(deps: Record<string, readonly string[]>): Map<string, FnRecord> {
 describe('availability rules', () => {
   it('says a system waiting to be paired is not usable yet', () => {
     expect(systemAvailability(SHOP, system({ status: 'pairing' }))).toEqual({ unavailable: 'system-disconnected', detail: 'shop is waiting to be paired' });
+  });
+
+  it('offers nothing of an installed system, unless the stage is set aside (kinds described, test calls)', () => {
+    expect(systemAvailability(SHOP, system({ stage: 'installed' }))).toEqual({ unavailable: 'disabled', detail: 'shop is installed and waits for an admin to review it and go live' });
+    expect(systemAvailability(SHOP, system({ stage: 'installed' }), { staged: false })).toBe(true);
+    expect(systemAvailability(SHOP, system({ stage: 'live' }))).toBe(true);
+  });
+
+  it('holds a fn waiting for review, and takes the fns of a switched-off kind with it', () => {
+    const records = fns({ order: [], list: [] });
+    const order = records.get('shop/order');
+    if (order === undefined) { throw new Error('no order'); }
+    records.set('shop/order', { ...order, decl: { ...order.decl, kind: 'shop/report' } });
+    const report: KindRecord = KindRecord.parse({ name: 'shop/report', system: SHOP, decl: { name: 'report', description: 'r', applicability: 'a', payload: { name: 'text' }, approveChanges: false } });
+    const kinds = new Map([[report.name, report]]);
+    const rules = new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds, fns: records, held: new Set(['shop/list']), kindsOff: new Set(['shop/report']) });
+    expect(rules.fn('shop/list')).toEqual({ unavailable: 'disabled', detail: 'shop/list changed and waits for an admin to approve it' });
+    expect(rules.fn('shop/order')).toEqual({ unavailable: 'disabled', detail: 'its kind shop/report is switched off' });
   });
 
   it('makes a fn whose dep does not exist unavailable, naming the dep', () => {

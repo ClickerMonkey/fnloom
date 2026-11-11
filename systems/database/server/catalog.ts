@@ -3,7 +3,7 @@
  * checked against and emitted from), the hub's type of each table, and the schema text the query agent writes
  * against. Each hub type carries its `TableMeta`, so the enrichment is kept with the type in the hub.
  */
-import { QueryEngine, createRegistry, describeEngine, type Dialect, type TableSpec, type TypeBacking } from '@aeye/query';
+import { QueryEngine, createRegistry, describeEngine, tableToQueryType, type Dialect, type TableSpec, type TypeBacking } from '@aeye/query';
 import { JsonObject, type GinTypeDef, type InstanceName, type TypeDecl } from '@harness/core';
 import type { DatabaseConfig, DialectName } from '../shared/shapes.ts';
 import { dialectFor } from './dialects.ts';
@@ -33,6 +33,12 @@ export class TableCatalog {
   readonly dialectName: DialectName;
   readonly dialect: Dialect;
   readonly engine: QueryEngine;
+  /**
+   * The engine over `@aeye/query`'s own table types (`tableToQueryType`), which the generated table fns are written
+   * against: a foreign key column is itself the relation there, where `engine` keeps it a value and adds a relation
+   * named after it. Made on first use.
+   */
+  #tableEngine: QueryEngine | undefined;
   readonly tables: readonly CatalogTable[];
 
   constructor(instance: InstanceName, dialectName: DialectName, scanned: readonly ScannedTable[], enrichments: ReadonlyMap<string, TableEnrichment>) {
@@ -51,6 +57,17 @@ export class TableCatalog {
       backings[type.def.name] = type.backing;
     }
     this.engine = new QueryEngine(registry, { backings });
+  }
+
+  /** The engine the generated table fns run on (see `#tableEngine`). */
+  get tableEngine(): QueryEngine {
+    if (this.#tableEngine === undefined) {
+      const specs = this.tables.map((table) => table.scanned.spec);
+      const registry = createRegistry();
+      for (const spec of specs) { registry.registerType(registry.parseType(tableToQueryType(spec, { tables: specs, rowCount: Math.max(1, this.tables.find((table) => table.scanned.spec === spec)?.scanned.rows ?? 1) }))); }
+      this.#tableEngine = new QueryEngine(registry);
+    }
+    return this.#tableEngine;
   }
 
   /** The table with this name (physical or as a type), if there is one. */

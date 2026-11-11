@@ -21,6 +21,15 @@ export function adminApi(hub: Hub) {
     enableSystem: hub.caller('enableSystem'),
     /** One fn or context item of a system on or off by itself. */
     switchItem: hub.caller('switchItem'),
+    /** Any other item of a system (a type, root, kind, command, component, ...) on or off by itself. */
+    switchPart: hub.caller('switchPart'),
+    // build 7: review and go live, test calls while installed, and the refusals the hub logged
+    systemReview: hub.caller('systemReview', { dedupe: true }),
+    goLive: hub.caller('goLive'),
+    approveReview: hub.caller('approveReview'),
+    rejectReview: hub.caller('rejectReview'),
+    testCall: hub.caller('testCall'),
+    refusals: hub.caller('refusals', { lastOnly: true }),
     removeSystem: hub.caller('removeSystem'),
     installSystem: hub.caller('installSystem'),
     startSystem: hub.caller('startSystem'),

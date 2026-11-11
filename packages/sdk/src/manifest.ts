@@ -198,6 +198,8 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     }),
     ...(contract.contributes.length === 0 ? {} : { contributes: contract.contributes.map((c) => ({ ...c })) }),
     ...(contract.configSecrets.length === 0 ? {} : { configSecrets: checkedSecrets(contract.name, wireType(defs.config), contract.configSecrets) }),
+    ...(contract.grants === undefined ? {} : { grants: contract.grants }),
+    ...(contract.configComponent === undefined ? {} : { configComponent: contract.configComponent }),
   };
 }
 

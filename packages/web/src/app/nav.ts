@@ -34,7 +34,7 @@ const NAV: readonly NavSpec[] = [
   {
     id: 'admin', to: links.systems(), label: 'Admin', icon: 'shield', adminOnly: true,
     routes: [
-      ROUTES.admin, ROUTES.systems, ROUTES.system, ROUTES.instance, ROUTES.fn, ROUTES.models, ROUTES.limits, ROUTES.policies, ROUTES.actorSettings, ROUTES.runs, ROUTES.llmCalls,
+      ROUTES.admin, ROUTES.systems, ROUTES.system, ROUTES.review, ROUTES.instance, ROUTES.fn, ROUTES.models, ROUTES.limits, ROUTES.policies, ROUTES.actorSettings, ROUTES.runs, ROUTES.llmCalls,
       ROUTES.modelCalls, ROUTES.mcps, ROUTES.mcp,
     ],
   },

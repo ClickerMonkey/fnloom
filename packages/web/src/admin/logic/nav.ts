@@ -16,7 +16,7 @@ export interface AdminNavEntry {
 }
 
 const SECTIONS = {
-  systems: { label: 'Systems', icon: 'server', to: links.systems(), routes: [ROUTES.systems, ROUTES.system, ROUTES.instance] },
+  systems: { label: 'Systems', icon: 'server', to: links.systems(), routes: [ROUTES.systems, ROUTES.system, ROUTES.review, ROUTES.instance] },
   fns: { label: 'Fns', icon: 'fn', to: links.fns(), routes: [ROUTES.fns, ROUTES.fn] },
   models: { label: 'Models', icon: 'sparkles', to: links.models(), routes: [ROUTES.models] },
   limits: { label: 'Budgets', icon: 'coins', to: links.limits(), routes: [ROUTES.limits] },

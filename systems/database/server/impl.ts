@@ -6,17 +6,19 @@
  * database (`at_instance`, forwarded with `on` when that is another one). Saved queries live in the hub; the `query`
  * kind runs them, and previews the writes among them for their approval.
  */
-import { InstanceName, Json, ShareRule, qualify, splitName, type ApprovalPreview, type FnEffects, type PreviewAnswer, type QualifiedName } from '@harness/core';
+import { InstanceName, Json, QualifiedName, ShareRule, qualify, splitName, type ApprovalPreview, type FnEffects, type PreviewAnswer, type RunInfo } from '@harness/core';
 import { CallFailed, ResultBlockType, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { z } from 'zod';
 import { QUERY_KIND, database, type DatabaseContract } from '../shared/index.ts';
 import { ParamValues, QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
-import { argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
+import { argProblems, argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
 import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } from './instance.ts';
 import { QueryService, callArgs, callOf, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
+import { pickDatabase } from './pick.ts';
+import { TableFnService, type TableFnsCtx } from './table-fns.ts';
 import { hubTypeOf, qualifiedTypeOf, tableMetaOf } from './types.ts';
 
 /** The run context of one of the contract's fns. */
@@ -187,7 +189,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   let scanned: Promise<DatabaseInstance | undefined> = Promise.resolve(undefined);
   // the system's side of the hub (its fleet and types), as the last configure gave it
   let system: Pick<ConfigureCtx, 'fleet' | 'types'> | undefined;
-  const queries = new QueryService({ instance: () => instance, settings: s });
+  const tableFnService = new TableFnService({ depth: s.DATABASE_TABLE_FNS_DEPTH, cap: s.DATABASE_TABLE_FNS_CAP, page: s.DATABASE_PAGE_ROWS, max: s.DATABASE_MAX_ROWS });
+  const queries = new QueryService({ instance: () => instance, settings: s, refresh: (here, payload) => tableFnService.refreshPayload(here, payload) });
   const limits = { page: s.DATABASE_PAGE_ROWS, max: s.DATABASE_MAX_ROWS };
   // before the system serves, nothing is sent and no saved query is known
   const hubSide: HubSide = {
@@ -277,6 +280,21 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     };
   }
 
+  /** The run's side of the generated table fns: its query tools, and which saved queries exist (by the hub's search). */
+  function tableFnsCtx(ctx: CtxOf<'at_instance'>): TableFnsCtx {
+    return {
+      ...runCtx(ctx),
+      existing: async (names) => {
+        const found = new Set<string>();
+        for (let at = 0; at < names.length; at += 100) {
+          const page = await ctx.searchFns({ names: names.slice(at, at + 100).map((name) => QualifiedName.parse(name)), kinds: [QUERY_KIND], items: ['fn'], available: false, limit: 100 });
+          for (const hit of page.items) { found.add(hit.name); }
+        }
+        return found;
+      },
+    };
+  }
+
   /** Do one tool's work here. */
   async function atHere(op: InstanceOp, ctx: CtxOf<'at_instance'>): Promise<InstanceAnswer | QueryProblem> {
     const here = queries.instance(ctx.run.user);
@@ -293,6 +311,14 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       case 'run': {
         const ran = await queries.run(here, op.fn, op.args ?? {}, runCtx(ctx));
         return 'database' in ran ? { op: 'run', run: ran } : ran;
+      }
+      case 'table-fns': {
+        const list = await tableFnService.list(here, op.table, tableFnsCtx(ctx));
+        return 'groups' in list ? { op: 'table-fns', list } : list;
+      }
+      case 'table-fns-generate': {
+        const made = await tableFnService.generate(here, op.table, op.names, op.derived ?? [], tableFnsCtx(ctx));
+        return Array.isArray(made) ? { op: 'table-fns-generate', generated: { database: here.info, table: op.table, fns: made } } : made;
       }
     }
   }
@@ -353,6 +379,19 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           return ctx.done(members.map((member) => ({ instance: member.instance, label: member.label, tables: [...member.tables] })));
         },
       },
+      pick_database: {
+        async run(args, ctx) {
+          const here = instance;
+          if (here === undefined) { return ctx.fail('caller', 'This database is not configured yet: an admin sets its connection on the system\'s page.'); }
+          const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
+            .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
+          const picked = await pickDatabase(
+            { description: args.detailedDescription, asked: args.database, members, decide: (question, candidates) => ctx.decide(question, candidates, { max: 1 }) },
+            { min: s.DATABASE_PICK_MIN, margin: s.DATABASE_PICK_MARGIN },
+          );
+          return 'invalid' in picked ? ctx.invalid([{ path: 'database', message: picked.invalid }]) : ctx.done(picked);
+        },
+      },
       at_instance: {
         async run(args, ctx) {
           const answer = await atHere(args, ctx);
@@ -380,6 +419,23 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             ...(args.askedFor === undefined ? {} : { askedFor: args.askedFor }),
             ...(args.replace === undefined ? {} : { replace: args.replace }),
           }, (found) => (found.op === 'save' ? found.saved : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
+      table_fns_available: {
+        async run(args, ctx) {
+          const target = await tableTarget(args, ctx);
+          if ('invalid' in target) { return ctx.invalid([{ path: 'database', message: target.invalid }]); }
+          const answer = await at(ctx, target.instance, { op: 'table-fns', table: target.table }, (found) => (found.op === 'table-fns' ? found.list : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
+      table_fns_generate: {
+        async run(args, ctx) {
+          const target = await tableTarget(args, ctx);
+          if ('invalid' in target) { return ctx.invalid([{ path: 'database', message: target.invalid }]); }
+          const op: InstanceOp = { op: 'table-fns-generate', table: target.table, names: args.names, ...(args.derived === undefined ? {} : { derived: args.derived }) };
+          const answer = await at(ctx, target.instance, op, (found) => (found.op === 'table-fns-generate' ? found.generated : undefined));
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
       },
@@ -427,19 +483,19 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         estimate: (_payload, input) => Promise.resolve({ min: 0, typical: 0, max: 0, basis: 'free', runs: input.history?.runs ?? 0 }),
         async check(payload) {
           const here = await openFor(payload.instance);
-          const compiled = here.compile(QueryPayload.parse(payload));
+          const compiled = here.compile(tableFnService.refreshPayload(here, QueryPayload.parse(payload)));
           const problems = 'query' in compiled ? [] : compiled.problems;
           if ('query' in compiled && compiled.writes && !here.writes) { problems.push(`${here.config.label} is read-only: a query that writes can't be saved.`); }
           return problems;
         },
         async describe(payload) {
           const here = await openFor(payload.instance);
-          const parsed = QueryPayload.parse(payload);
+          const parsed = tableFnService.refreshPayload(here, QueryPayload.parse(payload));
           const compiled = here.compile(parsed);
           // check refused a payload that doesn't fit the tables; one that stopped fitting since keeps its last description
           if (!('query' in compiled)) { throw new Error(`The saved query no longer fits the tables: ${compiled.problems.join(' ')}`); }
           return {
-            args: argsTypeOf(compiled, parsed.sorters, limits),
+            args: argsTypeOf(compiled, parsed.sorters, limits, parsed.optional),
             returns: wireType(compiled.writes ? ginAs(WriteResult) : ResultBlockType),
             deps: [],
             types: compiled.tables.map((table) => qualifiedTypeOf(parsed.instance, table)),
@@ -452,15 +508,19 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           };
         },
         async run(payload, args, ctx) {
-          const parsed = QueryPayload.parse(payload);
           if (instance === undefined) { return ctx.fail('caller', 'This database is not configured yet.'); }
+          const parsed = tableFnService.refreshPayload(instance, QueryPayload.parse(payload));
           // who may use the database is its config's say now, whoever the fn was shared with when it was saved
           if (!mayUse(instance.config.audience, ctx.run.user)) { return ctx.invalid(notYours(instance.config.label).invalid); }
           const compiled = instance.compile(parsed);
           if (!('query' in compiled)) { return ctx.invalid(`This saved query no longer fits the tables: ${compiled.problems.join(' ')} Fix it with edit_query.`); }
+          const argsType = argsTypeOf(compiled, parsed.sorters, limits, parsed.optional);
+          const fn = { name: ctx.run.fn, signature: signatureOf(ctx.run.fn, argsType) };
+          // the hub checked the args against this type when the call came; checked again, as the tables may have moved since
+          const problems = argProblems(argsType, args);
+          if (problems.length > 0) { return ctx.invalid(`The args don't fit ${fn.signature}: ${problems.join('; ')}`); }
           const { values, sort } = callArgs(args);
           const plan = instance.plan(compiled, values, sort);
-          const fn = { name: ctx.run.fn, signature: signatureOf(ctx.run.fn, argsTypeOf(compiled, parsed.sorters, limits)) };
           const attach = (table: Parameters<QueryRunCtx['attach']>[0], title: string): void => { ctx.attach(database.attachments.result, table, title); };
           if (compiled.writes) {
             if (!instance.writes) { return ctx.fail('caller', `${instance.config.label} is read-only now.`); }
@@ -471,10 +531,12 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         async preview(payload, args, ctx): Promise<PreviewAnswer> {
           if (instance === undefined) { return { refused: 'This database is not configured yet.' }; }
           if (!mayUse(instance.config.audience, ctx.user)) { return { refused: notYours(instance.config.label).invalid }; }
-          const parsed = QueryPayload.parse(payload);
+          const parsed = tableFnService.refreshPayload(instance, QueryPayload.parse(payload));
           const compiled = instance.compile(parsed);
           if (!('query' in compiled)) { return { refused: `This saved query no longer fits the tables: ${compiled.problems.join(' ')}` }; }
           if (!instance.writes) { return { refused: `${instance.config.label} is read-only.` }; }
+          const problems = argProblems(argsTypeOf(compiled, parsed.sorters, limits, parsed.optional), args);
+          if (problems.length > 0) { return { refused: `The args don't fit: ${problems.join('; ')}` }; }
           const { values, sort } = callArgs(args);
           return { preview: await queries.preview(instance, compiled, instance.plan(compiled, values, sort), parsed.description) };
         },
@@ -482,6 +544,28 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     },
   };
 
+
+  /**
+   * The instance and table a table fn is about: the database named, else the one in the type name
+   * (`database/main.projects`), else the only one the person may use.
+   */
+  async function tableTarget(args: { table: string; database?: string | undefined }, ctx: Fleets & { readonly run: RunInfo }): Promise<{ instance: string; table: string } | { invalid: string }> {
+    const typed = args.table.replace(/^database\//, '');
+    const dot = typed.indexOf('.');
+    const table = dot > 0 ? typed.slice(dot + 1) : typed;
+    const named = args.database ?? (dot > 0 ? typed.slice(0, dot) : undefined);
+    if (named !== undefined) { return { instance: named.replace(/^database\//, ''), table }; }
+    const here = instance;
+    if (here === undefined) { return { invalid: 'This database is not configured yet.' }; }
+    const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
+      .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
+    const [only, ...others] = members;
+    if (only === undefined || others.length > 0) {
+      const named = members.map((member) => `${member.instance} (${member.label})`).join(', ');
+      return { invalid: `Say which database: ${named === '' ? 'there is none you may use' : named}.` };
+    }
+    return { instance: only.instance, table };
+  }
 
   /** `create_table` / `alter_table`: hand the change to its instance's `change_schema`, which waits for approval. */
   async function forwardSchema(action: 'create' | 'alter', args: { table: string; type: SchemaArgs['type']; database?: string | undefined }, ctx: CtxOf<'create_table'>) {

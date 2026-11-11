@@ -96,6 +96,29 @@ interface Registered {
   readonly types: Readonly<Record<string, GinType | undefined>>;
   /** Each mention provider's target type, by local name. */
   readonly mentions: Readonly<Record<string, GinType | undefined>>;
+  /** Its own config component, when the contract names one. */
+  readonly config: RegisteredConfig | undefined;
+}
+
+/** A system's config component with its contract types erased. */
+interface RegisteredConfig {
+  readonly component: AnyRenderer;
+  readonly mode: ConfigMount['mode'];
+  readonly type: GinType;
+}
+
+/** What the config page hands the runtime: the stored config and its own save path, in JSON. */
+export interface ConfigWire {
+  readonly config: Json | undefined;
+  /** The hub's check of a candidate config; the problems, empty when it fits. */
+  validate(value: Json): Promise<string[]>;
+  /** The edited config, for the page to save. */
+  change(value: Json): void;
+}
+
+/** A system's config component as a config page mounts it, and whether it replaces the gin form or sits beside it. */
+export interface ConfigMount extends Mount<'config'> {
+  readonly mode: 'replace' | 'beside';
 }
 
 /** Each entry's gin type, picked out of a contract section. */
@@ -131,6 +154,7 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
   const r = module.renderers;
   return {
     renderers: { fns: r.fns ?? {}, kinds: r.kinds ?? {}, attachments: r.attachments ?? {}, inputs: r.inputs ?? {}, mentions: r.mentions ?? {} },
+    config: configOf(module),
     actions: module.contract.defs.actions,
     fns: module.contract.defs.fns,
     forms: Object.fromEntries(Object.entries(module.contract.defs.fns).map(([name, def]) => [name, def.form])),
@@ -138,6 +162,13 @@ function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
     types: typesOf(module.contract.defs.types, (def) => def.shape),
     mentions: typesOf(module.contract.defs.mentions, (def) => def.target),
   };
+}
+
+/** A module's config component, its mode and the config type, when the contract names one. */
+function configOf<C extends ContractShape>(module: ClientModule<C>): RegisteredConfig | undefined {
+  const decl = module.contract.configComponent;
+  const component = decl === undefined ? undefined : module.renderers.configs?.[decl.component];
+  return decl === undefined || component === undefined ? undefined : { component, mode: decl.mode, type: module.contract.defs.config };
 }
 
 /** A visual that fits some data, as a registry's result view lists it: who adds it, its name, its fit, and how to mount it. */
@@ -366,6 +397,28 @@ export class ClientRuntime {
       props: { system: this.systemClient(system) },
       decode: (value) => (value === undefined ? undefined : this.#decode(name, () => parseValue(type, value))),
       encode: (value) => (value === undefined ? undefined : this.#decode(name, () => encodeValue(type, value))),
+    };
+  }
+
+  /**
+   * A system's own config component (`system({ configComponent })`), with props whose values cross between the page's
+   * JSON and the component's typed config through the config's gin type. Undefined when the system has none.
+   */
+  configView(system: string, wire: ConfigWire): ConfigMount | undefined {
+    const config = this.#modules.get(system)?.config;
+    if (config === undefined) { return undefined; }
+    const name = qualify(system, 'config');
+    const type = config.type;
+    return {
+      component: config.component,
+      mode: config.mode,
+      props: {
+        config: wire.config === undefined ? undefined : this.#decode(name, () => parseValue(type, wire.config)),
+        type,
+        validate: (value) => Promise.resolve().then(() => wire.validate(encodeValue(type, value))),
+        change: (value) => wire.change(encodeValue(type, value)),
+        system: this.systemClient(system),
+      },
     };
   }
 

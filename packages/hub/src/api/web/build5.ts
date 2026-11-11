@@ -44,11 +44,13 @@ export async function contributionsTo(hub: ContributionsHub, registry: Qualified
   const scope = await hub.access.scope(user.id);
   const systems = [...new Set<SystemName>(hub.link.connections.connected().map((connection) => connection.system))].sort();
   const out: ContributionView[] = [];
+  // build 7: an installed system offers nothing yet, and a component switched off (or waiting for review) is left out
+  const off = await hub.link.lifecycle.off('components');
   for (const system of systems) {
-    if (!scope.seesSystem(system)) { continue; }
+    if (!scope.seesSystem(system) || await hub.link.lifecycle.stage(system) === 'installed') { continue; }
     const manifest = await hub.catalog.manifest(system);
     for (const entry of manifest?.contributes ?? []) {
-      if (entry.registry === registry) { out.push({ ...entry, system }); }
+      if (entry.registry === registry && !off.has(`${entry.registry}: ${entry.label}`)) { out.push({ ...entry, system }); }
     }
   }
   return out.sort((a, b) => a.system.localeCompare(b.system) || a.name.localeCompare(b.name));

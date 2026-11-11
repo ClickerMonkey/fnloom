@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import * as vue from 'vue';
 import { h, watchEffect } from 'vue';
 import { buildClient } from './build.ts';
-import { client, type AttachmentViewOf, type FnView, type FnViewOf, type InputViewOf, type ResourceView } from './client.ts';
+import { client, type AttachmentViewOf, type ConfigView, type FnView, type FnViewOf, type InputViewOf, type ResourceView, type WithSystem } from './client.ts';
 import { ClientRuntime, isClientModule, shareModules, type ClientBridge } from './client-runtime.ts';
 import { action, attachment, kind, mention, type } from './declare.ts';
 import { fn, type UntypedFn } from './fn.ts';
@@ -303,3 +303,46 @@ async function waitUntil(condition: () => boolean): Promise<void> {
   for (let i = 0; i < 100 && !condition(); i += 1) { await new Promise((resolve) => setTimeout(resolve, 1)); }
   if (!condition()) { throw new Error('condition never held'); }
 }
+
+describe('config components', () => {
+  const tuned = system('tuned', {
+    description: 'Tuned.',
+    configComponent: { component: 'Setup', mode: 'replace' },
+    grants: { hub: ['ai'], models: { roles: ['chat'], perRun: 0.5 }, network: ['api.example.com'] },
+  }).with({ config: g.obj({ url: g.text(), since: g.timestamp() }) });
+  type Cfg = { url: string; since: Date };
+  const Setup = (view: ConfigView<Cfg> & WithSystem<typeof tuned.defs>) => h('div', view.config?.url ?? '');
+
+  it('client() refuses a config component the contract does not name, and a named one that is missing', () => {
+    expect(() => client(tuned, {})).toThrow(/no component/u);
+    expect(() => client(shop, { configs: { Setup: (_: ConfigView<{}> & WithSystem<typeof shop.defs>) => h('div') } })).toThrow(/not the contract's configComponent/u);
+  });
+
+  it('mounts it with the typed config, and hands edits and checks back as JSON', async () => {
+    const runtime = new ClientRuntime(fakeBridge().bridge);
+    runtime.register(client(tuned, { configs: { Setup } }));
+    const changes: Json[] = [];
+    const checked: Json[] = [];
+    const mount = runtime.configView('tuned', {
+      config: { url: 'https://a', since: '2026-01-02T00:00:00.000Z' },
+      validate: (value) => { checked.push(value); return Promise.resolve([]); },
+      change: (value) => { changes.push(value); },
+    });
+    expect(mount?.mode).toBe('replace');
+    expect(mount?.component).toBe(Setup);
+    const config = mount?.props.config;
+    expect(config).toEqual({ url: 'https://a', since: new Date('2026-01-02T00:00:00.000Z') });
+    mount?.props.change({ url: 'https://b', since: new Date('2026-02-01T00:00:00.000Z') });
+    expect(changes).toEqual([{ url: 'https://b', since: '2026-02-01T00:00:00.000Z' }]);
+    await expect(mount?.props.validate({ url: 'x', since: new Date(0) })).resolves.toEqual([]);
+    expect(checked).toHaveLength(1);
+    expect(runtime.configView('shop', { config: undefined, validate: () => Promise.resolve([]), change: () => undefined })).toBeUndefined();
+  });
+
+  it('puts grants and the config component on the manifest', () => {
+    const body = sdk.manifestBody(tuned, { version: '1.0.0' });
+    expect(body.grants).toEqual({ hub: ['ai'], models: { roles: ['chat'], perRun: 0.5 }, network: ['api.example.com'] });
+    expect(body.configComponent).toEqual({ component: 'Setup', mode: 'replace' });
+    expect(sdk.manifestBody(shop, { version: '1.0.0' }).grants).toBeUndefined();
+  });
+});

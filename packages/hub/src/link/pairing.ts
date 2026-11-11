@@ -18,7 +18,7 @@ import type { Logger } from '@ayepi/log';
 import {
   MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceRecord,
   type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
-  type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath, type FnRecord, type InstallSubject, type HostedBy, type RunId, type PairingGrant, type PairingGrantRequest, type QualifiedName,
+  type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath, type FnRecord, type InstallSubject, type HostedBy, type RunId, type PairingGrant, type PairingGrantRequest, type QualifiedName, type InstallChecks, type SystemStage,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { allRows } from '../catalog/rows.ts';
@@ -56,6 +56,10 @@ export interface PairingOptions {
   readonly grantTtl: number;
   /** Build 6: a fn's record, to check the install run's fn is approved by admins. */
   readonly fn: (name: QualifiedName) => Promise<FnRecord | undefined>;
+  /** Build 7: the stage a newly paired system starts at (`installed` while new systems are reviewed before going live). */
+  readonly firstStage: () => SystemStage;
+  /** Build 7: keep an install run's checks (scan and tests from its approval card) on the system's review. */
+  readonly keepChecks: (system: SystemName, checks: InstallChecks) => Promise<void>;
 }
 
 /** Where a socket asking to pair came from. */
@@ -248,7 +252,9 @@ export class StorePairingService implements PairingService {
   async #hosted(record: InstanceRecord, bound: NonNullable<PairingToken['boundTo']>): Promise<void> {
     const installed = await this.#approvedInstall(bound.run);
     if (installed === undefined) { return; }
-    await this.#options.instances.sync(record, (current) => ({ ...current, host: { host: bound.host, ...installed } }), record);
+    const { checks, ...hosted } = installed;
+    await this.#options.instances.sync(record, (current) => ({ ...current, host: { host: bound.host, ...hosted } }), record);
+    if (checks !== undefined) { await this.#options.keepChecks(record.system, checks); }
   }
 
   async rehosted(ref: InstanceRef, manifestHash: string): Promise<void> {
@@ -260,21 +266,24 @@ export class StorePairingService implements PairingService {
       const installed = await this.#approvedInstall(run.id, (subject) => subject.system === ref.system && subject.instance === ref.instance
         && subject.manifestHash === manifestHash && subject.host.system === host.host.system && subject.host.instance === host.host.instance);
       if (installed === undefined) { continue; }
-      await instances.sync(ref, (current) => ({ ...current, host: { host: host.host, ...installed } }));
+      const { checks, ...hosted } = installed;
+      await instances.sync(ref, (current) => ({ ...current, host: { host: host.host, ...hosted } }));
+      if (checks !== undefined) { await this.#options.keepChecks(ref.system, checks); }
       log.info('system.rehosted', { system: ref.system, instance: ref.instance, run: run.id, approval: installed.approval, bundleHash: installed.bundleHash });
       return;
     }
   }
 
   /** The folder, bundle and approval of an approved install run (its subject passing `matches`), if it is one. */
-  async #approvedInstall(runId: RunId, matches: (subject: InstallSubject) => boolean = () => true): Promise<Omit<HostedBy, 'host'> | undefined> {
+  async #approvedInstall(runId: RunId, matches: (subject: InstallSubject) => boolean = () => true): Promise<(Omit<HostedBy, 'host'> & { checks?: InstallChecks }) | undefined> {
     const { store } = this.#options;
-    const run = await store.table('runs').get(runId);
     const approval = (await store.table('approvals').find({ where: { run: runId, status: 'approved' }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
     const subject = approval?.preview?.subject;
-    const path = run?.args !== undefined && typeof run.args === 'object' && run.args !== null && !Array.isArray(run.args) ? run.args['path'] : undefined;
-    if (approval === undefined || subject === undefined || typeof path !== 'string' || !matches(subject)) { return undefined; }
-    return { path, bundleHash: subject.bundleHash, approval: approval.id };
+    // the folder is the approved subject's own (`InstallSubject.source`), never read from the host fn's args
+    const path = subject?.source;
+    if (approval === undefined || subject === undefined || path === undefined || !matches(subject)) { return undefined; }
+    const checks = approval.preview?.checks;
+    return { path, bundleHash: subject.bundleHash, approval: approval.id, ...(checks === undefined ? {} : { checks }) };
   }
 
   async pairInstalled(ref: InstanceRef, publicKey: string, version: string, by: ActorId): Promise<InstanceRecord> {
@@ -399,7 +408,7 @@ export class StorePairingService implements PairingService {
     const actor = (await store.table('actors').insert({
       id: mintId('actor'), kind: 'system', system: name, name, about: `The ${name} system.`, createdAt: now, disabled: false,
     })).id;
-    return store.table('systems').put({ name, description: '', status: 'disconnected', enabled: { functions: true, renderers: true }, version, manifestHash: '', actor });
+    return store.table('systems').put({ name, description: '', status: 'disconnected', enabled: { functions: true, renderers: true }, version, manifestHash: '', actor, stage: this.#options.firstStage() });
   }
 
   /** Tell a waiting socket its pairing went through, once the hello reply has gone out. */

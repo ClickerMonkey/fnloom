@@ -2,6 +2,7 @@
  * The admin area's places: its sections and each page's tabs, as zod enums so the URL is read through the one list
  * of values each part may take (`useParamChoice`, `useQueryChoice`), and the route table is made from the same lists.
  */
+import { SYSTEM_PART_SECTIONS } from '@harness/core';
 import { z } from 'zod';
 
 /** The admin sections, in the order the admin nav lists them. */
@@ -9,8 +10,16 @@ export const AdminSection = z.enum(['systems', 'fns', 'models', 'limits', 'polic
 export type AdminSection = z.infer<typeof AdminSection>;
 
 /** A system's tabs. */
-export const SystemTab = z.enum(['overview', 'instances', 'config', 'fns', 'context', 'types', 'parts', 'logs']);
+export const SystemTab = z.enum(['overview', 'instances', 'config', 'fns', 'context', 'types', 'parts', 'refusals', 'logs']);
 export type SystemTab = z.infer<typeof SystemTab>;
+
+/** The parts a system's Parts tab shows, one at a time (`?part=` in the URL): its resource roots and every other section. */
+export const PartTab = z.enum(['roots', ...SYSTEM_PART_SECTIONS]);
+export type PartTab = z.infer<typeof PartTab>;
+
+/** A system's review tabs (build 7): everything it declares, then its grants, config, checks, pending changes and refusals. */
+export const ReviewTab = z.enum(['fns', 'context', 'types', 'parts', 'grants', 'config', 'checks', 'pending', 'refusals']);
+export type ReviewTab = z.infer<typeof ReviewTab>;
 
 /** The providers and models page's tabs. */
 export const ModelsTab = z.enum(['providers', 'models', 'categories', 'roles', 'limits']);

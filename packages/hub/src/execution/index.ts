@@ -54,6 +54,8 @@ export interface RunInput {
   invalid?: InvalidInput;
   /** The instance of a fleet to run on (`on=laptop`); without it the hub picks one (`InstanceRouter`). */
   on?: InstanceName;
+  /** Build 7: an admin's test call (`testCall`): it runs although its system is installed and not yet live. */
+  test?: boolean;
 }
 
 /** Runs: create (after the policy check), queue, execute on the right system, control, settle and undo. */

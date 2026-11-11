@@ -17,7 +17,7 @@ import type { EventBus } from '../bus.ts';
 import { removeLinksFrom, writeDerivedLinks } from '../contextor/graph.ts';
 import { contextTokens } from '../contextor/tokens.ts';
 import type { HubStore } from '../store/index.ts';
-import { AvailabilityRules, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
+import { AvailabilityRules, heldFns, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
 import type { Catalog, CatalogEntry, FnSignature, KindDescriber } from './index.ts';
 import { allRows } from './rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
@@ -192,6 +192,10 @@ export class StoreCatalog implements Catalog {
     // a context item is served by its record's system: the hub for what it made itself (`memory/…`, `resource/…`)
     const system = (await this.context(name))?.system ?? systemOf(name);
     if (system === undefined) { return unavailable('system-disconnected', `${name} names no valid system`); }
+    const pending = (await this.options.store.table('systemReviews').get(system))?.pending;
+    if (pending?.changes.some((change) => change.section === 'context' && change.name === name && change.change !== 'removed') === true) {
+      return unavailable('disabled', `${name} changed and waits for an admin to approve it`);
+    }
     return systemAvailability(system, await this.options.store.table('systems').get(system));
   }
 
@@ -311,11 +315,15 @@ export class StoreCatalog implements Catalog {
   /** Recompute every fn's availability; write and return the ones that changed. */
   async #refresh(): Promise<FnRecord[]> {
     const { store } = this.options;
-    const [systems, kinds, fns] = await Promise.all([allRows(store.table('systems')), allRows(store.table('kinds')), allRows(store.table('fns'))]);
+    const [systems, kinds, fns, reviews, kindsOff] = await Promise.all([
+      allRows(store.table('systems')), allRows(store.table('kinds')), allRows(store.table('fns')), allRows(store.table('systemReviews')), allRows(store.table('itemSwitches'), { section: 'kinds' }),
+    ]);
     const rules = new AvailabilityRules({
       systems: new Map(systems.map((r) => [r.name, r])),
       kinds: new Map(kinds.map((r) => [r.name, r])),
       fns: new Map(fns.map((r) => [r.name, r])),
+      held: heldFns(reviews),
+      kindsOff: new Set(kindsOff.map((r) => r.name)),
     });
     const changed: FnRecord[] = [];
     for (const fn of fns) {
@@ -329,7 +337,7 @@ export class StoreCatalog implements Catalog {
   /** Ask a connected kind system to describe its kinds' fns again, so a fn declared while it was away gets its signature. */
   async #redescribeKindsOf(system: SystemName): Promise<FnRecord[]> {
     const { store } = this.options;
-    if (systemAvailability(system, await store.table('systems').get(system)) !== true) { return []; }
+    if (systemAvailability(system, await store.table('systems').get(system), { staged: false }) !== true) { return []; }
     const kindNames = new Set<string>((await allRows(store.table('kinds'), { system })).map((k) => k.name));
     if (kindNames.size === 0) { return []; }
     return this.#redescribe((await allRows(store.table('fns'))).filter((fn) => kindNames.has(fn.decl.kind)));
@@ -443,7 +451,9 @@ export class StoreCatalog implements Catalog {
     const now = clock();
 
     const fnWrites: FnRecord[] = [];
-    const contextSwitchedOff = (await store.table('systems').get(system))?.enabled.context === false;
+    const systemRow = await store.table('systems').get(system);
+    // an installed system's context stays off with the rest of it until it goes live
+    const contextSwitchedOff = systemRow?.enabled.context === false || systemRow?.stage === 'installed';
     await store.tx(async (tx) => {
       for (const decl of accepted.types) {
         const name = qualify(system, decl.name);

@@ -17,7 +17,7 @@ import {
   type ApprovalPreview, type Approver, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
 import { z } from 'zod';
-import { HUB_SYSTEM } from '../catalog/availability.ts';
+import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
 import { checkedInstall } from '../link/install.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
 import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
@@ -182,7 +182,9 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const fn = await catalog.fn(input.fn);
     if (fn === undefined) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
     if (fn.disabled) throw new RunRefused(fnError('caller', `${input.fn} is turned off.`, 'disabled'));
-    if (fn.available !== true) throw new RunRefused(fnError('retry', `${input.fn} is unavailable: ${fn.available.detail}`, 'unavailable'));
+    // an admin's test call (and what it calls) runs on an installed system, which offers nothing else yet
+    const test = input.test === true || (input.parent !== undefined && (await store.table('runs').get(input.parent))?.test === true);
+    if (fn.available !== true && !(test && await this.#testable(fn))) throw new RunRefused(fnError('retry', `${input.fn} is unavailable: ${fn.available.detail}`, 'unavailable'));
     const turn = await store.table('turns').get(input.turn);
     if (turn === undefined) throw new RunRefused(fnError('fatal', `There is no turn ${input.turn}.`, 'not-found'));
     // a fn the turn's person may not see is as good as missing to them; a per-person fn needs a connection to act as
@@ -230,6 +232,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(input.llmCall === undefined ? {} : { llmCall: input.llmCall }),
       ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
       args: input.args,
+      ...(test ? { test: true } : {}),
       status: 'queued',
       allowed: { cancel: operations.cancel, pause: operations.pause, background: operations.background },
       cost: 0,
@@ -846,6 +849,12 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
    * A system's fn may call only the deps it declares. Agents call what their tools allow, and the hub's own fns call
    * what the hub's code does (`hub/resource_import` fetching a URL through `web/fetch_raw`): no system declares those.
    */
+  /** Whether a test call may run a fn: its executing system is connected (being installed and not live doesn't count). */
+  async #testable(fn: FnRecord): Promise<boolean> {
+    const system = SystemName.parse(executingSystem(fn));
+    return systemAvailability(system, await this.#deps.store.table('systems').get(system), { staged: false }) === true;
+  }
+
   async #checkDep(parent: Run, fn: FnRecord): Promise<void> {
     if (parent.kind === AGENT_KIND || parent.system === HUB_SYSTEM) return;
     const parentFn = await this.#deps.catalog.fn(parent.fn);

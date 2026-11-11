@@ -10,7 +10,7 @@ import {
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
-import { InstanceTab, LimitsTab, McpTab, ModelsTab, SystemTab } from '../admin/sections.ts';
+import { InstanceTab, LimitsTab, McpTab, ModelsTab, PartTab, ReviewTab, SystemTab } from '../admin/sections.ts';
 import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
 import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
@@ -45,6 +45,7 @@ export const ROUTES = {
   admin: 'admin',
   systems: 'systems',
   system: 'system',
+  review: 'review',
   instance: 'instance',
   fn: 'fn',
   fns: 'fns',
@@ -101,6 +102,9 @@ export const QUERIES = {
   [ROUTES.turnTree]: CHAT_QUERY,
   [ROUTES.inbox]: z.object({ q: z.string(), filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
   [ROUTES.systems]: z.object({ pairing: PairingId, q: z.string() }).partial(),
+  /** The section the Parts tab shows. */
+  [ROUTES.system]: z.object({ part: PartTab }).partial(),
+  [ROUTES.review]: z.object({ part: PartTab }).partial(),
   [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), classifier: z.literal('1') }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
   [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
@@ -150,6 +154,8 @@ export const links = {
   systems: (query: RouteQuery<typeof ROUTES.systems> = {}): RouteLocationRaw => ({ name: ROUTES.systems, ...queryOf(ROUTES.systems, query) }),
   /** A system's page, on one of its tabs (the overview's URL has no tab). */
   system: (name: SystemName, tab: SystemTab = 'overview'): RouteLocationRaw => ({ name: ROUTES.system, params: tab === 'overview' ? { name } : { name, tab } }),
+  /** A system's review (build 7): what it declares, before it goes live or when changes wait (the fns tab's URL has no tab). */
+  review: (name: SystemName, tab: ReviewTab = 'fns'): RouteLocationRaw => ({ name: ROUTES.review, params: tab === 'fns' ? { name } : { name, tab } }),
   /** One instance of a system (a fleet's copy), on one of its tabs. */
   instance: (name: SystemName, instance: InstanceName, tab: InstanceTab = 'overview'): RouteLocationRaw => ({
     name: ROUTES.instance, params: tab === 'overview' ? { name, instance } : { name, instance, tab },
@@ -256,6 +262,7 @@ export const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: ROUTES.admin, redirect: { name: ROUTES.systems } },
       { path: 'systems', name: ROUTES.systems, component: () => import('../admin/views/SystemsView.vue'), meta: { title: 'Systems' } },
+      { path: `systems/:name/review/:tab(${tabs(ReviewTab)})?`, name: ROUTES.review, component: () => import('../admin/views/ReviewView.vue'), meta: { title: 'Review' } },
       { path: `systems/:name/:tab(${tabs(SystemTab)})?`, name: ROUTES.system, component: () => import('../admin/views/SystemView.vue'), meta: { title: 'System' } },
       { path: `systems/:name/instances/:instance/:tab(${tabs(InstanceTab)})?`, name: ROUTES.instance, component: () => import('../admin/views/InstanceView.vue'), meta: { title: 'Instance' } },
       { path: 'fns', name: ROUTES.fns, component: () => import('../admin/views/FnsView.vue'), meta: { title: 'Fns' } },

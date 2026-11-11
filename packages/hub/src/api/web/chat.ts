@@ -28,7 +28,9 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   const access = await hub.access.scope(user.id);
   // a system shared with someone else is as good as absent here
   const seen = systems.filter((s) => access.seesSystem(s.name));
-  const usable = new Set(seen.filter((s) => s.status === 'connected' && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
+  // an installed system (not yet live) offers nothing, like one that is not connected
+  const usable = new Set(seen.filter((s) => systemAvailability(s.name, s) === true && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
+  const [commandsOff, mentionsOff] = await Promise.all([hub.link.lifecycle.off('commands'), hub.link.lifecycle.off('mentions')]);
   const seenNames = new Set(seen.map((s) => s.name));
   /** Why a seen system's commands can't run in this session now. */
   const unusableReason = (name: SystemName): string => {
@@ -63,11 +65,12 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     ...(dictation === undefined ? {} : { dictation }),
     voiceOutput: false,
     uploads: true,
-    mentions: mentions.filter((m) => usable.has(m.system)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
+    mentions: mentions.filter((m) => usable.has(m.system) && !mentionsOff.has(m.name)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
     // hub-made context (memories, context from resources) is always usable; a system's says why it can't run now
     commands: [...contexts.filter((c) => seenNames.has(c.system)), ...made].flatMap((c) => {
       if (c.decl.command === undefined) { return []; }
-      const why = c.system === HUB_SYSTEM || usable.has(c.system) ? undefined : unusableReason(c.system);
+      const why = commandsOff.has(`/${c.decl.command.name}`) ? `/${c.decl.command.name} is switched off`
+        : c.system === HUB_SYSTEM || usable.has(c.system) ? undefined : unusableReason(c.system);
       return [{ name: c.decl.command.name, context: c.name, args: c.decl.command.args, description: c.decl.description, ...(why === undefined ? {} : { unavailable: why }) }];
     }),
     agents: fns.filter((f) => (f.system === HUB_SYSTEM || usable.has(f.system)) && f.decl.kind === AGENT_KIND).map((f) => ({ fn: f.name, description: f.decl.description })),

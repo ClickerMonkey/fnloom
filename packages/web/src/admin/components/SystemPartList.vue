@@ -4,23 +4,33 @@
  * opening in Files), then its kinds, `/commands`, mentions, hooks, actions, settings, attachments, embedders,
  * sectioners, model providers, registries, the registry components it contributes and its fns' examples. Every part
  * says where it came from (its contract or added while running), its version and, where it has one, who sees it;
- * opening one shows its declaration, and a part that belongs to a fn or context item links to that item's page.
+ * opening one shows its declaration, and a part that belongs to a fn or context item links to that item's page. When
+ * switchable (build 7), each root and part has its own on/off switch.
  */
-import type { QualifiedName, ResourceRoot, SystemPart, SystemPartSection } from '@harness/core';
+import type { ItemRef, QualifiedName, ResourceRoot, SystemPart, SystemPartSection } from '@harness/core';
 import { ref } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { AUDIENCE_WORDS, DECLARED_WORDS } from '../../context/logic/context.ts';
-import { UiBadge, UiCodeBlock, UiIcon } from '../../ui/index.ts';
+import { UiBadge, UiCodeBlock, UiIcon, UiSwitch } from '../../ui/index.ts';
 import { PART_SECTION_WORDS, shortVersion, type PartGroup } from '../logic/systems.ts';
 
-defineProps<{
+const props = withDefaults(defineProps<{
   groups: readonly PartGroup[];
   roots: readonly ResourceRoot[];
   /** A root's folder in Files. */
   rootPage: (root: ResourceRoot) => RouteLocationRaw;
   /** The page of the fn (an example's) or context item (a `/command`'s) a part belongs to. */
   ownerPage: (section: SystemPartSection, owner: QualifiedName) => RouteLocationRaw;
-}>();
+  /** Whether an item is on, when the list offers switches; without it there are none. */
+  isOn?: ((item: ItemRef) => boolean) | undefined;
+  /** A switch is being sent. */
+  busy?: boolean;
+}>(), { isOn: undefined, busy: false });
+const emit = defineEmits<{ switch: [item: ItemRef, on: boolean] }>();
+const rootRef = (root: ResourceRoot): ItemRef => ({ section: 'roots', name: root.uri });
+const partRef = (part: SystemPart): ItemRef => ({ section: part.section, name: part.name });
+/** Whether a part is on: the list's answer, else the part's own flag. */
+const partOn = (part: SystemPart): boolean => props.isOn?.(partRef(part)) ?? part.on !== false;
 
 /** How a root is indexed, in words. */
 const INDEX_WORDS = { all: 'Indexed', 'on-read': 'Indexed when read', none: 'Not indexed' } as const satisfies Record<ResourceRoot['index'], string>;
@@ -35,7 +45,11 @@ const toggle = (part: SystemPart): void => { open.value = open.value === keyOf(p
     <section v-if="roots.length > 0" class="group" data-section="roots">
       <h3 class="heading">Resource roots <span class="count">{{ roots.length }}</span></h3>
       <ul class="list">
-        <li v-for="root in roots" :key="root.uri">
+        <li v-for="root in roots" :key="root.uri" :class="{ switchable: isOn !== undefined }">
+          <UiSwitch
+            v-if="isOn" class="switch" :model-value="isOn(rootRef(root))" :label="`Use ${root.name}`" hide-label :disabled="busy" data-testid="part-switch"
+            @update:model-value="emit('switch', rootRef(root), $event)"
+          />
           <RouterLink class="row link" :to="rootPage(root)" data-testid="system-root">
             <UiIcon name="folder" :size="14" class="lead" />
             <span class="main">
@@ -53,7 +67,11 @@ const toggle = (part: SystemPart): void => { open.value = open.value === keyOf(p
         <span v-if="group.total > group.parts.length" class="cut">showing the first {{ group.parts.length }}</span>
       </h3>
       <ul class="list">
-        <li v-for="part in group.parts" :key="keyOf(part)" :data-part="part.name">
+        <li v-for="part in group.parts" :key="keyOf(part)" :data-part="part.name" :class="{ switchable: isOn !== undefined, off: !partOn(part) }">
+          <UiSwitch
+            v-if="isOn" class="switch" :model-value="partOn(part)" :label="`Use ${part.name}`" hide-label :disabled="busy" data-testid="part-switch"
+            @update:model-value="emit('switch', partRef(part), $event)"
+          />
           <button type="button" class="row" :aria-expanded="open === keyOf(part)" data-testid="system-part" @click="toggle(part)">
             <UiIcon :name="open === keyOf(part) ? 'chevron-down' : 'chevron-right'" :size="14" class="lead" />
             <span class="main">
@@ -85,6 +103,9 @@ const toggle = (part: SystemPart): void => { open.value = open.value === keyOf(p
 .cut { color: var(--text-faint); font-size: var(--text-xs); font-weight: normal; }
 .list { display: grid; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); list-style: none; overflow: hidden; }
 .list > li + li { border-top: 1px solid var(--border); }
+.switchable { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; padding-left: var(--space-4); }
+.switchable > .body { grid-column: 1 / -1; }
+.off .main { opacity: 0.6; }
 .row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2) var(--space-3); width: 100%;
   padding: var(--space-2) var(--space-4); border: 0; background: none; color: var(--text); font: inherit; text-align: left; text-decoration: none; cursor: pointer;

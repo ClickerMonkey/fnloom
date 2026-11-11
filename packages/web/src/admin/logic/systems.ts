@@ -5,6 +5,7 @@
  */
 import { SYSTEM_PART_SECTIONS, type AutoPairView, type Availability, type FnUnavailable, type InstalledStatus, type PairingRequest, type QueryFnArgs, type SystemName, type SystemPart, type SystemPartSection, type SystemParts, type SystemStatus, type SystemView } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
+import type { PartTab } from '../sections.ts';
 
 /** How a status looks: its tone, its word, and whether it is in motion. */
 export interface StatusLook {
@@ -163,4 +164,24 @@ export function partGroups(parts: SystemParts): readonly PartGroup[] {
     const listed = parts.parts.filter((part) => part.section === section);
     return listed.length === 0 ? [] : [{ section, parts: listed, total: parts.more[section] ?? listed.length }];
   });
+}
+
+/** One choice of the Parts tab: a section with what it holds. */
+export interface PartChoice {
+  readonly value: PartTab;
+  readonly label: string;
+  readonly count: number;
+}
+
+/** The Parts tab's choices: its resource roots, then every section that holds something, in the page's order. */
+export function partChoices(groups: readonly PartGroup[], roots: number): readonly PartChoice[] {
+  return [
+    ...(roots > 0 ? [{ value: 'roots' as const, label: 'Resource roots', count: roots }] : []),
+    ...groups.map((group) => ({ value: group.section, label: PART_SECTION_WORDS[group.section], count: group.total })),
+  ];
+}
+
+/** The choice shown: the one asked for when it holds something, else the first. */
+export function shownPart(choices: readonly PartChoice[], asked: PartTab): PartTab | undefined {
+  return choices.some((choice) => choice.value === asked) ? asked : choices[0]?.value;
 }

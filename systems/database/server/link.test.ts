@@ -8,32 +8,22 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ActorId, InstanceName, Json, SystemPackageManifest, mintId, type FnSearchQuery, type OutcomeWire, type RunSettled } from '@harness/core';
+import { ActorId, Json, SystemPackageManifest, mintId, type OutcomeWire } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
-import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
 import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { QUERY_KIND, QueryRun, database } from '../shared/index.ts';
-import { databaseEnv } from './env.ts';
-import { NO_ENRICHER, RecordingHub, shopConfig, shopFile } from './fixture.ts';
-import { SELF_FLEET, createDatabaseImpl, type DatabaseServer } from './impl.ts';
+import { serveDatabase, shopConfig, shopFile, type RecordingHub, type ServedDatabase } from './fixture.ts';
+import type { DatabaseServer } from './impl.ts';
 
 const packageManifest = SystemPackageManifest.parse(JSON.parse(readFileSync(new URL('../system.json', import.meta.url), 'utf8')));
-const settings = databaseEnv.parse();
 
 function done(outcome: OutcomeWire): Json {
   if (outcome.status !== 'done') { throw new Error(`expected done, got ${JSON.stringify(outcome)}`); }
   return outcome.result;
 }
 
-/** A run's outcome as a child call settles. */
-function settled(outcome: OutcomeWire): RunSettled {
-  if (outcome.status === 'done') { return { status: 'done', result: outcome.result }; }
-  if (outcome.status === 'invalid-input') { return { status: 'failed', error: { class: 'caller', message: outcome.invalid.problems.map((problem) => problem.message).join(' ') } }; }
-  if (outcome.status === 'failed') { return { status: 'failed', error: outcome.error }; }
-  return { status: 'cancelled' };
-}
 
 const ref = (source: string, field: string) => ({ kind: 'field-ref', source, field });
 const byStatus = (status: { kind: 'param'; name: string } | { kind: 'literal'; value: string }) => [{ kind: 'comparison', op: '=', left: ref('orders', 'status'), right: status }];
@@ -57,7 +47,7 @@ const MARK_PAID = {
 };
 
 describe('the database system over the link', () => {
-  let running: RunningSystem<'database'> | undefined;
+  let served: ServedDatabase | undefined;
   let hub: FakeHub;
   let server: DatabaseServer;
   let types: RecordingHub;
@@ -66,34 +56,13 @@ describe('the database system over the link', () => {
   let afterPatch: (() => Promise<void>) | undefined;
 
   async function start(config = shopConfig()): Promise<void> {
-    hub = new FakeHub({ config });
-    types = new RecordingHub();
-    // the hub keeps the table types the system sends, and lists them on its fleet
-    hub.onFleet = () => Promise.resolve(types.fleet(InstanceName.parse('main'), Json.parse(config)));
-    hub.onTypes = (names) => Promise.resolve(types.definitions(names));
-    // the hub's search: by the fake's words, and the saved queries whose payload reads a table for `types.reads`
-    const searchFns = (query: FnSearchQuery) => {
-      const reads = query.types?.reads?.map((type) => type.slice(type.lastIndexOf('.') + 1)) ?? [];
-      const page = hub.fns.search({ ...query, types: undefined });
-      return Promise.resolve(reads.length === 0 ? page : {
-        items: page.items.filter((hit) => reads.some((table) => JSON.stringify(hub.fns.kept.get(hit.name)?.saved.payload).includes(`"${table}"`))),
-      });
-    };
-    server = createDatabaseImpl({
-      settings, instance: InstanceName.parse('main'), dataDir: dir, fleet: SELF_FLEET, enricher: NO_ENRICHER, now: () => 1_000,
-      hub: () => ({ types: async (upsert, remove) => { await types.types(upsert, remove); await afterPatch?.(); }, searchFns }),
-    });
-    // a tool's work is forwarded through the hub to the instance with the database: here, the one serving
-    hub.onCall = async (call) => hub.fns.settle(call) ?? settled(await hub.run(call.fn, call.args));
-    running = await serve(database, server.impl, { hub: 'ws://hub.test/link', state: 'unused', version: packageManifest.version }, hub.host());
-    await running.ready();
-    for (let wait = 0; server.current() === undefined && wait < 200; wait += 1) { await new Promise((resolve) => setTimeout(resolve, 10)); }
+    served = await serveDatabase({ dir, config, afterPatch: async () => { await afterPatch?.(); } });
+    ({ hub, server, types } = served);
   }
 
   afterEach(async () => {
-    await running?.stop();
-    await server.close();
-    running = undefined;
+    await served?.stop();
+    served = undefined;
     afterPatch = undefined;
   });
 
@@ -104,7 +73,7 @@ describe('the database system over the link', () => {
     const manifest = hub.manifests[0];
     expect(manifest?.kinds.map((item) => item.name)).toEqual(['query']);
     expect(manifest?.fns.map((item) => item.name).sort()).toEqual([
-      'alter_table', 'apply_type_changes', 'at_instance', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'run_query', 'save_query', 'tables',
+      'alter_table', 'apply_type_changes', 'at_instance', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'run_query', 'save_query', 'tables',
     ]);
     const getQuery = manifest?.fns.find((item) => item.name === 'get_query');
     expect(getQuery).toMatchObject({ kind: 'hub/llm' });
@@ -164,9 +133,11 @@ describe('the database system over the link', () => {
     expect(await hub.run('database/run_query', { fn: 'database/main.nothing' })).toMatchObject({ status: 'invalid-input' });
     expect(await hub.run('database/run_query', { fn: 'orders' })).toMatchObject({ status: 'invalid-input' });
     // run_query checks the args as the hub checks a direct call's: no unbounded or fractional page, no unknown sort
-    for (const args of [{ limit: -1 }, { limit: 2.5 }, { offset: -3 }, { limit: 0 }, { sort: [{ column: 'nope', dir: 'asc' }] }, { stauts: 'paid' }]) {
+    for (const args of [{ status: 'paid', limit: -1 }, { status: 'paid', limit: 2.5 }, { status: 'paid', offset: -3 }, { status: 'paid', limit: 0 }, { status: 'paid', sort: [{ column: 'nope', dir: 'asc' }] }, { status: 'paid', stauts: 'paid' }]) {
       expect(await hub.run('database/run_query', { fn: 'database/main.orders_by_status', args })).toMatchObject({ status: 'invalid-input' });
     }
+    // a missing param is refused by name, never bound as NULL
+    expect(JSON.stringify(await hub.run('database/run_query', { fn: 'database/main.orders_by_status', args: { limit: 5 } }))).toContain('status is required');
     // the next page's call keeps the sort it was read with
     const sorted = done(await hub.run('database/run_query', { fn: 'database/main.orders_by_status', args: { status: 'paid', limit: 1, sort: [{ column: 'customer', dir: 'asc' }] } }));
     expect(QueryRun.parse(sorted).result?.nextPage?.call).toContain('"sort":[{"column":"customer","dir":"asc"}]');
@@ -181,6 +152,7 @@ describe('the database system over the link', () => {
     const paged = done(await hub.run('database/main.orders_by_status', { status: 'paid', limit: 1, sort: [{ column: 'customer', dir: 'desc' }] }, { kind: 'database/query', payload }));
     expect(paged).toMatchObject({ rowCount: 1, total: 2, truncated: true, sort: [{ column: 'customer', dir: 'desc' }], sample: [{ customer: 'Bo' }], nextPage: { offset: 1, limit: 1 } });
     expect(paged).toMatchObject({ columns: [{ name: 'id' }, { name: 'total' }, { name: 'customer' }, { name: 'placed', kind: 'date' }] });
+    expect(await hub.run('database/main.orders_by_status', { limit: 1 }, { kind: 'database/query', payload })).toMatchObject({ status: 'invalid-input' });
   });
 
   it('proposes a write for the person, previews it, and runs it once approved', async () => {

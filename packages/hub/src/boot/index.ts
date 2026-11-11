@@ -22,6 +22,8 @@ import type {
   ConfigService, InstanceRouter, LinkService, Packages, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens,
 } from '../link/index.ts';
 import type { AutoPairService } from '../link/auto-pair.ts';
+import type { SystemGrantGuard } from '../link/grants.ts';
+import type { SystemLifecycle } from '../link/lifecycle.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
 import type { AccessService } from '../access/index.ts';
 import type { ConnectionService } from '../connections/index.ts';
@@ -54,6 +56,10 @@ export interface HubServices {
     readonly connections: LinkService; readonly pairing: PairingService; readonly config: ConfigService; readonly supervisor: Supervisor;
     readonly admin: SystemAdmin; readonly resources: ResourceRouter; readonly tokens: SystemTokens; readonly output: SystemOutput;
     readonly packages: Packages; readonly instances: InstanceRouter; readonly autoPairs: AutoPairService;
+    /** Build 7: installed vs live, reviews and per-item switches. */
+    readonly lifecycle: SystemLifecycle;
+    /** Build 7: what systems may do through the hub, and the refusals. */
+    readonly grants: SystemGrantGuard;
   };
   readonly execution: {
     readonly runs: RunService; readonly agents: AgentLoop; readonly llm: LlmGateway; readonly limits: LimitResolver; readonly ledger: Ledger;

@@ -29,6 +29,8 @@ export interface HubEvents {
   'system.status': { system: SystemName; status: SystemStatus };
   /** A connected system has applied a config version the hub pushed (its `configure` call answered). */
   'system.configured': { system: SystemName; version: number };
+  /** Build 7: a system kept going past what it declared, so its functions were switched off. */
+  'system.paused': { system: SystemName; refusals: number };
   'system.output': { system: SystemName; line: OutputLine };
   'pairing': { pairing: PairingRequest };
   'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };

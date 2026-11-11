@@ -15,6 +15,8 @@ import { enumValuesOf } from './types.ts';
 
 /** A query that parsed and checked against its database's types. */
 export interface CompiledQuery {
+  /** The engine it was checked against, which emits its SQL. */
+  readonly engine: QueryEngine;
   readonly query: Query;
   /** Its JSON, as stored. */
   readonly def: QueryDef;
@@ -59,9 +61,10 @@ export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery 
   const query = parsed.query;
   const def = query.toJSON();
   const affected = engine.affected(query).types.map((entry) => entry.type);
-  const tables = [...new Set([...engine.references(query).types, ...affected])];
+  // references also name subquery aliases (`from (…) as t`): only the engine's types are tables
+  const tables = [...new Set([...engine.references(query).types, ...affected])].filter((table) => engine.type(table) !== undefined);
   // the parser leaves a source it can't resolve alone when nothing reads its fields (`count(*) from products`)
-  const unknown = tables.filter((table) => engine.type(table) === undefined);
+  const unknown = [...namedTypes(def)].filter((table) => engine.type(table) === undefined);
   if (unknown.length > 0) { return { problems: unknown.map((table) => `There is no table ${table} in this database.`), report: parsed.report }; }
   const writes = def.kind === 'insert' || def.kind === 'update' || def.kind === 'delete' || affected.length > 0;
   const scope = engine.globalScope();
@@ -70,6 +73,7 @@ export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery 
     return { name: field.name, kind: columnKindOf(type), nullable: field.nullable };
   });
   return {
+    engine,
     query,
     def,
     writes,
@@ -78,6 +82,17 @@ export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery 
     tables,
     columns,
   };
+}
+
+/** Every type a query reads from by name (`{ kind: 'type', type }` sources), at any depth. */
+function namedTypes(node: unknown, found = new Set<string>()): Set<string> {
+  if (Array.isArray(node)) {
+    for (const item of node) { namedTypes(item, found); }
+  } else if (typeof node === 'object' && node !== null) {
+    if ('kind' in node && node.kind === 'type' && 'type' in node && typeof node.type === 'string') { found.add(node.type); }
+    for (const value of Object.values(node)) { namedTypes(value, found); }
+  }
+  return found;
 }
 
 /** Whether a query bounds its own rows (`limit 10`), so callers don't page it. */
@@ -125,11 +140,16 @@ export interface PageLimits {
   readonly page: number;
 }
 
-/** The args a saved query's fn takes: its params (all optional: a missing one binds NULL), then paging and sorting. */
-export function argsTypeOf(compiled: CompiledQuery, sorters: readonly string[], limits: PageLimits): GinTypeDef {
+/**
+ * The args a saved query's fn takes: its params, every one required unless `optional` names it (a missing required
+ * param is refused as invalid input, never bound as NULL), then paging and sorting.
+ */
+export function argsTypeOf(compiled: CompiledQuery, sorters: readonly string[], limits: PageLimits, optional: readonly string[] = []): GinTypeDef {
   const props: Record<string, { type: GinDef; docs?: string }> = {};
   for (const param of compiled.params) {
-    const type = ginOfField(param.type?.toJSON());
+    const given = ginOfField(param.type?.toJSON());
+    // a generated fn's filters and changes may be left out (bound as NULL: no filter, no change)
+    const type: GinDef = optional.includes(param.name) ? { name: 'optional', generic: { T: given } } : given;
     const column = param.uses.find((use) => use.field !== undefined)?.field;
     props[param.name] = { type, ...(column === undefined ? {} : { docs: `Compared with ${column.type}.${column.field}.` }) };
   }
@@ -156,6 +176,8 @@ const ARGS_REGISTRY = createRegistry();
  * unknown args), then gin's own checks (whole numbers, ranges, choices).
  */
 export function argProblems(type: GinTypeDef, args: Json): string[] {
+  const missing = missingArgs(type, args);
+  if (missing.length > 0) { return missing.map((name) => `${name} is required: give a value for it.`); }
   const parsed = ARGS_REGISTRY.parse(type);
   const shape = parsed.toValueSchema({ unknownKeys: 'refuse' }).safeParse(args);
   if (!shape.success) { return shape.error.issues.map((issue) => (issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message)); }
@@ -165,6 +187,14 @@ export function argProblems(type: GinTypeDef, args: Json): string[] {
   } catch (error) {
     return [error instanceof Error ? error.message : String(error)];
   }
+}
+
+/** The required args (not optional or nullable) a call leaves out, in declaration order. */
+export function missingArgs(type: GinTypeDef, args: Json): string[] {
+  const given = typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
+  return Object.entries(type.props ?? {})
+    .filter(([name, prop]) => prop.type.name !== 'optional' && prop.type.name !== 'nullable' && given[name] === undefined)
+    .map(([name]) => name);
 }
 
 /** A gin def as a short type word for a signature (`text`, `num`, `"open" | "paid"`, `list<…>`). */
@@ -199,8 +229,11 @@ export interface CallPlan {
   readonly cap: number;
 }
 
-/** The SQL for a call with these args. */
-export function planCall(engine: QueryEngine, compiled: CompiledQuery, dialect: Dialect, args: Readonly<Record<string, Json>>, sort: SortArg, limits: PageLimits): CallPlan {
+/**
+ * The SQL for a call with these args. A call's args were checked first (`argProblems`), so every param is given; a
+ * param is bound as NULL only for the SQL shown without a call (`check_query`, a saved fn's readable SQL).
+ */
+export function planCall(compiled: CompiledQuery, dialect: Dialect, args: Readonly<Record<string, Json>>, sort: SortArg, limits: PageLimits): CallPlan {
   const bound: Record<string, SqlParamValue> = {};
   for (const param of compiled.params) { bound[param.name] = args[param.name] ?? null; }
   let def: QueryDef = compiled.def;
@@ -222,7 +255,7 @@ export function planCall(engine: QueryEngine, compiled: CompiledQuery, dialect: 
     def = { ...pageable, limit: Math.min(pageable.limit ?? limits.max + 1, limits.max + 1) };
   }
   const counted = compiled.list;
-  const emitted = engine.toSQL(def, dialect, { params: bound, includeTotal: counted });
+  const emitted = compiled.engine.toSQL(def, dialect, { params: bound, includeTotal: counted });
   return { sql: emitted.sql, params: emitted.params, bound, offset, limit, sort: sort.map((entry) => ({ column: entry.column, dir: entry.dir })), counted, cap: limits.max };
 }
 

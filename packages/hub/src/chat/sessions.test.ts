@@ -93,6 +93,15 @@ describe('sessions', () => {
     expect('contextor' in await w.chat.sessions.update(w.session.id, { contextor: null }, w.admin.id)).toBe(false);
   });
 
+  it('keep the fn mode the chat mode picker chose, until set back (build 6 feedback)', async () => {
+    const w = await chatWorld();
+    const set = await w.chat.sessions.update(w.session.id, { fnMode: 'read' }, w.admin.id);
+    expect(set.fnMode).toBe('read');
+    expect((await w.store.table('sessions').get(w.session.id))?.fnMode).toBe('read');
+    const cleared = await w.chat.sessions.update(w.session.id, { fnMode: null }, w.admin.id);
+    expect('fnMode' in cleared).toBe(false);
+  });
+
   it('switch agents by swapping the agent participant', async () => {
     const w = await chatWorld();
     w.catalog.addFn('crm', { name: 'coach', kind: 'hub/llm' });
