@@ -170,6 +170,45 @@ page and enforced over the link, with tests:
   before saving) and the system's client for live checks, such as testing a connection.
 - It renders in the review page, on the system page and on the pairing page.
 
+### 6. System graph and global graph (owner, 2026-11-11)
+
+> Oh yeah and also a graph of the context and fns and anything else in a system to visualize it and things they reference that are not in that system are grayed out a bit. So a person can see what's in the system visually and how everything is connected and they can hover over the nodes or edges to understand what is everything and how it all relates. Also add a global view of sorts of the same sort of graph and we have filters to filter out certain nodes/edges
+
+- **Nodes:** everything a system declares or adds: fns (by kind), context entries, types, kinds, resources and roots,
+  components and registry contributions, commands, examples (collapsed into their fn), providers.
+- **Edges:** the relations already recorded in the hub:
+  - a context brings or names a fn
+  - a context loads or offers next another context
+  - a fn reads or writes a type
+  - a fn calls or depends on a fn
+  - a fn's kind
+  - a fn's effects (it creates fns of a kind, adds context, …)
+  - a type refers to a type
+  - a component renders a type or visual
+  - something belongs to a system or instance
+- **The system graph** is a tab on the system page and on the review page. The system's own nodes are drawn fully;
+  nodes it references in other systems or the hub are greyed. Clicking a greyed node opens it in its own system.
+- **Hover:**
+  - **A node:** its name, kind, a one-line description and its key facts: mode, effects, the types it reads and writes,
+    visibility, on/off, and live or pending review.
+  - **An edge:** what the relation means, in plain words, e.g. "fs.authoring.kinds brings fs/write".
+
+  Clicking opens the item's detail, and fns open in the fn modal.
+- **The global graph** is a page with all systems at once, with filters:
+  - by system, node kind, edge kind, fn kind, mode and effects, visibility, live or pending, and on or off
+  - search to focus on a node and its neighbourhood, N hops out
+  - collapse a system into one node
+- **The layout stays readable at scale:** clusters per system, progressive expansion, and "+N more" nodes. Light and
+  dark, and it works on a phone with pan and zoom, tap for details.
+- **One shared hub endpoint** returns the graph (nodes and edges, with filters, paged by neighbourhood), and the same
+  query is a hub fn the chat can call, e.g. "how does fs's authoring context connect to the database fns?". Use a
+  graph library suited to Vue (e.g. Cytoscape.js, or Vue Flow) rather than drawing by hand.
+- **Tests:**
+  - the endpoint's nodes and edges for a sample system
+  - filters
+  - greyed external references
+  - one browser check of the rendered graph, since layout and hover can only be checked by rendering
+
 ## Carry-overs
 
 Whatever build 6 leaves open.

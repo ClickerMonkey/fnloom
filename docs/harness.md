@@ -1101,6 +1101,11 @@ Already checked: type-checking all of the types and examples takes about two sec
       models and spend, secrets, fns it calls, network and files for supervised systems) and logs every refusal.
     - **Configuration:** systems can ship their own Vue configuration component. The hub still validates with the gin
       type.
+  - **Graphs:**
+    - Each system page has a graph of everything the system contains: fns, context, types, kinds, resources,
+      components and the rest, with the relations between them. References into other systems are greyed.
+    - Hovering a node or an edge explains it.
+    - A global graph shows all systems, with filters on node and edge kinds. One hub endpoint and one hub fn serve both.
   - **Generated table fns:** for any table type, one fn lists every fn that could be generated (CRUD: create,
     update, updateWhere, remove, removeWhere, selectOne, selectPage; and helpers from its columns and foreign keys:
     aggregates, group-bys, date buckets, lookups, parent/child, and relation-derived fields with normalized ranks and
