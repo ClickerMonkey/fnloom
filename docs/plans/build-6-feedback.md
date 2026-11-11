@@ -30,3 +30,23 @@ The screenshot is the Runs page on a phone (390 wide), with the pills "Status: A
 - **Build 6 adds** a first-class way to do this: `npm run live`, which runs a pinned checkout or build with no file
   watching. It reuses the main data dir, and it is not restarted by edits in the working tree or by library dist
   rebuilds until it is restarted on purpose.
+
+> Hmm had this issue, something to add to fix round of that workflow
+
+The screenshot shows the chat on the stable stack (build 5 code, :4320). The person typed `/gollum what can you do for
+me?` and sending failed with the toast "Couldn't send. The hub had a problem. Try again in a moment."
+
+What the hub logged:
+`ChatError: /gollum can't be used now: memory has never connected.` (`packages/hub/src/chat/turns.ts:352`, in
+`#commands`, called from `send`), answered as a 500. `/gollum` is a `/command` on a memory, which is context the hub
+made itself.
+
+What to fix:
+- **Commands on the hub's own context are served by the hub.** The command lookup treats a hub-made context's origin
+  ("memory") as a system that has to be connected. Hub-made context (memories, context made from resources) is always
+  available.
+- **The composer offers only commands that can run.** One that can't is shown greyed out with its reason, not offered
+  and then refused.
+- **A refused command is a 4xx with the reason the person can read** ("/x can't be used now: …"), not a 500 shown as
+  "The hub had a problem". Look for other ChatErrors (and other expected refusals) that come back as 500s.
+- **A test** sends a message with a memory's `/command`.
