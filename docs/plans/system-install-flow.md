@@ -7,6 +7,13 @@ Evidence comes from the owner's hub database (`.harness/hub.sqlite`, read from a
 `messages` (with `suggestions`), `runs`, `approvals` and `llmInteractions` (`request.tools`, `selection`) rows of the
 session below. Times are the owner's (UTC-5).
 
+## Owner decisions (2026-11-10)
+
+> For system install: use tsx. Execute this bulk of work after the current workflow finishes
+
+- **Runtime:** systems and the `harness` CLI run under tsx. The plain-Node import problem in aeye (`export * from './types'`) is not worked around, and not fixed in aeye for this. The CLI bin starts through tsx. fs's install supervisor starts the system with tsx: the source entry when developing, and the bundled self-contained JS for the scanned artifact.
+- **When:** build 6, straight after build 5 finishes, together with whatever build 5 leaves open (its audit items included).
+
 ## What happened in the chat
 
 Session `ses_gpf1m7rf7lhseyqcfqry` ("Can you make a "random" system…"), agent `hub/chat`, model
