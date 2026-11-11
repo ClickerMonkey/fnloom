@@ -1,25 +1,29 @@
 /**
- * Build 6 on the real stack, API-level: installing a system from the chat's fs. The suite writes the small `greet`
- * system (`greet-system.ts`) into `systems/greet` and calls `fs/install_system`: an admin approves the card, the
- * system connects and its fn runs; a code change installs again with the change on the card; what the system adds
- * while running (a fn, a type, a context entry) is stored and listed as added while running, with a version, and the
- * context entry holds a hub model's answer made outside any run (`hubAi`); a context folder with a broken link fails the
- * build; `load_context` brings what a context imports and the fns it brings; `fns_search` filters and pages. The folder
- * is removed after.
+ * Builds 6 and 7 on the real stack, API-level: installing a system from the chat's fs. The suite writes the small
+ * `greet` system (`greet-system.ts`) into `systems/greet` and calls `fs/install_system`: an admin approves the card
+ * and the system connects, but offers nothing until the admin goes live after review; then its fn runs, and what it
+ * did not declare (an effect past its fn's mode, a hub call past its grants) is refused and logged. What it adds while
+ * running (a fn, a type, a context entry) is stored and listed as added while running, with a version, and waits as a
+ * pending review until approved; the context entry holds a hub model's answer made outside any run (`hubAi`). A code
+ * change installs again with the change on the card and waits for approval too; a context folder with a broken link
+ * fails the build; `load_context` brings what a context imports and the fns it brings; `fns_search` filters and pages.
+ * The folder is removed after.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { isSettled, QualifiedName, type Approval, type Json, type Run, type SessionId } from '@harness/core';
+import { isSettled, QualifiedName, SystemName, type Approval, type Json, type Run, type SessionId } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { waitFor, type SignedIn } from '../scripts/hub-client.ts';
 import { ROOT } from '../scripts/stack.ts';
 import { greetFiles, type GreetOptions } from './greet-system.ts';
 import { admin, clientInfo, invoke, settings, settle } from './kit.ts';
+import { approvePending, goLive } from './review.ts';
 
 const FOLDER = join(ROOT, 'systems', 'greet');
 const TURN = settings.HARNESS_E2E_TURN_TIMEOUT;
 const INSTALL = QualifiedName.parse('fs/install_system');
+const GREET = SystemName.parse('greet');
 
 let me: SignedIn;
 let session: SessionId;
@@ -88,9 +92,31 @@ describe('installing from the chat', () => {
     expect(approval.preview?.subject).toMatchObject({ kind: 'system-install', system: 'greet', version: '0.1.0' });
     expect(run.status, JSON.stringify(run.outcome)).toBe('done');
     expect(run.outcome).toMatchObject({ status: 'done', result: { system: 'greet', status: 'connected' } });
+    // installed, not live: nothing is offered until an admin reviews it and goes live
+    expect((await me.hub.call('system', { system: GREET })).stage).toBe('installed');
+    const search = await invoke(me, session, QualifiedName.parse('hub/fns_search'), { systems: ['greet'], items: ['fn'] });
+    expect(JSON.stringify(search.outcome)).not.toContain('greet/hello');
+    const early = await invoke(me, session, QualifiedName.parse('greet/hello'), { name: 'Ana' }).then((got) => got.status, () => 'refused');
+    expect(early).not.toBe('done');
+    const review = await goLive(me, GREET);
+    expect(review.facts.map((fact) => fact.fn)).toContain('greet/hello');
+    expect((await me.hub.call('system', { system: GREET })).stage).toBe('live');
     const hello = await invoke(me, session, QualifiedName.parse('greet/hello'), { name: 'Ana' });
     expect(hello.outcome).toMatchObject({ status: 'done', result: 'Hello, Ana!' });
   }, TURN * 2);
+
+  it('refuses and logs an undeclared effect and an undeclared hub call', async () => {
+    // peek is declared read and proposes its write fn; recall reads a resource without the resources grant
+    const peek = await invoke(me, session, QualifiedName.parse('greet/peek'), {});
+    const recall = await invoke(me, session, QualifiedName.parse('greet/recall'), {});
+    expect([peek.status, recall.status]).toEqual(['failed', 'failed']);
+    const refusals = await me.hub.call('refusals', { system: GREET });
+    expect(refusals.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: 'mode', attempt: 'greet/wipe', fn: 'greet/peek' }),
+      expect.objectContaining({ rule: 'capability', attempt: 'resource' }),
+    ]));
+    expect((await me.hub.call('systemReview', { system: GREET })).refusals.total).toBeGreaterThanOrEqual(2);
+  }, TURN);
 
   it('stores what it added while running, each with a version', async () => {
     const added = await waitFor('greet/note', async () => ((await rowsOf('contexts')).some((row) => row['name'] === 'greet/note') ? true : undefined), { timeout: 60_000, every: 1_000 });
@@ -106,6 +132,9 @@ describe('installing from the chat', () => {
     const decl = note?.['decl'];
     const content = typeof decl === 'object' && decl !== null && 'content' in decl ? decl.content : undefined;
     expect(content).not.toBe('No model answered.');
+    // what it added at runtime, outside the reviewed contract, waits for approval
+    const pending = await approvePending(me, GREET);
+    expect(pending.pending?.changes.map((change) => change.name)).toContain('greet/note');
     expect((await invoke(me, session, QualifiedName.parse('greet/shout'), { text: 'hi' })).outcome).toMatchObject({ status: 'done', result: 'HI' });
   }, TURN);
 
@@ -115,6 +144,7 @@ describe('installing from the chat', () => {
     expect(approval.preview?.title).toContain('0.1.0 → 0.2.0');
     expect(cardText(approval)).toContain('Changes from the running version');
     expect(run.outcome).toMatchObject({ status: 'done', result: { version: '0.2.0' } });
+    expect((await approvePending(me, GREET)).pending?.version).toBe('0.2.0');
     expect((await invoke(me, session, QualifiedName.parse('greet/hello'), { name: 'Bo' })).outcome).toMatchObject({ status: 'done', result: 'Hi, Bo!' });
   }, TURN * 2);
 

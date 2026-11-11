@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { waitFor, type SignedIn } from '../scripts/hub-client.ts';
 import { ROOT } from '../scripts/stack.ts';
 import { admin, Approver, ask, invoke, SessionWatch, settings, settle, textOf } from './kit.ts';
+import { goLive } from './review.ts';
 
 const NAME = SystemName.parse('reverser');
 const FOLDER = join(ROOT, 'systems', NAME);
@@ -92,6 +93,8 @@ describe('the chat agent writes a system from the guide', () => {
     await waitFor(`${NAME} connected`, async () => ((await me.hub.call('systems')).find((s) => s.name === NAME)?.status === 'connected' ? true : undefined), { timeout: START });
     const fns = await me.hub.call('systemFns', { system: NAME });
     expect(fns.map((f) => f.name)).toContain(`${NAME}/reverse`);
+    // it offers nothing until the admin reviews it and goes live
+    await goLive(me, NAME);
     const { result: run } = await approver.during(invoke(me, session, QualifiedName.parse(`${NAME}/reverse`), { text: 'harness' }));
     expect(run.status).toBe('done');
     expect(run.outcome?.status === 'done' ? run.outcome.result : undefined).toBe('ssenrah');

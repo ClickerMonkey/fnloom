@@ -13,7 +13,7 @@ export const GEMMA_DIMENSIONS = 768;
 export const GEMMA_MAX_INPUT = 8_000;
 
 /** The embedder system's contract. */
-export const embedderSystem = system('embedder', { description: 'Text embeddings from the local EmbeddingGemma service.' }).with({
+export const embedderSystem = system('embedder', { description: 'Text embeddings from the local EmbeddingGemma service.', grants: { hub: [] } }).with({
   config: g.obj({
     // the service's base URL; when absent, the system's HARNESS_EMBEDDER_URL (default http://127.0.0.1:8760)
     url: g.field(g.optional(g.text({ pattern: '^https?://' })), { docs: 'The EmbeddingGemma service, `http://127.0.0.1:8760`. Leave empty for the system\'s default.' }),

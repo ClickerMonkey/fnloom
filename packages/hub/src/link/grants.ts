@@ -3,7 +3,9 @@
  * `SystemGrantGuard.check` before every endpoint a linked system calls:
  * - **capability:** the endpoint's group (`HUB_CAPABILITIES`) must be in `grants.hub`; the base is always allowed
  * - **calls:** a call to another system's fn needs `fns` and the fn or its system in `grants.calls`
- * - **mode:** a fn declared `read` can't call or propose a write or delete fn; `write` can't call a delete fn
+ * - **mode:** a fn declared `read` can't call or propose a write or delete fn (a hub fn that changes only what the
+ *   system owns, tagged `own`, and a call of a fn that waits for its own approval, aside); `write` can't call a
+ *   delete fn
  * - **types:** a run whose fn declares the types it reads and writes asks for no others (beyond its system's own)
  * - **models and spend:** the model roles and models it may use, and its per-run and per-day caps
  *
@@ -13,8 +15,8 @@
 import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  HUB_CAPABILITIES, hubLinkSpec, LocalName, mintId, ModelChoice, qualify, QualifiedName, RunId, splitName,
-  type FnMode, type FnRecord, type HubCapability, type LinkSession, type RefusalRecord, type RefusalRule, type Run, type SystemGrants, type SystemName,
+  HUB_CAPABILITIES, LocalName, mintId, ModelChoice, OWN_TAG, qualify, QualifiedName, RunId, splitName,
+  type hubLinkSpec, type FnMode, type FnRecord, type HubCapability, type LinkSession, type RefusalRecord, type RefusalRule, type Run, type SystemGrants, type SystemName,
 } from '@harness/core';
 import { z } from 'zod';
 import type { EventBus } from '../bus.ts';
@@ -31,7 +33,7 @@ export type HubLinkEndpoint = keyof (typeof hubLinkSpec)['endpoints'];
 export const CAPABILITY_ENDPOINTS = {
   ai: ['llm', 'model', 'models'],
   embed: [],
-  resources: ['resource', 'resourceSections', 'content', 'upload'],
+  resources: ['resource', 'resourceSections', 'content'],
   fns: ['call', 'usableFns', 'shareFn'],
   search: ['searchFns', 'fnExamples', 'examples'],
   decide: ['decide'],
@@ -41,7 +43,7 @@ export const CAPABILITY_ENDPOINTS = {
   state: ['stateGet', 'stateSet'],
 } as const satisfies Record<HubCapability, readonly HubLinkEndpoint[]>;
 
-/** The capability an endpoint needs, or none for the base (handshake, contract, its own runs, logs, types, fleet). */
+/** The capability an endpoint needs, or none for the base (handshake, contract, uploads, its own runs, logs, types, fleet). */
 export function capabilityOf(endpoint: string): HubCapability | undefined {
   return HUB_CAPABILITIES.find((capability) => {
     const endpoints: readonly string[] = CAPABILITY_ENDPOINTS[capability];
@@ -169,7 +171,7 @@ export class SystemGrantGuard {
       const calls = grants.calls ?? [];
       if (!calls.some((allowed) => allowed === target || allowed === targetSystem)) { return { ...base, rule: 'calls', attempt: target, detail: `it didn't declare that it calls ${target}` }; }
     }
-    return parent === undefined ? undefined : this.#mode(parent, target);
+    return parent === undefined ? undefined : this.#mode(parent, target, false);
   }
 
   /** A proposal under a run is a call of the system's own fn: its mode can't go past the run's fn's. */
@@ -177,14 +179,20 @@ export class SystemGrantGuard {
     const parsed = ProposeBody.safeParse(body);
     if (!parsed.success || parsed.data.parent === undefined) { return undefined; }
     const parent = await this.#options.store.table('runs').get(parsed.data.parent);
-    return parent === undefined ? undefined : this.#mode(parent, qualify(link.system, parsed.data.fn));
+    return parent === undefined ? undefined : this.#mode(parent, qualify(link.system, parsed.data.fn), true);
   }
 
-  /** Whether the run's fn, by its declared mode, may use the target fn. */
-  async #mode(parent: Run, target: QualifiedName): Promise<Refusal | undefined> {
+  /** Whether the run's fn, by its declared mode, may call (or, `proposed`, propose a run of) the target fn. */
+  async #mode(parent: Run, target: QualifiedName, proposed: boolean): Promise<Refusal | undefined> {
     const [caller, callee] = await Promise.all([this.#options.catalog.fn(parent.fn), this.#options.catalog.fn(target)]);
     const declared = caller?.decl.effects?.mode;
     if (declared === undefined || callee === undefined) { return undefined; }
+    // a hub fn that changes only what the calling system owns (`own`, as a web page it keeps as a resource) is part of
+    // its own work, as the fallback policy has it
+    if (callee.system === HUB_SYSTEM && callee.decl.tags.includes(OWN_TAG)) { return undefined; }
+    // a call of a fn that waits for its own approval every time (`approval`, as a schema change's DDL) changes nothing
+    // until a person has seen what it does and allowed it
+    if (!proposed && callee.decl.approval !== undefined) { return undefined; }
     const needs = await this.#modeOf(callee);
     if (MODE_RANK[needs] <= MODE_RANK[declared]) { return undefined; }
     return { rule: 'mode', attempt: target, run: parent.id, fn: parent.fn, detail: `${parent.fn} is declared ${declared} and tried ${target}, which can ${needs === 'delete' ? 'delete' : 'write'}` };

@@ -59,7 +59,10 @@ const status = (active: string, done: string, failed: string) => ({
 });
 
 /** The contract's declarations, before its `connect` (which names these fns). */
-const declared = system('google-calendar', { description: 'Each person connects their Google Calendar; the chat can see their events and, as they allow, create, change and delete them.' })
+const declared = system('google-calendar', {
+  description: 'Each person connects their Google Calendar; the chat can see their events and, as they allow, create, change and delete them.',
+  grants: { hub: ['connections'] },
+})
   .with({
     config: g.obj({
       clientId: g.field(g.text({ minLength: 1 }), { docs: 'The OAuth client id from Google Cloud (a "Web application" client).' }),

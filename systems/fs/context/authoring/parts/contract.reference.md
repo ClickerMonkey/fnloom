@@ -43,6 +43,10 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
   readonly contributes: readonly ContributionDecl[];
   /** The dot paths of its config's secret text fields. */
   readonly configSecrets: readonly ConfigPath[];
+  /** What it may do through the hub (and, hosted, on its machine); `undefined` gets the base only. */
+  readonly grants: SystemGrants | undefined;
+  /** Its own config component (a client export), drawn instead of or beside the gin form. */
+  readonly configComponent: ConfigComponentDecl | undefined;
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
@@ -50,7 +54,7 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
 }
 ```
 
-Refers to: [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl).
+Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
 
 #### `SystemRefs`
 
@@ -210,10 +214,22 @@ interface SystemInfo {
    * saved and only `configure` carries the plain value. Each must be a text field of the config type.
    */
   configSecrets?: ConfigPath[];
+  /**
+   * What the system may do through the hub beyond the base: the hub capabilities it calls (`ai`, `embed`, `fns`,
+   * …), model roles and spend, secrets, the fns it calls, and (when fs hosts it) the hosts and paths it reaches. The
+   * hub enforces them over the link, logs every refusal, and shows them on the review page. Absent, the base only.
+   */
+  grants?: SystemGrants;
+  /**
+   * Its own config component: the name of a Vue component its client exports (`client({ components })`), drawn
+   * `replace` (instead of the gin form) or `beside` it on the review, system and pairing pages. The hub still checks
+   * the value with the config's gin type before saving.
+   */
+  configComponent?: ConfigComponentDecl;
 }
 ```
 
-Refers to: [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl).
+Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
 
 #### `RegistryDef`
 

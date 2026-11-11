@@ -11,7 +11,7 @@
 import { QualifiedName, ResultTable, type FnEffects, type OutputVerdict } from '@harness/core';
 import { agent, attachment, context, fn, g, ginAs, hub, kind, system, type Infer, type ValidateCtx } from '@harness/sdk';
 import {
-  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
+  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
   type QueryHow,
   SavedQueryRef, SchemaArgs, SchemaChanged, TableArgs, TableFnsArgs, TableFnsGenerateArgs, TableFnsGenerated, TableFnsList, TablesInfo,
 } from './shapes.ts';
@@ -186,6 +186,9 @@ export const database = system('database', {
     [VISUALS]: { description: 'Ways to draw rows a query read. Each entry says whether a result fits it and how well. The app draws the table, a bar chart and a single value itself; systems add more here.', data: ResultData },
   },
   configSecrets: [...CONFIG_SECRETS],
+  // the query agents and enrichment use models; writes and schema changes wait for approval; get_query asks the hub to
+  // pick a database; saved queries are hub fns it searches, reads and saves
+  grants: { hub: ['ai', 'approvals', 'decide', 'search', 'fns'], calls: ['hub/fn_get', 'hub/save_fn', 'hub/fns_search', 'hub/fn_examples'] },
 })
   .with({
     config: ginAs(DatabaseConfig),
@@ -211,10 +214,23 @@ export const database = system('database', {
         args: ginAs(InstanceOp),
         returns: ginAs(InstanceAnswer),
         deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
-        examples: [{ args: { op: 'tables' }, note: 'The tables of the instance it runs on.' }],
+        examples: [{ args: { op: 'run', fn: 'database/main.orders_by_status', args: { status: 'paid' } }, note: 'Run a saved query on the instance it runs on.' }],
         visibility: 'none',
         display: 'hidden',
         effects: SAVES_QUERIES,
+        // `read` lets the system's own tools call it without asking (the writes it forwards ask for themselves)
+        tags: ['database', 'read'],
+      }),
+      read_at_instance: fn({
+        description: 'Do one reading query tool\'s work on this database instance: its tables, a draft\'s check, a table\'s generated fns (the read tools forward here with `on`).',
+        instructions: 'Called by this system\'s own read tools only.',
+        args: ginAs(ReadInstanceOp),
+        returns: ginAs(InstanceAnswer),
+        deps: { getFn: hub.fns.fn_get },
+        examples: [{ args: { op: 'tables' }, note: 'The tables of the instance it runs on.' }],
+        visibility: 'none',
+        display: 'hidden',
+        effects: { mode: 'read', free: true },
         tags: ['database', 'read'],
       }),
       change_schema: fn({
@@ -278,7 +294,7 @@ export const database = system('database', {
         instructions: 'Call it before writing or changing a query, and write only against what it lists.',
         args: g.obj({ database: databaseArg() }),
         returns: ginAs(TablesInfo),
-        deps: { at: fns.at_instance },
+        deps: { at: fns.read_at_instance },
         examples: [{ args: { database: 'main' } }],
         visibility: 'llm',
         display: 'hidden',
@@ -291,7 +307,7 @@ export const database = system('database', {
         instructions: 'Check every draft before saving it, and fix each listed problem. A write on a read-only database is a problem.',
         args: g.obj({ database: databaseArg(), draft: ginAs(QueryDraft) }),
         returns: ginAs(QueryCheck),
-        deps: { at: fns.at_instance },
+        deps: { at: fns.read_at_instance },
         examples: [{
           args: { database: 'main', draft: ORDERS_DRAFT },
           result: { ok: true, problems: [], writes: false, sql: 'SELECT orders.id AS id, … WHERE orders.status = ? ORDER BY orders.total DESC', signature: 'database/main.orders_by_status(status: text, limit?, offset?, sort?) → rows' },
@@ -330,7 +346,7 @@ export const database = system('database', {
         instructions: 'Use it to offer a table\'s ready-made fns (create, update, selectPage, counts, sums, a parent\'s child counts, a row\'s rank among its siblings) before writing a query by hand. Pass the names you want to database/table_fns_generate. `stale` means the table changed since it was made: generate it again.',
         args: ginAs(TableFnsArgs),
         returns: ginAs(TableFnsList),
-        deps: { at: fns.at_instance },
+        deps: { at: fns.read_at_instance },
         examples: [
           { args: { table: 'database/main.projects' }, note: 'The fns of the projects table of the main database.' },
           { args: { table: 'owners', database: 'main' }, note: 'An owner gets projectCount, projectAvgValue and projectTotalValue from its projects.' },

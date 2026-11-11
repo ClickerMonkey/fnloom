@@ -7,7 +7,7 @@ import { system, fn } from '@harness/sdk';
 import { g } from '@harness/sdk';
 
 /** The random system's contract. */
-export const random = system('random', { description: 'Generates a random number between two bounds.' })
+export const random = system('random', { description: 'Generates a random number between two bounds.', grants: { hub: [] } })
   .with({
     fns: {
       random: fn({

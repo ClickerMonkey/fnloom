@@ -117,7 +117,11 @@ export const PageTarget = g.obj({ url: g.text({ minLength: 1 }) });
 const url = () => g.field(g.text({ minLength: 1 }), { docs: 'An http or https URL. A bare address like `example.com/docs` is read as https.' });
 
 /** The web system's contract. */
-export const web = system('web', { description: 'Search the web and read web pages, which are kept as hub resources.' })
+export const web = system('web', {
+  description: 'Search the web and read web pages, which are kept as hub resources.',
+  // pages it reads are uploaded and kept as hub resources
+  grants: { hub: ['resources', 'fns'], calls: ['hub/resource_import', 'hub/resource_read'] },
+})
   .with({
     // every field is optional: an absent one takes the system's own setting (its environment)
     config: g.obj({

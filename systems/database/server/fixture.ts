@@ -26,6 +26,19 @@ INSERT INTO orders (customer_id, total, status, placed) VALUES
   (2, 42, 'open', '2026-11-02'), (3, 7.25, 'refunded', '2026-08-30');
 `;
 
+/** The projects/owners sample: an enum, a number, a date, a unique column and a foreign key (generated table fns, e2e). */
+export const PROJECTS_SQL = `
+CREATE TABLE owners (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE projects (
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, owner_id INTEGER NOT NULL REFERENCES owners(id),
+  value REAL NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'done')), started DATE NOT NULL
+);
+INSERT INTO owners (name) VALUES ('Ada'), ('Bo');
+INSERT INTO projects (code, name, owner_id, value, status, started) VALUES
+  ('P1', 'Roof', 1, 100, 'done', '2026-01-05'), ('P2', 'Deck', 1, 300, 'active', '2026-02-10'),
+  ('P3', 'Shed', 2, 50, 'active', '2026-03-15');
+`;
+
 /** A fresh folder under `.harness-test/`. */
 export function testFolder(name: string): string {
   mkdirSync('.harness-test', { recursive: true });

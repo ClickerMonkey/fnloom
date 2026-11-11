@@ -284,7 +284,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/run_get`: One run: its fn, args, status, result or error, cost and timings. Tags: `read`.
 
   ```text
-  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, connection?, llmCall?, toolCallId?, args, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
+  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, connection?, llmCall?, toolCallId?, args, test?, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
   ```
 - `hub/run_tree`: The tree of runs a turn made: each run with the runs it called. Tags: `read`.
 
@@ -339,12 +339,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
   ```text
-  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
+  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
   ```
 - `hub/system_fns`: A system's fns, with whether each can be used now and its running numbers. Tags: `read`.
 
@@ -383,6 +383,11 @@ This is the hub contract as the SDK declares it now:
     total?: num{whole=true, min=0},
     /* More rows than the hub reads at once: more may match; narrow the filters for a full answer. */ partial?: literal<bool>{value=true}
   }
+  ```
+- `hub/graph`: The graph of what systems add (fns, context, types, kinds, commands, components, providers) and how they connect: what brings, calls, reads, writes, creates or refers to what. Tags: `read`.
+
+  ```text
+  (obj{ systems?, external?, focus?, text?, nodeKinds?, edgeKinds?, fnKinds?, modes?, effects?, visibility?, stages?, on?, collapse?, limit? … }) => obj{ nodes, edges, more, total … }
   ```
 - `hub/resource_convert`: Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.
 

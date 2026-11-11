@@ -14,7 +14,11 @@ import { system } from '@harness/sdk';
 // TODO: add shared shapes, or delete this comment.
 
 /** The template system's contract. */
-export const template = system('template', { description: 'TODO: what this system offers, in one sentence.' })
+export const template = system('template', {
+  description: 'TODO: what this system offers, in one sentence.',
+  // TODO: what it may do through the hub (HUB_CAPABILITIES); the example agent uses a model and reads a setting
+  grants: { hub: ['ai', 'settings'] },
+})
   .with({
     // config: what the system needs before it can be used, as one gin object type (`g.obj({ ... })`). An admin sets
     // the value in the hub (it is checked against this type); every implementation reads it, typed, as `ctx.config`.

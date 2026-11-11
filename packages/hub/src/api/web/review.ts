@@ -19,7 +19,7 @@ const REFUSAL_PAGE = 50;
 const REVIEW_REFUSALS = 10;
 
 /** Everything the review page shows about one system beyond its other endpoints. */
-export async function systemReview(hub: Pick<HubServices, 'store' | 'catalog' | 'fns' | 'link' | 'log'>, system: SystemName): Promise<SystemReview> {
+export async function systemReview(hub: Pick<HubServices, 'store' | 'catalog' | 'fns' | 'log'> & { readonly link: Pick<HubServices['link'], 'lifecycle'> }, system: SystemName): Promise<SystemReview> {
   const [record, manifest, fns, review, off] = await Promise.all([
     hub.store.table('systems').get(system), hub.catalog.manifest(system), hub.catalog.fns({ system }), hub.link.lifecycle.review(system), hub.link.lifecycle.offItems(system),
   ]);

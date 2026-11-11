@@ -10,7 +10,7 @@ import { InstanceName, Json, QualifiedName, ShareRule, qualify, splitName, type 
 import { CallFailed, ResultBlockType, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { z } from 'zod';
 import { QUERY_KIND, database, type DatabaseContract } from '../shared/index.ts';
-import { ParamValues, QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
+import { ParamValues, QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type ReadInstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
 import { argProblems, argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
 import type { Database } from './drivers/index.ts';
@@ -18,11 +18,14 @@ import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } from './instance.ts';
 import { QueryService, callArgs, callOf, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
 import { pickDatabase } from './pick.ts';
-import { TableFnService, type TableFnsCtx } from './table-fns.ts';
+import { TableFnService, type TableFnsCtx, type TableFnsReadCtx } from './table-fns.ts';
 import { hubTypeOf, qualifiedTypeOf, tableMetaOf } from './types.ts';
 
 /** The run context of one of the contract's fns. */
 type CtxOf<K extends keyof DatabaseContract['defs']['fns']> = FnCtx<TypesOf<DatabaseContract['defs']['fns'][K]>, DatabaseConfig>;
+
+/** What a reading tool's work needs of its run: both instance fns give it (`read_at_instance`, `at_instance`). */
+type ReadCtx = Pick<CtxOf<'read_at_instance'>, 'run' | 'llm' | 'log' | 'searchFns' | 'fns'>;
 
 /** Another database instance of this system, as get_query chooses between them. */
 export interface FleetMember {
@@ -280,10 +283,11 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     };
   }
 
-  /** The run's side of the generated table fns: its query tools, and which saved queries exist (by the hub's search). */
-  function tableFnsCtx(ctx: CtxOf<'at_instance'>): TableFnsCtx {
+  /** The read side of the generated table fns: the hub's saved queries as the run's person, and which of them exist. */
+  function tableFnsReadCtx(ctx: ReadCtx): TableFnsReadCtx {
     return {
-      ...runCtx(ctx),
+      log: ctx.log,
+      getFn: async (fn) => await ctx.fns.getFn({ fn }),
       existing: async (names) => {
         const found = new Set<string>();
         for (let at = 0; at < names.length; at += 100) {
@@ -295,15 +299,37 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     };
   }
 
-  /** Do one tool's work here. */
-  async function atHere(op: InstanceOp, ctx: CtxOf<'at_instance'>): Promise<InstanceAnswer | QueryProblem> {
+  /** The run's side of the generated table fns: its query tools, and which saved queries exist (by the hub's search). */
+  function tableFnsCtx(ctx: CtxOf<'at_instance'>): TableFnsCtx {
+    return { ...runCtx(ctx), ...tableFnsReadCtx(ctx) };
+  }
+
+  /** The instance the run's person reaches here; tables a scan outside a run left plain are enriched with its model. */
+  async function hereFor(ctx: Pick<ReadCtx, 'run' | 'llm'>): Promise<DatabaseInstance | QueryProblem> {
     const here = queries.instance(ctx.run.user);
     if (!('db' in here)) { return here; }
-    // tables a scan outside a run left plain are enriched now, with this run's model
     await here.enrichLater(ctx.llm);
+    return here;
+  }
+
+  /** Do one reading tool's work here. */
+  async function readHere(op: ReadInstanceOp, here: DatabaseInstance, ctx: ReadCtx): Promise<InstanceAnswer | QueryProblem> {
     switch (op.op) {
       case 'tables': return { op: 'tables', tables: queries.tables(here) };
       case 'check': return { op: 'check', check: queries.check(here, op.draft) };
+      case 'table-fns': {
+        const list = await tableFnService.list(here, op.table, tableFnsReadCtx(ctx));
+        return 'groups' in list ? { op: 'table-fns', list } : list;
+      }
+    }
+  }
+
+  /** Do one tool's work here: the reads as `readHere` does them, and the writes. */
+  async function atHere(op: InstanceOp, ctx: CtxOf<'at_instance'>): Promise<InstanceAnswer | QueryProblem> {
+    const here = await hereFor(ctx);
+    if (!('db' in here)) { return here; }
+    switch (op.op) {
+      case 'tables': case 'check': case 'table-fns': return readHere(op, here, ctx);
       case 'save': {
         const saved = await queries.save(here, op.draft, { args: op.args, askedFor: op.askedFor, replace: op.replace }, runCtx(ctx));
         return 'fn' in saved ? { op: 'save', saved } : saved;
@@ -311,10 +337,6 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       case 'run': {
         const ran = await queries.run(here, op.fn, op.args ?? {}, runCtx(ctx));
         return 'database' in ran ? { op: 'run', run: ran } : ran;
-      }
-      case 'table-fns': {
-        const list = await tableFnService.list(here, op.table, tableFnsCtx(ctx));
-        return 'groups' in list ? { op: 'table-fns', list } : list;
       }
       case 'table-fns-generate': {
         const made = await tableFnService.generate(here, op.table, op.names, op.derived ?? [], tableFnsCtx(ctx));
@@ -327,8 +349,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
    * A tool's work on the instance that has the database: here, or forwarded with `on`. The answer is the one for the
    * op asked (`pick` narrows it); a problem is the caller's to fix.
    */
-  async function at<T>(
-    ctx: Pick<CtxOf<'tables'>, 'fns'>, target: string, op: InstanceOp, pick: (answer: InstanceAnswer) => T | undefined,
+  async function at<T, O extends InstanceOp>(
+    ctx: { fns: { at(op: O, options: { on: InstanceName }): PromiseLike<InstanceAnswer> } }, target: string, op: O, pick: (answer: InstanceAnswer) => T | undefined,
   ): Promise<T | QueryProblem> {
     const on = InstanceName.safeParse(target.replace(/^database\//, ''));
     if (!on.success) { return { invalid: `"${target}" isn't a database instance name; call database/databases for them.` }; }
@@ -395,6 +417,13 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       at_instance: {
         async run(args, ctx) {
           const answer = await atHere(args, ctx);
+          return 'op' in answer ? ctx.done(answer) : 'failed' in answer ? ctx.fail('caller', answer.failed) : ctx.invalid(answer.invalid);
+        },
+      },
+      read_at_instance: {
+        async run(args, ctx) {
+          const here = await hereFor(ctx);
+          const answer = 'db' in here ? await readHere(args, here, ctx) : here;
           return 'op' in answer ? ctx.done(answer) : 'failed' in answer ? ctx.fail('caller', answer.failed) : ctx.invalid(answer.invalid);
         },
       },

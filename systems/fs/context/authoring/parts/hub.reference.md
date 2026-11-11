@@ -121,6 +121,8 @@ const HUB_READ_ENDPOINTS = {
   model_limits: contextorSlice.endpoints.modelLimits,
   /** Any list by the query standard (`LIST_FIELDS`): filters, sort, paging. */
   query: querySlice.endpoints.query,
+  /** Build 7: the graph of systems' fns, context, types and parts, and how they connect. */
+  graph: graphSlice.endpoints.graph,
 } as const satisfies Record<string, EndpointLike>;
 ```
 

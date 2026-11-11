@@ -1,8 +1,11 @@
 import { ApiError } from '@ayepi/core';
-import { QualifiedName, SystemName, type Manifest } from '@harness/core';
+import { MAIN_INSTANCE, mintId, QualifiedName, SystemName, type Manifest } from '@harness/core';
 import { context, fn, g, kind, system } from '@harness/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
+import { fake } from '../api/testing/rig.ts';
+import { refusalPage, systemReview } from '../api/web/review.ts';
 import { ADMIN, declOf, manifestFor } from '../catalog/fixtures.ts';
+import type { FnsServices } from '../fns/index.ts';
 import { contractChanges, mergeChanges } from './lifecycle.ts';
 import { FakeSystem, linkRig, pairDirectly, type LinkRig } from './rig.ts';
 
@@ -83,6 +86,26 @@ describe('installed vs live', () => {
     expect((await rig.store.table('context').get(q('notes/guide')))?.systemOff).toBe(false);
     expect((await rig.lifecycle.review(NOTES))?.live).toMatchObject({ hash: manifest.hash, version: '1.0.0', by: ADMIN, grants: { hub: [] } });
     expect(await rig.lifecycle.offItems(NOTES)).toEqual([{ section: 'fns', name: 'notes/write' }]);
+  });
+
+  it('gives the review page its stage, contract, switches and refusals, newest first', async () => {
+    const { manifest } = await installed();
+    const facts = fake<FnsServices['facts']>('facts', { facts: () => Promise.reject(new Error('its kind is away')) });
+    const hub = { store: rig.store, catalog: rig.catalog, fns: fake<FnsServices>('fns', { facts }), link: rig, log: rig.log };
+    await expect(systemReview(hub, SystemName.parse('ghost'))).rejects.toMatchObject({ status: 404 });
+    expect(await systemReview(hub, NOTES)).toMatchObject({ system: NOTES, stage: 'installed', manifest: { hash: manifest.hash }, facts: [], off: [], refusals: { total: 0, last: [] } });
+
+    await rig.lifecycle.goLive({ system: NOTES, hash: manifest.hash, off: [{ section: 'fns', name: 'notes/write' }] }, ADMIN);
+    for (const [at, rule] of [[1, 'capability'], [2, 'mode']] as const) {
+      await rig.store.table('refusals').insert({ id: mintId('refusal'), system: NOTES, instance: MAIN_INSTANCE, rule, attempt: 'llm', detail: `refused ${rule}`, at });
+    }
+    const review = await systemReview(hub, NOTES);
+    expect(review).toMatchObject({ stage: 'live', live: { hash: manifest.hash }, off: [{ section: 'fns', name: 'notes/write' }], refusals: { total: 2 } });
+    expect(review.refusals.last.map((r) => r.rule)).toEqual(['mode', 'capability']);
+    expect((await refusalPage(rig, { system: NOTES, rule: 'mode' })).items.map((r) => r.detail)).toEqual(['refused mode']);
+    const first = await refusalPage(rig, { limit: 1 });
+    expect(first.items).toHaveLength(1);
+    expect(first.next).toBeDefined();
   });
 
   it('holds a new contract version for review while the rest keeps working, then approves it', async () => {

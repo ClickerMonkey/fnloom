@@ -415,7 +415,11 @@ import { system } from '@harness/sdk';
 // TODO: add shared shapes, or delete this comment.
 
 /** The template system's contract. */
-export const template = system('template', { description: 'TODO: what this system offers, in one sentence.' })
+export const template = system('template', {
+  description: 'TODO: what this system offers, in one sentence.',
+  // TODO: what it may do through the hub (HUB_CAPABILITIES); the example agent uses a model and reads a setting
+  grants: { hub: ['ai', 'settings'] },
+})
   .with({
     // config: what the system needs before it can be used, as one gin object type (`g.obj({ ... })`). An admin sets
     // the value in the hub (it is checked against this type); every implementation reads it, typed, as `ctx.config`.
@@ -628,6 +632,10 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
   readonly contributes: readonly ContributionDecl[];
   /** The dot paths of its config's secret text fields. */
   readonly configSecrets: readonly ConfigPath[];
+  /** What it may do through the hub (and, hosted, on its machine); `undefined` gets the base only. */
+  readonly grants: SystemGrants | undefined;
+  /** Its own config component (a client export), drawn instead of or beside the gin form. */
+  readonly configComponent: ConfigComponentDecl | undefined;
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
@@ -635,7 +643,7 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
 }
 ```
 
-Refers to: [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl).
+Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
 
 #### `SystemRefs`
 
@@ -795,10 +803,22 @@ interface SystemInfo {
    * saved and only `configure` carries the plain value. Each must be a text field of the config type.
    */
   configSecrets?: ConfigPath[];
+  /**
+   * What the system may do through the hub beyond the base: the hub capabilities it calls (`ai`, `embed`, `fns`,
+   * …), model roles and spend, secrets, the fns it calls, and (when fs hosts it) the hosts and paths it reaches. The
+   * hub enforces them over the link, logs every refusal, and shows them on the review page. Absent, the base only.
+   */
+  grants?: SystemGrants;
+  /**
+   * Its own config component: the name of a Vue component its client exports (`client({ components })`), drawn
+   * `replace` (instead of the gin form) or `beside` it on the review, system and pairing pages. The hub still checks
+   * the value with the config's gin type before saving.
+   */
+  configComponent?: ConfigComponentDecl;
 }
 ```
 
-Refers to: [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl).
+Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
 
 #### `RegistryDef`
 
@@ -4767,7 +4787,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/run_get`: One run: its fn, args, status, result or error, cost and timings. Tags: `read`.
 
   ```text
-  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, connection?, llmCall?, toolCallId?, args, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
+  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, connection?, llmCall?, toolCallId?, args, test?, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
   ```
 - `hub/run_tree`: The tree of runs a turn made: each run with the runs it called. Tags: `read`.
 
@@ -4822,12 +4842,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
   ```text
-  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
+  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
   ```
 - `hub/system_fns`: A system's fns, with whether each can be used now and its running numbers. Tags: `read`.
 
@@ -4866,6 +4886,11 @@ This is the hub contract as the SDK declares it now:
     total?: num{whole=true, min=0},
     /* More rows than the hub reads at once: more may match; narrow the filters for a full answer. */ partial?: literal<bool>{value=true}
   }
+  ```
+- `hub/graph`: The graph of what systems add (fns, context, types, kinds, commands, components, providers) and how they connect: what brings, calls, reads, writes, creates or refers to what. Tags: `read`.
+
+  ```text
+  (obj{ systems?, external?, focus?, text?, nodeKinds?, edgeKinds?, fnKinds?, modes?, effects?, visibility?, stages?, on?, collapse?, limit? … }) => obj{ nodes, edges, more, total … }
   ```
 - `hub/resource_convert`: Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.
 
@@ -5619,6 +5644,8 @@ const HUB_READ_ENDPOINTS = {
   model_limits: contextorSlice.endpoints.modelLimits,
   /** Any list by the query standard (`LIST_FIELDS`): filters, sort, paging. */
   query: querySlice.endpoints.query,
+  /** Build 7: the graph of systems' fns, context, types and parts, and how they connect. */
+  graph: graphSlice.endpoints.graph,
 } as const satisfies Record<string, EndpointLike>;
 ```
 
@@ -7829,6 +7856,11 @@ interface ClientRenderers<C extends ContractShape> {
    * the contract's `contributes`, which is how the hub and the web app know to load this bundle for that registry.
    */
   visuals?: Readonly<Record<QualifiedName, Readonly<Record<string, VisualEntry<C>>>>>;
+  /**
+   * Config components by name. The one the contract's `configComponent` names is drawn for the system's config; it must
+   * be here, and every component here must be the one named.
+   */
+  configs?: Readonly<Record<string, Renderer<ConfigView<Infer<C['config']>> & WithSystem<C>>>>;
 }
 ```
 
@@ -8294,6 +8326,7 @@ interface AnyViews {
   input: WithSystem<ContractShape>;
   mention: MentionView<unknown> & WithSystem<ContractShape>;
   resource: ResourceView & WithSystem<ContractShape>;
+  config: ConfigView<unknown> & WithSystem<ContractShape>;
 }
 ```
 
@@ -9245,6 +9278,49 @@ type FakeReply = string | readonly LlmForwardChunk[];
 ```
 
 Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+
+#### `checkContextFolder`
+
+function · `import { checkContextFolder } from '@harness/sdk/server'`
+
+Check a system's context folder (`dir`, usually `<system>/context`): the SDK reader's checks, then every link and
+every `imports` cycle. `label` names files in problems (default `context`).
+
+```ts
+function checkContextFolder(dir: string, known: KnownNames, label?: string): Promise<CheckedContext>;
+```
+
+#### `CheckedContext`
+
+interface · `import { CheckedContext } from '@harness/sdk/server'`
+
+A checked folder: its files, and every problem in it.
+
+```ts
+interface CheckedContext {
+  readonly files: readonly ContextFile[];
+  readonly problems: readonly ContextFileProblem[];
+}
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `KnownNames`
+
+interface · `import { KnownNames } from '@harness/sdk/server'`
+
+The names a context folder may link to.
+
+```ts
+interface KnownNames {
+  /** The system the folder belongs to: its keys are qualified with it. */
+  readonly system: string;
+  /** Fns it may link to, qualified (its own and others'). */
+  readonly fns: ReadonlySet<string>;
+  /** Context it may link to besides its own files, qualified (its contract's and others'). */
+  readonly context: ReadonlySet<string>;
+}
+```
 
 ## 26. Common mistakes
 
@@ -10824,7 +10900,12 @@ const path = () => g.field(g.text({ minLength: 1 }), { docs: PATH_DOCS });
 export const COMMAND_TIMEOUT_MIN = 1_000;
 
 /** The fs system's contract. */
-export const fs = system('fs', { description: 'Files and a shell over chosen folders, served as resources. Can restart itself.' })
+export const fs = system('fs', {
+  description: 'Files and a shell over chosen folders, served as resources. Can restart itself.',
+  // its authoring agents use models; installs wait for an admin and pair what they start; it keeps each person's cwd,
+  // reads the shell setting, serves and announces resources, and shares the fns it writes
+  grants: { hub: ['ai', 'approvals', 'fns', 'state', 'settings', 'resources', 'search'], calls: ['hub/search_resources'] },
+})
   .with({
     // set by an admin in the hub; the server gets it typed when it starts
     config: g.obj({
@@ -12462,9 +12543,53 @@ type ApprovalPreview = {
       system: string & z.core.$brand<"SystemName">;
       instance: string & z.core.$brand<"InstanceName">;
     };
+    source?: string | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
+    } | undefined;
+  } | undefined;
+  checks?: {
+    scan: {
+      size: number;
+      builtins: string[];
+      concerns: {
+        kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+        line: number;
+        detail: string;
+        code: string;
+      }[];
+      urls: string[];
+      hosts: string[];
+    };
+    tests?: {
+      system: string & z.core.$brand<"SystemName">;
+      version: string;
+      ranAt: number;
+      duration: number;
+      passed: number;
+      failed: number;
+      skipped: number;
+      cases: {
+        file: string;
+        name: string;
+        status: "failed" | "skipped" | "passed";
+        duration: number;
+        real?: boolean | undefined;
+        error?: string | undefined;
+      }[];
+      more?: number | undefined;
+      previews?: {
+        component: string;
+        state: string;
+        viewport: "phone" | "desktop";
+        theme: "light" | "dark";
+        image: {
+          hash: string;
+          size: number;
+          mime: string;
+        };
+      }[] | undefined;
     } | undefined;
   } | undefined;
 };
@@ -12535,9 +12660,53 @@ type ApprovedRun = {
         system: string & z.core.$brand<"SystemName">;
         instance: string & z.core.$brand<"InstanceName">;
       };
+      source?: string | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
+      } | undefined;
+    } | undefined;
+    checks?: {
+      scan: {
+        size: number;
+        builtins: string[];
+        concerns: {
+          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+          line: number;
+          detail: string;
+          code: string;
+        }[];
+        urls: string[];
+        hosts: string[];
+      };
+      tests?: {
+        system: string & z.core.$brand<"SystemName">;
+        version: string;
+        ranAt: number;
+        duration: number;
+        passed: number;
+        failed: number;
+        skipped: number;
+        cases: {
+          file: string;
+          name: string;
+          status: "failed" | "skipped" | "passed";
+          duration: number;
+          real?: boolean | undefined;
+          error?: string | undefined;
+        }[];
+        more?: number | undefined;
+        previews?: {
+          component: string;
+          state: string;
+          viewport: "phone" | "desktop";
+          theme: "light" | "dark";
+          image: {
+            hash: string;
+            size: number;
+            mime: string;
+          };
+        }[] | undefined;
       } | undefined;
     } | undefined;
   };
@@ -12595,6 +12764,21 @@ type ChatModeConfig = {
   protocol: "text" | "auto" | "native";
   placement: "system-end" | "tail";
   loadDetail: "signature" | "listed" | "full";
+};
+```
+
+#### <a id="core-configcomponentdecl"></a>`ConfigComponentDecl`
+
+const, type · declared in `packages/core/src/grants.ts`
+
+A system's own config component (a Vue component exported by its client bundle under `component`). `replace` draws
+it instead of the gin form; `beside` draws it under the form. It gets the config, its gin type, a validate callback
+and the system's client; the hub still checks the value with the gin type before saving.
+
+```ts
+type ConfigComponentDecl = {
+  component: string;
+  mode: "replace" | "beside";
 };
 ```
 
@@ -13748,7 +13932,7 @@ type LlmForwardChunk = {
       name: string;
       arguments: string;
     } | undefined;
-    finishReason?: "length" | "stop" | "refusal" | "tool_calls" | "content_filter" | undefined;
+    finishReason?: "refusal" | "length" | "stop" | "tool_calls" | "content_filter" | undefined;
     refusal?: string | undefined;
     usage?: {
       input: number;
@@ -14174,6 +14358,26 @@ type Manifest = {
   }[] | undefined;
   configSecrets?: string[] | undefined;
   runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
+  grants?: {
+    hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+    models?: {
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+      models?: string[] | undefined;
+      perRun?: number | undefined;
+      perDay?: number | undefined;
+    } | undefined;
+    secrets?: string[] | undefined;
+    calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+    network?: string[] | undefined;
+    files?: {
+      read: string[];
+      write: string[];
+    } | undefined;
+  } | undefined;
+  configComponent?: {
+    component: string;
+    mode: "replace" | "beside";
+  } | undefined;
 };
 ```
 
@@ -14936,6 +15140,7 @@ type PairingGrantRequest = {
       system: string & z.core.$brand<"SystemName">;
       instance: string & z.core.$brand<"InstanceName">;
     };
+    source?: string | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
@@ -15033,9 +15238,53 @@ type PreviewAnswer = {
         system: string & z.core.$brand<"SystemName">;
         instance: string & z.core.$brand<"InstanceName">;
       };
+      source?: string | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
+      } | undefined;
+    } | undefined;
+    checks?: {
+      scan: {
+        size: number;
+        builtins: string[];
+        concerns: {
+          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+          line: number;
+          detail: string;
+          code: string;
+        }[];
+        urls: string[];
+        hosts: string[];
+      };
+      tests?: {
+        system: string & z.core.$brand<"SystemName">;
+        version: string;
+        ranAt: number;
+        duration: number;
+        passed: number;
+        failed: number;
+        skipped: number;
+        cases: {
+          file: string;
+          name: string;
+          status: "failed" | "skipped" | "passed";
+          duration: number;
+          real?: boolean | undefined;
+          error?: string | undefined;
+        }[];
+        more?: number | undefined;
+        previews?: {
+          component: string;
+          state: string;
+          viewport: "phone" | "desktop";
+          theme: "light" | "dark";
+          image: {
+            hash: string;
+            size: number;
+            mime: string;
+          };
+        }[] | undefined;
       } | undefined;
     } | undefined;
   };
@@ -15424,6 +15673,7 @@ type RunInfo = {
   priority: "background" | "urgent" | "interactive" | "normal";
   parent?: string | undefined;
   session?: string | undefined;
+  watched?: boolean | undefined;
 };
 ```
 
@@ -15471,6 +15721,7 @@ type RunRequest = {
     priority: "background" | "urgent" | "interactive" | "normal";
     parent?: string | undefined;
     session?: string | undefined;
+    watched?: boolean | undefined;
   };
   fn: string;
   kind: `${string}/${string}` | "native";
@@ -15575,9 +15826,53 @@ type RunRequest = {
           system: string & z.core.$brand<"SystemName">;
           instance: string & z.core.$brand<"InstanceName">;
         };
+        source?: string | undefined;
         replaces?: {
           version: string;
           manifestHash: string;
+        } | undefined;
+      } | undefined;
+      checks?: {
+        scan: {
+          size: number;
+          builtins: string[];
+          concerns: {
+            kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+            line: number;
+            detail: string;
+            code: string;
+          }[];
+          urls: string[];
+          hosts: string[];
+        };
+        tests?: {
+          system: string & z.core.$brand<"SystemName">;
+          version: string;
+          ranAt: number;
+          duration: number;
+          passed: number;
+          failed: number;
+          skipped: number;
+          cases: {
+            file: string;
+            name: string;
+            status: "failed" | "skipped" | "passed";
+            duration: number;
+            real?: boolean | undefined;
+            error?: string | undefined;
+          }[];
+          more?: number | undefined;
+          previews?: {
+            component: string;
+            state: string;
+            viewport: "phone" | "desktop";
+            theme: "light" | "dark";
+            image: {
+              hash: string;
+              size: number;
+              mime: string;
+            };
+          }[] | undefined;
         } | undefined;
       } | undefined;
     };
@@ -15866,6 +16161,32 @@ type SystemEvent = {
   type: "fns";
   added: `${string}/${string}`[];
   removed: `${string}/${string}`[];
+};
+```
+
+#### <a id="core-systemgrants"></a>`SystemGrants`
+
+const, type · declared in `packages/core/src/grants.ts`
+
+Everything a system may do through the hub and, when fs supervises it, on its machine. A system that declares no
+grants gets the base only. The hub refuses (and logs as a `RefusalRecord`) anything outside them.
+
+```ts
+type SystemGrants = {
+  hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+  models?: {
+    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+    models?: string[] | undefined;
+    perRun?: number | undefined;
+    perDay?: number | undefined;
+  } | undefined;
+  secrets?: string[] | undefined;
+  calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+  network?: string[] | undefined;
+  files?: {
+    read: string[];
+    write: string[];
+  } | undefined;
 };
 ```
 

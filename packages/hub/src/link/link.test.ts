@@ -492,7 +492,7 @@ describe('pairing granted to an approved install run (build 6)', () => {
       cost: 0, totalCost: 0, priority: 'interactive', background: false, attempt: 1, errors: [], stateChanges: [], createdAt: 0,
     });
     const subject: InstallSubject = {
-      kind: 'system-install', system: SHOP, instance: MAIN_INSTANCE, version: '1.0.0', manifestHash, bundleHash: 'b'.repeat(64), sourceHash: 's'.repeat(64),
+      kind: 'system-install', system: SHOP, instance: MAIN_INSTANCE, version: '1.0.0', manifestHash, bundleHash: 'b'.repeat(64), sourceHash: 's'.repeat(64), source: '/systems/shop',
       host: { system: fs, instance: MAIN_INSTANCE },
     };
     await rig.store.table('approvals').put({
@@ -538,7 +538,7 @@ describe('pairing granted to an approved install run (build 6)', () => {
     const bundleHash = 'd'.repeat(64);
     await rig.store.table('approvals').put({
       id: ApprovalId.parse('apr_update'), run: update, fn: q('fs/install_system'), approver: { by: 'admins' }, status: 'approved',
-      decisions: [{ by: ADMIN, approve: true, remember: 'once', at: 1 }], createdAt: 1, preview: { title: 'Update shop', parts: [], irreversible: false, subject: { ...subject, version: '1.1.0', bundleHash } },
+      decisions: [{ by: ADMIN, approve: true, remember: 'once', at: 1 }], createdAt: 1, preview: { title: 'Update shop', parts: [], irreversible: false, subject: { ...subject, version: '1.1.0', bundleHash, source: '/systems/shop2' } },
     });
     const updated = new FakeSystem(rig.app, 'shop', shopManifest, system.keys);
     await updated.connect();

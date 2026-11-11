@@ -1262,7 +1262,12 @@ const path = () => g.field(g.text({ minLength: 1 }), { docs: PATH_DOCS });
 export const COMMAND_TIMEOUT_MIN = 1_000;
 
 /** The fs system's contract. */
-export const fs = system('fs', { description: 'Files and a shell over chosen folders, served as resources. Can restart itself.' })
+export const fs = system('fs', {
+  description: 'Files and a shell over chosen folders, served as resources. Can restart itself.',
+  // its authoring agents use models; installs wait for an admin and pair what they start; it keeps each person's cwd,
+  // reads the shell setting, serves and announces resources, and shares the fns it writes
+  grants: { hub: ['ai', 'approvals', 'fns', 'state', 'settings', 'resources', 'search'], calls: ['hub/search_resources'] },
+})
   .with({
     // set by an admin in the hub; the server gets it typed when it starts
     config: g.obj({

@@ -33,12 +33,12 @@ describe('picking a database', () => {
     const named = input('paid orders', { by: 'off' }, { asked: 'database/main' });
     expect(await pickDatabase(named.input, limits)).toMatchObject({ database: 'main', by: 'asked' });
     expect(await pickDatabase(input('paid orders', { by: 'off' }, { asked: 'billing' }).input, limits)).toMatchObject({ database: 'billing', by: 'asked' });
-    expect(await pickDatabase(input('x', { by: 'off' }, { asked: 'nope' }).input, limits)).toMatchObject({ invalid: expect.stringContaining('main (Shop), billing (Billing)') });
+    expect(await pickDatabase(input('x', { by: 'off' }, { asked: 'nope' }).input, limits)).toHaveProperty('invalid', expect.stringContaining('main (Shop), billing (Billing)'));
     const only = input('anything', { by: 'off' }, { members: [shop] });
     expect(await pickDatabase(only.input, limits)).toMatchObject({ database: 'main', by: 'only' });
     expect(named.asked).toEqual([]);
     expect(only.asked).toEqual([]);
-    expect(await pickDatabase(input('x', { by: 'off' }, { members: [] }).input, limits)).toMatchObject({ invalid: expect.stringContaining('no database') });
+    expect(await pickDatabase(input('x', { by: 'off' }, { members: [] }).input, limits)).toHaveProperty('invalid', expect.stringContaining('no database'));
   });
 
   it('goes with the decision model, and asks the person when it picks none', async () => {

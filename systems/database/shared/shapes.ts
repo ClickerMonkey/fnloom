@@ -342,15 +342,21 @@ export type GeneratedTableFn = z.infer<typeof GeneratedTableFn>;
 export const TableFnsGenerated = z.object({ database: DatabaseInfo, table: z.string(), fns: z.array(GeneratedTableFn) });
 export type TableFnsGenerated = z.infer<typeof TableFnsGenerated>;
 
-/** What one instance is asked to do for a tool another instance answered (`at_instance`). */
-export const InstanceOp = z.discriminatedUnion('op', [
+/** What one instance is asked to read for a tool another instance answered (`read_at_instance`, declared read). */
+export const ReadInstanceOp = z.discriminatedUnion('op', [
   z.object({ op: z.literal('tables') }),
   z.object({ op: z.literal('check'), draft: QueryDraft }),
+  z.object({ op: z.literal('table-fns'), table: z.string().min(1) }),
+]);
+export type ReadInstanceOp = z.infer<typeof ReadInstanceOp>;
+
+/** What one instance is asked to do for a tool another instance answered (`at_instance`): the reads and the writes. */
+export const InstanceOp = z.discriminatedUnion('op', [
+  ...ReadInstanceOp.options,
   z.object({
     op: z.literal('save'), draft: QueryDraft, args: ParamValues.optional(), askedFor: z.string().optional(), replace: z.boolean().optional(),
   }),
   z.object({ op: z.literal('run'), fn: z.string().min(1), args: ParamValues.optional() }),
-  z.object({ op: z.literal('table-fns'), table: z.string().min(1) }),
   z.object({ op: z.literal('table-fns-generate'), table: z.string().min(1), names: z.array(z.string().min(1)).min(1), derived: z.array(z.string().min(1)).optional() }),
 ]);
 export type InstanceOp = z.infer<typeof InstanceOp>;

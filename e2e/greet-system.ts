@@ -2,7 +2,9 @@
  * The small system the install suite writes into `systems/greet` and installs from the chat's fs: a contract with one
  * fn (`greet/hello`), and a process that, once connected, adds at runtime a fn (`greet/shout`), a type
  * (`greet/Greeting`), a context entry (`greet/note`, whose text a hub model wrote outside any run with `hubAi`) and a
- * contribution to the database's query visuals. `version` changes the greeting, so a second install has a diff.
+ * contribution to the database's query visuals. `version` changes the greeting, so a second install has a diff. It
+ * declares the `ai` and `approvals` grants only, and two fns go past what it declared, so the hub refuses them: `peek`
+ * (declared read) proposes its write fn `wipe`, and `recall` reads a resource without the `resources` grant.
  */
 
 /** What the files are made from. */
@@ -33,7 +35,7 @@ export function greetFiles(options: GreetOptions): Record<string, string> {
       "import { fn, g, system } from '@harness/sdk';",
       '',
       '/** Greets people by name. */',
-      "export const greet = system('greet', { description: 'Greets people by name.' }).with({",
+      "export const greet = system('greet', { description: 'Greets people by name.', grants: { hub: ['ai', 'approvals'] } }).with({",
       '  fns: {',
       '    hello: fn({',
       "      description: 'Say hello to someone by name.',",
@@ -43,13 +45,16 @@ export function greetFiles(options: GreetOptions): Record<string, string> {
       '      returns: g.text(),',
       "      effects: { mode: 'read', free: true },",
       '    }),',
+      "    peek: fn({ description: 'Look at the greetings (declared read, but proposes wipe).', instructions: 'Only the e2e suite calls it.', args: g.obj({}), returns: g.text(), effects: { mode: 'read', free: true } }),",
+      "    wipe: fn({ description: 'Forget the greetings.', instructions: 'Only the e2e suite calls it.', args: g.obj({}), returns: g.text(), effects: { mode: 'write', free: true } }),",
+      "    recall: fn({ description: 'Read a note (a resource, which it did not declare).', instructions: 'Only the e2e suite calls it.', args: g.obj({}), returns: g.text(), effects: { mode: 'read', free: true } }),",
       '  },',
       '});',
       '',
     ].join('\n'),
     'server/main.ts': [
       "import { env } from '@ayepi/env';",
-      "import { GinTypeDef } from '@harness/core';",
+      "import { GinTypeDef, ResourceUri } from '@harness/core';",
       "import { fn, g } from '@harness/sdk';",
       "import { hubAi, loggedHost, serve, systemFields, systemState } from '@harness/sdk/server';",
       "import { greet } from '../shared/index.ts';",
@@ -57,7 +62,12 @@ export function greetFiles(options: GreetOptions): Record<string, string> {
       "const settings = env({ ...systemFields() }).add(systemState('greet')).parse();",
       'const { host, log } = loggedHost(greet.name);',
       'const running = await serve(greet, {',
-      `  fns: { hello: { async run(args, ctx) { return ctx.done(\`${options.word}, \${args.name}!\`); } } },`,
+      '  fns: {',
+      `    hello: { async run(args, ctx) { return ctx.done(\`${options.word}, \${args.name}!\`); } },`,
+      "    peek: { async run(_args, ctx) { await ctx.propose(greet.fns.wipe, {}, { preview: { title: 'Forget the greetings', parts: [], irreversible: false } }); return ctx.done('proposed'); } },",
+      "    wipe: { async run(_args, ctx) { return ctx.done('wiped'); } },",
+      "    recall: { async run(_args, ctx) { return ctx.done(await ctx.resources.text(ResourceUri.parse('file:///greet-note.md'))); } },",
+      '  },',
       '}, {',
       '  hub: settings.HARNESS_HUB,',
       '  state: settings.HARNESS_SYSTEM_STATE,',

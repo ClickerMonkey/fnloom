@@ -1,19 +1,21 @@
 /**
  * Boots the stack once for the whole e2e run (unless `HARNESS_E2E_URL` points at one already running): hub, fs,
- * embedder, the database fleet (`main`, a new SQLite file, and `shop`, an existing one with the fixture shop), and the
- * web system when `TAVILY_API_KEY` is set. Hands its URL and admin account to the tests through
- * vitest's `provide`. The data folder starts empty each run, so the suite is
- * repeatable. Process output goes to `<data>/stack.log`.
+ * embedder, input, the database fleet (`main`, a new SQLite file; `shop`, an existing one with the fixture shop;
+ * `work`, the projects/owners sample), and the web system when `TAVILY_API_KEY` is set. The admin goes live with the
+ * systems it paired, then its URL and admin account go to the tests through vitest's `provide`. The data folder
+ * starts empty each run, so the suite is repeatable. Process output goes to `<data>/stack.log`.
  */
 import { appendFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { liveModels } from '@harness/sdk/server/testing';
 import BetterSqlite3 from 'better-sqlite3';
 import type { TestProject } from 'vitest/node';
+import { signIn } from '../scripts/hub-client.ts';
 import { fsConfig, ROOT, startStack, type Stack } from '../scripts/stack.ts';
-import { SHOP_SQL } from '../systems/database/server/fixture.ts';
+import { PROJECTS_SQL, SHOP_SQL } from '../systems/database/server/fixture.ts';
 import type { DatabaseConfig } from '../systems/database/shared/shapes.ts';
 import { e2eEnv } from './env.ts';
+import { goLiveAll } from './review.ts';
 
 /** What both e2e databases share: writable, schema changes allowed, not enriched, for everyone. */
 const E2E_DATABASE: Pick<DatabaseConfig, 'data' | 'schema' | 'enrich' | 'audience'> = { data: 'read-write', schema: 'allowed', enrich: { on: false }, audience: { visibility: 'public', with: [] } };
@@ -37,24 +39,33 @@ export async function setup(project: TestProject): Promise<void> {
   const data = resolve(ROOT, settings.HARNESS_E2E_DATA);
   rmSync(data, { recursive: true, force: true });
   mkdirSync(data, { recursive: true });
-  const shop = join(data, 'shop.db');
-  const db = new BetterSqlite3(shop);
-  db.exec(SHOP_SQL);
-  db.close();
+  const seeded = (name: string, sql: string): string => {
+    const file = join(data, name);
+    const db = new BetterSqlite3(file);
+    db.exec(sql);
+    db.close();
+    return file;
+  };
+  const shop = seeded('shop.db', SHOP_SQL);
+  const work = seeded('work.db', PROJECTS_SQL);
   const log = join(data, 'stack.log');
   stack = await startStack({
     port: settings.HARNESS_E2E_PORT, data, admin: credentials, build: false, watch: false,
-    only: new Set(['hub', 'fs', 'embedder', 'database', ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system'] as const)]),
+    only: new Set(['hub', 'fs', 'embedder', 'database', 'input', ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system'] as const)]),
     systems: {
       fs: fsConfig(ROOT), embedder: { url: settings.HARNESS_E2E_EMBEDDER },
       databases: {
         main: { ...E2E_DATABASE, label: 'Scratch', connection: { kind: 'sqlite-new', path: 'scratch.db' } },
         shop: { ...E2E_DATABASE, label: 'Shop', connection: { kind: 'sqlite-file', path: shop } },
+        work: { ...E2E_DATABASE, label: 'Projects', connection: { kind: 'sqlite-file', path: work } },
       },
     },
     hubEnv: { HARNESS_LOG_FILES: 'false', HARNESS_DEFAULT_MODEL: liveModels()[0] ?? '' },
     output: (component, line) => { appendFileSync(log, `${component.padEnd(9)} ${line}\n`); },
   });
+  // the systems the stack paired wait for review; the admin goes live with them, as on the review page
+  const me = await signIn(stack.url, credentials);
+  try { await goLiveAll(me); } finally { me.close(); }
   project.provide('e2eHub', { url: stack.url, ...credentials });
 }
 

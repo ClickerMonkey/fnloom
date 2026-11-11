@@ -181,8 +181,8 @@ describe('a system’s own config component', () => {
     setup(props, { emit }) {
       return () => h('div', { 'data-testid': 'notes-config' }, [
         h('span', JSON.stringify(props.config)),
-        h('button', { 'data-testid': 'pick', onClick: () => emit('change', { folder: '/notes' }) }, 'Pick'),
-        h('button', { 'data-testid': 'clear', onClick: () => emit('change', { folder: '' }) }, 'Clear'),
+        h('button', { 'data-testid': 'pick', onClick: () => { emit('change', { folder: '/notes' }); } }, 'Pick'),
+        h('button', { 'data-testid': 'clear', onClick: () => { emit('change', { folder: '' }); } }, 'Clear'),
       ]);
     },
   });

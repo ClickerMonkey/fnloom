@@ -17,6 +17,7 @@ import { waitFor } from '../scripts/hub-client.ts';
 import { ROOT, startStack, type Stack } from '../scripts/stack.ts';
 import { fileUri } from '../systems/fs/server/paths.ts';
 import { fs } from '../systems/fs/shared/index.ts';
+import { goLive } from './review.ts';
 
 /** Where this test's hub runs (the packaging lane's ports and data). */
 const packageEnv = env({
@@ -77,6 +78,8 @@ describe('a packed fs fleet', () => {
       ['desk', 'fs-0.2.0.zip'],
       ['laptop', 'fs-0.2.0.zip'],
     ]);
+    // installed, it offers nothing until the admin reviews it and goes live
+    await goLive(stack.admin, FS);
   }, START * 3);
 
   it('gives each instance its own folders, and routes reads to the instance whose root holds the file', async () => {

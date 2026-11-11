@@ -358,7 +358,7 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
           return `Saved ${result.fn} (version ${result.version}). Now answer in one line.`;
         },
       });
-      const reuseDef = def.reuse;
+      const reuseDef = def.reuse?.bind(def);
       const tools: [AeyeTool, ...AeyeTool[]] = [
         draftTool.make(ai, session),
         save,

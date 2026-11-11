@@ -8,9 +8,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ActorId, Json, SystemPackageManifest, mintId, type OutcomeWire } from '@harness/core';
+import { ActorId, SystemPackageManifest, mintId, type Json, type OutcomeWire } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
-import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
+import { TEST_USER, type FakeHub } from '@harness/sdk/server/testing';
 import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { QUERY_KIND, QueryRun, database } from '../shared/index.ts';
@@ -73,7 +73,8 @@ describe('the database system over the link', () => {
     const manifest = hub.manifests[0];
     expect(manifest?.kinds.map((item) => item.name)).toEqual(['query']);
     expect(manifest?.fns.map((item) => item.name).sort()).toEqual([
-      'alter_table', 'apply_type_changes', 'at_instance', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'run_query', 'save_query', 'tables',
+      'alter_table', 'apply_type_changes', 'at_instance', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query', 'save_query',
+      'table_fns_available', 'table_fns_generate', 'tables',
     ]);
     const getQuery = manifest?.fns.find((item) => item.name === 'get_query');
     expect(getQuery).toMatchObject({ kind: 'hub/llm' });

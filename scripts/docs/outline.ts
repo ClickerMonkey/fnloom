@@ -127,7 +127,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'testing',
     title: 'Testing',
     exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal', 'FakeHubFns', 'KeptFn',
-      'FakeModelLink', 'fakeHubAi', 'replyChunks', 'FakeModelOptions', 'FakeReply'],
+      'FakeModelLink', 'fakeHubAi', 'replyChunks', 'FakeModelOptions', 'FakeReply', 'checkContextFolder', 'CheckedContext', 'KnownNames'],
   },
   { id: 'mistakes', title: 'Common mistakes', exports: [] },
   { id: 'examples', title: 'Worked examples', exports: [] },

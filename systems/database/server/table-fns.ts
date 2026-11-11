@@ -22,11 +22,14 @@ import { identifierOf, qualifiedTypeOf } from './types.ts';
 /** The tag every generated fn carries, beside `database`, `query` and its table. */
 export const GENERATED_TAG = 'generated';
 
-/** What generating needs from the run: the hub's fns as its person, and which of some names exist. */
-export interface TableFnsCtx extends Pick<QueryRunCtx, 'getFn' | 'saveFn' | 'log'> {
+/** What listing needs from the run: the hub's saved queries as its person, and which of some names exist. */
+export interface TableFnsReadCtx extends Pick<QueryRunCtx, 'getFn' | 'log'> {
   /** Which of these qualified fn names exist as saved queries (`hub/fns_search` by names). */
   existing(names: readonly string[]): Promise<Set<string>>;
 }
+
+/** What generating needs from the run: what listing needs, and saving fns in the hub as its person. */
+export interface TableFnsCtx extends TableFnsReadCtx, Pick<QueryRunCtx, 'saveFn'> {}
 
 /** The generators' tunables (`DATABASE_TABLE_FNS_DEPTH`, `DATABASE_TABLE_FNS_CAP`) and the paging every list uses. */
 export interface TableFnLimits {
@@ -59,7 +62,9 @@ function sampleOf(type: GinDef): Json | undefined {
     case 'optional': return undefined;
     case 'nullable': return null;
     case 'enum': {
-      const [first] = Object.values(type.options?.['values'] ?? {});
+      const options: unknown = type.options;
+      const values = typeof options === 'object' && options !== null && 'values' in options ? options.values : undefined;
+      const first: unknown = typeof values === 'object' && values !== null ? Object.values(values)[0] : undefined;
       return Json.safeParse(first).success ? Json.parse(first) : null;
     }
     case 'num': return 1;
@@ -120,7 +125,7 @@ export class TableFnService {
   }
 
   /** `table_fns_available`: the table's fns by group, marked as they stand in the hub, capped. */
-  async list(instance: DatabaseInstance, table: string, ctx: TableFnsCtx): Promise<TableFnsList | QueryProblem> {
+  async list(instance: DatabaseInstance, table: string, ctx: TableFnsReadCtx): Promise<TableFnsList | QueryProblem> {
     const found = this.#table(instance, table);
     if ('invalid' in found) { return found; }
     const listed = tableFns(found.spec.name, found.specs, this.#options(this.#limits.cap));
@@ -231,7 +236,7 @@ export class TableFnService {
   }
 
   /** How each listed fn stands in the hub: absent (new), made for this schema (current), or for an older one (stale). */
-  async #states(instance: DatabaseInstance, fns: readonly TableFn[], hash: string, ctx: TableFnsCtx): Promise<Map<string, { state: TableFnState; version?: number }>> {
+  async #states(instance: DatabaseInstance, fns: readonly TableFn[], hash: string, ctx: TableFnsReadCtx): Promise<Map<string, { state: TableFnState; version?: number }>> {
     const byName = new Map<string, string>(fns.map((fn) => [qualify(database.name, generatedLocal(instance.instance, fn.table, fn.name)), fn.name]));
     const existing = await ctx.existing([...byName.keys()]);
     const states = new Map<string, { state: TableFnState; version?: number }>();

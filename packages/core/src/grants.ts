@@ -9,11 +9,12 @@ import { ModelRole } from './model-calls.ts';
 import { QualifiedName, SystemName, Usd } from './primitives.ts';
 
 /**
- * The hub calls a system may make beyond the always-allowed base (hello, manifest and patch, its own runs' progress,
- * outcomes, handlers, control and logs, types and fleet). Each names a group of link endpoints:
+ * The hub calls a system may make beyond the always-allowed base (hello, manifest and patch, uploading bytes to the
+ * content store, which its client bundle needs during the handshake; its own runs' progress, outcomes, handlers,
+ * control and logs, types and fleet). Each names a group of link endpoints:
  * - `ai`: `llm`, `model`, `models` (ctx.ai(), ctx.llm)
  * - `embed`: `embed`
- * - `resources`: `resource`, `resourceSections`, `content`, `upload`, `resourcesChanged`
+ * - `resources`: `resource`, `resourceSections`, `content`, `resourcesChanged` (reading what others stored)
  * - `fns`: `call`, `usableFns`, `shareFn` (calling other fns; which ones is `SystemGrants.calls`)
  * - `search`: `searchFns`, `fnExamples`, `examples`
  * - `decide`: `decide`

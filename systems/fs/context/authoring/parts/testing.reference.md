@@ -441,3 +441,46 @@ type FakeReply = string | readonly LlmForwardChunk[];
 ```
 
 Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+
+#### `checkContextFolder`
+
+function · `import { checkContextFolder } from '@harness/sdk/server'`
+
+Check a system's context folder (`dir`, usually `<system>/context`): the SDK reader's checks, then every link and
+every `imports` cycle. `label` names files in problems (default `context`).
+
+```ts
+function checkContextFolder(dir: string, known: KnownNames, label?: string): Promise<CheckedContext>;
+```
+
+#### `CheckedContext`
+
+interface · `import { CheckedContext } from '@harness/sdk/server'`
+
+A checked folder: its files, and every problem in it.
+
+```ts
+interface CheckedContext {
+  readonly files: readonly ContextFile[];
+  readonly problems: readonly ContextFileProblem[];
+}
+```
+
+Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+
+#### `KnownNames`
+
+interface · `import { KnownNames } from '@harness/sdk/server'`
+
+The names a context folder may link to.
+
+```ts
+interface KnownNames {
+  /** The system the folder belongs to: its keys are qualified with it. */
+  readonly system: string;
+  /** Fns it may link to, qualified (its own and others'). */
+  readonly fns: ReadonlySet<string>;
+  /** Context it may link to besides its own files, qualified (its contract's and others'). */
+  readonly context: ReadonlySet<string>;
+}
+```

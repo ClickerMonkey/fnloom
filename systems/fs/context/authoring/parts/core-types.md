@@ -121,9 +121,53 @@ type ApprovalPreview = {
       system: string & z.core.$brand<"SystemName">;
       instance: string & z.core.$brand<"InstanceName">;
     };
+    source?: string | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
+    } | undefined;
+  } | undefined;
+  checks?: {
+    scan: {
+      size: number;
+      builtins: string[];
+      concerns: {
+        kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+        line: number;
+        detail: string;
+        code: string;
+      }[];
+      urls: string[];
+      hosts: string[];
+    };
+    tests?: {
+      system: string & z.core.$brand<"SystemName">;
+      version: string;
+      ranAt: number;
+      duration: number;
+      passed: number;
+      failed: number;
+      skipped: number;
+      cases: {
+        file: string;
+        name: string;
+        status: "failed" | "skipped" | "passed";
+        duration: number;
+        real?: boolean | undefined;
+        error?: string | undefined;
+      }[];
+      more?: number | undefined;
+      previews?: {
+        component: string;
+        state: string;
+        viewport: "phone" | "desktop";
+        theme: "light" | "dark";
+        image: {
+          hash: string;
+          size: number;
+          mime: string;
+        };
+      }[] | undefined;
     } | undefined;
   } | undefined;
 };
@@ -194,9 +238,53 @@ type ApprovedRun = {
         system: string & z.core.$brand<"SystemName">;
         instance: string & z.core.$brand<"InstanceName">;
       };
+      source?: string | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
+      } | undefined;
+    } | undefined;
+    checks?: {
+      scan: {
+        size: number;
+        builtins: string[];
+        concerns: {
+          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+          line: number;
+          detail: string;
+          code: string;
+        }[];
+        urls: string[];
+        hosts: string[];
+      };
+      tests?: {
+        system: string & z.core.$brand<"SystemName">;
+        version: string;
+        ranAt: number;
+        duration: number;
+        passed: number;
+        failed: number;
+        skipped: number;
+        cases: {
+          file: string;
+          name: string;
+          status: "failed" | "skipped" | "passed";
+          duration: number;
+          real?: boolean | undefined;
+          error?: string | undefined;
+        }[];
+        more?: number | undefined;
+        previews?: {
+          component: string;
+          state: string;
+          viewport: "phone" | "desktop";
+          theme: "light" | "dark";
+          image: {
+            hash: string;
+            size: number;
+            mime: string;
+          };
+        }[] | undefined;
       } | undefined;
     } | undefined;
   };
@@ -254,6 +342,21 @@ type ChatModeConfig = {
   protocol: "text" | "auto" | "native";
   placement: "system-end" | "tail";
   loadDetail: "signature" | "listed" | "full";
+};
+```
+
+#### <a id="core-configcomponentdecl"></a>`ConfigComponentDecl`
+
+const, type · declared in `packages/core/src/grants.ts`
+
+A system's own config component (a Vue component exported by its client bundle under `component`). `replace` draws
+it instead of the gin form; `beside` draws it under the form. It gets the config, its gin type, a validate callback
+and the system's client; the hub still checks the value with the gin type before saving.
+
+```ts
+type ConfigComponentDecl = {
+  component: string;
+  mode: "replace" | "beside";
 };
 ```
 
@@ -1407,7 +1510,7 @@ type LlmForwardChunk = {
       name: string;
       arguments: string;
     } | undefined;
-    finishReason?: "length" | "stop" | "refusal" | "tool_calls" | "content_filter" | undefined;
+    finishReason?: "refusal" | "length" | "stop" | "tool_calls" | "content_filter" | undefined;
     refusal?: string | undefined;
     usage?: {
       input: number;
@@ -1833,6 +1936,26 @@ type Manifest = {
   }[] | undefined;
   configSecrets?: string[] | undefined;
   runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
+  grants?: {
+    hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+    models?: {
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+      models?: string[] | undefined;
+      perRun?: number | undefined;
+      perDay?: number | undefined;
+    } | undefined;
+    secrets?: string[] | undefined;
+    calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+    network?: string[] | undefined;
+    files?: {
+      read: string[];
+      write: string[];
+    } | undefined;
+  } | undefined;
+  configComponent?: {
+    component: string;
+    mode: "replace" | "beside";
+  } | undefined;
 };
 ```
 
@@ -2595,6 +2718,7 @@ type PairingGrantRequest = {
       system: string & z.core.$brand<"SystemName">;
       instance: string & z.core.$brand<"InstanceName">;
     };
+    source?: string | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
@@ -2692,9 +2816,53 @@ type PreviewAnswer = {
         system: string & z.core.$brand<"SystemName">;
         instance: string & z.core.$brand<"InstanceName">;
       };
+      source?: string | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
+      } | undefined;
+    } | undefined;
+    checks?: {
+      scan: {
+        size: number;
+        builtins: string[];
+        concerns: {
+          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+          line: number;
+          detail: string;
+          code: string;
+        }[];
+        urls: string[];
+        hosts: string[];
+      };
+      tests?: {
+        system: string & z.core.$brand<"SystemName">;
+        version: string;
+        ranAt: number;
+        duration: number;
+        passed: number;
+        failed: number;
+        skipped: number;
+        cases: {
+          file: string;
+          name: string;
+          status: "failed" | "skipped" | "passed";
+          duration: number;
+          real?: boolean | undefined;
+          error?: string | undefined;
+        }[];
+        more?: number | undefined;
+        previews?: {
+          component: string;
+          state: string;
+          viewport: "phone" | "desktop";
+          theme: "light" | "dark";
+          image: {
+            hash: string;
+            size: number;
+            mime: string;
+          };
+        }[] | undefined;
       } | undefined;
     } | undefined;
   };
@@ -3083,6 +3251,7 @@ type RunInfo = {
   priority: "background" | "urgent" | "interactive" | "normal";
   parent?: string | undefined;
   session?: string | undefined;
+  watched?: boolean | undefined;
 };
 ```
 
@@ -3130,6 +3299,7 @@ type RunRequest = {
     priority: "background" | "urgent" | "interactive" | "normal";
     parent?: string | undefined;
     session?: string | undefined;
+    watched?: boolean | undefined;
   };
   fn: string;
   kind: `${string}/${string}` | "native";
@@ -3234,9 +3404,53 @@ type RunRequest = {
           system: string & z.core.$brand<"SystemName">;
           instance: string & z.core.$brand<"InstanceName">;
         };
+        source?: string | undefined;
         replaces?: {
           version: string;
           manifestHash: string;
+        } | undefined;
+      } | undefined;
+      checks?: {
+        scan: {
+          size: number;
+          builtins: string[];
+          concerns: {
+            kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+            line: number;
+            detail: string;
+            code: string;
+          }[];
+          urls: string[];
+          hosts: string[];
+        };
+        tests?: {
+          system: string & z.core.$brand<"SystemName">;
+          version: string;
+          ranAt: number;
+          duration: number;
+          passed: number;
+          failed: number;
+          skipped: number;
+          cases: {
+            file: string;
+            name: string;
+            status: "failed" | "skipped" | "passed";
+            duration: number;
+            real?: boolean | undefined;
+            error?: string | undefined;
+          }[];
+          more?: number | undefined;
+          previews?: {
+            component: string;
+            state: string;
+            viewport: "phone" | "desktop";
+            theme: "light" | "dark";
+            image: {
+              hash: string;
+              size: number;
+              mime: string;
+            };
+          }[] | undefined;
         } | undefined;
       } | undefined;
     };
@@ -3525,6 +3739,32 @@ type SystemEvent = {
   type: "fns";
   added: `${string}/${string}`[];
   removed: `${string}/${string}`[];
+};
+```
+
+#### <a id="core-systemgrants"></a>`SystemGrants`
+
+const, type · declared in `packages/core/src/grants.ts`
+
+Everything a system may do through the hub and, when fs supervises it, on its machine. A system that declares no
+grants gets the base only. The hub refuses (and logs as a `RefusalRecord`) anything outside them.
+
+```ts
+type SystemGrants = {
+  hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+  models?: {
+    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+    models?: string[] | undefined;
+    perRun?: number | undefined;
+    perDay?: number | undefined;
+  } | undefined;
+  secrets?: string[] | undefined;
+  calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+  network?: string[] | undefined;
+  files?: {
+    read: string[];
+    write: string[];
+  } | undefined;
 };
 ```
 

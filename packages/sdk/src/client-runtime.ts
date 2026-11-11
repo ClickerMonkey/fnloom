@@ -416,7 +416,7 @@ export class ClientRuntime {
         config: wire.config === undefined ? undefined : this.#decode(name, () => parseValue(type, wire.config)),
         type,
         validate: (value) => Promise.resolve().then(() => wire.validate(encodeValue(type, value))),
-        change: (value) => wire.change(encodeValue(type, value)),
+        change: (value) => { wire.change(encodeValue(type, value)); },
         system: this.systemClient(system),
       },
     };

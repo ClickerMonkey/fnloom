@@ -98,8 +98,7 @@ describe('calls and modes', () => {
     await rig.grants.check(LINK, 'call', { parent: writer.id, fn: 'notes/read' });
     expect(await refused(rig.grants.check(LINK, 'call', { parent: writer.id, fn: 'notes/wipe' }))).toContain('which can delete');
     expect(await refused(rig.grants.check(LINK, 'propose', { parent: reader.id, fn: 'write', args: {}, key: 'k', approver: 'person' }))).toBe('notes/read is declared read and tried notes/write, which can write');
-  });
-});
+  });});
 
 describe('models and spend', () => {
   it('refuses a model or role not declared, and a run or day past its cap', async () => {

@@ -139,7 +139,11 @@ const GET_INPUT_USAGE = [
 ].join(' ');
 
 /** The input system's contract. */
-export const input = system('input', { description: 'Ask the person for input with forms in the chat, made to fit what is needed, and keep good forms in the hub for next time.' })
+export const input = system('input', {
+  description: 'Ask the person for input with forms in the chat, made to fit what is needed, and keep good forms in the hub for next time.',
+  // get_input is an agent on a model; saved forms are hub fns it searches, reads and saves
+  grants: { hub: ['ai', 'fns', 'search'], calls: ['hub/fn_get', 'hub/fns_search', 'hub/save_fn'] },
+})
   .with({
     kinds: {
       form: kind({

@@ -48,6 +48,11 @@ interface ClientRenderers<C extends ContractShape> {
    * the contract's `contributes`, which is how the hub and the web app know to load this bundle for that registry.
    */
   visuals?: Readonly<Record<QualifiedName, Readonly<Record<string, VisualEntry<C>>>>>;
+  /**
+   * Config components by name. The one the contract's `configComponent` names is drawn for the system's config; it must
+   * be here, and every component here must be the one named.
+   */
+  configs?: Readonly<Record<string, Renderer<ConfigView<Infer<C['config']>> & WithSystem<C>>>>;
 }
 ```
 
@@ -513,6 +518,7 @@ interface AnyViews {
   input: WithSystem<ContractShape>;
   mention: MentionView<unknown> & WithSystem<ContractShape>;
   resource: ResourceView & WithSystem<ContractShape>;
+  config: ConfigView<unknown> & WithSystem<ContractShape>;
 }
 ```
 

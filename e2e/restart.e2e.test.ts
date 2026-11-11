@@ -15,6 +15,7 @@ import { waitFor } from '../scripts/hub-client.ts';
 import { fsConfig, ROOT, startStack, type Stack } from '../scripts/stack.ts';
 import { fs } from '../systems/fs/shared/index.ts';
 import { Approver, clientInfo, finished, SessionWatch, settings } from './kit.ts';
+import { goLive } from './review.ts';
 
 const FS = SystemName.parse('fs');
 const RESTART = QualifiedName.parse('fs/restart');
@@ -55,6 +56,8 @@ beforeAll(async () => {
     const view = await fsView();
     return view?.status === 'connected' && !view.needsConfig && view.installed?.status === 'running' ? view : undefined;
   }, { timeout: START, every: 500 });
+  // a newly installed system offers nothing until the admin goes live with it
+  await goLive(stack.admin, FS);
   const session = await stack.admin.hub.call('createSession', { title: 'restart' });
   watch = new SessionWatch(stack.admin, session.id);
   approver = new Approver(stack.admin, watch);
