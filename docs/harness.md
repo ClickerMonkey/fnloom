@@ -1075,6 +1075,11 @@ Already checked: type-checking all of the types and examples takes about two sec
   - **Systems use aeye with the hub as the provider:** `ctx.ai()` / `hubAi()` returns a full `@aeye/ai` instance, in or
     out of runs. It lists the hub's real models and roles with their capabilities. The hub attributes every call,
     enforces access and budgets, and records it.
+  - **Context folders:** a system's `context/` folder holds markdown files, each with a YAML header (any context
+    metadata) and then its content. The build checks them and fails on broken fn or context links. They are served to
+    the hub keyed by a stable, readable key that people never see. Context links (loads, next choices) always load
+    through `load_context`, so a small model can walk a large choose-your-own-adventure graph. The API is organised the
+    same way: grouped, indexed and searchable, never one huge flat list.
   - **A context brings the fns its work needs:** the hub adds them to the turn, and the context's text names them and
     says how to use them. For example, fs authoring brings bash, read, write and edit.
   - **A system the chat writes is installed from the chat, not the console.** The plan is in
