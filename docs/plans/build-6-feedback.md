@@ -50,3 +50,19 @@ What to fix:
 - **A refused command is a 4xx with the reason the person can read** ("/x can't be used now: …"), not a 500 shown as
   "The hub had a problem". Look for other ChatErrors (and other expected refusals) that come back as 500s.
 - **A test** sends a message with a memory's `/command`.
+
+> And also a fn should declare if it creates things like fns of a certain type, context ,etc. so the chat agent knows it has those side effects
+
+- **Declared effects:** a fn declares what it creates, updates or removes in the hub. Each entry gives:
+  - the kind of thing: fns (optionally of a given fn kind, e.g. `database/query`), types, context, resources, kinds,
+    components, examples, runs awaiting approval, secrets or connections
+  - the action: create, update or remove
+
+  It sits beside the fn facts: reads/writes types, mode, and free or not.
+- **The kind can declare them too.** For example, `get_query` creates `database/query` fns, `save_form` creates
+  `input/form` fns, and `table_fns_generate` creates and updates `database/query` fns. Fns that use other fns get the
+  effects of what they use, worked out deeply like the other fn facts.
+- **The chat model sees them** in the fn's description, in one short line. Examples: "Creates fns (database/query)."
+  and "Adds context.". `fns_search` can filter on them. The chat mode and the auto classifier take them into account.
+- **The hub checks them:** if a fn makes a runtime registry change it didn't declare, the change is refused (or
+  logged in dev). Tested.

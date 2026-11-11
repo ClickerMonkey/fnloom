@@ -1087,6 +1087,10 @@ Already checked: type-checking all of the types and examples takes about two sec
     and later API and code). Inside it, a sub-agent on `ctx.ai()` follows a forced tool workflow with progressive
     disclosure of types, schemas and examples, so the huge context stays inside the fn. It ports product's tested
     logic and runs on one reusable SDK authoring-agent helper.
+  - **Fns declare their effects:** what they create, update or remove in the hub (fns of a given kind, types, context,
+    resources, components, examples, pending runs, secrets). Effects are worked out deeply, like the other fn facts. The
+    chat model sees them in one line of the fn's description, search can filter on them, and the hub refuses changes a
+    fn didn't declare.
   - **Generated table fns:** for any table type, one fn lists every fn that could be generated (CRUD: create,
     update, updateWhere, remove, removeWhere, selectOne, selectPage; and helpers from its columns and foreign keys:
     aggregates, group-bys, date buckets, lookups, parent/child, and relation-derived fields with normalized ranks and
