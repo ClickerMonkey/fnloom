@@ -79,6 +79,8 @@ rules are in the "Decided" section of `docs/harness.md`.
   table's schema hash changes.
   - **Writes:** fns that write go through approval as usual.
   - **Visibility:** generated fns get the instance's visibility. The admin can change each one.
+- **Owner: "No model involved for those, but authoring generic queries - yes".** The generated table fns are plain
+  code. Generic queries (`get_query` / `edit_query`) stay model-driven: the authoring agent of section 1.
 - **One pattern for every generator:** it's the authoring pattern of section 1, made deterministic (no LLM needed) and
   library-backed: the generators live in `@aeye/query`, beside `tableToQueryType`. Product's auto-CRUD is the
   prior art; port its tested parts.
