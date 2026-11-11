@@ -1072,6 +1072,9 @@ Already checked: type-checking all of the types and examples takes about two sec
     artifact.
   - **Frontend logs and traffic** go to the hub as per-person resources. A new file starts on size, or after 5
     minutes of quiet.
+  - **Systems use aeye with the hub as the provider:** `ctx.ai()` / `hubAi()` returns a full `@aeye/ai` instance, in or
+    out of runs. It lists the hub's real models and roles with their capabilities. The hub attributes every call,
+    enforces access and budgets, and records it.
   - **A context brings the fns its work needs:** the hub adds them to the turn, and the context's text names them and
     says how to use them. For example, fs authoring brings bash, read, write and edit.
   - **A system the chat writes is installed from the chat, not the console.** The plan is in

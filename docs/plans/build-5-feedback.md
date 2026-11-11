@@ -121,3 +121,20 @@ departure there and close each one that the feedback phase didn't already fix. M
 - **Naming:**
   - Make hub fn and endpoint names consistent.
   - The `{ input: ... }` wrapper goes.
+
+## Systems use aeye through the hub (owner, follow-up, 2026-11-10)
+
+> I also wanted systems to use the aeye library for free with the hub as the provider - can it? There should be a function a system can use to get an AI instance hooked up to the hub. Some of my future systems will need this flexibility
+
+What exists: the SDK's `HarnessProvider` is an aeye provider that forwards to the hub. `harnessAi(config)` builds the
+`AI` with it, and `harnessAiOf(ctx.llm)` returns it inside a run. It falls short in three ways:
+
+- **One function, anywhere:** `ctx.ai()` (and a top-level `hubAi(system)`) returns an `@aeye/ai` instance backed by the
+  hub. It works inside runs and outside them: lifecycle hooks, background jobs, timers. Each call is attributed to the
+  system, and to the run, person and session when they're known. The hub accepts calls outside runs under the
+  system's own budget and limits, and records them as ModelCalls. Tests get a fake with the same type.
+- **Real models:** the provider's `listModels` returns the hub's real models (and model roles) with their
+  capabilities, costs and limits. aeye's own model selection, capability checks and features (tools, structured
+  output, streaming, images, speech, embeddings, agents and prompts) then work unchanged. A system can name a model or
+  a role in the normal aeye way. The hub still decides access and budgets.
+- **Documented** in AUTHORING.md as the way to use AI from a system, with an example.
