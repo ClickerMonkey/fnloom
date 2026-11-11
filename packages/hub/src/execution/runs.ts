@@ -749,6 +749,11 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   /** Who and when a run is for. */
+  /** Who and when a run is for, as its system reads it (`RunInfo`). */
+  info(run: Run): Promise<RunInfo> {
+    return this.#info(run);
+  }
+
   async #info(run: Run, known?: Turn): Promise<RunInfo> {
     const turn = known ?? (await this.#turn(run));
     const parent = run.parent === undefined ? undefined : await this.get(run.parent);

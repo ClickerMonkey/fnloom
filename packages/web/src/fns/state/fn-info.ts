@@ -4,7 +4,7 @@
  * The chat's fn modal and the fn page show the same store. A settled run of the fn (the user channel's `fn` event)
  * reads its facts again quietly, so the run times follow.
  */
-import { splitName, SystemName, type FnExampleView, type FnFacts, type FnSearchHit, type QualifiedName, type UserEvent } from '@harness/core';
+import { type FnExampleView, type FnFacts, type FnSearchHit, type QualifiedName, type UserEvent } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded } from '../../state/loaded.ts';
@@ -13,8 +13,6 @@ import type { FnsApi } from '../api.ts';
 
 /** How many examples a page holds. */
 export const EXAMPLES_PAGE = 5;
-/** How many hits the search for the fn's own record reads (its name is searched by words, in its system). */
-const FIND_LIMIT = 20;
 
 /** One fn's view. */
 export class FnInfoStore {
@@ -84,11 +82,8 @@ export class FnInfoStore {
   }
 
   async #loadAbout(fn: QualifiedName, quiet: boolean): Promise<void> {
-    const { system, local } = splitName(fn);
     await this.about.load(async () => {
-      const page = await this.#api.searchFns.call({
-        text: local, match: 'text', items: ['fn'], systems: [SystemName.parse(system)], available: false, limit: FIND_LIMIT,
-      });
+      const page = await this.#api.searchFns.call({ names: [fn], items: ['fn'], available: false, limit: 1 });
       return page.items.find((hit) => hit.name === fn);
     }, "Couldn't load this fn.", quiet);
   }

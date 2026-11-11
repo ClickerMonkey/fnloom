@@ -27,7 +27,8 @@ export interface FnSignature {
 
 /** Asks a kind's system to check and describe a payload (over the link). */
 export interface KindDescriber {
-  describe(kind: QualifiedName, payload: Json): Promise<{ problems: string[]; description?: KindDescription | undefined }>;
+  /** Describe a payload of a kind; `instance` is the fleet instance the fn belongs to (`routing.to = 'instance'`), which knows its tables. */
+  describe(kind: QualifiedName, payload: Json, instance?: InstanceName): Promise<{ problems: string[]; description?: KindDescription | undefined }>;
 }
 
 /** One entry of a manifest section, qualified by its system. */

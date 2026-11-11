@@ -54,7 +54,7 @@ describe('a fn view', () => {
     const store = new FnInfoStore(api, events.subscribe);
     await store.open(SAMPLE_FN);
     expect(store.about.value.value).toEqual(SAMPLE_HIT);
-    expect(api.searchFns.calls[0]?.[0]).toMatchObject({ text: 'bash', systems: ['fs'], available: false });
+    expect(api.searchFns.calls[0]?.[0]).toEqual({ names: [SAMPLE_FN], items: ['fn'], available: false, limit: 1 });
     expect(store.facts.value.value).toEqual(SAMPLE_FACTS);
     expect(store.examples.value).toHaveLength(5);
     expect(store.examplesNext.value).toBe(5);

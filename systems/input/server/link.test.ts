@@ -73,7 +73,9 @@ describe('input over the link', () => {
     expect(done(await hub.run('input/check_form', { form: { ...TRIP, type: { name: 'obj', props: { a: { type: { name: 'color' } } } } } }))).toMatchObject({ ok: false, problems: [expect.stringContaining('"color"')] });
     const check = (result: Json) => hub.peer().call('validate', { phase: 'output', run: hub.runInfo('input/get_input'), fn: 'get_input', args: { detailedDescription: 'x' }, result, attempt: 1 });
     expect(await check({ form: TRIP, next: WAIT_FOR_ANSWERS })).toEqual({ ok: true });
-    expect(await check({ form: { ...TRIP, type: { name: 'text' } }, next: WAIT_FOR_ANSWERS })).toMatchObject({ ok: false, action: 'retry', reason: expect.stringContaining('check_form') });
+    const refused = await check({ form: { ...TRIP, type: { name: 'text' } }, next: WAIT_FOR_ANSWERS });
+    expect(refused).toMatchObject({ ok: false, action: 'retry' });
+    expect(refused).toHaveProperty('reason', expect.stringContaining('check_form'));
   });
 
   it('asks quick questions as one-field forms, and refuses a choice of one', async () => {

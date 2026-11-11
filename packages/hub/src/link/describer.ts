@@ -1,5 +1,5 @@
 /** Kinds describe their fns on their own system: the hub asks it over the link (`check`). */
-import { splitName, type Json, type KindDescription, type QualifiedName } from '@harness/core';
+import { splitName, SystemName, type InstanceName, type Json, type KindDescription, type QualifiedName } from '@harness/core';
 import type { KindDescriber } from '../catalog/index.ts';
 import type { LinkService } from './index.ts';
 
@@ -8,7 +8,10 @@ export class KindUnreachable extends Error {
   override readonly name = 'KindUnreachable';
 }
 
-/** Asks the connected system that defines a kind to check and describe a payload. */
+/**
+ * Asks the connected system that defines a kind to check and describe a payload: the fn's own instance when it belongs
+ * to one (a database's saved query is described where its tables are), else the system's default connection.
+ */
 export class LinkKindDescriber implements KindDescriber {
   readonly #links: LinkService;
 
@@ -16,10 +19,11 @@ export class LinkKindDescriber implements KindDescriber {
     this.#links = links;
   }
 
-  async describe(kind: QualifiedName, payload: Json): Promise<{ problems: string[]; description?: KindDescription | undefined }> {
+  async describe(kind: QualifiedName, payload: Json, instance?: InstanceName): Promise<{ problems: string[]; description?: KindDescription | undefined }> {
     const { system, local } = splitName(kind);
-    const connection = this.#links.connected().find((c) => c.system === system);
-    if (connection === undefined) { throw new KindUnreachable(`${system} is not connected, so ${kind} can't describe a payload`); }
+    const name = SystemName.parse(system);
+    const connection = this.#links.connection(name, instance);
+    if (connection === undefined) { throw new KindUnreachable(`${instance === undefined ? system : `${system} ${instance}`} is not connected, so ${kind} can't describe a payload`); }
     return connection.peer.call('check', { kind: local, payload });
   }
 }

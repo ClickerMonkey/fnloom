@@ -1,5 +1,5 @@
 import { fn, g } from '@harness/sdk';
-import { ActorId, PolicyId, QualifiedName, RunId, SystemName, TurnId, type FnRecord, type Policy, type RunSettled } from '@harness/core';
+import { ActorId, OWN_TAG, PolicyId, QualifiedName, RunId, SystemName, TurnId, type FnRecord, type Policy, type RunSettled } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import { RunDeciders } from './deciders.ts';
@@ -13,7 +13,10 @@ const RUN = RunId.parse('run_1');
 const TRN = TurnId.parse('trn_1');
 
 const catalog = new TestCatalog();
+const SHOP_ACTOR = ActorId.parse('act_shop');
 const write = catalog.add('fs', 'write', fn({ description: 'Write.', args: g.obj({ path: g.text() }), returns: g.bool(), tags: ['files'] }));
+const save = catalog.add('hub', 'save_fn', fn({ description: 'Save a fn of the kind the calling system owns.', args: g.obj({ name: g.text() }), returns: g.bool(), tags: [OWN_TAG] }));
+const query = catalog.add('shop', 'orders', fn({ description: 'Orders.', args: g.obj({}), returns: g.text(), effects: { mode: 'read' } }));
 const read = catalog.add('fs', 'read', fn({ description: 'Read.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read', 'files'] }));
 
 const alice: ActorFacts = { id: ALICE, kind: 'user', groups: new Set([ENG]) };
@@ -80,14 +83,22 @@ describe('the policy engine', () => {
   }
   const ask = { actor: ALICE, turnUser: ALICE, args: {}, session: SESSION, run: RUN, caller: BOB };
 
-  it('allows read fns and agents, and asks the turn user for the rest', async () => {
+  it('allows read fns (by tag or effects) and agents, and asks the turn user for the rest', async () => {
     const { policies, bus } = await engine();
     expect(await policies.decide({ ...ask, fn: read.name })).toEqual({ effect: 'allow' });
+    expect(await policies.decide({ ...ask, fn: query.name })).toEqual({ effect: 'allow' });
     const asked = await policies.decide({ ...ask, fn: write.name });
     expect(asked).toMatchObject({ effect: 'ask', approval: { run: RUN, fn: 'fs/write', status: 'pending', approver: { by: 'turn-user' } } });
     expect(bus.of('approval')[0]).toMatchObject({ approvers: [ALICE], session: SESSION });
     expect(await policies.decide({ ...ask, fn: write.name, caller: ALICE })).toEqual({ effect: 'allow' });
     expect(await policies.decide({ ...ask, fn: 'fs/none' })).toMatchObject({ effect: 'deny' });
+  });
+
+  it('allows a system calling a hub fn that changes only what it owns, and asks anyone else', async () => {
+    const { policies, store } = await engine();
+    await store.table('actors').put({ id: SHOP_ACTOR, kind: 'system', name: 'shop', about: '', disabled: false, system: SystemName.parse('shop'), createdAt: 0 });
+    expect(await policies.decide({ ...ask, fn: save.name, caller: SHOP_ACTOR })).toEqual({ effect: 'allow' });
+    expect(await policies.decide({ ...ask, fn: save.name })).toMatchObject({ effect: 'ask' });
   });
 
   it('turns "always" into a policy, and remembers "for this session"', async () => {

@@ -40,7 +40,7 @@ const settings = devSettings.parse();
 const DEV_DATABASE = {
   label: 'Dev database', connection: { kind: 'sqlite-new', path: 'dev.db' }, data: 'read-write', schema: 'allowed', enrich: { on: false },
   audience: { visibility: 'private', with: [] },
-} as const satisfies NonNullable<Parameters<typeof startStack>[0]['systems']['database']>;
+} as const satisfies NonNullable<Parameters<typeof startStack>[0]['systems']['databases']>[string];
 
 const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, calendar: 95, database: 96 } as const satisfies Record<ComponentName, number>;
 const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
@@ -63,7 +63,7 @@ const stack = await startStack({
   systems: {
     fs: fsConfig(settings.HARNESS_DEV_ROOT ?? ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL },
     ...(google === undefined ? {} : { calendar: { ...google, hubUrl: `http://127.0.0.1:${settings.HARNESS_PORT}` } }),
-    ...(only.has('database') ? { database: DEV_DATABASE } : {}),
+    ...(only.has('database') ? { databases: { main: DEV_DATABASE } } : {}),
   },
   output: (component, line, stream) => {
     (stream === 'err' ? process.stderr : process.stdout).write(`\u001b[${COLOURS[component]}m${component.padEnd(9)}\u001b[0m ${line}\n`);

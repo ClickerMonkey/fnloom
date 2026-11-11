@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMIN_TAG, ChatModeConfig, ContextorConfig, READ_TAG, resourcesSlice } from '@harness/core';
+import { ADMIN_TAG, ChatModeConfig, ContextorConfig, OWN_TAG, READ_TAG, resourcesSlice } from '@harness/core';
 import { agent } from './agent.ts';
 import { encodeValue, g, parseValue } from './gin.ts';
 import type { AnyFnDef } from './fn.ts';
@@ -15,11 +15,13 @@ describe('the hub contract', () => {
     expect(manifest.sectioners.map((s) => s.name)).toContain('tables');
   });
 
-  it('tags every web read `read`, every admin write `admin`, and leaves the other writes to ask', () => {
+  it('tags every web read `read`, every admin write `admin`, the writes a system makes for itself `own`, and leaves the other writes to ask', () => {
     const fns: Readonly<Record<string, AnyFnDef | undefined>> = hub.defs.fns;
     for (const name of Object.keys(HUB_READ_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([READ_TAG]); }
     for (const name of Object.keys(ADMIN_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([ADMIN_TAG]); }
-    for (const name of Object.keys(HUB_WRITE_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([]); }
+    // a system keeping what it fetched (resource_import) or saving a fn of its own kind (save_fn) is `own`: a system's call asks nobody
+    for (const name of Object.keys(HUB_WRITE_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual(name === 'resource_import' ? [OWN_TAG] : []); }
+    expect(hub.defs.fns.save_fn.tags).toEqual([OWN_TAG]);
     for (const name of ['find', 'inspect', 'load', 'unload', 'resource_outline', 'resource_send']) { expect(fns[name]?.tags, name).toEqual([READ_TAG]); }
     expect(hub.defs.fns.mint_mcp_token.tags).toEqual([ADMIN_TAG]);
   });

@@ -4289,7 +4289,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/fns_search`: Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
 
   ```text
-  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, available?, order?, offset?, limit? … }) => obj{
+  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, names?, available?, order?, offset?, limit? … }) => obj{
     items: list<obj{
       item: enum<text>{fn, context},
       name: text,
@@ -4341,7 +4341,7 @@ This is the hub contract as the SDK declares it now:
     available: bool
   }
   ```
-- `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history.
+- `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
 
   ```text
   (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text, version: num{min=1, whole=true}, created: bool}
@@ -4677,7 +4677,7 @@ This is the hub contract as the SDK declares it now:
     createdAt: num{whole=true}
   }
   ```
-- `hub/resource_import`: Import a URL or uploaded content as a hub resource, kept and converted by the hub.
+- `hub/resource_import`: Import a URL or uploaded content as a hub resource, kept and converted by the hub. Tags: `own`.
 
   ```text
   (obj{
@@ -8333,7 +8333,7 @@ class FakeHubFns {
   settle(call: HubCall): RunSettled | undefined;
   /** Keep a fn as `hub/save_fn` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
   save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.save_fn.returns>;
-  /** Search the kept fns as the link's `searchFns` does, by words, with the kind, system and instance filters. */
+  /** Search the kept fns as the link's `searchFns` does, by words, with the kind, system, instance and name filters. */
   search(query: FnSearchQuery): FnSearchPage;
   /** A page of a kept fn's examples, as the link's `fnExamples` gives it (in their saved order). */
   examples(query: FnExamplesQuery): FnExamplesPage;
@@ -11776,7 +11776,8 @@ const, type · declared in `packages/core/src/fn-facts.ts`
 A search over fns and context, done in the hub's database. Without `text` it lists what the filters let through,
 by name. Every filter narrows: `kinds` (the fn kinds, such as `input/form` or `database/query`), `systems`,
 `instance` (a fleet instance's own fns), `visibility` (what the asker shares: `mine` they own, `shared` others gave
-them), `types` (fns that read or write any of these named types), and `modes` (fns of these modes).
+them), `types` (fns that read or write any of these named types), `modes` (fns of these modes), and `names` (exactly
+these fns and context items, to look up their hits by name).
 
 ```ts
 type FnSearchQuery = {
@@ -11792,6 +11793,7 @@ type FnSearchQuery = {
     writes?: `${string}/${string}`[] | undefined;
   } | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
+  names?: `${string}/${string}`[] | undefined;
   available?: boolean | undefined;
   order?: "score" | "alphabetical" | undefined;
   offset?: number | undefined;

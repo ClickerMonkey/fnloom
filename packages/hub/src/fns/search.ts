@@ -66,7 +66,7 @@ export class StoreFnSearch implements FnSearch {
    * checked instead.
    */
   async #candidates(query: FnSearchQuery, items: readonly SearchItemKind[]): Promise<Candidate[] | undefined> {
-    if (query.systems === undefined && !fnOnly(query)) return undefined;
+    if (query.systems === undefined && query.names === undefined && !fnOnly(query)) return undefined;
     const cap = this.#deps.tuning.HARNESS_FN_SEARCH_CANDIDATES;
     const store = this.#deps.store();
     const out: Candidate[] = [];
@@ -77,6 +77,7 @@ export class StoreFnSearch implements FnSearch {
         ...(query.kinds === undefined ? {} : { kind: { in: query.kinds } }),
         ...(query.modes === undefined ? {} : { mode: { in: query.modes } }),
         ...(query.instance === undefined ? {} : { instance: query.instance }),
+        ...(query.names === undefined ? {} : { fn: { in: query.names } }),
       };
       for await (const row of rows(store.table('fnFacts'), { where, order: [['fn', 'asc']] })) {
         if (typed !== undefined && !typed.has(row.fn)) continue;
@@ -84,8 +85,12 @@ export class StoreFnSearch implements FnSearch {
         if (out.length > cap) return undefined;
       }
     }
-    if (items.includes('context') && query.systems !== undefined) {
-      for await (const row of rows(store.table('context'), { where: { system: { in: query.systems } }, order: [['name', 'asc']] })) {
+    if (items.includes('context') && (query.systems !== undefined || query.names !== undefined)) {
+      const where: Where<RowOf<'context'>> = {
+        ...(query.systems === undefined ? {} : { system: { in: query.systems } }),
+        ...(query.names === undefined ? {} : { name: { in: query.names } }),
+      };
+      for await (const row of rows(store.table('context'), { where, order: [['name', 'asc']] })) {
         if (row.disabled === true) continue;
         out.push({ kind: 'context', key: row.name });
         if (out.length > cap) return undefined;

@@ -566,7 +566,7 @@ export class StoreCatalog implements Catalog {
     if (payloadProblems.length > 0) { return payloadProblems.map((p) => `payload: ${p}`); }
     let answer: Awaited<ReturnType<KindDescriber['describe']>>;
     try {
-      answer = await this.options.describer.describe(decl.kind, decl.payload);
+      answer = await this.options.describer.describe(decl.kind, decl.payload, decl.routing?.to === 'instance' ? decl.routing.instance : undefined);
     } catch (error) {
       this.options.log.info('catalog.describe.unreachable', { fn: qualify(work.system, decl.name), kind: decl.kind, error: messageOf(error) });
       return [];

@@ -7,11 +7,10 @@
  * `result` attachment, drawn by the best fitting visual of the `query-visuals` registry; the model gets a
  * `ResultBlock` that says so. Writes and schema changes only run once a person approves them.
  */
-import { Json, ResultTable } from '@harness/core';
-import { agent, attachment, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
-import { z } from 'zod';
+import { QualifiedName, ResultTable, type OutputVerdict } from '@harness/core';
+import { agent, attachment, context, fn, g, ginAs, hub, kind, system, type Infer, type ValidateCtx } from '@harness/sdk';
 import {
-  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabaseSummary, InstanceAnswer, InstanceOp, QueryAgentAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
+  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabaseSummary, InstanceAnswer, InstanceOp, ParamValues, QueryAgentAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
   SavedQueryRef, SchemaArgs, SchemaChanged, TableArgs, TablesInfo,
 } from './shapes.ts';
 
@@ -82,7 +81,10 @@ const QUERY_STEPS = [
   'saved with args { "status": "paid" }.',
 ].join('\n');
 
-const QUERY_ANSWER = 'Answer with { "database", "fn", "how" (reused, created or edited), "why", "summary" }: the summary says what the result shows (counts, what stands out) or that the write waits for approval, never the rows themselves.';
+/** How `get_query`'s summary starts when it can't tell which database the request is for (then it names no fn). */
+const ASK_WHICH = 'Ask which database:';
+
+const QUERY_ANSWER ='Answer with { "database", "fn", "how" (reused, created or edited), "why", "summary" }: the summary says what the result shows (counts, what stands out) or that the write waits for approval, never the rows themselves.';
 
 /** `get_query`'s prompt. */
 const GET_QUERY_AGENT = [
@@ -94,7 +96,7 @@ const GET_QUERY_AGENT = [
   '',
   'Work in this order:',
   '1. The database: the one asked for; else call database/databases. With one, use it; else pick the one whose tables answer the request. When two',
-  '   could and the request does not say, answer with summary "Ask which database: <the labels>" and how "reused", fn "".',
+  `   could and the request does not say, answer with summary "${ASK_WHICH} <the labels>" and how "reused", fn "".`,
   `2. Look for a saved query: call hub/fns_search with \`text\` (what the request wants, in plain words), \`kinds: ["${QUERY_KIND}"]\` and \`instance\` set to the database.`,
   '   A hit whose description returns the same rows (other param values are fine) is a match: call database/run_query with its name and the args for this request.',
   '3. Otherwise write one (below), call database/save_query with the draft, the args for this request and the request as `askedFor`, then database/run_query with the saved fn.',
@@ -121,6 +123,30 @@ const EDIT_QUERY_AGENT = [
   '',
   QUERY_ANSWER,
 ].join('\n');
+
+/** How a query's args are given: the tool schema can only say `any JSON` for them, so the words say it. */
+const PARAM_VALUES_DOCS = 'An object of the values by param name, such as { "status": "paid" }: a JSON object, never a string holding JSON.';
+
+/** The query agents' answer, as gin. */
+const QueryAgentAnswerType = ginAs(QueryAgentAnswer);
+
+/**
+ * The query agents' answer check: the fn it names must be a saved query of the database it names, so a model that
+ * answers without finding or saving one, and running it, is sent back to do that. `asking` lets `get_query` name no fn
+ * when it has to ask which database.
+ */
+async function checkAnswer(ctx: ValidateCtx, answer: QueryAgentAnswer, asking: boolean): Promise<OutputVerdict> {
+  if (asking && answer.fn === '' && answer.summary.startsWith(ASK_WHICH)) { return { ok: true }; }
+  const retry = (why: string): OutputVerdict => ({
+    ok: false, action: 'retry', reason: `${why} Follow the steps: find or save the query, run it with database/run_query, then answer with that fn's name.`,
+  });
+  const name = QualifiedName.safeParse(answer.fn);
+  if (!name.success) { return retry(`"${answer.fn}" is not a saved query fn (database/<database>.<name>).`); }
+  const [hit] = (await ctx.searchFns({ names: [name.data], kinds: [QUERY_KIND], items: ['fn'], available: false, limit: 1 })).items;
+  if (hit === undefined) { return retry(`There is no saved query ${answer.fn}.`); }
+  if (hit.instance !== undefined && hit.instance !== answer.database) { return retry(`${answer.fn} is a query of database "${hit.instance}", not "${answer.database}".`); }
+  return { ok: true };
+}
 
 /** The database system's contract. */
 export const database = system('database', {
@@ -231,7 +257,7 @@ export const database = system('database', {
         args: g.obj({
           database: databaseArg(),
           draft: ginAs(QueryDraft),
-          args: g.field(g.optional(ginAs(z.record(z.string(), Json))), { docs: 'The values to run it with for this request, by param name.' }),
+          args: g.field(g.optional(ginAs(ParamValues)), { docs: PARAM_VALUES_DOCS }),
           askedFor: g.field(g.optional(g.text()), { docs: 'The request it was written for.' }),
           replace: g.field(g.optional(g.bool()), { docs: 'Save over the saved query of this name (edit_query), keeping the old version.' }),
         }),
@@ -244,14 +270,16 @@ export const database = system('database', {
         visibility: 'llm',
         display: 'hidden',
         routing: { to: 'any' },
-        tags: ['database', 'write'],
+        // keeping a query changes no table (it is a hub fn); a write query asks for approval each time it runs
+        effects: { mode: 'read', free: true },
+        tags: ['database', 'query'],
       }),
       run_query: fn({
         description: 'Run a saved query fn with args: a read shows its rows to the person and gives you the columns, counts and first rows; a write waits for the person\'s approval.',
         instructions: `Give the args by the fn's signature (its params, and \`limit\`, \`offset\`, \`sort\` for a list). ${RESULT_GUIDE}`,
         args: g.obj({
           fn: g.field(g.text({ minLength: 1 }), { docs: 'The saved query fn (`database/main.orders_by_status`).' }),
-          args: g.field(g.optional(ginAs(z.record(z.string(), Json))), { docs: 'Its args by name.' }),
+          args: g.field(g.optional(ginAs(ParamValues)), { docs: PARAM_VALUES_DOCS }),
         }),
         returns: ginAs(QueryRun),
         deps: { at: fns.at_instance },
@@ -261,6 +289,8 @@ export const database = system('database', {
         ],
         visibility: 'llm',
         routing: { to: 'any' },
+        // a read only reads; the run of a write query it starts asks the person itself
+        effects: { mode: 'read', free: true },
         tags: ['database'],
       }),
     },
@@ -271,7 +301,7 @@ export const database = system('database', {
         description: 'Read or change data in a database: describe in detail what you want, and a saved query that does it is reused, or a new one is written, kept and run.',
         usage: `Say which rows, columns, filters, grouping and order you want, and any values (as params, e.g. "for a customer given by name"). The answer names the query's fn: call it directly next time. ${RESULT_GUIDE} A write (insert, update, delete) waits for the person to approve it.`,
         args: QueryArgs,
-        returns: ginAs(QueryAgentAnswer),
+        returns: QueryAgentAnswerType,
         instructions: GET_QUERY_AGENT,
         tools: [fns.databases, hub.fns.fns_search, hub.fns.fn_get, hub.fns.fn_examples, fns.tables, fns.check_query, fns.save_query, fns.run_query],
         toolExecution: 'sequential',
@@ -287,6 +317,7 @@ export const database = system('database', {
           },
           { args: { detailedDescription: 'Total sales per month in 2025, by month.' }, note: 'A grouped query with the year as a param.' },
         ],
+        validate: { output: (ctx, _args, answer) => checkAnswer(ctx, answer, true) },
         status: status('Finding a query…', 'Ran {output.fn}', 'The query failed'),
         tags: ['database', 'query'],
       }),
@@ -294,7 +325,7 @@ export const database = system('database', {
         description: 'Change a saved query fn by instructions (add a column, another filter, a different order). The old version is kept; the new one runs.',
         usage: `Name the saved query fn and say exactly what to change and the values to run it with. ${RESULT_GUIDE}`,
         args: EditArgs,
-        returns: ginAs(QueryAgentAnswer),
+        returns: QueryAgentAnswerType,
         instructions: EDIT_QUERY_AGENT,
         tools: [hub.fns.fn_get, hub.fns.fn_examples, fns.tables, fns.check_query, fns.save_query, fns.run_query],
         toolExecution: 'sequential',
@@ -303,6 +334,7 @@ export const database = system('database', {
           args: { name: 'database/main.orders_by_status', instructions: 'Also show the order date, newest first; run it for paid orders.' },
           result: { database: 'main', fn: 'database/main.orders_by_status', how: 'edited', why: 'Added the placed date and ordered by it, newest first; version 2.', summary: '12 paid orders, the newest from yesterday.' },
         }],
+        validate: { output: (ctx, _args, answer) => checkAnswer(ctx, answer, false) },
         status: status('Editing {args.name}…', 'Edited {args.name}', 'Editing {args.name} failed'),
         tags: ['database', 'query'],
       }),

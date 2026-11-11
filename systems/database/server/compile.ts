@@ -200,3 +200,14 @@ export function planCall(engine: QueryEngine, compiled: CompiledQuery, dialect: 
   const emitted = engine.toSQL(def, dialect, { params: bound, includeTotal: counted });
   return { sql: emitted.sql, params: emitted.params, bound, offset, limit, sort: sort.map((entry) => ({ column: entry.column, dir: entry.dir })), counted };
 }
+
+/** What a query does to data, for its fn's facts: the mode (`delete` for a DELETE), and the tables it reads and writes. */
+export function effectsOf(compiled: CompiledQuery): { mode: 'read' | 'write' | 'delete'; reads: readonly string[]; writes: readonly string[] } {
+  const { def } = compiled;
+  switch (def.kind) {
+    case 'insert': return { mode: 'write', reads: compiled.tables.filter((table) => table !== def.into), writes: [def.into] };
+    case 'update': return { mode: 'write', reads: compiled.tables, writes: [def.type] };
+    case 'delete': return { mode: 'delete', reads: compiled.tables, writes: [def.from] };
+    case 'select': case 'union': case 'intersect': case 'except': case 'cte': case 'expr': return { mode: 'read', reads: compiled.tables, writes: [] };
+  }
+}

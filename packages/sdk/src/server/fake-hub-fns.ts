@@ -67,7 +67,7 @@ export class FakeHubFns {
     return { fn, version, created: prior === undefined };
   }
 
-  /** Search the kept fns as the link's `searchFns` does, by words, with the kind, system and instance filters. */
+  /** Search the kept fns as the link's `searchFns` does, by words, with the kind, system, instance and name filters. */
   search(query: FnSearchQuery): FnSearchPage {
     this.called.push('searchFns');
     const words = wordsOf(query.text ?? '');
@@ -80,6 +80,7 @@ export class FakeHubFns {
       if (query.kinds !== undefined && !query.kinds.some((wanted) => wanted === kind)) { return []; }
       if (query.systems !== undefined && !query.systems.includes(system)) { return []; }
       if (query.instance !== undefined && instance !== query.instance) { return []; }
+      if (query.names !== undefined && !query.names.includes(name)) { return []; }
       const has = new Set(wordsOf(`${kept.saved.name} ${kept.saved.description}`));
       const score = words.length === 0 ? undefined : words.filter((word) => has.has(word)).length / words.length;
       if (score === 0) { return []; }

@@ -104,7 +104,9 @@ function openTree(): void {
           <UiButton
             size="sm" :variant="waitingOnly ? 'secondary' : 'ghost'" icon="shield" :aria-pressed="waitingOnly" data-testid="needs-approval"
             @click="search = toggledFilter(search, NEEDS_APPROVAL)"
-          >Needs approval</UiButton>
+          >
+            Needs approval
+          </UiButton>
         </ListSearch>
       </template>
       <BrowserRow

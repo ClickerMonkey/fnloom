@@ -12,20 +12,24 @@
  * or the hub's own rule (`ApprovalDeciders`) settles it, and a decider that fails denies it.
  */
 import {
-  mintId, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type Approver, type FnMatch, type FnRecord, type Policy, type PolicyDecision, type QualifiedName,
+  mintId, OWN_TAG, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type Approver, type FnMatch, type FnRecord, type Policy, type PolicyDecision, type QualifiedName,
   type Remember, type Run, type SessionId, type Verdict,
 } from '@harness/core';
+import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { messageOf } from './errors.ts';
 import { AGENT_KIND, type PolicyEngine, type RunDecision } from './index.ts';
 import type { ExecutionDeps } from './ports.ts';
 import { allRows, rows } from './pages.ts';
 
 /**
- * With no matching policy: `read` fns and agents are allowed (an agent acts only through its tools, and each tool
- * call is decided on its own); anything else asks the turn's user.
+ * With no matching policy: `read` fns (tagged, or whose effects say they only read, as a saved read query's do) and
+ * agents are allowed (an agent acts only through its tools, and each tool call is decided on its own), and so is a system's call of a hub fn that changes only what that system owns (`own`);
+ * anything else asks the turn's user.
  */
-export function fallback(fn: FnRecord): Policy['decision'] {
-  return fn.decl.tags.includes(READ_TAG) || fn.decl.kind === AGENT_KIND ? { effect: 'allow' } : { effect: 'ask', approver: { by: 'turn-user' } };
+export function fallback(fn: FnRecord, caller?: ActorKind): Policy['decision'] {
+  if (fn.decl.tags.includes(READ_TAG) || fn.decl.effects?.mode === 'read' || fn.decl.kind === AGENT_KIND) return { effect: 'allow' };
+  if (fn.decl.tags.includes(OWN_TAG) && fn.system === HUB_SYSTEM && caller === 'system') return { effect: 'allow' };
+  return { effect: 'ask', approver: { by: 'turn-user' } };
 }
 
 /** What an actor is, for matching subjects. */
@@ -142,7 +146,7 @@ export class HubPolicyEngine implements PolicyEngine {
     if (fn === undefined) return { effect: 'deny', reason: `no fn ${input.fn}` };
     const actor = await this.#facts(input.actor);
     const chosen = choosePolicy(await allRows(store.table('policies')), fn, actor, clock());
-    const policy = chosen?.decision ?? fallback(fn);
+    const policy = chosen?.decision ?? fallback(fn, chosen === undefined ? (await this.#facts(input.caller)).kind : undefined);
     if (policy.effect === 'deny') return policy;
     const always = fn.decl.approval;
     // auto mode's classifier stands in for the fallback ask; a policy that says ask, or a fn that always asks, still asks

@@ -1,7 +1,8 @@
-import { ActorId, InstanceName, MAIN_INSTANCE, ResourceUri, SessionId, SystemName, type Manifest, type ResourceRoot } from '@harness/core';
+import { ActorId, InstanceName, MAIN_INSTANCE, QualifiedName, ResourceUri, SessionId, SystemName, type Manifest, type ResourceRoot } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, instanceRow, manifestFor, systemRow, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
+import { LinkKindDescriber } from './describer.ts';
 import { migrateLegacyInstances } from './migrate.ts';
 import { FakeSystem, linkRig, pairDirectly, type LinkRig } from './rig.ts';
 import { ambiguous, authorityInstance, urisIn } from './router.ts';
@@ -113,6 +114,20 @@ describe('many instances of one system', () => {
       ['laptop', true, ['vectors/laptop.rows']],
     ]);
     expect(fleet[1]?.config).toEqual({});
+  });
+
+  it('describes a fn of a kind on the instance it belongs to, and on the default one otherwise', async () => {
+    const laptop = await instance(LAPTOP);
+    const desk = await instance(DESK);
+    const answer = (who: string) => () => ({ problems: [who] });
+    laptop.behaviour.describe = answer('laptop');
+    desk.behaviour.describe = answer('desk');
+    const describer = new LinkKindDescriber(rig.links);
+    const kind = QualifiedName.parse('vectors/query');
+    expect(await describer.describe(kind, {}, DESK)).toEqual({ problems: ['desk'] });
+    expect(await describer.describe(kind, {}, LAPTOP)).toEqual({ problems: ['laptop'] });
+    expect((await describer.describe(kind, {})).problems).toHaveLength(1);
+    await expect(describer.describe(kind, {}, InstanceName.parse('gone'))).rejects.toThrow(/vectors gone is not connected/);
   });
 
   it('removes one instance and leaves the others', async () => {

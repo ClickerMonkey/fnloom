@@ -1,7 +1,7 @@
 /**
  * The web system on the real stack (it runs when `TAVILY_API_KEY` is set; the suite is skipped otherwise): a Tavily
- * search, then reading a page, which imports it as a hub resource (`hub/resource_import`, approved as a person would)
- * fetched back through `web/fetch_raw`. The hub keeps the raw html and makes its markdown, which `web/read` answers
+ * search, then reading a page, which imports it as a hub resource (`hub/resource_import`: a system keeping what it
+ * fetched asks nobody) fetched back through `web/fetch_raw`. The hub keeps the raw html and makes its markdown, which `web/read` answers
  * with, and both versions can be read.
  */
 import { QualifiedName, SystemName, type SessionId } from '@harness/core';
@@ -49,8 +49,8 @@ describe.skipIf(settings.TAVILY_API_KEY === undefined)('the web system', () => {
   it('reads a page into a hub resource and answers with its markdown', async () => {
     const { result: run, approvals } = await approver.during(invoke(me, session, QualifiedName.parse('web/read'), { url: PAGE_URL, maxChars: 2_000 }));
     expect(run.status).toBe('done');
-    // importing is a write the person approves (unless a policy allows it)
-    expect(approvals.map((a) => a.fn)).toContain('hub/resource_import');
+    // the web system keeping the page it fetched is what the person asked for, so nobody is asked (hub/resource_import is `own`)
+    expect(approvals.map((a) => a.fn)).not.toContain('hub/resource_import');
     const page = ReadResult.parse(run.outcome?.status === 'done' ? run.outcome.result : undefined);
     expect(page.uri.startsWith('hub://resources/')).toBe(true);
     expect(page.title).toMatch(/Example Domain/);

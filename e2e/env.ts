@@ -1,6 +1,6 @@
 /**
- * The e2e suite's tunables. By default it boots its own stack (hub, fs, embedder, and the web system when
- * `TAVILY_API_KEY` is set) on `HARNESS_E2E_PORT` with a fresh data folder and its own admin account; set
+ * The e2e suite's tunables. By default it boots its own stack (hub, fs, embedder, two database instances, and the web
+ * system when `TAVILY_API_KEY` is set) on `HARNESS_E2E_PORT` with a fresh data folder and its own admin account; set
  * `HARNESS_E2E_URL` to test a stack that is already running instead (then `HARNESS_E2E_EMAIL` /
  * `HARNESS_E2E_PASSWORD` must be that hub's admin).
  */
@@ -17,6 +17,8 @@ export const e2eEnv = env({
   HARNESS_E2E_PASSWORD: z.string().min(10).default('e2e-admin-password'),
   /** How long one agent turn may take with a free model. */
   HARNESS_E2E_TURN_TIMEOUT: z.number().int().min(10_000).default(240_000),
+  /** The EmbeddingGemma service the embedder system wraps. */
+  HARNESS_E2E_EMBEDDER: z.string().default('http://127.0.0.1:8760'),
   /** The Tavily key: with it the stack runs the web system and the web suite runs; without, that suite is skipped. */
   TAVILY_API_KEY: z.string().min(1).optional(),
   /** The local Ollama the graph contextor suite uses (skipped when it doesn't answer). */

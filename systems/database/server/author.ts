@@ -4,7 +4,7 @@
  * with its problems a few times at most. Queries are written by the query agents the hub runs (see the contract).
  */
 import type { Llm } from '@harness/sdk';
-import { z } from 'zod';
+import type { z } from 'zod';
 import type { Rows } from './drivers/index.ts';
 import type { ScannedTable } from './schema.ts';
 import { TableEnrichment } from './types.ts';

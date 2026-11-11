@@ -10,7 +10,7 @@
  */
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  mcpsSlice, metricsSlice, MintMcpTokenArgs, modelsSlice, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  mcpsSlice, metricsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
   FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, ShareRule,
 } from '@harness/core';
@@ -147,8 +147,8 @@ function readFn<E extends EndpointLike>(description: string, instructions: strin
 }
 
 /** A fn for a write on resources, context or memory: it asks unless a policy allows it. */
-function writeFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E) {
-  return endpointFn(description, instructions, endpoint, []);
+function writeFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, tags: readonly string[] = []) {
+  return endpointFn(description, instructions, endpoint, tags);
 }
 
 /** A fn for an admin operation, tagged `admin`. */
@@ -182,7 +182,7 @@ const readFns = {
 /** The hub's write fns on resources, context and memory (`HUB_WRITE_ENDPOINTS`). */
 const writeFns = {
   resource_convert: writeFn('Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.', 'Use it when a resource\'s form you need is missing (an image never described, audio not transcribed): it makes that form now, which may cost a model call, so make only the form you will read.', HUB_WRITE_ENDPOINTS.resource_convert),
-  resource_import: writeFn('Import a URL or uploaded content as a hub resource, kept and converted by the hub.', 'Use it to keep a URL or an upload as a hub resource so it can be read, searched and linked later. It returns the uri; read it with hub/resource_read.', HUB_WRITE_ENDPOINTS.resource_import),
+  resource_import: writeFn('Import a URL or uploaded content as a hub resource, kept and converted by the hub.', 'Use it to keep a URL or an upload as a hub resource so it can be read, searched and linked later. It returns the uri; read it with hub/resource_read.', HUB_WRITE_ENDPOINTS.resource_import, [OWN_TAG]),
   resource_rename: writeFn('Rename a hub resource.', 'Use it when the person asks to rename a hub resource. Only hub resources (imports, uploads) can be renamed; a system\'s files are renamed through that system (fs).', HUB_WRITE_ENDPOINTS.resource_rename),
   resource_delete: writeFn('Delete a hub resource; says how many messages, context items and runs still point at it.', 'Use it only when the person asks to delete a hub resource. It reports how many messages, context items and runs still point at it: tell the person, since those links will show as gone.', HUB_WRITE_ENDPOINTS.resource_delete),
   context_from_resource: writeFn('Make context items from a resource (one per section, under an outline parent), or update the ones made before.', 'Use it to turn a document the person wants kept as knowledge (a guide, a spec) into context items, one per section; run it again after the document changes to update them.', HUB_WRITE_ENDPOINTS.context_from_resource),
@@ -426,7 +426,7 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
           args: { kind: 'input/form', name: 'trip_details', description: 'Asks for a trip\'s dates, destination and travellers.', payload: { title: 'Trip details', type: { name: 'obj', props: {} } }, share: { visibility: 'private', with: [] } },
           note: 'A saved form, private to its person.',
         }],
-        tags: [],
+        tags: [OWN_TAG],
         display: 'hidden',
       }),
       search_context: fn({

@@ -4,7 +4,8 @@
  * (aeye retries bad tool arguments and bad output inside the job). Each tool call the model makes suspends the prompt
  * and becomes a queued run; when every run of the iteration has settled or gone to the background, the next job
  * continues from the saved conversation with the results appended. The run ends when the model answers without
- * tool calls.
+ * tool calls. A system's agent with an output hook (`validate.output`) has its answer checked by its system first: a
+ * refusal goes back to the model to answer again, as many times as `HARNESS_VALIDATE_RETRIES` allows, then fails it.
  *
  * A session's agent continues the session's transcript and streams its answer into an assistant message; any other
  * agent keeps its conversation on its run. The run's `resume` holds the loop's state (`AgentState`), so a pause, a
@@ -13,17 +14,18 @@
 import { Prompt, type Context, type Message, type PromptInput, type Request, type Usage } from '@aeye/core';
 import { LlmPayloadType, parseValue } from '@harness/sdk';
 import {
-  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, SelectionReport, type ActorId, type FnError, type InvalidInput, type OutcomeWire, type Run,
+  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, SelectionReport, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput, type OutcomeWire, type Run,
   type RunSettled, type Session, type RunControlAction,
 } from '@harness/core';
 import { z } from 'zod';
+import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { FnSignature } from '../catalog/index.ts';
 import type { MessageEnricher } from '../chat/index.ts';
 import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
 import { AUTO_MODEL } from '../contextor/limits.ts';
 import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
-import { OUTPUT_REFUSED } from './executors.ts';
+import { OUTPUT_REFUSED, SystemGone } from './executors.ts';
 import { rows } from './pages.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type RunInput } from './index.ts';
 import type { ModelResolver } from './models.ts';
@@ -32,7 +34,7 @@ import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { settledOf, type HubRunService } from './runs.ts';
 import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
 import { agentTools, PendingCalls } from './tools.ts';
-import { isObjectSchema, messageFromWire, messageToWire, replyText } from './wire.ts';
+import { isObjectSchema, messageFromWire, messageToWire, replyText, toolName } from './wire.ts';
 
 /** One call of the last iteration (a native tool call, or a `<run>` block), and the run it became (or why it didn't). */
 export const PendingCall = z.object({
@@ -66,6 +68,8 @@ export const AgentState = z.object({
   seeded: z.boolean().optional(),
   /** What the contextor chose for this message, so later and retried iterations keep it (`perMessage`). */
   selection: SelectionReport.optional(),
+  /** Answers its fn's output hook sent back so far (a system's agent with `validate.output`). */
+  refusals: z.number().int().min(0).optional(),
 });
 export type AgentState = z.infer<typeof AgentState>;
 
@@ -156,7 +160,7 @@ export class RunConversation implements Conversation {
 
 /** What the agent loop uses. */
 export interface AgentLoopDeps extends ExecutionDeps {
-  readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel'>;
+  readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel' | 'info'>;
   readonly queues: Pick<ExecutionQueues, 'enqueueLlm' | 'cancel'>;
   readonly llm: Pick<LlmEngine, 'streamer'>;
   readonly models: Pick<ModelResolver, 'resolve'>;
@@ -308,7 +312,9 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       await store.table('runs').update(run.id, { resume: Json.parse(state) });
     }
     const calls = new PendingCalls();
-    const tools = agentTools(planned.tools, calls);
+    // an agent never calls itself: a session that loaded its fn would otherwise offer it back to it
+    const own = toolName(fn.name);
+    const tools = agentTools(planned.tools.filter((tool) => tool.name !== own), calls);
     const blocks = planned.rendered.protocol === 'text' ? new RunBlockFilter() : undefined;
     const signature = await catalog.signature(fn.name);
     const output = outputOf(signature);
@@ -326,6 +332,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       content: `${payload.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
       input: (input) => ({ args: input?.args ?? null, context: input?.context ?? '' }),
       schema: output.schema,
+      // with tools, the answer's schema goes in the prompt: a wire schema makes many models answer at once instead of calling them
+      schemaDelivery: tools.length > 0 ? 'prompt' : 'auto',
       config: { maxTokens: planned.maxTokens },
       retool: () => tools,
       toolExecution: payload.toolExecution,
@@ -405,10 +413,42 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     if (answer === undefined) throw new Error(`${run.fn} ended without an answer`);
     const produced = output.result(answer);
     const result = typeof produced === 'string' ? splitThinking(produced).text : produced;
+    const refused = await this.#refused(run, fn, result, state, signal);
+    if (refused?.action === 'retry') {
+      // the model reads why and answers again, in the same conversation
+      await conversation.append([{ role: 'user', content: `Your answer was not accepted: ${refused.reason}` }]);
+      const next: AgentState = { ...state, iteration: state.iteration + 1, refusals: (state.refusals ?? 0) + 1, ...this.#saved(conversation) };
+      await store.table('runs').update(run.id, { resume: Json.parse(next) });
+      this.#queue(run, next.iteration);
+      return 'waiting-for-tools';
+    }
+    if (refused !== undefined) {
+      const failed = fnError('fatal', refused.reason, OUTPUT_REFUSED);
+      await this.#fail(run, state, failed);
+      return { failed };
+    }
     await store.table('runs').update(run.id, { resume: Json.parse({ ...state, ...this.#saved(conversation) }) });
     if (message !== undefined) await this.#deps.turns.finish(message, [{ type: 'text', text: replyText(result) }], 'done');
     await this.#deps.runs.settle(run.id, { status: 'done', result });
     return 'done';
+  }
+
+  /**
+   * Whether the output hook of a system's agent (`validate.output`) refuses its answer: `retry` while tries are left
+   * (`HARNESS_VALIDATE_RETRIES`), else `stop`; undefined when it passes or the fn has no hook.
+   */
+  async #refused(run: Run, fn: FnRecord, result: Json, state: AgentState, signal: AbortSignal): Promise<{ action: 'retry' | 'stop'; reason: string } | undefined> {
+    if (fn.decl.validate?.output !== true || fn.system === HUB_SYSTEM) return undefined;
+    // an agent runs in the hub; the system that declared it answers its hook
+    const connection = run.system === fn.system ? this.#deps.link.connection(fn.system, run.instance) : this.#deps.link.connection(fn.system);
+    if (connection === undefined) throw new SystemGone(fn.system);
+    const refusals = state.refusals ?? 0;
+    const verdict = await connection.peer.call('validate', {
+      phase: 'output', run: await this.#deps.runs.info(run), fn: splitName(fn.name).local, args: run.args, result, attempt: refusals + 1,
+    }, { signal: AbortSignal.any([signal, connection.signal]) });
+    if (verdict.ok) return undefined;
+    const action = 'action' in verdict ? verdict.action : 'retry';
+    return { action: action === 'retry' && refusals < this.#deps.settings.execution.HARNESS_VALIDATE_RETRIES ? 'retry' : 'stop', reason: verdict.reason };
   }
 
   /**

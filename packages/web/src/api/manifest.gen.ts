@@ -2909,6 +2909,7 @@ export const manifest = {
         "visibility",
         "types",
         "modes",
+        "names",
         "available",
         "order",
         "offset",

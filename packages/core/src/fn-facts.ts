@@ -79,7 +79,8 @@ export type SearchItemKind = z.infer<typeof SearchItemKind>;
  * A search over fns and context, done in the hub's database. Without `text` it lists what the filters let through,
  * by name. Every filter narrows: `kinds` (the fn kinds, such as `input/form` or `database/query`), `systems`,
  * `instance` (a fleet instance's own fns), `visibility` (what the asker shares: `mine` they own, `shared` others gave
- * them), `types` (fns that read or write any of these named types), and `modes` (fns of these modes).
+ * them), `types` (fns that read or write any of these named types), `modes` (fns of these modes), and `names` (exactly
+ * these fns and context items, to look up their hits by name).
  */
 export const FnSearchQuery = z.object({
   text: z.string().optional(),
@@ -91,6 +92,8 @@ export const FnSearchQuery = z.object({
   visibility: z.enum(['mine', 'shared', 'public']).optional(),
   types: z.object({ reads: z.array(QualifiedName).optional(), writes: z.array(QualifiedName).optional() }).optional(),
   modes: z.array(FnMode).min(1).optional(),
+  /** Only these items, by qualified name. */
+  names: z.array(QualifiedName).min(1).max(100).optional(),
   /** Only fns that can be used now (default true). */
   available: z.boolean().optional(),
   /**

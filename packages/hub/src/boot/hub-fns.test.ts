@@ -273,6 +273,8 @@ describe('saved fns (build 5)', () => {
     expect(results[3]).toMatchObject({ status: 'done', result: { fn: 'input/trip', kind: 'input/form', description: 'Asks for a trip and who goes.', payload: { title: 'Trip' }, version: 2, owner: ALICE, available: true } });
     expect(results[4]).toMatchObject({ status: 'failed', error: { code: 'not-your-kind' } });
     expect(owned).toEqual([{ fn: 'input/trip', owner: ALICE, visibility: 'private' }]);
+    // an example keeps only the parts it has, so the catalog can hash the decl as JSON
+    expect(Object.keys(r.catalog.records.get(QualifiedName.parse('input/trip'))?.decl.examples?.[0] ?? {})).toEqual(['args']);
     expect((await r.store.table('fnVersions').find({ limit: 5 })).items).toMatchObject([{ fn: 'input/trip', number: 1, decl: { description: 'Asks for a trip.' } }]);
   });
 });

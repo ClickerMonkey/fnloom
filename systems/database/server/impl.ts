@@ -6,13 +6,13 @@
  * database (`at_instance`, forwarded with `on` when that is another one). Saved queries live in the hub; the `query`
  * kind runs them, and previews the writes among them for their approval.
  */
-import { InstanceName, Json, ShareRule, qualify, type ApprovalPreview, type PreviewAnswer, type QualifiedName } from '@harness/core';
+import { InstanceName, Json, ShareRule, qualify, type ApprovalPreview, type FnEffects, type PreviewAnswer, type QualifiedName } from '@harness/core';
 import { CallFailed, ResultBlockType, g, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { z } from 'zod';
 import { QUERY_KIND, database, type DatabaseContract } from '../shared/index.ts';
-import { QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
+import { ParamValues, QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
-import { argsTypeOf, signatureOf } from './compile.ts';
+import { argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
 import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, type HubSide, type ScanReport } from './instance.ts';
@@ -143,6 +143,18 @@ function schemaPlan(instance: DatabaseInstance, args: SchemaArgs): { steps: Retu
       irreversible,
     },
   };
+}
+
+/**
+ * The problem when a model gives a query's args as something other than values by param name (gin reads an open
+ * record as any JSON, so text gets this far).
+ */
+const NOT_VALUES = { path: 'args', message: 'args must be a JSON object of values by param name, such as { "status": "paid" }; you sent a string or a list. Send the object itself, not a string holding it.' };
+
+/** A query's effects with its tables as the hub's type names. */
+function effectsOfQuery(instance: string, compiled: CompiledQuery): FnEffects {
+  const { mode, reads, writes } = effectsOf(compiled);
+  return { mode, reads: reads.map((table) => qualifiedTypeOf(instance, table)), writes: writes.map((table) => qualifiedTypeOf(instance, table)), free: true };
 }
 
 /** Build the database implementation. */
@@ -287,6 +299,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       },
       save_query: {
         async run(args, ctx) {
+          if (!ParamValues.optional().safeParse(args.args).success) { return ctx.invalid([NOT_VALUES]); }
           const answer = await at(ctx, args.database, {
             op: 'save', draft: args.draft,
             ...(args.args === undefined ? {} : { args: args.args }),
@@ -299,6 +312,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       run_query: {
         async run(args, ctx) {
           const target = queryInstance(args.fn);
+          if (!ParamValues.optional().safeParse(args.args).success) { return ctx.invalid([NOT_VALUES]); }
           if (target === undefined) { return ctx.invalid([{ path: 'fn', message: `"${args.fn}" isn't a saved query fn; they are named database/<database>.<name>.` }]); }
           const answer = await at(ctx, target.instance, { op: 'run', fn: qualify(database.name, target.local), ...(args.args === undefined ? {} : { args: args.args }) }, (found) => (found.op === 'run' ? found.run : undefined));
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
@@ -354,6 +368,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             returns: wireType(compiled.writes ? ginAs(WriteResult) : ResultBlockType),
             deps: [],
             types: compiled.tables.map((table) => qualifiedTypeOf(parsed.instance, table)),
+            // what it reads and writes, for its facts (and so for the hub's search by type, and the tables a schema change breaks)
+            effects: effectsOfQuery(parsed.instance, compiled),
             operations: { cancel: true, pause: false, undo: false, background: false },
             ...(compiled.writes ? { approval: { preview: true, remember: false } } : {}),
           });

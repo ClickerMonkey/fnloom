@@ -12,6 +12,11 @@ const files = system('fs', { description: 'Files.' }).with({
   },
 });
 const helper = agent({ description: 'Helps.', args: g.obj({}), returns: g.text(), instructions: 'Be helpful.', tools: [files.fns.read, files.fns.write], maxIterations: 4 });
+/** A system's agent whose answer its system checks (`validate.output`); the fake system answers the hook. */
+const checked = agent({
+  description: 'Names a title.', args: g.obj({}), returns: g.obj({ title: g.text() }), instructions: 'Name a title.',
+  validate: { output: () => ({ ok: true }) },
+});
 const summarizer = agent({
   description: 'Summarizes a topic.', args: g.obj({ topic: g.text() }), returns: g.obj({ title: g.text(), points: g.list(g.text()) }),
   instructions: 'Summarize {{args.topic}}.',
@@ -26,6 +31,7 @@ async function started(options: Parameters<typeof executionRig>[0] = {}): Promis
   rig.catalog.add('fs', 'write', writeDef);
   rig.catalog.add('tools', 'helper', helper);
   rig.catalog.add('tools', 'summarize', summarizer);
+  rig.catalog.add('tools', 'checked', checked);
   await rig.module.start();
   return rig;
 }
@@ -334,6 +340,32 @@ describe('an agent called as a tool', () => {
     expect(r.provider.requests[0]?.messages[0]?.content).toContain('Summarize cats.');
     expect(stateOf(row).messages?.map((m) => m.role)).toEqual(['assistant']);
     expect(r.chat.begun).toHaveLength(0);
+  });
+});
+
+describe('a system agent with an output hook', () => {
+  it('sends a refused answer back to the model with why, and keeps the one its system accepts', async () => {
+    const r = await started();
+    const tools = r.connect('tools');
+    tools.behaviour.validate = (request) => (request.phase === 'output' && request.attempt === 1 ? { ok: false, action: 'retry', reason: 'Name a real title.' } : { ok: true });
+    const turn = await r.turn();
+    r.provider.script([{ content: '{"title":""}' }, { finishReason: 'stop', usage: { text: { input: 5, output: 5 }, cost: 0.001 } }], [{ content: '{"title":"Cats"}' }, { finishReason: 'stop', usage: { text: { input: 5, output: 5 }, cost: 0.001 } }]);
+    const { run } = await r.module.agents.start(agentInput(turn, 'tools/checked'));
+    const { settled, row } = await runTo(r, run);
+    expect(settled).toEqual({ status: 'done', result: { title: 'Cats' } });
+    expect(tools.validations).toMatchObject([{ phase: 'output', fn: 'checked', result: { title: '' }, attempt: 1 }, { phase: 'output', result: { title: 'Cats' }, attempt: 2 }]);
+    expect(stateOf(row).messages?.map((m) => m.role)).toEqual(['assistant', 'user', 'assistant']);
+    expect(stateOf(row).messages?.[1]?.content).toBe('Your answer was not accepted: Name a real title.');
+  });
+
+  it('fails the run when its system says stop', async () => {
+    const r = await started();
+    r.connect('tools').behaviour.validate = () => ({ ok: false, action: 'stop', reason: 'No titles today.' });
+    const turn = await r.turn();
+    r.provider.script([{ content: '{"title":"Cats"}' }, { finishReason: 'stop', usage: { text: { input: 5, output: 5 }, cost: 0.001 } }]);
+    const { run } = await r.module.agents.start(agentInput(turn, 'tools/checked'));
+    const { settled } = await runTo(r, run);
+    expect(settled).toMatchObject({ status: 'failed', error: { message: 'No titles today.', code: 'output-refused' } });
   });
 });
 

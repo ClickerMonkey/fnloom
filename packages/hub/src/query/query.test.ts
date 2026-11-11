@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core';
-import { IDS, LIST_FIELDS, noFnStats, type ActorId, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
+import { IDS, LIST_FIELDS, ResourceUri, SystemName, noFnStats, type ActorId, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { chatWorld, FixtureCatalog, makeRun } from '../chat/testing.ts';
 import { testStore } from '../testing.ts';
@@ -138,8 +138,19 @@ describe('the lists', () => {
     // the session's owner, seen as a member
     expect((await lists.page('modelCalls', {}, { id: w.admin.id, role: 'member' })).items.map((c) => c.id)).toEqual(['mdl_1']);
     expect((await lists.page('modelCalls', { filters: [{ field: 'tokens', op: 'is', value: 15 }] }, admin)).items).toHaveLength(2);
-    // every declared field reads its row: a field asked to be filled finds the rows that fill it, and no more
-    for (const list of ['fns', 'modelCalls', 'sessions'] as const) {
+    // every declared field of each list reads its row: a field asked to be filled finds the rows that fill it, and no more
+    const uri = ResourceUri.parse('file:///notes/a.md');
+    await w.store.table('resources').insert({ uri, system: SystemName.parse('fs'), stat: { uri, name: 'a.md', type: 'file', version: 'v1' }, links: [], seenAt: 2 });
+    await w.store.table('llmInteractions').insert({
+      id: IDS.llmInteraction.parse('llm_1'), turn: IDS.turn.parse('trn_w'), run: IDS.run.parse('run_w'), iteration: 0, provider: 'openrouter', model: 'm', request: { messages: [] },
+      cost: 0, status: 'done', priority: 'interactive', queuedAt: 1,
+    });
+    await w.store.table('context').put(w.catalog.addContext('fs', { name: 'guide', description: 'How fs works', tags: ['files'] }));
+    await w.store.table('notifications').insert({
+      id: IDS.notification.parse('ntf_1'), user: admin.id, reason: 'message', title: 'Hi', body: 'A message', link: { session: w.session.id }, read: false, pushed: false, createdAt: 4,
+    });
+    await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_w'), fn: 'fs/read', turn: IDS.turn.parse('trn_w'), actor: admin.id, status: 'done', cost: 0.01, createdAt: 5, endedAt: 9 }));
+    for (const list of ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems'] as const) {
       const all = (await lists.page(list, {}, admin)).items.length;
       for (const [field, decl] of Object.entries<FieldDecl>(LIST_FIELDS[list].fields)) {
         const [yes, no]: [Filter, Filter] = decl.type === 'boolean'

@@ -117,6 +117,10 @@ export const ApprovalState = z.object({
 });
 export type ApprovalState = z.infer<typeof ApprovalState>;
 
+/** A query's param values, by param name (`{ "status": "paid" }`). */
+export const ParamValues = z.record(z.string(), Json);
+export type ParamValues = z.infer<typeof ParamValues>;
+
 /** What `run_query` gives: the database, the fn, the query as it ran, and its result or where its approval is. */
 export const QueryRun = z.object({
   database: DatabaseInfo,
@@ -124,7 +128,7 @@ export const QueryRun = z.object({
   query: z.object({
     sql: z.string().describe('The SQL it runs, readable.'),
     structured: Json.describe('The `@aeye/query` JSON, to change it with edit_query.'),
-    params: z.record(z.string(), Json).describe('The values it ran with.'),
+    params: ParamValues.describe('The values it ran with.'),
     writes: z.boolean(),
   }),
   result: ResultBlock.optional(),
@@ -194,9 +198,9 @@ export const InstanceOp = z.discriminatedUnion('op', [
   z.object({ op: z.literal('tables') }),
   z.object({ op: z.literal('check'), draft: QueryDraft }),
   z.object({
-    op: z.literal('save'), draft: QueryDraft, args: z.record(z.string(), Json).optional(), askedFor: z.string().optional(), replace: z.boolean().optional(),
+    op: z.literal('save'), draft: QueryDraft, args: ParamValues.optional(), askedFor: z.string().optional(), replace: z.boolean().optional(),
   }),
-  z.object({ op: z.literal('run'), fn: z.string().min(1), args: z.record(z.string(), Json).optional() }),
+  z.object({ op: z.literal('run'), fn: z.string().min(1), args: ParamValues.optional() }),
 ]);
 export type InstanceOp = z.infer<typeof InstanceOp>;
 

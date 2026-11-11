@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type ActorId, type FnDecl, type IndexedKind, type Session, type SessionId } from '@harness/core';
+import { FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnsServices } from '../fns/index.ts';
@@ -27,6 +27,11 @@ import { parseSectionIndexKey } from '../index/indexer.ts';
 const DEFAULT_LIMIT = 10;
 /** The characters of a section shown as its preview. */
 const PREVIEW = 280;
+
+/** An example as the catalog keeps it: the parts it has (gin reads an absent optional field as undefined). */
+function keptExample(example: { readonly args: Json; readonly result?: Json | undefined; readonly note?: string | undefined }): FnExample {
+  return { args: example.args, ...(example.result === undefined ? {} : { result: example.result }), ...(example.note === undefined ? {} : { note: example.note }) };
+}
 
 /** What the hub fns read, each looked up when a fn runs. */
 export interface HubFnDeps {
@@ -193,7 +198,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       // its kind works out the signature from the payload
       args: { name: 'any' }, returns: { name: 'any' }, deps: [], handlers: {}, progress: { type: 'none' },
       operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {}, visibility: 'both', tags: args.tags ?? [],
-      ...(args.examples === undefined ? {} : { examples: args.examples }),
+      ...(args.examples === undefined ? {} : { examples: args.examples.map(keptExample) }),
       ...(args.routing === undefined ? {} : { routing: FnRouting.parse(args.routing) }),
     };
     const versions = deps.store().table('fnVersions');

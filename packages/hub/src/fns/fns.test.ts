@@ -149,7 +149,7 @@ const stops: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); });
 
 describe('fns search in the hub database', () => {
-  it('ranks by words and meaning, filters by system, kind, mode and types, and pages', async () => {
+  it('ranks by words and meaning, filters by system, kind, mode, types and name, and pages', async () => {
     const { search, asker } = await setup();
     const found = await search.search({ text: 'unpaid overdue invoices', items: ['fn'], systems: [SystemName.parse('books')] }, asker);
     expect(found.items[0]?.name).toBe('books/overdue');
@@ -171,6 +171,9 @@ describe('fns search in the hub database', () => {
     const second = await search.search({ systems: [SystemName.parse('books')], items: ['fn'], limit: 2, offset: 2 }, asker);
     expect(second.items.map((h) => h.name)).toEqual(['books/overdue', 'books/void_invoice']);
     expect(second.next).toBeUndefined();
+    // names: exactly the fns asked for, whatever ranks above them
+    expect((await search.search({ names: [q('books/void_invoice'), q('notes/read_note')], items: ['fn'] }, asker)).items.map((h) => h.name)).toEqual(['books/void_invoice', 'notes/read_note']);
+    expect((await search.search({ names: [q('books/overdue')], text: 'travel notes' }, asker)).items.map((h) => h.name)).toEqual(['books/overdue']);
   });
 
   it('keeps to what the asker may see and use, and to whose fns they are', async () => {

@@ -27,7 +27,7 @@ export const AUTHORING_PARTS = {
   'authoring-actions': { heading: '## 15. Actions', title: 'Actions', tokens: 950, reference: false, next: 'authoring-providers' },
   'authoring-providers': { heading: '## 16. Model providers', title: 'Model providers', tokens: 760, reference: false, next: 'authoring-resources' },
   'authoring-resources': { heading: '## 17. Resources, embedders and sectioners', title: 'Resources, embedders and sectioners', tokens: 1720, reference: false, next: 'authoring-hub' },
-  'authoring-hub': { heading: '## 18. The hub contract', title: 'The hub contract', tokens: 9690, reference: false, next: 'authoring-server' },
+  'authoring-hub': { heading: '## 18. The hub contract', title: 'The hub contract', tokens: 9700, reference: false, next: 'authoring-server' },
   'authoring-server': { heading: '## 19. The server: serve and the implementation', title: 'The server: serve and the implementation', tokens: 5910, reference: false, next: 'authoring-ctx' },
   'authoring-ctx': { heading: '## 20. The run context and services', title: 'The run context and services', tokens: 6550, reference: false, next: 'authoring-calling' },
   'authoring-calling': { heading: '## 21. Calling other fns', title: 'Calling other fns', tokens: 1540, reference: false, next: 'authoring-lifecycle' },
@@ -38,7 +38,7 @@ export const AUTHORING_PARTS = {
   'authoring-mistakes': { heading: '## 26. Common mistakes', title: 'Common mistakes', tokens: 2670, reference: false, next: 'authoring-examples' },
   'authoring-examples': { heading: '## 27. Worked examples', title: 'Worked examples', tokens: 17640, reference: false },
   'authoring-internals': { heading: '## 28. Runtime internals', title: 'Runtime internals', tokens: 6170, reference: true, next: 'authoring-core-types' },
-  'authoring-core-types': { heading: '## 29. Core types', title: 'Core types', tokens: 18240, reference: true },
+  'authoring-core-types': { heading: '## 29. Core types', title: 'Core types', tokens: 18270, reference: true },
 } as const;
 
 /** A part's context name. */
@@ -64,7 +64,7 @@ export function authoringContext(parent: AnyContextRef) {
     'authoring-actions': context({ description: 'Writing a harness system, part 15 of 29: Actions (about 950 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-providers' } }),
     'authoring-providers': context({ description: 'Writing a harness system, part 16 of 29: Model providers (about 760 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-resources' } }),
     'authoring-resources': context({ description: 'Writing a harness system, part 17 of 29: Resources, embedders and sectioners (about 1720 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-hub' } }),
-    'authoring-hub': context({ description: 'Writing a harness system, part 18 of 29: The hub contract (about 9690 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-server' } }),
+    'authoring-hub': context({ description: 'Writing a harness system, part 18 of 29: The hub contract (about 9700 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-server' } }),
     'authoring-server': context({ description: 'Writing a harness system, part 19 of 29: The server: serve and the implementation (about 5910 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-ctx' } }),
     'authoring-ctx': context({ description: 'Writing a harness system, part 20 of 29: The run context and services (about 6550 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-calling' } }),
     'authoring-calling': context({ description: 'Writing a harness system, part 21 of 29: Calling other fns (about 1540 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-lifecycle' } }),
@@ -75,7 +75,7 @@ export function authoringContext(parent: AnyContextRef) {
     'authoring-mistakes': context({ description: 'Writing a harness system, part 26 of 29: Common mistakes (about 2670 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-examples' } }),
     'authoring-examples': context({ description: 'Writing a harness system, part 27 of 29: Worked examples (about 17640 tokens).', parent }),
     'authoring-internals': context({ description: 'Writing a harness system, reference part 28 of 29: Runtime internals (about 6170 tokens).', parent, next: { ref: 'context', name: 'fs/authoring-core-types' }, suggest: 'none', tags: ['reference'] }),
-    'authoring-core-types': context({ description: 'Writing a harness system, reference part 29 of 29: Core types (about 18240 tokens).', parent, suggest: 'none', tags: ['reference'] }),
+    'authoring-core-types': context({ description: 'Writing a harness system, reference part 29 of 29: Core types (about 18270 tokens).', parent, suggest: 'none', tags: ['reference'] }),
   };
 }
 

@@ -223,6 +223,13 @@ export function messageOf(error: unknown): string {
 export const READ_TAG = 'read';
 
 /**
+ * The tag that marks a hub fn that only adds or changes what the calling system makes for a run (`hub/save_fn` keeps
+ * a fn of the caller's own kind, `hub/resource_import` keeps a page or result it fetched as a new resource): with no
+ * policy that matches, a system's call runs without asking, since it does what the person's run asked of that system.
+ */
+export const OWN_TAG = 'own';
+
+/**
  * The tag that marks a fn as changing what others may reach (MCPs, policies, config, pairing, installs). Such a fn is
  * never exposed through a hub MCP, whatever its rules say.
  */

@@ -1,7 +1,7 @@
 /**
  * Boots the whole harness on this machine: builds the web app, starts the hub (which serves the build), signs in as
  * the single admin account, pairs the fs, embedder, web, input, (when its OAuth client is given) google-calendar and
- * (when its config is given) database systems with one-time pairing tokens the first time, starts them, and configures
+ * (one process per configured database instance) database systems with one-time pairing tokens the first time, starts them, and configures
  * each with its config. `npm run dev` and the e2e tests both use it; `stop()` stops every process it started. With
  * `restart`, each process is supervised: restarted when it crashes or stops answering, with why in the crash log.
  */
@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SystemName, type Json, type SystemView } from '@harness/core';
+import { InstanceName, SystemName, type Json, type SystemView } from '@harness/core';
 import { encodeValue, type ConfigOf } from '@harness/sdk';
 import { SYSTEM_ENV } from '@harness/sdk/server';
 import { database, type DatabaseContract } from '../systems/database/shared/index.ts';
@@ -35,12 +35,12 @@ export interface StackSystems {
   readonly web?: ConfigOf<WebContract['defs']>;
   /** The Google Calendar system's OAuth client; absent, it isn't started (it can't connect anyone without one). */
   readonly calendar?: ConfigOf<CalendarContract['defs']>;
-  /** The database system's config (one database); absent, it isn't started. */
-  readonly database?: ConfigOf<DatabaseContract['defs']>;
+  /** The database fleet: one process per instance (by instance name), each with its database's config; absent, none runs. */
+  readonly databases?: Readonly<Record<string, ConfigOf<DatabaseContract['defs']>>>;
 }
 
 /** The process each system runs as: its own name, but `web-system` for the web system (`web` is the app's build). */
-export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system', input: 'input', calendar: 'calendar', database: 'database' } as const satisfies Record<keyof StackSystems | 'input', string>;
+export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system', input: 'input', calendar: 'calendar', database: 'database' } as const satisfies Record<Exclude<keyof StackSystems, 'databases'> | 'input' | 'database', string>;
 
 /** A process the stack runs. */
 export type ComponentName = 'web' | 'hub' | (typeof SYSTEM_COMPONENTS)[keyof typeof SYSTEM_COMPONENTS];
@@ -145,6 +145,17 @@ async function whileBusy<T>(call: () => Promise<T>, timeout: number): Promise<T>
   }
 }
 
+/** One instance of a system (its default instance when `instance` is absent) as the hub sees it, or undefined. */
+async function instanceOf(admin: SignedIn, name: SystemName, instance: InstanceName | undefined, timeout: number): Promise<{ status: SystemView['status']; needsConfig: boolean; ready: boolean } | undefined> {
+  const view = await systemOf(admin, name, timeout);
+  if (view === undefined) { return undefined; }
+  // needs-config only counts once its contract (and so its config type) has arrived
+  const ready = (status: SystemView['status']): boolean => status === 'connected' || (status === 'needs-config' && view.configType !== undefined);
+  if (instance === undefined) { return { status: view.status, needsConfig: view.needsConfig, ready: ready(view.status) }; }
+  const found = view.instances.find((i) => i.instance === instance);
+  return found === undefined ? undefined : { status: found.status, needsConfig: found.config === undefined, ready: ready(found.status) };
+}
+
 /** The system named `name` as the hub sees it, or undefined. */
 async function systemOf(admin: SignedIn, name: SystemName, timeout: number): Promise<SystemView | undefined> {
   return (await whileBusy(() => admin.hub.call('systems'), timeout)).find((s) => s.name === name);
@@ -211,35 +222,39 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       ...(options.systems.calendar === undefined ? [] : [{
         name: 'calendar', system: googleCalendar.name, entry: join(ROOT, 'systems', 'google-calendar', 'server', 'main.ts'), config: encodeValue(googleCalendar.defs.config, options.systems.calendar),
       } as const]),
-      ...(options.systems.database === undefined ? [] : [{
-        name: 'database', system: database.name, entry: join(ROOT, 'systems', 'database', 'server', 'main.ts'), config: encodeValue(database.defs.config, options.systems.database),
-      } as const]),
-    ] as const satisfies ReadonlyArray<{ name: keyof typeof SYSTEM_COMPONENTS; system?: string; entry: string; config: Json }>;
+      ...Object.entries(options.systems.databases ?? {}).map(([instance, config]) => ({
+        name: 'database', system: database.name, instance: InstanceName.parse(instance), entry: join(ROOT, 'systems', 'database', 'server', 'main.ts'), config: encodeValue(database.defs.config, config),
+      } as const)),
+    ] as const satisfies ReadonlyArray<{ name: keyof typeof SYSTEM_COMPONENTS; system?: string; instance?: InstanceName; entry: string; config: Json }>;
     for (const system of systems) {
       const component = SYSTEM_COMPONENTS[system.name];
       if (!options.only.has(component)) { continue; }
       const name = SystemName.parse('system' in system ? system.system : system.name);
-      const known = await systemOf(admin, name, timeout);
-      // a system the hub already knows reconnects with its key; a new one pairs with a one-time token made for its name
+      const instance = 'instance' in system ? system.instance : undefined;
+      const label = instance === undefined ? system.name : `${system.name} ${instance}`;
+      const known = await instanceOf(admin, name, instance, timeout);
+      // an instance the hub already knows reconnects with its key; a new one pairs with a one-time token made for its system's name
       const token = known === undefined || known.status === 'removed'
         ? (await whileBusy(() => admin.hub.call('createPairingToken', { name, expiresIn: 600_000 }), timeout)).token
         : undefined;
       launch(component, options.watch ? [TSX, 'watch', system.entry] : [TSX, system.entry], {
-        [SYSTEM_ENV.hub]: link, [SYSTEM_ENV.state]: join(data, 'dev-systems', system.name), ...(token === undefined ? {} : { [SYSTEM_ENV.pairingToken]: token }),
+        [SYSTEM_ENV.hub]: link, [SYSTEM_ENV.state]: join(data, 'dev-systems', instance === undefined ? system.name : `${system.name}-${instance}`),
+        ...(instance === undefined ? {} : { [SYSTEM_ENV.instance]: instance }),
+        ...(token === undefined ? {} : { [SYSTEM_ENV.pairingToken]: token }),
         ...options.systemEnv,
       }, async () => {
-        const status = (await systemOf(admin, name, timeout))?.status;
+        const status = (await instanceOf(admin, name, instance, timeout))?.status;
         return status === 'connected' || status === 'needs-config';
       });
-      const seen = await waitFor(`${system.name} to connect`, async () => {
-        const view = await systemOf(admin, name, timeout);
-        // needs-config only counts once its contract (and so its config type) has arrived
-        return view?.status === 'connected' || (view?.status === 'needs-config' && view.configType !== undefined) ? view : undefined;
+      const seen = await waitFor(`${label} to connect`, async () => {
+        const view = await instanceOf(admin, name, instance, timeout);
+        return view?.ready === true ? view : undefined;
       }, { timeout });
-      if (seen.needsConfig) {
-        const result = await whileBusy(() => admin.hub.call('configureSystem', { system: name, config: system.config }), timeout);
-        if ('problems' in result) { throw new Error(`${system.name} config refused: ${result.problems.join('; ')}`); }
-        await waitFor(`${system.name} to be configured`, async () => ((await systemOf(admin, name, timeout))?.status === 'connected' ? true : undefined), { timeout });
+      // a new instance gets its config even when its defaults let it start without one (the embedder's service URL)
+      if (seen.needsConfig || token !== undefined) {
+        const result = await whileBusy(() => admin.hub.call('configureSystem', { system: name, config: system.config, ...(instance === undefined ? {} : { instance }) }), timeout);
+        if ('problems' in result) { throw new Error(`${label} config refused: ${result.problems.join('; ')}`); }
+        await waitFor(`${label} to be configured`, async () => ((await instanceOf(admin, name, instance, timeout))?.status === 'connected' ? true : undefined), { timeout });
       }
     }
     return { url, lanUrls, admin, stop: async () => { admin.close(); await stop(); } };

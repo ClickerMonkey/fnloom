@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { InstanceName, SystemPackageManifest, mintId, type FnSearchQuery, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
+import { ActorId, InstanceName, SystemPackageManifest, mintId, type FnSearchQuery, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
 import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
@@ -107,7 +107,7 @@ describe('the database system over the link', () => {
       tools: ['database/databases', hubContract.fns.fns_search.name, hubContract.fns.fn_get.name, hubContract.fns.fn_examples.name, 'database/tables', 'database/check_query', 'database/save_query', 'database/run_query'],
     });
     expect(JSON.stringify(getQuery?.payload)).toContain('{{args.detailedDescription}}');
-    expect(manifest?.fns.find((item) => item.name === 'edit_query')?.payload).toMatchObject({ tools: expect.arrayContaining(['database/save_query', 'database/run_query']) });
+    expect(manifest?.fns.find((item) => item.name === 'edit_query')?.payload).toHaveProperty('tools', expect.arrayContaining(['database/save_query', 'database/run_query']));
     expect(manifest?.fns.find((item) => item.name === 'at_instance')).toMatchObject({ visibility: 'none', deps: ['hub/fn_get', 'hub/save_fn'] });
     for (const decl of manifest?.fns ?? []) {
       expect(decl.instructions, decl.name).toBeTruthy();
@@ -131,10 +131,13 @@ describe('the database system over the link', () => {
 
     const broken = { ...ORDERS_BY_STATUS, query: { kind: 'select', fields: [{ expr: ref('orders', 'ghost') }], from: { kind: 'type', type: 'orders' } } };
     expect(done(await hub.run('database/check_query', { database: 'main', draft: broken }))).toMatchObject({ ok: false, problems: [expect.stringContaining('ghost')] });
-    expect(done(await hub.run('database/check_query', { database: 'main', draft: ORDERS_BY_STATUS }))).toMatchObject({
-      ok: true, problems: [], writes: false, sql: expect.stringContaining('SELECT'), signature: expect.stringContaining('database/main.orders_by_status('),
-    });
+    const checked = done(await hub.run('database/check_query', { database: 'main', draft: ORDERS_BY_STATUS }));
+    expect(checked).toMatchObject({ ok: true, problems: [], writes: false });
+    expect(checked).toHaveProperty('sql', expect.stringContaining('SELECT'));
+    expect(checked).toHaveProperty('signature', expect.stringContaining('database/main.orders_by_status('));
     expect(await hub.run('database/save_query', { database: 'main', draft: broken })).toMatchObject({ status: 'invalid-input' });
+    // args given as text (gin reads an open record as any JSON) are refused by name
+    expect(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS, args: '{"status":"paid"}' })).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'args' }] } });
 
     const saved = done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS, args: { status: 'paid' }, askedFor: 'paid orders, biggest first' }));
     expect(saved).toMatchObject({ fn: 'database/main.orders_by_status', version: 1, created: true });
@@ -180,7 +183,7 @@ describe('the database system over the link', () => {
     expect(proposal?.preview.parts.map((part) => part.type)).toEqual(['text', 'code', 'table']);
     const payload = hub.fns.kept.get('database/main.mark_paid')?.saved.payload ?? null;
     const checked = await hub.peer().call('check', { kind: 'query', payload });
-    expect(checked).toMatchObject({ problems: [], description: { approval: { preview: true, remember: false }, types: ['database/main.orders'] } });
+    expect(checked).toMatchObject({ problems: [], description: { approval: { preview: true, remember: false }, types: ['database/main.orders'], effects: { mode: 'write', reads: ['database/main.orders'], writes: ['database/main.orders'], free: true } } });
     const preview = await hub.preview({ run: mintId('run'), fn: 'main.mark_paid', args: {}, user: TEST_USER, kind: 'database/query', payload });
     expect(preview).toMatchObject({ preview: { title: 'Change 2 rows in orders' } });
     expect(done(await hub.run('database/main.mark_paid', {}, { kind: 'database/query', payload }))).toMatchObject({ affected: 2 });
@@ -199,6 +202,17 @@ describe('the database system over the link', () => {
     expect(hub.proposals).toEqual([]);
     const args = { action: 'create', table: 'notes', database: 'main', type: { name: 'obj', props: { id: { type: { name: 'num' } } } } };
     expect(JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'change_schema', args, user: TEST_USER }))).toContain('allow schema changes');
+  });
+
+  it('keeps a database to its audience: refused to a member outside it, served to one it is shared with', async () => {
+    dir = shopFile().dir;
+    const bo = { ...TEST_USER, id: ActorId.parse('act_bo'), name: 'Bo', role: 'member' as const };
+    await start(new MemoryStore(), shopConfig({ audience: { visibility: 'shared', with: [bo.id] } }));
+    // the instance answers for the run's person (in the hub, `tables` forwards here as the same person)
+    const as = (user: typeof TEST_USER) => ({ run: hub.runInfo('database/at_instance', { user }) });
+    const refused = await hub.run('database/at_instance', { op: 'tables' }, as({ ...TEST_USER, id: ActorId.parse('act_cy'), role: 'member' }));
+    expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.message) : refused).toEqual(['You may not use the Shop database; an admin chooses who may on its config.']);
+    expect(done(await hub.run('database/at_instance', { op: 'tables' }, as(bo)))).toHaveProperty('tables.schema');
   });
 
   it('previews and makes a table from a type, and refuses one that exists', async () => {
