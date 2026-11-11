@@ -120,6 +120,56 @@ rules are in the "Decided" section of `docs/harness.md`.
   - generation is idempotent
   - a schema change updates the fns
 
+### 5. Installed vs live, review, and enforcement (owner, 2026-11-11)
+
+> Good idea on hub enforcement - anything else like that you can think of so admins installing can inspect all the fns and what they do so they can decide to make it live or not. Once you install it's connected and hub is aware , but live is when it gets saved and is enabled. Before it goes live the admin gets to go in and review everything and configure it further etc. also a system should be able to specify a custom configuration component since gin based one might not be enough
+
+**Lifecycle:**
+- **Installed:** the system is paired and connected, and the hub knows its contract. Nothing it offers is live: no fn
+  is offered to any chat or callable by anyone else, no context is suggested, no resources are indexed, no providers
+  are used. The admin can make test calls from the review page.
+- **Review page:** shows everything the system declares and adds:
+  - every fn, with its instructions, signature, examples, kind, fn facts (types read and written, mode, free or not,
+    cost and time estimates) and declared effects
+  - its context (folder graph), types, kinds, resources and roots, components, providers and commands
+  - its capabilities (below) and its configuration
+  - its test results and scan report (install_system)
+
+  The admin configures it, turns individual items off, sets visibility, and makes test calls.
+- **Live:** the admin presses "Go live". The reviewed contract (with its hash) is saved, and everything enabled
+  becomes available.
+- **Changes after going live:** a new contract version, or a runtime addition outside what was reviewed, goes to a
+  pending review with a diff. Meanwhile the live version keeps working, and the new or changed items stay off until
+  approved. Additions within what was declared and reviewed (for example `database/query` fns from a fn that declares
+  it creates them) are allowed, and they are listed on the system page.
+
+**Enforcement: the hub checks what a system declared.** Each of these is declared in the contract, shown on the review
+page and enforced over the link, with tests:
+- **Effects** (above): undeclared registry changes are refused.
+- **Mode:**
+  - a fn declared `read` cannot call write or delete hub fns, propose writes, or write files through fs
+  - `write` cannot delete
+- **Types:** the types a fn declares it reads or writes are the only ones it can query or change through the hub.
+- **Hub capabilities:** the hub calls the system may make, for example llm/ai, embed, resources, secrets, approvals,
+  connections, other systems' fns or search. Calls outside the declared set are refused.
+- **Models and spend:** the model roles or models it may use, and a per-run and per-day budget cap. Calls beyond them
+  are refused.
+- **Secrets:** it can read only the secrets it declared, by name.
+- **Calling other fns:** it can call only the fns or systems it declared it calls.
+- **Network and files** (for systems that fs installs and supervises):
+  - **Network:** the hosts it may reach, enforced by the supervisor (Node's permission model plus an allowlist proxy).
+  - **Files:** the paths it may read and write, enforced by Node permissions.
+- **Visibility:** a system never gets data about a person who can't see it.
+- **Audit:** every refusal is logged and shown on the system page. A system that keeps going past refusals can be
+  paused automatically.
+
+**Custom configuration:**
+- A system can provide its own Vue configuration component (a client component in its contract). It is used instead
+  of, or alongside, the gin form.
+- The component gets the current config, its gin type, a validate callback (the hub still validates with the gin type
+  before saving) and the system's client for live checks, such as testing a connection.
+- It renders in the review page, on the system page and on the pairing page.
+
 ## Carry-overs
 
 Whatever build 6 leaves open.

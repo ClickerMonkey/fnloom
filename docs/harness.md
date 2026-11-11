@@ -1091,6 +1091,16 @@ Already checked: type-checking all of the types and examples takes about two sec
     resources, components, examples, pending runs, secrets). Effects are worked out deeply, like the other fn facts. The
     chat model sees them in one line of the fn's description, search can filter on them, and the hub refuses changes a
     fn didn't declare.
+  - **Installed is not live:**
+    - **Installed:** a system is connected but offers nothing.
+    - **Going live:** an admin reviews everything it declares (fns with facts and effects, context, types, resources,
+      components, capabilities, tests, scan), configures it, turns items off and presses "Go live". That saves the
+      reviewed contract.
+    - **Later changes:** anything outside what was reviewed waits for review with a diff.
+    - **Enforcement:** the hub enforces every declaration over the link (effects, mode, types, hub capabilities,
+      models and spend, secrets, fns it calls, network and files for supervised systems) and logs every refusal.
+    - **Configuration:** systems can ship their own Vue configuration component. The hub still validates with the gin
+      type.
   - **Generated table fns:** for any table type, one fn lists every fn that could be generated (CRUD: create,
     update, updateWhere, remove, removeWhere, selectOne, selectPage; and helpers from its columns and foreign keys:
     aggregates, group-bys, date buckets, lookups, parent/child, and relation-derived fields with normalized ranks and
