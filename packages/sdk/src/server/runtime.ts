@@ -219,6 +219,8 @@ export class SystemRuntime<C extends ContractShape> {
       export: ({ data }) => this.#export(data.timeout),
       validate: ({ data, signal }) => this.#validate(data, signal),
       preview: ({ data, signal }) => this.#preview(data, signal),
+      // Build 6 stub (hub lane): answer from the kind's cost hook once the SDK has one; no estimate means "use history".
+      estimate: () => ({}),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),

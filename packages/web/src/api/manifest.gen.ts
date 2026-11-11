@@ -1125,6 +1125,28 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "restartSystem": {
+      "method": "POST",
+      "path": "/restartSystem",
+      "ws": "restartSystem",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system",
+        "instance",
+        "reason"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "upgradeSystem": {
       "method": "POST",
       "path": "/upgradeSystem",
@@ -3018,6 +3040,69 @@ export const manifest = {
       "b": [
         "model",
         "messages"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "exploreRoots": {
+      "method": "POST",
+      "path": "/exploreRoots",
+      "ws": "exploreRoots",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system",
+        "instance"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "exploreList": {
+      "method": "POST",
+      "path": "/exploreList",
+      "ws": "exploreList",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "uri",
+        "cursor"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "exploreRead": {
+      "method": "POST",
+      "path": "/exploreRead",
+      "ws": "exploreRead",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "uri",
+        "want"
       ],
       "f": [],
       "hasBody": true,

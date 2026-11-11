@@ -14,7 +14,7 @@ import {
   ActorId, ActorKind, ApprovalId, AutoPairId, ConnectionId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
   ModelCallId, PageRequest, PairingId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, page,
 } from './primitives.ts';
-import { ReadWant, ResourceRead, ResourceUri, ContentRef } from './resources.ts';
+import { ReadWant, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, ContentRef } from './resources.ts';
 import { ClientInfo, RunUpdate } from './run.ts';
 import { Actor, ActorSetting, Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
 import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControlAction, SessionControls, SessionSummary } from './records/chat.ts';
@@ -87,7 +87,7 @@ export type InstanceView = z.infer<typeof InstanceView>;
  * instance's key, config, process and last sighting (`keyFingerprint` is blank for a system with no instance).
  */
 export const SystemView = SystemRecord.omit({ keyFingerprint: true, publicKey: true, config: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true })
-  .extend(InstanceRecord.pick({ keyFingerprint: true, config: true, installed: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true }).shape)
+  .extend(InstanceRecord.pick({ keyFingerprint: true, config: true, installed: true, host: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true }).shape)
   .extend({
     fns: z.number().int(),
     needsConfig: z.boolean(),
@@ -304,6 +304,11 @@ export const systemsSlice = spec({
     startSystem: { body: z.object({ system: SystemName, instance: InstanceName.optional() }), response: z.object({ ok: z.boolean() }), ws: 'startSystem' },
     /** Stop an installed system's instances, or one of them. */
     stopSystem: { body: z.object({ system: SystemName, instance: InstanceName.optional() }), response: z.object({ ok: z.boolean() }), ws: 'stopSystem' },
+    /**
+     * Build 6: restart an instance. A hosted one (`InstanceRecord.host`) restarts through its host's
+     * `restart_system` fn; start and stop go to the host's fns the same way.
+     */
+    restartSystem: { body: z.object({ system: SystemName, instance: InstanceName.optional(), reason: z.string().min(1).max(200) }), response: z.object({ ok: z.boolean() }), ws: 'restartSystem' },
     upgradeSystem: { body: z.object({ system: SystemName, version: z.string().optional() }), response: z.object({ from: z.string(), to: z.string() }), ws: 'upgradeSystem' },
     reimport: { body: z.object({ system: SystemName }), response: ImportReport, ws: 'reimport' },
   }),
@@ -624,6 +629,19 @@ export const fnsSlice = mergeSpecs(
   }),
 );
 
+/**
+ * The file explorer (build 6): browse and read a system's resources live (an fs instance's files), routed to the
+ * system that serves the URI as the signed-in person may see it. Nothing is imported or stored in the hub.
+ */
+export const explorerSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    exploreRoots: { body: z.object({ system: SystemName, instance: InstanceName.optional() }), response: z.array(ResourceRoot), ws: 'exploreRoots' },
+    exploreList: { body: z.object({ uri: ResourceUri, cursor: z.string().optional() }), response: page(ResourceStat), ws: 'exploreList' },
+    /** One file's text (or bytes by content ref), with no resource made of it. */
+    exploreRead: { body: z.object({ uri: ResourceUri, want: z.array(ReadWant).min(1) }), response: ResourceRead, ws: 'exploreRead' },
+  }),
+});
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
@@ -631,5 +649,6 @@ export const hubWebSpec = mergeSpecs(
   querySlice, suggestionsSlice, autoPairSlice,
   accessSlice, connectionsSlice, pickerSlice,
   approvalsSlice, registriesSlice, fnsSlice,
+  explorerSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

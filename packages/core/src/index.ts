@@ -30,6 +30,7 @@
  * - `approvals`: fns that always ask, proposed runs and their previews (build 5).
  * - `decisions`: the decision model for systems (build 5).
  * - `config-secrets`: secret fields in a system's config (build 5).
+ * - `context-files`: context folders (file headers, check problems) and what loading context did (build 6).
  */
 export * from './primitives.ts';
 export * from './modes.ts';
@@ -46,6 +47,7 @@ export * from './llm.ts';
 export * from './model-calls.ts';
 export * from './metrics.ts';
 export * from './manifest.ts';
+export * from './context-files.ts';
 export * from './link.ts';
 export * from './records/systems.ts';
 export * from './records/actors.ts';

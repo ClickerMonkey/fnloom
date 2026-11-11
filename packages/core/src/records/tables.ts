@@ -22,7 +22,7 @@ import { AutoPairSecret } from '../auto-pair.ts';
 import { HubOption } from '../suggestions.ts';
 import { AccessRecord } from '../access.ts';
 import { UserConnection } from '../connections.ts';
-import { FnExampleRecord, FnFactsRecord, FnTypeUse, FnUse, FnVersionRecord } from '../fn-facts.ts';
+import { FnExampleRecord, FnFactsRecord, FnTypeUse, FnUse, FnVersionRecord, TypeVersionRecord } from '../fn-facts.ts';
 import { ResourceUri } from '../resources.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
@@ -132,6 +132,8 @@ export const HUB_TABLES = {
   fnTypes: byFields(FnTypeUse, 'fn', 'type', 'use'),
   fnUses: byFields(FnUse, 'fn', 'uses'),
   fnVersions: byField(FnVersionRecord, 'id'),
+  // build 6
+  typeVersions: byField(TypeVersionRecord, 'id'),
 } as const;
 
 /** The table names. */

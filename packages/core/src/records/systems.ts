@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ContextDecl, FnDecl, KindDecl, Manifest, TypeDecl } from '../manifest.ts';
 import { ContextOrigin, ContextTokens } from '../context-graph.ts';
 import { GinTypeDef } from '../gin.ts';
-import { ActorId, Duration, InstanceName, Json, PairingId, PairingTokenId, QualifiedName, SystemName, Timestamp } from '../primitives.ts';
+import { ActorId, Duration, InstanceName, InstanceRef, Json, PairingId, PairingTokenId, QualifiedName, RunId, SystemName, Timestamp } from '../primitives.ts';
 import { CONTENT_HASH } from '../resources.ts';
 import { FnMetrics, noOutcomes, OutcomeCounts } from '../metrics.ts';
 import { AutoPairChoice } from '../auto-pair.ts';
@@ -152,6 +152,11 @@ export const PairingToken = z.object({
   usedAt: Timestamp.optional(),
   /** The instance it pairs may re-pair by itself (build 3): its secret is granted in the first welcome. */
   autoPair: AutoPairChoice.optional(),
+  /**
+   * Build 6: a token granted to an approved install run (`grantPairing`). It pairs only a hello with this instance and
+   * manifest hash (and `PairingToken.name`), and grants auto pair, so the hosted system re-pairs by itself.
+   */
+  boundTo: z.object({ instance: InstanceName, manifestHash: z.string().min(1), host: InstanceRef, run: RunId }).optional(),
 });
 export type PairingToken = z.infer<typeof PairingToken>;
 

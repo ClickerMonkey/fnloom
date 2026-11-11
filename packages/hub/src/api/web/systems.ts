@@ -64,6 +64,8 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
       installSystem: ({ data, user }) => ops.install_system(data, user.id),
       startSystem: ({ data, user }) => ops.start_system(data, user.id),
       stopSystem: ({ data, user }) => ops.stop_system(data, user.id),
+      // Build 6 stub (hub lane): restart through the host for hosted instances, else the supervisor.
+      restartSystem: () => Promise.reject(new Error('restartSystem is not built yet.')),
       upgradeSystem: ({ data, user }) => ops.upgrade_system(data, user.id),
       reimport: async ({ data }) => {
         await knownSystem(hub, data.system);

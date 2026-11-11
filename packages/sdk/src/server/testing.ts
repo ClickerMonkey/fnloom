@@ -592,6 +592,11 @@ export class FakeHub {
         fleet: () => this.onFleet(),
         searchFns: ({ data }) => Promise.resolve(this.fns.search(data)),
         fnExamples: ({ data }) => Promise.resolve(this.fns.examples(data)),
+        // Build 6 stubs (hub lane): fill in with the SDK work that uses them.
+        examples: () => ({ added: 0, removed: 0 }),
+        models: () => [],
+        resourceSections: () => [],
+        grantPairing: () => Promise.reject(new Error('grantPairing is not served by the fake hub yet.')),
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);

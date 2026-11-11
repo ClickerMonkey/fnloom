@@ -53,6 +53,11 @@ export const TypeDecl = z.object({
    * whoever sees its system.
    */
   audience: ShareRule.optional(),
+  /**
+   * Build 6: the defining system's own facts about the type, kept with it in the hub and read back through
+   * `ctx.types` (a table type's schema hash and enrichment). The hub stores them and never reads them.
+   */
+  meta: z.record(z.string(), Json).optional(),
 });
 export type TypeDecl = z.infer<typeof TypeDecl>;
 
@@ -87,6 +92,8 @@ export const KindDecl = z.object({
   approveChanges: z.boolean(),
   /** The status words of its fns that declare none. */
   status: StatusTemplates.optional(),
+  /** Build 6: its system answers `estimate` on the link, working out a fn's cost from its payload and args. */
+  estimates: z.boolean().optional(),
 });
 export type KindDecl = z.infer<typeof KindDecl>;
 
@@ -201,8 +208,21 @@ export type FnDecl = z.infer<typeof FnDecl>;
 export const CommandArg = z.object({ name: z.string(), hint: z.string(), required: z.boolean() });
 export type CommandArg = z.infer<typeof CommandArg>;
 
+/**
+ * Build 6: one choice a context offers the model next, in a choose-your-own-adventure graph: the context to load and a
+ * one-line "pick this when…" written as a decision. The hub shows each with its token size; `hub/load_context` loads it.
+ */
+export const ContextChoice = z.object({ to: QualifiedName, when: z.string().min(1).max(200) });
+export type ContextChoice = z.infer<typeof ContextChoice>;
+
+/**
+ * A context item. `name` is its stable key (`authoring.kinds`): readable, never shown to people, never derived from a
+ * file path, so the hub updates the same record (links, stats, embeddings) when its title, text or place change.
+ */
 export const ContextDecl = z.object({
   name: LocalName,
+  /** Build 6: what people see; its description when absent. */
+  title: z.string().min(1).optional(),
   description: z.string(),
   /** Absent for dynamic context: the hub asks the system for it on load. */
   content: z.string().optional(),
@@ -221,6 +241,8 @@ export const ContextDecl = z.object({
   /** Its parent in a hierarchy, and the next piece of a chain (a long text in ordered pieces). */
   parent: QualifiedName.optional(),
   next: QualifiedName.optional(),
+  /** Build 6: what the model may load next, each worded as a decision (see `ContextChoice`). */
+  choices: z.array(ContextChoice).optional(),
   /** Weighted links to other context, fns, types and resources. */
   links: z.array(DeclaredLink).optional(),
 });
@@ -346,6 +368,13 @@ export const ManifestPatch = z.object({
   hash: z.string(),
   upsert: z.object(sections).partial(),
   remove: z.partialRecord(ManifestSection, z.array(LocalName)),
+  /**
+   * Build 6: the manifest's top-level lists, each replaced whole when present (they are short): providers, the
+   * registries it hosts and its contributions to registries (its own or another system's).
+   */
+  lists: Manifest.pick({ providers: true, registries: true, contributes: true }).optional(),
+  /** Build 6: its resource roots changed; the hub asks for them again (`roots`). */
+  roots: z.literal(true).optional(),
 });
 export type ManifestPatch = z.infer<typeof ManifestPatch>;
 

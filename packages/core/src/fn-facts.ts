@@ -16,9 +16,9 @@
  *   person, rolled over by size and after a quiet spell.
  */
 import { z } from 'zod';
-import { FnDecl, FnExample, FnMode } from './manifest.ts';
+import { FnDecl, FnExample, FnMode, TypeDecl } from './manifest.ts';
 import { RoleModel } from './model-calls.ts';
-import { ActorId, Duration, IDS, InstanceName, Json, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
+import { ActorId, Duration, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
 import { ResourceUri } from './resources.ts';
 
 /** A fn example's id. */
@@ -33,7 +33,10 @@ export const FnExampleRecord = FnExample.extend({
   id: FnExampleId,
   fn: QualifiedName,
   system: SystemName,
-  source: z.enum(['decl', 'added']),
+  /** `runtime` (build 6): its system added it while running (`examples` on the link), under its own `key`. */
+  source: z.enum(['decl', 'added', 'runtime']),
+  /** Build 6: the system's key for a `runtime` example, so it can replace or remove it. */
+  key: z.string().min(1).max(200).optional(),
   /** Its place among the fn's declared examples (0 for added ones). */
   order: z.number().int().min(0),
   text: z.string(),
@@ -41,6 +44,17 @@ export const FnExampleRecord = FnExample.extend({
   createdAt: Timestamp,
 });
 export type FnExampleRecord = z.infer<typeof FnExampleRecord>;
+
+/**
+ * Build 6: a system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
+ * the hub link). Examples in the fn's declaration are left alone.
+ */
+export const FnExamplesPatch = z.object({
+  fn: LocalName,
+  upsert: z.array(FnExample.extend({ key: z.string().min(1).max(200) })),
+  remove: z.array(z.string().min(1).max(200)),
+});
+export type FnExamplesPatch = z.infer<typeof FnExamplesPatch>;
 
 /** What `fnExamples` asks for: one fn's examples, the most relevant to `query` first (declared order without one). */
 export const FnExamplesQuery = z.object({
@@ -171,6 +185,21 @@ export const FnFacts = z.object({
 });
 export type FnFacts = z.infer<typeof FnFacts>;
 
+/** Build 6: the hub asks a kind's system what a fn of that kind would cost (`estimate` on the system link). */
+export const KindEstimateRequest = z.object({
+  kind: z.string().min(1),
+  payload: Json,
+  /** The call's args, when estimating one call rather than the fn in general. */
+  args: Json.optional(),
+  /** The fn's run history so far (absent when it has none), so the kind can blend it in. */
+  history: CostEstimate.optional(),
+});
+export type KindEstimateRequest = z.infer<typeof KindEstimateRequest>;
+
+/** The kind's answer: an estimate with basis `payload` or `free`, or none (the hub uses the history). */
+export const KindEstimateAnswer = z.object({ estimate: CostEstimate.optional() });
+export type KindEstimateAnswer = z.infer<typeof KindEstimateAnswer>;
+
 // ─── The auto classifier ──────────────────────────────────────────────────────
 
 /**
@@ -243,3 +272,20 @@ export const FnVersionRecord = z.object({
   savedAt: Timestamp,
 });
 export type FnVersionRecord = z.infer<typeof FnVersionRecord>;
+
+/**
+ * Build 6: an earlier version of a named type (the `typeVersions` table), written whenever a manifest, patch or runtime
+ * change replaces its definition, numbered from 1 per type. `meta` is kept with it, so a table type's schema hash at
+ * each version can be looked back on.
+ */
+export const TypeVersionRecord = z.object({
+  /** `<type>#<number>`. */
+  id: z.string(),
+  type: QualifiedName,
+  number: z.number().int().min(1),
+  decl: TypeDecl,
+  /** The instance whose change it was, for a fleet's instance types. */
+  instance: InstanceName.optional(),
+  savedAt: Timestamp,
+});
+export type TypeVersionRecord = z.infer<typeof TypeVersionRecord>;

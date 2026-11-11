@@ -29,10 +29,13 @@ export const SKIP_REASON_LABELS = {
   budget: 'No room in the token budget', rule: 'Hidden by a rule', failed: 'Decision model failed; the score decided',
 } as const satisfies Record<SkipReason, string>;
 
-/** One candidate fn or context item and what became of it. `note`: the decision model's reason, in its words. */
+/**
+ * One candidate fn or context item and what became of it. `note`: the decision model's reason, in its words.
+ * `broughtBy` (build 6): a fn suggested because a suggested context brings it, at that context's score.
+ */
 export const SuggestionOutcome = z.discriminatedUnion('used', [
-  z.object({ used: z.literal(true), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), note: z.string().optional() }),
-  z.object({ used: z.literal(false), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), reason: SkipReason, note: z.string().optional() }),
+  z.object({ used: z.literal(true), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), broughtBy: QualifiedName.optional(), note: z.string().optional() }),
+  z.object({ used: z.literal(false), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), broughtBy: QualifiedName.optional(), reason: SkipReason, note: z.string().optional() }),
 ]);
 export type SuggestionOutcome = z.infer<typeof SuggestionOutcome>;
 

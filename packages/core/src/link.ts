@@ -15,16 +15,17 @@ import { FnShare, FnUsable } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, RunConnection } from './connections.ts';
 import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
-import { PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
+import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
+import { HubModelInfo } from './admin.ts';
 import { DecideAnswer, DecideRequest } from './decisions.ts';
-import { FnExamplesPage, FnExamplesQuery, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
+import { FnExamplesPage, FnExamplesPatch, FnExamplesQuery, FnSearchPage, FnSearchQuery, KindEstimateAnswer, KindEstimateRequest } from './fn-facts.ts';
 import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, FnKindName, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
 import { TypeDefinitions } from './records/systems.ts';
 import { SystemEvent } from './system-events.ts';
-import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section } from './resources.ts';
+import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section, SectionKey } from './resources.ts';
 import {
   AllowedOperations, BudgetLeft, HandlerAnswer, OutcomeWire, ProgressReport, RunInfo, RunSettled, RunUpdate, TimeInfo, UndoOutcome, UserInfo,
 } from './run.ts';
@@ -149,6 +150,8 @@ export const RunRequest = z.object({
   configVersion: z.number().int().min(0),
   /** Build 4: the person's connection a per-person fn acts as (`connect` systems), with its credentials revealed. */
   connection: RunConnection.optional(),
+  /** Build 6: the approval this run went ahead on, for a fn with `approval` (`ctx.approved`), so it can check what it runs. */
+  approved: ApprovedRun.optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;
 
@@ -235,7 +238,19 @@ const linked = use(linkTel, linkSession).group({
   model: { body: ModelForward, response: ModelForwardResult, ws: 'mdl' },
   embed: { body: z.object({ texts: z.array(z.string()), run: RunId.optional() }), response: z.object({ vectors: z.array(z.array(z.number())), cost: Usd }), ws: 'em' },
   /** Resource access for `ctx.resources`, routed to whichever system serves the URI. */
-  resource: { body: z.object({ uri: ResourceUri, want: z.array(ReadWant), run: RunId.optional() }), response: ResourceRead, ws: 'rs' },
+  resource: {
+    body: z.object({
+      uri: ResourceUri,
+      want: z.array(ReadWant),
+      run: RunId.optional(),
+      /** Build 6: only these sections' text (`ctx.resources.text(uri, sections)`). */
+      sections: z.array(SectionKey).min(1).optional(),
+    }),
+    response: ResourceRead,
+    ws: 'rs',
+  },
+  /** Build 6: a resource's sections (`ctx.resources.sections`), as `run`'s person may read it. */
+  resourceSections: { body: z.object({ uri: ResourceUri, run: RunId.optional() }), response: z.array(Section), ws: 'rsc' },
   content: { body: z.object({ ref: ContentRef, offset: z.number().int().min(0), length: z.number().int().min(1) }), response: z.object({ chunk: z.string() }), ws: 'ct' },
   /** Upload content (base64 chunks); the last chunk returns the ref. */
   upload: { body: z.object({ upload: z.string(), chunk: z.string(), last: z.boolean(), mime: z.string() }), response: z.object({ ref: ContentRef.optional() }), ws: 'up' },
@@ -268,6 +283,19 @@ const linked = use(linkTel, linkSession).group({
   searchFns: { body: FnSearchQuery.extend({ run: RunId.optional() }), response: FnSearchPage, ws: 'sf' },
   /** Build 5: a page of a fn's examples, the most relevant to `query` first (`ctx.fnExamples`). */
   fnExamples: { body: FnExamplesQuery, response: FnExamplesPage, ws: 'fx' },
+  /** Build 6: add, replace or remove examples of the system's own fn while running (`RunningSystem.examples`). */
+  examples: { body: FnExamplesPatch, response: z.object({ added: z.number().int().min(0), removed: z.number().int().min(0) }), ws: 'xp' },
+  /**
+   * Build 6: the models the system may use, with the roles they fill, for its aeye (`ctx.ai()` / `hubAi()`). The hub
+   * answers calls outside runs too, charged to the system's own budget and limits, and records every one.
+   */
+  models: { body: z.object({}), response: z.array(HubModelInfo), ws: 'mo' },
+  /**
+   * Build 6: an approved install run (`fs/install_system`, approver `admins`) asks for a one-time pairing token bound
+   * to its subject. Refused unless `run` is this system instance's running, approved run whose stored preview has an
+   * equal `subject`.
+   */
+  grantPairing: { body: PairingGrantRequest, response: PairingGrant, ws: 'gp' },
 });
 
 /** What a system calls on the hub. */
@@ -353,6 +381,8 @@ export const systemLinkSpec = spec({
     validate: endpoint({ body: ValidateRequest, response: ValidateAnswer, ws: 'vl' }),
     /** Build 5: what a run of a fn with `approval.preview` would do, asked before the person decides. */
     preview: endpoint({ body: PreviewRequest, response: PreviewAnswer, ws: 'pv' }),
+    /** Build 6: what a fn of one of the system's kinds would cost (`KindDecl.estimates`). */
+    estimate: endpoint({ body: KindEstimateRequest, response: KindEstimateAnswer, ws: 'es' }),
     /** A chat call for one of the system's providers (manifest `providers`). */
     providerChat: endpoint({ body: ProviderChat, streamOut: ProviderChunk, ws: 'pc' }),
     providerEmbed: endpoint({ body: ProviderEmbed, response: ProviderEmbedResult, ws: 'pe' }),
