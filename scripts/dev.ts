@@ -30,7 +30,7 @@ const stackEnv = env({
   ...HUB_PORT,
   HARNESS_DATA: z.string().default('.harness'),
   HARNESS_ADMIN_EMAIL: z.email(),
-  HARNESS_ADMIN_PASSWORD: z.string().min(10),
+  HARNESS_ADMIN_PASSWORD: z.string().min(8),
 });
 const devSettings = mergeEnvs(stackEnv, devEnv);
 devSettings.set({ ...loadEnv({ files: ['.env'] }), ...process.env });
