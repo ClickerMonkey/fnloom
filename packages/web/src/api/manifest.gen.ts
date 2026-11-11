@@ -1011,7 +1011,30 @@ export const manifest = {
       "b": [
         "system",
         "functions",
-        "renderers"
+        "renderers",
+        "context"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "switchItem": {
+      "method": "POST",
+      "path": "/switchItem",
+      "ws": "switchItem",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "section",
+        "name",
+        "on"
       ],
       "f": [],
       "hasBody": true,
@@ -1373,6 +1396,26 @@ export const manifest = {
       "method": "POST",
       "path": "/systemFns",
       "ws": "systemFns",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "systemParts": {
+      "method": "POST",
+      "path": "/systemParts",
+      "ws": "systemParts",
       "httpOnly": false,
       "streamIn": null,
       "itemsIn": false,
@@ -2909,6 +2952,7 @@ export const manifest = {
         "visibility",
         "types",
         "modes",
+        "effects",
         "names",
         "available",
         "order",

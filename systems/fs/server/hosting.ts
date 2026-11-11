@@ -16,7 +16,7 @@
  *   `<dataDir>/hosted/<system>/versions/<bundleHash>/`, the same layout the hub's supervisor uses. What is hosted
  *   (`host.json` beside the instance's folders) is the supervisor's own bookkeeping: which bundle to start, and whether.
  */
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, SystemName, SystemPackageManifest, type ApprovalPreview, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
 import { z } from 'zod';
@@ -147,22 +147,27 @@ export function tail(text: string, max: number): string {
   return text.length <= max ? text : text.slice(text.length - max);
 }
 
-/** The fns line of the diff between two versions: added and removed, by name. */
+/** A fn's name from its line on a card (`random/roll (read; tags: dice)`). */
+function fnName(line: string): string {
+  return line.split(' ')[0] ?? line;
+}
+
+/** The fns lines of the diff between two versions, in words (a leading `+` or `-` would read as a nested list): added, removed and changed, by name. */
 export function fnsDiff(before: readonly string[], after: readonly string[]): string[] {
-  const nameOf = (line: string) => line.split(' ')[0] ?? line;
+  const nameOf = fnName;
   const had = new Map(before.map((line) => [nameOf(line), line]));
   const has = new Map(after.map((line) => [nameOf(line), line]));
   return [
-    ...after.filter((line) => !had.has(nameOf(line))).map((line) => `+ ${line}`),
-    ...before.filter((line) => !has.has(nameOf(line))).map((line) => `- ${line}`),
-    ...after.filter((line) => had.has(nameOf(line)) && had.get(nameOf(line)) !== line).map((line) => `~ ${line} (was ${had.get(nameOf(line)) ?? ''})`),
+    ...after.filter((line) => !had.has(nameOf(line))).map((line) => `adds ${line}`),
+    ...before.filter((line) => !has.has(nameOf(line))).map((line) => `removes ${line}`),
+    ...after.filter((line) => had.has(nameOf(line)) && had.get(nameOf(line)) !== line).map((line) => `changes ${line} (was ${had.get(nameOf(line)) ?? ''})`),
   ];
 }
 
 /** The systems this fs instance hosts. */
 export class Hosting {
   readonly #deps: HostingDeps;
-  /** The install under way for each system, so two never start, write or prune its versions at once. */
+  /** The preview or install under way for each system, so two never build, start, write or prune its versions at once. */
   readonly #installing = new Map<string, Promise<unknown>>();
 
   constructor(deps: HostingDeps) {
@@ -194,7 +199,7 @@ export class Hosting {
     const instance = this.#instance(options.instance);
     const hosted = await this.record(manifest.name, instance);
     if (RESERVED.has(manifest.name)) { throw new InstallRefused(`"${manifest.name}" is reserved for the hub: rename the system in system.json and its contract.`); }
-    const built = await this.#build(folder, manifest.name, signal);
+    const built = await this.#serial(manifest.name, () => this.#build(folder, manifest.name, signal));
     const sourceHash = await this.#deps.builds.sourceHash(folder);
     const subject: InstallSubject = {
       kind: 'system-install',
@@ -213,21 +218,22 @@ export class Hosting {
       : `Update ${manifest.name} ${hosted.version} → ${manifest.version} on ${where}`;
     const diff = hosted === undefined ? [] : fnsDiff(hosted.fns, built.fns);
     const permissions = Object.entries(built.manifest.permissions ?? {}).filter(([, on]) => on === true).map(([name]) => name);
+    // the title names the system and its versions, and the subject card under the scan binds the hashes and the host:
+    // the words say only what those don't, and a fn the diff lists isn't listed again
+    const changed = new Set(diff.map((line) => fnName(line.slice(2))));
+    const kept = built.fns.filter((line) => !changed.has(fnName(line)));
     const parts: PreviewPart[] = [
       {
         type: 'text',
         text: [
-          `**${manifest.name}** ${manifest.version}: ${manifest.description}`,
-          '',
-          'Fns:',
-          ...built.fns.map((line) => `- ${line}`),
+          `${manifest.description} Built from \`${folder}\`.`,
+          ...(kept.length === 0 ? [] : ['', hosted === undefined ? 'Fns:' : 'Fns it keeps:', ...kept.map((line) => `- ${line}`)]),
           ...(built.adds.length === 0 ? [] : ['', 'Also adds:', ...built.adds.map((line) => `- ${line}`)]),
           ...(permissions.length === 0 ? [] : ['', `Asks to: ${permissions.join(', ')}.`]),
         ].join('\n'),
       },
       ...(hosted === undefined ? [] : [{ type: 'text' as const, text: ['Changes from the running version:', ...(diff.length === 0 ? ['- no fns added, removed or changed'] : diff.map((line) => `- ${line}`))].join('\n') }]),
       { type: 'text', text: ['Scan (a report, not a guarantee):', ...built.scan.map((line) => `- ${line}`)].join('\n') },
-      { type: 'text', text: [`Source: \`${folder}\``, `Bundle: \`${built.bundleHash}\``, `Contract: \`${built.manifestHash}\``].join('\n') },
       ...built.concerns.map((concern) => ({ type: 'code' as const, language: 'js', code: concern.code, title: `${concern.file}:${String(concern.line)}` })),
     ];
     return { title, parts, irreversible: false, subject };
@@ -235,13 +241,18 @@ export class Hosting {
 
   /** Start what an admin approved; see the file's docs. Installs of one system wait for each other. */
   async install(folder: string, subject: InstallSubject, grant: GrantPairing, signal: AbortSignal): Promise<InstallResultValue> {
-    const before = this.#installing.get(subject.system) ?? Promise.resolve();
-    const mine = before.catch(() => undefined).then(() => this.#install(folder, subject, grant, signal));
-    this.#installing.set(subject.system, mine);
+    return await this.#serial(subject.system, () => this.#install(folder, subject, grant, signal));
+  }
+
+  /** Run work after the system's earlier preview or install ends, so builds and prunes of its versions never overlap. */
+  async #serial<T>(system: string, work: () => Promise<T>): Promise<T> {
+    const before = this.#installing.get(system) ?? Promise.resolve();
+    const mine = before.catch(() => undefined).then(work);
+    this.#installing.set(system, mine);
     try {
       return await mine;
     } finally {
-      if (this.#installing.get(subject.system) === mine) { this.#installing.delete(subject.system); }
+      if (this.#installing.get(system) === mine) { this.#installing.delete(system); }
     }
   }
 
@@ -390,18 +401,26 @@ export class Hosting {
     return parsed.data;
   }
 
-  /** Build into a fresh folder, then move it to its version folder (by bundle hash), keeping the built summary beside it. */
+  /**
+   * Build into a fresh folder, then move it to its version folder (by bundle hash), keeping the built summary beside
+   * it. When that version folder already exists (the same server bundle, maybe running), the build is copied over it
+   * in place: a running process's folder is never removed (Windows refuses that, and its restarts need the bundle).
+   */
   async #build(folder: string, system: string, signal: AbortSignal): Promise<BuiltSystem> {
-    const scratch = join(this.root, system, 'versions', `building-${String(Date.now())}-${String(process.pid)}`);
-    await mkdir(scratch, { recursive: true });
+    const versions = join(this.root, system, 'versions');
+    await mkdir(versions, { recursive: true });
+    const scratch = await mkdtemp(join(versions, 'building-'));
     try {
       const answer = await this.#deps.builds.build(folder, scratch, signal);
       if ('problems' in answer) {
         throw new InstallRefused(`It doesn't build. Fix these and call install_system again:\n${capped(answer.problems, this.#deps.limits.problems)}`);
       }
       const target = this.versionFolder(system, answer.built.bundleHash);
-      await rm(target, { recursive: true, force: true });
-      await rename(scratch, target);
+      if (await isFolder(target)) {
+        await cp(scratch, target, { recursive: true, force: true });
+      } else {
+        await rename(scratch, target);
+      }
       const built: BuiltSystem = { ...answer.built, entry: join(target, relativeTo(scratch, answer.built.entry)) };
       await writeFile(join(target, BUILT_FILE), JSON.stringify(built), 'utf8');
       return built;
@@ -485,6 +504,16 @@ function relativeTo(from: string, path: string): string {
   const normal = (value: string) => value.replaceAll('\\', '/');
   const base = `${normal(from)}/`;
   return normal(path).startsWith(base) ? normal(path).slice(base.length) : normal(path);
+}
+
+/** Whether a folder exists there. */
+async function isFolder(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    if (isMissing(error)) { return false; }
+    throw error;
+  }
 }
 
 function isMissing(error: unknown): boolean {

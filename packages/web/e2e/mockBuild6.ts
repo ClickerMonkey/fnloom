@@ -3,23 +3,22 @@
  * live (a small project folder, its text files' contents made up from their names).
  */
 import { fileURLToPath } from 'node:url';
-import { ApprovalPreview, ContextRecord, Json, HostedBy, ResourceRoot, ResourceStat, type ContextDecl, type Page, type ResourceRead } from '@harness/core';
+import { ApprovalPreview, ContextRecord, Json, HostedBy, ResourceRoot, ResourceStat, SystemParts, type ContextDecl, type Page, type ResourceRead } from '@harness/core';
 
 /** Where the hosted sample system runs. */
 export const HOSTED_RANDOM = HostedBy.parse({ host: { system: 'fs', instance: 'main' }, path: 'systems/random', bundleHash: 'a3f1'.repeat(16), approval: 'apr_random_install' });
 
 /**
  * What fs's `install_system` card asks for an update of the hosted sample, in the order fs writes it: what it adds,
- * the diff from the running version, the scan, the hashes, then the scan's lines of concern as code.
+ * the diff from the running version, the scan, then the scan's lines of concern as code (the hashes are the subject's).
  */
 export const INSTALL_PREVIEW = ApprovalPreview.parse({
   title: 'Update random 0.1.0 → 0.2.0 on fs/main',
   irreversible: false,
   parts: [
-    { type: 'text', text: ['**random** 0.2.0: Dice, coins and random picks.', '', 'Fns:', '- roll (read; tags: dice)', '- flip (read; tags: coins)', '', 'Also adds:', '- type random/Roll'].join('\n') },
-    { type: 'text', text: ['Changes from the running version:', '- adds flip (read)'].join('\n') },
+    { type: 'text', text: ['Dice, coins and random picks. Built from `systems/random`.', '', 'Fns it keeps:', '- random/roll (read; tags: dice)', '', 'Also adds:', '- type random/Roll'].join('\n') },
+    { type: 'text', text: ['Changes from the running version:', '- adds random/flip (read; tags: coins)'].join('\n') },
     { type: 'text', text: ['Scan (a report, not a guarantee):', '- imports node:crypto', '- reads no environment variables', '- no network access'].join('\n') },
-    { type: 'text', text: ['Source: `systems/random`', `Bundle: \`${'b7e2'.repeat(16)}\``, `Contract: \`${'5c09'.repeat(16)}\``].join('\n') },
     { type: 'code', language: 'js', title: 'server/main.ts:12', code: 'const seed = randomBytes(8).readBigUInt64LE();' },
   ],
   subject: {
@@ -93,4 +92,20 @@ export function contextFolderSamples(at: number): ContextRecord[] {
     item('authoring.fns', 'Fns', 'How a fn is declared: its input, output, instructions and examples.', { fns: ['fs/write', 'fs/read'], imports: ['fs/authoring.index'] }),
     item('authoring.kinds', 'Kinds', 'How a kind is declared and how its estimate is worked out.', { visible: 'llm' }),
   ];
+}
+
+/** What fs added beyond its fns, context and types, as `systemParts` lists it: a kind, a `/command`, a component and examples. */
+export function systemPartsOf(system: string): SystemParts {
+  if (system !== 'fs') { return { parts: [], more: {} }; }
+  return SystemParts.parse({
+    parts: [
+      { section: 'kinds', name: 'fs/file', about: 'A file in one of its folders, opened by its path.', origin: 'contract', version: '3be0'.repeat(16), decl: { name: 'file', description: 'A file in one of its folders, opened by its path.' } },
+      { section: 'kinds', name: 'fs/folder', about: 'A folder, listed by its path.', origin: 'contract', version: '71c4'.repeat(16), decl: { name: 'folder', description: 'A folder, listed by its path.' } },
+      { section: 'commands', name: '/authoring', about: 'How to write a system for the hub.', origin: 'contract', version: '0d9e'.repeat(16), visibility: 'user', owner: 'fs/authoring.index', decl: { name: 'authoring', description: 'How to write a system for the hub.' } },
+      { section: 'components', name: 'viewers: Markdown', about: 'Shows markdown files as a page.', origin: 'contract', version: 'e5a2'.repeat(16), decl: { registry: 'viewers', label: 'Markdown', description: 'Shows markdown files as a page.' } },
+      { section: 'examples', name: 'fs/read_file #1', about: 'Read the readme at the root of the work folder.', origin: 'contract', version: '9f17'.repeat(16), owner: 'fs/read_file', decl: { fn: 'fs/read_file', text: 'Read the readme at the root of the work folder.', args: { path: 'README.md' } } },
+      { section: 'examples', name: 'fs/bash (build)', about: 'Run the build in the work folder.', origin: 'runtime', version: '28bd'.repeat(16), owner: 'fs/bash', decl: { fn: 'fs/bash', text: 'Run the build in the work folder.', args: { command: 'npm run build' } } },
+    ],
+    more: {},
+  });
 }

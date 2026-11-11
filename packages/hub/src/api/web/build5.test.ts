@@ -59,7 +59,7 @@ describe('fns endpoints (build 5 feedback)', () => {
   it('search, page examples, read facts of fns the person sees, take browser logs, and set the auto classifier', async () => {
     const searched: unknown[] = [];
     const logged: unknown[] = [];
-    const facts: FnFacts = { fn: 'books/overdue', kind: 'native', mode: 'read', reads: [], writes: [], uses: [], free: true, cost: { min: 0, typical: 0, max: 0, basis: 'free', runs: 0 }, longRunning: false };
+    const facts: FnFacts = { fn: 'books/overdue', kind: 'native', mode: 'read', reads: [], writes: [], uses: [], free: true, registry: [], cost: { min: 0, typical: 0, max: 0, basis: 'free', runs: 0 }, longRunning: false };
     const r = await rig({
       catalog: { fn: (name) => Promise.resolve(name === 'books/overdue' || name === 'books/secret' ? catalogFn(name) : undefined) },
       access: { scope: (actor) => Promise.resolve({ ...openScope(actor), seesFn: (f) => f.name !== 'books/secret' }) },

@@ -60,7 +60,8 @@ export function createContextor(input: ContextorModuleInput): ContextorServices 
   });
   const tokens = new StoreTokenEstimates({ store, limits, clock });
   const graph = new StoreContextGraph({ store, catalog, clock, halfLife: settings.HARNESS_LINK_HALF_LIFE });
-  const views = new CatalogFnViews(catalog);
+  const facts = input.fns;
+  const views = new CatalogFnViews(catalog, undefined, facts?.registry === undefined ? undefined : (names) => facts.registry?.(names) ?? Promise.resolve(new Map()));
   const resolver = new ModelResolver({
     store, settings: { model: { HARNESS_DEFAULT_MODEL: input.modelSettings.HARNESS_DEFAULT_MODEL } }, roles: input.roles ?? { resolve: () => Promise.resolve(undefined) },
   });
@@ -92,6 +93,7 @@ export const contextorModule: ModuleFactory<'contextor'> = ({ hub }) => ({
     fns: {
       examples: (fn, text) => hub.fns.examples.forPrompt(fn, text, fn.decl.promptExamples ?? hub.settings.fnsEnv.HARNESS_FN_PROMPT_EXAMPLES),
       modes: (names) => hub.fns.facts.modes(names),
+      registry: (names) => hub.fns.facts.registry(names),
     },
     roles: { resolve: (role) => hub.models.roles.resolve(role) },
     dynamic: new LinkDynamicContext({

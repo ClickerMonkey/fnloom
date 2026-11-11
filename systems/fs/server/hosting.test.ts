@@ -123,7 +123,7 @@ describe('hosting systems written here', () => {
     await expect(hosting.install(dir, first, grant, signal)).rejects.toThrow('The folder changed after approval');
     const update = await hosting.preview(dir, {}, signal);
     expect(update.title).toBe('Update random 0.1.0 → 0.1.0 on fs/main');
-    expect(JSON.stringify(update.parts)).toContain('+ random/dice (read)');
+    expect(JSON.stringify(update.parts)).toContain('adds random/dice (read)');
     expect(update.subject?.replaces).toMatchObject({ version: '0.1.0' });
     if (update.subject === undefined) { throw new Error('no subject'); }
     await hosting.install(dir, update.subject, grant, signal);
@@ -194,8 +194,25 @@ describe('hosting systems written here', () => {
     await expect(hosting.restart('random', undefined)).rejects.toThrow('isn\'t hosted here. Nothing is.');
   });
 
+  it('previews unchanged code again without removing the running bundle folder, and builds one preview at a time', async () => {
+    const { builds, runner, hosting, grant } = setup();
+    const dir = folder();
+    const first = (await hosting.preview(dir, {}, signal)).subject;
+    if (first === undefined) { throw new Error('no subject'); }
+    await hosting.install(dir, first, grant, signal);
+    // a file in the running folder that a removal would take with it
+    const marker = join(hosting.versionFolder('random', 'b-source-1'), 'running.txt');
+    writeFileSync(marker, 'here');
+    const again = await Promise.all([hosting.preview(dir, {}, signal), hosting.preview(dir, {}, signal)]);
+    expect(again.map((card) => card.subject?.bundleHash)).toEqual(['b-source-1', 'b-source-1']);
+    expect(readFileSync(marker, 'utf8')).toBe('here');
+    expect(builds.builds).toBe(3);
+    expect(await hosting.restart('random', undefined)).toBe('connected');
+    expect(runner.started.at(-1)?.launch.entry.replaceAll('\\', '/')).toContain('/versions/b-source-1/server/main.js');
+  });
+
   it('caps problem lines and diffs fns by name', () => {
     expect(capped(['a', 'b', 'c'], 2)).toBe('a\nb\nand 1 more');
-    expect(fnsDiff(['x/a (read)', 'x/b (read)'], ['x/a (write)', 'x/c (read)'])).toEqual(['+ x/c (read)', '- x/b (read)', '~ x/a (write) (was x/a (read))']);
+    expect(fnsDiff(['x/a (read)', 'x/b (read)'], ['x/a (write)', 'x/c (read)'])).toEqual(['adds x/c (read)', 'removes x/b (read)', 'changes x/a (write) (was x/a (read))']);
   });
 });

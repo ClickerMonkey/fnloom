@@ -16,7 +16,7 @@
  *   person, rolled over by size and after a quiet spell.
  */
 import { z } from 'zod';
-import { FnDecl, FnExample, FnMode, TypeDecl } from './manifest.ts';
+import { FnDecl, FnExample, FnMode, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
 import { RoleModel } from './model-calls.ts';
 import { ActorId, Duration, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
 import { ResourceUri } from './resources.ts';
@@ -106,6 +106,11 @@ export const FnSearchQuery = z.object({
   visibility: z.enum(['mine', 'shared', 'public']).optional(),
   types: z.object({ reads: z.array(QualifiedName).optional(), writes: z.array(QualifiedName).optional() }).optional(),
   modes: z.array(FnMode).min(1).optional(),
+  /**
+   * Build 6: only fns that create, update or remove one of these things in the hub (`FnFacts.registry`); `action`
+   * and `kind` narrow each when given.
+   */
+  effects: z.array(z.object({ thing: RegistryThing, action: RegistryAction.optional(), kind: z.string().min(1).optional() })).min(1).optional(),
   /** Only these items, by qualified name. */
   names: z.array(QualifiedName).min(1).max(100).optional(),
   /** Only fns that can be used now (default true). */
@@ -128,6 +133,8 @@ export const FnSearchHit = z.object({
   mode: FnMode.optional(),
   /** A fn's one-line signature, `name(args) → returns`, for calling it. */
   signature: z.string().optional(),
+  /** Build 6: what a fn changes in the hub, in one line (`effectsLine`): "Creates fns (database/query)." */
+  effects: z.string().optional(),
   instance: InstanceName.optional(),
   score: z.number().optional(),
   /** Whether the asker can use it now; why not when false. */
@@ -175,6 +182,8 @@ export const FnFacts = z.object({
   /** The fns it uses, directly or through others. */
   uses: z.array(QualifiedName),
   free: z.boolean(),
+  /** Build 6: what it and everything it uses create, update or remove in the hub, each once. */
+  registry: z.array(RegistryEffect),
   cost: CostEstimate,
   times: RunTimes.optional(),
   longRunning: z.boolean(),
@@ -241,6 +250,8 @@ export type ClientLogReceipt = z.infer<typeof ClientLogReceipt>;
  * cost and run times, which come from its run history when asked. Its scalar columns are what search filters on.
  */
 export const FnFactsRecord = FnFacts.pick({ fn: true, kind: true, mode: true, reads: true, writes: true, uses: true, free: true }).extend({
+  /** Build 6: absent on facts worked out before build 6; they are worked out again as their fns change. */
+  registry: z.array(RegistryEffect).optional(),
   system: SystemName,
   instance: InstanceName.optional(),
   updatedAt: Timestamp,
@@ -286,3 +297,60 @@ export const TypeVersionRecord = z.object({
   savedAt: Timestamp,
 });
 export type TypeVersionRecord = z.infer<typeof TypeVersionRecord>;
+
+// ─── Declared effects on the hub ──────────────────────────────────────────────
+
+/** How a thing reads in an effects line. */
+const THING_WORDS: { readonly [T in RegistryThing]: string } = {
+  fns: 'fns', types: 'types', context: 'context', resources: 'resources', kinds: 'kinds', components: 'components',
+  examples: 'examples', approvals: 'runs awaiting approval', secrets: 'secrets', connections: 'connections',
+};
+
+/** How an action starts an effects line. */
+const ACTION_WORDS: { readonly [A in RegistryAction]: string } = { create: 'Creates', update: 'Updates', remove: 'Removes' };
+
+/** The same effect, for keeping each once. */
+export function registryKey(effect: RegistryEffect): string {
+  return `${effect.action} ${effect.thing}${effect.kind === undefined ? '' : ` ${effect.kind}`}`;
+}
+
+/** Effects each once, in a stable order. */
+export function uniqueEffects(effects: Iterable<RegistryEffect>): RegistryEffect[] {
+  const byKey = new Map<string, RegistryEffect>();
+  for (const effect of effects) byKey.set(registryKey(effect), effect);
+  return [...byKey.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, effect]) => effect);
+}
+
+/**
+ * What a fn changes in the hub, as one short line for its description: "Creates fns (database/query). Updates
+ * context." A fns entry with no kind covers every kind, so the kinds are only listed when every entry names one.
+ * Undefined when it changes nothing.
+ */
+export function effectsLine(effects: readonly RegistryEffect[]): string | undefined {
+  const sentences: string[] = [];
+  for (const action of REGISTRY_ACTIONS) {
+    const things = new Map<RegistryThing, Set<string> | undefined>();
+    for (const effect of effects) {
+      if (effect.action !== action) continue;
+      const kinds = things.has(effect.thing) ? things.get(effect.thing) : new Set<string>();
+      if (kinds === undefined || effect.kind === undefined) { things.set(effect.thing, undefined); continue; }
+      kinds.add(effect.kind);
+      things.set(effect.thing, kinds);
+    }
+    if (things.size === 0) continue;
+    const parts = [...things.entries()].map(([thing, kinds]) => (kinds === undefined || kinds.size === 0 ? THING_WORDS[thing] : `${THING_WORDS[thing]} (${[...kinds].sort().join(', ')})`));
+    sentences.push(`${ACTION_WORDS[action]} ${parts.join(', ')}.`);
+  }
+  return sentences.length === 0 ? undefined : sentences.join(' ');
+}
+
+/** Whether `declared` covers a change: the same thing and action, and for fns the same kind or a declaration of any kind. */
+export function effectCovered(declared: readonly RegistryEffect[], change: RegistryEffect): boolean {
+  return declared.some((effect) => effect.thing === change.thing && effect.action === change.action && (effect.kind === undefined || effect.kind === change.kind));
+}
+
+/** The least mode a registry change needs: removing is a delete, creating and updating a write. */
+export function registryMode(effects: readonly RegistryEffect[]): FnMode | undefined {
+  if (effects.some((effect) => effect.action === 'remove')) return 'delete';
+  return effects.length > 0 ? 'write' : undefined;
+}

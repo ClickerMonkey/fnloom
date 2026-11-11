@@ -3,10 +3,11 @@
  * payload): `effects` when given, else the mode from the `read` tag (agents read until their tools say otherwise),
  * the types it reads from its result's named types, and those it writes from its args' when it isn't read-only. Then
  * every fn it uses (its deps, an agent's tools), followed to a tunable depth, folds in: the strongest mode, the union
- * of the types, and free only when all of them are. The stored part (`fnFacts`, `fnTypes`) is what search filters on;
+ * of the types and of what they create, update or remove in the hub (build 6: a registry change is at least a write,
+ * a removal a delete), and free only when all of them are. The stored part (`fnFacts`, `fnTypes`) is what search filters on;
  * `fnUses` lists what each fn uses so a changed fn refreshes the fns that use it. The cost estimate (from its kind's `CostEstimator`) and run times (from `fnMetrics`) are read when asked.
  */
-import { READ_TAG, QualifiedName, type FnFacts, type FnFactsRecord, type FnMetricsDay, type FnMode, type FnRecord, type FnTypeUse, type Json, type RunTimes } from '@harness/core';
+import { READ_TAG, QualifiedName, registryMode, uniqueEffects, type FnFacts, type RegistryEffect, type FnFactsRecord, type FnMetricsDay, type FnMode, type FnRecord, type FnTypeUse, type Json, type RunTimes } from '@harness/core';
 import { parseValue, LlmPayloadType } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { GinScopes } from '../catalog/scope.ts';
@@ -37,6 +38,8 @@ interface OwnFacts {
   readonly writes: readonly QualifiedName[];
   readonly free: boolean;
   readonly uses: readonly QualifiedName[];
+  /** What it creates, updates or removes in the hub. */
+  readonly registry: readonly RegistryEffect[];
 }
 
 /** The longest a duration reads as minutes rather than seconds. */
@@ -70,7 +73,7 @@ export class StoreFnFacts implements FnFactsService {
     const times = runTimes(history);
     const longRunning = times !== undefined && times.typical > this.#deps.tuning.HARNESS_FN_LONG_RUNNING;
     return {
-      fn: fn.name, kind: fn.decl.kind, mode: stored.mode, reads: stored.reads, writes: stored.writes, uses: stored.uses, free: stored.free, cost,
+      fn: fn.name, kind: fn.decl.kind, mode: stored.mode, reads: stored.reads, writes: stored.writes, uses: stored.uses, free: stored.free, registry: stored.registry ?? [], cost,
       ...(times === undefined ? {} : { times }), longRunning,
       ...(longRunning ? { notice: `${fn.name} usually takes ${aboutDuration(times.typical)}.` } : {}),
     };
@@ -83,6 +86,18 @@ export class StoreFnFacts implements FnFactsService {
       if (row !== undefined) { out.set(name, row.mode); continue; }
       const fn = await this.#deps.catalog().fn(name);
       if (fn !== undefined) out.set(name, (await this.#stored(fn)).mode);
+    }
+    return out;
+  }
+
+  async registry(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, readonly RegistryEffect[]>> {
+    const out = new Map<QualifiedName, readonly RegistryEffect[]>();
+    for (const name of new Set(fns)) {
+      const row = await this.#deps.store().table('fnFacts').get(name);
+      // facts stored before build 6 have no registry: work them out again
+      if (row?.registry !== undefined) { out.set(name, row.registry); continue; }
+      const fn = await this.#deps.catalog().fn(name);
+      if (fn !== undefined) out.set(name, (await this.#save(fn, await this.#deep(fn))).registry ?? []);
     }
     return out;
   }
@@ -115,6 +130,7 @@ export class StoreFnFacts implements FnFactsService {
     let free = own.free;
     const reads = new Set(own.reads);
     const writes = new Set(own.writes);
+    const registry = [...own.registry];
     const seen = new Set<QualifiedName>([fn.name]);
     let next = [...own.uses];
     for (let depth = 0; depth < this.#deps.tuning.HARNESS_FN_FACTS_DEPTH && next.length > 0; depth++) {
@@ -129,12 +145,15 @@ export class StoreFnFacts implements FnFactsService {
         free &&= facts.free;
         for (const type of facts.reads) reads.add(type);
         for (const type of facts.writes) writes.add(type);
+        registry.push(...facts.registry);
         later.push(...facts.uses);
       }
       next = later;
     }
     seen.delete(fn.name);
-    return { mode, free, reads: [...reads].sort(), writes: [...writes].sort(), uses: [...seen].sort() };
+    const changes = uniqueEffects(registry);
+    const least = registryMode(changes);
+    return { mode: least === undefined ? mode : strongerMode(mode, least), free, reads: [...reads].sort(), writes: [...writes].sort(), uses: [...seen].sort(), registry: changes };
   }
 
   /** A fn's own facts, from what it declares and its signature. */
@@ -147,7 +166,7 @@ export class StoreFnFacts implements FnFactsService {
     const writes = decl.effects?.writes ?? (mode === 'read' ? [] : await this.#named(this.#scopes.mentions(decl.args)));
     // an agent always spends on its model; anything else spends only if it says so or its history shows it
     const free = decl.effects?.free ?? (!agent && decl.limits.cost === undefined && fn.stats.averageCost === 0);
-    return { mode, reads, writes, free, uses: [...new Set([...decl.deps, ...tools])] };
+    return { mode, reads, writes, free, uses: [...new Set([...decl.deps, ...tools])], registry: decl.effects?.registry ?? [] };
   }
 
   /** The names that are stored named types. */
@@ -164,7 +183,7 @@ export class StoreFnFacts implements FnFactsService {
   async #save(fn: FnRecord, facts: OwnFacts): Promise<FnFactsRecord> {
     const instance = fn.decl.routing?.to === 'instance' ? fn.decl.routing.instance : undefined;
     const record: FnFactsRecord = {
-      fn: fn.name, system: fn.system, kind: fn.decl.kind, mode: facts.mode, reads: [...facts.reads], writes: [...facts.writes], uses: [...facts.uses], free: facts.free,
+      fn: fn.name, system: fn.system, kind: fn.decl.kind, mode: facts.mode, reads: [...facts.reads], writes: [...facts.writes], uses: [...facts.uses], free: facts.free, registry: [...facts.registry],
       ...(instance === undefined ? {} : { instance }), updatedAt: this.#deps.clock(),
     };
     const uses: FnTypeUse[] = [

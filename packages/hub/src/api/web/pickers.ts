@@ -3,7 +3,7 @@
  * what they typed (fns are searched in the hub's database, `fns/search.ts`, by words and meaning), or, with `values`, those values' options so the web can label the chips it holds (a value that
  * resolves to nothing, or to something the asker can't see, comes back `missing`).
  */
-import { QualifiedName, type ActorId, type PickOption, type PickQuery, type PickSource } from '@harness/core';
+import { contextOff, QualifiedName, type ActorId, type PickOption, type PickQuery, type PickSource } from '@harness/core';
 import type { AccessScope, AccessService } from '../../access/index.ts';
 import { seesContextAs } from '../../access/scope.ts';
 import type { Catalog } from '../../catalog/index.ts';
@@ -83,7 +83,7 @@ async function optionsOf(deps: PickerDeps, scope: AccessScope, source: Exclude<P
   switch (source) {
     case 'context': {
       const rows = await store.table('context').find({ limit });
-      return rows.items.filter((row) => row.disabled !== true && seesContextAs(scope, row)).map((row) => ({ value: row.name, label: row.name, hint: row.decl.description }));
+      return rows.items.filter((row) => !contextOff(row) && seesContextAs(scope, row)).map((row) => ({ value: row.name, label: row.name, hint: row.decl.description }));
     }
     case 'system': {
       const rows = await store.table('systems').find({ limit });

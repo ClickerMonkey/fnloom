@@ -345,6 +345,29 @@ describe('patches, runtime fns and re-imports', () => {
     expect((await catalog.importPatch(SHOP, { hash: 'h', upsert: {}, remove: {} })).refused[0]?.problems).toEqual(['no manifest to patch: send the whole manifest first']);
   });
 
+  it('keeps what the running system added runtime through whole manifests and re-imports, and a context item\'s switches through a change (build 6)', async () => {
+    const { catalog, store } = await setup();
+    const manifest = await manifestFor(shop);
+    await catalog.importManifest(manifest);
+    const get = declOf(manifest, 'get');
+    const guide = manifest.context.find((c) => c.name === 'guide');
+    if (guide === undefined) throw new Error('no guide');
+    // switched off by a person, by itself and with its system's context
+    await store.table('context').update(q('shop/guide'), { disabled: true, systemOff: true });
+    // the system sends its whole manifest with a fn it added while running (`Manifest.runtime`) and a changed guide
+    const whole: Manifest = { ...manifest, hash: 'h2', fns: [...manifest.fns, { ...get, name: 'find' }], context: [{ ...guide, description: 'How the shop works now.' }], runtime: { fns: ['find'] } };
+    expect((await catalog.importManifest(whole)).refused).toEqual([]);
+    expect(await catalog.fn(q('shop/find'))).toMatchObject({ origin: 'runtime' });
+    expect(await catalog.fn(q('shop/get'))).toMatchObject({ origin: 'contract' });
+    expect(await catalog.context(q('shop/guide'))).toMatchObject({ decl: { description: 'How the shop works now.' }, disabled: true, systemOff: true, declaredBy: 'contract' });
+    // a re-import and a patch that leaves it alone keep it the running system's, so it can still be declared over
+    await catalog.reimport(SHOP);
+    await catalog.importPatch(SHOP, { hash: 'h3', upsert: { fns: [{ ...get, description: 'Get one.' }] }, remove: {} });
+    expect(await catalog.fn(q('shop/find'))).toMatchObject({ origin: 'runtime' });
+    expect((await catalog.manifest(SHOP))?.runtime).toEqual({ fns: ['find', 'get'] });
+    expect((await catalog.declare(SHOP, { ...get, name: 'find', description: 'Find one.' }, ADMIN)).refused).toEqual([]);
+  });
+
   it('declares a fn at runtime, and refuses one that clashes with the contract', async () => {
     const { catalog } = await setup();
     const manifest = await manifestFor(shop);

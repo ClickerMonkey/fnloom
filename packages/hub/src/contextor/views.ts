@@ -4,7 +4,7 @@
  * once per fn version. Whether a session may use a fn (switched on, available, a system the session uses) is
  * answered here too, so every mode and contextor asks the same question the same way.
  */
-import type { Audience, FnRecord, QualifiedName, Session, TypeRecord } from '@harness/core';
+import { effectsLine, type Audience, type FnRecord, type QualifiedName, type RegistryEffect, type Session, type TypeRecord } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { GinScopes } from '../catalog/scope.ts';
@@ -49,27 +49,42 @@ export function typeDefinition(name: QualifiedName, record: Pick<TypeRecord, 'de
   return `${doc}type ${name} = ${code}`;
 }
 
+/** What fns change in the hub, worked out deeply (`FnFactsService.registry`). */
+export type RegistrySource = (fns: readonly QualifiedName[]) => Promise<ReadonlyMap<QualifiedName, readonly RegistryEffect[]>>;
+
 /** Fn views over the catalog. */
 export class CatalogFnViews implements FnViewSource {
   readonly #catalog: Pick<Catalog, 'fn' | 'signature' | 'typeClosure' | 'type'>;
   readonly #scopes: GinScopes;
+  readonly #registry: RegistrySource | undefined;
   readonly #cache = new Map<QualifiedName, { readonly version: string; readonly view: FnView }>();
 
-  constructor(catalog: Pick<Catalog, 'fn' | 'signature' | 'typeClosure' | 'type'>, scopes: GinScopes = new GinScopes()) {
+  /** With `registry`, each view carries the line saying what its fn changes in the hub. */
+  constructor(catalog: Pick<Catalog, 'fn' | 'signature' | 'typeClosure' | 'type'>, scopes: GinScopes = new GinScopes(), registry?: RegistrySource) {
     this.#catalog = catalog;
     this.#scopes = scopes;
+    this.#registry = registry;
   }
 
   async view(name: QualifiedName): Promise<FnView | undefined> {
     const record = await this.#catalog.fn(name);
     if (record === undefined) return undefined;
     // the parts made from the declaration are kept per version; the record itself (switched off, available) is always fresh
+    // what it changes is read fresh too: it follows the fns it uses, which change on their own
+    const effects = await this.#effects(name);
     const cached = this.#cache.get(name);
-    if (cached?.version === record.version) return { ...cached.view, record };
+    if (cached?.version === record.version) return { ...cached.view, record, ...effects };
     const signature = await this.#catalog.signature(name);
     const view: FnView = { record, signature, args: signature.args.toCode(), returns: signature.returns.toCode(), types: await this.#types(record) };
     this.#cache.set(name, { version: record.version, view });
-    return view;
+    return { ...view, ...effects };
+  }
+
+  /** The view's effects line, when the fn changes anything in the hub. */
+  async #effects(name: QualifiedName): Promise<Pick<FnView, 'effects'>> {
+    if (this.#registry === undefined) return {};
+    const line = effectsLine((await this.#registry([name])).get(name) ?? []);
+    return line === undefined ? {} : { effects: line };
   }
 
   async typeText(name: QualifiedName): Promise<string | undefined> {

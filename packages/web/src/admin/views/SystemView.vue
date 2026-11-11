@@ -2,10 +2,11 @@
 /**
  * One system's page, its tab in the URL: the overview (switches, facts, process and maintenance), its instances (a
  * fleet's copies, each with its own page; another copy can be installed from a package zip), its config form, what it
- * added to the hub (its fns, each with its own page of metrics; its context items, each with its key; its named types),
- * and its live output. Removing asks first.
+ * added to the hub (its fns and its context items, each switched on or off by itself and with its own page; its named
+ * types; everything else it added: resource roots, kinds, commands, providers, components, examples, …), and its live
+ * output. Removing asks first.
  */
-import { MAIN_INSTANCE, SystemName, type AutoPairId, type InstanceName, type Json, type SystemEnabled } from '@harness/core';
+import { MAIN_INSTANCE, SystemName, type AutoPairId, type InstanceName, type Json, type QualifiedName, type ResourceRoot, type SystemEnabled, type SystemPartSection } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -13,7 +14,7 @@ import AppPage from '../../app/AppPage.vue';
 import { links } from '../../app/routes.ts';
 import { useParamChoice } from '../../app/url.ts';
 import { useStores } from '../../state/stores.ts';
-import { UiButton, UiIcon, UiTabs, type TabItem } from '../../ui/index.ts';
+import { UiBanner, UiButton, UiIcon, UiSwitch, UiTabs, type TabItem } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import FnList from '../components/FnList.vue';
 import InstallDialog from '../components/InstallDialog.vue';
@@ -29,7 +30,9 @@ import StatusBadge from '../components/StatusBadge.vue';
 import ConnectSetup from '../components/ConnectSetup.vue';
 import SystemConfig from '../components/SystemConfig.vue';
 import SystemOverview from '../components/SystemOverview.vue';
-import { SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
+import SystemPartList from '../components/SystemPartList.vue';
+import { partGroups, SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
+import { contextLabel } from '../../context/logic/context.ts';
 import { secretFields } from '../logic/instances.ts';
 import { SystemTab } from '../sections.ts';
 
@@ -77,6 +80,7 @@ const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'fns', label: 'Fns', count: view.value?.fns ?? 0 },
   { value: 'context', label: 'Context', ...(parts.contextCount.value === undefined ? {} : { count: parts.contextCount.value }) },
   { value: 'types', label: 'Types', ...(parts.typeCount.value === undefined ? {} : { count: parts.typeCount.value }) },
+  { value: 'parts', label: 'Other parts', ...(others.value === undefined ? {} : { count: otherCount.value }) },
   // every system's output reaches the hub (an installed one's process, a paired one's log lines), so the tab is always there
   { value: 'logs', label: 'Output' },
 ]);
@@ -90,6 +94,7 @@ watch([tab, name], ([current, system]) => {
   if (current === 'fns') { void store.loadFns(); }
   if (current === 'context' && system !== undefined) { void parts.loadContext(system); }
   if (current === 'types' && system !== undefined) { void parts.loadTypes(system); }
+  if (current === 'parts' && system !== undefined) { void parts.loadOthers(system); }
   if (current === 'logs') { void store.followLogs(); } else { store.unfollowLogs(); }
 }, { immediate: true });
 
@@ -112,6 +117,25 @@ const redirect = `${window.location.origin}/connect/callback`;
 
 async function enable(part: keyof SystemEnabled, on: boolean): Promise<void> {
   if (!await store.enable(part, on)) { toasts.error(store.enabling.problem.value); }
+}
+
+/** Everything else it added, under its headings, and how many parts that is (with its resource roots). */
+const others = computed(() => parts.others.value.value);
+const groups = computed(() => (others.value === undefined ? [] : partGroups(others.value)));
+const roots = computed(() => parts.roots.value.value ?? []);
+const otherCount = computed(() => groups.value.reduce((sum, group) => sum + group.total, roots.value.length));
+const rootPage = (root: ResourceRoot): RouteLocationRaw => (name.value === undefined ? links.systems() : links.explore(name.value, MAIN_INSTANCE, [root.name]));
+/** An example's fn page, or a `/command`'s context item page. */
+const ownerPage = (section: SystemPartSection, owner: QualifiedName): RouteLocationRaw => (section === 'examples' ? links.fn(owner) : links.contextItem(owner));
+/** Whether all of its context is switched off (each item keeps its own switch underneath). */
+const contextOff = computed(() => view.value?.enabled.context === false);
+
+async function switchFn(fn: QualifiedName, on: boolean): Promise<void> {
+  if (!await store.switchFn(fn, on)) { toasts.error(store.switching.problem.value); }
+}
+
+async function switchContext(item: QualifiedName, on: boolean): Promise<void> {
+  if (!await parts.switchContext(item, on)) { toasts.error(parts.switching.problem.value); }
 }
 
 async function act(action: SystemAction, version?: string): Promise<void> {
@@ -172,15 +196,19 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           :empty="(store.fns.value.value?.length ?? 0) === 0" empty-icon="fn" empty-title="No fns" empty-body="This system doesn't add any fns." @retry="store.loadFns()"
         >
           <RouterLink v-if="name !== undefined" :to="links.systemFns(name)" class="search-fns" data-testid="search-system-fns"><UiIcon name="search" :size="14" />Search and sort in Fns</RouterLink>
-          <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" />
+          <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" switchable @switch="switchFn" />
         </LoadState>
         <LoadState
           v-else-if="tab === 'context'" :loading="parts.context.loading.value" :problem="parts.context.problem.value" :ready="parts.context.loaded.value"
           :empty="parts.context.items.value.length === 0" empty-icon="layers" empty-title="No context" empty-body="This system doesn't add any context." @retry="name && parts.loadContext(name)"
         >
           <RouterLink v-if="name !== undefined" :to="links.systemContext(name)" class="search-fns" data-testid="search-system-context"><UiIcon name="search" :size="14" />Search and sort in Context</RouterLink>
+          <UiBanner v-if="contextOff" tone="warn" data-testid="system-context-off">All of {{ name }}’s context is switched off on the Overview; each item keeps its own switch for when it is back on.</UiBanner>
           <div class="list" data-testid="system-context">
-            <ContextRow v-for="item in parts.context.items.value" :key="item.name" :record="item" :to="links.contextItem(item.name)" :now="now" detailed />
+            <div v-for="item in parts.context.items.value" :key="item.name" class="switch-row">
+              <UiSwitch :model-value="item.disabled !== true" :label="`Use ${contextLabel(item.decl)}`" hide-label data-testid="context-switch" @update:model-value="switchContext(item.name, $event)" />
+              <ContextRow :record="item" :to="links.contextItem(item.name)" :now="now" detailed />
+            </div>
           </div>
           <UiButton v-if="parts.context.hasMore.value" class="more" variant="ghost" size="sm" :loading="parts.context.loadingMore.value" @click="parts.context.more()">Show more context</UiButton>
         </LoadState>
@@ -190,6 +218,12 @@ async function act(action: SystemAction, version?: string): Promise<void> {
         >
           <InstanceTypes :types="parts.types.items.value" :changing="NO_CHANGES" detailed />
           <UiButton v-if="parts.types.hasMore.value" class="more" variant="ghost" size="sm" :loading="parts.types.loadingMore.value" @click="parts.types.more()">Show more types</UiButton>
+        </LoadState>
+        <LoadState
+          v-else-if="tab === 'parts'" :loading="parts.others.loading.value" :problem="parts.others.problem.value || parts.roots.problem.value" :ready="others !== undefined"
+          :empty="otherCount === 0" empty-icon="layers" empty-title="Nothing else" empty-body="This system adds only fns, context and types." @retry="name && parts.loadOthers(name)"
+        >
+          <SystemPartList :groups="groups" :roots="roots" :root-page="rootPage" :owner-page="ownerPage" />
         </LoadState>
         <LoadState v-else :loading="store.logs.loading.value" :problem="store.logs.problem.value" :ready="store.logs.value.value !== undefined" :empty="false" @retry="store.followLogs()">
           <LogView :lines="store.logs.value.value ?? []" />
@@ -215,6 +249,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
 .instances { display: grid; gap: var(--space-3); }
 .list { display: grid; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
 .list > * + * { border-top: 1px solid var(--border); }
+.switch-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; padding-left: var(--space-4); }
 .more { justify-self: start; margin-top: var(--space-2); }
 .config-tab { display: grid; gap: var(--space-4); }
 .search-fns { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-sm); }

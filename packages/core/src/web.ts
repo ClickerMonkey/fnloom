@@ -40,6 +40,7 @@ import { ConnectionChange, ConnectionView, ConnectPage } from './connections.ts'
 import { PickOption, PickQuery } from './pickers.ts';
 import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, FnExamplesPage, FnExamplesQuery, FnFacts, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
 import { ContributionView } from './registries.ts';
+import { SystemParts, SystemPartsQuery } from './system-parts.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
 
@@ -280,6 +281,10 @@ export const contentSlice = spec({
   }),
 });
 
+/** One item of a system to switch on or off: a fn or a context item, by qualified name. */
+export const SwitchItem = z.object({ section: z.enum(['fns', 'context']), name: QualifiedName, on: z.boolean() });
+export type SwitchItem = z.infer<typeof SwitchItem>;
+
 /** Systems and pairing (admins). */
 export const systemsSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
@@ -295,8 +300,10 @@ export const systemsSlice = spec({
     createPairingToken: { body: z.object({ name: SystemName.optional(), expiresIn: Duration, autoPair: AutoPairChoice.optional() }), response: z.object({ token: z.string(), expiresAt: Timestamp }), ws: 'createPairingToken' },
     /** Set a system's config: one instance's (each fs machine has its own folders), else its default instance's. Refused unless valid. */
     configureSystem: { body: z.object({ system: SystemName, config: Json, instance: InstanceName.optional() }), response: z.union([z.object({ version: z.number().int() }), z.object({ problems: z.array(z.string()) })]), ws: 'configureSystem' },
-    /** Turn a system's functions and renderers on or off separately. */
-    enableSystem: { body: z.object({ system: SystemName, functions: z.boolean().optional(), renderers: z.boolean().optional() }), response: z.object({ enabled: SystemEnabled }), ws: 'enableSystem' },
+    /** Turn a system's functions, renderers and context (every item of it, build 6) on or off separately. */
+    enableSystem: { body: z.object({ system: SystemName, functions: z.boolean().optional(), renderers: z.boolean().optional(), context: z.boolean().optional() }), response: z.object({ enabled: SystemEnabled }), ws: 'enableSystem' },
+    /** Build 6: turn one of a system's fns or context items on or off by itself (`FnRecord.disabled`, `ContextRecord.disabled`). */
+    switchItem: { body: SwitchItem, response: z.object({ on: z.boolean() }), ws: 'switchItem' },
     removeSystem: { body: z.object({ system: SystemName }), response: z.object({ fnsUnavailable: z.number().int() }), ws: 'removeSystem' },
     installSystem: { body: z.object({ source: InstallSource, config: Json.optional(), autoStart: z.boolean().optional() }), response: z.object({ name: SystemName }), ws: 'installSystem' },
     /** Start an installed system's instances, or one of them. */
@@ -335,6 +342,8 @@ export const adminSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
     /** A system's fns, with whether each can be used now and its running numbers. */
     systemFns: { body: z.object({ system: SystemName }), response: z.array(FnRecord), ws: 'systemFns' },
+    /** Build 6: what a system added beyond its fns, context and types (kinds, commands, providers, components, examples, …). */
+    systemParts: { body: SystemPartsQuery, response: SystemParts, ws: 'systemParts' },
     /** The end of a system's output, oldest first; new lines arrive on `systemLog`. */
     systemLogs: { body: z.object({ system: SystemName, limit: z.number().int().min(1).max(2_000).optional() }), response: z.array(OutputLine), ws: 'systemLogs' },
     models: { body: z.object({ provider: ProviderId.optional() }), response: z.array(ModelInfo), ws: 'models' },

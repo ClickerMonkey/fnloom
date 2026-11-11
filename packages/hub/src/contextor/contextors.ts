@@ -13,7 +13,7 @@
  *   they hard-link, and the greedy chooser picks the detail of each under the budget. History is rebuilt: the newest
  *   selected exchanges in a row are real messages, older selected ones are summaries in the system prompt.
  */
-import { Detail, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor, type SuggestionOutcome } from '@harness/core';
+import { contextOff, Detail, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor, type SuggestionOutcome } from '@harness/core';
 import { allowsSystem, searchSystems } from '../chat/support.ts';
 import { toolName } from '../execution/wire.ts';
 import type { Pool, PoolTokens } from './budget.ts';
@@ -58,7 +58,7 @@ export function contextCost(record: ContextRecord, detail: Detail, input: Pick<C
 
 /** Whether a person (in a session) may see a context item: switched on, a system the session uses, memory in scope. */
 export function visible(record: ContextRecord, input: Pick<ContextorInput, 'session' | 'user' | 'access'>): boolean {
-  if (record.disabled === true || (record.decl.weight ?? 1) <= 0 || !input.access.seesContext(record)) return false;
+  if (contextOff(record) || (record.decl.weight ?? 1) <= 0 || !input.access.seesContext(record)) return false;
   if (input.session !== undefined && !allowsSystem(input.session, record.system)) return false;
   return seesOrigin(record.origin, { actor: input.user, session: input.session?.id });
 }

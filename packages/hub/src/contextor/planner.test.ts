@@ -128,7 +128,8 @@ describe('the graph contextor', () => {
   });
 
   it('rebuilds history: the newest exchanges as messages, the relevant older ones as summaries', async () => {
-    const transcript = talk(30, (i) => i % 3 === 0);
+    // the newest exchange looks its topic up too, so the linear part has a tool call however few exchanges fit
+    const transcript = talk(30, (i) => i % 3 === 0 || i === 29);
     const { plan } = await planning(transcript);
     const planned = await plan('remind me about zeta3');
     expect(planned.report.linear).toBeGreaterThanOrEqual(1);

@@ -37,7 +37,7 @@ import { MockBuild4, readAccess, readActors } from './mockBuild4.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
 import { MockFns } from './mockBuild5.ts';
-import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer } from './mockBuild6.ts';
+import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer, systemPartsOf } from './mockBuild6.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
@@ -185,10 +185,10 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       session: ({ data }) => chat.session(data.session),
       createSession: ({ data }) => chat.create(data.title),
       updateSession: ({ data }) => {
-        const { session, title, archived, notify, systems, mode, contextor } = data;
+        const { session, title, archived, notify, systems, mode, contextor, fnMode } = data;
         return chat.update(session, {
           ...(title === undefined ? {} : { title }), ...(archived === undefined ? {} : { archived }), ...(notify === undefined ? {} : { notify }), ...(systems === undefined ? {} : { systems }),
-          ...(mode === undefined ? {} : { mode }), ...(contextor === undefined ? {} : { contextor }),
+          ...(mode === undefined ? {} : { mode }), ...(contextor === undefined ? {} : { contextor }), ...(fnMode === undefined ? {} : { fnMode }),
         });
       },
       limits: ({ data }) => chat.limits(data.session),
@@ -232,7 +232,12 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       },
       createPairingToken: ({ data }) => ({ token: mintId('pairingToken'), expiresAt: Date.now() + data.expiresIn }),
       configureSystem: ({ data }) => admin.configure(data.system, data.config),
-      enableSystem: ({ data }) => admin.enable(data.system, data),
+      enableSystem: ({ data }) => {
+        if (data.context !== undefined) { graph.switchSystem(data.system, data.context); }
+        return admin.enable(data.system, data);
+      },
+      switchItem: ({ data }) => (data.section === 'fns' ? admin.switchFn(data.name, data.on) : graph.switchItem(data.name, data.on)),
+      systemParts: ({ data }) => systemPartsOf(data.system),
       removeSystem: ({ data }) => admin.remove(data.system),
       installSystem: ({ data }) => admin.install(data.source, data.autoStart ?? true),
       startSystem: ({ data }) => admin.process(data.system, 'running'),
@@ -354,7 +359,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
     'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
     'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs', 'query', 'exploreRoots', 'exploreList', 'exploreRead',
-    'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'removeSystem', 'installSystem', 'startSystem',
+    'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'switchItem', 'systemParts', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',
     'runs', 'llmCalls', 'resources', 'resource',

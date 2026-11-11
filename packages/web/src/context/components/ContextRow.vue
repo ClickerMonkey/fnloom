@@ -4,9 +4,10 @@
  * description under a title, and badges for what sets it apart (its `/command`, the agents it is always given to, who
  * may see it when not everyone, the choices it offers, stale or forgotten), with its size and when it last changed.
  * `detailed` (a system's admin page) also says where it was declared (its contract or while running), its version and
- * who sees it, on every row. The key is never shown. The whole row is a link to the item's page.
+ * who sees it, on every row, and leaves its origin's mark (every row there is the system's) and saying it is off to the
+ * switch beside it. The key is never shown. The whole row is a link to the item's page.
  */
-import type { ContextRecord } from '@harness/core';
+import { contextOff, type ContextRecord } from '@harness/core';
 import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { fullTime, relativeTime, UiBadge, UiIcon } from '../../ui/index.ts';
@@ -22,12 +23,15 @@ const command = computed(() => props.record.decl.command?.name);
 /** Where it was declared, on a system's page: its contract unless it says it was added while running. */
 const declared = computed(() => DECLARED_WORDS[props.record.declaredBy ?? 'contract']);
 /** Who sees it: on a system's page always said, elsewhere only when not everyone. */
+/** Off by itself (a remembered item a person forgot reads as forgotten) or with all its system's context. */
+const off = computed(() => contextOff(props.record));
+const offWord = computed(() => (props.record.disabled === true ? (originOf(props.record) === 'memory' ? 'Forgotten' : 'Off') : 'System context off'));
 const seenBy = computed(() => (props.detailed || props.record.decl.visible !== 'both' ? `Seen by ${AUDIENCE_WORDS[props.record.decl.visible].toLowerCase()}` : ''));
 </script>
 
 <template>
-  <RouterLink class="row" :class="{ off: record.disabled === true }" :to="to" :data-context="record.name" data-testid="context-row">
-    <span class="mark" :data-origin="originOf(record)" aria-hidden="true"><UiIcon :name="origin.icon" :size="16" /></span>
+  <RouterLink class="row" :class="{ off, detailed }" :to="to" :data-context="record.name" data-testid="context-row">
+    <span v-if="!detailed" class="mark" :data-origin="originOf(record)" aria-hidden="true"><UiIcon :name="origin.icon" :size="16" /></span>
     <span class="main">
       <span class="top">
         <span class="name">{{ label }}</span>
@@ -37,7 +41,7 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
         <UiBadge v-if="choices > 0">{{ choices }} {{ choices === 1 ? 'choice' : 'choices' }}</UiBadge>
         <UiBadge v-if="!detailed && record.declaredBy === 'runtime'" tone="accent" :title="record.version === undefined ? undefined : `Version ${record.version.slice(0, 8)}`" data-testid="context-runtime">Added while running</UiBadge>
         <UiBadge v-if="record.stale" tone="warn">Stale</UiBadge>
-        <UiBadge v-if="record.disabled === true">Forgotten</UiBadge>
+        <UiBadge v-if="off && !detailed" data-testid="context-off">{{ offWord }}</UiBadge>
       </span>
       <span v-if="description !== ''" class="description">{{ description }}</span>
     </span>
@@ -72,8 +76,10 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
 /* size and time share one line, so every row with a one-line title is the same height */
 .facts { display: flex; gap: var(--space-2); }
 .facts > * + *::before { content: '·'; margin-right: var(--space-2); }
+.row.detailed { grid-template-columns: minmax(0, 1fr) auto; }
 @media (max-width: 559.98px) {
   .row { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
-  .side { grid-column: 2; display: flex; flex-wrap: wrap; justify-items: start; gap: var(--space-2); }
+  .row.detailed { grid-template-columns: minmax(0, 1fr); }
+  .side { grid-column: -2; display: flex; flex-wrap: wrap; justify-items: start; gap: var(--space-2); }
 }
 </style>

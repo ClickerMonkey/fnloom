@@ -268,7 +268,7 @@ describe('switches and removal', () => {
     await system.start();
     await rig.catalog.declare(vectorsName, { ...declOf(shopManifest, 'get'), name: 'ping' }, ADMIN);
     expect(await rig.catalog.availability(q('vectors/ping'))).toBe(true);
-    expect(await rig.admin.setEnabled(vectorsName, { functions: false }, ADMIN)).toEqual({ functions: false, renderers: true });
+    expect(await rig.admin.setEnabled(vectorsName, { functions: false }, ADMIN)).toEqual({ functions: false, renderers: true, context: true });
     expect(await rig.catalog.availability(q('vectors/ping'))).toMatchObject({ unavailable: 'disabled' });
     await rig.admin.setEnabled(vectorsName, { functions: true }, ADMIN);
 
@@ -280,6 +280,20 @@ describe('switches and removal', () => {
     expect(await system.hello()).toMatchObject({ kind: 'pairing' });
     expect(await statusOf(rig.admin.setEnabled(SystemName.parse('ghost'), {}, ADMIN))).toEqual({ status: 404, code: 'NO_SYSTEM' });
     expect((await rig.admin.reimport(vectorsName)).refused).toEqual([]);
+  });
+
+  it('switches all of a system\'s context off and on, each item keeping its own switch (build 6)', async () => {
+    const system = new FakeSystem(rig.app, 'shop', await manifestFor(shop));
+    await pairDirectly(rig, system);
+    await system.start();
+    const guide = q('shop/guide');
+    expect(await rig.catalog.context(guide)).toBeDefined();
+    expect(await rig.admin.setEnabled(SHOP, { context: false }, ADMIN)).toEqual({ functions: true, renderers: true, context: false });
+    expect(await rig.store.table('context').get(guide)).toMatchObject({ systemOff: true });
+    // a person also switches the item off by itself; the system's switch coming back leaves that one off
+    await rig.store.table('context').update(guide, { disabled: true });
+    await rig.admin.setEnabled(SHOP, { context: true }, ADMIN);
+    expect(await rig.store.table('context').get(guide)).toMatchObject({ systemOff: false, disabled: true });
   });
 
   it('asks every connected system to stop', async () => {

@@ -1,5 +1,5 @@
 import { pickIn } from '../../test/pickers.ts';
-import { ActorId, type Json } from '@harness/core';
+import { ActorId, ResourceUri, SystemParts, type Json } from '@harness/core';
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { nextTick, ref } from 'vue';
@@ -28,6 +28,8 @@ import SpendMeter from './SpendMeter.vue';
 import SystemCard from './SystemCard.vue';
 import SystemConfig from './SystemConfig.vue';
 import SystemOverview from './SystemOverview.vue';
+import SystemPartList from './SystemPartList.vue';
+import { partGroups } from '../logic/systems.ts';
 import TokenDialog from './TokenDialog.vue';
 
 afterEach(() => { document.body.innerHTML = ''; });
@@ -116,6 +118,39 @@ describe('lists and cards', () => {
     // each fn links to its page (its name) and its runs (its numbers)
     expect(list.findAllComponents(RouterLinkStub)[0]?.props('to')).toBe('/fns/fs/read_file');
     expect(list.findAllComponents(RouterLinkStub)[3]?.props('to')).toBe('/runs?fn=fs/write_file');
+  });
+
+  it('FnList switches each fn by itself on a system’s page', async () => {
+    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', disabled: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}`, pageOf: (fn: string) => `/fns/${fn}`, switchable: true }, global: { stubs } });
+    const switches = list.findAll('[data-testid="fn-switch"] [role="switch"]');
+    expect(switches.map((one) => one.attributes('aria-checked'))).toEqual(['true', 'false']);
+    await switches[1]?.trigger('click');
+    expect(list.emitted('switch')).toEqual([['fs/write_file', true]]);
+  });
+
+  it('SystemPartList heads each kind of part, says origin, version and audience, and opens a part’s declaration', async () => {
+    const parts = SystemParts.parse({
+      parts: [
+        { section: 'kinds', name: 'fs/file', about: 'A file', origin: 'contract', version: 'abcdef0123456789', decl: { name: 'file' } },
+        { section: 'commands', name: '/guide', about: 'The guide', origin: 'runtime', version: '0123456789abcdef', visibility: 'user', owner: 'fs/guide', decl: { name: 'guide' } },
+        { section: 'examples', name: 'fs/read #1', about: 'Read a file', origin: 'contract', version: 'ffff000011112222', owner: 'fs/read', decl: { text: 'Read a file' } },
+      ],
+      more: { examples: 140 },
+    });
+    const root = { uri: ResourceUri.parse('fs://main/work'), name: 'work', description: 'The work folder', index: 'all' as const, ignore: [], watch: true };
+    const list = mount(SystemPartList, {
+      props: { groups: partGroups(parts), roots: [root], rootPage: () => '/explore/fs/main/work', ownerPage: (section: string, owner: string) => `/${section}/${owner}` },
+      global: { stubs },
+    });
+    expect(list.findAll('section').map((one) => one.attributes('data-section'))).toEqual(['roots', 'kinds', 'commands', 'examples']);
+    expect(list.text()).toContain('From its contract');
+    expect(list.text()).toContain('Added while running');
+    expect(list.text()).toContain('abcdef01');
+    expect(list.text()).toContain('Seen by people');
+    expect(list.text()).toContain('showing the first 1');
+    await list.findAll('[data-testid="system-part"]')[1]?.trigger('click');
+    expect(list.find('[data-testid="system-part-owner"]').exists()).toBe(true);
+    expect(list.text()).toContain('"name": "guide"');
   });
 
   it('LogView shows lines by stream and offers to follow again', async () => {

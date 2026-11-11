@@ -59,12 +59,17 @@ export default feature({
     await page.click(`${tid('resource-search')} input`);
     await page.keyboard.type('hub-client');
     await page.keyboard.press('Enter');
+    // the list settles on the search's answer first (rows shown before it are replaced), then the row is marked and clicked
     await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="resource-row"]')].some((row) => row.textContent.includes('hub-client.ts')), { timeout: 15_000 });
-    const row = await page.$$eval(tid('resource-row'), (rows) => rows.findIndex((r) => r.textContent.includes('hub-client.ts')));
-    const target = (await page.$$(tid('resource-row')))[row];
-    check(target !== undefined, 'hub-client.ts is listed');
+    await settle(page);
+    const marked = await page.$$eval(tid('resource-row'), (rows) => {
+      const row = rows.find((r) => r.textContent.includes('hub-client.ts'));
+      row?.setAttribute('data-target', 'hub-client');
+      return row !== undefined;
+    });
+    check(marked, 'hub-client.ts is listed');
     // a click on the row (its middle, not only its name) opens the file
-    await target.click();
+    await page.click('[data-testid="resource-row"][data-target="hub-client"]');
     await page.waitForFunction(() => new URL(location.href).searchParams.get('uri')?.includes('hub-client.ts') === true, { timeout: 10_000 });
     await find(page, 'resource-viewer');
     await page.waitForFunction(() => {
@@ -75,12 +80,16 @@ export default feature({
 
     // ─── the fixture chat: fn calls show (read, bash), in order; a run opens its fn as a modal ───
     await openSession(ctx);
+    /** The chat the fn mode picker is in: the fixture chat, or the new one the agent turn ran in. */
+    let chat = fixtures.session;
     await find(page, 'run-card');
-    check(await page.$(`${tid('run-card')}[data-fn="fs/read"]`) !== null || await page.$(tid('run-group')) !== null, 'the agent’s fs/read call shows');
+    check(await page.$(`${tid('run-card')}[data-fn^="fs/read"]`) !== null || await page.$(tid('run-group')) !== null, 'the agent’s fs read call shows (fs/read, or the mock’s fs/read_file)');
     check(await page.$(`${tid('run-card')}[data-run="${fixtures.bashRun}"]`) !== null || await count(page, 'run-message') > 0, 'the bash run shows');
     await show(page, `${tid('run-card')}[data-run="${fixtures.bashRun}"]`);
     await page.click(`${tid('run-card')}[data-run="${fixtures.bashRun}"] .summary`);
     await find(page, 'run-details');
+    // a phone's sheet slides in: click its fn link once it is still
+    await settle(page);
     await page.click(tid('run-about-fn'));
     await find(page, 'fn-open-page');
     await settle(page);
@@ -94,7 +103,7 @@ export default feature({
     // ─── one agent turn: sequential calls fold into a group, in the model's order; approving the bash call runs it
     // (no second press); one cursor while it streams ───
     if (!isPhone(ctx)) {
-      await newChat(ctx);
+      chat = await newChat(ctx);
       await compose(page, 'Load fs/read and fs/bash with hub/load_fns. Use fs/read to read package.json, then fs/read to read tsconfig.json, then fs/bash to run exactly: echo approved-once. Then say in one sentence what this project is.');
       const carets: number[] = [];
       const sample = setInterval(() => {
@@ -152,8 +161,8 @@ export default feature({
     });
     check(picked, 'the fn mode menu offers Read');
     await page.waitForFunction(() => document.querySelector('[data-testid="fn-mode-picker"]')?.textContent.toLowerCase().includes('read') === true, { timeout: 10_000 });
-    const session = await api.hub.call('session', { session: fixtures.session });
+    const session = await api.hub.call('session', { session: chat });
     check(session.fnMode === 'read', `the session's fn mode is read (got ${session.fnMode ?? 'default'})`);
-    await api.hub.call('updateSession', { session: fixtures.session, fnMode: null });
+    await api.hub.call('updateSession', { session: chat, fnMode: null });
   },
 });

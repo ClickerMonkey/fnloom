@@ -1,5 +1,5 @@
 import { ApiError } from '@ayepi/core/client';
-import { ActorId, BudgetId, LlmInteractionId, PairingId, PolicyId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ListQuery } from '@harness/core';
+import { ActorId, BudgetId, QualifiedName, LlmInteractionId, PairingId, PolicyId, ResourceUri, RunId, SessionId, SystemName, TurnId, type ListQuery } from '@harness/core';
 import { flushPromises } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { fakeCaller } from '../../test/fakes.ts';
@@ -154,6 +154,35 @@ describe('SystemStore', () => {
     expect(admin.system.logs.value.value?.map((l) => l.text).at(-1)).toBe('new line');
     admin.system.unfollowLogs();
     expect(logs.size).toBe(0);
+  });
+
+  it('switches one fn at once, reads the fns again, and puts it back if the hub refuses', async () => {
+    const { admin, api } = fakeAdmin();
+    await admin.system.open(fs);
+    await admin.system.loadFns();
+    const read = QualifiedName.parse('fs/read_file');
+    expect(await admin.system.switchFn(read, false)).toBe(true);
+    expect(api.switchItem.calls.map(([body]) => body)).toEqual([{ section: 'fns', name: read, on: false }]);
+    expect(api.systemFns.calls).toHaveLength(2);
+    const refusing = fakeAdmin({ api: { ...fakeAdminApi(), switchItem: fakeCaller<'switchItem'>(() => Promise.reject(failure)) } });
+    await refusing.admin.system.open(fs);
+    await refusing.admin.system.loadFns();
+    const pending = refusing.admin.system.switchFn(read, false);
+    expect(refusing.admin.system.fns.value.value?.find((fn) => fn.name === read)?.disabled).toBe(true);
+    expect(await pending).toBe(false);
+    expect(refusing.admin.system.fns.value.value?.find((fn) => fn.name === read)?.disabled).toBe(false);
+  });
+
+  it('switches its context on the Overview, and reads its other parts and resource roots', async () => {
+    const { admin, api } = fakeAdmin();
+    await admin.system.open(fs);
+    expect(await admin.system.enable('context', false)).toBe(true);
+    expect(api.enableSystem.calls.at(-1)?.[0]).toEqual({ system: fs, context: false });
+    expect(admin.system.view.value.value?.enabled.context).toBe(false);
+    await admin.systemParts.loadOthers(fs);
+    expect(admin.systemParts.others.value.value).toEqual({ parts: [], more: {} });
+    expect(admin.systemParts.roots.value.value).toEqual([]);
+    expect(api.exploreRoots.calls.map(([body]) => body)).toEqual([{ system: fs }]);
   });
 
   it('loads fns', async () => {

@@ -50,10 +50,17 @@ export function exampleLines(record: FnRecord, protocol: Protocol, chosen?: read
   return lines;
 }
 
+/** A fn's description with the line saying what it changes in the hub (build 6), as its native tool describes it. */
+export function describedWithEffects(view: Pick<FnView, 'record' | 'effects'>): string {
+  return view.effects === undefined ? view.record.decl.description : `${view.record.decl.description}
+${view.effects}`;
+}
+
 export function fnCard(view: FnView, detail: Detail, protocol: Protocol, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[]): string {
   const { decl, name } = view.record;
   const lines = [`### ${listedLine(name, decl.description)}`];
   if (detail === 'listed') return lines[0] ?? '';
+  if (view.effects !== undefined) lines.push(view.effects);
   lines.push(`${callText(name, view.args, protocol)} → ${view.returns}`);
   if (detail === 'signature') return lines.join('\n');
   if (decl.instructions !== undefined && decl.instructions.trim() !== '') lines.push(decl.instructions.trim());

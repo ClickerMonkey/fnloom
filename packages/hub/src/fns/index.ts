@@ -14,7 +14,7 @@
  */
 import type {
   ActorId, AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, CostEstimate, FnExample, FnExamplesPage, FnExamplesQuery, FnFacts, FnMode,
-  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, FnExamplesPatch, Json, QualifiedName, RunId, SearchItemKind, Session, SystemName,
+  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, FnExamplesPatch, Json, QualifiedName, RegistryEffect, RunId, SearchItemKind, Session, SystemName,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 
@@ -49,6 +49,8 @@ export interface FnFactsService {
   facts(fn: QualifiedName, args?: Json): Promise<FnFacts>;
   /** The modes of some fns, as stored (a fn not worked out yet is worked out now). */
   modes(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, FnMode>>;
+  /** Build 6: what some fns create, update or remove in the hub, worked out deeply (`FnFacts.registry`). */
+  registry(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, readonly RegistryEffect[]>>;
   /** Work out and store the facts of these fns again (their declarations changed), and forget removed ones. */
   refresh(fns: readonly FnRecord[], removed: readonly QualifiedName[]): Promise<void>;
 }
@@ -82,12 +84,23 @@ export interface FnModeGate {
   check(input: { readonly session: Session; readonly fn: FnRecord; readonly args: Json; readonly run: RunId }): Promise<ModeVerdict>;
 }
 
+/** One call the auto mode classifier is asked about. */
+export interface ClassifyInput {
+  readonly session: Session;
+  readonly fn: FnRecord;
+  readonly mode: FnMode;
+  readonly args: Json;
+  readonly run: RunId;
+  /** Build 6: what the fn changes in the hub, in one line (`effectsLine`). */
+  readonly changes?: string;
+}
+
 /** The auto mode classifier: its setting (admins), and its answer about one call. */
 export interface AutoModeClassifier {
   setting(): Promise<AutoClassifierView>;
   set(value: AutoClassifier, by: ActorId): Promise<AutoClassifierView>;
   /** Whether the call may go ahead without the person; `ask` without a model, on an error, or when it is slow. */
-  classify(input: { readonly session: Session; readonly fn: FnRecord; readonly mode: FnMode; readonly args: Json; readonly run: RunId }): Promise<{ readonly allow: boolean; readonly reason: string }>;
+  classify(input: ClassifyInput): Promise<{ readonly allow: boolean; readonly reason: string }>;
 }
 
 /** The browser's logs and traffic, kept as hub resources, one file per person at a time. */
@@ -99,6 +112,8 @@ export interface ClientLogs {
 export interface FnsForPrompt {
   examples(fn: FnRecord, text: string): Promise<FnExample[]>;
   modes(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, FnMode>>;
+  /** Build 6: what fns change in the hub, for the line in their descriptions; absent leaves the line out. */
+  registry?(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, readonly RegistryEffect[]>>;
 }
 
 /** The module's services (`HubServices.fns`). */

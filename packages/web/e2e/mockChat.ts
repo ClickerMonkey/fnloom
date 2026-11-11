@@ -35,10 +35,31 @@ const REPLY = [
   'Want me to open the fs system next?',
 ];
 
-interface Script {
+/** One fn call of a mock agent turn: a write waits for approval. */
+interface ScriptCall {
   readonly fn: QualifiedName;
   readonly args: Json;
   readonly approval: boolean;
+}
+
+/** A mock agent turn: its calls one after another, then its answer streams. */
+interface Script {
+  readonly calls: readonly [ScriptCall, ...ScriptCall[]];
+}
+
+/** What the mock agent does for a message: asked for fs/bash, two reads then the shell (approved first); else one read or write. */
+function scriptFor(text: string): Script {
+  if (text.toLowerCase().includes('fs/bash')) {
+    return {
+      calls: [
+        { fn: 'fs/read_file', args: { path: 'package.json' }, approval: false },
+        { fn: 'fs/read_file', args: { path: 'tsconfig.json' }, approval: false },
+        { fn: 'fs/bash', args: { command: 'echo approved-once' }, approval: true },
+      ],
+    };
+  }
+  const write = /write|save|change/i.test(text);
+  return { calls: [{ fn: write ? 'fs/write_file' : 'fs/read_file', args: { path: write ? 'notes/summary.md' : 'docs/harness.md' }, approval: write }] };
 }
 
 /** The mock chat's state and its handlers' logic. */
@@ -114,18 +135,21 @@ export class MockChat {
 
   update(id: SessionId, change: Partial<Pick<Session, 'title' | 'archived' | 'systems'>> & {
     notify?: Session['participants'][number]['notify'];
-    /** The chat mode and contextor here; `null` goes back to the agent's. */
+    /** The chat mode, contextor and fn mode here; `null` goes back to the agent's. */
     mode?: Session['mode'] | null;
     contextor?: Session['contextor'] | null;
+    fnMode?: Session['fnMode'] | null;
   }): Session {
     const current = this.session(id);
-    const { notify, mode, contextor, ...rest } = change;
-    const { mode: _mode, contextor: _contextor, ...kept } = current;
+    const { notify, mode, contextor, fnMode, ...rest } = change;
+    const { mode: _mode, contextor: _contextor, fnMode: _fnMode, ...kept } = current;
     const nextMode = mode === undefined ? current.mode : mode ?? undefined;
     const nextContextor = contextor === undefined ? current.contextor : contextor ?? undefined;
+    const nextFnMode = fnMode === undefined ? current.fnMode : fnMode ?? undefined;
     const next: Session = {
       ...kept, ...rest, updatedAt: this.#now(),
       ...(nextMode === undefined ? {} : { mode: nextMode }), ...(nextContextor === undefined ? {} : { contextor: nextContextor }),
+      ...(nextFnMode === undefined ? {} : { fnMode: nextFnMode }),
       participants: notify === undefined ? current.participants : current.participants.map((p) => (p.actor === this.#owner() ? { ...p, notify } : p)),
     };
     this.sessions.set(id, next);
@@ -156,9 +180,8 @@ export class MockChat {
       parts: [...parts.map((p): MessagePart => (p.type === 'mention' ? { ...p, text: `the file ${p.label}` } : p)), ...extras()],
       ...(replyTo === undefined ? {} : { replyTo }),
     });
-    const write = /write|save|change/i.test(text);
     const retried = /bad args/i.test(text);
-    setTimeout(() => { this.#answer(id, turn, { fn: write ? 'fs/write_file' : 'fs/read_file', args: { path: write ? 'notes/summary.md' : 'docs/harness.md' }, approval: write }, retried); }, 250);
+    setTimeout(() => { this.#answer(id, turn, scriptFor(text), retried); }, 250);
     return { turn, message };
   }
 
@@ -242,8 +265,9 @@ export class MockChat {
     const agentRun = mintId('run');
     this.#setStatus(id, 'running');
     // the model's first call had the wrong args: refused before the fn ran, and fed back, so it tries again
-    const refused = retried ? [this.#refused(id, turn, script.fn, agentRun)] : [];
-    const run = this.#run(id, turn, script.fn, script.args, AGENT, agentRun, script.approval ? 'awaiting-approval' : 'queued');
+    const [first] = script.calls;
+    const refused = retried ? [this.#refused(id, turn, first.fn, agentRun)] : [];
+    const run = this.#run(id, turn, first.fn, first.args, AGENT, agentRun, first.approval ? 'awaiting-approval' : 'queued');
     const call = this.#call(id, turn, agentRun);
     const answer = this.#add(id, { turn, author: AGENT, role: 'assistant', status: 'streaming', parts: [{ type: 'text', text: '' }], runs: [...refused.map((r) => r.id), run.id] });
     const stream = (): void => {
@@ -262,13 +286,26 @@ export class MockChat {
         });
       }, 180);
     };
-    if (script.approval) {
-      const approval = fixture(Approval, { id: mintId('approval'), run: run.id, fn: run.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: this.#now() });
-      this.approvals.set(approval.id, { approval, resume: () => { this.#progress(id, run.id, stream); } });
-      this.#emit(id, { type: 'approval', approval });
-      return;
-    }
-    this.#progress(id, run.id, stream);
+    // each call runs once the one before it is done; a call that needs approval waits for it, then runs
+    const perform = (current: Run, step: ScriptCall, index: number): void => {
+      const then = (): void => {
+        const following = script.calls[index + 1];
+        if (following === undefined) { stream(); return; }
+        const next = this.#run(id, turn, following.fn, following.args, AGENT, agentRun, following.approval ? 'awaiting-approval' : 'queued');
+        this.#patchMessage(id, answer.id, (m) => ({ ...m, runs: [...m.runs, next.id] }));
+        const shown = this.messages.get(id)?.find((m) => m.id === answer.id);
+        if (shown !== undefined) { this.#emit(id, { type: 'message', message: shown }); }
+        perform(next, following, index + 1);
+      };
+      if (step.approval) {
+        const approval = fixture(Approval, { id: mintId('approval'), run: current.id, fn: current.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: this.#now() });
+        this.approvals.set(approval.id, { approval, resume: () => { this.#progress(id, current.id, then); } });
+        this.#emit(id, { type: 'approval', approval });
+        return;
+      }
+      this.#progress(id, current.id, then);
+    };
+    perform(run, first, 0);
   }
 
   #progress(id: SessionId, run: RunId, then: () => void): void {

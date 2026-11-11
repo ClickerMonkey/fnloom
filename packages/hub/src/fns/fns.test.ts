@@ -159,8 +159,10 @@ describe('fns search in the hub database', () => {
     const semantic = await search.search({ text: 'travel', match: 'semantic', systems: [SystemName.parse('notes')] }, asker);
     expect(semantic.items.map((h) => h.name).sort()).toEqual(['notes/read_note', 'notes/travel']);
     // modes: deletes are the void and, deeply, closing the month
-    const deletes = await search.search({ modes: ['delete'] }, asker);
+    const deletes = await search.search({ modes: ['delete'], systems: [SystemName.parse('books')] }, asker);
     expect(deletes.items.map((h) => h.name)).toEqual(['books/close_month', 'books/void_invoice']);
+    // a hub fn that removes something from the registry (its declared effects) is a delete too
+    expect((await search.search({ modes: ['delete'], systems: [SystemName.parse('hub')], limit: 100 }, asker)).items.map((h) => h.name)).toContain('hub/resource_delete');
     // types: what writes invoices, and what reads them
     expect((await search.search({ types: { writes: [q('books/Invoice')] } }, asker)).items.map((h) => h.name)).toEqual(['books/close_month', 'books/void_invoice']);
     expect((await search.search({ types: { reads: [q('books/Invoice')] } }, asker)).items.map((h) => h.name)).toEqual(['books/overdue']);

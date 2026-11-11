@@ -14,7 +14,7 @@ import type { Peer } from '@ayepi/core';
 import type {
   ActorId, AutoPairChoice, ConfigValue, ContentRef, ImportReport, InstallSource, InstalledSystem, InstanceName, InstanceRecord, InstanceRef, InvalidInput, Json, LinkSession,
   Page, PairingId, PairingRequest, QualifiedName, ReadWant, ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section,
-  FnRouting, PairingGrant, PairingGrantRequest, SessionId, StopReason, SystemEnabled, SystemLinkSpec, SystemName, Timestamp,
+  FnRouting, PairingGrant, PairingGrantRequest, SessionId, StopReason, SwitchItem, SystemEnabled, SystemLinkSpec, SystemName, Timestamp,
 } from '@harness/core';
 
 export type { SystemOutput } from './output.ts';
@@ -138,8 +138,13 @@ export interface Packages {
 
 /** What an admin switches and removes, beyond config. */
 export interface SystemAdmin {
-  /** Turn a system's functions and renderers on or off, separately. Functions off makes its fns unavailable. */
+  /**
+   * Turn a system's functions, renderers and context on or off, separately. Functions off makes its fns unavailable;
+   * context off marks every context item of the system `systemOff`.
+   */
   setEnabled(system: SystemName, change: Partial<SystemEnabled>, by: ActorId): Promise<SystemEnabled>;
+  /** Turn one of a system's fns or context items on or off by itself. */
+  switchItem(item: SwitchItem, by: ActorId): Promise<{ on: boolean }>;
   /** Remove a system and every instance: each is asked to stop, and its fns stay unavailable until one is paired again. */
   remove(system: SystemName, by: ActorId): Promise<{ fnsUnavailable: number }>;
   /** Import its stored manifest again (see `Catalog.reimport`) and recompute availability. */

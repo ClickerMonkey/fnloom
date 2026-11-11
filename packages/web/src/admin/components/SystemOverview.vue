@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * A system's overview: switching its functions and renderers on and off (separately, so old messages keep drawing),
+ * A system’s overview: switching its functions, renderers and context on and off (separately, so old messages keep drawing),
  * the facts about it, its process when the hub runs it (start, stop, restart, upgrade, and how it last exited), who
  * hosts it when another system runs it ("hosted by fs/main at systems/random", with start, restart and stop through
  * that host), and reimporting or removing it.
@@ -69,6 +69,10 @@ const blocked = computed(() => props.acting !== undefined);
           <UiSwitch
             :model-value="system.enabled.renderers" label="Renderers" description="Its own views draw in the chat; off uses plain views."
             data-testid="enable-renderers" @update:model-value="emit('enable', 'renderers', $event)"
+          />
+          <UiSwitch
+            :model-value="system.enabled.context ?? true" label="Context" description="Its context items can be selected, searched and loaded; each keeps its own switch."
+            data-testid="enable-context" @update:model-value="emit('enable', 'context', $event)"
           />
         </div>
       </UiCard>

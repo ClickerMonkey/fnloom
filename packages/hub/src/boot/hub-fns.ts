@@ -5,10 +5,10 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type LoadContextResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type Session, type SessionId } from '@harness/core';
+import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type LoadContextResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
-import type { FnsServices } from '../fns/index.ts';
+import type { FnFactsService, FnsServices } from '../fns/index.ts';
 import { fnError, RunRefused } from '../execution/errors.ts';
 import { InvalidArgs } from '../execution/executors.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -51,8 +51,24 @@ export interface HubFnDeps {
   readonly sharing: () => Pick<AccessService, 'sharing' | 'own'>;
   /** Fns search and examples (build 5). */
   readonly fns: () => Pick<FnsServices, 'search' | 'examples'>;
+  /** What fns declare they change in the hub (build 6), so a change a run's fn did not declare is refused. */
+  readonly facts: () => Pick<FnFactsService, 'registry'>;
   /** The scope of the hub MCP a run's caller is, so `fns_search` keeps to it (none: no MCP). */
   readonly mcpScope?: (caller: ActorId) => Promise<Pick<FnScope, 'fns' | 'context'> | undefined>;
+}
+
+/** The error code of a registry change the calling run's fn did not declare (`FnEffects.registry`). */
+export const UNDECLARED_CHANGE = 'undeclared-change';
+
+/**
+ * Refuse a change to the hub's registry that the fn of the run asking for it did not declare: its own effects or, worked
+ * out deeply, those of what it uses (`FnFacts.registry`). Declaring `hub/save_fn` as a dep declares its effects.
+ */
+async function checkDeclared(deps: HubFnDeps, caller: Pick<Run, 'fn'>, change: RegistryEffect): Promise<void> {
+  const declared = (await deps.facts().registry([caller.fn])).get(caller.fn) ?? [];
+  if (effectCovered(declared, change)) return;
+  const said = effectsLine(declared) ?? 'nothing';
+  throw new RunRefused(fnError('caller', `${caller.fn} does not declare that it ${change.action}s ${change.thing}${change.kind === undefined ? '' : ` (${change.kind})`}; it declares: ${said} Add it to the fn's effects (registry).`, UNDECLARED_CHANGE));
 }
 
 /** The session a run belongs to and what its person may see. */
@@ -120,20 +136,22 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     const asker = await askerOf(deps, ctx);
     const { session, access } = asker;
     const lookup = (name: QualifiedName) => deps.catalog().context(name);
+    // a switched-off item (forgotten, or its system's context off) is never loaded, by name or as an import
+    const usable = async (name: QualifiedName): Promise<boolean> => { const record = await lookup(name); return record !== undefined && !contextOff(record); };
     const refused: LoadContextResult['refused'] = [];
     const asked: QualifiedName[] = [];
     for (const given of args.context) {
       // `name: description`, as a listed line or a choice reads, means the name
       const name = QualifiedName.safeParse(given.split(/:\s/, 1)[0]?.trim() ?? given);
       const record = name.success ? await lookup(name.data) : undefined;
-      if (name.success && record !== undefined && allowsSystem(session, record.system) && await seesContextNamed(access, lookup, name.data, session.id)) { asked.push(name.data); continue; }
+      if (name.success && record !== undefined && !contextOff(record) && allowsSystem(session, record.system) && await seesContextNamed(access, lookup, name.data, session.id)) { asked.push(name.data); continue; }
       refused.push({ context: given, reason: name.success ? 'no context you can load has that name' : 'not a qualified name (system/name)', closest: await closestContext(deps, asker, ctx, given) });
     }
     // each loads with what it imports, and brings its fns, every time
     const loaded: QualifiedName[] = [];
     for (const name of await withImports(deps.catalog(), asked)) {
       const parsed = QualifiedName.safeParse(name);
-      if (parsed.success && await lookup(parsed.data) !== undefined && allowsSystem(session, splitName(parsed.data).system) && await seesContextNamed(access, lookup, parsed.data, session.id)) { loaded.push(parsed.data); }
+      if (parsed.success && await usable(parsed.data) && allowsSystem(session, splitName(parsed.data).system) && await seesContextNamed(access, lookup, parsed.data, session.id)) { loaded.push(parsed.data); }
     }
     const records = (await Promise.all(loaded.map(lookup))).flatMap((r) => (r === undefined ? [] : [r]));
     const brought: QualifiedName[] = [];
@@ -209,6 +227,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     const [existing, kindRecord] = await Promise.all([deps.catalog().fn(name), deps.catalog().kind(kind.data)]);
     if (existing !== undefined && args.replace !== true) throw new RunRefused(fnError('caller', `${name} is taken: pick another name, or save over it with replace`, SAVE_FN_TAKEN));
     if (existing?.origin === 'contract') throw new RunRefused(fnError('caller', `${name} is one of ${system}'s own fns and can't be saved over`, SAVE_FN_TAKEN));
+    await checkDeclared(deps, parent, { thing: 'fns', action: existing === undefined ? 'create' : 'update', kind: kind.data });
     const person = ctx.request.run.user.id;
     const decl: FnDecl = {
       name: args.name, description: args.description, ...(args.instructions === undefined ? {} : { instructions: args.instructions }), kind: kind.data, payload: args.payload,

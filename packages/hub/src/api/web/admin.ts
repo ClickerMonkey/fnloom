@@ -1,6 +1,6 @@
 /**
  * The admin reads slice (admins only): what the settings endpoints set (budgets with their spend, priority rules,
- * policies, model categories, actor settings), the models providers offer, a system's fns and output, the limits any
+ * policies, model categories, actor settings), the models providers offer, a system's fns, other parts and output, the limits any
  * person would get, browsing runs, LLM calls and resources, and removing a rule. While installed it relays each
  * system's new output lines as the `systemLog` event. `adminOnly` is bound by the systems plugin it requires.
  */
@@ -14,6 +14,7 @@ import { collect, PAGE } from '../paging.ts';
 import { userInfo, type FullHandlers } from './access.ts';
 import type { AdminOperations } from '../admin-ops.ts';
 import type { HubReads } from '../reads.ts';
+import { systemParts } from '../system-parts.ts';
 import type { systemsPlugin } from './systems.ts';
 
 /** How many rows a page holds when not asked. */
@@ -37,6 +38,7 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
     })
     .handlers((): FullHandlers<typeof adminSlice> => ({
       systemFns: ({ data, user }) => reads.system_fns(data, user),
+      systemParts: ({ data }) => systemParts(hub, data.system),
       systemLogs: ({ data, user }) => reads.system_logs(data, user),
       models: async (io) => {
         const data = io.data;

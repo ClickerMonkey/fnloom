@@ -60,6 +60,7 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
       createPairingToken: ({ data, user }) => ops.create_pairing_token(data, user.id),
       configureSystem: ({ data, user }) => ops.configure_system(data, user.id),
       enableSystem: ({ data, user }) => ops.enable_system(data, user.id),
+      switchItem: ({ data, user }) => ops.switch_item(data, user.id),
       removeSystem: ({ data, user }) => ops.remove_system(data, user.id),
       installSystem: ({ data, user }) => ops.install_system(data, user.id),
       startSystem: ({ data, user }) => ops.start_system(data, user.id),

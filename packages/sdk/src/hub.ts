@@ -12,7 +12,7 @@ import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
-  FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule,
+  FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule, type RegistryEffect,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn, type FnExampleOf } from './fn.ts';
@@ -149,6 +149,7 @@ export const ADMIN_ENDPOINTS = {
   create_pairing_token: systemsSlice.endpoints.createPairingToken,
   configure_system: systemsSlice.endpoints.configureSystem,
   enable_system: systemsSlice.endpoints.enableSystem,
+  switch_item: systemsSlice.endpoints.switchItem,
   remove_system: systemsSlice.endpoints.removeSystem,
   install_system: systemsSlice.endpoints.installSystem,
   start_system: systemsSlice.endpoints.startSystem,
@@ -194,7 +195,7 @@ type EndpointExample<E extends EndpointLike> = FnExampleOf<ToolArgs<E['cfg']['bo
  * A fn for one web endpoint, its args and result read off the endpoint's body and response, so a system calling it
  * gets the endpoint's types and a change to the endpoint's schema reaches every caller.
  */
-function endpointFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[], tags: readonly string[], display?: Display) {
+function endpointFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[], tags: readonly string[], display?: Display, registry: readonly RegistryEffect[] = []) {
   return fn({
     description,
     instructions,
@@ -203,7 +204,14 @@ function endpointFn<E extends EndpointLike>(description: string, instructions: s
     examples,
     tags: [...tags],
     ...(display === undefined ? {} : { display }),
+    // what it creates, updates or removes in the hub (build 6), so the chat and its mode know
+    ...(registry.length === 0 ? {} : { effects: { registry: [...registry] } }),
   });
+}
+
+/** Effects on the hub, written short: `changes('create', 'fns', 'types')`. */
+function changes(action: RegistryEffect['action'], ...things: Array<RegistryEffect['thing']>): RegistryEffect[] {
+  return things.map((thing) => ({ thing, action }));
 }
 
 /** A fn for a web read, tagged `read`. Reads are bookkeeping the person needn't see as a card once done. */
@@ -212,8 +220,8 @@ function readFn<E extends EndpointLike>(description: string, instructions: strin
 }
 
 /** A fn for a write on resources, context or memory: it asks unless a policy allows it. */
-function writeFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[], tags: readonly string[] = []) {
-  return endpointFn(description, instructions, endpoint, examples, tags);
+function writeFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[], tags: readonly string[] = [], registry: readonly RegistryEffect[] = []) {
+  return endpointFn(description, instructions, endpoint, examples, tags, undefined, registry);
 }
 
 /** A fn for an admin page's read (build 6), tagged `admin` and `read`: only for an admin, and reading asks nobody. */
@@ -222,8 +230,8 @@ function adminReadFn<E extends EndpointLike>(description: string, instructions: 
 }
 
 /** A fn for an admin operation, tagged `admin`. */
-function adminFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[]) {
-  return endpointFn(description, instructions, endpoint, examples, [ADMIN_TAG]);
+function adminFn<E extends EndpointLike>(description: string, instructions: string, endpoint: E, examples: EndpointExample<E>[], registry: readonly RegistryEffect[] = []) {
+  return endpointFn(description, instructions, endpoint, examples, [ADMIN_TAG], undefined, registry);
 }
 
 /** The hub's read fns (`HUB_READ_ENDPOINTS`), each described for the agent that offers them. */
@@ -252,12 +260,12 @@ const readFns = {
 /** The hub's write fns on resources, context and memory (`HUB_WRITE_ENDPOINTS`). */
 const writeFns = {
   resource_convert: writeFn('Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.', 'Use it when a resource\'s form you need is missing (an image never described, audio not transcribed): it makes that form now, which may cost a model call, so make only the form you will read.', HUB_WRITE_ENDPOINTS.resource_convert, [{ args: { uri: 'upload://s1/report.pdf', kind: 'markdown' }, note: 'A PDF as markdown.' }]),
-  resource_import: writeFn('Import a URL or uploaded content as a hub resource, kept and converted by the hub.', 'Use it to keep a URL or an upload as a hub resource so it can be read, searched and linked later. It returns the uri; read it with hub/resource_read.', HUB_WRITE_ENDPOINTS.resource_import, [{ args: { input: { url: 'https://example.com/docs', render: 'auto' } }, note: 'A web page, kept as a hub resource.' }], [OWN_TAG]),
-  resource_rename: writeFn('Rename a hub resource.', 'Use it when the person asks to rename a hub resource. Only hub resources (imports, uploads) can be renamed; a system\'s files are renamed through that system (fs).', HUB_WRITE_ENDPOINTS.resource_rename, [{ args: { uri: 'hub://resources/notes.md', name: 'meeting-notes.md' } }]),
-  resource_delete: writeFn('Delete a hub resource; says how many messages, context items and runs still point at it.', 'Use it only when the person asks to delete a hub resource. It reports how many messages, context items and runs still point at it: tell the person, since those links will show as gone.', HUB_WRITE_ENDPOINTS.resource_delete, [{ args: { uri: 'hub://resources/old.md' } }]),
-  context_from_resource: writeFn('Make context items from a resource (one per section, under an outline parent), or update the ones made before.', 'Use it to turn a document the person wants kept as knowledge (a guide, a spec) into context items, one per section; run it again after the document changes to update them.', HUB_WRITE_ENDPOINTS.context_from_resource, [{ args: { uri: 'file:///repo/STYLE.md', copy: 'live', tags: ['style'] }, note: 'A style guide kept in step with its file.' }]),
-  remember: writeFn('Remember something for later as a memory: for this session, the person, or everyone.', 'Use it when the person asks you to remember something, or states a lasting preference. Choose the scope: this session, the person (the default for preferences), or everyone (only when they say so). Keep one fact per memory, in a plain sentence.', HUB_WRITE_ENDPOINTS.remember, [{ args: { text: 'Reports go out on Fridays.', scope: 'user', title: 'Report day' }, note: 'A fact about the person, for every session of theirs.' }]),
-  forget: writeFn('Forget a memory.', 'Use it when the person asks you to forget something, or a memory is wrong. Find the memory first (hub/fns_search with `items: ["context"]`) and forget it by its name.', HUB_WRITE_ENDPOINTS.forget, [{ args: { name: 'hub/memory.report-day' } }]),
+  resource_import: writeFn('Import a URL or uploaded content as a hub resource, kept and converted by the hub.', 'Use it to keep a URL or an upload as a hub resource so it can be read, searched and linked later. It returns the uri; read it with hub/resource_read.', HUB_WRITE_ENDPOINTS.resource_import, [{ args: { input: { url: 'https://example.com/docs', render: 'auto' } }, note: 'A web page, kept as a hub resource.' }], [OWN_TAG], changes('create', 'resources')),
+  resource_rename: writeFn('Rename a hub resource.', 'Use it when the person asks to rename a hub resource. Only hub resources (imports, uploads) can be renamed; a system\'s files are renamed through that system (fs).', HUB_WRITE_ENDPOINTS.resource_rename, [{ args: { uri: 'hub://resources/notes.md', name: 'meeting-notes.md' } }], [], changes('update', 'resources')),
+  resource_delete: writeFn('Delete a hub resource; says how many messages, context items and runs still point at it.', 'Use it only when the person asks to delete a hub resource. It reports how many messages, context items and runs still point at it: tell the person, since those links will show as gone.', HUB_WRITE_ENDPOINTS.resource_delete, [{ args: { uri: 'hub://resources/old.md' } }], [], changes('remove', 'resources')),
+  context_from_resource: writeFn('Make context items from a resource (one per section, under an outline parent), or update the ones made before.', 'Use it to turn a document the person wants kept as knowledge (a guide, a spec) into context items, one per section; run it again after the document changes to update them.', HUB_WRITE_ENDPOINTS.context_from_resource, [{ args: { uri: 'file:///repo/STYLE.md', copy: 'live', tags: ['style'] }, note: 'A style guide kept in step with its file.' }], [], [...changes('create', 'context'), ...changes('update', 'context')]),
+  remember: writeFn('Remember something for later as a memory: for this session, the person, or everyone.', 'Use it when the person asks you to remember something, or states a lasting preference. Choose the scope: this session, the person (the default for preferences), or everyone (only when they say so). Keep one fact per memory, in a plain sentence.', HUB_WRITE_ENDPOINTS.remember, [{ args: { text: 'Reports go out on Fridays.', scope: 'user', title: 'Report day' }, note: 'A fact about the person, for every session of theirs.' }], [], changes('create', 'context')),
+  forget: writeFn('Forget a memory.', 'Use it when the person asks you to forget something, or a memory is wrong. Find the memory first (hub/fns_search with `items: ["context"]`) and forget it by its name.', HUB_WRITE_ENDPOINTS.forget, [{ args: { name: 'hub/memory.report-day' } }], [], changes('update', 'context')),
 } satisfies Record<HubWriteFnName, unknown>;
 
 /** Build 6: a person's write fns (`HUB_PERSON_ENDPOINTS`): each asks unless a policy allows it. */
@@ -267,12 +275,12 @@ const personFns = {
   session_delete: writeFn('Delete a session and its messages.', 'Use it only when the person asks to delete a session by name; it can\'t be undone, so say which session first.', HUB_PERSON_ENDPOINTS.session_delete, [{ args: { session: 'ses_01HZX3' } }]),
   run_background: writeFn('Move a running run to the background, so the chat can go on while it works.', 'Use it for a long run the person need not wait for; check on it later with hub/run_status.', HUB_PERSON_ENDPOINTS.run_background, [{ args: { run: 'run_01HZX3' } }]),
   turn_undo: writeFn('Undo what one message\'s runs did, where their fns can undo.', 'Use it when the person asks to take back what a message did. It reports what was undone and what could not be.', HUB_PERSON_ENDPOINTS.turn_undo, [{ args: { turn: 'trn_01HZX3' } }]),
-  memory_update: writeFn('Change a memory: its text, title, weight, tags, the fns it brings or where it applies.', 'Use it to correct or narrow a memory rather than forgetting it and remembering again. Give its name and only what changes.', HUB_PERSON_ENDPOINTS.memory_update, [{ args: { name: 'hub/memory.report-day', text: 'Reports go out on Thursdays.' } }]),
-  context_link: writeFn('Link a context item to another item (context, fn, type or resource), with a relation and weight.', 'Use it to say what a context item imports, brings or relates to, so it loads with its context and fns. `imports` and `brings` always load with it.', HUB_PERSON_ENDPOINTS.context_link, [{ args: { from: 'hub/memory.report-day', to: { kind: 'fn', name: 'database/sales_by_month' }, relation: 'brings', weight: 1 }, note: 'A memory that brings the fn its work needs.' }]),
-  context_unlink: writeFn('Remove one link from a context item.', 'Use it when a link is wrong or no longer needed; give the link\'s target key and relation as hub/context_get shows them.', HUB_PERSON_ENDPOINTS.context_unlink, [{ args: { from: 'hub/memory.report-day', toKey: 'fn:database/sales_by_month', relation: 'brings' } }]),
+  memory_update: writeFn('Change a memory: its text, title, weight, tags, the fns it brings or where it applies.', 'Use it to correct or narrow a memory rather than forgetting it and remembering again. Give its name and only what changes.', HUB_PERSON_ENDPOINTS.memory_update, [{ args: { name: 'hub/memory.report-day', text: 'Reports go out on Thursdays.' } }], [], changes('update', 'context')),
+  context_link: writeFn('Link a context item to another item (context, fn, type or resource), with a relation and weight.', 'Use it to say what a context item imports, brings or relates to, so it loads with its context and fns. `imports` and `brings` always load with it.', HUB_PERSON_ENDPOINTS.context_link, [{ args: { from: 'hub/memory.report-day', to: { kind: 'fn', name: 'database/sales_by_month' }, relation: 'brings', weight: 1 }, note: 'A memory that brings the fn its work needs.' }], [], changes('update', 'context')),
+  context_unlink: writeFn('Remove one link from a context item.', 'Use it when a link is wrong or no longer needed; give the link\'s target key and relation as hub/context_get shows them.', HUB_PERSON_ENDPOINTS.context_unlink, [{ args: { from: 'hub/memory.report-day', toKey: 'fn:database/sales_by_month', relation: 'brings' } }], [], changes('update', 'context')),
   access_set: writeFn('Set who may see a system, fn, context item, resource root or connection: private, shared with some, or public.', 'Use it when the person asks to share something or make it private. Only its owner or an admin may change it; say who will see it after.', HUB_PERSON_ENDPOINTS.access_set, [{ args: { target: { kind: 'fn', fn: 'input/trip_details' }, sharing: { visibility: 'shared', with: ['act_01HZX3'] } }, note: 'Share a saved form with one person.' }]),
-  connection_update: writeFn('Change one of the person\'s connected accounts: its settings, which fns use it, or who it is shared with.', 'Use it when the person asks to change how a connected account is used. Never show its credentials.', HUB_PERSON_ENDPOINTS.connection_update, [{ args: { connection: 'cnx_01HZX3', share: { visibility: 'private', with: [] } }, note: 'Stop sharing it.' }]),
-  connection_disconnect: writeFn('Disconnect one of the person\'s connected accounts.', 'Use it only when the person asks to disconnect an account; the fns that act as them stop working until they connect again.', HUB_PERSON_ENDPOINTS.connection_disconnect, [{ args: { connection: 'cnx_01HZX3' } }]),
+  connection_update: writeFn('Change one of the person\'s connected accounts: its settings, which fns use it, or who it is shared with.', 'Use it when the person asks to change how a connected account is used. Never show its credentials.', HUB_PERSON_ENDPOINTS.connection_update, [{ args: { connection: 'cnx_01HZX3', share: { visibility: 'private', with: [] } }, note: 'Stop sharing it.' }], [], changes('update', 'connections')),
+  connection_disconnect: writeFn('Disconnect one of the person\'s connected accounts.', 'Use it only when the person asks to disconnect an account; the fns that act as them stop working until they connect again.', HUB_PERSON_ENDPOINTS.connection_disconnect, [{ args: { connection: 'cnx_01HZX3' } }], [], changes('remove', 'connections')),
 };
 
 /** Build 6: the explorer's reads (`HUB_EXPLORE_ENDPOINTS`), tagged `read`. */
@@ -300,7 +308,7 @@ const adminReadFns = {
 
 /** The hub's admin fns (`ADMIN_ENDPOINTS`), each described for the agent that offers them. */
 const adminFns = {
-  configure_provider: adminFn('Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted.', 'Use it when an admin gives a provider key. Never repeat the key back or put it in a message; say only that it was stored.', ADMIN_ENDPOINTS.configure_provider, [{ args: { input: { provider: 'ollama', baseURL: 'http://127.0.0.1:11434' } }, note: 'A local Ollama.' }]),
+  configure_provider: adminFn('Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted.', 'Use it when an admin gives a provider key. Never repeat the key back or put it in a message; say only that it was stored.', ADMIN_ENDPOINTS.configure_provider, [{ args: { input: { provider: 'ollama', baseURL: 'http://127.0.0.1:11434' } }, note: 'A local Ollama.' }], changes('update', 'secrets')),
   set_model_category: adminFn('Add a model category (a named, ordered list of models), or change the one with this id.', 'Use it to group models for a purpose (fast, cheap, best). Order matters: the first available model is tried first.', ADMIN_ENDPOINTS.set_model_category, [{ args: { name: 'small', description: 'Fast local models.', models: ['qwen2.5:3b'] } }]),
   set_budget: adminFn('Add a spending budget for the hub, a group, a user, a session, a system, a fn or a model, or change the one with this id.', 'Use it when an admin sets a spending limit. Say the scope and period back in plain words, since a low budget stops runs.', ADMIN_ENDPOINTS.set_budget, [{ args: { target: { scope: 'system', system: 'web' }, period: 'per-turn', maxCost: 0.5, onLimit: 'ask' }, note: 'Fifty cents a message for one system.' }]),
   set_priority: adminFn('Add a priority rule (the default and highest priority of turns at a level), or change the one with this id.', 'Use it when an admin wants some turns to run before others (a group\'s work first).', ADMIN_ENDPOINTS.set_priority, [{ args: { target: { scope: 'hub' }, default: 'normal', max: 'interactive' } }]),
@@ -312,13 +320,14 @@ const adminFns = {
   approve_pairing: adminFn('Approve or refuse a system that asked to pair with the hub, optionally naming its instance and setting its config.', 'Use it when an admin approves or refuses a waiting system. Name the instance when there are several of one system, and set its config here if it needs one to start.', ADMIN_ENDPOINTS.approve_pairing, [{ args: { pairing: 'par_01HZX3', approve: true }, note: 'The code on the system matches.' }]),
   create_pairing_token: adminFn('Make a one-time pairing token a new system can pair with, optionally for one system name.', 'Use it to let a new system pair. The token is shown once: give it to the admin and do not repeat it later.', ADMIN_ENDPOINTS.create_pairing_token, [{ args: { name: 'notes', expiresIn: 600000 }, note: 'A ten-minute token for one system.' }]),
   configure_system: adminFn('Set a system\'s config; refused unless it fits the system\'s config type.', 'Use it to set a system\'s config. Read its config type first (hub/system_get); secret fields are kept encrypted and never shown back.', ADMIN_ENDPOINTS.configure_system, [{ args: { system: 'database', config: { url: 'sqlite:./data.db' } } }]),
-  enable_system: adminFn('Turn a system\'s functions and its renderers on or off.', 'Use it to turn a system\'s fns and renderers on or off without removing it.', ADMIN_ENDPOINTS.enable_system, [{ args: { system: 'web', functions: false }, note: 'Switch off its fns, keep its renderers.' }]),
-  remove_system: adminFn('Remove a system; its fns become unavailable until it pairs again.', 'Use it only when an admin asks to remove a system; its fns stop working until it pairs again. To pause it, use hub/enable_system instead.', ADMIN_ENDPOINTS.remove_system, [{ args: { system: 'random' } }]),
-  install_system: adminFn('Install a system from a folder, a package or a git repository, and start it.', 'Use it when an admin asks to install a system from a folder, a package or a git URL. It starts the system; pairing may still need approval.', ADMIN_ENDPOINTS.install_system, [{ args: { source: { package: '@acme/notes', version: '1.2.0' } } }]),
+  enable_system: adminFn('Turn a system\'s functions, its renderers and all of its context on or off.', 'Use it to turn a system\'s fns, renderers or all of its context on or off without removing it. To switch one fn or context item, use hub/switch_item.', ADMIN_ENDPOINTS.enable_system, [{ args: { system: 'web', functions: false }, note: 'Switch off its fns, keep its renderers.' }, { args: { system: 'fs', context: false }, note: 'Leave all of fs\'s context out of chats; its fns still work.' }], changes('update', 'fns', 'context')),
+  switch_item: adminFn('Turn one fn or context item of a system on or off.', 'Use it when an admin asks to switch a single fn or context item off or back on. A fn switched off cannot run; a context item switched off is never selected, searched or loaded. To switch a whole system, use hub/enable_system.', ADMIN_ENDPOINTS.switch_item, [{ args: { section: 'fns', name: 'fs/delete', on: false }, note: 'Stop fs/delete from running.' }, { args: { section: 'context', name: 'fs/guide', on: true }, note: 'Bring a context item back.' }], changes('update', 'fns', 'context')),
+  remove_system: adminFn('Remove a system; its fns become unavailable until it pairs again.', 'Use it only when an admin asks to remove a system; its fns stop working until it pairs again. To pause it, use hub/enable_system instead.', ADMIN_ENDPOINTS.remove_system, [{ args: { system: 'random' } }], changes('update', 'fns')),
+  install_system: adminFn('Install a system from a folder, a package or a git repository, and start it.', 'Use it when an admin asks to install a system from a folder, a package or a git URL. It starts the system; pairing may still need approval.', ADMIN_ENDPOINTS.install_system, [{ args: { source: { package: '@acme/notes', version: '1.2.0' } } }], changes('create', 'fns', 'types', 'context', 'kinds', 'components')),
   start_system: adminFn('Start an installed system.', 'Use it to start an installed system that is stopped, then check hub/system_get to see that it connected.', ADMIN_ENDPOINTS.start_system, [{ args: { system: 'fs' } }]),
   stop_system: adminFn('Stop an installed system.', 'Use it to stop an installed system; its fns are unavailable until it starts again.', ADMIN_ENDPOINTS.stop_system, [{ args: { system: 'fs' } }]),
   restart_system: adminFn('Restart a system instance, with the reason.', 'Use it when a system is stuck or after changing something it reads only at start. A system installed from the chat is restarted by its host with the approved code as it is. Say why in `reason`; it is kept in the log.', ADMIN_ENDPOINTS.restart_system, [{ args: { system: 'random', reason: 'it stopped answering' } }]),
-  upgrade_system: adminFn('Upgrade an installed system to a version (the latest when none is given).', 'Use it to move an installed system to a newer version; name the version when the admin asks for one.', ADMIN_ENDPOINTS.upgrade_system, [{ args: { system: 'web' }, note: 'To the newest version.' }]),
+  upgrade_system: adminFn('Upgrade an installed system to a version (the latest when none is given).', 'Use it to move an installed system to a newer version; name the version when the admin asks for one.', ADMIN_ENDPOINTS.upgrade_system, [{ args: { system: 'web' }, note: 'To the newest version.' }], changes('update', 'fns', 'types', 'context', 'kinds', 'components')),
   set_model_role: adminFn('Choose the model (and provider) for a job: chat, transcription, dictation (or the browser\'s own), speech, describing images, reading text in them.', 'Use it when an admin picks the model for a job. Check the current choices with hub/model_roles first.', ADMIN_ENDPOINTS.set_model_role, [{ args: { input: { role: 'chat', model: { model: 'qwen2.5:3b' }, provider: 'ollama' } } }]),
   clear_model_role: adminFn('Clear a job\'s model choice, so it falls back to the hub\'s default (or is off).', 'Use it to undo a job\'s model choice so the hub\'s default applies again.', ADMIN_ENDPOINTS.clear_model_role, [{ args: { role: 'describe' } }]),
   set_model_limits: adminFn('Set a model\'s context window, output limit, reasoning reserve or characters per token; with every field absent, clear them.', 'Use it when a model\'s known limits are wrong (answers cut, prompts refused). Leave every field empty to go back to the limits the hub found.', ADMIN_ENDPOINTS.set_model_limits, [{ args: { model: 'qwen2.5:3b', limits: { contextWindow: 32768 } } }]),
@@ -327,11 +336,11 @@ const adminFns = {
   rotate_mcp_secret: adminFn('Give a hub MCP a new secret; every open session of it ends.', 'Use it when a hub MCP\'s secret may have leaked. Every open session of it ends, so say so.', ADMIN_ENDPOINTS.rotate_mcp_secret, [{ args: { mcp: 'mcp_01HZX3' } }]),
   delete_mcp: adminFn('Delete a hub MCP.', 'Use it only when an admin asks to delete a hub MCP; its clients stop working.', ADMIN_ENDPOINTS.delete_mcp, [{ args: { mcp: 'mcp_01HZX3' } }]),
   preview_mcp: adminFn('What draft hub MCP rules would expose now, with warnings, before they are saved.', 'Use it before saving hub MCP rules, to show the admin exactly what would be exposed and any warnings.', ADMIN_ENDPOINTS.preview_mcp, [{ args: { rules: { include: { systems: ['fs'] }, exclude: { fns: [{ fn: 'fs/bash' }] } } }, note: 'What an MCP with these rules would expose.' }]),
-  install_package: adminFn('Install a system package zip (made by `harness system pack`), pair it, configure it and start it.', 'Use it with a package zip made by `harness system pack`: it installs, pairs, configures and starts the system in one step.', ADMIN_ENDPOINTS.install_package, [{ args: { zip: { hash: '0000000000000000000000000000000000000000000000000000000000000000', size: 2048, mime: 'application/zip' } } }]),
-  remove_instance: adminFn('Remove one instance of a system.', 'Use it only when an admin asks to remove one instance of a system. Offer hub/export_system_data first so its data can be kept.', ADMIN_ENDPOINTS.remove_instance, [{ args: { system: 'database', instance: 'old' } }]),
+  install_package: adminFn('Install a system package zip (made by `harness system pack`), pair it, configure it and start it.', 'Use it with a package zip made by `harness system pack`: it installs, pairs, configures and starts the system in one step.', ADMIN_ENDPOINTS.install_package, [{ args: { zip: { hash: '0000000000000000000000000000000000000000000000000000000000000000', size: 2048, mime: 'application/zip' } } }], changes('create', 'fns', 'types', 'context', 'kinds', 'components')),
+  remove_instance: adminFn('Remove one instance of a system.', 'Use it only when an admin asks to remove one instance of a system. Offer hub/export_system_data first so its data can be kept.', ADMIN_ENDPOINTS.remove_instance, [{ args: { system: 'database', instance: 'old' } }], changes('remove', 'fns', 'types')),
   suggest_decision_set: adminFn('Turn the suggestion decision model on or off, and set how many candidates it sees and picks.', 'Use it when an admin wants a model, not the score alone, to pick what each message is offered. Turning it on needs a model.', ADMIN_ENDPOINTS.suggest_decision_set, [{ args: { enabled: false }, note: 'Let the score decide again.' }]),
   auto_pair_revoke: adminFn('Revoke an auto-pair secret, so its instance must pair again by code or token.', 'Use it when a machine is lost or retired; find the secret with hub/auto_pairs_list.', ADMIN_ENDPOINTS.auto_pair_revoke, [{ args: { id: 'apk_01HZX3' } }]),
-  system_reimport: adminFn('Import a system\'s stored contract again, re-checking every entry.', 'Use it after a hub upgrade or when a system\'s fns look stale; it reports what was added, updated, removed or refused.', ADMIN_ENDPOINTS.system_reimport, [{ args: { system: 'database' } }]),
+  system_reimport: adminFn('Import a system\'s stored contract again, re-checking every entry.', 'Use it after a hub upgrade or when a system\'s fns look stale; it reports what was added, updated, removed or refused.', ADMIN_ENDPOINTS.system_reimport, [{ args: { system: 'database' } }], changes('update', 'fns', 'types', 'context', 'kinds')),
   export_system_data: adminFn('Zip an instance\'s data folder with its config (secret fields only when asked) and return the content.', 'Use it to back up an instance before removing or moving it. Include secret fields only when the admin asks.', ADMIN_ENDPOINTS.export_system_data, [{ args: { system: 'database', instance: 'main' } }]),
 } satisfies Record<AdminFnName, unknown>;
 
@@ -545,6 +554,8 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
         }],
         tags: [OWN_TAG],
         display: 'hidden',
+        // a fn that saves through it creates or updates fns of its kind: the hub checks that it said so
+        effects: { registry: [{ thing: 'fns', action: 'create' }, { thing: 'fns', action: 'update' }] },
       }),
       load_context: fn({
         description: 'Load context into this session.',

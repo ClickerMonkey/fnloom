@@ -240,6 +240,12 @@ export function adminOperations(hub: HubServices): AdminOperations {
       hub.log.info('system.enabled', { system: name, ...enabled, user: by });
       return { enabled };
     },
+    switch_item: async (data, by) => {
+      await knownSystem(hub, SystemName.parse(splitName(data.name).system));
+      const switched = await link.admin.switchItem(data, by);
+      bus.publish('capabilities.changed', {});
+      return switched;
+    },
     remove_system: async (data, by) => {
       await knownSystem(hub, data.system);
       const removed = await link.admin.remove(data.system, by);

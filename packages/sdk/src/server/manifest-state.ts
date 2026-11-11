@@ -13,6 +13,11 @@ function systemsOf(own: string, def: AnyFnDef): string[] {
   return names.map((name) => splitName(name).system).filter((system) => system !== own);
 }
 
+/** The manifest's `runtime` field: absent when nothing was added while running, so a contract-only hash is unchanged. */
+function runtimeOf(entries: NonNullable<Manifest['runtime']>): Pick<Manifest, 'runtime'> {
+  return Object.keys(entries).length === 0 ? {} : { runtime: entries };
+}
+
 /** Builds the current manifest and the patches that keep the hub's copy current. */
 export class ManifestState {
   readonly #table: SystemTable;
@@ -61,6 +66,7 @@ export class ManifestState {
       sectioners: table.overlay('sectioners', body.sectioners),
       actions: table.overlay('actions', body.actions),
       requires: [...requires].sort().map((system) => SystemName.parse(system)),
+      ...runtimeOf(table.runtimeEntries()),
     };
     return Manifest.parse({ ...full, hash: await sha256(canonicalJson(Json.parse(full))) });
   }

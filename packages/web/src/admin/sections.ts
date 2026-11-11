@@ -9,7 +9,7 @@ export const AdminSection = z.enum(['systems', 'fns', 'models', 'limits', 'polic
 export type AdminSection = z.infer<typeof AdminSection>;
 
 /** A system's tabs. */
-export const SystemTab = z.enum(['overview', 'instances', 'config', 'fns', 'context', 'types', 'logs']);
+export const SystemTab = z.enum(['overview', 'instances', 'config', 'fns', 'context', 'types', 'parts', 'logs']);
 export type SystemTab = z.infer<typeof SystemTab>;
 
 /** The providers and models page's tabs. */

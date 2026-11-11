@@ -5,16 +5,18 @@
  * and how its runs have gone (count, failure rate, retried input apart from failures, typical and p95 time, cost).
  * Its name opens its page with its metrics; its numbers open its runs. A tag every listed fn has (all of an
  * instance's saved queries are `database` and `query`, all added while running) is left off: it tells none apart.
+ * `switchable` (a system's page) puts each fn's own on/off switch where its mark is.
  */
 import { runCount, type FnRecord, type QualifiedName } from '@harness/core';
 import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
-import { UiBadge, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
+import { UiBadge, UiIcon, UiSwitch, fullTime, relativeTime } from '../../ui/index.ts';
 import { availabilityText, shortVersion } from '../logic/systems.ts';
 
-const props = defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; pageOf: (fn: QualifiedName) => RouteLocationRaw }>();
+const props = defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; pageOf: (fn: QualifiedName) => RouteLocationRaw; switchable?: boolean }>();
+const emit = defineEmits<{ switch: [fn: QualifiedName, on: boolean] }>();
 
 /** What every fn of a list of several shares, so it isn't repeated on each row. */
 const shared = computed(() => {
@@ -33,7 +35,8 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
 <template>
   <ul class="fns" data-testid="fns">
     <li v-for="fn in fns" :key="fn.name" class="fn" :class="{ off: fn.available !== true }">
-      <span class="mark" aria-hidden="true"><UiIcon name="fn" :size="16" /></span>
+      <UiSwitch v-if="switchable" class="switch" :model-value="!fn.disabled" :label="`Use ${fnLabel(fn.name)}`" hide-label data-testid="fn-switch" @update:model-value="emit('switch', fn.name, $event)" />
+      <span v-else class="mark" aria-hidden="true"><UiIcon name="fn" :size="16" /></span>
       <div class="main">
         <p class="top">
           <RouterLink class="label" :to="pageOf(fn.name)" data-testid="fn-page">{{ fnLabel(fn.name) }}</RouterLink>
@@ -62,6 +65,7 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
 .fn { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); padding: var(--space-4); }
 .fn + .fn { border-top: 1px solid var(--border); }
 .fn.off .label { color: var(--text-dim); }
+.switch { margin-top: 4px; }
 .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius); background: var(--surface-2); color: var(--text-dim); }
 .main { display: grid; gap: var(--space-1); min-width: 0; }
 .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); margin: 0; }

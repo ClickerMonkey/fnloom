@@ -5,7 +5,7 @@
  * Without a model, on an error, or past the wait, the person decides: auto mode never lets a call through on a guess.
  * The call is recorded as a model call of the run, like every other.
  */
-import { AutoClassifier, type ActorId, type AutoClassifierView, type FnMode, type FnRecord, type Json, type LlmMessage, type RunId, type Session } from '@harness/core';
+import { AutoClassifier, type ActorId, type AutoClassifierView, type LlmMessage } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import { z } from 'zod';
 import { answerJson, } from '../chat/suggestions.ts';
@@ -15,7 +15,7 @@ import type { LlmGateway } from '../execution/index.ts';
 import { pinnedModel } from '../models/pinned.ts';
 import type { HubStore } from '../store/index.ts';
 import type { FnsTuning } from './env.ts';
-import type { AutoModeClassifier } from './index.ts';
+import type { AutoModeClassifier, ClassifyInput } from './index.ts';
 
 /** The purpose its model calls are recorded with. */
 export const AUTO_CLASSIFIER_PURPOSE = 'auto-mode';
@@ -35,7 +35,7 @@ export interface AutoClassifierDeps {
 /** The instructions the classifier model gets. */
 export const CLASSIFIER_INSTRUCTIONS = [
   'You decide whether an AI agent\'s action in a chat may go ahead without asking the person first.',
-  'You get the person\'s last messages, then the action: the fn, what it does, whether it reads, writes or deletes, and its args.',
+  'You get the person\'s last messages, then the action: the fn, what it does, whether it reads, writes or deletes, what it creates, updates or removes in the hub (fns, context, ...) when it does, and its args.',
   'Allow it when the action plainly follows from what the person asked and does nothing they would be surprised by.',
   'Ask when it is not clearly asked for, reaches beyond what was asked (other files, other people, other systems), deletes, spends money, sends something to other people, or cannot be undone, or when you are unsure.',
   'Answer with JSON only: {"allow": true or false, "reason": "one short sentence the person will read"}.',
@@ -66,7 +66,7 @@ export class LlmAutoClassifier implements AutoModeClassifier {
     return { value: row.value, setBy: row.setBy, updatedAt: row.updatedAt };
   }
 
-  async classify(input: { readonly session: Session; readonly fn: FnRecord; readonly mode: FnMode; readonly args: Json; readonly run: RunId }): Promise<{ readonly allow: boolean; readonly reason: string }> {
+  async classify(input: ClassifyInput): Promise<{ readonly allow: boolean; readonly reason: string }> {
     const setting = (await this.setting()).value;
     if (setting.model === undefined) return { allow: false, reason: 'No auto mode model is set, so you decide.' };
     try {
@@ -89,12 +89,13 @@ export class LlmAutoClassifier implements AutoModeClassifier {
   }
 
   /** The question: the chat's last messages, then the action. */
-  async #ask(input: { readonly session: Session; readonly fn: FnRecord; readonly mode: FnMode; readonly args: Json }, count: number): Promise<string> {
+  async #ask(input: Omit<ClassifyInput, 'run'>, count: number): Promise<string> {
     const recent = count < 1 ? [] : (await this.#deps.store().table('messages').find({ where: { session: input.session.id }, order: [['createdAt', 'desc']], limit: count })).items.reverse();
     const lines = recent.map((message) => `${message.role === 'user' ? 'Person' : 'Agent'}: ${plainText(message.parts)}`).filter((line) => !line.endsWith(': '));
     return [
       'Last messages:', ...(lines.length === 0 ? ['(none)'] : lines), '',
       `Action: ${input.fn.name} (${input.mode}) — ${input.fn.decl.description}`,
+      ...(input.changes === undefined ? [] : [`Changes in the hub: ${input.changes}`]),
       `Args: ${JSON.stringify(input.args)}`,
     ].join('\n');
   }

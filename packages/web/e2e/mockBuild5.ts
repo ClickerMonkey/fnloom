@@ -83,7 +83,7 @@ export class MockFns {
     const reads = /read|list|get|search|glob|grep/.test(fn);
     const free = fn.startsWith('fs/');
     return {
-      fn, kind: 'native', mode: reads ? 'read' : 'write', reads: ['fs/Entry'], writes: reads ? [] : ['fs/Entry'], uses: [fn, QualifiedName.parse('fs/read_file')], free,
+      fn, kind: 'native', mode: reads ? 'read' : 'write', reads: ['fs/Entry'], writes: reads ? [] : ['fs/Entry'], uses: [fn, QualifiedName.parse('fs/read_file')], free, registry: [],
       cost: free ? { min: 0, typical: 0, max: 0, basis: 'free', runs: 128 } : { min: 0.0004, typical: 0.0021, max: 0.012, basis: 'history', runs: 128 },
       times: { runs: 128, typical: 640, slow: 4_200, longest: 21_000 }, longRunning: false,
     };

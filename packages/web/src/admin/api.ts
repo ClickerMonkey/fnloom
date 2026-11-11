@@ -19,6 +19,8 @@ export function adminApi(hub: Hub) {
     createPairingToken: hub.caller('createPairingToken'),
     configureSystem: hub.caller('configureSystem'),
     enableSystem: hub.caller('enableSystem'),
+    /** One fn or context item of a system on or off by itself. */
+    switchItem: hub.caller('switchItem'),
     removeSystem: hub.caller('removeSystem'),
     installSystem: hub.caller('installSystem'),
     startSystem: hub.caller('startSystem'),
@@ -28,6 +30,10 @@ export function adminApi(hub: Hub) {
     reimport: hub.caller('reimport'),
     systemFns: hub.caller('systemFns', { dedupe: true }),
     systemLogs: hub.caller('systemLogs', { dedupe: true }),
+    /** What a system added beyond its fns, context and types (kinds, commands, providers, components, examples, …). */
+    systemParts: hub.caller('systemParts', { dedupe: true }),
+    /** A system's resource roots (its main instance's, live). */
+    exploreRoots: hub.caller('exploreRoots', { dedupe: true }),
     providers: hub.caller('providers', { dedupe: true }),
     configureProvider: hub.caller('configureProvider'),
     models: hub.caller('models', { dedupe: true }),

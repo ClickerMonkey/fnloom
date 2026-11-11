@@ -1,10 +1,10 @@
 /**
  * One system on its admin page: its record (status live from the user channel), its fns, its config (saved only when
- * valid for its config type; the hub's problems come back as sentences), turning its functions and renderers on and
- * off (shown at once, put back if the hub refuses), the lifecycle actions, and the installed system's output, live
+ * valid for its config type; the hub's problems come back as sentences), turning its functions, renderers and context on
+ * and off, and each fn by itself (shown at once, put back if the hub refuses), the lifecycle actions, and the installed system's output, live
  * while the page is open.
  */
-import type { FnRecord, ImportReport, Json, SystemEnabled, SystemName, SystemView, UserEvent } from '@harness/core';
+import type { FnRecord, ImportReport, Json, QualifiedName, SystemEnabled, SystemName, SystemView, UserEvent } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
@@ -13,7 +13,7 @@ import type { OutputLine } from '@harness/core';
 import type { SystemAction } from '../logic/systems.ts';
 
 type SystemApi = Pick<AdminApi,
-  'system' | 'systemFns' | 'systemLogs' | 'configureSystem' | 'enableSystem' | 'startSystem' | 'stopSystem' | 'restartSystem' | 'upgradeSystem' | 'reimport' | 'removeSystem'>;
+  'system' | 'systemFns' | 'systemLogs' | 'configureSystem' | 'enableSystem' | 'switchItem' | 'startSystem' | 'stopSystem' | 'restartSystem' | 'upgradeSystem' | 'reimport' | 'removeSystem'>;
 
 /** The most output lines kept on the page. */
 export const LOG_LINES = 1_000;
@@ -41,6 +41,8 @@ export class SystemStore {
   readonly logs = new Loaded<readonly OutputLine[]>();
   readonly config = new Task();
   readonly enabling = new Task();
+  /** Switching one fn. */
+  readonly switching = new Task();
   readonly action = new Task();
   /** The action running now. */
   readonly acting = shallowRef<SystemAction | undefined>(undefined);
@@ -78,6 +80,23 @@ export class SystemStore {
     await this.fns.load(() => this.#api.systemFns.call({ system: name }), "Couldn't load this system's fns.");
   }
 
+  /**
+   * Turn one fn on or off by itself: shown at once, put back if the hub refuses. The fns are read again after, since
+   * whether each can be used (and what depends on it) follows the switch.
+   */
+  async switchFn(name: QualifiedName, on: boolean): Promise<boolean> {
+    const flip = (disabled: boolean): void => {
+      const fns = this.fns.value.value;
+      if (fns !== undefined) { this.fns.set(fns.map((fn) => (fn.name === name ? { ...fn, disabled } : fn))); }
+    };
+    flip(!on);
+    const result = await this.switching.run(() => this.#api.switchItem.call({ section: 'fns', name, on }), "Couldn't switch that.");
+    if (!result.ok) { flip(on); return false; }
+    const system = this.name.value;
+    if (system !== undefined) { await this.fns.load(() => this.#api.systemFns.call({ system }), "Couldn't load this system's fns.", true); }
+    return true;
+  }
+
   /** Fetch the end of the output and add new lines as they come. */
   async followLogs(): Promise<void> {
     const name = this.name.value;
@@ -105,7 +124,7 @@ export class SystemStore {
     return { ok: true, version: result.value.version };
   }
 
-  /** Turn its functions or renderers on or off: shown at once, put back if the hub refuses. */
+  /** Turn its functions, renderers or context on or off: shown at once, put back if the hub refuses. */
   async enable(part: keyof SystemEnabled, on: boolean): Promise<boolean> {
     const name = this.name.value;
     const view = this.view.value.value;

@@ -6,7 +6,7 @@
 import type { Type } from '@aeye/gin';
 import type { Logger } from '@ayepi/log';
 import {
-  Json, noFnStats, QualifiedName, qualify, splitName,
+  Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, runtimeNames, splitName,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl, type SystemName,
   type InstanceName, type TypeDecl, type TypeRecord, type DeclaredBy,
@@ -68,7 +68,17 @@ function ownedSection<D extends { name: string }>(before: readonly D[], sent: re
  * stay as they were, and anything it says about them (an update, a removal, a claim to own one) is ignored.
  */
 export function fromInstance(before: Manifest | undefined, sent: Manifest, from: InstanceName): Manifest {
-  return { ...sent, types: ownedSection(before?.types ?? [], sent.types, from, typeOwner), fns: ownedSection(before?.fns ?? [], sent.fns, from, fnOwner) };
+  const types = ownedSection(before?.types ?? [], sent.types, from, typeOwner);
+  const fns = ownedSection(before?.fns ?? [], sent.fns, from, fnOwner);
+  // an entry another instance owns stays runtime if it was; the sender's own are as it says
+  const runtimeIn = (section: 'types' | 'fns', kept: ReadonlyArray<{ name: string }>, owner: (name: string) => InstanceName | undefined): string[] => {
+    const was = before === undefined ? new Set<string>() : runtimeNames(before, section);
+    const says = runtimeNames(sent, section);
+    return kept.map((decl) => decl.name).filter((name) => { const own = owner(name); return own !== undefined && own !== from ? was.has(name) : says.has(name); });
+  };
+  const ownerOf = <D extends { name: string }>(list: readonly D[], owner: (decl: D) => InstanceName | undefined) => (name: string) => { const decl = list.find((d) => d.name === name); return decl === undefined ? undefined : owner(decl); };
+  const runtime = { ...sent.runtime, types: runtimeIn('types', types, ownerOf(types, typeOwner)), fns: runtimeIn('fns', fns, ownerOf(fns, fnOwner)) };
+  return { ...sent, types, fns, runtime };
 }
 
 /** Running numbers for a fn that has never run. */
@@ -235,10 +245,16 @@ export class StoreCatalog implements Catalog {
         return [...lists[section].filter((decl) => !removed.has(decl.name) && !replacing.has(decl.name)), ...replaced];
       });
       // the top-level lists (providers, registries, contributions) are short, so a patch replaces each whole
-      const next: Manifest = { ...previous, ...sections, ...patch.lists, hash: patch.hash };
-      // what a patch adds is the running system's own, not its contract's: its records say `runtime`
-      const runtime = new Set<string>([...(patch.upsert.fns ?? []), ...(patch.upsert.types ?? []), ...(patch.upsert.context ?? [])].map((decl) => qualify(system, decl.name)));
-      return this.#import(from === undefined ? next : fromInstance(previous, next, from), false, runtime);
+      // what a patch adds is the running system's own, not its contract's: its records say `runtime`, as the system's next whole manifest will
+      const runtimeLists: { [S in ManifestSection]?: string[] } = {};
+      for (const section of MANIFEST_SECTION_NAMES) {
+        const removed = new Set(patch.remove[section] ?? []);
+        const names = new Set([...runtimeNames(previous, section)].filter((name) => !removed.has(name)));
+        for (const decl of upsert[section] ?? []) { names.add(decl.name); }
+        if (names.size > 0) { runtimeLists[section] = [...names].sort(); }
+      }
+      const next: Manifest = { ...previous, ...sections, ...patch.lists, hash: patch.hash, runtime: runtimeLists };
+      return this.#import(from === undefined ? next : fromInstance(previous, next, from), false);
     });
   }
 
@@ -359,14 +375,13 @@ export class StoreCatalog implements Catalog {
 
   // ─── The import itself ────────────────────────────────────────────────────
 
-  async #import(next: Manifest, force: boolean, runtime?: ReadonlySet<string>): Promise<ImportReport> {
+  async #import(next: Manifest, force: boolean): Promise<ImportReport> {
     await this.#load();
     const { store, log, clock } = this.options;
     const system = next.name;
     const previous = this.#manifests.get(system);
-    // what a patch added stays the running system's (`runtime`) until a whole manifest declares it, as for fns
-    const declaredBy = (name: QualifiedName, existing: { readonly declaredBy?: DeclaredBy | undefined } | undefined): DeclaredBy =>
-      (runtime !== undefined && (runtime.has(name) || existing?.declaredBy === 'runtime') ? 'runtime' : 'contract');
+    // what the running system added (`Manifest.runtime`, kept across patches) is its own, not its contract's
+    const declaredBy = (section: ManifestSection, local: string): DeclaredBy => (runtimeNames(next, section).has(local) ? 'runtime' : 'contract');
     const before: SectionLists = previous ?? eachSection(() => []);
     const staged = new Map<string, GinTypeDef>(next.types.map((t) => [qualify(system, t.name), t.def]));
     const lookup: TypeLookup = (name) => staged.get(name) ?? this.#storedLookup(name);
@@ -428,17 +443,18 @@ export class StoreCatalog implements Catalog {
     const now = clock();
 
     const fnWrites: FnRecord[] = [];
+    const contextSwitchedOff = (await store.table('systems').get(system))?.enabled.context === false;
     await store.tx(async (tx) => {
       for (const decl of accepted.types) {
         const name = qualify(system, decl.name);
-        if (changedNames.has(name) || force) {
+        if (changedNames.has(name) || force || this.#types.get(name)?.declaredBy !== declaredBy('types', decl.name)) {
           // the definition it replaces is kept, numbered, with its meta (a table's schema hash at that version)
           const old = before.types.find((t) => t.name === decl.name);
           if (old !== undefined && !sameDecl(old, decl)) {
             const number = (await tx.table('typeVersions').count({ type: name })) + 1;
             await tx.table('typeVersions').put({ id: `${name}#${number}`, type: name, number, decl: old, ...(old.instance === undefined ? {} : { instance: old.instance }), savedAt: now });
           }
-          await tx.table('types').put(this.#typeRecord(system, decl, now, declaredBy(name, await tx.table('types').get(name)), await hashOf(decl)));
+          await tx.table('types').put(this.#typeRecord(system, decl, now, declaredBy('types', decl.name), await hashOf(decl)));
         }
       }
       for (const decl of accepted.kinds) {
@@ -450,8 +466,7 @@ export class StoreCatalog implements Catalog {
         const existing = await tx.table('fns').get(name);
         // a kind fn its kind could not describe this time keeps its last description while its declaration is unchanged
         const described = work.described.get(decl.name) ?? (decl.kind !== 'native' && !changedNames.has(name) ? existing?.decl ?? decl : decl);
-        // a fn a patch added stays the running system's (`runtime`) until a whole manifest declares it
-        const origin: FnRecord['origin'] = runtime !== undefined && (runtime.has(name) || (existing?.origin === 'runtime' && existing.addedBy === undefined)) ? 'runtime' : 'contract';
+        const origin: FnRecord['origin'] = declaredBy('fns', decl.name);
         if (existing !== undefined && existing.origin === origin && sameDecl(existing.decl, described)) { continue; }
         const record = await this.#fnRecord(system, described, existing, origin, undefined);
         fnWrites.push(await tx.table('fns').put(record));
@@ -459,8 +474,17 @@ export class StoreCatalog implements Catalog {
       }
       for (const decl of accepted.context) {
         const name = qualify(system, decl.name);
-        if (changedNames.has(name) || force) {
-          const record = await tx.table('context').put({ ...await this.#contextRecord(tx, system, decl, accepted.context, now), declaredBy: declaredBy(name, await tx.table('context').get(name)), version: await hashOf(decl) });
+        const existing = await tx.table('context').get(name);
+        const by = declaredBy('context', decl.name);
+        if (changedNames.has(name) || force || existing?.declaredBy !== by) {
+          // a new declaration keeps what people set on the item: switched off, by itself or with its system's context
+          const kept: Partial<ContextRecord> = {
+            ...(existing?.origin === undefined ? {} : { origin: existing.origin }),
+            ...(existing?.disabled === undefined ? {} : { disabled: existing.disabled }),
+            // a new item of a system whose context is switched off starts off with it
+            ...(existing?.systemOff === undefined ? (contextSwitchedOff ? { systemOff: true } : {}) : { systemOff: existing.systemOff }),
+          };
+          const record = await tx.table('context').put({ ...await this.#contextRecord(tx, system, decl, accepted.context, now), ...kept, declaredBy: by, version: await hashOf(decl) });
           // the context graph's declared and mentioned edges are rewritten in the same transaction, so they never drift
           await writeDerivedLinks(tx, record, now);
         }
@@ -480,7 +504,7 @@ export class StoreCatalog implements Catalog {
     for (const name of removedFrom.get('types') ?? []) { this.#types.delete(name); }
     for (const decl of accepted.types) {
       const name = qualify(system, decl.name);
-      this.#types.set(name, this.#typeRecord(system, decl, now, declaredBy(name, this.#types.get(name)), await hashOf(decl)));
+      this.#types.set(name, this.#typeRecord(system, decl, now, declaredBy('types', decl.name), await hashOf(decl)));
     }
     for (const name of removedFrom.get('fns') ?? []) { this.#describedTypes.delete(name); }
     for (const fn of fnWrites) { this.#rememberTypes(fn.name, work, splitName(fn.name).local); }

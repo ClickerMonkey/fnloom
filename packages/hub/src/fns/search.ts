@@ -1,11 +1,12 @@
 /**
  * Fns and context search, in the hub's database. The filters are SQL over the hub's tables: kind, system, instance
- * and mode over `fnFacts`, the types read or written over `fnTypes`, systems over `context`. What they let through is
+ * and mode over `fnFacts` (and what fns change in the hub, build 6, on the rows it lets through), the types read or
+ * written over `fnTypes`, systems over `context`. What they let through is
  * ranked by words and meaning inside the database (the index search's `within`, which FTS5 and sqlite-vec filter
  * themselves), best first; without text it is listed by name. Nothing is loaded whole and no vector is compared here.
  * What the asker may not see is never counted; `visibility` and `available` are checked on each hit as it comes.
  */
-import { QualifiedName, type ContextRecord, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchItemKind } from '@harness/core';
+import { contextOff, effectsLine, QualifiedName, type ContextRecord, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchItemKind } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { AccessService } from '../access/index.ts';
 import type { FnViewSource } from '../contextor/index.ts';
@@ -33,7 +34,14 @@ interface Candidate {
 
 /** Whether a query filters on anything only fns have (so context can't match it). */
 function fnOnly(query: FnSearchQuery): boolean {
-  return query.kinds !== undefined || query.instance !== undefined || query.modes !== undefined || query.types !== undefined || query.visibility !== undefined;
+  return query.kinds !== undefined || query.instance !== undefined || query.modes !== undefined || query.types !== undefined || query.visibility !== undefined || query.effects !== undefined;
+}
+
+/** Whether a fn's registry effects meet a query's `effects` filter (one of them, with its action and kind when given). */
+function changesAsAsked(query: FnSearchQuery, registry: readonly RegistryEffect[] | undefined): boolean {
+  if (query.effects === undefined) return true;
+  return query.effects.some((wanted) => (registry ?? []).some((effect) => effect.thing === wanted.thing
+    && (wanted.action === undefined || effect.action === wanted.action) && (wanted.kind === undefined || effect.kind === wanted.kind)));
 }
 
 /** Search over the hub's database. */
@@ -81,6 +89,7 @@ export class StoreFnSearch implements FnSearch {
       };
       for await (const row of rows(store.table('fnFacts'), { where, order: [['fn', 'asc']] })) {
         if (typed !== undefined && !typed.has(row.fn)) continue;
+        if (!changesAsAsked(query, row.registry)) continue;
         out.push({ kind: 'fn', key: row.fn });
         if (out.length > cap) return undefined;
       }
@@ -91,7 +100,7 @@ export class StoreFnSearch implements FnSearch {
         ...(query.names === undefined ? {} : { name: { in: query.names } }),
       };
       for await (const row of rows(store.table('context'), { where, order: [['name', 'asc']] })) {
-        if (row.disabled === true) continue;
+        if (contextOff(row)) continue;
         out.push({ kind: 'context', key: row.name });
         if (out.length > cap) return undefined;
       }
@@ -148,7 +157,7 @@ export class StoreFnSearch implements FnSearch {
       for await (const row of rows(store.table('fnFacts'), { order: [['fn', 'asc']] })) if (await take({ kind: 'fn', key: row.fn })) return out;
     }
     if (items.includes('context')) {
-      for await (const row of rows(store.table('context'), { order: [['name', 'asc']] })) if (row.disabled !== true && await take({ kind: 'context', key: row.name })) return out;
+      for await (const row of rows(store.table('context'), { order: [['name', 'asc']] })) if (!contextOff(row) && await take({ kind: 'context', key: row.name })) return out;
     }
     return out;
   }
@@ -159,7 +168,7 @@ export class StoreFnSearch implements FnSearch {
     const catalog = this.#deps.catalog();
     if (candidate.kind === 'context') {
       const record = await catalog.context(candidate.key);
-      if (record === undefined || record.disabled === true || !asker.access.seesContext(record)) return undefined;
+      if (record === undefined || contextOff(record) || !asker.access.seesContext(record)) return undefined;
       return contextHit(record, score);
     }
     const record = await catalog.fn(candidate.key);
@@ -169,11 +178,15 @@ export class StoreFnSearch implements FnSearch {
     const available = availability === true && asker.access.mayUse(record);
     if (query.available !== false && !available) return undefined;
     const facts = await this.#deps.store().table('fnFacts').get(record.name);
+    // checked on each hit too: over the candidate cap the filters count as none
+    if (!changesAsAsked(query, facts?.registry)) return undefined;
+    const effects = effectsLine(facts?.registry ?? []);
     const view = await this.#deps.views().view(record.name);
     return {
       item: 'fn', name: record.name, system: record.system, description: record.decl.description, kind: record.decl.kind,
       ...(facts === undefined ? {} : { mode: facts.mode }),
       ...(view === undefined ? {} : { signature: `${record.name}(${view.args}) → ${view.returns}` }),
+      ...(effects === undefined ? {} : { effects }),
       ...(facts?.instance === undefined ? {} : { instance: facts.instance }),
       ...(score === undefined ? {} : { score }),
       available,

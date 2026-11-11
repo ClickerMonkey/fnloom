@@ -163,6 +163,18 @@ export class ContextGraphDouble {
     return { ok: true };
   }
 
+  /** An admin's switch on one item: off leaves it out of selection, search and loading, the way `disabled` does. */
+  switchItem(name: QualifiedName, on: boolean): { on: boolean } {
+    this.#find(name);
+    this.records = this.records.map((r) => (r.name === name ? { ...r, disabled: !on, updatedAt: this.#clock() } : r));
+    return { on };
+  }
+
+  /** A system's context switch: every item of it is marked, each keeping its own switch. */
+  switchSystem(system: ContextRecord['system'], on: boolean): void {
+    this.records = this.records.map((r) => (r.system === system ? { ...r, systemOff: !on } : r));
+  }
+
   link(input: { readonly from: QualifiedName; readonly to: z.input<typeof LinkTarget>; readonly relation: DeclarableRelation; readonly weight: number }): ContextLink {
     this.#find(input.from);
     const made = contextLink(input.from, input.to, { relation: input.relation, weight: input.weight, source: 'authored', by: this.#author }, this.#clock());

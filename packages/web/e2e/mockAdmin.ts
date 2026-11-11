@@ -8,7 +8,7 @@
 import { reject } from '@ayepi/core';
 import { fixture } from './fixture.ts';
 import {
-  ImportReport, SystemName, mintId, type ActorKind, type InstanceName, type QualifiedName, type ActorId, type BudgetId, type InstallSource, type Json, type LlmInteraction, type ModelCategory, type PairingId, type PairingRequest,
+  ImportReport, SystemName, mintId, type ActorKind, type InstanceName, QualifiedName, type ActorId, type BudgetId, type InstallSource, type Json, type LlmInteraction, type ModelCategory, type PairingId, type PairingRequest,
   type Policy, type PriorityRule, type ProviderId, type ProviderKind, type ResolvedLimits, type ResourceRead, type ResourceRecord, type ResourceUri, type Run, type SystemStatus, type SystemView,
   type UserEvent,
 } from '@harness/core';
@@ -47,6 +47,8 @@ export class MockAdmin {
   #emit: AdminEmit = { user: () => undefined, log: () => undefined };
   #line = 0;
   #asked = 0;
+  /** Fns an admin switched off by themselves (fs's shell starts off). */
+  readonly #off = new Set<QualifiedName>([QualifiedName.parse('fs/shell')]);
   readonly systems = new Map<SystemName, SystemView>();
   readonly logs = new Map<SystemName, OutputLine[]>();
   /** Every pairing request, answered ones kept with their status, as the hub keeps them. */
@@ -166,9 +168,9 @@ export class MockAdmin {
     return { version };
   }
 
-  enable(name: SystemName, change: { functions?: boolean | undefined; renderers?: boolean | undefined }): { enabled: SystemView['enabled'] } {
+  enable(name: SystemName, change: { readonly [K in keyof SystemView['enabled']]?: boolean | undefined }): { enabled: SystemView['enabled'] } {
     const current = this.system(name);
-    const enabled = { functions: change.functions ?? current.enabled.functions, renderers: change.renderers ?? current.enabled.renderers };
+    const enabled = { functions: change.functions ?? current.enabled.functions, renderers: change.renderers ?? current.enabled.renderers, context: change.context ?? current.enabled.context ?? true };
     this.systems.set(name, { ...current, enabled });
     return { enabled };
   }
@@ -211,12 +213,19 @@ export class MockAdmin {
     return { name: made.name };
   }
 
+  /** Switch one fn on or off by itself: off reads as turned off by an admin. */
+  switchFn(name: QualifiedName, on: boolean): { on: boolean } {
+    if (on) { this.#off.delete(name); } else { this.#off.add(name); }
+    return { on };
+  }
+
   fns(name: SystemName) {
     const system = this.system(name);
     const names = ['read_file', 'write_file', 'list', 'search', 'shell', 'move'].slice(0, Math.max(1, Math.min(6, system.fns)));
     return names.map((local, i) => fnRecord({
       name: `${name}/${local}`, system: name,
-      available: system.status === 'connected' ? (local === 'shell' ? { unavailable: 'disabled', detail: 'Turned off by an admin' } : true) : { unavailable: system.status === 'needs-config' ? 'system-needs-config' : 'system-disconnected', detail: '' },
+      disabled: this.#off.has(QualifiedName.parse(`${name}/${local}`)),
+      available: system.status === 'connected' ? (this.#off.has(QualifiedName.parse(`${name}/${local}`)) ? { unavailable: 'disabled', detail: 'Turned off by an admin' } : true) : { unavailable: system.status === 'needs-config' ? 'system-needs-config' : 'system-disconnected', detail: '' },
       decl: { ...fnRecord().decl, name: local, description: ['Read a file', 'Write a file', 'List a folder', 'Search the files', 'Run a command', 'Move files'][i] ?? 'Do something', tags: local.startsWith('read') || local === 'list' || local === 'search' ? ['read'] : ['write'] },
       stats: { outcomes: { done: 140 - i * 24, 'invalid-input': 0, failed: i, cancelled: 0 }, averageCost: 0, averageTime: 40 + i * 30, tokens: 0, lastRunAt: this.#now() - (i + 1) * 7 * MINUTE },
     }));

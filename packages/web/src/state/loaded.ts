@@ -162,6 +162,11 @@ export class Paged<T, F> {
     }
   }
 
+  /** Change one shown item in place (a switch flipped before the hub answers); nothing happens when it isn't shown. */
+  update(key: string, change: (item: T) => T): void {
+    this.items.value = this.items.value.map((item) => (this.#source.key(item) === key ? change(item) : item));
+  }
+
   /** Fetch the next page. */
   async more(): Promise<void> {
     const cursor = this.#cursor;

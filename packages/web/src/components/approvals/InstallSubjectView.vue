@@ -12,7 +12,7 @@ const props = defineProps<{ subject: InstallSubject }>();
 
 const hashes = computed(() => [
   { label: 'Bundle', value: props.subject.bundleHash, about: 'sha-256 of the one file that will run' },
-  { label: 'Source', value: props.subject.sourceHash, about: 'sha-256 of the folder it was built from; a change after approval stops it' },
+  { label: 'Folder', value: props.subject.sourceHash, about: 'sha-256 of the folder it was built from; a change after approval stops it' },
   { label: 'Contract', value: props.subject.manifestHash, about: 'the hash of the fns, types and hooks it declares' },
 ]);
 </script>

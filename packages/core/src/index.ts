@@ -31,6 +31,7 @@
  * - `decisions`: the decision model for systems (build 5).
  * - `config-secrets`: secret fields in a system's config (build 5).
  * - `context-files`: context folders (file headers, check problems) and what loading context did (build 6).
+ * - `system-parts`: what a system added beyond its fns, context and types, for its admin page (build 6).
  */
 export * from './primitives.ts';
 export * from './modes.ts';
@@ -48,6 +49,7 @@ export * from './model-calls.ts';
 export * from './metrics.ts';
 export * from './manifest.ts';
 export * from './context-files.ts';
+export * from './system-parts.ts';
 export * from './link.ts';
 export * from './records/systems.ts';
 export * from './records/actors.ts';

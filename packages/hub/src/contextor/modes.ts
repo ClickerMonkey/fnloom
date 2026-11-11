@@ -17,7 +17,7 @@ import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { cardsSection, exampleLines, fnCard, listedLine, moreFns, problemLines, summaryHint, textProtocolInstructions } from './render.ts';
+import { cardsSection, describedWithEffects, exampleLines, fnCard, listedLine, moreFns, problemLines, summaryHint, textProtocolInstructions } from './render.ts';
 import { modelMayUse } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
@@ -69,11 +69,12 @@ export function fnModeTool(view: FnView, machines: readonly InstanceName[] = [],
   const [first, ...rest] = machines;
   const shown = exampleLines(view.record, 'native', examples);
   const instructions = [view.record.decl.instructions, ...shown].filter((line) => line !== undefined && line.trim() !== '').join('\n') || undefined;
-  if (first === undefined || !(schema instanceof z.ZodObject)) return modeTool(name, view.record.decl.description, schema, view.signature.argsJsonSchema, instructions);
+  const description = describedWithEffects(view);
+  if (first === undefined || !(schema instanceof z.ZodObject)) return modeTool(name, description, schema, view.signature.argsJsonSchema, instructions);
   const on = z.enum([first, ...rest]).describe(ON_DESCRIPTION);
   const parameters = JsonObject.parse(view.signature.argsJsonSchema);
   const properties = JsonObject.safeParse(parameters['properties']).data ?? {};
-  return modeTool(name, view.record.decl.description, schema.extend({ on: on.optional() }), { ...parameters, properties: { ...properties, on: Json.parse(z.toJSONSchema(on)) } }, instructions);
+  return modeTool(name, description, schema.extend({ on: on.optional() }), { ...parameters, properties: { ...properties, on: Json.parse(z.toJSONSchema(on)) } }, instructions);
 }
 
 /** A fleet call's args without its `on`, and the instance it names; an `on` that names no instance is refused. */

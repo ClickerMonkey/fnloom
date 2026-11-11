@@ -64,8 +64,11 @@ export const InstalledSystem = z.object({
 });
 export type InstalledSystem = z.infer<typeof InstalledSystem>;
 
-/** What an admin has switched on. Functions off keeps renderers drawing old messages; renderers off uses plain views. */
-export const SystemEnabled = z.object({ functions: z.boolean(), renderers: z.boolean() });
+/**
+ * What an admin has switched on. Functions off keeps renderers drawing old messages; renderers off uses plain views.
+ * Context off (build 6) leaves every context item of the system out of selection, search and loading; absent means on.
+ */
+export const SystemEnabled = z.object({ functions: z.boolean(), renderers: z.boolean(), context: z.boolean().optional() });
 export type SystemEnabled = z.infer<typeof SystemEnabled>;
 
 /** An instance's config, checked against the contract's config type. */
@@ -264,6 +267,8 @@ export const ContextRecord = z.object({
   tokens: ContextTokens.optional(),
   /** Turned off by a person (`hub/forget` disables memory); left out of every selection and search. */
   disabled: z.boolean().optional(),
+  /** Build 6: its system's context is switched off (`SystemEnabled.context`); kept apart from `disabled`, so switching the system back on restores each item's own switch. */
+  systemOff: z.boolean().optional(),
   /** References found in the text (`@fs/read`), added to what loading brings along. */
   mentions: z.object({ context: z.array(QualifiedName), fns: z.array(QualifiedName) }),
   /** A source section changed since this was written. */
@@ -271,3 +276,8 @@ export const ContextRecord = z.object({
   updatedAt: Timestamp,
 });
 export type ContextRecord = z.infer<typeof ContextRecord>;
+
+/** Whether a context item is switched off, by itself (`disabled`, `hub/forget`) or with all its system's context; off items are never selected, searched or loaded. */
+export function contextOff(record: Pick<ContextRecord, 'disabled' | 'systemOff'>): boolean {
+  return record.disabled === true || record.systemOff === true;
+}

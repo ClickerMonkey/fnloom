@@ -97,6 +97,8 @@ export interface FnView {
   readonly returns: string;
   /** `toCodeDefinition()` of each named type in the signature's closure. */
   readonly types: ReadonlyMap<QualifiedName, string>;
+  /** Build 6: what it changes in the hub, in one line ("Creates fns (database/query)."), worked out deeply; absent when nothing. */
+  readonly effects?: string;
 }
 
 /** A context item chosen for a prompt, with the text at its detail (its line, its summary, or its content). */

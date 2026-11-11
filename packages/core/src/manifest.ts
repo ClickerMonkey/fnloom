@@ -133,9 +133,30 @@ export const CHAT_FN_MODES = ['none', 'read', 'write', 'delete', 'auto'] as cons
 export const ChatFnMode = z.enum(CHAT_FN_MODES);
 export type ChatFnMode = z.infer<typeof ChatFnMode>;
 
+/** The things in the hub a fn can create, update or remove (`RegistryEffect`). `approvals` are runs awaiting approval. */
+export const REGISTRY_THINGS = ['fns', 'types', 'context', 'resources', 'kinds', 'components', 'examples', 'approvals', 'secrets', 'connections'] as const;
+export const RegistryThing = z.enum(REGISTRY_THINGS);
+export type RegistryThing = z.infer<typeof RegistryThing>;
+
+/** What a fn does to a thing in the hub. */
+export const REGISTRY_ACTIONS = ['create', 'update', 'remove'] as const;
+export const RegistryAction = z.enum(REGISTRY_ACTIONS);
+export type RegistryAction = z.infer<typeof RegistryAction>;
+
 /**
- * What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, and whether its
- * own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
+ * Build 6: one thing a fn creates, updates or removes in the hub (`FnEffects.registry`): `{ thing: 'fns', action:
+ * 'create', kind: 'database/query' }` for a fn that saves queries. `kind` narrows `fns` to one fn kind; absent, any.
+ */
+export const RegistryEffect = z.object({
+  thing: RegistryThing,
+  action: RegistryAction,
+  kind: FnKindName.optional(),
+}).refine((effect) => effect.kind === undefined || effect.thing === 'fns', { message: 'only fns have a kind', path: ['kind'] });
+export type RegistryEffect = z.infer<typeof RegistryEffect>;
+
+/**
+ * What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, what it creates,
+ * updates or removes in the hub, and whether its own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
  * from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
  */
 export const FnEffects = z.object({
@@ -144,6 +165,8 @@ export const FnEffects = z.object({
   writes: z.array(QualifiedName).optional(),
   /** Its own work spends nothing (reading a file); what it calls may still cost. */
   free: z.boolean().optional(),
+  /** Build 6: what it creates, updates or removes in the hub. The hub refuses a registry change a run's fn did not declare. */
+  registry: z.array(RegistryEffect).optional(),
 });
 export type FnEffects = z.infer<typeof FnEffects>;
 
@@ -362,8 +385,18 @@ export const Manifest = z.object({
   contributes: z.array(ContributionDecl).optional(),
   /** Build 5: the secret fields of its config, which the hub seals (`config-secrets.ts`). */
   configSecrets: ConfigSecrets.optional(),
+  /**
+   * Build 6: the entries the running system added or replaced (`add`, `setTypes`, `patch`), by local name per
+   * section. The hub stores them with origin `runtime`; everything else in the manifest is the contract's.
+   */
+  runtime: z.partialRecord(ManifestSection, z.array(LocalName)).optional(),
 });
 export type Manifest = z.infer<typeof Manifest>;
+
+/** The local names of one section's entries the running system added (`Manifest.runtime`). */
+export function runtimeNames(manifest: Pick<Manifest, 'runtime'>, section: ManifestSection): Set<string> {
+  return new Set(manifest.runtime?.[section] ?? []);
+}
 
 /** A runtime change to a manifest: entries to add or replace, and names to remove, per section. */
 export const ManifestPatch = z.object({

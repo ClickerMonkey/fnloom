@@ -1,8 +1,9 @@
 /**
  * How systems read on the admin pages: each status's tone and words, which lifecycle actions apply to a system now,
- * why a fn can't be used in plain words, and the order systems are listed in (what needs the admin first).
+ * why a fn can't be used in plain words, the order systems are listed in (what needs the admin first), and a system's
+ * other parts under their headings.
  */
-import type { AutoPairView, Availability, FnUnavailable, InstalledStatus, PairingRequest, QueryFnArgs, SystemName, SystemStatus, SystemView } from '@harness/core';
+import { SYSTEM_PART_SECTIONS, type AutoPairView, type Availability, type FnUnavailable, type InstalledStatus, type PairingRequest, type QueryFnArgs, type SystemName, type SystemPart, type SystemPartSection, type SystemParts, type SystemStatus, type SystemView } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
 
 /** How a status looks: its tone, its word, and whether it is in motion. */
@@ -141,4 +142,25 @@ export function systemContextQuery(system: SystemName, cursor: string | undefine
 /** The first characters of a version hash, enough to tell two versions apart on a row. */
 export function shortVersion(version: string): string {
   return version.length > 8 ? version.slice(0, 8) : version;
+}
+
+/** Each group of a system's other parts, as its page heads it. */
+export const PART_SECTION_WORDS = {
+  kinds: 'Kinds', commands: 'Commands', mentions: 'Mentions', hooks: 'Hooks', actions: 'Actions', settings: 'Settings', attachments: 'Attachments',
+  embedders: 'Embedders', sectioners: 'Sectioners', providers: 'Model providers', registries: 'Registries', components: 'Components', examples: 'Examples',
+} as const satisfies Record<SystemPartSection, string>;
+
+/** One heading of a system's other parts: its parts, and how many it holds in all when the list is cut short. */
+export interface PartGroup {
+  readonly section: SystemPartSection;
+  readonly parts: readonly SystemPart[];
+  readonly total: number;
+}
+
+/** A system's other parts under their headings, in the page's order, leaving out empty ones. */
+export function partGroups(parts: SystemParts): readonly PartGroup[] {
+  return SYSTEM_PART_SECTIONS.flatMap((section) => {
+    const listed = parts.parts.filter((part) => part.section === section);
+    return listed.length === 0 ? [] : [{ section, parts: listed, total: parts.more[section] ?? listed.length }];
+  });
 }

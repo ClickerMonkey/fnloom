@@ -15,7 +15,7 @@ export const SAMPLE_HIT: FnSearchHit = {
 
 /** Its facts: it spends nothing and usually takes a few seconds. */
 export const SAMPLE_FACTS: FnFacts = {
-  fn: SAMPLE_FN, kind: 'native', mode: 'delete', reads: ['fs/Entry'], writes: ['fs/Entry'], uses: [SAMPLE_FN], free: true,
+  fn: SAMPLE_FN, kind: 'native', mode: 'delete', reads: ['fs/Entry'], writes: ['fs/Entry'], uses: [SAMPLE_FN], free: true, registry: [],
   cost: { min: 0, typical: 0, max: 0, basis: 'free', runs: 42 }, times: { runs: 42, typical: 2_400, slow: 18_000, longest: 61_000 }, longRunning: false,
 };
 

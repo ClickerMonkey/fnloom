@@ -3,12 +3,12 @@
  * The thread's scroll box. It follows new content only while the reader is at the bottom (within `slack` px);
  * scrolling up stops following at once, even mid-stream. When content above the reader changes (older history
  * prepended, a card expanding, an image loading), what the reader is looking at stays put. Scrolled up, a "Jump to
- * latest" button counts what arrived below ("3 new"); what waits on the person (approvals, questions) sits in the dock
+ * latest" button under the thread (in its own row, so it never covers a message) counts what arrived below ("3 new"); what waits on the person (approvals, questions) sits in the dock
  * under the thread, always in sight, so the button never points at it. Near the top it asks for older history, with a spinner, and marks the beginning of the chat.
  *
  * It is a log for screen readers: finished answers are announced by the thread, not each token.
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { UiIcon, UiSpinner } from '../../ui/index.ts';
 import { ScrollFollower, type ScrollLayout } from '../logic/scroll.ts';
 
@@ -120,9 +120,6 @@ watch(() => props.items.map((item) => item.key), (keys, before) => {
   void nextTick(() => { follower.resized(); });
 }, { flush: 'pre' });
 
-/** The pill floats over the thread; while it shows, the end of the thread gets room to scroll clear of it. */
-const clear = computed(() => !atBottom.value);
-
 onMounted(() => {
   void nextTick(() => { toBottom(); });
   // the content growing (streaming, a card opening, markdown laying out) and the box shrinking (the composer growing) both move the bottom
@@ -140,7 +137,7 @@ defineExpose({ toBottom, reveal, atBottom });
 <template>
   <div class="scroller-wrap">
     <div ref="box" class="scroller" role="log" aria-live="off" aria-label="Messages" tabindex="0" data-testid="thread" @scroll.passive="onScroll" @wheel.passive="onWheel" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove" @keydown="onKey">
-      <div ref="content" class="content" :class="{ clear }">
+      <div ref="content" class="content">
         <div v-if="loadingOlder" class="edge" data-testid="loading-older"><UiSpinner :size="16" label="Loading older messages" /></div>
         <div v-else-if="beginning && items.length > 0" class="edge beginning" data-testid="beginning">Beginning of chat</div>
         <slot v-if="items.length === 0" name="empty" />
@@ -150,32 +147,31 @@ defineExpose({ toBottom, reveal, atBottom });
         <slot name="foot" />
       </div>
     </div>
-    <!-- floats over the thread on purpose, so the layout checks treat it as a layer -->
-    <Transition name="jump">
-      <button v-if="!atBottom" type="button" class="jump" data-testid="jump-latest" data-layer @click="toBottom(true)">
+    <!-- its own row under the thread: the box gives up the room, so the button never covers a message -->
+    <div v-if="!atBottom" class="jump-row">
+      <button type="button" class="jump" data-testid="jump-latest" @click="toBottom(true)">
         <UiIcon name="chevron-down" :size="16" />
         <span>{{ fresh > 0 ? `${fresh} new` : 'Jump to latest' }}</span>
       </button>
-    </Transition>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.scroller-wrap { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.scroller-wrap { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
 .scroller { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; overflow-anchor: none; scrollbar-gutter: stable both-edges; }
 .scroller:focus-visible { outline: none; box-shadow: inset var(--ring); }
 .content { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); width: 100%; max-width: calc(var(--readable) + 120px); margin: 0 auto; padding: var(--space-5) var(--space-5) var(--space-4); }
-.content.clear { padding-bottom: calc(var(--space-4) + 36px + var(--space-3)); }
 .row { min-width: 0; }
 .edge { display: flex; justify-content: center; padding: var(--space-2) 0; color: var(--text-faint); font-size: var(--text-xs); }
 .beginning { letter-spacing: 0.02em; }
+.jump-row { display: flex; justify-content: center; padding: var(--space-1) var(--space-3) var(--space-2); }
 .jump {
-  position: absolute; left: 50%; bottom: var(--space-3); display: inline-flex; align-items: center; gap: var(--space-1); height: 36px; padding: 0 var(--space-4);
-  transform: translateX(-50%); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); color: var(--text);
-  box-shadow: var(--shadow); font-size: var(--text-sm); font-weight: var(--weight-medium); z-index: var(--z-sticky);
+  display: inline-flex; align-items: center; gap: var(--space-1); height: 32px; padding: 0 var(--space-4);
+  border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-sm); font-size: var(--text-sm); font-weight: var(--weight-medium); animation: jump-in var(--medium) var(--ease);
 }
 .jump:focus-visible { outline: none; box-shadow: var(--shadow), var(--ring); }
-.jump-enter-active, .jump-leave-active { transition: opacity var(--medium) var(--ease), transform var(--medium) var(--ease); }
-.jump-enter-from, .jump-leave-to { opacity: 0; transform: translate(-50%, 8px); }
+@keyframes jump-in { from { opacity: 0; transform: translateY(4px); } }
 @media (max-width: 759.98px) { .content { padding: var(--space-4) var(--space-3) var(--space-3); } }
 </style>

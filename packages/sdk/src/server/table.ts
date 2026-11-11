@@ -5,7 +5,7 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
@@ -356,6 +356,21 @@ export class SystemTable {
   /** Whether a patch removed this contract fn, so it no longer runs. */
   #isHidden(section: ManifestSection, name: string): boolean {
     return this.#hidden.get(section)?.has(name) === true;
+  }
+
+  /**
+   * The entries added or replaced while running, by local name per section (`Manifest.runtime`): fns from `add`,
+   * types from `setTypes`, and every patch upsert still in place. The hub keeps their records' origin `runtime`.
+   */
+  runtimeEntries(): NonNullable<Manifest['runtime']> {
+    const out: { [S in ManifestSection]?: string[] } = {};
+    for (const section of MANIFEST_SECTION_NAMES) {
+      const names = new Set<string>(this.#patched[section].keys());
+      if (section === 'fns') { for (const name of this.#added.keys()) { names.add(name); } }
+      if (section === 'types') { for (const name of this.#types.keys()) { names.add(name); } }
+      if (names.size > 0) { out[section] = [...names].sort(); }
+    }
+    return out;
   }
 
   /** The types added at runtime, by local name. */

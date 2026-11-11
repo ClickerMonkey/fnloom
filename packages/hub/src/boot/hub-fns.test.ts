@@ -1,10 +1,10 @@
 import { agent, fn, g, hub, type FnRef } from '@harness/sdk';
-import { ActorId, LinkSession, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
+import { ActorId, LinkSession, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
 import { openScope, type AccessScope } from '../access/index.ts';
-import { registerHubFns } from './hub-fns.ts';
+import { registerHubFns, UNDECLARED_CHANGE } from './hub-fns.ts';
 import { linkPayload } from '../testing.ts';
 
 let rig: ExecutionRig | undefined;
@@ -39,6 +39,7 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, a
   registerHubFns(r.module.hubFns, {
     store: () => r.store,
     catalog: () => r.catalog,
+    facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, []]))) }),
     search: () => ({
       search: async (query) => {
         searched.push(query);
@@ -122,6 +123,20 @@ describe('context and resources', () => {
       refused: [{ context: 'fs/missing', reason: 'no context you can load has that name', closest: ['fs/guide'] }],
     } });
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide', 'fs/guide.paths'], tools: ['fs/read'] });
+  });
+
+  it('never loads a switched-off item, by name or as an import, nor the fns only it brings (build 6)', async () => {
+    const { r, turn } = await started();
+    r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
+    r.catalog.contexts.set(QualifiedName.parse('fs/old'), 'Forgotten.');
+    r.catalog.contexts.set(QualifiedName.parse('fs/old.more'), 'Only the forgotten item imports this.');
+    r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/old')] });
+    r.catalog.contextDecls.set(QualifiedName.parse('fs/old'), { imports: [QualifiedName.parse('fs/old.more')], fns: [QualifiedName.parse('fs/read')] });
+    r.catalog.contextsOff.add(QualifiedName.parse('fs/old'));
+    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/old'] })).toMatchObject({ status: 'done', result: {
+      loaded: ['fs/guide'], fns: [], refused: [{ context: 'fs/old', reason: 'no context you can load has that name' }],
+    } });
+    expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide'], tools: [] });
   });
 
   it('searches sections and gives each hit its resource, section, title and preview, narrowed to roots', async () => {
@@ -242,7 +257,9 @@ describe('saved fns (build 5)', () => {
     addHubFn(r, hub.fns.save_fn);
     addHubFn(r, hub.fns.fn_get);
     const asker = r.catalog.add('input', 'ask', fn({ description: 'Ask.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
-    r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.save_fn.name, hub.fns.fn_get.name] } });
+    // it declares that it creates and updates input/form fns (build 6): the hub refuses what it did not declare
+    const declares = (registry: RegistryEffect[]) => r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.save_fn.name, hub.fns.fn_get.name], effects: { registry } } });
+    declares([{ thing: 'fns', action: 'create', kind: 'input/form' }, { thing: 'fns', action: 'update', kind: 'input/form' }]);
     const owned: Array<{ fn: string; owner: string; visibility: string }> = [];
     registerHubFns(r.module.hubFns, {
       store: () => r.store,
@@ -256,6 +273,7 @@ describe('saved fns (build 5)', () => {
           return Promise.resolve({ added: existing === undefined ? [name] : [], updated: existing === undefined ? [] : [name], removed: [], refused: [] });
         },
       }),
+      facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, r.catalog.records.get(name)?.decl.effects?.registry ?? []]))) }),
       search: () => ({ search: () => Promise.resolve([]) }),
       sessions: () => ({ load: () => Promise.reject(new Error('no loads here')) }),
       handlers: () => r.module.handlers,
@@ -277,6 +295,9 @@ describe('saved fns (build 5)', () => {
       results.push(await callHub('save_fn', { ...save, description: 'Asks for a trip and who goes.', replace: true }));
       results.push(await callHub('fn_get', { fn: 'input/trip' }));
       results.push(await callHub('save_fn', { ...save, kind: 'database/query' }));
+      // now it only declares creating: saving over its fn is an update it did not declare
+      declares([{ thing: 'fns', action: 'create', kind: 'input/form' }]);
+      results.push(await callHub('save_fn', { ...save, replace: true }));
       return { status: 'done', result: true };
     };
     const turn = await r.turn();
@@ -287,6 +308,7 @@ describe('saved fns (build 5)', () => {
     expect(results[2]).toEqual({ status: 'done', result: { fn: 'input/trip', version: 2, created: false } });
     expect(results[3]).toMatchObject({ status: 'done', result: { fn: 'input/trip', kind: 'input/form', description: 'Asks for a trip and who goes.', payload: { title: 'Trip' }, version: 2, owner: ALICE, available: true } });
     expect(results[4]).toMatchObject({ status: 'failed', error: { code: 'not-your-kind' } });
+    expect(results[5]).toMatchObject({ status: 'failed', error: { class: 'caller', code: UNDECLARED_CHANGE } });
     expect(owned).toEqual([{ fn: 'input/trip', owner: ALICE, visibility: 'private' }]);
     // an example keeps only the parts it has, so the catalog can hash the decl as JSON
     expect(Object.keys(r.catalog.records.get(QualifiedName.parse('input/trip'))?.decl.examples?.[0] ?? {})).toEqual(['args']);

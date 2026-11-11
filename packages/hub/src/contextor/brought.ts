@@ -3,7 +3,7 @@
  * the fns it and they bring (`ContextDecl.fns`). The plain, suggest and graph contextors and `hub/load_context` all go
  * through here, so a context's work always has its fns and its linked context, however it got into the prompt.
  */
-import { QualifiedName, type ContextChoice, type ContextRecord } from '@harness/core';
+import { contextOff, QualifiedName, type ContextChoice, type ContextRecord } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 
 /** A context item's choice with the token size of the item it leads to (absent when that item is gone). */
@@ -13,7 +13,8 @@ export interface SizedChoice extends ContextChoice {
 
 /**
  * The names with the context each imports after it, depth-first, each once; cycles are cut and unknown names kept as
- * given (the caller decides what to do with them).
+ * given (the caller decides what to do with them). A switched-off item (`contextOff`) is left out, and so is what
+ * only it imports.
  */
 export async function withImports(catalog: Pick<Catalog, 'context'>, names: readonly string[]): Promise<string[]> {
   const out: string[] = [];
@@ -21,9 +22,10 @@ export async function withImports(catalog: Pick<Catalog, 'context'>, names: read
   const visit = async (name: string): Promise<void> => {
     if (seen.has(name)) return;
     seen.add(name);
-    out.push(name);
     const parsed = QualifiedName.safeParse(name);
     const record = parsed.success ? await catalog.context(parsed.data) : undefined;
+    if (record !== undefined && contextOff(record)) return;
+    out.push(name);
     for (const imported of record?.decl.imports ?? []) await visit(imported);
   };
   for (const name of names) await visit(name);

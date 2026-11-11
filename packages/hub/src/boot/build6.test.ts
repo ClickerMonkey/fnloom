@@ -29,7 +29,7 @@ describe('auto mode and fns that always ask', () => {
   it('never asks the classifier about a fn with an approval: its approver answers', async () => {
     const asked: string[] = [];
     const gate = new SessionModeGate(
-      () => ({ modes: (names) => Promise.resolve(new Map(names.map((n) => [n, 'write' as const]))) }),
+      () => ({ modes: (names) => Promise.resolve(new Map(names.map((n) => [n, 'write' as const]))), registry: (names) => Promise.resolve(new Map(names.map((n) => [n, []]))) }),
       () => ({ classify: (input) => { asked.push(input.fn.name); return Promise.resolve({ allow: true, reason: 'fine' }); } }),
     );
     const session = { fnMode: 'auto' } as const satisfies Pick<Session, 'fnMode'>;

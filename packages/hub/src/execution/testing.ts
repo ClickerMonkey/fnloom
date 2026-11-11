@@ -136,6 +136,8 @@ export class TestCatalog implements Catalog {
   readonly contexts = new Map<QualifiedName, string>();
   /** Build 6: more of a context item's declaration (what it imports, the fns it brings), by name. */
   readonly contextDecls = new Map<QualifiedName, Partial<Pick<ContextDecl, 'imports' | 'fns' | 'choices'>>>();
+  /** Build 6: context items switched off (`disabled`, a forgotten memory), by name. */
+  readonly contextsOff = new Set<QualifiedName>();
 
   /** Declare a fn of a system. */
   add(system: string, name: string, def: AnyFnDef, extra: Partial<Pick<FnRecord, 'available' | 'paused' | 'disabled'>> = {}): FnRecord {
@@ -180,7 +182,7 @@ export class TestCatalog implements Catalog {
     if (content === undefined) return Promise.resolve(undefined);
     const { system, local } = { system: name.slice(0, name.indexOf('/')), local: name.slice(name.indexOf('/') + 1) };
     return Promise.resolve({
-      name, system: SystemName.parse(system), stale: false, updatedAt: 0, mentions: { context: [], fns: [] },
+      name, system: SystemName.parse(system), stale: false, updatedAt: 0, mentions: { context: [], fns: [] }, ...(this.contextsOff.has(name) ? { disabled: true } : {}),
       decl: { name: local, description: local, content, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], ...this.contextDecls.get(name) },
     });
   }

@@ -44,6 +44,7 @@ export function registerAdminFns(fns: HubFns, ops: () => AdminOperations): void 
     create_pairing_token: run(ADMIN_ENDPOINTS.create_pairing_token, (o) => o.create_pairing_token),
     configure_system: run(ADMIN_ENDPOINTS.configure_system, (o) => o.configure_system),
     enable_system: run(ADMIN_ENDPOINTS.enable_system, (o) => o.enable_system),
+    switch_item: run(ADMIN_ENDPOINTS.switch_item, (o) => o.switch_item),
     remove_system: run(ADMIN_ENDPOINTS.remove_system, (o) => o.remove_system),
     install_system: run(ADMIN_ENDPOINTS.install_system, (o) => o.install_system),
     start_system: run(ADMIN_ENDPOINTS.start_system, (o) => o.start_system),
