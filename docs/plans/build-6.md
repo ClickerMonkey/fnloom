@@ -16,8 +16,9 @@ rules are in the "Decided" section of `docs/harness.md`, including the review no
    `harness` branches, never pushed, then remove the harness workarounds:
    - **`@aeye/gin` (aits):** `RefWalker` must skip `enum` values and `literal` values, so an enum value `name` isn't
      read as a TypeDef. Restore any option that was renamed to get past it.
-   - **`@ayepi/log`:** a browser build, without `node:async_hooks`. The web app then uses it to capture `console.*`
-     calls and to sanitize log lines.
+   - **Not `@ayepi/log`.** The owner: "ayepi/log was never intended for browser log capture". So it isn't a library
+     gap. The web app's own log client in `packages/web` captures browser logs: `console.*` calls, errors and
+     traffic, sanitized with no bodies or secrets. It is still sent to the hub as per-person resources.
    - **`@aeye/resources`:** graph nodes carry the raw fetched bytes (or a content ref), the final URL, the status and
      whether the page was rendered. The web system's crawl then uses `buildResourceGraph` instead of its own walk.
 
