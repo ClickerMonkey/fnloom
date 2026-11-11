@@ -110,7 +110,7 @@ export const QUERIES = {
   [ROUTES.modelCalls]: z.object({ q: z.string(), run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.fns]: z.object({ q: z.string() }).partial(),
   [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
-  [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']) }).partial(),
+  [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']), form: z.enum(['readable', 'stored']) }).partial(),
   [ROUTES.pair]: z.object({ code: z.string() }).partial(),
   /** Why connecting failed, as the hub's redirect back from the provider says. */
   [ROUTES.connect]: z.object({ problem: z.string() }).partial(),

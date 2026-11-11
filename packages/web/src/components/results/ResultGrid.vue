@@ -11,7 +11,10 @@ import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { cellText, gridWindow, isComplete, isNumeric, nextSort, sortRows, windowLabel } from './table.ts';
 import type { VisualProps } from './visuals.ts';
 
-const props = defineProps<VisualProps>();
+const props = withDefaults(defineProps<VisualProps & {
+  /** Show every row held at full height (inside a box that scrolls already); it still scrolls sideways when wide. */
+  uncapped?: boolean;
+}>(), { pager: undefined, uncapped: false });
 
 /** The sort picked here (rows held), over the sort the table was read with. */
 const picked = ref<ResultSort | undefined>(undefined);
@@ -49,7 +52,7 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
 
 <template>
   <div class="grid" data-testid="result-grid">
-    <div class="scroll" tabindex="0" role="region" :aria-label="title">
+    <div class="scroll" :class="{ uncapped }" tabindex="0" role="region" :aria-label="title">
       <table>
         <thead>
           <tr>
@@ -87,6 +90,7 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
 <style scoped>
 .grid { display: grid; gap: var(--space-2); min-width: 0; }
 .scroll { max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.scroll.uncapped { max-height: none; }
 .scroll:focus-visible { outline: none; box-shadow: var(--ring); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); }
 th { position: sticky; top: 0; z-index: 1; padding: 0; border-bottom: 1px solid var(--border-strong); background: var(--surface-2); text-align: left; white-space: nowrap; }

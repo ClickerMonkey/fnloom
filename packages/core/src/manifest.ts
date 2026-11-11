@@ -131,6 +131,14 @@ export const FnEffects = z.object({
 });
 export type FnEffects = z.infer<typeof FnEffects>;
 
+/** How a person reads a kind fn's payload (a saved query's SQL in its database's dialect), as its kind writes it. */
+export const ReadablePayload = z.object({
+  /** The code block's language (`sql`). */
+  language: z.string().min(1),
+  code: z.string(),
+});
+export type ReadablePayload = z.infer<typeof ReadablePayload>;
+
 /**
  * A fn. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a payload; the hub
  * asks the kind's system to describe it and checks the result against the declared signature.
@@ -141,6 +149,8 @@ export const FnDecl = z.object({
   instructions: z.string().optional(),
   kind: FnKindName,
   payload: Json.optional(),
+  /** Build 5: its payload as a person reads it, from its kind (`KindDescription.readable`). */
+  readable: ReadablePayload.optional(),
   args: GinTypeDef,
   returns: GinTypeDef,
   deps: z.array(QualifiedName),
@@ -366,6 +376,8 @@ export const KindDescription = z.object({
   approval: FnApproval.optional(),
   /** Build 5: what this payload's fn does to data (a query's mode and the tables it reads and writes), over the fn's own. */
   effects: FnEffects.optional(),
+  /** Build 5: the payload as a person reads it (a query's SQL), shown on the fn's page over the stored JSON. */
+  readable: ReadablePayload.optional(),
 });
 export type KindDescription = z.infer<typeof KindDescription>;
 

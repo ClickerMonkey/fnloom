@@ -9,39 +9,38 @@ import { z } from 'zod';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-/** The kinds of connection: a new SQLite file in the instance's data folder, an existing one, Postgres, SQL Server. */
-export const CONNECTION_KINDS = ['sqlite-new', 'sqlite-file', 'postgres', 'sqlserver'] as const;
-export const ConnectionKind = z.enum(CONNECTION_KINDS);
-export type ConnectionKind = z.infer<typeof ConnectionKind>;
-
 /**
- * The connection as the config form holds it: one object whose `kind` says which other fields count. Kept flat so the
- * form draws it plainly and each secret (`url`, `password`) has one path; `Connection` reads it into its exact shape.
+ * A connection with exactly the fields its kind needs: a new SQLite file in the instance's data folder, an existing
+ * SQLite file, Postgres or SQL Server. The config form shows one kind at a time, labelled by its `kind` description,
+ * with only that kind's fields; each secret (`url`, `password`) still has one path.
  */
-export const ConnectionFields = z.object({
-  kind: ConnectionKind.describe('Which database: a new SQLite file, an existing SQLite file, Postgres or SQL Server.'),
-  path: z.string().min(1).optional().describe('SQLite: the file. For a new file, a name inside the instance\'s data folder (`shop.db`); for an existing one, its full path.'),
-  url: z.string().min(1).optional().describe('Postgres: the connection URL (`postgres://user:password@host:5432/db`). Kept as a secret.'),
-  host: z.string().min(1).optional().describe('SQL Server: the host name.'),
-  port: z.number().int().min(1).max(65535).optional().describe('SQL Server: the port (1433 when empty).'),
-  database: z.string().min(1).optional().describe('SQL Server: the database name.'),
-  user: z.string().min(1).optional().describe('SQL Server: the user name.'),
-  password: z.string().min(1).optional().describe('SQL Server: the password. Kept as a secret.'),
-  encrypt: z.boolean().optional().describe('SQL Server: encrypt the connection (on when empty).'),
-});
-export type ConnectionFields = z.infer<typeof ConnectionFields>;
-
-/** A connection with exactly the fields its kind needs. */
 export const Connection = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('sqlite-new'), path: z.string().min(1).regex(/^[^/\\:]+$/, 'A new SQLite file is a plain file name inside the data folder.') }),
-  z.object({ kind: z.literal('sqlite-file'), path: z.string().min(1) }),
-  z.object({ kind: z.literal('postgres'), url: z.string().min(1) }),
   z.object({
-    kind: z.literal('sqlserver'), host: z.string().min(1), port: z.number().int().default(1433), database: z.string().min(1),
-    user: z.string().min(1), password: z.string().min(1), encrypt: z.boolean().default(true),
+    kind: z.literal('sqlite-new').describe('New SQLite file'),
+    path: z.string().min(1).regex(/^[^/\\:]+$/, 'A new SQLite file is a plain file name inside the data folder.').describe("A file name inside the instance's data folder (`shop.db`)."),
+  }),
+  z.object({
+    kind: z.literal('sqlite-file').describe('Existing SQLite file'),
+    path: z.string().min(1).describe("The SQLite file's full path."),
+  }),
+  z.object({
+    kind: z.literal('postgres').describe('Postgres'),
+    url: z.string().min(1).describe('The connection URL (`postgres://user:password@host:5432/db`). Kept as a secret.'),
+  }),
+  z.object({
+    kind: z.literal('sqlserver').describe('SQL Server'),
+    host: z.string().min(1).describe('The host name.'),
+    port: z.number().int().min(1).max(65535).optional().describe('The port (1433 when empty).'),
+    database: z.string().min(1).describe('The database name.'),
+    user: z.string().min(1).describe('The user name.'),
+    password: z.string().min(1).describe('The password. Kept as a secret.'),
+    encrypt: z.boolean().optional().describe('Encrypt the connection (on when empty).'),
   }),
 ]);
 export type Connection = z.infer<typeof Connection>;
+
+/** The kinds of connection. */
+export type ConnectionKind = Connection['kind'];
 
 /** The dialects the system speaks, by connection kind. */
 export const DIALECT_NAMES = ['sqlite', 'postgres', 'sqlserver'] as const;
@@ -56,7 +55,7 @@ export function dialectOf(kind: ConnectionKind): DialectName {
 /** One instance's config: one database. */
 export const DatabaseConfig = z.object({
   label: z.string().min(1).describe('What this database is, as people and the model read it ("Shop orders").'),
-  connection: ConnectionFields,
+  connection: Connection,
   data: z.enum(['read-only', 'read-write']).describe('`read-write` lets queries insert, update and delete rows, each only after the person approves it.'),
   schema: z.enum(['none', 'allowed']).describe('`allowed` lets the chat create and change tables from types, each only after approval.'),
   enrich: z.object({
@@ -183,14 +182,30 @@ export const DatabaseSummary = z.object({
 });
 export type DatabaseSummary = z.infer<typeof DatabaseSummary>;
 
-/** What the query agents (`get_query`, `edit_query`) answer with; the rows themselves are shown to the person. */
-export const QueryAgentAnswer = z.object({
-  database: z.string().describe('The database instance it ran on.'),
-  fn: z.string().describe('The saved query fn (`database/main.overdue_invoices`): call it directly next time.'),
+/** The query fn a query agent answered with: how to call it again, and how it was come by. */
+export const QueryAnswerFn = ResultFn.extend({
   how: QueryHow,
-  why: z.string().describe('Why this query: the saved one that fit, or what was written or changed.'),
-  summary: z.string().describe('What the result says (counts, what stands out), or that a write waits for approval. Never the rows themselves.'),
+  why: z.string().min(1).describe('Why this query: the saved one that fit, or what was written or changed.'),
 });
+export type QueryAnswerFn = z.infer<typeof QueryAnswerFn>;
+
+/**
+ * What the query agents (`get_query`, `edit_query`) answer with: `run_query`'s answer as it came (the database, the
+ * query as it ran, and its result or where its approval is), its fn with how and why. The rows themselves are shown
+ * to the person.
+ */
+export const QueryAnswer = QueryRun.extend({ fn: QueryAnswerFn });
+export type QueryAnswer = z.infer<typeof QueryAnswer>;
+
+/** `get_query`'s answer when the request could be for more than one database and doesn't say which. */
+export const AskWhichDatabase = z.object({
+  ask: z.string().min(1).describe('The question for the person: which database they mean, by label.'),
+  databases: z.array(z.string().min(1)).min(2).describe('The database instances it could be.'),
+});
+export type AskWhichDatabase = z.infer<typeof AskWhichDatabase>;
+
+/** What a query agent answers: the query it ran, or (`get_query` only) which database to use. */
+export const QueryAgentAnswer = z.union([QueryAnswer, AskWhichDatabase]);
 export type QueryAgentAnswer = z.infer<typeof QueryAgentAnswer>;
 
 /** What one instance is asked to do for a tool another instance answered (`at_instance`). */

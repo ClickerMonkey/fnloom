@@ -50,7 +50,7 @@ const title = computed(() => (key.value === undefined ? 'Instance' : `${key.valu
 const tabs = computed<readonly TabItem<InstanceTab>[]>(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'config', label: 'Config' },
-  { value: 'types', label: 'Types', count: parts.proposals.value.length },
+  { value: 'types', label: 'Types', count: parts.typeCount.value ?? parts.types.items.value.length },
   { value: 'fns', label: 'Fns', count: parts.fns.value.value?.length ?? 0 },
   { value: 'data', label: 'Data' },
 ]);
@@ -148,10 +148,11 @@ async function remove(): Promise<void> {
         <div v-else-if="tab === 'types'" class="stack" data-testid="instance-types-tab">
           <InboxApprovals :items="proposals" @decide="decide" />
           <LoadState
-            :loading="parts.types.loading.value || parts.fns.loading.value" :problem="parts.types.problem.value || parts.waitingRuns.problem.value" :ready="parts.types.value.value !== undefined"
-            :empty="(parts.types.value.value ?? []).length === 0" empty-icon="braces" empty-title="No types yet" empty-body="Types it makes (a database's tables) show here once it reports them." :lines="4" @retry="parts.open(key)"
+            :loading="parts.types.loading.value" :problem="parts.types.problem.value || parts.waitingRuns.problem.value" :ready="parts.types.loaded.value"
+            :empty="parts.types.items.value.length === 0" empty-icon="braces" empty-title="No types yet" empty-body="Types it makes (a database's tables) show here once it reports them." :lines="4" @retry="parts.open(key)"
           >
-            <InstanceTypes :types="parts.types.value.value ?? []" :changing="parts.changing.value" />
+            <InstanceTypes :types="parts.types.items.value" :changing="parts.changing.value" />
+            <UiButton v-if="parts.types.hasMore.value" class="more" variant="ghost" size="sm" :loading="parts.types.loadingMore.value" data-testid="types-more" @click="parts.types.more()">Show more types</UiButton>
           </LoadState>
         </div>
         <LoadState
@@ -197,6 +198,7 @@ dd { margin: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
 .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .export { display: grid; gap: var(--space-3); }
 .stack { display: grid; gap: var(--space-4); min-width: 0; }
+.more { justify-self: start; }
 .download { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
 .crumb { display: inline-flex; align-items: center; gap: 2px; margin-left: -2px; color: var(--text-dim); font-weight: var(--weight-medium); text-decoration: none; }
 .crumb:hover { color: var(--accent); }

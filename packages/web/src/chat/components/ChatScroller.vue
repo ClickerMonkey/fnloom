@@ -3,8 +3,8 @@
  * The thread's scroll box. It follows new content only while the reader is at the bottom (within `slack` px);
  * scrolling up stops following at once, even mid-stream. When content above the reader changes (older history
  * prepended, a card expanding, an image loading), what the reader is looking at stays put. Scrolled up, a "Jump to
- * latest" button counts what arrived below ("3 new", or "Needs you" when something waits on the person). Near the
- * top it asks for older history, with a spinner, and marks the beginning of the chat.
+ * latest" button counts what arrived below ("3 new"); what waits on the person (approvals, questions) sits in the dock
+ * under the thread, always in sight, so the button never points at it. Near the top it asks for older history, with a spinner, and marks the beginning of the chat.
  *
  * It is a log for screen readers: finished answers are announced by the thread, not each token.
  */
@@ -17,13 +17,11 @@ const props = withDefaults(defineProps<{
   hasOlder: boolean;
   loadingOlder: boolean;
   beginning: boolean;
-  /** Something waits on the person (an approval, a form). */
-  needsYou?: boolean;
   /** How close to the bottom counts as at the bottom, in px. */
   slack?: number;
   /** How close to the top asks for older history, in px. */
   reach?: number;
-}>(), { needsYou: false, slack: 80, reach: 320 });
+}>(), { slack: 80, reach: 320 });
 
 const emit = defineEmits<{ older: []; bottom: [atBottom: boolean] }>();
 defineSlots<{ item: (props: { item: T; index: number }) => unknown; foot?: () => unknown; empty?: () => unknown }>();
@@ -154,9 +152,9 @@ defineExpose({ toBottom, reveal, atBottom });
     </div>
     <!-- floats over the thread on purpose, so the layout checks treat it as a layer -->
     <Transition name="jump">
-      <button v-if="!atBottom" type="button" class="jump" :class="{ needs: needsYou }" data-testid="jump-latest" data-layer @click="toBottom(true)">
-        <UiIcon :name="needsYou ? 'shield' : 'chevron-down'" :size="16" />
-        <span>{{ fresh > 0 ? `${fresh} new` : needsYou ? 'Needs you' : 'Jump to latest' }}</span>
+      <button v-if="!atBottom" type="button" class="jump" data-testid="jump-latest" data-layer @click="toBottom(true)">
+        <UiIcon name="chevron-down" :size="16" />
+        <span>{{ fresh > 0 ? `${fresh} new` : 'Jump to latest' }}</span>
       </button>
     </Transition>
   </div>
@@ -176,7 +174,6 @@ defineExpose({ toBottom, reveal, atBottom });
   transform: translateX(-50%); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); color: var(--text);
   box-shadow: var(--shadow); font-size: var(--text-sm); font-weight: var(--weight-medium); z-index: var(--z-sticky);
 }
-.jump.needs { border-color: var(--warn); color: var(--warn); }
 .jump:focus-visible { outline: none; box-shadow: var(--shadow), var(--ring); }
 .jump-enter-active, .jump-leave-active { transition: opacity var(--medium) var(--ease), transform var(--medium) var(--ease); }
 .jump-enter-from, .jump-leave-to { opacity: 0; transform: translate(-50%, 8px); }

@@ -8,7 +8,7 @@
 import { reject } from '@ayepi/core';
 import {
   familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, seesOrigin, runCount, sortOf, type ContextRecord, type FieldValueOption, type Filter, type FnRecord,
-  type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView,
+  type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView, type TypeRecord,
 } from '@harness/core';
 import type { z } from 'zod';
 import type { AccessScope, AccessService } from '../access/index.ts';
@@ -30,6 +30,7 @@ export interface ListRows {
   contexts: ContextRecord;
   notifications: Notification;
   systems: SystemView;
+  types: TypeRecord;
 }
 
 /** Every list's source by name. */
@@ -327,6 +328,15 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'> & { read
       fields: {
         name: (s) => s.name, status: (s) => s.status, version: (s) => s.version, instances: (s) => s.instances.length, fns: (s) => s.fns,
         lastSeenAt: (s) => s.lastSeenAt,
+      },
+    }),
+    // types are readable by everyone signed in, as the `types` endpoint serves them
+    types: new RowsSource({
+      list: 'types', page,
+      load: (_viewer, query) => newest(store.table('types'), column('system', oneOf(allowed(query.filters, 'system', SystemName))), [['name', 'asc']], max),
+      search: (t) => t.description,
+      fields: {
+        name: (t) => t.name, system: (t) => t.system, instance: (t) => t.instance, references: (t) => t.references.length, updatedAt: (t) => t.updatedAt,
       },
     }),
   };

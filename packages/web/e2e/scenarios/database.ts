@@ -32,6 +32,9 @@ export const database: Scenario = {
 
       await page.goto(url('/admin/systems/database/fns/shop.orders_by_city'), { waitUntil: 'networkidle0' });
       await page.waitForSelector('[data-testid="fn-payload"]');
+      // the saved query reads as its SQL, the stored JSON one switch away
+      const shown = await page.$eval('[data-testid="fn-payload"]', (card) => { card.scrollIntoView({ block: 'center' }); return card.textContent; });
+      if (!shown.includes('SELECT o.city')) { throw new Error('the query fn page should show its SQL'); }
       await settle(page);
       await shot('query-fn');
     });

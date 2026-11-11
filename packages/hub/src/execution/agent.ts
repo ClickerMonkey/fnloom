@@ -31,7 +31,7 @@ import { AGENT_KIND, type AgentKind, type AgentLoop, type RunInput } from './ind
 import type { ModelResolver } from './models.ts';
 import type { ControlAnswer, Conversation, ExecutionDeps, ExecutionJob, LlmEngine, RunExecutor } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
-import { settledOf, type HubRunService } from './runs.ts';
+import { DECLINED_CODE, PROPOSED_KEY, settledOf, type HubRunService } from './runs.ts';
 import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
 import { agentTools, PendingCalls } from './tools.ts';
 import { isObjectSchema, messageFromWire, messageToWire, replyText, toolName } from './wire.ts';
@@ -535,19 +535,24 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
   }
 
   /**
-   * A tool run a session's agent stopped waiting for (it went to the background) has settled. Its result goes into the
-   * session's transcript, for the agent alone to read, and the agent is woken to follow up in its own words (a new
-   * turn, unless it is answering in the session already and will read it on its next step). The run's card stays where
-   * it was, under the answer that started it, and resolves there. Runs of other callers, of agents that aren't the
-   * session's, and runs outside a session are left alone.
+   * A run a session's agent no longer waits for has settled: a tool run it stopped waiting for (it went to the
+   * background), or a run a system proposed while serving one of its calls (`propose`), which waited for the person's
+   * approval after that call returned. How it ended goes into the session's transcript, for the agent alone to read, and
+   * the agent is woken to follow up in its own words (a new turn, unless it is answering in the session already and
+   * will read it on its next step). The run's card stays where it was, under the answer that started it, and resolves
+   * there. Runs of other callers, of agents that aren't the session's, and runs outside a session are left alone.
    */
   async reportBack(run: Run, settled: RunSettled): Promise<void> {
-    if (!run.background || run.parent === undefined || run.session === undefined || settled.status === 'background') return;
-    const parent = await this.#deps.runs.get(run.parent);
+    if (run.parent === undefined || run.session === undefined || settled.status === 'background') return;
+    const proposed = run.key.startsWith(PROPOSED_KEY);
+    if (!run.background && !proposed) return;
+    // a background run is the agent's own tool call; a proposed run hangs under a system's run in the agent's turn
+    const parent = await this.#deps.runs.get(proposed ? run.root : run.parent);
     if (parent?.kind !== AGENT_KIND || parent.parent !== undefined) return;
     const session = await this.#deps.store.table('sessions').get(run.session);
     if (session?.agent !== parent.fn) return;
-    await new SessionConversation(this.#deps, session.id).append([{ role: 'user', content: backgroundResult(run, settled) }]);
+    const content = proposed ? proposedResult(run, settled) : backgroundResult(run, settled);
+    await new SessionConversation(this.#deps, session.id).append([{ role: 'user', content }]);
     const turn = await this.#deps.turns.followUp({ turn: run.turn, agent: await this.#agentActor(parent) });
     this.#deps.log.info('agent.reported-back', { run: run.id, fn: run.fn, parent: parent.id, status: settled.status, followUp: turn ?? null });
   }
@@ -713,6 +718,20 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
 export function backgroundResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>): string {
   return `<background-result fn="${run.fn}" status="${settled.status}">\n${settledReply(settled)}\n</background-result>\n`
     + 'A call you made earlier finished after you stopped waiting for it. Tell the person what came of it, briefly, in your own words.';
+}
+
+/**
+ * What a session's agent reads when a run proposed for the person's approval settles: approved and its result,
+ * declined with who declined and why, or how else it ended, tagged so the agent can tell it from what a person wrote,
+ * and asked to tell the person what came of it.
+ */
+export function proposedResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>): string {
+  const declined = settled.status === 'failed' && settled.error.code === DECLINED_CODE;
+  const outcome = declined ? 'declined' : settled.status === 'done' ? 'approved' : settled.status;
+  const ask = declined
+    ? 'The person declined a change you proposed earlier. Acknowledge it briefly and, if the reason suggests another way, offer it.'
+    : 'A change you proposed earlier was answered. Tell the person what came of it, briefly, in your own words.';
+  return `<approval-result fn="${run.fn}" outcome="${outcome}">\n${settledReply(settled)}\n</approval-result>\n${ask}`;
 }
 
 /** What an agent's message says when its run fails. */

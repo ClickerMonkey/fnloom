@@ -15,8 +15,8 @@ import type { Enricher } from './author.ts';
 import { argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
 import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
-import { DatabaseInstance, changeWords, type HubSide, type ScanReport } from './instance.ts';
-import { QueryService, callArgs, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
+import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } from './instance.ts';
+import { QueryService, callArgs, callOf, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
 import type { InstanceStore } from './store.ts';
 import { hubTypeOf, qualifiedTypeOf } from './types.ts';
 
@@ -107,8 +107,13 @@ async function readersOf(link: HubLink, instance: InstanceName, type: QualifiedN
   return found;
 }
 
-/** What a schema change will do: its DDL steps, the table before and after, or why it can't. */
-function schemaPlan(instance: DatabaseInstance, args: SchemaArgs): { steps: ReturnType<DatabaseInstance['catalog']['dialect']['ddl']['alterTable']>; preview: ApprovalPreview } | { refused: string } {
+/**
+ * What a schema change will do: its DDL steps, the table before and after with the saved queries a narrowing change
+ * breaks (the hub's search), or why it can't.
+ */
+async function schemaPlan(
+  instance: DatabaseInstance, args: SchemaArgs, hub: Pick<HubSide, 'readers'>,
+): Promise<{ steps: ReturnType<DatabaseInstance['catalog']['dialect']['ddl']['alterTable']>; preview: ApprovalPreview } | { refused: string }> {
   if (!instance.schemaChanges) { return { refused: `The database ${instance.config.label} doesn't allow schema changes (its admin can allow them on the system's page).` }; }
   let planned: ReturnType<DatabaseInstance['tableFor']>;
   try {
@@ -127,17 +132,24 @@ function schemaPlan(instance: DatabaseInstance, args: SchemaArgs): { steps: Retu
   }
   if (steps.length === 0) { return { refused: `${args.table} already matches that type.` }; }
   const irreversible = steps.some((step) => step.irreversible);
+  const type = qualifiedTypeOf(instance.instance, args.table);
+  const changes = changeWords(planned.current, planned.wanted);
+  // only a change that narrows the table can break a saved query that reads it
+  const breaks = planned.current === undefined || widens(planned.current, planned.wanted)
+    ? []
+    : (await hub.readers(type)).map((fn) => ({ fn, why: `It reads ${args.table}: ${changes.join(' ')}` }));
+  const where = `(${instance.config.label} database)`;
   return {
     steps,
     preview: {
-      title: planned.current === undefined ? `Create table ${args.table}` : `Change table ${args.table} (${steps.length} ${steps.length === 1 ? 'step' : 'steps'})`,
+      title: planned.current === undefined ? `Create table ${args.table} ${where}` : `Change table ${args.table} ${where} (${steps.length} ${steps.length === 1 ? 'step' : 'steps'})`,
       parts: [
         { type: 'text', text: steps.map((step) => `- ${step.summary}${step.irreversible ? ' **Can lose data.**' : ''}`).join('\n') },
         { type: 'code', language: 'sql', code: steps.flatMap((step) => step.sql).join(';\n'), title: 'DDL' },
         {
-          type: 'type-diff', name: qualifiedTypeOf(instance.instance, args.table),
+          type: 'type-diff', name: type,
           ...(planned.current === undefined ? {} : { before: hubTypeOf(planned.current) }),
-          after: hubTypeOf(planned.wanted), changes: changeWords(planned.current, planned.wanted), breaks: [],
+          after: hubTypeOf(planned.wanted), changes, breaks,
         },
       ],
       irreversible,
@@ -172,7 +184,26 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     },
   };
 
-  async function configure(config: DatabaseConfig, ctx: Pick<SystemCtx, 'llm' | 'log' | 'propose'>): Promise<ScanReport> {
+  /** Propose the changes a rescan left waiting, for an admin; the same changes keep the same key, so one approval waits. */
+  async function proposePending(report: ScanReport, label: string, ctx: Pick<SystemCtx, 'propose'>): Promise<void> {
+    if (report.pending === undefined) { return; }
+    await ctx.propose(database.fns.apply_type_changes, { scan: report.pending.scan }, {
+      approver: 'admins',
+      key: report.pending.scan,
+      preview: { title: `Apply ${report.parts.length} table type ${report.parts.length === 1 ? 'change' : 'changes'} in ${label}`, parts: [...report.parts], irreversible: report.pending.dropped.length > 0 },
+    });
+  }
+
+  // configs are applied one at a time, so a second one never opens a database beside the first
+  let configuring: Promise<unknown> = Promise.resolve();
+
+  function configure(config: DatabaseConfig, ctx: Pick<SystemCtx, 'llm' | 'log' | 'propose'>): Promise<ScanReport> {
+    const next = configuring.catch(() => undefined).then(() => reconfigure(config, ctx));
+    configuring = next;
+    return next;
+  }
+
+  async function reconfigure(config: DatabaseConfig, ctx: Pick<SystemCtx, 'llm' | 'log' | 'propose'>): Promise<ScanReport> {
     const before = instance;
     instance = undefined;
     await before?.close();
@@ -180,16 +211,16 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       instance: deps.instance, dataDir: deps.dataDir, store: deps.store, enricher: deps.enricher, hub: hubSide, limits,
       distinctMax: s.DATABASE_DISTINCT_MAX, now: deps.now, ...(deps.open === undefined ? {} : { open: deps.open }),
     });
-    const report = await opened.rescan(ctx.llm);
+    let report: ScanReport;
+    try {
+      report = await opened.rescan(ctx.llm);
+    } catch (error) {
+      await opened.close();
+      throw error;
+    }
     instance = opened;
     ctx.log.info('database.scanned', { tables: opened.catalog.tables.length, added: report.added.length, changed: report.changed.length, waiting: report.pending === undefined ? 0 : report.parts.length });
-    if (report.pending !== undefined) {
-      await ctx.propose(database.fns.apply_type_changes, { scan: report.pending.scan }, {
-        approver: 'admins',
-        key: report.pending.scan,
-        preview: { title: `Apply ${report.parts.length} table type ${report.parts.length === 1 ? 'change' : 'changes'} in ${config.label}`, parts: [...report.parts], irreversible: report.pending.dropped.length > 0 },
-      });
-    }
+    await proposePending(report, config.label, ctx);
     return report;
   }
 
@@ -249,12 +280,13 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     return 'invalid' in problem ? ctx.invalid(problem.invalid) : ctx.fail('caller', problem.failed);
   }
 
-  async function changeSchema(args: SchemaArgs, llm: Parameters<DatabaseInstance['rescan']>[0]): Promise<SchemaChanged | QueryProblem> {
+  async function changeSchema(args: SchemaArgs, ctx: Pick<CtxOf<'change_schema'>, 'llm' | 'propose'>): Promise<SchemaChanged | QueryProblem> {
     if (instance === undefined) { return { failed: 'This database is not configured yet.' }; }
-    const planned = schemaPlan(instance, args);
+    const planned = await schemaPlan(instance, args, hubSide);
     if ('refused' in planned) { return { invalid: planned.refused }; }
     await instance.db.write(planned.steps.flatMap((step) => step.sql.map((sql) => ({ sql, params: [] }))));
-    await instance.rescan(llm);
+    // a change that breaks saved queries leaves the table's type waiting for an admin, as any rescan does
+    await proposePending(await instance.rescan(ctx.llm), instance.config.label, ctx);
     return {
       database: instance.info,
       shown: `${planned.preview.title}: done.`,
@@ -323,14 +355,14 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       change_schema: {
         async run(args, ctx) {
           if (instance !== undefined && !mayUse(instance.config.audience, ctx.run.user)) { return ctx.invalid(notYours(instance.config.label).invalid); }
-          const changed = await changeSchema(args, ctx.llm);
+          const changed = await changeSchema(args, ctx);
           return 'database' in changed ? ctx.done(changed) : 'failed' in changed ? ctx.fail('caller', changed.failed) : ctx.invalid(changed.invalid);
         },
-        preview(args, ctx): Promise<PreviewAnswer> {
-          if (instance === undefined) { return Promise.resolve({ refused: 'This database is not configured yet.' }); }
-          if (!mayUse(instance.config.audience, ctx.user)) { return Promise.resolve({ refused: notYours(instance.config.label).invalid }); }
-          const planned = schemaPlan(instance, args);
-          return Promise.resolve('refused' in planned ? { refused: planned.refused } : { preview: planned.preview });
+        async preview(args, ctx): Promise<PreviewAnswer> {
+          if (instance === undefined) { return { refused: 'This database is not configured yet.' }; }
+          if (!mayUse(instance.config.audience, ctx.user)) { return { refused: notYours(instance.config.label).invalid }; }
+          const planned = await schemaPlan(instance, args, hubSide);
+          return 'refused' in planned ? { refused: planned.refused } : { preview: planned.preview };
         },
       },
       apply_type_changes: {
@@ -359,7 +391,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         describe(payload) {
           const parsed = QueryPayload.parse(payload);
           const compiled = instance?.compile(parsed);
-          if (compiled === undefined || !('query' in compiled)) {
+          if (instance === undefined || compiled === undefined || !('query' in compiled)) {
             // a payload that doesn't fit the tables (yet) takes no args; running it says why
             return Promise.resolve({ args: wireType(g.obj({})), returns: wireType(ResultBlockType), deps: [], operations: { cancel: true, pause: false, undo: false, background: false } });
           }
@@ -370,6 +402,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             types: compiled.tables.map((table) => qualifiedTypeOf(parsed.instance, table)),
             // what it reads and writes, for its facts (and so for the hub's search by type, and the tables a schema change breaks)
             effects: effectsOfQuery(parsed.instance, compiled),
+            // its SQL in this database's dialect, params as placeholders, for the fn's page
+            readable: { language: 'sql', code: instance.plan(compiled, {}, []).sql },
             operations: { cancel: true, pause: false, undo: false, background: false },
             ...(compiled.writes ? { approval: { preview: true, remember: false } } : {}),
           });
@@ -387,7 +421,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             if (!instance.writes) { return ctx.fail('caller', `${instance.config.label} is read-only now.`); }
             return ctx.done(Json.parse(await queries.write(instance, compiled, plan, fn, { attach })));
           }
-          return ctx.done(Json.parse(await queries.read(instance, compiled, plan, fn, values, { attach })));
+          return ctx.done(Json.parse(await queries.read(instance, compiled, plan, fn, callOf(values, sort), { attach })));
         },
         async preview(payload, args): Promise<PreviewAnswer> {
           if (instance === undefined) { return { refused: 'This database is not configured yet.' }; }
@@ -405,10 +439,24 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
 
   /** `create_table` / `alter_table`: hand the change to its instance's `change_schema`, which waits for approval. */
   async function forwardSchema(action: 'create' | 'alter', args: { table: string; type: SchemaArgs['type']; database?: string | undefined }, ctx: CtxOf<'create_table'>) {
-    const target = args.database ?? instance?.instance;
-    if (target === undefined) { return ctx.fail('caller', 'This database is not configured yet.'); }
+    const here = instance;
+    if (here === undefined) { return ctx.fail('caller', 'This database is not configured yet.'); }
+    let target = args.database;
+    if (target === undefined) {
+      // with no database named, only the one database the person may use is meant, never whichever instance answered
+      const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
+        .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
+      const [only, ...others] = members;
+      if (only === undefined || others.length > 0) {
+        const named = members.map((member) => `${member.instance} (${member.label})`).join(', ');
+        return ctx.invalid([{ path: 'database', message: `Say which database: ${named === '' ? 'there is none you may use' : named}.` }]);
+      }
+      target = only.instance;
+    }
+    const on = InstanceName.safeParse(target.replace(/^database\//, ''));
+    if (!on.success) { return ctx.invalid([{ path: 'database', message: `"${target}" isn't a database instance name; call database/databases for them.` }]); }
     try {
-      return ctx.done(await ctx.fns.change_schema({ table: args.table, type: args.type, action, database: target }, { on: InstanceName.parse(target) }));
+      return ctx.done(await ctx.fns.change_schema({ table: args.table, type: args.type, action, database: on.data }, { on: on.data }));
     } catch (error) {
       if (error instanceof CallFailed) {
         return error.error.class === 'cancelled' ? ctx.fail('caller', `Not done: ${error.message}`) : ctx.fail('caller', error.error.message);

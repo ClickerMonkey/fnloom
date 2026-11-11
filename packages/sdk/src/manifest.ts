@@ -5,8 +5,9 @@
 import {
   DeclaredLink, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
   type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
-  type TypeDecl, type GinTypeDef,
+  type TypeDecl, GinTypeDef,
 } from '@harness/core';
+import { z } from 'zod';
 import type { AnyContextDef, AnyTypeDef, ContextLinkTarget } from './declare.ts';
 import { progressDecl, validationOf, type AnyFnDef, type Handlers } from './fn.ts';
 import { encodeValue, referencesOf, wireType } from './gin.ts';
@@ -202,14 +203,25 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
 /** The config's secret paths, checked: each must name a text field (optional or nullable allowed) of the config type. */
 export function checkedSecrets(system: string, config: GinTypeDef, paths: readonly string[]): string[] {
   for (const path of paths) {
-    let at: GinTypeDef | undefined = config;
-    for (const key of path.split('.')) { at = at === undefined ? undefined : unwrapped(at).props?.[key]?.type; }
-    if (at === undefined || unwrapped(at).name !== 'text') {
+    let at: GinTypeDef[] = [config];
+    for (const key of path.split('.')) { at = at.flatMap(variantsOf).flatMap((def) => { const type = def.props?.[key]?.type; return type === undefined ? [] : [type]; }); }
+    if (at.length === 0 || !at.flatMap(variantsOf).every((def) => def.name === 'text')) {
       throw new Error(`system ${system}: config secret '${path}' must be a text field of the config.`);
     }
   }
   return [...paths];
 }
+
+/** A type def's shapes: itself without `optional` / `nullable` wrappers, or each option of a union (a field one kind of config has). */
+function variantsOf(def: GinTypeDef): GinTypeDef[] {
+  const at = unwrapped(def);
+  if (at.name !== 'or') { return [at]; }
+  const options = OrOptions.safeParse(at.options);
+  return options.success ? options.data.types.flatMap(variantsOf) : [];
+}
+
+/** A union's options as gin writes them (`{ types }`). */
+const OrOptions = z.object({ types: z.array(GinTypeDef) });
 
 /** A type def without its `optional` / `nullable` wrappers. */
 function unwrapped(def: GinTypeDef): GinTypeDef {

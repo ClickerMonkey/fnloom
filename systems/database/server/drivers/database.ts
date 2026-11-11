@@ -27,8 +27,9 @@ export interface Written extends Rows {
 /** A connected database. */
 export interface Database {
   readonly dialect: DialectName;
+  /** Read rows. A read never changes data, whatever its SQL: each driver enforces that itself. */
   read(statement: Statement): Promise<Rows>;
-  /** Run the statements in one transaction: all of them, or none when one fails. */
+  /** Run the statements in one transaction: all of them, or none when one fails. A read-only database refuses. */
   write(statements: readonly Statement[]): Promise<Written>;
   /** Run the statements in a transaction that is always rolled back: what a write would do, without doing it. */
   dryRun(statements: readonly Statement[]): Promise<Written>;
@@ -36,6 +37,9 @@ export interface Database {
   schema(): Promise<ScannedTable[]>;
   close(): Promise<void>;
 }
+
+/** What a read-only database says when asked to write. */
+export const READ_ONLY = 'This database is read-only: it takes no writes.';
 
 /** A value from a driver as JSON. */
 export function jsonValue(value: unknown): Json {

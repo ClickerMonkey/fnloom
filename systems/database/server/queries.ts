@@ -10,7 +10,7 @@ import { Json, qualify, type InstanceName, type ApprovalPreview, type FnExample,
 import { resultBlock } from '@harness/sdk/server';
 import { QUERY_KIND, database } from '../shared/index.ts';
 import { QueryPayload, SortArg, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
-import { argsTypeOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
+import { argProblems, argsTypeOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
 import type { DatabaseSettings } from './env.ts';
 import type { DatabaseInstance } from './instance.ts';
 import { resultTable } from './results.ts';
@@ -91,6 +91,11 @@ export function callArgs(args: Json): { values: Record<string, Json>; sort: Sort
   }
   const sort = SortArg.safeParse(typeof args === 'object' && args !== null && !Array.isArray(args) ? args['sort'] : undefined);
   return { values, sort: sort.success ? sort.data : [] };
+}
+
+/** A call's args again from its param values and sort (the sort left out when there is none). */
+export function callOf(values: Readonly<Record<string, Json>>, sort: SortArg): Record<string, Json> {
+  return sort.length === 0 ? { ...values } : { ...values, sort: sort.map((entry) => ({ column: entry.column, dir: entry.dir })) };
 }
 
 /** Whether an answer is a problem rather than what was asked for. */
@@ -183,24 +188,28 @@ export class QueryService {
     if (payload.data.instance !== instance.instance) { return { invalid: `${fn} runs on the ${payload.data.instance} database, not this one.` }; }
     const compiled = instance.compile(payload.data);
     if (!('query' in compiled)) { return this.#stale(fn, compiled); }
+    const argsType = argsTypeOf(compiled, payload.data.sorters, this.#limits());
+    const called = { name: stored.fn, signature: signatureOf(stored.fn, argsType) };
+    // the hub checks a direct call's args against the fn's type; through run_query they are checked here the same way
+    const problems = argProblems(argsType, Json.parse({ ...args }));
+    if (problems.length > 0) { return { invalid: `The args don't fit ${called.signature}: ${problems.join('; ')}` }; }
     const { values, sort } = callArgs(Json.parse({ ...args }));
     const plan = instance.plan(compiled, values, sort);
-    const called = { name: stored.fn, signature: signatureOf(stored.fn, argsTypeOf(compiled, payload.data.sorters, this.#limits())) };
     const base = { database: instance.info, fn: called, query: { sql: plan.sql, structured: Json.parse(compiled.def), params: plan.bound, writes: compiled.writes } };
     if (compiled.writes) {
       if (!instance.writes) { return { invalid: `${instance.config.label} is read-only now.` }; }
       const preview = await this.preview(instance, compiled, plan, payload.data.description);
       const local = queryInstance(stored.fn)?.local ?? stored.fn;
-      const proposed = await ctx.propose(local, Json.parse({ ...values, ...(sort.length === 0 ? {} : { sort }) }), { preview, approver: 'person' });
+      const proposed = await ctx.propose(local, Json.parse(callOf(values, sort)), { preview, approver: 'person' });
       return {
         ...base,
         approval: { run: proposed.run, state: 'waiting', says: `${preview.title}: this waits for the person to approve it in the chat. Tell them what it will do and end your turn; once approved it runs and its result shows, and if they decline you are told why.` },
       };
     }
-    return { ...base, result: await this.read(instance, compiled, plan, called, values, ctx) };
+    return { ...base, result: await this.read(instance, compiled, plan, called, callOf(values, sort), ctx) };
   }
 
-  /** Read rows for a call: attach them for the person, and give the model its result block. */
+  /** Read rows for a call: attach them for the person, and give the model its result block (`args` as called, sort too, for the next page's call). */
   async read(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, args: Readonly<Record<string, Json>>, ctx: Pick<QueryRunCtx, 'attach'>): Promise<ResultBlock> {
     const table = resultTable(await instance.read(plan), compiled.columns, plan);
     ctx.attach(table, fn.name);
@@ -212,7 +221,7 @@ export class QueryService {
     const written = await instance.write(plan);
     const shown = `${written.affected} ${written.affected === 1 ? 'row' : 'rows'} changed.`;
     if (written.columns.length === 0) { return { shown, affected: written.affected }; }
-    const table = resultTable(written, compiled.columns, { offset: 0, limit: undefined, sort: [] });
+    const table = resultTable(written, compiled.columns, { offset: 0, limit: undefined, sort: [], cap: this.#settings.DATABASE_MAX_ROWS });
     ctx.attach(table, fn.name);
     return { shown, affected: written.affected, returned: resultBlock(table, { fn }) };
   }
@@ -228,7 +237,7 @@ export class QueryService {
     ];
     const matched = await this.#matched(instance, compiled, plan);
     if (matched !== undefined) { parts.push({ type: 'table', title: compiled.def.kind === 'delete' ? 'Rows it deletes' : 'Rows it changes', table: matched }); }
-    return { title: `${verb} ${dry.affected} ${dry.affected === 1 ? 'row' : 'rows'} in ${target}`, parts, irreversible: compiled.def.kind === 'delete' };
+    return { title: `${verb} ${dry.affected} ${dry.affected === 1 ? 'row' : 'rows'} in ${target} (${instance.config.label} database)`, parts, irreversible: compiled.def.kind === 'delete' };
   }
 
   #limits(): { page: number; max: number } {

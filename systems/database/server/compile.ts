@@ -3,7 +3,7 @@
  * kind derives from it: the fn's args (its params, `limit` / `offset` when it is a list, `sort` from its sorters), its
  * result columns, the tables it reads and writes, whether it writes, and the SQL it runs for a call.
  */
-import type { TypeDef as GinDef } from '@aeye/gin';
+import { createRegistry, type TypeDef as GinDef } from '@aeye/gin';
 import {
   asFieldType, autoPaginate, canAutoPaginate, parseQueryRequest,
   type FieldTypeDef, type ParamInfo, type Query, type QueryDef, type QueryEngine, type SqlParamValue,
@@ -147,6 +147,26 @@ export function argsTypeOf(compiled: CompiledQuery, sorters: readonly string[], 
   return GinTypeDef.parse({ name: 'obj', props });
 }
 
+/** The registry call args are checked with: they use only gin's built-in types. */
+const ARGS_REGISTRY = createRegistry();
+
+/**
+ * What is wrong with a call's args for a saved query's fn (`argsTypeOf`), one line per problem; empty when they fit.
+ * `run_query` takes args as any JSON, so they are checked here as the hub checks a direct call's: the shape (no
+ * unknown args), then gin's own checks (whole numbers, ranges, choices).
+ */
+export function argProblems(type: GinTypeDef, args: Json): string[] {
+  const parsed = ARGS_REGISTRY.parse(type);
+  const shape = parsed.toValueSchema({ unknownKeys: 'refuse' }).safeParse(args);
+  if (!shape.success) { return shape.error.issues.map((issue) => (issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message)); }
+  try {
+    parsed.parse(args);
+    return [];
+  } catch (error) {
+    return [error instanceof Error ? error.message : String(error)];
+  }
+}
+
 /** A gin def as a short type word for a signature (`text`, `num`, `"open" | "paid"`, `list<…>`). */
 function typeWord(def: GinDef): string {
   switch (def.name) {
@@ -175,6 +195,8 @@ export interface CallPlan {
   readonly sort: readonly ResultSort[];
   /** Whether the SQL has the engine's `$total` column (a counted list). */
   readonly counted: boolean;
+  /** The most rows the result keeps (`DATABASE_MAX_ROWS`): a query that isn't a list may read one more, to tell. */
+  readonly cap: number;
 }
 
 /** The SQL for a call with these args. */
@@ -195,10 +217,13 @@ export function planCall(engine: QueryEngine, compiled: CompiledQuery, dialect: 
     def = autoPaginate(pageable);
     bound['limit'] = limit;
     bound['offset'] = offset;
+  } else if (pageable !== undefined && pageable.kind !== 'cte' && (pageable.limit === undefined || typeof pageable.limit === 'number')) {
+    // a read that can't page (its own top-N, a union the engine can't page) still reads at most one past the cap
+    def = { ...pageable, limit: Math.min(pageable.limit ?? limits.max + 1, limits.max + 1) };
   }
   const counted = compiled.list;
   const emitted = engine.toSQL(def, dialect, { params: bound, includeTotal: counted });
-  return { sql: emitted.sql, params: emitted.params, bound, offset, limit, sort: sort.map((entry) => ({ column: entry.column, dir: entry.dir })), counted };
+  return { sql: emitted.sql, params: emitted.params, bound, offset, limit, sort: sort.map((entry) => ({ column: entry.column, dir: entry.dir })), counted, cap: limits.max };
 }
 
 /** What a query does to data, for its fn's facts: the mode (`delete` for a DELETE), and the tables it reads and writes. */

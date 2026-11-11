@@ -72,11 +72,13 @@ describe('get_query with the free model', () => {
     const first = await invoke(me, session, GET_QUERY, { detailedDescription: 'In the Shop database: every customer with how many orders they placed, most orders first. No filters.' }, TURN);
     expect(first.status).toBe('done');
     const answer = first.outcome?.status === 'done' ? first.outcome.result : null;
-    expect(answer).toMatchObject({ database: 'shop', how: 'created' });
-    const fn = typeof answer === 'object' && answer !== null && !Array.isArray(answer) ? answer['fn'] : undefined;
+    expect(answer).toMatchObject({ database: { instance: 'shop' }, fn: { how: 'created' } });
+    const called = typeof answer === 'object' && answer !== null && !Array.isArray(answer) ? answer['fn'] : undefined;
+    const fn = typeof called === 'object' && called !== null && !Array.isArray(called) ? called['name'] : undefined;
     expect(fn).toMatch(/^database\/shop\./);
+    expect(answer).toHaveProperty('result.fn.name', fn);
     const second = await invoke(me, session, GET_QUERY, { detailedDescription: 'In the Shop database: each customer and their number of orders, the most first.' }, TURN);
-    expect(second.outcome).toMatchObject({ status: 'done', result: { fn, how: 'reused' } });
+    expect(second.outcome).toMatchObject({ status: 'done', result: { fn: { name: fn, how: 'reused' } } });
   });
 });
 

@@ -2,6 +2,8 @@
  * SQL Server through `mssql` (tedious), the `dbo` schema. Params bind by name as `@p1`, `@p2`, … in placeholder
  * order. Columns come from `INFORMATION_SCHEMA`, keys from its constraints, foreign keys and checks from `sys`, row
  * counts from `sys.partitions`. SQL Server keeps `col IN ('a', 'b')` checks as `[col]='a' OR [col]='b'`; both read.
+ * SQL Server has no read-only transaction, so every read runs in a transaction that is always rolled back: whatever a
+ * read did to data is undone. A read-only database also refuses writes outright.
  */
 import mssql from 'mssql';
 import { z } from 'zod';
@@ -9,7 +11,7 @@ import type { Connection } from '../../shared/shapes.ts';
 import type { ColumnSpec, TableSpec } from '@aeye/query';
 import { dialectFor } from '../dialects.ts';
 import { ScannedTable, checkValues, orValues } from '../schema.ts';
-import { bindValue, jsonValue, type Database, type Rows, type Statement, type Written } from './database.ts';
+import { READ_ONLY, bindValue, jsonValue, type Database, type Rows, type Statement, type Written } from './database.ts';
 
 const ColumnRow = z.object({
   table_name: z.string(), column_name: z.string(), data_type: z.string(), is_nullable: z.string(),
@@ -47,22 +49,25 @@ WHERE p.index_id IN (0, 1) GROUP BY t.name`;
 export class SqlServerDatabase implements Database {
   readonly dialect = 'sqlserver' as const;
   readonly #pool: mssql.ConnectionPool;
+  readonly #readonly: boolean;
   #connected: Promise<mssql.ConnectionPool> | undefined;
 
-  constructor(connection: Extract<Connection, { kind: 'sqlserver' }>) {
+  constructor(connection: Extract<Connection, { kind: 'sqlserver' }>, options: { readonly: boolean }) {
+    this.#readonly = options.readonly;
     this.#pool = new mssql.ConnectionPool({
-      server: connection.host, port: connection.port, database: connection.database, user: connection.user, password: connection.password,
-      options: { encrypt: connection.encrypt, trustServerCertificate: true },
+      server: connection.host, port: connection.port ?? 1433, database: connection.database, user: connection.user, password: connection.password,
+      options: { encrypt: connection.encrypt ?? true, trustServerCertificate: true },
       pool: { max: 4 },
     });
   }
 
   async read(statement: Statement): Promise<Rows> {
-    const result = await this.#request(await this.#pool_(), statement).query(statement.sql);
-    return rowsOf(result);
+    const { columns, rows } = await this.#transaction([statement], false);
+    return { columns, rows };
   }
 
   write(statements: readonly Statement[]): Promise<Written> {
+    if (this.#readonly) { return Promise.reject(new Error(READ_ONLY)); }
     return this.#transaction(statements, true);
   }
 
@@ -157,9 +162,11 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): T[][] {
   return [...groups.values()];
 }
 
-/** A result's last record set as rows. */
-function rowsOf(result: mssql.IResult<unknown>): Rows {
+/** A result's last record set as rows; none for a statement that returns no rows. */
+export function rowsOf(result: { readonly recordset?: mssql.IRecordSet<unknown> | undefined }): Rows {
+  // mssql gives no record set for a statement without rows (an UPDATE without OUTPUT, DDL), whatever its types say
   const set = result.recordset;
+  if (set === undefined) { return { columns: [], rows: [] }; }
   const columns = Object.keys(set.columns);
   const rows: Rows['rows'] = [];
   for (const record of set) {

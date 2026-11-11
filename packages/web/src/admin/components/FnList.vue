@@ -2,16 +2,28 @@
 /**
  * A system's fns: what each does, whether it can be used now (and why not), whether it is paused or off, its tags,
  * and how its runs have gone (count, failure rate, retried input apart from failures, typical and p95 time, cost).
- * Its name opens its page with its metrics; its numbers open its runs.
+ * Its name opens its page with its metrics; its numbers open its runs. A tag every listed fn has (all of an
+ * instance's saved queries are `database` and `query`, all added while running) is left off: it tells none apart.
  */
 import { runCount, type FnRecord, type QualifiedName } from '@harness/core';
+import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { UiBadge, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
 import { availabilityText } from '../logic/systems.ts';
 
-defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; pageOf: (fn: QualifiedName) => RouteLocationRaw }>();
+const props = defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; pageOf: (fn: QualifiedName) => RouteLocationRaw }>();
+
+/** What every fn of a list of several shares, so it isn't repeated on each row. */
+const shared = computed(() => {
+  const [first, ...rest] = props.fns;
+  if (first === undefined || rest.length === 0) { return { runtime: false, tags: new Set<string>() }; }
+  return {
+    runtime: props.fns.every((fn) => fn.origin === 'runtime'),
+    tags: new Set(first.decl.tags.filter((tag) => rest.every((fn) => fn.decl.tags.includes(tag)))),
+  };
+});
 
 const runTotal = (fn: FnRecord): number => runCount(fn.stats.outcomes);
 const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math.round((fn.stats.outcomes.failed / runTotal(fn)) * 100)}% failed`);
@@ -30,8 +42,8 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
         <p class="chips">
           <UiBadge v-if="fn.available !== true" tone="warn" :title="fn.available.detail">{{ availabilityText(fn.available) }}</UiBadge>
           <UiBadge v-if="fn.paused">Paused</UiBadge>
-          <UiBadge v-if="fn.origin === 'runtime'" tone="accent">Added while running</UiBadge>
-          <UiBadge v-for="tag in fn.decl.tags" :key="tag">{{ tag }}</UiBadge>
+          <UiBadge v-if="fn.origin === 'runtime' && !shared.runtime" tone="accent">Added while running</UiBadge>
+          <UiBadge v-for="tag in fn.decl.tags.filter((t) => !shared.tags.has(t))" :key="tag">{{ tag }}</UiBadge>
         </p>
       </div>
       <RouterLink class="stats" :to="runsOf(fn.name)" :title="fn.stats.lastRunAt === undefined ? 'Never run' : `Last run ${fullTime(fn.stats.lastRunAt)}`">

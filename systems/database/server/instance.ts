@@ -9,7 +9,7 @@
  * - **Run** (`read`, `write`, `dryRun`): a saved query's payload and a call's args become SQL for this dialect.
  */
 import { ginTypeToTable, type TableSpec } from '@aeye/query';
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
 import type { Llm } from '@harness/sdk';
 import { Connection, dialectOf, type DatabaseConfig, type DatabaseInfo, type QueryPayload, type SortArg } from '../shared/shapes.ts';
@@ -45,6 +45,12 @@ export function widens(before: TableSpec, after: TableSpec): boolean {
     if (now === undefined || JSON.stringify(now.type) !== JSON.stringify(old.type) || (old.nullable && !now.nullable)) { return false; }
     return old.values === undefined ? now.values === undefined : now.values === undefined || old.values.every((value) => now.values?.includes(value) === true);
   });
+}
+
+/** A rescan's id from the changes it found: the same waiting changes always get the same id (and so one proposal). */
+function scanId(tables: readonly ScannedTable[], dropped: readonly string[]): string {
+  const changes = JSON.stringify([tables.map((table) => schemaHash(table.spec)).sort(), [...dropped].sort()]);
+  return `scan_${createHash('sha256').update(changes).digest('hex').slice(0, 16)}`;
 }
 
 /** What a rescan found. */
@@ -189,7 +195,7 @@ export class DatabaseInstance {
       if (table !== undefined) { this.#applied.set(table.scanned.spec.name, table.scanned.spec); }
     }
     await this.#deps.store.setApplied(this.#applied);
-    const pending = waiting.length === 0 && dropped.length === 0 ? undefined : { scan: `scan_${randomUUID()}`, tables: waiting, dropped, foundAt: this.#deps.now() };
+    const pending = waiting.length === 0 && dropped.length === 0 ? undefined : { scan: scanId(waiting, dropped), tables: waiting, dropped, foundAt: this.#deps.now() };
     await this.#deps.store.setPending(pending);
     return { added, changed, pending, parts };
   }

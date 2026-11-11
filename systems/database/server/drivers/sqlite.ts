@@ -1,14 +1,15 @@
 /**
  * SQLite through better-sqlite3: a new file in the instance's data folder or an existing one. The schema comes from
  * `sqlite_master` and the table pragmas, read into `TableSpec`s by the SQLite DDL writer; a column's closed set of
- * values from a `CHECK (col IN (...))` in its table's SQL. Booleans bind as 0 and 1.
+ * values from a `CHECK (col IN (...))` in its table's SQL. Booleans bind as 0 and 1. A read runs only a statement
+ * SQLite says changes nothing; a read-only database opens the file read-only.
  */
 import type { ColumnSpec, ForeignKeySpec, TableSpec, UniqueSpec } from '@aeye/query';
 import BetterSqlite3 from 'better-sqlite3';
 import { z } from 'zod';
 import { dialectFor } from '../dialects.ts';
 import { ScannedTable, checkValues } from '../schema.ts';
-import { bindValue, jsonValue, type Database, type Rows, type Statement, type Written } from './database.ts';
+import { READ_ONLY, bindValue, jsonValue, type Database, type Rows, type Statement, type Written } from './database.ts';
 
 const TableRow = z.object({ name: z.string(), sql: z.string().nullable() });
 const ColumnRow = z.object({ name: z.string(), type: z.string(), notnull: z.number(), dflt_value: z.string().nullable(), pk: z.number(), hidden: z.number().optional() });
@@ -35,18 +36,23 @@ class RolledBack extends Error {}
 export class SqliteDatabase implements Database {
   readonly dialect = 'sqlite' as const;
   readonly #db: BetterSqlite3.Database;
+  readonly #readonly: boolean;
 
-  /** Open (or, with `create`, make) the file. */
+  /** Open (or, with `create`, make) the file; a new file that is read-only is made first, then opened read-only. */
   constructor(file: string, options: { create: boolean; readonly: boolean }) {
-    this.#db = new BetterSqlite3(file, { fileMustExist: !options.create, readonly: options.readonly });
+    this.#readonly = options.readonly;
+    if (options.create && options.readonly) { new BetterSqlite3(file).close(); }
+    this.#db = new BetterSqlite3(file, { fileMustExist: !options.create || options.readonly, readonly: options.readonly });
     this.#db.pragma('foreign_keys = ON');
   }
 
   read(statement: Statement): Promise<Rows> {
+    if (!this.#db.prepare(statement.sql).readonly) { return Promise.reject(new Error('A read may not change data.')); }
     return Promise.resolve(this.#run(statement));
   }
 
   write(statements: readonly Statement[]): Promise<Written> {
+    if (this.#readonly) { return Promise.reject(new Error(READ_ONLY)); }
     return Promise.resolve(this.#db.transaction(() => this.#apply(statements))());
   }
 

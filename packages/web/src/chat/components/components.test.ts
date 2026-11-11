@@ -246,12 +246,17 @@ describe('ApprovalTray', () => {
   const items = [
     { id: ApprovalId.parse('apr_1'), fn: 'fs/write_file' as const, description: 'Write a file', args: { path: 'README.md', content: 'x'.repeat(400) }, rememberable: true },
     { id: ApprovalId.parse('apr_2'), fn: 'fs/delete' as const, description: '', args: undefined, rememberable: true },
+    {
+      id: ApprovalId.parse('apr_3'), fn: 'database/run_query' as const, description: '', args: undefined, rememberable: false,
+      preview: { title: 'Refund two orders', irreversible: false, parts: [] },
+    },
   ];
 
-  it('asks about the oldest first, clamps long args, and remembers the chosen answer', async () => {
+  it('asks about the oldest first, clamps long args, lists the rest, and approves together only those without a preview', async () => {
     const tray = mount(ApprovalTray, { props: { items } });
     expect(tray.text()).toContain('Allow Write file?');
-    expect(tray.get('[data-testid=approvals-waiting]').text()).toBe('2 waiting');
+    expect(tray.get('[data-testid=approvals-others]').text()).toContain('2 more waiting');
+    expect(tray.get('[data-testid=approvals-others]').text()).toContain('Refund two orders');
     expect(tray.text()).toContain('Show more');
     await tray.findAll('[role=radio]')[1]?.trigger('click');
     await tray.get('[data-testid=approve]').trigger('click');
@@ -261,7 +266,10 @@ describe('ApprovalTray', () => {
     await tray.get('[data-testid=deny-confirm]').trigger('click');
     expect(tray.emitted('decide')?.[1]).toEqual(['apr_1', false, 'session', 'not that file']);
     await tray.get('[data-testid=approve-all]').trigger('click');
-    expect(tray.emitted('decideAll')?.[0]).toEqual([true, 'session']);
+    expect(tray.get('[data-testid=approve-all]').text()).toBe('Approve 2');
+    expect(tray.emitted('decideAll')?.[0]).toEqual([['apr_1', 'apr_2'], true, 'session']);
+    await tray.get('[data-testid=deny-all]').trigger('click');
+    expect(tray.emitted('decideAll')?.[1]).toEqual([['apr_1', 'apr_2', 'apr_3'], false, 'session']);
   });
 });
 

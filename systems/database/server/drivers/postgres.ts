@@ -1,14 +1,15 @@
 /**
  * Postgres through `pg` (a pool over the configured URL), the `public` schema. Columns come from
  * `information_schema.columns` (enum types give their labels as the closed set of values), keys and checks from
- * `pg_constraint`, row counts from the planner's estimate.
+ * `pg_constraint`, row counts from the planner's estimate. Every read runs in a `READ ONLY` transaction; a read-only
+ * database's sessions also default to read-only transactions, and it refuses writes outright.
  */
 import pg from 'pg';
 import { z } from 'zod';
 import type { ColumnSpec, TableSpec } from '@aeye/query';
 import { dialectFor } from '../dialects.ts';
 import { ScannedTable, anyValues, checkValues } from '../schema.ts';
-import { bindValue, jsonValue, type Database, type Rows, type Statement, type Written } from './database.ts';
+import { READ_ONLY, bindValue, jsonValue, type Database, type Rows, type Statement, type Written } from './database.ts';
 
 const ColumnRow = z.object({
   table_name: z.string(), column_name: z.string(), data_type: z.string(), udt_name: z.string(), is_nullable: z.string(),
@@ -56,29 +57,34 @@ function numberOf(text: string): number | string {
 export class PostgresDatabase implements Database {
   readonly dialect = 'postgres' as const;
   readonly #pool: pg.Pool;
+  readonly #readonly: boolean;
 
-  constructor(url: string) {
-    this.#pool = new pg.Pool({ connectionString: url, max: 4 });
+  constructor(url: string, options: { readonly: boolean }) {
+    this.#readonly = options.readonly;
+    this.#pool = new pg.Pool({ connectionString: url, max: 4, ...(options.readonly ? { options: '-c default_transaction_read_only=on' } : {}) });
     for (const oid of NUMERIC_OIDS) { pg.types.setTypeParser(oid, numberOf); }
   }
 
   async read(statement: Statement): Promise<Rows> {
-    const result = await this.#pool.query({ text: statement.sql, values: statement.params.map(bindValue), rowMode: 'array' });
-    return { columns: result.fields.map((field) => field.name), rows: rowsOf(result.rows) };
+    const { columns, rows } = await this.#transaction([statement], 'read');
+    return { columns, rows };
   }
 
   write(statements: readonly Statement[]): Promise<Written> {
-    return this.#transaction(statements, true);
+    if (this.#readonly) { return Promise.reject(new Error(READ_ONLY)); }
+    return this.#transaction(statements, 'commit');
   }
 
   dryRun(statements: readonly Statement[]): Promise<Written> {
-    return this.#transaction(statements, false);
+    return this.#transaction(statements, 'roll back');
   }
 
-  async #transaction(statements: readonly Statement[], commit: boolean): Promise<Written> {
+  /** Run statements in one transaction: a read-only one, or one that commits or always rolls back. */
+  async #transaction(statements: readonly Statement[], mode: 'read' | 'commit' | 'roll back'): Promise<Written> {
     const client = await this.#pool.connect();
+    const commit = mode === 'commit';
     try {
-      await client.query('BEGIN');
+      await client.query(mode === 'read' ? 'BEGIN READ ONLY' : 'BEGIN');
       let affected = 0;
       let last: Rows = { columns: [], rows: [] };
       for (const statement of statements) {

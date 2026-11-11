@@ -182,6 +182,7 @@ export function fakeAdminApi() {
     previewSuggestions: fakeCaller<'previewSuggestions'>(() => Promise.resolve({ by: 'score' as const, threshold: 0.5, items: [] })),
     runs: fakeCaller<'runs'>(() => Promise.resolve({ items: [run({ id: 'run_a' }), run({ id: 'run_b', status: 'failed' })] })),
     llmCalls: fakeCaller<'llmCalls'>(() => Promise.resolve({ items: [llmSummary({ id: 'llm_a' })] })),
+    query: fakeCaller<'query'>(() => Promise.resolve({ items: [], sort: [], total: 0 })),
     resources: fakeCaller<'resources'>(() => Promise.resolve({ items: [resourceRecord()] })),
     pairing: fakeCaller<'pairing'>(({ pairing: id }) => Promise.resolve(pairing({ id, description: 'Files on Phil’s laptop', instance: 'laptop', configType: FS_CONFIG }))),
     ...fakeBuild2Api(),

@@ -6,8 +6,7 @@
   "description": "Development only: system.json holds this system's name, version and entries.",
   "exports": {
     ".": "./shared/index.ts",
-    "./server": "./server/index.ts",
-    "./client": "./client/index.ts"
+    "./server": "./server/index.ts"
   },
   "dependencies": {
     "@aeye/gin": "file:../../../aits/packages/gin",

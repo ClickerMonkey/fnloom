@@ -10,7 +10,7 @@ import { InstanceName, Json } from '@harness/core';
 import type { TableSpec } from '@aeye/query';
 import { afterAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { ConnectionFields } from '../shared/shapes.ts';
+import type { Connection } from '../shared/shapes.ts';
 import { dialectFor } from './dialects.ts';
 import { openDatabase, type Database } from './drivers/index.ts';
 import { NO_ENRICHER, RecordingHub, shopConfig, testFolder } from './fixture.ts';
@@ -41,7 +41,7 @@ const ORDERS: TableSpec = {
 
 interface Target {
   readonly name: string;
-  readonly fields: ConnectionFields;
+  readonly fields: z.input<typeof Connection>;
   /** Make an empty database to test in, and the connection to it. */
   prepare(): Promise<void>;
 }

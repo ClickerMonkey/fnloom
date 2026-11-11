@@ -16,6 +16,7 @@ import { computed, ref, shallowRef } from 'vue';
 import { problemText } from '../../state/problems.ts';
 import type { BodyOf } from '../../api/client.ts';
 import type { ChatApi, SessionEvents } from '../api.ts';
+import { isRememberable } from '../../components/approvals/rules.ts';
 import { isConfirm } from '../logic/labels.ts';
 import { applyRunUpdate, emptyRun, isActive, mergeRecord, type RunView } from '../logic/runs.ts';
 import { addSegment, appendToken, prependPage, resendParts, settleSegments, storedSegments, undoneTurns, upsertMessage, type AnswerSegment } from '../logic/thread.ts';
@@ -563,9 +564,13 @@ export class ThreadStore {
     return shown;
   }
 
-  /** Approve or deny every waiting run. */
-  async approveAll(approve: boolean, remember: Remember): Promise<boolean> {
-    const results = await Promise.all(this.approvals.value.map((a) => this.approve(a.id, approve, remember)));
+  /**
+   * Approve or deny several waiting runs at once (the tray picks which: Deny all takes every one, Approve all only those
+   * without a preview). An answer is remembered only for the runs whose answer may be.
+   */
+  async approveAll(ids: readonly ApprovalId[], approve: boolean, remember: Remember): Promise<boolean> {
+    const chosen = this.approvals.value.filter((a) => ids.includes(a.id));
+    const results = await Promise.all(chosen.map((a) => this.approve(a.id, approve, isRememberable(a) ? remember : 'once')));
     return results.every(Boolean);
   }
 

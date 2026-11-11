@@ -1,11 +1,11 @@
 /**
  * What an instance's admin page works out from its system's records: the fns and types that belong to the instance
- * (a database's saved queries and table types), the type names its fns and waiting changes mention, the changes its
+ * (a database's saved queries and table types), the hub query for its types, the changes its
  * system proposed (a rescan's breaking type changes), and the secret fields of a config as the hub sends it.
  */
 import {
   isJsonObject, QualifiedName, SECRET_KEPT, type Approval, type FnRecord, type InstanceName, type Json, type Run, type SystemName,
-  type TypeRecord,
+  type QueryFnArgs,
 } from '@harness/core';
 
 /** The fns a fleet instance owns: those routed to it alone. */
@@ -13,9 +13,15 @@ export function instanceFns(fns: readonly FnRecord[], instance: InstanceName): F
   return fns.filter((fn) => fn.decl.routing?.to === 'instance' && fn.decl.routing.instance === instance);
 }
 
-/** The types a fleet instance owns, by name. */
-export function instanceTypes(types: readonly TypeRecord[], instance: InstanceName): TypeRecord[] {
-  return types.filter((type) => type.instance === instance).sort((a, b) => a.name.localeCompare(b.name));
+/** The hub `types` list query for a fleet instance's types (a database's tables), by name, one page. */
+export function typesQuery(key: { readonly system: SystemName; readonly instance: InstanceName }, cursor: string | undefined, limit: number): QueryFnArgs {
+  return {
+    list: 'types',
+    query: {
+      filters: [{ field: 'system', op: 'is', value: key.system }, { field: 'instance', op: 'is', value: key.instance }],
+      sort: [{ field: 'name', dir: 'asc' }], limit, ...(cursor === undefined ? {} : { cursor }),
+    },
+  };
 }
 
 /** A type name as a type-diff part gives it (`shop.Orders`, or already qualified), qualified by its system. */
@@ -35,17 +41,6 @@ export function changedTypes(system: SystemName, approvals: readonly Approval[])
     }
   }
   return names;
-}
-
-/**
- * The type names worth asking the hub for: what the instance's fns depend on and what its waiting changes touch.
- * The hub answers the ones that are types and lists the rest as missing.
- */
-export function typeNamesOf(system: SystemName, fns: readonly FnRecord[], approvals: readonly Approval[]): QualifiedName[] {
-  const names = changedTypes(system, approvals);
-  const prefix = `${system}/`;
-  for (const fn of fns) { for (const dep of fn.decl.deps) { if (dep.startsWith(prefix)) { names.add(dep); } } }
-  return [...names].sort();
 }
 
 /** The runs of an instance its system added for someone to approve (not ones a person called). */

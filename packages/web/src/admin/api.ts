@@ -47,6 +47,8 @@ export function adminApi(hub: Hub) {
     /** Every fn of every system with its stats (the fns catalogue). */
     fns: hub.caller('fns', { lastOnly: true }),
     llmCalls: hub.caller('llmCalls', { lastOnly: true }),
+    /** Any list by the query standard (a fleet instance's types). */
+    query: hub.caller('query'),
     resources: hub.caller('resources', { lastOnly: true }),
     // model roles and limits
     modelRoles: hub.caller('modelRoles', { dedupe: true }),

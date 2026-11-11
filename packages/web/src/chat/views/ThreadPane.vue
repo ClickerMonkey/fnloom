@@ -484,7 +484,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
     </UiEmpty>
     <ChatScroller
       v-else ref="scroller" class="thread" :items="items" :has-older="thread.hasOlder.value" :loading-older="thread.loadingOlder.value" :beginning="thread.beginning.value && items[0]?.kind !== 'day'"
-      :needs-you="waiting > 0" @older="thread.loadOlder()"
+      @older="thread.loadOlder()"
     >
       <template #empty>
         <Starters :starters="starters" :agent="agent" @pick="start" />
@@ -522,7 +522,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
     <div class="dock">
       <div class="dock-inner">
         <BackgroundStrip :runs="thread.background.value" :now="now" @open="emit('run', $event)" />
-        <ApprovalTray :items="approvals" @decide="decide" @decide-all="(approve, remember) => thread.approveAll(approve, remember)" />
+        <ApprovalTray :items="approvals" @decide="decide" @decide-all="(ids, approve, remember) => thread.approveAll(ids, approve, remember)" />
         <BudgetCard
           v-for="ask in thread.budgets.value" :key="ask.budget.id" :ask="ask" :fn-label="fnLabel(thread.runs.value.get(ask.run)?.fn ?? 'hub/run')"
           :can-raise="auth.user.value?.role === 'admin'" :busy="raisingBudget" @raise="raiseBudget(ask, $event)" @leave="thread.leaveBudget(ask)"

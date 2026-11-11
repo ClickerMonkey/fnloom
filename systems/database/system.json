@@ -10,8 +10,5 @@
       "better-sqlite3": "^12.4.1"
     }
   },
-  "client": {
-    "entry": "client/index.ts"
-  },
   "instances": "many"
 }

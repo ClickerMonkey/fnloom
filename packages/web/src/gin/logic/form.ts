@@ -17,7 +17,7 @@ import {
   AliasType, AnyType, BoolType, ColorType, DateType, DurationType, EnumType, Extension, ListType, LiteralType, MapType, NewExpr, NullableType, NullType,
   NumType, ObjType, OptionalType, OrType, TextType, TimestampType, TupleType, VoidType, type Type,
 } from '@aeye/gin';
-import { humanize, Json } from '@harness/core';
+import { humanize, isJsonObject, Json } from '@harness/core';
 import { z } from 'zod';
 
 import { LOCAL_TYPES, type Issue, type TypeSource } from '../types.ts';
@@ -55,7 +55,7 @@ export type FormNode =
   | { readonly kind: 'tuple'; readonly docs: string; readonly elements: readonly FormNode[] }
   | { readonly kind: 'obj'; readonly docs: string; readonly fields: readonly FormField[] }
   | { readonly kind: 'nullable'; readonly docs: string; readonly inner: FormNode }
-  | { readonly kind: 'or'; readonly docs: string; readonly options: readonly { readonly label: string; readonly node: FormNode }[] }
+  | { readonly kind: 'or'; readonly docs: string; readonly options: readonly UnionOption[] }
   /** `inner` is the form of the named type's definition, when the browser holds it (and it isn't recursive). */
   | { readonly kind: 'ref'; readonly docs: string; readonly name: string; readonly inner?: FormNode };
 
@@ -133,7 +133,7 @@ function nodeOf(type: Type, field: string, within: ReadonlySet<string>): FormNod
     return { kind: 'obj', docs, fields };
   }
   if (type instanceof OptionalType || type instanceof NullableType) { return { kind: 'nullable', docs, inner: sub(type.inner, field) }; }
-  if (type instanceof OrType) { return { kind: 'or', docs, options: type.variants.map((variant, i) => ({ label: optionLabel(variant, i), node: sub(variant, field) })) }; }
+  if (type instanceof OrType) { return { kind: 'or', docs, options: type.variants.map((variant, i) => unionOption(variant, i, sub(variant, field))) }; }
   const scalar = SCALARS.find(([cls]) => type instanceof cls)?.[1];
   // fns, interfaces, intersections and type values have no form of their own: they are entered as JSON
   return { kind: scalar ?? 'json', docs };
@@ -161,6 +161,25 @@ function named(name: string, docs: string, field: string, target: Type, within: 
   const ownDocs = definition?.docs ?? target.docs ?? '';
   const shaped = inner.kind === 'text' && LONG_TEXT_DOCS.test(ownDocs) ? { ...inner, multiline: true } : inner;
   return { kind: 'ref', docs: docs === '' ? (ownDocs === '' ? shaped.docs : ownDocs) : docs, name, inner: shaped };
+}
+
+/**
+ * One option of a union: its label and node. An object told apart by a literal field (a discriminated union's `kind`)
+ * is labelled by that field's docs (else its value), and the field is `fixed`: picking the option sets it.
+ */
+export interface UnionOption {
+  readonly label: string;
+  readonly node: FormNode;
+  /** The literal field the option is picked by, which the form doesn't ask for. */
+  readonly fixed?: string;
+}
+
+function unionOption(type: Type, i: number, node: FormNode): UnionOption {
+  const tag = type instanceof ObjType ? Object.entries(type.fields).find(([, prop]) => prop.type instanceof LiteralType) : undefined;
+  if (tag === undefined) { return { label: optionLabel(type, i), node }; }
+  const [name, prop] = tag;
+  const value = prop.type instanceof LiteralType ? String(prop.type.literal) : name;
+  return { label: prop.docs ?? humanize(value), node, fixed: name };
 }
 
 /** A union option's label, by what it is. */
@@ -256,7 +275,8 @@ export function fits(node: FormNode, value: Json | undefined): boolean {
     case 'num': case 'duration': case 'color': return typeof value === 'number';
     case 'bool': return typeof value === 'boolean';
     case 'list': case 'tuple': case 'map': return Array.isArray(value);
-    case 'obj': return value !== null && typeof value === 'object' && !Array.isArray(value);
+    // an object fits when its literal fields (a discriminated union's `kind`) hold their values
+    case 'obj': return isJsonObject(value) && node.fields.every((field) => field.node.kind !== 'literal' || value[field.name] === field.node.value);
     case 'enum': return node.choices.some((c) => c.value === value);
     case 'literal': return node.value === value;
     case 'ref': return node.inner === undefined || fits(node.inner, value);

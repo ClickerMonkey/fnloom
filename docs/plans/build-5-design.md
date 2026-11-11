@@ -73,8 +73,8 @@ it with an `Equal` test, as the hub does for `ContentRef`.
    section: `{ [registry]: { [name]: { match(table: ResultTable): VisualFit, component } } }`; the client runtime gets
    `visuals(registry, table)`: every loaded contribution that fits, best score first, table last. **hub**: serve
    `contributions` from the connected systems' manifests. **web**: before a registry renders, load the client bundles
-   of the systems `contributions` names (cached). The database client hosts `database/query-visuals` and contributes
-   `table` (score 0, always fits) and `bar` (one text or date column plus one number column, 2 to 50 rows: score 0.8)
+   of the systems `contributions` names (cached). The database system hosts `database/query-visuals` (and has no client
+   bundle); the app's one result view draws its `result` attachment with its own `table` (score 0, always fits) and `bar` (one text or date column plus one number column, 2 to 50 rows: score 0.8)
    and `value` (one row, one column: score 0.9). The result view shows the best fit and a segmented switch of the
    valid ones (hidden when only the table fits); the choice is kept per message in the URL-free view state.
 

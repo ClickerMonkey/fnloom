@@ -105,7 +105,7 @@ const date = (label: string): FieldDecl => ({ label, type: 'date', sortable: tru
 const flag = (label: string): FieldDecl => ({ label, type: 'boolean', sortable: false, filterable: true });
 
 /** The queryable lists. */
-export const LIST_NAMES = ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems'] as const;
+export const LIST_NAMES = ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems', 'types'] as const;
 export const ListName = z.enum(LIST_NAMES);
 export type ListName = z.infer<typeof ListName>;
 
@@ -168,6 +168,11 @@ export const LIST_FIELDS = {
   },
   systems: {
     fields: { name: text('Name'), status: dynamic('Status'), version: text('Version'), instances: num('Instances', 'count'), fns: num('Fns', 'count'), lastSeenAt: date('Last seen') },
+    defaultSort: [{ field: 'name', dir: 'asc' }],
+  },
+  /** Named types: every system's, and the ones a fleet instance defines for itself (a database's tables). */
+  types: {
+    fields: { name: text('Name'), system: dynamic('System'), instance: dynamic('Instance'), references: num('Refers to', 'count'), updatedAt: date('Updated') },
     defaultSort: [{ field: 'name', dir: 'asc' }],
   },
 } as const satisfies Record<ListName, { fields: Record<string, FieldDecl>; defaultSort: readonly Sort[] }>;

@@ -28,7 +28,9 @@ const props = withDefaults(defineProps<{
   flat?: boolean;
   /** On a line of code (an expression's literal): a one-line value shows no label or hint (the hint is its tooltip). */
   inline?: boolean;
-}>(), { docs: '', required: false, flat: false, inline: false });
+  /** A field of this object that the union option it is drawn for sets by itself (its `kind`), so it isn't asked for. */
+  fixed?: string;
+}>(), { docs: '', required: false, flat: false, inline: false, fixed: '' });
 
 const emit = defineEmits<{ update: [draft: Draft] }>();
 const lookup = inject(GIN_INPUTS, () => undefined);
@@ -134,7 +136,8 @@ const setInner = (draft: Draft): void => {
 
 const optionValue = computed(() => (props.draft.kind === 'or' ? String(props.draft.option) : '0'));
 const unionOptions = computed(() => (props.node.kind === 'or' ? props.node.options.map((o, i) => ({ value: String(i), label: o.label })) : []));
-const optionNode = computed(() => (props.node.kind === 'or' ? props.node.options[Number(optionValue.value)]?.node : undefined));
+const chosenOption = computed(() => (props.node.kind === 'or' ? props.node.options[Number(optionValue.value)] : undefined));
+const optionNode = computed(() => chosenOption.value?.node);
 function setOption(value: string): void {
   if (props.node.kind !== 'or') { return; }
   const option = props.node.options[Number(value)];
@@ -239,7 +242,7 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
       <legend v-if="!flat && path !== ''" class="legend">{{ label }}</legend>
       <p v-if="!flat && path !== '' && hint !== ''" class="hint">{{ hint }}</p>
       <template v-for="field in node.fields" :key="field.name">
-        <div v-if="!field.optional || fields.present[field.name] === true" class="field" :class="{ removable: field.optional }">
+        <div v-if="field.name !== fixed && (!field.optional || fields.present[field.name] === true)" class="field" :class="{ removable: field.optional }">
           <GinInput
             class="grow" :node="field.node" :draft="fieldDraft(field.name, field.node)" :path="join(field.name)" :problems="problems"
             :label="field.label" :docs="field.docs" :required="!field.optional" @update="setField(field.name, $event)"
@@ -263,7 +266,7 @@ const dateKind = computed(() => (props.node.kind === 'timestamp' ? 'datetime-loc
       <legend class="legend">{{ label }}</legend>
       <p v-if="hint !== ''" class="hint">{{ hint }}</p>
       <UiSegmented :model-value="optionValue" :options="unionOptions" :label="`${label}: kind`" @update:model-value="setOption" />
-      <GinInput v-if="optionNode" :node="optionNode" :draft="innerDraft" :path="path" :problems="problems" :label="label" flat @update="setInner" />
+      <GinInput v-if="optionNode" :node="optionNode" :draft="innerDraft" :path="path" :problems="problems" :label="label" :fixed="chosenOption?.fixed ?? ''" flat @update="setInner" />
     </fieldset>
   </div>
 </template>

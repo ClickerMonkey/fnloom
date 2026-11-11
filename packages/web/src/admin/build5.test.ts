@@ -1,11 +1,11 @@
 /** Build 5's admin side: what a fleet instance owns (a database's types and saved queries), its proposed changes, and secret config fields. */
-import { InstanceName, SECRET_KEPT, SystemName, type Approval } from '@harness/core';
+import { InstanceName, Json, SECRET_KEPT, SystemName, TypeRecord, type Approval } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { approval, run } from '../chat/test/fakes.ts';
 import GinForm from '../gin/GinForm.vue';
 import { fakeCaller } from '../test/fakes.ts';
-import { changedTypes, instanceFns, keptSecrets, typeNamesOf } from './logic/instances.ts';
+import { changedTypes, instanceFns, keptSecrets, typesQuery } from './logic/instances.ts';
 import { InstancePartsStore } from './state/instance-parts.ts';
 import { fnRecord } from './test/fakes.ts';
 
@@ -20,12 +20,22 @@ const diff = (name: string): Approval => approval({
   preview: { title: 'Apply', irreversible: true, parts: [{ type: 'type-diff', name, before: { name: 'text' }, after: { name: 'num' }, changes: ['Changes it'], breaks: [] }] },
 });
 
+const tableType = (local: string): TypeRecord => TypeRecord.parse({
+  name: `database/shop.${local}`, system: 'database', instance: 'shop', description: `The ${local} table.`, def: { name: 'obj', props: {} }, display: { label: local },
+  references: [], updatedAt: 1_789_000_000_000,
+});
+const ORDERS = tableType('Orders');
+const ITEMS = tableType('Items');
+
 describe('instance parts', () => {
-  it('keeps the fns routed to the instance and asks for the types they and its waiting changes name', () => {
+  it('keeps the fns routed to the instance and asks the hub for every type of the instance', () => {
     const fns = [query('a', 'shop', ['database/shop.Orders', 'fs/read']), query('b', 'main', ['database/main.Users']), fnRecord({ name: 'database/get_query', system: 'database' })];
     const mine = instanceFns(fns, SHOP);
     expect(mine.map((fn) => fn.name)).toEqual(['database/shop.a']);
-    expect(typeNamesOf(DATABASE, mine, [diff('shop.Items')])).toEqual(['database/shop.Items', 'database/shop.Orders']);
+    expect(typesQuery({ system: DATABASE, instance: SHOP }, 'next', 50)).toEqual({
+      list: 'types',
+      query: { filters: [{ field: 'system', op: 'is', value: 'database' }, { field: 'instance', op: 'is', value: 'shop' }], sort: [{ field: 'name', dir: 'asc' }], limit: 50, cursor: 'next' },
+    });
     expect([...changedTypes(DATABASE, [diff('database/shop.Orders')])]).toEqual(['database/shop.Orders']);
   });
 
@@ -45,9 +55,9 @@ describe('instance parts', () => {
           run({ id: 'run_other', system: 'database', instance: 'main', status: 'awaiting-approval' }),
         ],
       })),
+      query: fakeCaller<'query'>(() => Promise.resolve({ items: [ORDERS, ITEMS].map((type) => Json.parse(type)), sort: [], total: 2 })),
     };
     const chat = {
-      types: fakeCaller<'types'>(({ names }) => Promise.resolve({ types: [], missing: names })),
       approvals: fakeCaller<'approvals'>(() => Promise.resolve([proposed, approval({ id: 'apr_write', run: 'run_write' })])),
       approve: fakeCaller<'approve'>(() => Promise.resolve({ ...proposed, status: 'approved' })),
     };
@@ -56,7 +66,10 @@ describe('instance parts', () => {
     expect(chat.approvals.calls[0]?.[0]).toEqual({ runs: ['run_rescan', 'run_write'] });
     expect(store.proposals.value.map((a) => a.id)).toEqual([proposed.id]);
     expect([...store.changing.value]).toEqual(['database/shop.Orders']);
-    expect(chat.types.calls[0]?.[0]).toEqual({ names: ['database/shop.Orders'] });
+    expect(api.query.calls[0]?.[0]).toMatchObject({ list: 'types', query: { limit: 100 } });
+    expect(store.types.problem.value).toBe('');
+    expect(store.types.items.value.map((t) => t.name)).toEqual(['database/shop.Orders', 'database/shop.Items']);
+    expect(store.typeCount.value).toBe(2);
     expect(await store.decide(proposed, true, '')).toBe(true);
     expect(chat.approve.calls[0]?.[0]).toMatchObject({ approval: proposed.id, approve: true, remember: 'once' });
     await flushPromises();

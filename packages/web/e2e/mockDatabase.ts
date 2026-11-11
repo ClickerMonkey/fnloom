@@ -20,18 +20,23 @@ const choice = (...values: readonly string[]): GinTypeDef => ({ name: 'enum', ge
 export const DATABASE_CONFIG_TYPE: GinTypeDef = {
   name: 'obj', props: {
     label: { docs: 'What this database is, as people and the model read it ("Shop orders").', type: nonEmpty },
+    // the connection as `ginAs(Connection)` writes it: one kind at a time, each with only its own fields
     connection: {
       type: {
-        name: 'obj', props: {
-          kind: { docs: 'Which database: a new SQLite file, an existing SQLite file, Postgres or SQL Server.', type: choice('sqlite-new', 'sqlite-file', 'postgres', 'sqlserver') },
-          path: { docs: 'SQLite: the file. For a new file, a name inside the instance\'s data folder (`shop.db`); for an existing one, its full path.', type: optional(nonEmpty) },
-          url: { docs: 'Postgres: the connection URL (`postgres://user:password@host:5432/db`). Kept as a secret.', type: optional(nonEmpty) },
-          host: { docs: 'SQL Server: the host name.', type: optional(nonEmpty) },
-          port: { docs: 'SQL Server: the port (1433 when empty).', type: optional({ name: 'num', options: { whole: true, min: 1, max: 65535 } }) },
-          database: { docs: 'SQL Server: the database name.', type: optional(nonEmpty) },
-          user: { docs: 'SQL Server: the user name.', type: optional(nonEmpty) },
-          password: { docs: 'SQL Server: the password. Kept as a secret.', type: optional(nonEmpty) },
-          encrypt: { docs: 'SQL Server: encrypt the connection (on when empty).', type: optional({ name: 'bool' }) },
+        name: 'or', options: {
+          types: [
+            { name: 'obj', props: { kind: { docs: 'New SQLite file', type: { name: 'literal', generic: { T: text }, options: { value: 'sqlite-new' } } }, path: { docs: 'A file name inside the instance\x27s data folder (`shop.db`).', type: nonEmpty } } },
+            { name: 'obj', props: { kind: { docs: 'Existing SQLite file', type: { name: 'literal', generic: { T: text }, options: { value: 'sqlite-file' } } }, path: { docs: 'The SQLite file\x27s full path.', type: nonEmpty } } },
+            { name: 'obj', props: { kind: { docs: 'Postgres', type: { name: 'literal', generic: { T: text }, options: { value: 'postgres' } } }, url: { docs: 'The connection URL (`postgres://user:password@host:5432/db`). Kept as a secret.', type: nonEmpty } } },
+            {
+              name: 'obj', props: {
+                kind: { docs: 'SQL Server', type: { name: 'literal', generic: { T: text }, options: { value: 'sqlserver' } } }, host: { docs: 'The host name.', type: nonEmpty },
+                port: { docs: 'The port (1433 when empty).', type: optional({ name: 'num', options: { whole: true, min: 1, max: 65535 } }) },
+                database: { docs: 'The database name.', type: nonEmpty }, user: { docs: 'The user name.', type: nonEmpty },
+                password: { docs: 'The password. Kept as a secret.', type: nonEmpty }, encrypt: { docs: 'Encrypt the connection (on when empty).', type: optional({ name: 'bool' }) },
+              },
+            },
+          ],
         },
       },
     },
@@ -76,13 +81,35 @@ export function shopTypes(now: number): TypeRecord[] {
   ];
 }
 
+/** The saved queries' SQL, as Postgres reads it. */
+const SHOP_SQL: Readonly<Record<string, string>> = {
+  orders_by_city: `SELECT o.city AS city, COUNT(*) AS orders
+FROM orders o
+WHERE o.placed_at >= $1
+GROUP BY o.city
+ORDER BY orders DESC
+LIMIT $2 OFFSET $3`,
+  latest_orders: `SELECT o.id, o.total, c.name AS customer
+FROM orders o
+JOIN customers c ON c.id = o.customer_id
+ORDER BY o.id DESC
+LIMIT $1 OFFSET $2`,
+  orders_export: `SELECT o.*, i.product, i.quantity, i.price
+FROM orders o
+JOIN order_items i ON i.order_id = o.id
+LIMIT $1 OFFSET $2`,
+};
+
 /** The saved query fns of the `shop` instance, routed to it. */
 export function shopFns(now: number): FnRecord[] {
+  // each with its SQL as the database's kind writes it for the fn's page (`KindDescription.readable`)
+  const sql = (local: string): string => SHOP_SQL[local] ?? '';
   const query = (local: string, description: string, query: Json, deps: readonly QualifiedName[], runs: number): FnRecord => fnRecord({
     name: `database/shop.${local}`, system: 'database', version: `v${runs}`, origin: 'runtime', available: true, paused: false, disabled: false, updatedAt: now - runs * 60_000,
     stats: { outcomes: { done: runs, 'invalid-input': 0, failed: 0, cancelled: 0 }, averageCost: 0, averageTime: 38 + runs, tokens: 0, lastRunAt: now - runs * 90_000 },
     decl: {
       ...fnRecord().decl, name: `shop.${local}`, description, kind: 'database/query', payload: { instance: 'shop', description, query, sorters: ['total', 'city'], list: true },
+      readable: { language: 'sql', code: sql(local) },
       args: { name: 'obj', props: { limit: { type: optional(num) }, offset: { type: optional(num) } } }, returns: { name: 'any' }, deps: [...deps],
       tags: ['database', 'query'], routing: { to: 'instance', instance: 'shop' },
     },

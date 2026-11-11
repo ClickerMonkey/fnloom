@@ -108,6 +108,9 @@ export function suppliedHandlers(fn: FnRecord, parent: Run | undefined, named: r
 /** The key prefix of a run a system proposed (`propose`), apart from the keys of the calls it makes. */
 export const PROPOSED_KEY = 'propose:';
 
+/** The error code of a run a policy denied or its approver declined. */
+export const DECLINED_CODE = 'denied';
+
 /** A promise with its resolver. */
 interface Waiter {
   readonly promise: Promise<RunSettled>;
@@ -275,7 +278,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (previewed.refused !== undefined) {
       await this.settle(id, previewed.refused);
     } else if (decision.effect === 'deny') {
-      await this.settle(id, { status: 'failed', error: fnError('caller', `Not allowed: ${decision.reason}`, 'denied') });
+      await this.settle(id, { status: 'failed', error: fnError('caller', `Not allowed: ${decision.reason}`, DECLINED_CODE) });
     } else if (decision.effect === 'ask') {
       await this.#moveTo(run, { status: 'awaiting-approval' }, fn);
     } else {
@@ -846,7 +849,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const who = decided === undefined ? undefined : (await this.#deps.store.table('actors').get(decided.by))?.name;
     const reason = decided?.reason?.trim() ?? '';
     const message = `Declined by ${who ?? 'the approver'}${reason === '' ? ' (no reason given).' : `: ${reason}`}`;
-    await this.settle(id, { status: 'failed', error: fnError('caller', message, 'denied') });
+    await this.settle(id, { status: 'failed', error: fnError('caller', message, DECLINED_CODE) });
   }
 
   async #addToAncestors(run: Run, cost: Usd): Promise<void> {

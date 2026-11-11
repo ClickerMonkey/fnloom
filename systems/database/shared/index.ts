@@ -4,13 +4,15 @@
  * fn of its instance (`<instance>.<name>`, through `hub/save_fn`), so the next request finds it with `hub/fns_search`.
  * `get_query` and `edit_query` are agents: a prompt with this system's tools (`databases`, `tables`, `check_query`,
  * `save_query`, `run_query`) and the hub's (`fns_search`, `fn_get`, `fn_examples`). Rows go to the person as a
- * `result` attachment, drawn by the best fitting visual of the `query-visuals` registry; the model gets a
+ * `result` attachment, which the app draws with its result view (its table, bar chart and value, and any visual a
+ * system adds to the `query-visuals` registry, best fit first); the model gets a
  * `ResultBlock` that says so. Writes and schema changes only run once a person approves them.
  */
 import { QualifiedName, ResultTable, type OutputVerdict } from '@harness/core';
 import { agent, attachment, context, fn, g, ginAs, hub, kind, system, type Infer, type ValidateCtx } from '@harness/sdk';
 import {
-  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabaseSummary, InstanceAnswer, InstanceOp, ParamValues, QueryAgentAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
+  ApplyArgs, CONFIG_SECRETS, DatabaseConfig, DatabaseSummary, InstanceAnswer, InstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
+  type QueryHow,
   SavedQueryRef, SchemaArgs, SchemaChanged, TableArgs, TablesInfo,
 } from './shapes.ts';
 
@@ -81,10 +83,14 @@ const QUERY_STEPS = [
   'saved with args { "status": "paid" }.',
 ].join('\n');
 
-/** How `get_query`'s summary starts when it can't tell which database the request is for (then it names no fn). */
-const ASK_WHICH = 'Ask which database:';
-
-const QUERY_ANSWER ='Answer with { "database", "fn", "how" (reused, created or edited), "why", "summary" }: the summary says what the result shows (counts, what stands out) or that the write waits for approval, never the rows themselves.';
+/** How the query agents answer: run_query's answer as it came, with how and why added to its fn. */
+const QUERY_ANSWER = [
+  'Answer with the answer database/run_query gave, exactly as it came: { "database", "fn", "query", and "result" or "approval" }. Copy it; never',
+  'change, shorten or make up any part of it. Add two fields to its "fn": "how" ("reused" a saved query, "created" a new one, or "edited" one) and',
+  '"why" (one sentence: the saved query that fit, or what was written or changed). For example, after run_query answered',
+  '{ "database": { "instance": "main", "label": "Shop", "dialect": "sqlite" }, "fn": { "name": "database/main.orders_by_status", "signature": "…" }, "query": { … }, "result": { … } },',
+  'answer the same object with "fn": { "name": "database/main.orders_by_status", "signature": "…", "how": "created", "why": "No saved query listed orders by status, so one was written with the status as a param." }.',
+].join(' ');
 
 /** `get_query`'s prompt. */
 const GET_QUERY_AGENT = [
@@ -96,7 +102,7 @@ const GET_QUERY_AGENT = [
   '',
   'Work in this order:',
   '1. The database: the one asked for; else call database/databases. With one, use it; else pick the one whose tables answer the request. When two',
-  `   could and the request does not say, answer with summary "${ASK_WHICH} <the labels>" and how "reused", fn "".`,
+  '   could and the request does not say, run nothing and answer { "ask": "Which database: Shop or Billing?", "databases": ["shop", "billing"] }.',
   `2. Look for a saved query: call hub/fns_search with \`text\` (what the request wants, in plain words), \`kinds: ["${QUERY_KIND}"]\` and \`instance\` set to the database.`,
   '   A hit whose description returns the same rows (other param values are fine) is a match: call database/run_query with its name and the args for this request.',
   '3. Otherwise write one (below), call database/save_query with the draft, the args for this request and the request as `askedFor`, then database/run_query with the saved fn.',
@@ -127,38 +133,51 @@ const EDIT_QUERY_AGENT = [
 /** How a query's args are given: the tool schema can only say `any JSON` for them, so the words say it. */
 const PARAM_VALUES_DOCS = 'An object of the values by param name, such as { "status": "paid" }: a JSON object, never a string holding JSON.';
 
-/** The query agents' answer, as gin. */
-const QueryAgentAnswerType = ginAs(QueryAgentAnswer);
-
 /**
- * The query agents' answer check: the fn it names must be a saved query of the database it names, so a model that
- * answers without finding or saving one, and running it, is sent back to do that. `asking` lets `get_query` name no fn
- * when it has to ask which database.
+ * The query agents' answer check: the fn it names must be a saved query of the database it names, and the answer
+ * must carry that run's result or approval, so a model that answers without finding or saving one, and running it,
+ * is sent back to do that. `asking` lets `get_query` ask which database instead.
  */
 async function checkAnswer(ctx: ValidateCtx, answer: QueryAgentAnswer, asking: boolean): Promise<OutputVerdict> {
-  if (asking && answer.fn === '' && answer.summary.startsWith(ASK_WHICH)) { return { ok: true }; }
   const retry = (why: string): OutputVerdict => ({
-    ok: false, action: 'retry', reason: `${why} Follow the steps: find or save the query, run it with database/run_query, then answer with that fn's name.`,
+    ok: false, action: 'retry', reason: `${why} Follow the steps: find or save the query, run it with database/run_query, then answer with run_query's answer as it came, adding how and why to its fn.`,
   });
-  const name = QualifiedName.safeParse(answer.fn);
-  if (!name.success) { return retry(`"${answer.fn}" is not a saved query fn (database/<database>.<name>).`); }
+  if ('ask' in answer) { return asking ? { ok: true } : retry('edit_query always knows its database: it is the saved query\'s.'); }
+  const name = QualifiedName.safeParse(answer.fn.name);
+  if (!name.success) { return retry(`"${answer.fn.name}" is not a saved query fn (database/<database>.<name>).`); }
   const [hit] = (await ctx.searchFns({ names: [name.data], kinds: [QUERY_KIND], items: ['fn'], available: false, limit: 1 })).items;
-  if (hit === undefined) { return retry(`There is no saved query ${answer.fn}.`); }
-  if (hit.instance !== undefined && hit.instance !== answer.database) { return retry(`${answer.fn} is a query of database "${hit.instance}", not "${answer.database}".`); }
+  if (hit === undefined) { return retry(`There is no saved query ${answer.fn.name}.`); }
+  if (hit.instance !== undefined && hit.instance !== answer.database.instance) { return retry(`${answer.fn.name} is a query of database "${hit.instance}", not "${answer.database.instance}".`); }
+  if ((answer.result === undefined) === (answer.approval === undefined)) { return retry('The answer carries run_query\'s "result" (a read) or its "approval" (a write), one of them.'); }
+  if (answer.result !== undefined && answer.result.fn.name !== answer.fn.name) { return retry(`The result is of ${answer.result.fn.name}, not ${answer.fn.name}.`); }
   return { ok: true };
+}
+
+/** A worked answer for the examples: run_query's answer for paid or open orders, with how and why. */
+function exampleAnswer(how: QueryHow, why: string, status: string, rows: { id: number; total: number; customer: string }[], total: number): QueryAnswer {
+  const name = 'database/main.orders_by_status';
+  const signature = `${name}(status?: text, limit?: num, offset?: num, sort?: list<{ column: "total" | "customer", dir: "asc" | "desc" }>)`;
+  return {
+    database: { instance: 'main', label: 'Shop', dialect: 'sqlite' },
+    fn: { name, signature, how, why },
+    query: {
+      sql: 'SELECT orders.id AS id, orders.total AS total, customers.name AS customer, COUNT(*) OVER () AS "$total" FROM orders INNER JOIN customers ON customers.id = orders.customer WHERE orders.status = ? ORDER BY orders.total DESC LIMIT ? OFFSET ?',
+      structured: ORDERS_BY_STATUS, params: { status, limit: 50, offset: 0 }, writes: false,
+    },
+    result: {
+      shown: 'The person sees these rows as a table; summarize them, don\'t repeat them.',
+      columns: [{ name: 'id', kind: 'integer', nullable: false }, { name: 'total', kind: 'number', nullable: false }, { name: 'customer', kind: 'text', nullable: false }],
+      rowCount: rows.length, total, truncated: false, sort: [], sample: rows, fn: { name, signature },
+    },
+  };
 }
 
 /** The database system's contract. */
 export const database = system('database', {
   description: 'Query and change SQL databases (SQLite, Postgres, SQL Server): every table is a type, and every query asked for is kept in the hub as a fn for next time.',
   registries: {
-    [VISUALS]: { description: 'Ways to draw rows a query read. Each entry says whether a result fits it and how well; the table always fits.', data: ResultData },
+    [VISUALS]: { description: 'Ways to draw rows a query read. Each entry says whether a result fits it and how well. The app draws the table, a bar chart and a single value itself; systems add more here.', data: ResultData },
   },
-  contributes: [
-    { registry: VISUALS_REGISTRY, name: 'table', label: 'Table', description: 'Every row and column.', icon: 'table' },
-    { registry: VISUALS_REGISTRY, name: 'bar', label: 'Bar chart', description: 'One label and one number per row.', icon: 'chart' },
-    { registry: VISUALS_REGISTRY, name: 'value', label: 'Value', description: 'A single value, large.', icon: 'number' },
-  ],
   configSecrets: [...CONFIG_SECRETS],
 })
   .with({
@@ -205,7 +224,8 @@ export const database = system('database', {
         args: ginAs(ApplyArgs),
         returns: ginAs(SchemaChanged),
         examples: [{ args: { scan: 'scan_0f3c9a' }, note: 'The scan id comes from the proposal.' }],
-        visibility: 'user',
+        // only the system proposes it, for admins to approve: nobody calls it directly
+        visibility: 'none',
         status: status('Applying type changes…', 'Applied type changes', 'Applying type changes failed'),
         tags: ['database', 'schema'],
       }),
@@ -301,7 +321,7 @@ export const database = system('database', {
         description: 'Read or change data in a database: describe in detail what you want, and a saved query that does it is reused, or a new one is written, kept and run.',
         usage: `Say which rows, columns, filters, grouping and order you want, and any values (as params, e.g. "for a customer given by name"). The answer names the query's fn: call it directly next time. ${RESULT_GUIDE} A write (insert, update, delete) waits for the person to approve it.`,
         args: QueryArgs,
-        returns: QueryAgentAnswerType,
+        returns: ginAs(QueryAgentAnswer),
         instructions: GET_QUERY_AGENT,
         tools: [fns.databases, hub.fns.fns_search, hub.fns.fn_get, hub.fns.fn_examples, fns.tables, fns.check_query, fns.save_query, fns.run_query],
         toolExecution: 'sequential',
@@ -309,30 +329,35 @@ export const database = system('database', {
         examples: [
           {
             args: { detailedDescription: 'Paid orders, biggest total first, with the customer\'s name.', database: 'main' },
-            result: { database: 'main', fn: 'database/main.orders_by_status', how: 'created', why: 'No saved query listed orders by status, so one was written with the status as a param.', summary: '12 paid orders; the largest is 940.00 from Ada.' },
+            result: exampleAnswer('created', 'No saved query listed orders by status, so one was written with the status as a param.', 'paid', [{ id: 7, total: 940, customer: 'Ada' }, { id: 3, total: 410, customer: 'Bo' }], 2),
           },
           {
             args: { detailedDescription: 'Open orders, biggest first, with the customer.' },
-            result: { database: 'main', fn: 'database/main.orders_by_status', how: 'reused', why: 'The saved orders_by_status query does this with status "open".', summary: '3 open orders, all from gold customers.' },
+            result: exampleAnswer('reused', 'The saved orders_by_status query does this with status "open".', 'open', [{ id: 9, total: 120, customer: 'Cy' }], 1),
           },
           { args: { detailedDescription: 'Total sales per month in 2025, by month.' }, note: 'A grouped query with the year as a param.' },
+          {
+            args: { detailedDescription: 'Every invoice that is overdue.' },
+            result: { ask: 'Which database: Shop or Billing?', databases: ['main', 'billing'] },
+            note: 'Two databases could hold invoices and the request does not say which.',
+          },
         ],
         validate: { output: (ctx, _args, answer) => checkAnswer(ctx, answer, true) },
-        status: status('Finding a query…', 'Ran {output.fn}', 'The query failed'),
+        status: status('Finding a query…', 'Queried the database', 'The query failed'),
         tags: ['database', 'query'],
       }),
       edit_query: agent({
         description: 'Change a saved query fn by instructions (add a column, another filter, a different order). The old version is kept; the new one runs.',
         usage: `Name the saved query fn and say exactly what to change and the values to run it with. ${RESULT_GUIDE}`,
         args: EditArgs,
-        returns: QueryAgentAnswerType,
+        returns: ginAs(QueryAnswer),
         instructions: EDIT_QUERY_AGENT,
         tools: [hub.fns.fn_get, hub.fns.fn_examples, fns.tables, fns.check_query, fns.save_query, fns.run_query],
         toolExecution: 'sequential',
         maxIterations: 12,
         examples: [{
           args: { name: 'database/main.orders_by_status', instructions: 'Also show the order date, newest first; run it for paid orders.' },
-          result: { database: 'main', fn: 'database/main.orders_by_status', how: 'edited', why: 'Added the placed date and ordered by it, newest first; version 2.', summary: '12 paid orders, the newest from yesterday.' },
+          result: exampleAnswer('edited', 'Added the customer\'s name and ordered by the total, biggest first; version 2.', 'paid', [{ id: 7, total: 940, customer: 'Ada' }, { id: 3, total: 410, customer: 'Bo' }], 2),
         }],
         validate: { output: (ctx, _args, answer) => checkAnswer(ctx, answer, false) },
         status: status('Editing {args.name}…', 'Edited {args.name}', 'Editing {args.name} failed'),

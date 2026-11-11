@@ -54,6 +54,12 @@ const back = computed(() => {
   return r.decl.routing?.to === 'instance' ? links.instance(r.system, r.decl.routing.instance, 'fns') : links.system(r.system, 'fns');
 });
 const payload = computed(() => (record.value?.decl.payload === undefined ? '' : JSON.stringify(record.value.decl.payload, null, 2)));
+/** The payload as its kind writes it for people (a query's SQL), with the stored JSON one switch away (`?form=stored`). */
+const readable = computed(() => record.value?.decl.readable);
+const PayloadForm = z.enum(['readable', 'stored']);
+const form = query.choice('form', PayloadForm, 'readable');
+const FORMS = computed<readonly SegmentOption<z.infer<typeof PayloadForm>>[]>(() => [{ value: 'readable', label: readable.value?.language.toUpperCase() ?? 'Readable' }, { value: 'stored', label: 'Stored form' }]);
+const shownPayload = computed(() => (readable.value !== undefined && form.value === 'readable' ? { code: readable.value.code, language: readable.value.language } : { code: payload.value, language: 'json' }));
 const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time', dayWindow.value));
 
 watch([name, period], ([fn, d]) => { if (fn !== undefined) { void store.open(fn, d); } }, { immediate: true });
@@ -101,8 +107,9 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
             <UiCard><DayBars title="Typical time per day" :bars="timeBars" :format="formatDuration" testid="fn-time-chart" /></UiCard>
           </div>
         </LoadState>
-        <UiCard v-if="payload !== ''" title="What it runs" :subtitle="`A ${record.decl.kind} fn`" data-testid="fn-payload">
-          <UiCodeBlock :code="payload" language="json" :max-height="360" />
+        <UiCard v-if="payload !== ''" title="What it runs" data-testid="fn-payload">
+          <template v-if="readable" #actions><UiSegmented v-model="form" :options="FORMS" label="Show it as" data-testid="fn-payload-form" /></template>
+          <UiCodeBlock :code="shownPayload.code" :language="shownPayload.language" wrap :max-height="360" />
         </UiCard>
         <AccessControl :target="{ kind: 'fn', fn: name }" />
         <FnRuns

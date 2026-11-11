@@ -14,7 +14,7 @@ import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
 import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { QUERY_KIND, database } from '../shared/index.ts';
+import { QUERY_KIND, QueryRun, database } from '../shared/index.ts';
 import { databaseEnv } from './env.ts';
 import { NO_ENRICHER, RecordingHub, shopConfig, shopFile } from './fixture.ts';
 import { SELF_FLEET, createDatabaseImpl, type DatabaseServer } from './impl.ts';
@@ -115,7 +115,7 @@ describe('the database system over the link', () => {
     }
     expect(manifest?.fns.find((item) => item.name === 'change_schema')).toMatchObject({ approval: { preview: true, remember: false }, visibility: 'none' });
     expect(manifest?.registries?.map((item) => item.name)).toEqual(['query-visuals']);
-    expect(manifest?.contributes?.map((item) => item.name)).toEqual(['table', 'bar', 'value']);
+    expect(manifest?.contributes).toBeUndefined();
     expect(manifest?.configSecrets).toEqual(['connection.url', 'connection.password']);
     expect(types.upserts[0]?.sort()).toEqual(['main.customers', 'main.orders']);
   });
@@ -158,6 +158,13 @@ describe('the database system over the link', () => {
     expect(hub.attachments.at(-1)?.item).toMatchObject({ attachment: 'database/result', data: { rows: [[1, 120.5, 'Ada'], [3, 15, 'Bo']] } });
     expect(await hub.run('database/run_query', { fn: 'database/main.nothing' })).toMatchObject({ status: 'invalid-input' });
     expect(await hub.run('database/run_query', { fn: 'orders' })).toMatchObject({ status: 'invalid-input' });
+    // run_query checks the args as the hub checks a direct call's: no unbounded or fractional page, no unknown sort
+    for (const args of [{ limit: -1 }, { limit: 2.5 }, { offset: -3 }, { limit: 0 }, { sort: [{ column: 'nope', dir: 'asc' }] }, { stauts: 'paid' }]) {
+      expect(await hub.run('database/run_query', { fn: 'database/main.orders_by_status', args })).toMatchObject({ status: 'invalid-input' });
+    }
+    // the next page's call keeps the sort it was read with
+    const sorted = done(await hub.run('database/run_query', { fn: 'database/main.orders_by_status', args: { status: 'paid', limit: 1, sort: [{ column: 'customer', dir: 'asc' }] } }));
+    expect(QueryRun.parse(sorted).result?.nextPage?.call).toContain('"sort":[{"column":"customer","dir":"asc"}]');
 
     // a taken name gets the next one; replace keeps the old version in the hub's history
     expect(done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }))).toMatchObject({ fn: 'database/main.orders_by_status_2', created: true });
@@ -179,13 +186,13 @@ describe('the database system over the link', () => {
     expect(answer).toMatchObject({ fn: { name: 'database/main.mark_paid' }, query: { writes: true }, approval: { state: 'waiting' } });
     expect(answer).not.toHaveProperty('result');
     const proposal = hub.proposals.at(-1);
-    expect(proposal).toMatchObject({ fn: 'main.mark_paid', approver: 'person', preview: { title: 'Change 2 rows in orders', irreversible: false } });
+    expect(proposal).toMatchObject({ fn: 'main.mark_paid', approver: 'person', preview: { title: 'Change 2 rows in orders (Shop database)', irreversible: false } });
     expect(proposal?.preview.parts.map((part) => part.type)).toEqual(['text', 'code', 'table']);
     const payload = hub.fns.kept.get('database/main.mark_paid')?.saved.payload ?? null;
     const checked = await hub.peer().call('check', { kind: 'query', payload });
     expect(checked).toMatchObject({ problems: [], description: { approval: { preview: true, remember: false }, types: ['database/main.orders'], effects: { mode: 'write', reads: ['database/main.orders'], writes: ['database/main.orders'], free: true } } });
     const preview = await hub.preview({ run: mintId('run'), fn: 'main.mark_paid', args: {}, user: TEST_USER, kind: 'database/query', payload });
-    expect(preview).toMatchObject({ preview: { title: 'Change 2 rows in orders' } });
+    expect(preview).toMatchObject({ preview: { title: 'Change 2 rows in orders (Shop database)' } });
     expect(done(await hub.run('database/main.mark_paid', {}, { kind: 'database/query', payload }))).toMatchObject({ affected: 2 });
     const check = new BetterSqlite3(join(dir, 'shop.db'));
     expect(check.prepare('SELECT count(*) AS n FROM orders WHERE status = \'open\'').get()).toEqual({ n: 0 });
@@ -220,7 +227,7 @@ describe('the database system over the link', () => {
     await start();
     const args = { action: 'create', table: 'notes', database: 'main', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, body: { type: { name: 'text' } } } } };
     const preview = await hub.preview({ run: mintId('run'), fn: 'change_schema', args, user: TEST_USER });
-    expect(preview).toMatchObject({ preview: { title: 'Create table notes', irreversible: false } });
+    expect(preview).toMatchObject({ preview: { title: 'Create table notes (Shop database)', irreversible: false } });
     expect(JSON.stringify(preview)).toContain('CREATE TABLE');
     const made = done(await hub.run('database/change_schema', args));
     expect(made).toMatchObject({ database: { instance: 'main' } });

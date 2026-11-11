@@ -243,3 +243,30 @@ describe('GinForm', () => {
     expect(form.find('.entry-input').exists()).toBe(true);
   });
 });
+
+describe('a discriminated union in a form', () => {
+  const CONNECTION = g.or([
+    g.obj({ kind: g.field(g.literal('sqlite-new'), { docs: 'New SQLite file' }), path: g.text() }),
+    g.obj({ kind: g.field(g.literal('postgres'), { docs: 'Postgres' }), url: g.text() }),
+  ]);
+
+  it('labels each kind by its tag field and asks only for that kind\'s fields', async () => {
+    const tree = formOf(wireType(CONNECTION));
+    expect(tree.kind === 'or' ? tree.options.map((o) => [o.label, o.fixed]) : []).toEqual([['New SQLite file', 'kind'], ['Postgres', 'kind']]);
+    const form = mount(GinForm, { props: { type: wireType(g.obj({ connection: CONNECTION })) }, attachTo: document.body });
+    expect(form.find('[data-path="connection.path"]').exists()).toBe(true);
+    expect(form.find('[data-path="connection.url"]').exists()).toBe(false);
+    expect(form.find('[data-path="connection.kind"]').exists()).toBe(false);
+    await form.findAll('[role=radio]')[1]?.trigger('click');
+    expect(form.find('[data-path="connection.url"]').exists()).toBe(true);
+    expect(form.find('[data-path="connection.path"]').exists()).toBe(false);
+  });
+});
+
+describe('a discriminated union value', () => {
+  it('opens on the option its tag names', () => {
+    const type = wireType(g.obj({ connection: g.or([g.obj({ kind: g.literal('a'), path: g.text() }), g.obj({ kind: g.literal('b'), url: g.text() })]) }));
+    const form = mount(GinForm, { props: { type, initial: { connection: { kind: 'b', url: 'x' } } }, attachTo: document.body });
+    expect(form.find('[data-path="connection.url"] input').exists()).toBe(true);
+  });
+});

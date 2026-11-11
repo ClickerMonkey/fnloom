@@ -8,3 +8,11 @@ import type { Approval } from '@harness/core';
 export function isRememberable(approval: Pick<Approval, 'preview' | 'proposed'>): boolean {
   return approval.proposed !== true && approval.preview === undefined;
 }
+
+/**
+ * The waiting runs a bulk "Approve all" may answer: the ones without a preview. A run with one (a write, a schema
+ * change, anything that can't be undone) is approved only from its own card, after the person has seen what it does.
+ */
+export function approvableTogether<T extends { readonly preview?: unknown }>(items: readonly T[]): T[] {
+  return items.filter((item) => item.preview === undefined);
+}

@@ -1,5 +1,5 @@
 import { agent, fn, g, system } from '@harness/sdk';
-import { RunId, type Run, type RunSettled, type Turn } from '@harness/core';
+import { MAIN_INSTANCE, RunId, SystemName, type ProposedRun, type Run, type RunSettled, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { backgroundReply, backgroundResult, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
 import { AGENT_KIND, type AgentKind, type RunInput } from './index.ts';
@@ -178,6 +178,37 @@ describe('a session agent', () => {
     expect(note?.content).toContain('<background-result fn="fs/read" status="done">\nthe big file\n</background-result>');
     expect(note?.content).not.toContain(child.id);
     expect([r.chat.finished.length, r.chat.tracked.length]).toEqual([finished, tracked]);
+  });
+
+  it.each([
+    { approve: true, outcome: 'approved', says: '1' },
+    { approve: false, outcome: 'declined', says: 'Error: Declined by the approver: not that table' },
+  ])('tells the agent how a write its tool proposed ended ($outcome) once the person answers, after its call returned', async ({ approve, outcome, says: reply }) => {
+    const r = await started();
+    const fs = r.connect('fs');
+    const seen: { proposed?: ProposedRun } = {};
+    fs.behaviour.run = async (request) => {
+      if (request.fn === 'write') return { status: 'done', result: 1 };
+      seen.proposed = await r.module.runs.propose({
+        fn: 'write', args: { path: 'b', text: 'x' }, key: 'p1', parent: request.run.id, approver: 'person',
+        preview: { title: 'Write b', parts: [], irreversible: false }, system: SystemName.parse('fs'), instance: MAIN_INSTANCE,
+      });
+      return { status: 'done', result: 'waiting for approval' };
+    };
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'write b' });
+    r.provider.script(calls([['fs__read', { path: 'b' }]]), says('It waits for your approval.'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'It waits for your approval.' });
+    expect(r.chat.followUps).toEqual([]);
+    const proposed = seen.proposed;
+    if (proposed === undefined) throw new Error('nothing was proposed');
+    await r.module.policies.answer(proposed.approval, { by: ALICE, approve, remember: 'once', ...(approve ? {} : { reason: 'not that table' }) });
+    await until(() => r.chat.followUps.length > 0, 'the agent to be woken');
+    expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: AGENT }]);
+    const note = (await r.store.table('sessions').get(SESSION))?.transcript.at(-1);
+    expect(note?.role).toBe('user');
+    expect(note?.content).toContain(`<approval-result fn="fs/write" outcome="${outcome}">\n${reply}\n</approval-result>`);
   });
 
   it('hands over to a new message: tool calls go to the background and the run ends', async () => {

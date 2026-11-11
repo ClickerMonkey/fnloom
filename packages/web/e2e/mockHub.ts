@@ -25,10 +25,10 @@ import {
   type ActorId, type NotificationReason, type Tokens, type UserEvent,
 } from '@harness/core';
 import { z } from 'zod';
-import { hubWebSpec, PageRequest, SystemName } from '@harness/core';
+import { hubWebSpec, Json, PageRequest, SystemName } from '@harness/core';
 import { logger, type Logger } from '@ayepi/log';
 import { MockAdmin } from './mockAdmin.ts';
-import { legacyOf, LlmPage, ModelCallPage, ResourcePage, RunPage, SessionPage } from './mockQuery.ts';
+import { isFilters, legacyOf, LlmPage, ModelCallPage, ResourcePage, RunPage, SessionPage } from './mockQuery.ts';
 import { declaredStatusLogger } from './mockLog.ts';
 import { EMPTY_ZIP, MOCK_EXPORTS, MockBuild2 } from './mockBuild2.ts';
 import { MockBuild3 } from './mockBuild3.ts';
@@ -234,6 +234,13 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
         const known = shopTypes(Date.now()).filter((type) => data.names.includes(type.name));
         return { types: known, missing: data.names.filter((name) => !known.some((type) => type.name === name)) };
       },
+      // only the `types` list is asked for through `query` (a fleet instance's types); its `is` filters narrow it
+      query: ({ data }) => {
+        if (data.list !== 'types') { return { items: [], sort: [], total: 0 }; }
+        const wanted = isFilters(data.query);
+        const items = shopTypes(Date.now()).filter((type) => (wanted['system'] ?? type.system) === type.system && (wanted['instance'] ?? type.instance) === type.instance);
+        return { items: items.map((type) => Json.parse(type)), sort: [{ field: 'name', dir: 'asc' as const }], total: items.length };
+      },
       systemLogs: ({ data }) => admin.output(data.system, data.limit),
       providers: () => admin.providers,
       configureProvider: ({ data }) => admin.saveProvider(data.provider),
@@ -332,7 +339,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'setup', 'createAdmin', 'signIn', 'refresh', 'signOut', 'me', 'notifications', 'readNotifications',
     'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
     'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
-    'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs',
+    'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs', 'query',
     'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',
