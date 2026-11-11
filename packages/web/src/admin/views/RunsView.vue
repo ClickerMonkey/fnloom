@@ -102,7 +102,7 @@ function openTree(): void {
       <template #filters>
         <ListSearch v-model="search" list="runs" label="runs" :count="items.length" :more="runs.list.hasMore.value" :partial="runs.list.partial.value">
           <UiButton
-            size="sm" :variant="waitingOnly ? 'secondary' : 'ghost'" icon="shield" :aria-pressed="waitingOnly" data-testid="needs-approval"
+            :variant="waitingOnly ? 'secondary' : 'ghost'" icon="shield" :aria-pressed="waitingOnly" data-testid="needs-approval"
             @click="search = toggledFilter(search, NEEDS_APPROVAL)"
           >
             Needs approval

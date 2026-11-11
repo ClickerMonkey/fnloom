@@ -71,7 +71,7 @@ async function pickFns(deps: PickerDeps, asker: { readonly actor: ActorId; reado
   }
   const text = query.text?.trim() ?? '';
   const page = await deps.fns.search({
-    items: ['fn'], available: false, limit: query.limit ?? deps.settings.HARNESS_PICK_LIMIT, ...(text === '' ? { order: 'alphabetical' as const } : { text }),
+    items: ['fn'], available: false, limit: query.limit ?? deps.settings.HARNESS_PICK_LIMIT, ...(text === '' ? { order: 'name' as const } : { text }),
   }, asker);
   return page.items.map(fnOption);
 }

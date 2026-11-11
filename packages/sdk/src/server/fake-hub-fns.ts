@@ -86,7 +86,7 @@ export class FakeHubFns {
       if (score === 0) { return []; }
       return [{ item: 'fn', name, system, description: kept.saved.description, kind, available: true, ...(score === undefined ? {} : { score }), ...(instance === undefined ? {} : { instance }) }];
     });
-    hits.sort((a, b) => (query.order === 'alphabetical' || a.score === undefined ? a.name.localeCompare(b.name) : (b.score ?? 0) - (a.score ?? 0)));
+    hits.sort((a, b) => (query.order === 'name' || a.score === undefined ? a.name.localeCompare(b.name) : (b.score ?? 0) - (a.score ?? 0)));
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 10;
     const items = hits.slice(offset, offset + limit);

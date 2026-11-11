@@ -5,7 +5,7 @@
 import {
   messageOf,
   type Audience, type Display, type FnError, type FnLimits, type FnValidation, type InputVerdict, type InvalidInput, type Json, type Operations, type OutputVerdict, type ProgressDecl, type ProgressWire,
-  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnEffects, type FnRouting,
+  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnEffects, type FnRouting, type ProposalApprover,
 } from '@harness/core';
 import { encodeValue, json, type GinType } from './gin.ts';
 import type { ValidateCtx } from './ctx.ts';
@@ -259,9 +259,10 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   /**
    * Every run waits for the person's approval, whatever the policies say (writes, schema changes). `preview`
    * (default true) has the hub ask the implementation's `preview(args, ctx)` what the run would do first;
-   * `remember` (default false) lets the person say "don't ask again".
+   * `remember` (default false) lets the person say "don't ask again". `approver` (default `person`): with `admins` a
+   * member's call waits for an admin, who is notified (installing code).
    */
-  approval?: { preview?: boolean; remember?: boolean };
+  approval?: { preview?: boolean; remember?: boolean; approver?: ProposalApprover };
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
   /**
@@ -312,7 +313,7 @@ export function fn<
     tags: def.tags ?? [],
     examples: checkedExamples(def.description, def.args, def.returns, def.examples),
     validate: def.validate,
-    approval: def.approval === undefined ? undefined : { preview: def.approval.preview ?? true, remember: def.approval.remember ?? false },
+    approval: def.approval === undefined ? undefined : { preview: def.approval.preview ?? true, remember: def.approval.remember ?? false, ...(def.approval.approver === undefined ? {} : { approver: def.approval.approver }) },
     routing: def.routing,
     effects: def.effects,
     promptExamples: def.promptExamples,

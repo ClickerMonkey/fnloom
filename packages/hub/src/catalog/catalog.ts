@@ -9,7 +9,7 @@ import {
   Json, noFnStats, QualifiedName, qualify, splitName,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl, type SystemName,
-  type InstanceName, type TypeDecl, type TypeRecord,
+  type InstanceName, type TypeDecl, type TypeRecord, type DeclaredBy,
 } from '@harness/core';
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
@@ -237,7 +237,7 @@ export class StoreCatalog implements Catalog {
       // the top-level lists (providers, registries, contributions) are short, so a patch replaces each whole
       const next: Manifest = { ...previous, ...sections, ...patch.lists, hash: patch.hash };
       // what a patch adds is the running system's own, not its contract's: its records say `runtime`
-      const runtime = new Set<string>((patch.upsert.fns ?? []).map((decl) => qualify(system, decl.name)));
+      const runtime = new Set<string>([...(patch.upsert.fns ?? []), ...(patch.upsert.types ?? []), ...(patch.upsert.context ?? [])].map((decl) => qualify(system, decl.name)));
       return this.#import(from === undefined ? next : fromInstance(previous, next, from), false, runtime);
     });
   }
@@ -364,6 +364,9 @@ export class StoreCatalog implements Catalog {
     const { store, log, clock } = this.options;
     const system = next.name;
     const previous = this.#manifests.get(system);
+    // what a patch added stays the running system's (`runtime`) until a whole manifest declares it, as for fns
+    const declaredBy = (name: QualifiedName, existing: { readonly declaredBy?: DeclaredBy | undefined } | undefined): DeclaredBy =>
+      (runtime !== undefined && (runtime.has(name) || existing?.declaredBy === 'runtime') ? 'runtime' : 'contract');
     const before: SectionLists = previous ?? eachSection(() => []);
     const staged = new Map<string, GinTypeDef>(next.types.map((t) => [qualify(system, t.name), t.def]));
     const lookup: TypeLookup = (name) => staged.get(name) ?? this.#storedLookup(name);
@@ -435,7 +438,7 @@ export class StoreCatalog implements Catalog {
             const number = (await tx.table('typeVersions').count({ type: name })) + 1;
             await tx.table('typeVersions').put({ id: `${name}#${number}`, type: name, number, decl: old, ...(old.instance === undefined ? {} : { instance: old.instance }), savedAt: now });
           }
-          await tx.table('types').put(this.#typeRecord(system, decl, now));
+          await tx.table('types').put(this.#typeRecord(system, decl, now, declaredBy(name, await tx.table('types').get(name)), await hashOf(decl)));
         }
       }
       for (const decl of accepted.kinds) {
@@ -457,7 +460,7 @@ export class StoreCatalog implements Catalog {
       for (const decl of accepted.context) {
         const name = qualify(system, decl.name);
         if (changedNames.has(name) || force) {
-          const record = await tx.table('context').put(await this.#contextRecord(tx, system, decl, accepted.context, now));
+          const record = await tx.table('context').put({ ...await this.#contextRecord(tx, system, decl, accepted.context, now), declaredBy: declaredBy(name, await tx.table('context').get(name)), version: await hashOf(decl) });
           // the context graph's declared and mentioned edges are rewritten in the same transaction, so they never drift
           await writeDerivedLinks(tx, record, now);
         }
@@ -475,7 +478,10 @@ export class StoreCatalog implements Catalog {
 
     this.#manifests.set(system, stored);
     for (const name of removedFrom.get('types') ?? []) { this.#types.delete(name); }
-    for (const decl of accepted.types) { this.#types.set(qualify(system, decl.name), this.#typeRecord(system, decl, now)); }
+    for (const decl of accepted.types) {
+      const name = qualify(system, decl.name);
+      this.#types.set(name, this.#typeRecord(system, decl, now, declaredBy(name, this.#types.get(name)), await hashOf(decl)));
+    }
     for (const name of removedFrom.get('fns') ?? []) { this.#describedTypes.delete(name); }
     for (const fn of fnWrites) { this.#rememberTypes(fn.name, work, splitName(fn.name).local); }
     const changedTypes = new Set<string>([
@@ -640,10 +646,10 @@ export class StoreCatalog implements Catalog {
 
   // ─── Records ──────────────────────────────────────────────────────────────
 
-  #typeRecord(system: SystemName, decl: TypeDecl, now: number): TypeRecord {
+  #typeRecord(system: SystemName, decl: TypeDecl, now: number, by: DeclaredBy, version: string): TypeRecord {
     return {
       name: qualify(system, decl.name), system, description: decl.description, def: decl.def, display: decl.display,
-      references: this.#scopes.references(decl.def), updatedAt: now,
+      references: this.#scopes.references(decl.def), declaredBy: by, version, updatedAt: now,
       // a fleet's type keeps the instance that owns it (a database's table types)
       ...(decl.instance === undefined ? {} : { instance: decl.instance }),
       // and who may see it, when that is narrower than its system

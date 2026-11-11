@@ -30,7 +30,7 @@ beforeEach(async () => {
   const installer = new NodeInstaller({ npm: RIG_SETTINGS.packaging.HARNESS_NPM, maxBytes: RIG_SETTINGS.packaging.HARNESS_PACKAGE_MAX, zips: { bytes: (hash) => contentBytes(rig.content, hash) } });
   supervisor = new ProcessSupervisor({
     store: rig.store, log: rig.log, clock: () => rig.time.now, links: rig.links, pairing: rig.pairing, config: rig.config, instances: rig.instances,
-    launcher, installer, settings: { systemsDir: dir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour: 2 },
+    launcher, installer, settings: { systemsDir: dir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour: 2, maxBackoff: 300_000 },
   });
   packages = new HubPackages({
     content: () => rig.content, supervisor, admin: rig.admin, instances: rig.instances, links: rig.links, config: rig.config, exportTimeout: 200, log: rig.log,

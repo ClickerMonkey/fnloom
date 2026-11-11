@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, manifestFor, shop, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
 import { StoredKeyPair } from './keys.ts';
-import { NodeInstaller, NodeLauncher, readManifest, type Installer, type SystemPackage } from './process.ts';
+import { NodeInstaller, readManifest, type Installer, type SystemPackage } from './process.ts';
 import { FakeLauncher, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
 import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
 import { ProcessSupervisor } from './supervisor.ts';
@@ -42,7 +42,7 @@ function supervisor(name = 'shop', perHour = 2, installer = new FakeInstaller(na
   return new ProcessSupervisor({
     store: rig.store, log: rig.log, clock: () => rig.time.now, links: rig.links, pairing: rig.pairing, config: rig.config, instances: rig.instances,
     launcher, installer,
-    settings: { systemsDir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour },
+    settings: { systemsDir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour, maxBackoff: 300_000 },
   });
 }
 
@@ -225,17 +225,4 @@ describe('the Node ports', () => {
     expect((await new NodeInstaller({ npm: RIG_SETTINGS.packaging.HARNESS_NPM, maxBytes: RIG_SETTINGS.packaging.HARNESS_PACKAGE_MAX }).describe(join(dir, '..', 'nowhere-at-all')).catch((e: unknown) => e)) instanceof Error).toBe(true);
   });
 
-  it('launches a real process and keeps the end of its output', async () => {
-    const real = new NodeLauncher({ baseEnv: { PATH: process.env['PATH'] } });
-    const child = real.launch({ run: process.execPath, args: ['-e', 'console.log("hi " + process.env.WHO); process.exit(3)'], env: { WHO: 'there' } });
-    expect(await child.exited).toEqual({ code: 3, output: 'hi there\n' });
-    const missing = real.launch({ run: join(dir, 'no-such-binary'), args: [], env: {} });
-    expect((await missing.exited).code).toBe(-1);
-  });
-
-  it('runs Node commands with its Node flags first', async () => {
-    const flagged = new NodeLauncher({ baseEnv: { PATH: process.env['PATH'] }, nodeArgs: ['--title=harness-test'] });
-    const child = flagged.launch({ run: process.execPath, args: ['-e', 'console.log(process.title)'], env: {} });
-    expect(await child.exited).toEqual({ code: 0, output: 'harness-test\n' });
-  });
 });

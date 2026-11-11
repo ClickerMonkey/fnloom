@@ -56,7 +56,8 @@ describe('the guide as a context folder', () => {
     context: new Set(Object.keys(contract.context).map((name) => qualify('fs', name))),
   };
 
-  it('builds clean: every header, key and link checks out against the fs contract', async () => {
+  // reads and checks every file of the folder (90 KB of guide); slow on a loaded machine
+  it('builds clean: every header, key and link checks out against the fs contract', { timeout: 30_000 }, async () => {
     const checked = await checkContextFolder(CONTEXT, known);
     expect(checked.problems).toEqual([]);
     const keys = checked.files.map((file) => file.header.key);

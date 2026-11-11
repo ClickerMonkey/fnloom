@@ -10,7 +10,7 @@ import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage 
 import { isTyping, shortcutFor } from './keys.ts';
 import { agentName, confirmVerb, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
 import {
-  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, INVALID_TEXT, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, repeatsArgs, resultBrief, runElapsed, runError, runResult, runText, shownStatus, statusLine,
+  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, INVALID_TEXT, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, repeatsArgs, resultBrief, runElapsed, runDeclined, runError, runResult, runText, shownStatus, statusLine,
 } from './runs.ts';
 import { abilities, contextText, findModels, isFree, priceText, type ModelQuery } from './models.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, skipText, whoAnswers } from './session.ts';
@@ -74,6 +74,11 @@ describe('runs', () => {
     expect(runText({ ...base, status: 'done' })).toBe('Read file done');
     expect(runText({ ...base, status: 'failed' })).toBe('Read file failed');
     expect(runText({ ...base, status: 'awaiting-approval' })).toBe('Waiting for approval to read file');
+    // a declined run is a decision, said with its reason, not a failure
+    const declined = { ...base, status: 'cancelled' as const, errors: [{ attempt: 1, at: T0, cost: 0, error: { class: 'caller' as const, message: 'declined by Ana: not this folder', code: 'denied' } }] };
+    expect(runText(declined)).toBe('Read file declined');
+    expect(runDeclined(declined)).toBe('declined by Ana: not this folder');
+    expect(runDeclined({ status: 'cancelled' })).toBeUndefined();
   });
 
   it('says the words the hub sent for the run phase, and falls back to the defaults for another phase', () => {

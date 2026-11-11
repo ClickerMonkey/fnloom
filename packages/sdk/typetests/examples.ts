@@ -10,8 +10,8 @@ import {
 } from '@harness/sdk';
 import { harnessAiOf, serve, type HarnessAi } from '@harness/sdk/server';
 import { type ClientRuntime } from '@harness/sdk/client';
-import { fs, perPart, type Entry } from '@harness/system-fs';
-import { mintId, type ContentRef, type FnError, type ModelChoice, type RunId } from '@harness/core';
+import { fs, type Entry } from '@harness/system-fs';
+import { mintId, type ApprovedRun, type ContentRef, type FnError, type ModelChoice, type RunId } from '@harness/core';
 
 // Stand-ins for real file and shell code.
 declare function readText(path: string): Promise<string>;
@@ -141,6 +141,16 @@ void serve(fs, {
         return ctx.pause({ at: 'now' });
       },
     },
+    // installing runs only once approved: the run carries the approval it went ahead on
+    install_system: {
+      async run(_args, ctx) {
+        expectType<Equal<typeof ctx.approved, ApprovedRun | undefined>>(true);
+        return ctx.fail('fatal', 'not in a typetest');
+      },
+    },
+    system_status: { async run(_args, ctx) { return ctx.done([]); } },
+    restart_system: { async run(_args, ctx) { return ctx.fail('fatal', 'not in a typetest'); } },
+    stop_system: { async run(_args, ctx) { return ctx.fail('fatal', 'not in a typetest'); } },
   },
   // methods of the system's types: native fns that also get the value they were called on
   types: {
@@ -158,8 +168,8 @@ void serve(fs, {
   // @ts-expect-error actions the contract doesn't declare are refused
   actions: { rerun: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
   // tree is dynamic context, so it must be implemented; its args are typed from the command (and so are the authoring
-  // guide's start item and its parts)
-  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}`, 'system-authoring': async () => 'How to write a system.', ...perPart(() => async () => 'A part of the guide.') },
+  // guide's start item, whose parts come from its context folder)
+  context: { tree: async (args) => `tree of ${args.root ?? 'all roots'}`, 'system-authoring': async () => 'How to write a system.' },
   hooks: { git: async () => [{ type: 'text', tag: 'git', text: 'branch main, 2 files changed' }] },
   mentions: {
     files: {

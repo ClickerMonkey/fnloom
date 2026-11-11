@@ -17,7 +17,8 @@ import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import { buildSystems, type SystemsSettings } from './build.ts';
 import { LINK_SPEC, type LinkSpec } from './handlers.ts';
 import { makeKeyPair, signNonce, type StoredKeyPair } from './keys.ts';
-import type { ProcessExit, ProcessLauncher, SystemCommand, SystemProcess } from './process.ts';
+import type { ProcessExit, ProcessStarter, SupervisedProcess } from '@harness/sdk/server';
+import type { SystemCommand } from './process.ts';
 import { sha256 } from './package/index.ts';
 import type { PackageContent } from './packages.ts';
 import { JwtSystemTokens } from './tokens.ts';
@@ -28,7 +29,7 @@ export const RIG_SETTINGS: SystemsSettings = {
   packaging: { HARNESS_PUBLIC_URL: undefined, HARNESS_AUTO_PAIR_LIMIT: 3, HARNESS_AUTO_PAIR_WINDOW: 60_000, HARNESS_AUTO_PAIR_EXPIRY: 7_776_000_000, HARNESS_PACKAGE_MAX: 10_000_000, HARNESS_NPM: 'npm' },
   link: {
     HARNESS_MAX_FRAME: 262_144, HARNESS_MAX_CHUNK: 1_024, HARNESS_HEARTBEAT: 15_000, HARNESS_PAIRING_TIMEOUT: 60_000, HARNESS_PAIRING_GRANT_TTL: 60_000, HARNESS_STOP_TIMEOUT: 1_000,
-    HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2,
+    HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2, HARNESS_RESTART_BACKOFF_MAX: 300_000, HARNESS_PROCESS_OUTPUT_TAIL: 8_192,
   },
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
   index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000, HARNESS_INDEX_EMBED_BATCH: 8, HARNESS_INDEX_RETRY: 50, HARNESS_INDEX_RETRY_MOST: 200 },
@@ -36,7 +37,7 @@ export const RIG_SETTINGS: SystemsSettings = {
 };
 
 /** A launcher for rigs that never start processes. */
-const noLauncher: ProcessLauncher = { launch: () => { throw new Error('the rig starts no processes'); } };
+const noLauncher: ProcessStarter = { launch: () => { throw new Error('the rig starts no processes'); } };
 
 /** The system side over fakes, with a running hub link server. */
 export async function linkRig(options: { publicUrl?: string } = {}) {
@@ -173,7 +174,7 @@ export class FakeSystem {
   hello(pairingToken?: string): Promise<HelloReply> {
     return this.sdk.call('hello', {
       protocol: LINK_PROTOCOL, name: this.name, version: this.version, instance: this.instance, boot: this.boot, publicKey: this.keys.publicKey,
-      manifestHash: this.manifest.hash, ...(pairingToken === undefined ? {} : { pairingToken }), ...(this.autoPair === undefined ? {} : { autoPair: this.autoPair }),
+      manifestHash: this.manifest.hash, contractHash: this.manifest.hash, ...(pairingToken === undefined ? {} : { pairingToken }), ...(this.autoPair === undefined ? {} : { autoPair: this.autoPair }),
     });
   }
 
@@ -248,7 +249,7 @@ export function systemJson(name: string, version: string, extra: Partial<SystemP
 }
 
 /** A process the test ends by hand. */
-export class FakeProcess implements SystemProcess {
+export class FakeProcess implements SupervisedProcess {
   readonly pid: number;
   readonly exited: Promise<ProcessExit>;
   killed = false;
@@ -267,7 +268,7 @@ export class FakeProcess implements SystemProcess {
 }
 
 /** Records what it launches; tests end the processes. */
-export class FakeLauncher implements ProcessLauncher {
+export class FakeLauncher implements ProcessStarter {
   readonly launched: FakeProcess[] = [];
   launch(command: SystemCommand): FakeProcess {
     const process = new FakeProcess(command, 100 + this.launched.length);

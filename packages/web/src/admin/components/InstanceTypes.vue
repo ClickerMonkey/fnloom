@@ -22,6 +22,7 @@ const toggle = (name: string): void => { open.value = open.value === name ? '' :
           <code class="name">{{ type.name.slice(type.name.indexOf('/') + 1) }}</code>
           <span v-if="type.description !== ''" class="description">{{ type.description }}</span>
         </span>
+        <UiBadge v-if="type.declaredBy === 'runtime'" tone="accent" :title="type.version === undefined ? undefined : `Version ${type.version.slice(0, 8)}`" data-testid="type-runtime">Added while running</UiBadge>
         <UiBadge v-if="changing.has(type.name)" tone="warn">Change waiting</UiBadge>
       </button>
       <div v-if="open === type.name" class="body">

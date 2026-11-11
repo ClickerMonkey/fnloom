@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { BUILT, CONTRACT_ENTRY, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type ScanReport, type SystemBuilder } from '@harness/build';
 import { Manifest } from '@harness/core';
+import { contractHash } from '@harness/sdk';
 import { contentHash, contentHasher } from '@harness/sdk/server';
 import type { BuiltSystem, SystemBuilds } from './hosting.ts';
 import { InstallRefused } from './hosting.ts';
@@ -104,7 +105,7 @@ export class HarnessBuilds implements SystemBuilds {
     return {
       built: {
         manifest: result.manifest,
-        manifestHash: manifest.hash,
+        manifestHash: await contractHash(manifest),
         bundleHash,
         entry,
         fns: manifest.fns.map((decl) => fnLine(manifest.name, decl)),

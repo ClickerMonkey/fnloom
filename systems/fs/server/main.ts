@@ -7,10 +7,9 @@
  * system, which builds the renderers again so changes to them go live too.
  */
 import { existsSync, watch } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { NodeFiles, ViteBuilder } from '@harness/build';
-import { InstanceName, SystemName } from '@harness/core';
+import { SystemName } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { CrashPolicy, NodeStarter, RESTART_CODE, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
 import { fs } from '../shared/index.ts';
@@ -19,6 +18,7 @@ import { fsEnv } from './env.ts';
 import { CliGit } from './git.ts';
 import { HarnessBuilds } from './builds.ts';
 import { Hosting } from './hosting.ts';
+import { tsxLoader } from './loader.ts';
 import { createFsImpl } from './impl.ts';
 import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
@@ -48,25 +48,24 @@ const watchFolder: WatchFolder = (folder, listener) => {
   return () => { watcher.close(); };
 };
 
-// a hosted system is there once the hub lists its fns: usable (connected), or held back waiting for its config
+// a hosted system is there once the hub lists its fns: usable (connected), or held back waiting for its config. Not
+// filtered by instance: that filter finds a fleet instance's own fns (saved queries), not the contract's.
 const probe: ConnectProbe = async (key) => {
-  const [system, instance] = key.split('/');
-  const name = SystemName.safeParse(system);
-  const at = InstanceName.safeParse(instance);
-  if (!name.success || !at.success) { return undefined; }
-  const page = await running.searchFns({ systems: [name.data], instance: at.data, available: false, limit: 20 });
+  const name = SystemName.safeParse(key.split('/')[0]);
+  if (!name.success) { return undefined; }
+  const page = await running.searchFns({ systems: [name.data], available: false, limit: 20 });
   if (page.items.some((hit) => hit.available)) { return 'connected'; }
   return page.items.some((hit) => /config/i.test(hit.unavailable ?? '')) ? 'needs-config' : undefined;
 };
-// the hosted systems run under the loader fs runs under (tsx), which they may read
-const loader = dirname(dirname(fileURLToPath(import.meta.resolve('tsx'))));
+// the hosted systems run under the loader fs runs under (tsx), whose packages they may read
+const loader = tsxLoader(import.meta.url);
 const hosting = new Hosting({
   builds: new HarnessBuilds({ builder: new ViteBuilder(), files: new NodeFiles(), probeTimeout: settings.FS_HOSTED_PROBE_TIMEOUT, probeEnv: scrubbedEnv(process.env) }),
   runner: new SupervisedRunner({
-    starter: new NodeStarter({ baseEnv: process.env, nodeArgs: ['--import', 'tsx'], outputTail: settings.FS_HOSTED_OUTPUT_TAIL }),
+    starter: new NodeStarter({ baseEnv: process.env, nodeArgs: loader.nodeArgs, outputTail: settings.FS_HOSTED_OUTPUT_TAIL }),
     policy: new CrashPolicy({ maxWait: settings.FS_HOSTED_BACKOFF_MAX, restartCode: RESTART_CODE }),
     restart: { policy: 'on-failure', backoff: settings.FS_HOSTED_BACKOFF, maxPerHour: settings.FS_HOSTED_CRASHES_PER_HOUR },
-    reads: [loader],
+    reads: loader.reads,
     probe,
     every: settings.FS_HOSTED_CHECK_EVERY,
     wait: (ms) => new Promise((done) => { setTimeout(done, ms); }),

@@ -137,7 +137,7 @@ export const OUTLINE: readonly Topic[] = [
     reach: false,
     reference: true,
     exports: [
-      'manifestOf', 'manifestBody', 'fnDecl', 'validationOf', 'providerDecl', 'canonicalJson', 'sha256', 'ManifestOptions',
+      'manifestOf', 'manifestBody', 'fnDecl', 'validationOf', 'providerDecl', 'canonicalJson', 'contractHash', 'sha256', 'ManifestOptions',
       'ProviderServer', 'ProviderServerParts', 'providerErrorKind',
       'KeyStore', 'FileKeyStore', 'StoredKeyPair', 'KEY_FILE', 'AUTO_PAIR_FILE', 'makeKeyPair', 'signNonce', 'verifyNonce', 'isPublicKey',
       'OutcomeJournal', 'FileJournal', 'contentHash', 'contentHasher', 'ContentHasher', 'StateConflict', 'LinkGap', 'InvalidValue',

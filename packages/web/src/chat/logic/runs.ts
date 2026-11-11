@@ -116,6 +116,15 @@ export function runError(run: RunView): FnError | undefined {
   return run.status === 'failed' ? run.errors.at(-1)?.error : undefined;
 }
 
+/** The error code the hub gives a run a policy denied or its approver declined (it settles `cancelled`). */
+export const DECLINED_CODE = 'denied';
+
+/** Why a run was declined ("declined by Ana: not this folder"), when a policy or its approver said no. */
+export function runDeclined(run: Pick<RunView, 'status'> & Partial<Pick<RunView, 'errors'>>): string | undefined {
+  const error = run.errors?.at(-1)?.error;
+  return run.status === 'cancelled' && error?.code === DECLINED_CODE ? error.message : undefined;
+}
+
 /** Why a run's input was refused, when it was: the agent retries it, so it is never shown as a failure. */
 export function runInvalid(run: Pick<RunView, 'outcome'>): InvalidInput | undefined {
   return run.outcome?.status === 'invalid-input' ? run.outcome.invalid : undefined;
@@ -230,13 +239,13 @@ export const INVALID_TEXT = 'Sent back for the agent to fix its call';
  * "Retrying harness.md…", "Reading harness.md failed"), or the chat's own while it waits on a person, after it was
  * stopped or taken back, or once its input was refused and sent back for the agent to fix (`INVALID_TEXT`).
  */
-export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text' | 'asking'>): string {
+export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text' | 'asking'> & Partial<Pick<RunView, 'errors'>>): string {
   const label = fnLabel(run.fn);
   if (run.asking === true && !isSettled(run.status)) { return ASKING_TEXT; }
   switch (run.status) {
     case 'awaiting-approval': return `Waiting for approval to ${lowerFirst(label)}`;
     case 'paused': return `${label} · paused`;
-    case 'cancelled': return `${label} cancelled`;
+    case 'cancelled': return runDeclined(run) === undefined ? `${label} cancelled` : `${label} declined`;
     case 'undone': return `${label} undone`;
     case 'invalid-input': return INVALID_TEXT;
     case 'queued': case 'running': case 'waiting': case 'done': case 'failed': return runWords({ ...run, status: run.status }).one;

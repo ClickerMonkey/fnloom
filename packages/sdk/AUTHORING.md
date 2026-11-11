@@ -1684,9 +1684,10 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   /**
    * Every run waits for the person's approval, whatever the policies say (writes, schema changes). `preview`
    * (default true) has the hub ask the implementation's `preview(args, ctx)` what the run would do first;
-   * `remember` (default false) lets the person say "don't ask again".
+   * `remember` (default false) lets the person say "don't ask again". `approver` (default `person`): with `admins` a
+   * member's call waits for an admin, who is notified (installing code).
    */
-  approval?: { preview?: boolean; remember?: boolean };
+  approval?: { preview?: boolean; remember?: boolean; approver?: ProposalApprover };
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
   /**
@@ -1699,7 +1700,7 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations), [`ProposalApprover`](#core-proposalapprover).
 
 #### `FnExampleOf`
 
@@ -6081,6 +6082,11 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
    * `fnExamples` (the hub embeds and pages them). Waits for the hub.
    */
   examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }>;
+  /**
+   * Ask the hub for a one-time pairing token bound to what an approved install run was approved for (`grantPairing`).
+   * Refused unless `request.run` is this instance's running run whose approval's subject is `request.subject`.
+   */
+  grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
   /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
   ai(): Promise<HarnessAi>;
   /**
@@ -6094,7 +6100,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
 }
 ```
 
-Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-importreport), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
+Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
 
 #### `RunningStatus`
 
@@ -6604,6 +6610,11 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, D
    */
   readonly connection: RunConnection | undefined;
   /**
+   * The approval this run went ahead on, for a fn with `approval`: who approved it and the preview they saw, so the
+   * run can check it does what was approved (an install runs only the hashes on its card). `undefined` otherwise.
+   */
+  readonly approved: ApprovedRun | undefined;
+  /**
    * Hand the hub refreshed credentials for this run's connection, or say they can't be refreshed (`expired`, with
    * why in plain words). Resolves once the hub has them; throws when the run has no connection.
    */
@@ -6644,7 +6655,7 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, D
 }
 ```
 
-Refers to: [`AllowedOperations`](#core-allowedoperations), [`ConnectionUpdate`](#core-connectionupdate), [`Detail`](#core-detail), [`ErrorClass`](#core-errorclass), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`RunConnection`](#core-runconnection), [`RunInfo`](#core-runinfo), [`ShareRule`](#core-sharerule), [`Usd`](#core-usd).
+Refers to: [`AllowedOperations`](#core-allowedoperations), [`ApprovedRun`](#core-approvedrun), [`ConnectionUpdate`](#core-connectionupdate), [`Detail`](#core-detail), [`ErrorClass`](#core-errorclass), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`RunConnection`](#core-runconnection), [`RunInfo`](#core-runinfo), [`ShareRule`](#core-sharerule), [`Usd`](#core-usd).
 
 #### `Services`
 
@@ -11207,6 +11218,21 @@ function canonicalJson(value: Json): string;
 
 Refers to: [`Json`](#core-json).
 
+#### `contractHash`
+
+function · `import { contractHash } from '@harness/sdk'`
+
+The hash an approved install binds its pairing grant to (`Hello.contractHash`): the manifest's contract parts, the same
+whether worked out from the contract alone (fs's build, before anything runs) or by the running system. What only the
+process adds is left out: its client assets, the events its implementation handles, whether it serves resources, and
+its context, which may come from its context folder (all inside the approved bundle, whose hash fs checks).
+
+```ts
+function contractHash(manifest: Manifest): Promise<string>;
+```
+
+Refers to: [`Manifest`](#core-manifest).
+
 #### `sha256`
 
 function · `import { sha256 } from '@harness/sdk'`
@@ -11825,9 +11851,11 @@ interface ProcessGrants {
   /** Folders it may write (its state, data and cache). Writable folders are readable too. */
   readonly write: readonly string[];
   /** What `system.json`'s `permissions` declares; both default to no. */
-  readonly permissions?: Partial<SystemPermissions> | undefined;
+  readonly permissions?: SystemPackageManifest['permissions'];
 }
 ```
+
+Refers to: [`SystemPackageManifest`](#core-systempackagemanifest).
 
 #### `CrashPolicy`
 
@@ -12383,6 +12411,80 @@ type ApprovalPreview = {
       manifestHash: string;
     } | undefined;
   } | undefined;
+};
+```
+
+#### <a id="core-approvedrun"></a>`ApprovedRun`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Build 6: the approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK).
+
+```ts
+type ApprovedRun = {
+  by: string;
+  preview: {
+    title: string;
+    parts: ({
+      type: "text";
+      text: string;
+    } | {
+      type: "code";
+      language: string;
+      code: string;
+      title?: string | undefined;
+    } | {
+      type: "table";
+      title: string;
+      table: {
+        columns: {
+          name: string;
+          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+          nullable: boolean;
+          label?: string | undefined;
+          type?: TypeDef<any> | undefined;
+          ref?: `${string}/${string}` | undefined;
+        }[];
+        rows: z.core.util.JSONType[][];
+        offset: number;
+        truncated: boolean;
+        sort: {
+          column: string;
+          dir: "asc" | "desc";
+        }[];
+        limit?: number | undefined;
+        total?: number | undefined;
+      };
+    } | {
+      type: "type-diff";
+      name: string;
+      changes: string[];
+      breaks: {
+        fn: string;
+        why: string;
+      }[];
+      before?: TypeDef<any> | undefined;
+      after?: TypeDef<any> | undefined;
+    })[];
+    irreversible: boolean;
+    subject?: {
+      kind: "system-install";
+      system: string & z.core.$brand<"SystemName">;
+      instance: string & z.core.$brand<"InstanceName">;
+      version: string;
+      manifestHash: string;
+      bundleHash: string;
+      sourceHash: string;
+      host: {
+        system: string & z.core.$brand<"SystemName">;
+        instance: string & z.core.$brand<"InstanceName">;
+      };
+      replaces?: {
+        version: string;
+        manifestHash: string;
+      } | undefined;
+    } | undefined;
+  };
 };
 ```
 
@@ -13109,7 +13211,7 @@ type FnSearchQuery = {
   modes?: ("read" | "write" | "delete")[] | undefined;
   names?: `${string}/${string}`[] | undefined;
   available?: boolean | undefined;
-  order?: "score" | "alphabetical" | undefined;
+  order?: "name" | "score" | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
 };
@@ -14717,6 +14819,48 @@ A page of items; `cursor` is absent on the last page.
 type Page<T> = z.infer<ReturnType<typeof page<z.ZodType<T>>>>;
 ```
 
+#### <a id="core-pairinggrant"></a>`PairingGrant`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+The token (shown once, valid for one hello with the subject's name, instance and manifest hash) and when it lapses.
+
+```ts
+type PairingGrant = {
+  token: string;
+  expiresAt: number;
+};
+```
+
+#### <a id="core-pairinggrantrequest"></a>`PairingGrantRequest`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Build 6: an approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
+
+```ts
+type PairingGrantRequest = {
+  run: string;
+  subject: {
+    kind: "system-install";
+    system: string & z.core.$brand<"SystemName">;
+    instance: string & z.core.$brand<"InstanceName">;
+    version: string;
+    manifestHash: string;
+    bundleHash: string;
+    sourceHash: string;
+    host: {
+      system: string & z.core.$brand<"SystemName">;
+      instance: string & z.core.$brand<"InstanceName">;
+    };
+    replaces?: {
+      version: string;
+      manifestHash: string;
+    } | undefined;
+  };
+};
+```
+
 #### <a id="core-pairingid"></a>`PairingId`
 
 const, type · declared in `packages/core/src/primitives.ts`
@@ -15763,6 +15907,8 @@ type TypeDefinitions = {
       with: string[];
     } | undefined;
     meta?: Record<string, z.core.util.JSONType> | undefined;
+    declaredBy?: "contract" | "runtime" | undefined;
+    version?: string | undefined;
   }[];
   missing: `${string}/${string}`[];
 };

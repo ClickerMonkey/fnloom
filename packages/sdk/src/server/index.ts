@@ -6,7 +6,7 @@
  * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
-import type { AutoPairGrant, Duration, FnExamplesPatch, ImportReport, QualifiedName, TypeDecl } from '@harness/core';
+import type { AutoPairGrant, Duration, FnExamplesPatch, ImportReport, PairingGrant, PairingGrantRequest, QualifiedName, TypeDecl } from '@harness/core';
 import type { Fleets, FnSearch } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
@@ -89,6 +89,11 @@ export interface RunningSystem<N extends string> extends FnSearch, Fleets {
    * `fnExamples` (the hub embeds and pages them). Waits for the hub.
    */
   examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }>;
+  /**
+   * Ask the hub for a one-time pairing token bound to what an approved install run was approved for (`grantPairing`).
+   * Refused unless `request.run` is this instance's running run whose approval's subject is `request.subject`.
+   */
+  grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
   /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
   ai(): Promise<HarnessAi>;
   /**

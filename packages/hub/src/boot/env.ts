@@ -82,6 +82,8 @@ export const linkEnv = env({
   HARNESS_STOP_TIMEOUT: z.number().int().min(100).default(10_000).describe('How long an installed system has to stop before it is killed.'),
   HARNESS_RESTART_BACKOFF: z.number().int().min(100).default(2_000).describe('The first delay before an installed system that exited is started again.'),
   HARNESS_RESTARTS_PER_HOUR: z.number().int().min(1).default(10).describe('Most restarts of one installed system in an hour before it is left stopped.'),
+  HARNESS_RESTART_BACKOFF_MAX: z.number().int().min(100).default(300_000).describe('The longest wait before an installed system that keeps crashing is started again.'),
+  HARNESS_PROCESS_OUTPUT_TAIL: z.number().int().min(256).default(8_192).describe('How many characters of what an installed system printed are kept for the admin page when it exits.'),
 });
 
 /** Models, embeddings and the index. */

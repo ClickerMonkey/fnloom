@@ -439,7 +439,7 @@ const FNS_SEARCH_GUIDE = [
 const FNS_SEARCH_EXAMPLES = [
   { args: { text: 'invoices that are overdue', kinds: ['database/query' as const], instance: 'main', limit: 5 }, note: 'The saved queries of one database closest to a question.' },
   { args: { text: 'ask for trip dates and travellers', kinds: ['input/form' as const] }, note: 'Saved forms that might already ask this.' },
-  { args: { systems: ['fs'], modes: ['read' as const], order: 'alphabetical' as const }, note: 'Every fs fn that only reads, by name.' },
+  { args: { systems: ['fs'], modes: ['read' as const], order: 'name' as const }, note: 'Every fs fn that only reads, by name.' },
 ];
 
 /**

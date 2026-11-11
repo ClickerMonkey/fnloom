@@ -375,7 +375,8 @@ export class AeyeLlm implements RefreshableEngine {
       const text = model.pricing.text;
       return [{
         id: model.id, provider: kind.data, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities], tier: model.tier,
-        ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+        // a provider that doesn't know the cap says 0: no cap is known then
+        ...(model.maxOutputTokens === undefined || model.maxOutputTokens < 1 ? {} : { maxOutputTokens: Math.floor(model.maxOutputTokens) }),
         ...(text?.input === undefined && text?.output === undefined ? {} : { pricing: { input: text.input ?? 0, output: text.output ?? 0 } }),
       }];
     });

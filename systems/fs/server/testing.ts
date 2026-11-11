@@ -5,7 +5,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MAIN_INSTANCE, RunInfo, UserInfo, mintId, type FnError, type Json, type QualifiedName, type TimeInfo } from '@harness/core';
+import { MAIN_INSTANCE, RunInfo, UserInfo, mintId, type ApprovedRun, type FnError, type Json, type QualifiedName, type TimeInfo } from '@harness/core';
 import {
   parseValue, type AttachmentRef, type Callers, type FnCtx, type FnTypes, type HandlersInRun, type Log, type Outcome,
   type ProgressReporter, type SessionState, type SettingRef, type SystemCtx, type UndoCtx,
@@ -80,6 +80,8 @@ export interface FakeOptions {
   /** Actor settings by qualified name, as JSON; checked against the setting's type when read. */
   readonly settings?: Readonly<Record<string, unknown>>;
   readonly signal?: AbortSignal;
+  /** The approval the run went ahead on (`ctx.approved`), for fns with `approval`. */
+  readonly approved?: ApprovedRun;
 }
 
 /** The services every fake run, undo and action gets. */
@@ -136,6 +138,7 @@ export function fnCtx<T extends FnTypes>(parts: FnParts<T>, options: FakeOptions
     signal: options.signal ?? new AbortController().signal,
     resume: undefined,
     connection: undefined,
+    approved: options.approved,
     updateConnection: () => Promise.reject(new Error('This run acts as no connection.')),
     shareFn: () => Promise.resolve(),
     usableFns: (fns) => Promise.resolve([...fns]),

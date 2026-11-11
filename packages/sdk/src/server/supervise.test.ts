@@ -74,4 +74,16 @@ describe('NodeStarter under the permission model', () => {
     expect(JSON.parse(await runChild(false) ?? 'null')).toEqual({ writeData: true, writeOutside: false, child: false, secret: null });
     expect(JSON.parse(await runChild(true) ?? 'null')).toMatchObject({ child: true });
   });
+
+  it('keeps the end of what a real process printed, and says -1 when it never starts', async () => {
+    const starter = new NodeStarter({ baseEnv: { PATH: process.env['PATH'] }, outputTail: 8_192 });
+    const child = starter.launch({ run: process.execPath, args: ['-e', 'console.log("hi " + process.env.WHO); process.exit(3)'], env: { WHO: 'there' } });
+    expect(await child.exited).toEqual({ code: 3, output: 'hi there\n' });
+    expect((await starter.launch({ run: join(tmpdir(), 'no-such-binary'), args: [] }).exited).code).toBe(-1);
+  });
+
+  it('runs Node commands with its Node flags first', async () => {
+    const flagged = new NodeStarter({ baseEnv: { PATH: process.env['PATH'] }, nodeArgs: ['--title=harness-test'], outputTail: 8_192 });
+    expect(await flagged.launch({ run: process.execPath, args: ['-e', 'console.log(process.title)'] }).exited).toEqual({ code: 0, output: 'harness-test\n' });
+  });
 });

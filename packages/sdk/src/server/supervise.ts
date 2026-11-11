@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { backoff } from '@ayepi/core/retry';
-import type { RestartPolicy, SystemPermissions } from '@harness/core';
+import type { RestartPolicy, SystemPackageManifest } from '@harness/core';
 import { SYSTEM_ENV } from './env.ts';
 
 /** How to run a process: the program, its arguments, its working folder and the variables it adds. */
@@ -69,7 +69,7 @@ export interface ProcessGrants {
   /** Folders it may write (its state, data and cache). Writable folders are readable too. */
   readonly write: readonly string[];
   /** What `system.json`'s `permissions` declares; both default to no. */
-  readonly permissions?: Partial<SystemPermissions> | undefined;
+  readonly permissions?: SystemPackageManifest['permissions'];
 }
 
 /**

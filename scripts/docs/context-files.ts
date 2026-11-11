@@ -6,7 +6,7 @@
  * so the build checks them. The words are in `context-graph.ts`; the text is the guide's own, so the folder is never
  * edited by hand.
  */
-import { ContextFileHeader } from '@harness/core';
+import { ContextFileHeader, type QualifiedName } from '@harness/core';
 import { AUTHORING_GROUPS, AUTHORING_INDEX, PART_WORDS, type AuthoringGroup } from './context-graph.ts';
 import type { GuidePart } from './parts.ts';
 
@@ -31,7 +31,7 @@ export interface ContextFile {
   readonly text: string;
 }
 
-const qualified = (key: string): string => `${SYSTEM}/${key}`;
+const qualified = (key: string): QualifiedName => `${SYSTEM}/${key}`;
 const partKey = (topic: string): string => `authoring.${topic}`;
 const groupKey = (group: AuthoringGroup): string => `authoring.topics.${group.id}`;
 
@@ -71,7 +71,7 @@ function split(part: GuidePart): { prose: string; reference: string | undefined 
 }
 
 /** The fns an item brings: none for a reference; the install fns too where installing is the subject. */
-function fnsOf(install: boolean): string[] {
+function fnsOf(install: boolean): QualifiedName[] {
   return [...AUTHOR_FNS, ...(install ? INSTALL_FNS : [])];
 }
 

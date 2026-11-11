@@ -5,7 +5,7 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ConnectFinish, CostEstimate, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
@@ -54,6 +54,7 @@ export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Dec
   readonly form: (() => Promise<unknown>) | undefined;
   readonly resume: Resume<unknown> | undefined;
   readonly connection: RunConnection | undefined;
+  readonly approved: ApprovedRun | undefined;
   updateConnection(update: ConnectionUpdate['update']): Promise<void>;
   shareFn(fn: string, share: ShareRule): Promise<void>;
   usableFns(fns: readonly string[]): Promise<string[]>;

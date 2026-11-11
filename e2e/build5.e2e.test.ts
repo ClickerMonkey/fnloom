@@ -106,7 +106,7 @@ describe('approval', () => {
     expect(asked.status).toBe('awaiting-approval');
     expect((await decide(asked.id, true)).outcome).toMatchObject({ status: 'done', result: { affected: 2 } });
     const again = await started('database/shop.mark_open_paid', {});
-    expect((await decide(again.id, false)).outcome).toMatchObject({ status: 'failed', error: { message: 'Declined by e2e: Not now', code: 'denied' } });
+    expect((await decide(again.id, false)).outcome).toMatchObject({ status: 'cancelled', error: { message: 'Declined by e2e: Not now', code: 'denied' } });
   });
 
   it('makes a table from a gin type once approved, and it becomes a hub type', async () => {

@@ -243,12 +243,10 @@ export class Hosting {
       throw new InstallRefused('The folder changed after approval; call install_system again to build and approve the new code.');
     }
     const manifest = await this.#systemJson(folder);
-    let bundle = this.versionFolder(subject.system, subject.bundleHash);
-    let built = await this.#readBuilt(bundle);
+    let built = await this.#readBuilt(this.versionFolder(subject.system, subject.bundleHash));
     if (built === undefined) {
       const again = await this.#build(folder, subject.system, signal);
       if (again.bundleHash !== subject.bundleHash) { throw new InstallRefused('The build is not the one approved; call install_system again.'); }
-      bundle = this.versionFolder(subject.system, again.bundleHash);
       built = again;
     }
     const hosted = await this.record(subject.system, subject.instance);

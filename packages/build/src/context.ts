@@ -50,12 +50,27 @@ function headerLinks(file: ContextFile): FileLink[] {
   ];
 }
 
-/** Every `context:` / `fn:` reference in a file's body, with its 1-based line and column in the file. */
+/** A fence line of a fenced code block (three or more backticks or tildes, up to three spaces in). */
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Every `context:` / `fn:` reference in a file's body, with its 1-based line and column in the file. References in
+ * fenced code blocks are examples (another system's file shown as text), so they are not links and aren't checked.
+ */
 function bodyLinks(file: ContextFile): Array<FileLink & { line: number; column: number }> {
   const found: Array<FileLink & { line: number; column: number }> = [];
   const lines = file.source.split(/\r?\n/);
+  let fence: string | undefined;
   for (let index = file.bodyLine - 1; index < lines.length; index += 1) {
-    for (const match of (lines[index] ?? '').matchAll(new RegExp(CONTEXT_BODY_REFERENCE.source, 'g'))) {
+    const line = lines[index] ?? '';
+    const marker = FENCE.exec(line)?.[1];
+    if (marker !== undefined) {
+      // a fence closes with the same character, at least as long as the one that opened it
+      if (fence === undefined) { fence = marker; } else if (marker[0] === fence[0] && marker.length >= fence.length) { fence = undefined; }
+      continue;
+    }
+    if (fence !== undefined) { continue; }
+    for (const match of line.matchAll(new RegExp(CONTEXT_BODY_REFERENCE.source, 'g'))) {
       const [, kind, to] = match;
       if ((kind === 'fn' || kind === 'context') && to !== undefined) { found.push({ to, kind, key: undefined, line: index + 1, column: match.index + 1 }); }
     }

@@ -129,6 +129,80 @@ type ApprovalPreview = {
 };
 ```
 
+#### <a id="core-approvedrun"></a>`ApprovedRun`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Build 6: the approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK).
+
+```ts
+type ApprovedRun = {
+  by: string;
+  preview: {
+    title: string;
+    parts: ({
+      type: "text";
+      text: string;
+    } | {
+      type: "code";
+      language: string;
+      code: string;
+      title?: string | undefined;
+    } | {
+      type: "table";
+      title: string;
+      table: {
+        columns: {
+          name: string;
+          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+          nullable: boolean;
+          label?: string | undefined;
+          type?: TypeDef<any> | undefined;
+          ref?: `${string}/${string}` | undefined;
+        }[];
+        rows: z.core.util.JSONType[][];
+        offset: number;
+        truncated: boolean;
+        sort: {
+          column: string;
+          dir: "asc" | "desc";
+        }[];
+        limit?: number | undefined;
+        total?: number | undefined;
+      };
+    } | {
+      type: "type-diff";
+      name: string;
+      changes: string[];
+      breaks: {
+        fn: string;
+        why: string;
+      }[];
+      before?: TypeDef<any> | undefined;
+      after?: TypeDef<any> | undefined;
+    })[];
+    irreversible: boolean;
+    subject?: {
+      kind: "system-install";
+      system: string & z.core.$brand<"SystemName">;
+      instance: string & z.core.$brand<"InstanceName">;
+      version: string;
+      manifestHash: string;
+      bundleHash: string;
+      sourceHash: string;
+      host: {
+        system: string & z.core.$brand<"SystemName">;
+        instance: string & z.core.$brand<"InstanceName">;
+      };
+      replaces?: {
+        version: string;
+        manifestHash: string;
+      } | undefined;
+    } | undefined;
+  };
+};
+```
+
 #### <a id="core-audience"></a>`Audience`
 
 const, type · declared in `packages/core/src/primitives.ts`
@@ -852,7 +926,7 @@ type FnSearchQuery = {
   modes?: ("read" | "write" | "delete")[] | undefined;
   names?: `${string}/${string}`[] | undefined;
   available?: boolean | undefined;
-  order?: "score" | "alphabetical" | undefined;
+  order?: "name" | "score" | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
 };
@@ -2460,6 +2534,48 @@ A page of items; `cursor` is absent on the last page.
 type Page<T> = z.infer<ReturnType<typeof page<z.ZodType<T>>>>;
 ```
 
+#### <a id="core-pairinggrant"></a>`PairingGrant`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+The token (shown once, valid for one hello with the subject's name, instance and manifest hash) and when it lapses.
+
+```ts
+type PairingGrant = {
+  token: string;
+  expiresAt: number;
+};
+```
+
+#### <a id="core-pairinggrantrequest"></a>`PairingGrantRequest`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Build 6: an approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
+
+```ts
+type PairingGrantRequest = {
+  run: string;
+  subject: {
+    kind: "system-install";
+    system: string & z.core.$brand<"SystemName">;
+    instance: string & z.core.$brand<"InstanceName">;
+    version: string;
+    manifestHash: string;
+    bundleHash: string;
+    sourceHash: string;
+    host: {
+      system: string & z.core.$brand<"SystemName">;
+      instance: string & z.core.$brand<"InstanceName">;
+    };
+    replaces?: {
+      version: string;
+      manifestHash: string;
+    } | undefined;
+  };
+};
+```
+
 #### <a id="core-pairingid"></a>`PairingId`
 
 const, type · declared in `packages/core/src/primitives.ts`
@@ -3506,6 +3622,8 @@ type TypeDefinitions = {
       with: string[];
     } | undefined;
     meta?: Record<string, z.core.util.JSONType> | undefined;
+    declaredBy?: "contract" | "runtime" | undefined;
+    version?: string | undefined;
   }[];
   missing: `${string}/${string}`[];
 };

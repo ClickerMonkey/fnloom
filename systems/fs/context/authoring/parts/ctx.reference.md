@@ -39,6 +39,11 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, D
    */
   readonly connection: RunConnection | undefined;
   /**
+   * The approval this run went ahead on, for a fn with `approval`: who approved it and the preview they saw, so the
+   * run can check it does what was approved (an install runs only the hashes on its card). `undefined` otherwise.
+   */
+  readonly approved: ApprovedRun | undefined;
+  /**
    * Hand the hub refreshed credentials for this run's connection, or say they can't be refreshed (`expired`, with
    * why in plain words). Resolves once the hub has them; throws when the run has no connection.
    */
@@ -79,7 +84,7 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, D
 }
 ```
 
-Refers to: [`AllowedOperations`](#core-allowedoperations), [`ConnectionUpdate`](#core-connectionupdate), [`Detail`](#core-detail), [`ErrorClass`](#core-errorclass), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`RunConnection`](#core-runconnection), [`RunInfo`](#core-runinfo), [`ShareRule`](#core-sharerule), [`Usd`](#core-usd).
+Refers to: [`AllowedOperations`](#core-allowedoperations), [`ApprovedRun`](#core-approvedrun), [`ConnectionUpdate`](#core-connectionupdate), [`Detail`](#core-detail), [`ErrorClass`](#core-errorclass), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`RunConnection`](#core-runconnection), [`RunInfo`](#core-runinfo), [`ShareRule`](#core-sharerule), [`Usd`](#core-usd).
 
 #### `Services`
 

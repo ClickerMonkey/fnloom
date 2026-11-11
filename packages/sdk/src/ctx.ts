@@ -6,6 +6,7 @@ import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
   Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun, FnSearchQuery, FnSearchPage, FnExamplesQuery, FnExamplesPage,
+  ApprovedRun,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -353,6 +354,11 @@ export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Propo
    * and settings, which the hub picked (the caller's own, else one shared with them). `undefined` otherwise.
    */
   readonly connection: RunConnection | undefined;
+  /**
+   * The approval this run went ahead on, for a fn with `approval`: who approved it and the preview they saw, so the
+   * run can check it does what was approved (an install runs only the hashes on its card). `undefined` otherwise.
+   */
+  readonly approved: ApprovedRun | undefined;
   /**
    * Hand the hub refreshed credentials for this run's connection, or say they can't be refreshed (`expired`, with
    * why in plain words). Resolves once the hub has them; throws when the run has no connection.

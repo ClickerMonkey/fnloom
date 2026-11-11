@@ -1,10 +1,9 @@
 /**
- * The ports the supervisor runs installed instances through, and their Node implementations: `ProcessLauncher`
- * starts a system's process and reports its exit with the end of its output; `Installer` fetches a system from a
- * folder, an npm package, a git repository or an uploaded package zip, and reads what it is from its `system.json`
+ * How the supervisor gets installed instances (their processes are started by the SDK's shared `ProcessStarter`):
+ * `Installer` fetches a system from a folder, an npm package, a git repository or an uploaded package zip, and reads what it is from its `system.json`
  * (`SystemPackageManifest`, the one source of a system's name, version and entries).
  */
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -14,26 +13,6 @@ import { readPackage, unzip, writeTree } from './package/index.ts';
 
 /** How to run a system's process. */
 export type SystemCommand = InstalledSystem['command'];
-
-/** How a process ended. */
-export interface ProcessExit {
-  readonly code: number;
-  /** The end of what it printed. */
-  readonly output: string;
-}
-
-/** A running system process. */
-export interface SystemProcess {
-  readonly pid: number | undefined;
-  /** Settles once, when the process exits (or fails to start, with code -1). */
-  readonly exited: Promise<ProcessExit>;
-  kill(): void;
-}
-
-/** Starts system processes. */
-export interface ProcessLauncher {
-  launch(command: SystemCommand): SystemProcess;
-}
 
 /** What an installed folder holds: its manifest, its server entry file (absolute) and the folder. */
 export interface SystemPackage {
@@ -56,44 +35,6 @@ export interface Installer {
 export interface ZipSource {
   /** The bytes stored under a hash; refused when there are none. */
   bytes(hash: string): Promise<Uint8Array>;
-}
-
-/** How much of a process's output is kept for the admin page. */
-export const OUTPUT_TAIL = 8_192;
-
-/**
- * Starts processes with `child_process.spawn`, keeping the tail of their output. Commands that run this Node binary
- * get `nodeArgs` first, so systems run with the hub's own Node flags (under `tsx`, its loader, so a system can run
- * from its TypeScript source).
- */
-export class NodeLauncher implements ProcessLauncher {
-  readonly #baseEnv: Readonly<Record<string, string | undefined>>;
-  readonly #nodeArgs: readonly string[];
-
-  /** `baseEnv` is what every system process inherits (boot passes the hub's own environment and `process.execArgv`). */
-  constructor(options: { baseEnv: Readonly<Record<string, string | undefined>>; nodeArgs?: readonly string[] }) {
-    this.#baseEnv = options.baseEnv;
-    this.#nodeArgs = options.nodeArgs ?? [];
-  }
-
-  launch(command: SystemCommand): SystemProcess {
-    const args = command.run === process.execPath ? [...this.#nodeArgs, ...command.args] : command.args;
-    const child = spawn(command.run, args, {
-      ...(command.cwd === undefined ? {} : { cwd: command.cwd }),
-      env: { ...this.#baseEnv, ...command.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    let output = '';
-    const keep = (chunk: Buffer) => { output = (output + chunk.toString('utf8')).slice(-OUTPUT_TAIL); };
-    child.stdout.on('data', keep);
-    child.stderr.on('data', keep);
-    const exited = new Promise<ProcessExit>((done) => {
-      child.once('error', (error) => { done({ code: -1, output: `${output}\n${error.message}`.slice(-OUTPUT_TAIL) }); });
-      child.once('exit', (code, signal) => { done({ code: code ?? (signal === null ? 0 : 1), output }); });
-    });
-    return { pid: child.pid, exited, kill: () => { child.kill(); } };
-  }
 }
 
 const run = promisify(execFile);

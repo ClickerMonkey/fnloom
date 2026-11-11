@@ -47,6 +47,11 @@ export const Hello = z.object({
   /** The system's public key (Ed25519, SPKI DER as base64). */
   publicKey: z.string(),
   manifestHash: z.string(),
+  /**
+   * Build 6: the hash of its contract parts (the SDK's `contractHash`), which a pairing token granted to an approved
+   * install (`boundTo.manifestHash`) must match.
+   */
+  contractHash: z.string().optional(),
   pairingToken: z.string().optional(),
   /** An auto-pair secret (build 3): re-pairs this instance with the new key once the challenge is signed. */
   autoPair: AutoPairProof.optional(),

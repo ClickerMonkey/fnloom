@@ -19,7 +19,8 @@ import { linkServicesPlugin, serviceCatalog } from '../link/services.ts';
 import { linkReadsPlugin } from '../link/reads.ts';
 import { adminReadOperations, exploreOperations, personOperations, type AdminReadOperations, type ExploreOperations, type PersonOperations } from '../api/person-ops.ts';
 import { registerPersonFns } from './person-fns.ts';
-import { NodeLauncher, type Installer, type ProcessLauncher } from '../link/process.ts';
+import { NodeStarter, type ProcessStarter } from '@harness/sdk/server';
+import type { Installer } from '../link/process.ts';
 import { openSqliteStore } from '../store/sqlite.ts';
 import { adminOperations, type AdminOperations } from '../api/admin-ops.ts';
 import { hubReads, type HubReads } from '../api/reads.ts';
@@ -44,7 +45,7 @@ import { fnsModule } from '../fns/create.ts';
 /** What the production modules can be given instead of their defaults (tests, the e2e hub). */
 export interface ModuleSeams {
   /** How systems the hub installs are started (default: Node child processes with this process's env and Node flags). */
-  readonly launcher?: ProcessLauncher;
+  readonly launcher?: ProcessStarter;
   /** How systems are installed from a folder, npm or git (default: npm and git on this machine). */
   readonly installer?: Installer;
   /** Where models come from (default: OpenRouter with `OPENROUTER_API_KEY`). */
@@ -73,7 +74,7 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
         hub: hub.settings.hubEnv, link: hub.settings.linkEnv, packaging: hub.settings.packagingEnv, model: hub.settings.modelEnv, index: hub.settings.indexEnv,
         search: hub.settings.storeEnv,
       },
-      launcher: seams.launcher ?? new NodeLauncher({ baseEnv: process.env, nodeArgs: process.execArgv }),
+      launcher: seams.launcher ?? new NodeStarter({ baseEnv: process.env, nodeArgs: process.execArgv, outputTail: hub.settings.linkEnv.HARNESS_PROCESS_OUTPUT_TAIL }),
       ...(seams.installer === undefined ? {} : { installer: seams.installer }),
       content: () => hub.api.content,
       secrets: () => hub.api.secrets,

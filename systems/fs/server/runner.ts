@@ -5,7 +5,7 @@
  * `system.json` asks), and restarted after a crash by the `CrashPolicy` (backoff doubling, a cap per hour, then
  * disabled). A start waits until the hub says the system is there (`ConnectProbe`), it exits, or the time is up.
  */
-import { CrashPolicy, permissionArgs, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
+import { permissionArgs, type CrashPolicy, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
 import type { RestartPolicy } from '@harness/core';
 import type { HostedStateValue } from '../shared/hosting.ts';
 import type { HostedLaunch, HostedRunner, RunnerStatus, StartOutcome } from './hosting.ts';
@@ -120,9 +120,11 @@ export class SupervisedRunner implements HostedRunner {
       entry.state = 'starting';
       const again = this.#spawn(key, entry);
       // once the hub sees it again it is connected; until then it is starting
-      let gone = false;
-      void again.exited.then(() => { gone = true; });
-      while (!gone && entry.process === again && entry.state === 'starting') {
+      const watch = { gone: false };
+      void again.exited.then(() => { watch.gone = true; });
+      // a function, so each check reads the entry as it is after the awaits
+      const waiting = (): boolean => !watch.gone && entry.process === again && entry.state === 'starting';
+      while (waiting()) {
         const state = await this.#deps.probe(key);
         if (state !== undefined && entry.process === again) { entry.state = state; break; }
         await this.#deps.wait(this.#deps.every);

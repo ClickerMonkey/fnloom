@@ -124,6 +124,11 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
    * `fnExamples` (the hub embeds and pages them). Waits for the hub.
    */
   examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }>;
+  /**
+   * Ask the hub for a one-time pairing token bound to what an approved install run was approved for (`grantPairing`).
+   * Refused unless `request.run` is this instance's running run whose approval's subject is `request.subject`.
+   */
+  grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
   /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
   ai(): Promise<HarnessAi>;
   /**
@@ -137,7 +142,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
 }
 ```
 
-Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-importreport), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
+Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
 
 #### `RunningStatus`
 

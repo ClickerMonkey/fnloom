@@ -12,9 +12,8 @@
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { reject as refuse } from '@ayepi/core';
-import { backoff } from '@ayepi/core/retry';
 import type { Logger } from '@ayepi/log';
-import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
+import { CrashPolicy, RESTART_CODE, SYSTEM_ENV, type ProcessExit, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
 import {
   MAIN_INSTANCE, instanceLabel, type ActorId, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
   type Json, type StopReason, type SystemName,
@@ -25,13 +24,8 @@ import type { HubStore } from '../store/index.ts';
 import type { StoreConfigService } from './config.ts';
 import type { LinkService, PairingService, Supervisor } from './index.ts';
 import { KEY_FILE, makeKeyPair, randomToken } from './keys.ts';
-import type { Installer, ProcessExit, ProcessLauncher, SystemPackage, SystemProcess } from './process.ts';
+import type { Installer, SystemPackage } from './process.ts';
 import type { InstanceKeeper } from './status.ts';
-
-/** An hour, the window crashes are counted in. */
-const HOUR = 3_600_000;
-/** The longest wait between restarts. */
-const MAX_BACKOFF = 300_000;
 
 /** Supervisor tunables (from the link env slice). */
 export interface SupervisorSettings {
@@ -45,6 +39,8 @@ export interface SupervisorSettings {
   readonly backoff: number;
   /** Crashes in an hour before giving up (or rolling back). */
   readonly perHour: number;
+  /** The longest wait between restarts. */
+  readonly maxBackoff: number;
 }
 
 /** What the supervisor needs. */
@@ -56,14 +52,15 @@ export interface SupervisorOptions {
   readonly pairing: PairingService;
   readonly config: StoreConfigService;
   readonly instances: InstanceKeeper;
-  readonly launcher: ProcessLauncher;
+  /** Starts processes: the SDK's `NodeStarter` (a scrubbed environment) in production. */
+  readonly launcher: ProcessStarter;
   readonly installer: Installer;
   readonly settings: SupervisorSettings;
 }
 
 /** One running process. */
 interface Running {
-  readonly process: SystemProcess;
+  readonly process: SupervisedProcess;
   /** Settles once the exit has been handled (status written, restart started), so a stop can wait for all of it. */
   readonly handled: Promise<void>;
   stopping: boolean;
@@ -79,11 +76,13 @@ export class ProcessSupervisor implements Supervisor {
   readonly #options: SupervisorOptions;
   /** By `system@instance`. */
   readonly #running = new Map<string, Running>();
-  readonly #crashes = new Map<string, number[]>();
+  /** The shared restart rule, keyed by `system@instance`. */
+  readonly #crashes: CrashPolicy;
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(options: SupervisorOptions) {
     this.#options = options;
+    this.#crashes = new CrashPolicy({ maxWait: options.settings.maxBackoff, restartCode: RESTART_CODE, clock: options.clock });
     options.links.onChange((change) => {
       if (change.connected && this.#running.has(instanceLabel(change))) { void this.#connected(change); }
     });
@@ -173,7 +172,7 @@ export class ProcessSupervisor implements Supervisor {
       const wasRunning = this.#running.has(instanceLabel(ref));
       await this.#stop(ref, 'upgrade');
       await this.#update(ref, { source, version: pkg.manifest.version, command: this.#command(pkg, ref, this.dirsOf(ref)) });
-      this.#crashes.delete(instanceLabel(ref));
+      this.#crashes.forget(instanceLabel(ref));
       this.#options.log.info('supervisor.upgraded', { system, instance: ref.instance, from: installed.version, to: pkg.manifest.version });
       if (wasRunning || installed.autoStart) { await this.#start({ ...installed, command: this.#command(pkg, ref, this.dirsOf(ref)) }); }
     }
@@ -189,7 +188,7 @@ export class ProcessSupervisor implements Supervisor {
         const { installed: _gone, ...rest } = record;
         return { ...rest, status: 'removed' };
       });
-      this.#crashes.delete(instanceLabel(ref));
+      this.#crashes.forget(instanceLabel(ref));
       this.#options.log.info('supervisor.uninstalled', { system, instance: ref.instance });
     }
     // the package goes with the last installed instance; data folders stay, so the data can still be exported
@@ -220,7 +219,7 @@ export class ProcessSupervisor implements Supervisor {
     const key = instanceLabel(ref);
     this.#clearTimer(key);
     if (this.#running.has(key)) { return; }
-    if (installed.status === 'disabled') { this.#crashes.delete(key); }
+    if (installed.status === 'disabled') { this.#crashes.forget(key); }
     const process = this.#options.launcher.launch(installed.command);
     const handled = process.exited.then((exit) => this.#exited(ref, exit)).catch((error: unknown) => {
       this.#options.log.error('supervisor.exit.failed', { system: ref.system, instance: ref.instance, error: messageOf(error) });
@@ -277,31 +276,26 @@ export class ProcessSupervisor implements Supervisor {
     if (installed === undefined) { return; }
     const lastExit = { code: exit.code, at: clock(), output: exit.output };
     const fields = { system: ref.system, instance: ref.instance, version: installed.version };
-    if (running?.stopping !== false) {
-      await this.#update(ref, { status: 'stopped', lastExit });
-      return;
+    const decision = this.#crashes.decide(key, installed.restart, exit, running?.stopping !== false);
+    switch (decision.action) {
+      case 'stopped':
+        await this.#update(ref, { status: running?.stopping !== false || exit.code === 0 ? 'stopped' : 'crashed', lastExit });
+        return;
+      case 'restart-now':
+        log.info('supervisor.restarting', fields);
+        await this.#update(ref, { status: 'starting', lastExit });
+        await this.#start(installed);
+        return;
+      case 'give-up':
+        log.warn('supervisor.crashed', { ...fields, code: exit.code, crashes: decision.crashes });
+        await this.#giveUp(ref, installed, lastExit);
+        return;
+      case 'restart':
+        break;
     }
-    if (exit.code === RESTART_CODE) {
-      log.info('supervisor.restarting', fields);
-      await this.#update(ref, { status: 'starting', lastExit });
-      await this.#start(installed);
-      return;
-    }
-    const { policy } = installed.restart;
-    if (policy === 'never' || (policy === 'on-failure' && exit.code === 0)) {
-      await this.#update(ref, { status: exit.code === 0 ? 'stopped' : 'crashed', lastExit });
-      return;
-    }
-    const now = clock();
-    const crashes = [...(this.#crashes.get(key) ?? []).filter((at) => at > now - HOUR), now];
-    this.#crashes.set(key, crashes);
-    log.warn('supervisor.crashed', { ...fields, code: exit.code, crashes: crashes.length });
-    if (crashes.length > installed.restart.maxPerHour) {
-      await this.#giveUp(ref, installed, lastExit);
-      return;
-    }
+    log.warn('supervisor.crashed', { ...fields, code: exit.code, crashes: decision.crashes });
     await this.#update(ref, { status: 'crashed', lastExit });
-    const wait = backoff(crashes.length, { base: installed.restart.backoff, max: MAX_BACKOFF, jitter: 0 });
+    const wait = decision.wait;
     this.#timers.set(key, setTimeout(() => {
       this.#timers.delete(key);
       this.start(ref.system, ref.instance).catch((error: unknown) => { log.error('supervisor.restart.failed', { ...fields, error: messageOf(error) }); });
@@ -316,7 +310,7 @@ export class ProcessSupervisor implements Supervisor {
       const pkg = await installer.describe(this.#versionDir(ref.system, good));
       const command = this.#command(pkg, ref, this.dirsOf(ref));
       await this.#update(ref, { version: good, command, status: 'crashed', lastExit });
-      this.#crashes.delete(instanceLabel(ref));
+      this.#crashes.forget(instanceLabel(ref));
       log.error('supervisor.rolled.back', { system: ref.system, instance: ref.instance, from: installed.version, to: good });
       await this.#start({ ...installed, version: good, command });
       return;

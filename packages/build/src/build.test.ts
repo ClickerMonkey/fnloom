@@ -50,9 +50,9 @@ const header = (fields: string, body = 'Text.') => `---\n${fields}\n---\n${body}
 const KNOWN = { system: 'notes', fns: new Set(['notes/add', 'hub/load_context']), context: new Set(['fs/system-authoring']) };
 
 describe('checkContextFolder', () => {
-  it('passes a folder whose links all resolve, own keys included', async () => {
+  it('passes a folder whose links all resolve, own keys included, and skips examples in fenced code', async () => {
     const dir = await folder({
-      'index.md': header('key: guide\ndescription: Index.\nsummary: Where to start.\nchoices:\n  - to: notes/guide.add\n    when: You are adding a note.', 'See fn:notes/add and [authoring](context:fs/system-authoring).'),
+      'index.md': header('key: guide\ndescription: Index.\nsummary: Where to start.\nchoices:\n  - to: notes/guide.add\n    when: You are adding a note.', 'See fn:notes/add and [authoring](context:fs/system-authoring).\n\n```md\nAn example of another system: fn:other/gone, context:other/gone.\n```'),
       'add.md': header('key: guide.add\ndescription: Adding.\nsummary: How to add.\nparent: notes/guide\nfns: [notes/add]'),
     });
     const checked = await checkContextFolder(dir, KNOWN);

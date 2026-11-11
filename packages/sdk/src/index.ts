@@ -48,7 +48,7 @@ export {
   type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
 } from './hub.ts';
 export { agent, type AgentInput, type AgentFnTypes, type LlmPayload, type LlmKind } from './agent.ts';
-export { manifestOf, manifestBody, fnDecl, canonicalJson, sha256, type ManifestOptions } from './manifest.ts';
+export { manifestOf, manifestBody, fnDecl, canonicalJson, contractHash, sha256, type ManifestOptions } from './manifest.ts';
 export {
   client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO, SHARE_EDITOR, VISUALS,
   type InputAnswer, type InputAnswers, type ValueEditorProps, type ShareEditorProps,

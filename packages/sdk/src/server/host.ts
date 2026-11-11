@@ -20,11 +20,12 @@ import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
   type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
-  type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch,
+  type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch, PairingGrantRequest, type PairingGrant,
 } from '@harness/core';
 import type { Log, SystemPlace } from '../ctx.ts';
 import { fleets, fnSearch } from './asks.ts';
 import { wireType } from '../gin.ts';
+import { contractHash } from '../manifest.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
@@ -331,6 +332,11 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     return hub.call('patch', await this.#manifestState().patch(change));
   }
 
+  async grantPairing(request: PairingGrantRequest): Promise<PairingGrant> {
+    const hub = await this.#access.ready(this.#stop.signal);
+    return hub.call('grantPairing', PairingGrantRequest.parse(request), { signal: this.#stop.signal });
+  }
+
   async examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }> {
     if (this.#table.fnDef(fn) === undefined) { throw new Error(`${this.name} has no fn ${fn}.`); }
     const hub = await this.#access.ready(this.#stop.signal);
@@ -435,6 +441,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
         boot: this.#boot,
         publicKey: await this.#keys.publicKey(),
         manifestHash: await this.#manifestState().hash(),
+        contractHash: await contractHash(await this.#manifestState().current()),
         ...(this.#pairingToken === undefined ? {} : { pairingToken: this.#pairingToken }),
         // the hub uses it only when it doesn't know this key (lost, or forgotten there)
         ...(autoPair === undefined ? {} : { autoPair: { id: autoPair.id, secret: autoPair.secret } }),

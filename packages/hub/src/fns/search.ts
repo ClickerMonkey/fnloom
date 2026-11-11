@@ -53,7 +53,7 @@ export class StoreFnSearch implements FnSearch {
     const text = query.text?.trim() ?? '';
     // one more than the page, so the page knows whether another follows
     const wanted = offset + limit + 1;
-    const found = text === '' || query.order === 'alphabetical'
+    const found = text === '' || query.order === 'name'
       ? await this.#byName(query, items, candidates, wanted, asker)
       : await this.#byScore(query, items, candidates, text, wanted, asker);
     const page = found.slice(offset, offset + limit);

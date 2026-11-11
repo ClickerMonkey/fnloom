@@ -350,6 +350,7 @@ export class ActiveRun {
       form: form === undefined ? undefined : () => this.#nextForm(),
       resume: this.#resume(),
       connection: request.connection,
+      approved: request.approved,
       updateConnection: async (update) => {
         const connection = request.connection;
         if (connection === undefined) { throw new Error(`Run ${this.id} acts as no connection.`); }

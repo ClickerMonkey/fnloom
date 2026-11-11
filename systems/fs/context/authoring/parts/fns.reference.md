@@ -76,9 +76,10 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   /**
    * Every run waits for the person's approval, whatever the policies say (writes, schema changes). `preview`
    * (default true) has the hub ask the implementation's `preview(args, ctx)` what the run would do first;
-   * `remember` (default false) lets the person say "don't ask again".
+   * `remember` (default false) lets the person say "don't ask again". `approver` (default `person`): with `admins` a
+   * member's call waits for an admin, who is notified (installing code).
    */
-  approval?: { preview?: boolean; remember?: boolean };
+  approval?: { preview?: boolean; remember?: boolean; approver?: ProposalApprover };
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
   /**
@@ -91,7 +92,7 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations), [`ProposalApprover`](#core-proposalapprover).
 
 #### `FnExampleOf`
 

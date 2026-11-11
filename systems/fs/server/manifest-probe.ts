@@ -14,7 +14,8 @@ import { readClientBundle } from '@harness/sdk/server';
 const [module, name, version, client] = process.argv.slice(2);
 if (module === undefined || name === undefined || version === undefined) { throw new Error('usage: manifest-probe <contract module> <name> <version> [client folder]'); }
 const loaded: unknown = await import(pathToFileURL(module).href);
-const contract = typeof loaded === 'object' && loaded !== null ? Object.values(loaded).find((value) => isSystemContract(value) && value.name === name) : undefined;
+const exported: unknown[] = typeof loaded === 'object' && loaded !== null ? Object.values(loaded) : [];
+const contract = exported.find((value) => isSystemContract(value) && value.name === name);
 if (contract === undefined || !isSystemContract(contract)) { throw new Error(`${module} exports no contract named ${name}`); }
 const assets = client === undefined || client === '' ? undefined : (await readClientBundle(client)).assets;
 const manifest = await manifestOf(contract, { version, ...(assets === undefined ? {} : { client: assets }) });

@@ -12,7 +12,7 @@ import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
 import { MAIN_INSTANCE, isSettled } from '@harness/core';
-import { argSummary, invalidLine, invalidSummary, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runResult, runStopped, runText, shownStatus, type RunView } from '../logic/runs.ts';
+import { argSummary, invalidLine, invalidSummary, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runDeclined, runResult, runStopped, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
@@ -38,6 +38,8 @@ const words = computed(() => runText(props.run));
 /** Why its fn's output hook stopped it: said as a stop, not an error. */
 const stopped = computed(() => runStopped(props.run));
 const error = computed(() => (stopped.value === undefined ? runError(props.run) : undefined));
+/** Why a policy or its approver declined it: said as a decision, not an error. */
+const declined = computed(() => runDeclined(props.run));
 /** Refused input the agent retries: said softly, never as a failure. */
 const invalid = computed(() => runInvalid(props.run));
 const result = computed(() => runResult(props.run));
@@ -66,6 +68,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
         <span class="label">{{ label }}</span>
         <span v-if="stopped !== undefined" class="about stopped-text" data-testid="run-stopped" :title="stopped">Stopped · {{ stopped }}</span>
         <span v-else-if="error" class="about error-text" :title="error.message">{{ error.message }}</span>
+        <span v-else-if="declined !== undefined" class="about" data-testid="run-declined" :title="declined">{{ declined }}</span>
         <span v-else-if="invalid" class="about retried-text" data-testid="run-retried" :title="invalidLine(invalid)">{{ invalidSummary(invalid) }}</span>
         <span v-else-if="about !== ''" class="about" :title="about">{{ about }}</span>
       </button>

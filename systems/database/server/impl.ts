@@ -109,7 +109,7 @@ async function readersOf(link: HubLink, instance: InstanceName, type: QualifiedN
   const found: string[] = [];
   let offset: number | undefined = 0;
   while (offset !== undefined) {
-    const page = await link.searchFns({ kinds: [QUERY_KIND], instance, types: { reads: [type] }, available: false, order: 'alphabetical', offset, limit: 100 });
+    const page = await link.searchFns({ kinds: [QUERY_KIND], instance, types: { reads: [type] }, available: false, order: 'name', offset, limit: 100 });
     found.push(...page.items.map((hit) => hit.name));
     offset = page.next;
   }

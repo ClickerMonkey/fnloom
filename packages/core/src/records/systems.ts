@@ -197,6 +197,10 @@ export function noFnStats(): FnStats {
   return { outcomes: noOutcomes(), averageCost: 0, averageTime: 0, tokens: 0 };
 }
 
+/** Where a system's declaration came from: `contract`, its manifest; `runtime`, a patch it sent while running. */
+export const DeclaredBy = z.enum(['contract', 'runtime']);
+export type DeclaredBy = z.infer<typeof DeclaredBy>;
+
 /** The hub's row for a fn. */
 export const FnRecord = z.object({
   name: QualifiedName,
@@ -205,7 +209,7 @@ export const FnRecord = z.object({
   /** Hash of the decl; runs record the version they used. */
   version: z.string(),
   /** `contract`: declared by its system. `runtime`: declared while running. */
-  origin: z.enum(['contract', 'runtime']),
+  origin: DeclaredBy,
   addedBy: ActorId.optional(),
   available: Availability,
   /** Queued runs wait while paused (by an admin, or automatically after repeated failures). */
@@ -232,6 +236,10 @@ export const TypeRecord = TypeDecl.omit({ name: true, methods: true }).extend({
    * hub works these out from `def` itself; this is the only place they are kept.
    */
   references: z.array(QualifiedName),
+  /** Build 6: from its system's contract or added while running; absent on rows stored before build 6. */
+  declaredBy: DeclaredBy.optional(),
+  /** Build 6: hash of its declaration, so a change reads as a new version. */
+  version: z.string().optional(),
   updatedAt: Timestamp,
 });
 export type TypeRecord = z.infer<typeof TypeRecord>;
@@ -247,6 +255,10 @@ export const ContextRecord = z.object({
   system: SystemName,
   /** Where it came from; absent means declared by its system. */
   origin: ContextOrigin.optional(),
+  /** Build 6: for a system's own context, from its contract (or context folder) or added while running. */
+  declaredBy: DeclaredBy.optional(),
+  /** Build 6: hash of its declaration, so a change reads as a new version. */
+  version: z.string().optional(),
   decl: ContextDecl,
   /** Estimated tokens of the full content and of the summary; absent until the contextor sizes it. */
   tokens: ContextTokens.optional(),

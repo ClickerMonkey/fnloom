@@ -8,7 +8,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { InstanceName, SystemName, type Json, type SystemView } from '@harness/core';
 import { encodeValue, type ConfigOf } from '@harness/sdk';
@@ -182,9 +182,12 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     recent.set(component, lines);
     options.output(component, line, stream);
   };
-  /** Start a process: supervised when `restart` is set (`alive` says whether it answers), else once. */
-  const launch = (name: ComponentName, args: readonly string[], env: Readonly<Record<string, string>>, alive: () => Promise<boolean>): void => {
-    const start = (): Child => runComponent(name, args, { cwd: ROOT, env, output });
+  /**
+   * Start a process: supervised when `restart` is set (`alive` says whether it answers), else once. A system runs in its
+   * own folder, as the hub and fs start installed ones, so `serve` finds its `system.json` and its context folder.
+   */
+  const launch = (name: ComponentName, args: readonly string[], env: Readonly<Record<string, string>>, alive: () => Promise<boolean>, cwd = ROOT): void => {
+    const start = (): Child => runComponent(name, args, { cwd, env, output });
     if (options.restart === undefined) {
       const child = start();
       children.push({ stop: () => halt(child, 10_000) });
@@ -245,7 +248,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       }, async () => {
         const status = (await instanceOf(admin, name, instance, timeout))?.status;
         return status === 'connected' || status === 'needs-config';
-      });
+      }, dirname(dirname(system.entry)));
       const seen = await waitFor(`${label} to connect`, async () => {
         const view = await instanceOf(admin, name, instance, timeout);
         return view?.ready === true ? view : undefined;

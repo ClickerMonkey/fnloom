@@ -253,6 +253,17 @@ export async function sha256(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * The hash an approved install binds its pairing grant to (`Hello.contractHash`): the manifest's contract parts, the same
+ * whether worked out from the contract alone (fs's build, before anything runs) or by the running system. What only the
+ * process adds is left out: its client assets, the events its implementation handles, whether it serves resources, and
+ * its context, which may come from its context folder (all inside the approved bundle, whose hash fs checks).
+ */
+export async function contractHash(manifest: Manifest): Promise<string> {
+  const { hash: _hash, client: _client, events: _events, resources: _resources, context: _context, ...contract } = manifest;
+  return sha256(canonicalJson(Json.parse(contract)));
+}
+
 /** A contract's manifest, hashed and checked against core's `Manifest` schema. */
 export async function manifestOf(contract: AnyContract, options: ManifestOptions): Promise<Manifest> {
   const body = manifestBody(contract, options);

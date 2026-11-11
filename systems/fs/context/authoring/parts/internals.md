@@ -87,6 +87,21 @@ function canonicalJson(value: Json): string;
 
 Refers to: [`Json`](#core-json).
 
+#### `contractHash`
+
+function · `import { contractHash } from '@harness/sdk'`
+
+The hash an approved install binds its pairing grant to (`Hello.contractHash`): the manifest's contract parts, the same
+whether worked out from the contract alone (fs's build, before anything runs) or by the running system. What only the
+process adds is left out: its client assets, the events its implementation handles, whether it serves resources, and
+its context, which may come from its context folder (all inside the approved bundle, whose hash fs checks).
+
+```ts
+function contractHash(manifest: Manifest): Promise<string>;
+```
+
+Refers to: [`Manifest`](#core-manifest).
+
 #### `sha256`
 
 function · `import { sha256 } from '@harness/sdk'`
@@ -705,9 +720,11 @@ interface ProcessGrants {
   /** Folders it may write (its state, data and cache). Writable folders are readable too. */
   readonly write: readonly string[];
   /** What `system.json`'s `permissions` declares; both default to no. */
-  readonly permissions?: Partial<SystemPermissions> | undefined;
+  readonly permissions?: SystemPackageManifest['permissions'];
 }
 ```
+
+Refers to: [`SystemPackageManifest`](#core-systempackagemanifest).
 
 #### `CrashPolicy`
 

@@ -3,7 +3,7 @@
  * declares, wired to the server's parts. `createFsImpl` takes every seam (shell, git, snapshots, documents, the
  * file manager, the restarter, the watcher, hosting and the clock), so tests run it against a temp folder with fakes.
  */
-import { InstanceName, SystemName, type PairingGrant, type PairingGrantRequest, type PreviewAnswer } from '@harness/core';
+import type { InstanceName, SystemName, PairingGrant, PairingGrantRequest, PreviewAnswer } from '@harness/core';
 import type { FnCtx, FnSearch, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
 import { COMMAND_TIMEOUT_MIN, fs, type FsContract } from '../shared/index.ts';
 import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';

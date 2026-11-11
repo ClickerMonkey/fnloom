@@ -110,11 +110,8 @@ export const FnSearchQuery = z.object({
   names: z.array(QualifiedName).min(1).max(100).optional(),
   /** Only fns that can be used now (default true). */
   available: z.boolean().optional(),
-  /**
-   * `score` (the default with `text`) or `alphabetical` (by name; the default without). Not `name`: gin's reference walk
-   * reads an enum whose values map has a `name` key as a type reference (reported as a library gap).
-   */
-  order: z.enum(['score', 'alphabetical']).optional(),
+  /** `score` (the default with `text`) or `name` (the default without). */
+  order: z.enum(['score', 'name']).optional(),
   offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });

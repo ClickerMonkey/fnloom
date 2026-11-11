@@ -34,7 +34,8 @@ import { migrateLegacyInstances } from './migrate.ts';
 import { contentBytes, HubPackages, type PackageContent } from './packages.ts';
 import { StoreAutoPairs } from './auto-pair.ts';
 import { StorePairingService } from './pairing.ts';
-import { NodeInstaller, type Installer, type ProcessLauncher } from './process.ts';
+import type { ProcessStarter } from '@harness/sdk/server';
+import { NodeInstaller, type Installer } from './process.ts';
 import { FleetRouter } from './router.ts';
 import { MemorySystemOutput } from './output.ts';
 import { PeerResourceRouter } from './resources.ts';
@@ -62,7 +63,7 @@ export interface SystemsOptions {
   readonly settings: SystemsSettings;
   /** Signs the HTTP tokens systems get in their welcome. */
   readonly tokens: SystemTokens;
-  readonly launcher: ProcessLauncher;
+  readonly launcher: ProcessStarter;
   /** How systems are fetched (default: npm, git and package zips from `content`). */
   readonly installer?: Installer;
   /** The hub's content store, where uploaded package zips and data exports live (looked up when used). */
@@ -119,7 +120,7 @@ export function buildSystems(options: SystemsOptions) {
     store, log, clock, links: connections, pairing, config, instances, launcher: options.launcher, installer,
     settings: {
       systemsDir: settings.hub.HARNESS_SYSTEMS_DIR, hubLink: linkUrl(settings.hub.HARNESS_URL), stopTimeout: settings.link.HARNESS_STOP_TIMEOUT,
-      backoff: settings.link.HARNESS_RESTART_BACKOFF, perHour: settings.link.HARNESS_RESTARTS_PER_HOUR,
+      backoff: settings.link.HARNESS_RESTART_BACKOFF, perHour: settings.link.HARNESS_RESTARTS_PER_HOUR, maxBackoff: settings.link.HARNESS_RESTART_BACKOFF_MAX,
     },
   });
 

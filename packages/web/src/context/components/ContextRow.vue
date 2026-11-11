@@ -31,6 +31,7 @@ const command = computed(() => props.record.decl.command?.name);
         <UiBadge v-if="record.decl.alwaysFor.length > 0" tone="accent">Always given</UiBadge>
         <UiBadge v-if="record.decl.visible !== 'both'" data-testid="context-seen-by">Seen by {{ AUDIENCE_WORDS[record.decl.visible].toLowerCase() }}</UiBadge>
         <UiBadge v-if="choices > 0">{{ choices }} {{ choices === 1 ? 'choice' : 'choices' }}</UiBadge>
+        <UiBadge v-if="record.declaredBy === 'runtime'" tone="accent" :title="record.version === undefined ? undefined : `Version ${record.version.slice(0, 8)}`" data-testid="context-runtime">Added while running</UiBadge>
         <UiBadge v-if="record.stale" tone="warn">Stale</UiBadge>
         <UiBadge v-if="record.disabled === true">Forgotten</UiBadge>
       </span>

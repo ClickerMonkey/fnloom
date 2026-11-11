@@ -308,7 +308,7 @@ export class StorePairingService implements PairingService {
     if (found === undefined || found.usedAt !== undefined || found.expiresAt <= now || (found.name !== undefined && found.name !== name)) {
       throw refuse(401, 'BAD_PAIRING_TOKEN', 'the pairing token is unknown, used, expired or for another name');
     }
-    if (found.boundTo !== undefined && (found.boundTo.instance !== hello.instance || found.boundTo.manifestHash !== hello.manifestHash)) {
+    if (found.boundTo !== undefined && (found.boundTo.instance !== hello.instance || found.boundTo.manifestHash !== hello.contractHash)) {
       throw refuse(403, 'NOT_WHAT_WAS_APPROVED', `this token pairs only ${name}/${found.boundTo.instance} with the contract that was approved`);
     }
     if (rekeys && found.name === undefined) {
