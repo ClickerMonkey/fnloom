@@ -14,5 +14,17 @@
     "typescript": "~5.9",
     "vite": "^8.3.6",
     "zod": "^4.6.7"
+  },
+  "peerDependencies": {
+    "vitest": "*",
+    "@vitejs/plugin-vue": "*"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    },
+    "@vitejs/plugin-vue": {
+      "optional": true
+    }
   }
 }

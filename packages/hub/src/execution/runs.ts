@@ -793,7 +793,6 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     return { connection: await this.#deps.connections.forRun(gate.connection) };
   }
 
-  /** Who and when a run is for. */
   /** Who and when a run is for, as its system reads it (`RunInfo`). */
   info(run: Run): Promise<RunInfo> {
     return this.#info(run);
@@ -803,6 +802,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const turn = known ?? (await this.#turn(run));
     const parent = run.parent === undefined ? undefined : await this.get(run.parent);
     const connection = this.#deps.link.connection(run.system, run.instance);
+    const watched = await this.#watched(run, parent);
     return {
       id: run.id,
       fn: run.fn,
@@ -820,7 +820,17 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       caller: run.caller,
       attempt: run.attempt,
       priority: run.priority,
+      ...(watched ? { watched } : {}),
     };
+  }
+
+  /**
+   * Whether a person watches the run as it happens: a chat turn's run (the turn's agent or a fn it called directly,
+   * not a nested agent's own calls, a background run or an MCP call, which has no session) on a session someone has open.
+   */
+  async #watched(run: Run, parent: Run | undefined): Promise<boolean> {
+    if (run.session === undefined || run.background || parent?.parent !== undefined) return false;
+    return await this.#deps.presence.active(run.session);
   }
 
   async #turn(run: Run): Promise<Turn> {

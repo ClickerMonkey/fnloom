@@ -23,7 +23,7 @@ const run = (): Promise<RunId> => Promise.resolve(mintId('run'));
 const system: SystemClient<DatabaseContract['defs']> = {
   online: true, send: {},
   run: {
-    at_instance: run, read_at_instance: run, pick_database: run, table_fns_available: run, table_fns_generate: run, change_schema: run, apply_type_changes: run, databases: run, tables: run, check_query: run, save_query: run, run_query: run,
+    at_instance: run, read_at_instance: run, author_query: run, pick_database: run, table_fns_available: run, table_fns_generate: run, change_schema: run, apply_type_changes: run, databases: run, tables: run, check_query: run, save_query: run, run_query: run,
     get_query: run, edit_query: run, create_table: run, alter_table: run,
   },
 };

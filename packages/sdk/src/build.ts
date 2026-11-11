@@ -10,6 +10,8 @@ import vue from '@vitejs/plugin-vue';
 import { build, type Plugin } from 'vite';
 import { readClientBundle, type ClientBundle } from './server/assets.ts';
 
+export { PREVIEW_INDEX, PreviewIndex } from './testing/shots.ts';
+
 /** The modules a bundle takes from the chat, and the key each lives under in the shared-modules global. */
 export const SHARED_IMPORTS = ['vue', '@harness/sdk'] as const;
 

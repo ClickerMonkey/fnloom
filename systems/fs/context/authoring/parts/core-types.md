@@ -2871,6 +2871,34 @@ type PreviewAnswer = {
 };
 ```
 
+#### <a id="core-previewshot"></a>`PreviewShot`
+
+const, type · declared in `packages/core/src/checks.ts`
+
+One screenshot of a system's component in one state, viewport and theme, stored as hub content.
+
+```ts
+type PreviewShot = {
+  component: string;
+  state: string;
+  viewport: "phone" | "desktop";
+  theme: "light" | "dark";
+  image: {
+    hash: string;
+    size: number;
+    mime: string;
+  };
+};
+```
+
+#### <a id="core-previewviewport"></a>`PreviewViewport`
+
+const, type · declared in `packages/core/src/checks.ts`
+
+```ts
+type PreviewViewport = "phone" | "desktop";
+```
+
 #### <a id="core-progressdecl"></a>`ProgressDecl`
 
 const, type · declared in `packages/core/src/run.ts`

@@ -7,6 +7,7 @@ import { notificationsApi, userEvents, type NotificationsApi, type UserEvents } 
 import { resourceEvents, resourcesApi, type ResourceEvents, type ResourcesApi } from '../resources/api/resources.ts';
 import { contextApi, contextEvents, type ContextApi, type ContextEvents } from '../context/api/context.ts';
 import { fnsApi, type FnsApi } from '../fns/api.ts';
+import { graphApi, type GraphApi } from '../graph/api/graph.ts';
 
 /**
  * The app's callers. Spelled out by each area's own type, so the compiler refers to them by name rather than writing
@@ -24,6 +25,7 @@ export interface Api {
   readonly resourceEvents: ResourceEvents;
   readonly context: ContextApi;
   readonly fns: FnsApi;
+  readonly graph: GraphApi;
   readonly contextEvents: ContextEvents;
   readonly connection: Connection;
 }
@@ -42,6 +44,7 @@ export function createApi(hub: Hub): Api {
     resourceEvents: resourceEvents(userEvents(hub)),
     context: contextApi(hub),
     fns: fnsApi(hub),
+    graph: graphApi(hub),
     contextEvents: contextEvents(userEvents(hub)),
     connection: hub.connection,
   };

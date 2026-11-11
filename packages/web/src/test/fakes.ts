@@ -22,6 +22,8 @@ import { fakeResources } from '../resources/test/fakes.ts';
 import { fakeContext } from '../context/test/fakes.ts';
 import { fakeFnsApi } from '../fns/test/fakes.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
+import { GraphStore } from '../graph/state/graph.ts';
+import { fakeGraphApi } from '../graph/test/fakes.ts';
 import { ClientLogs } from '../state/client-logs.ts';
 
 type EndpointOf<K extends Endpoint> = HubWebSpec['endpoints'][K];
@@ -198,6 +200,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     resources: resources.resources,
     context: context.context,
     fns: new FnInfoStore(fns, events.subscribe),
+    graph: () => new GraphStore(fakeGraphApi()),
     logs: new ClientLogs({ send: fakeCaller<'clientLogs'>(() => Promise.resolve({ uri: 'hub://logs/test.jsonl', written: 1 })), signedIn: () => false, page: () => '/' }),
     push: new PushStore(api.notifications, fakePush(), () => 'Test browser'),
   };

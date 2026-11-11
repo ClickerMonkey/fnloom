@@ -2,12 +2,13 @@
 /**
  * A system in the list: its name and what it does, where it is (its process when the hub runs it, its host when
  * another system runs it), how many fns
- * it adds, what needs the admin (config, a crash), what is switched off, and when it was last heard from. The whole
- * card opens the system.
+ * it adds, whether it is still only installed (not live until reviewed), what needs the admin (config, a crash), what
+ * is switched off, and when it was last heard from. The whole card opens the system.
  */
 import type { SystemView } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { UiBadge, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
+import { STAGE_LOOK } from '../logic/review.ts';
 import { hostText, INSTALLED_STATUS_LOOK, SYSTEM_STATUS_LOOK } from '../logic/systems.ts';
 import StatusBadge from './StatusBadge.vue';
 
@@ -25,6 +26,7 @@ defineProps<{ system: SystemView; now: number; to: RouteLocationRaw }>();
       <span class="description">{{ system.description }}</span>
       <span class="chips">
         <StatusBadge :look="SYSTEM_STATUS_LOOK[system.status]" />
+        <StatusBadge v-if="system.stage === 'installed'" :look="STAGE_LOOK.installed" data-testid="system-card-installed" />
         <StatusBadge v-if="system.installed" :look="INSTALLED_STATUS_LOOK[system.installed.status]" />
         <UiBadge v-if="system.host" :title="`Hosted by ${hostText(system.host)}`" data-testid="system-hosted">Hosted by {{ system.host.host.system }}/{{ system.host.host.instance }}</UiBadge>
         <UiBadge v-if="system.needsConfig && system.status !== 'needs-config'" tone="warn">Needs config</UiBadge>

@@ -14,6 +14,7 @@ import { InstanceTab, LimitsTab, McpTab, ModelsTab, PartTab, ReviewTab, SystemTa
 import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
 import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
+import { GraphUrl } from '../graph/url.ts';
 import { InboxFilter } from '../state/inbox.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
 import { NEEDS_APPROVAL, queryParam } from '../state/query.ts';
@@ -63,6 +64,7 @@ export const ROUTES = {
   explore: 'explore',
   context: 'context',
   contextItem: 'context-item',
+  graph: 'graph',
   connect: 'connect',
   settings: 'settings',
   design: 'design',
@@ -102,9 +104,9 @@ export const QUERIES = {
   [ROUTES.turnTree]: CHAT_QUERY,
   [ROUTES.inbox]: z.object({ q: z.string(), filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
   [ROUTES.systems]: z.object({ pairing: PairingId, q: z.string() }).partial(),
-  /** The section the Parts tab shows. */
-  [ROUTES.system]: z.object({ part: PartTab }).partial(),
-  [ROUTES.review]: z.object({ part: PartTab }).partial(),
+  /** The section the Parts tab shows, and the Graph tab's filters. */
+  [ROUTES.system]: GraphUrl.extend({ part: PartTab.optional() }),
+  [ROUTES.review]: GraphUrl.extend({ part: PartTab.optional() }),
   [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), classifier: z.literal('1') }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
   [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
@@ -114,6 +116,8 @@ export const QUERIES = {
   [ROUTES.explore]: z.object({ open: z.string().min(1) }).partial(),
   [ROUTES.context]: ContextBrowseQuery,
   [ROUTES.contextItem]: ContextItemQuery,
+  /** The graph's filters, search, focus and collapsed systems. */
+  [ROUTES.graph]: GraphUrl,
   [ROUTES.modelCalls]: z.object({ q: z.string(), run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.fns]: z.object({ q: z.string() }).partial(),
   [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
@@ -199,6 +203,8 @@ export const links = {
     name: ROUTES.explore, params: { system, instance, path: [...path] }, ...queryOf(ROUTES.explore, { open }),
   }),
   context: (query: RouteQuery<typeof ROUTES.context> = {}): RouteLocationRaw => ({ name: ROUTES.context, ...queryOf(ROUTES.context, query) }),
+  /** The graph of every system's items and how they connect, with its filters (build 7). */
+  graph: (query: RouteQuery<typeof ROUTES.graph> = {}): RouteLocationRaw => ({ name: ROUTES.graph, ...queryOf(ROUTES.graph, query) }),
   /** One context item with its links both ways (`fs/guide` is `/context/fs/guide`). */
   contextItem: (item: QualifiedName, query: RouteQuery<typeof ROUTES.contextItem> = {}): RouteLocationRaw => {
     const { system, local } = splitName(item);
@@ -253,6 +259,7 @@ export const routes: RouteRecordRaw[] = [
   // a system's pairing QR code opens this (admins; a signed-out visitor signs in first and comes back)
   { path: '/explore/:system/:instance/:path(.*)*', name: ROUTES.explore, component: () => import('../pages/ExplorePage.vue'), meta: { title: 'Files' } },
   { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
+  { path: '/graph', name: ROUTES.graph, component: () => import('../pages/GraphPage.vue'), meta: { title: 'Graph' } },
   { path: '/context/:system/:local(.+)', name: ROUTES.contextItem, component: () => import('../pages/ContextItemPage.vue'), meta: { title: 'Context' } },
   { path: '/pair/:pairing', name: ROUTES.pair, component: () => import('../pages/PairPage.vue'), meta: { title: 'Pair a system', admin: true } },
   { path: '/connect/:system', name: ROUTES.connect, component: () => import('../pages/ConnectPage.vue'), meta: { title: 'Connect' } },

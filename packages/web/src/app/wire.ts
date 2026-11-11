@@ -21,6 +21,7 @@ import { SessionStore } from '../state/session.ts';
 import { ResourcesStore } from '../resources/state/resources.ts';
 import { ContextStore } from '../context/state/context.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
+import { GraphStore } from '../graph/state/graph.ts';
 import type { Stores } from '../state/stores.ts';
 
 /** The stores that fetch again after a reconnect. */
@@ -86,6 +87,7 @@ export function createStores(win: Window): Stores {
     resources,
     context: new ContextStore({ api: api.context, events: api.contextEvents }),
     fns: new FnInfoStore(api.fns, api.userEvents),
+    graph: () => new GraphStore(api.graph),
     logs,
     push: new PushStore(api.notifications, new BrowserPush(win, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built), () => win.navigator.userAgent),
   };

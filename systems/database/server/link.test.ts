@@ -66,23 +66,21 @@ describe('the database system over the link', () => {
     afterPatch = undefined;
   });
 
-  it('declares the query agents with their tools, every fn with instructions and examples, the query kind, the registry and the secrets', async () => {
+  it('declares the authoring fns, every fn with instructions and examples, the query kind, the registry and the secrets', async () => {
     dir = shopFile().dir;
     await start();
     expect(database.name).toBe(packageManifest.name);
     const manifest = hub.manifests[0];
     expect(manifest?.kinds.map((item) => item.name)).toEqual(['query']);
     expect(manifest?.fns.map((item) => item.name).sort()).toEqual([
-      'alter_table', 'apply_type_changes', 'at_instance', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query', 'save_query',
+      'alter_table', 'apply_type_changes', 'at_instance', 'author_query', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query', 'save_query',
       'table_fns_available', 'table_fns_generate', 'tables',
     ]);
-    const getQuery = manifest?.fns.find((item) => item.name === 'get_query');
-    expect(getQuery).toMatchObject({ kind: 'hub/llm' });
-    expect(getQuery?.payload).toMatchObject({
-      tools: ['database/databases', hubContract.fns.fns_search.name, hubContract.fns.fn_get.name, hubContract.fns.fn_examples.name, 'database/tables', 'database/check_query', 'database/save_query', 'database/run_query'],
-    });
-    expect(JSON.stringify(getQuery?.payload)).toContain('{{args.detailedDescription}}');
-    expect(manifest?.fns.find((item) => item.name === 'edit_query')?.payload).toHaveProperty('tools', expect.arrayContaining(['database/save_query', 'database/run_query']));
+    // get_query and edit_query are native fns that forward to the authoring agent on the instance with the database
+    expect(manifest?.fns.find((item) => item.name === 'get_query')).toMatchObject({ kind: 'native', deps: ['database/author_query'], effects: { mode: 'write' } });
+    expect(manifest?.fns.find((item) => item.name === 'edit_query')).toMatchObject({ kind: 'native', deps: ['database/author_query'] });
+    expect(manifest?.fns.find((item) => item.name === 'author_query')).toMatchObject({ visibility: 'none', deps: [hubContract.fns.fn_get.name, hubContract.fns.save_fn.name] });
+    expect(manifest?.fns.find((item) => item.name === 'run_query')?.effects).toMatchObject({ mode: 'write' });
     expect(manifest?.fns.find((item) => item.name === 'at_instance')).toMatchObject({ visibility: 'none', deps: ['hub/fn_get', 'hub/save_fn'] });
     for (const decl of manifest?.fns ?? []) {
       expect(decl.instructions, decl.name).toBeTruthy();
@@ -129,7 +127,13 @@ describe('the database system over the link', () => {
       fn: { name: 'database/main.orders_by_status' }, query: { writes: false, params: { status: 'paid' } },
       result: { rowCount: 2, total: 2, truncated: false, sample: [{ id: 1, total: 120.5, customer: 'Ada' }, { id: 3, total: 15, customer: 'Bo' }] },
     });
-    expect(JSON.stringify(ran)).toContain('shown to the person');
+    // nobody is watching this run: the rows are worded for the model alone; a watched run says they are shown
+    expect(JSON.stringify(ran)).toContain('Nobody is watching');
+    const watched = hub.runInfo('database/main.orders_by_status', { watched: true });
+    const savedPayload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
+    expect(JSON.stringify(done(await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: QUERY_KIND, payload: savedPayload, run: watched })))).toContain('shown to the person');
+    // a missing required param is refused, never bound as NULL
+    expect(await hub.run('database/run_query', { fn: 'database/main.orders_by_status', args: {} })).toMatchObject({ status: 'invalid-input' });
     expect(hub.attachments.at(-1)?.item).toMatchObject({ attachment: 'database/result', data: { rows: [[1, 120.5, 'Ada'], [3, 15, 'Bo']] } });
     expect(await hub.run('database/run_query', { fn: 'database/main.nothing' })).toMatchObject({ status: 'invalid-input' });
     expect(await hub.run('database/run_query', { fn: 'orders' })).toMatchObject({ status: 'invalid-input' });

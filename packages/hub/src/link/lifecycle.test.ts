@@ -154,7 +154,10 @@ describe('installed vs live', () => {
     expect(await rig.lifecycle.switchPart({ system: NOTES, section: 'kinds', name: 'notes/saved', on: false }, ADMIN)).toEqual({ on: false });
     expect(await rig.lifecycle.offItems(NOTES)).toEqual([{ section: 'kinds', name: 'notes/saved' }]);
     expect([...await rig.lifecycle.off('kinds')]).toEqual(['notes/saved']);
+    // any part the hub serves by name (a hook, mention, action, sectioner, …) reads as off where it is offered
+    expect(await rig.catalog.availability(q('notes/saved'))).toEqual({ unavailable: 'disabled', detail: 'notes/saved is switched off' });
     await rig.lifecycle.switchPart({ system: NOTES, section: 'kinds', name: 'notes/saved', on: true }, ADMIN);
     expect(await rig.lifecycle.offItems(NOTES)).toEqual([]);
+    expect(await rig.catalog.availability(q('notes/saved'))).toBe(true);
   });
 });

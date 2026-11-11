@@ -207,17 +207,22 @@ export const DatabaseSummary = z.object({
 });
 export type DatabaseSummary = z.infer<typeof DatabaseSummary>;
 
-/** The query fn a query agent answered with: how to call it again, and how it was come by. */
+/**
+ * The query fn an authoring fn answered with (`get_query`, `edit_query`): the SDK's authored-fn answer (its version,
+ * what it does, how to call it again) with its name and signature as a result names them, and how it was come by.
+ */
 export const QueryAnswerFn = ResultFn.extend({
+  version: z.number().int().min(1).describe('1 for a new query; more after edits (the old versions are kept).'),
+  about: z.string().describe('What it returns or changes, in one sentence.'),
+  call: z.string().describe('How to call it again directly, with the args of this request.'),
   how: QueryHow,
   why: z.string().min(1).describe('Why this query: the saved one that fit, or what was written or changed.'),
 });
 export type QueryAnswerFn = z.infer<typeof QueryAnswerFn>;
 
 /**
- * What the query agents (`get_query`, `edit_query`) answer with: `run_query`'s answer as it came (the database, the
- * query as it ran, and its result or where its approval is), its fn with how and why. The rows themselves are shown
- * to the person.
+ * What `get_query` and `edit_query` answer with: the saved query's run (the database, the query as it ran, and its
+ * result or where its approval is) and its fn with how and why. Never the authoring agent's working context.
  */
 export const QueryAnswer = QueryRun.extend({ fn: QueryAnswerFn });
 export type QueryAnswer = z.infer<typeof QueryAnswer>;
@@ -229,8 +234,14 @@ export const AskWhichDatabase = z.object({
 });
 export type AskWhichDatabase = z.infer<typeof AskWhichDatabase>;
 
-/** What a query agent answers: the query it ran, or (`get_query` only) which database to use. */
-export const QueryAgentAnswer = z.union([QueryAnswer, AskWhichDatabase]);
+/** `get_query`'s question back when the database is unclear: which one, and what the caller does now. */
+export const AskDatabase = AskWhichDatabase.extend({
+  next: z.string().describe('What to do now: ask the person with input/ask_choice and call get_query again with their pick (or, with nobody watching, say which databases could answer).'),
+});
+export type AskDatabase = z.infer<typeof AskDatabase>;
+
+/** What `get_query` answers: the query it ran, or which database to use. */
+export const QueryAgentAnswer = z.union([QueryAnswer, AskDatabase]);
 export type QueryAgentAnswer = z.infer<typeof QueryAgentAnswer>;
 
 /** A table made or changed from a type (`create_table`, `alter_table`, `apply_type_changes`). */
@@ -371,3 +382,10 @@ export const InstanceAnswer = z.discriminatedUnion('op', [
   z.object({ op: z.literal('table-fns-generate'), generated: TableFnsGenerated }),
 ]);
 export type InstanceAnswer = z.infer<typeof InstanceAnswer>;
+
+/** `author_query`'s args: the request, and the saved query to change (`edit_query`). */
+export const AuthorArgs = z.object({
+  request: z.string().min(1).describe('What the query should do, as the caller described it.'),
+  edit: z.string().min(1).optional().describe('The saved query fn to change (`database/main.orders_by_status`); absent to find or write one.'),
+});
+export type AuthorArgs = z.infer<typeof AuthorArgs>;

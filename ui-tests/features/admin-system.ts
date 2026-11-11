@@ -10,7 +10,7 @@ export default feature({
     await open(ctx, '/admin/systems/fs/config', tid('gin-form'));
     await ctx.shot('config');
     await open(ctx, '/admin/systems/fs/fns', tid('fns'));
-    check((await page.$eval(tid('fns'), (el) => el.textContent)).includes('bash'), 'the fns tab lists fs/bash');
+    check((await page.$eval(tid('fns'), (el) => el.textContent)).includes('shell'), 'the fns tab lists fs/shell');
     await ctx.shot('fns');
     await open(ctx, '/admin/systems/fs/logs', tid('log'));
     await find(page, 'log');

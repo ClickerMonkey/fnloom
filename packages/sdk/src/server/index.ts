@@ -191,3 +191,7 @@ export {
   type FollowedResponse, type HostLookup, type RedirectOptions, type RedirectProblems,
 } from './address.ts';
 export { rendererFolder, type RendererPlace } from './renderers.ts';
+export {
+  AUTHORING_STAGES, AuthoringError, AuthoringSession, Disclosure, authoredFn, authoringAgent, authoringEnv, authoringTool,
+  type AuthoredFn, type AuthoringAgent, type AuthoringAgentInput, type AuthoringStage, type AuthoringTool, type AuthoringToolInput, type DraftCheck, type ToolStage,
+} from '../authoring.ts';

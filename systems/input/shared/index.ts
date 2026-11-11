@@ -1,15 +1,16 @@
 /**
- * The input system's contract (`shared/`): forms the chat draws for the person to fill in. `get_input` is an agent:
- * it looks for a saved form in the hub (`hub/fns_search` over `input/form` fns, `hub/fn_get` for one's form), reuses
- * one that fits, else writes a form's gin type and checks it with `check_form`. The `ask_*` fns are the quick ones (a
- * line of text, a choice, yes or no, a number, a date). Every input fn returns the form and the model ends its turn:
- * the person's answers come back as the next user message, in `<input-answer>` tags the chat hides. A form the person
- * liked is kept in the hub as an `input/form` fn (`save_form` through `hub/save_fn`), so it is found next time.
+ * The input system's contract (`shared/`): forms the chat draws for the person to fill in. `get_input` is an authoring
+ * fn: a form authoring agent on `ctx.ai()` (`server/authoring.ts`) looks for a saved `input/form` fn that fits and
+ * reuses it, else writes a form's gin type through a forced workflow, checks it and keeps it as the person's own form.
+ * The `ask_*` fns are the quick ones (a line of text, a choice, yes or no, a number, a date). Every input fn returns the
+ * form and the model ends its turn: the person's answers come back as the next user message, in `<input-answer>` tags
+ * the chat hides. A quick form the person liked is kept in the hub as an `input/form` fn (`save_form` through
+ * `hub/save_fn`), so it is found next time.
  */
 import { ActorId, GinTypeDef, Visibility } from '@harness/core';
-import { type Infer, agent, context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
+import { type Infer, context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
 import { z } from 'zod';
-import { FIELD_TYPES, formProblems } from './forms.ts';
+import { FIELD_TYPES } from './forms.ts';
 
 /**
  * A form: its title, what it is for, the gin type of its answers (an object, one field per question) and its button.
@@ -32,6 +33,8 @@ export const Asked = g.obj({
   saved: g.optional(g.text()),
   /** What the model does now: end its turn and wait for the answers (or, with nobody watching, go on without them). */
   next: g.text(),
+  /** How to show the same form again directly (`input/trip_details({})`), when it is a saved one. */
+  call: g.optional(g.text()),
 });
 
 /** What `save_form` gives: the new fn's name. */
@@ -78,7 +81,7 @@ const askUsage = (when: string, pitfall: string) => [
 ].join(' ');
 
 /** A trip form, as the examples write it. */
-const TRIP_FORM = {
+export const TRIP_FORM = {
   title: 'Trip details',
   description: 'Where and when you are going, and who with.',
   submit: 'Plan it',
@@ -96,20 +99,10 @@ const TRIP_FORM = {
 const WAITED = { next: WAIT_FOR_ANSWERS };
 
 /**
- * The form agent's prompt. Handlebars reads `{{args.…}}`, so the JSON below never has two opening braces together.
+ * How a form is written: its shape and every field type the chat draws, with the rules. The form authoring agent is
+ * shown it a step at a time (`field_types`), not up front.
  */
-const FORM_AGENT = [
-  'You make the form that asks a person for this:',
-  '',
-  '{{args.detailedDescription}}',
-  '',
-  'Work in this order:',
-  `1. Look for a saved form first: call hub/fns_search with a short plain description of what is asked as \`text\` and \`kinds: ["${FORM_KIND}"]\`.`,
-  '   A hit whose description asks for the same things (the same fields, not just a similar name) is a match; when none clearly is, write a new one.',
-  '2. For a match, call hub/fn_get with its fn name. Its payload is the saved form. Answer with that form exactly as it is, and `saved` set to the fn name.',
-  '3. Otherwise write the form yourself, then call input/check_form with it. Fix every problem it lists and check again until `ok` is true.',
-  '4. Answer with { "form": <the form>, "next": <the sentence below> } and nothing else. Never answer with a form check_form has not passed.',
-  '',
+export const FIELD_GUIDE = [
   'A form is { "title", "description", "submit" (optional button words), "type" }. Its type is a gin object type whose fields are the questions:',
   '{ "name": "obj", "props": { "<fieldName>": { "docs": "<the question the person reads>", "type": <field type> } } }',
   `Field types (only these: ${FIELD_TYPES.join(', ')}):`,
@@ -125,9 +118,7 @@ const FORM_AGENT = [
   'only the fields the description asks for, in the order a person would answer them; a title of a few words.',
   '',
   'Example. Asked for "the trip: destination city (required), first day, number of nights (whole, 1 to 60) and who is coming (optional names)":',
-  JSON.stringify({ form: TRIP_FORM, ...WAITED }),
-  '',
-  `The "next" sentence is always: ${WAIT_FOR_ANSWERS}`,
+  JSON.stringify(TRIP_FORM),
 ].join('\n');
 
 /** What callers of `get_input` read. */
@@ -141,8 +132,8 @@ const GET_INPUT_USAGE = [
 /** The input system's contract. */
 export const input = system('input', {
   description: 'Ask the person for input with forms in the chat, made to fit what is needed, and keep good forms in the hub for next time.',
-  // get_input is an agent on a model; saved forms are hub fns it searches, reads and saves
-  grants: { hub: ['ai', 'fns', 'search'], calls: ['hub/fn_get', 'hub/fns_search', 'hub/save_fn'] },
+  // get_input's authoring agent is on a model; saved forms are hub fns it searches (the link's search), reads and saves
+  grants: { hub: ['ai', 'fns', 'search'], calls: ['hub/fn_get', 'hub/save_fn'] },
 })
   .with({
     kinds: {
@@ -160,7 +151,7 @@ export const input = system('input', {
     fns: {
       check_form: fn({
         description: 'Check a draft form: whether gin accepts its type and the chat can draw every field, and what to fix.',
-        instructions: 'The form agent calls it on every form it writes before answering. `ok` is true only with no problems; each problem says which field and how to fix it.',
+        instructions: 'Check a form before saving it with save_form (get_input checks its own). `ok` is true only with no problems; each problem says which field and how to fix it.',
         args: g.obj({ form: InputForm }),
         returns: FormCheck,
         examples: [
@@ -273,36 +264,28 @@ export const input = system('input', {
       }),
     },
   })
-  .with(({ fns }) => ({
+  .with(() => ({
     fns: {
-      get_input: agent({
+      get_input: fn({
         description: 'Ask the person for several pieces of information at once with a form made for it (or a saved one that fits): describe in detail what you need.',
-        usage: GET_INPUT_USAGE,
+        instructions: GET_INPUT_USAGE,
         args: g.obj({ detailedDescription: g.field(g.text({ minLength: 1 }), { docs: 'What to ask for: each field, its kind, and whether it is required.' }) }),
         returns: Asked,
-        instructions: FORM_AGENT,
-        tools: [hub.fns.fns_search, hub.fns.fn_get, fns.check_form],
-        toolExecution: 'sequential',
-        maxIterations: 8,
+        deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
         examples: [
           {
             args: { detailedDescription: 'The trip: destination city (required), first day (date), number of nights (whole number, 1 to 60) and who is coming (optional list of names).' },
-            result: { form: TRIP_FORM, ...WAITED },
-            note: 'A new form, written and checked.',
+            result: { form: TRIP_FORM, saved: 'input/trip_details', call: 'input/trip_details({})', ...WAITED },
+            note: 'A new form, written, checked and kept as the own form of the person, for next time.',
           },
           {
             args: { detailedDescription: 'A bug report: what happened (long text), what was expected (long text), how bad it is (low, medium or high) and whether it can be repeated (yes or no).' },
             note: 'Enums for fixed choices, long text for descriptions.',
           },
         ],
-        // the agent's answer is the form the chat draws: one gin refuses goes back to it with why
-        validate: {
-          output: (_ctx, _args, result) => {
-            const problems = formProblems(result.form.type);
-            return problems.length === 0 ? { ok: true } : { ok: false, action: 'retry', reason: `The form can't be drawn: ${problems.join(' ')} Check it with input/check_form, fix it and answer again.` };
-          },
-        },
         status: status('for input'),
+        // the form authoring agent is a model call of the run; a new form is kept as the person's own input/form fn
+        effects: { mode: 'write', registry: [{ thing: 'fns', action: 'create', kind: FORM_KIND }] },
         tags: ['input'],
       }),
     },

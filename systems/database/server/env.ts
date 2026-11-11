@@ -15,6 +15,8 @@ export const databaseEnv = env({
   DATABASE_PAGE_ROWS: z.number().int().min(1).default(50),
   /** The most rows one call may read (and the person's result holds; more is paged with `offset`). */
   DATABASE_MAX_ROWS: z.number().int().min(1).default(500),
+  /** Rows a clean draft's check shows the query authoring agent. */
+  DATABASE_DRAFT_ROWS: z.number().int().min(1).max(50).default(5),
   /** Rows a write's approval preview shows. */
   DATABASE_PREVIEW_ROWS: z.number().int().min(1).default(20),
   /** A text column with at most this many distinct values has them all shown to the enricher. */

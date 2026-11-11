@@ -17,6 +17,7 @@
     "@ayepi/env": "file:../../../ayepi/packages/env",
     "@harness/core": "*",
     "@harness/sdk": "*",
+    "cytoscape": "3.34.4",
     "mermaid": "^12.3.0",
     "pdfjs-dist": "^6.5.438",
     "shiki": "^4.6.0",

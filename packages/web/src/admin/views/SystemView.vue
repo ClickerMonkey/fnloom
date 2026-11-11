@@ -31,6 +31,7 @@ import StatusBadge from '../components/StatusBadge.vue';
 import ConnectSetup from '../components/ConnectSetup.vue';
 import ConfigWithCustom from '../components/ConfigWithCustom.vue';
 import PartsByKind from '../components/PartsByKind.vue';
+import SystemGraph from '../../graph/components/SystemGraph.vue';
 import RefusalList from '../components/RefusalList.vue';
 import SystemOverview from '../components/SystemOverview.vue';
 import { partGroups, SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
@@ -102,6 +103,7 @@ const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'context', label: 'Context', ...(parts.contextCount.value === undefined ? {} : { count: parts.contextCount.value }) },
   { value: 'types', label: 'Types', ...(parts.typeCount.value === undefined ? {} : { count: parts.typeCount.value }) },
   { value: 'parts', label: 'Other parts', ...(others.value === undefined ? {} : { count: otherCount.value }) },
+  { value: 'graph', label: 'Graph' },
   { value: 'refusals', label: 'Refusals', count: review.value?.refusals.total ?? 0 },
   // every system's output reaches the hub (an installed one's process, a paired one's log lines), so the tab is always there
   { value: 'logs', label: 'Output' },
@@ -269,6 +271,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
             :busy="reviews.switching.busy.value" @switch="switchPart"
           />
         </LoadState>
+        <SystemGraph v-else-if="tab === 'graph' && name" :system="name" />
         <LoadState
           v-else-if="tab === 'refusals'" :loading="reviews.refusals.loading.value" :problem="reviews.refusals.problem.value" :ready="reviews.refusals.loaded.value" :empty="false"
           @retry="reviews.refusals.load()"

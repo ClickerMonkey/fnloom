@@ -2,10 +2,11 @@
 /**
  * A system's fns as its review shows them: one row each with its switch, name, description, what it does to data,
  * whether it is free, its kind and what it changes in the hub. Opening a row shows its instructions, its signature
- * (args and result types), the types it reads and writes, the fns it uses, its cost estimate and its examples, and a
- * test call.
+ * (args and result types), the types it reads and writes, the fns it uses, its cost estimate and its examples, a link
+ * to its own page (where its visibility is set) and a test call.
  */
 import type { QualifiedName } from '@harness/core';
+import type { RouteLocationRaw } from 'vue-router';
 import { ref } from 'vue';
 import { localName } from '../../chat/logic/labels.ts';
 import GinTypeView from '../../gin/GinTypeView.vue';
@@ -19,7 +20,9 @@ withDefaults(defineProps<{
   busy?: boolean;
   /** Offer a test call on each fn. */
   testable?: boolean;
-}>(), { busy: false, testable: true });
+  /** A fn's own page, where its visibility is set; no link when absent. */
+  pageOf?: ((fn: QualifiedName) => RouteLocationRaw) | undefined;
+}>(), { busy: false, testable: true, pageOf: undefined });
 const emit = defineEmits<{ switch: [fn: QualifiedName, on: boolean]; test: [fn: FnReview] }>();
 
 const open = ref<QualifiedName | undefined>(undefined);
@@ -71,8 +74,9 @@ const toggle = (name: QualifiedName): void => { open.value = open.value === name
             </li>
           </ul>
         </section>
-        <div v-if="testable" class="actions">
-          <UiButton size="sm" icon="play" data-testid="review-fn-test" @click="emit('test', item)">Test call</UiButton>
+        <div v-if="testable || pageOf" class="actions">
+          <RouterLink v-if="pageOf" :to="pageOf(item.name)" class="page" data-testid="review-fn-page">Visibility and details</RouterLink>
+          <UiButton v-if="testable" size="sm" icon="play" data-testid="review-fn-test" @click="emit('test', item)">Test call</UiButton>
         </div>
       </div>
     </li>
@@ -108,7 +112,8 @@ const toggle = (name: QualifiedName): void => { open.value = open.value === name
 .examples { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .examples code { font-size: var(--text-xs); overflow-wrap: anywhere; }
 .note { margin-left: var(--space-2); color: var(--text-dim); font-size: var(--text-xs); }
-.actions { display: flex; justify-content: flex-end; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.page { font-size: var(--text-sm); }
 @media (max-width: 559.98px) {
   .head { grid-template-columns: minmax(0, 1fr) auto; }
   .badges { grid-column: 1; grid-row: 2; justify-content: flex-start; }

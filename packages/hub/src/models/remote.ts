@@ -172,6 +172,11 @@ export interface SystemProviderDeps {
   readonly catalog: Pick<Catalog, 'manifest'>;
   readonly bus: Pick<EventBus, 'subscribe'>;
   readonly log: Logger;
+  /**
+   * Build 7: whether a system's provider is offered now: not while its system is installed and not yet live, nor when
+   * an admin switched it off. Absent, every declared provider of a connected system is.
+   */
+  readonly offered?: (system: SystemName, provider: string) => Promise<boolean>;
 }
 
 /** The providers of every connected system that declares some. */
@@ -205,7 +210,7 @@ export class SystemProviderSource implements ProviderSource {
         if (keys !== this.#loaded) changed();
       }, (error: unknown) => { this.#deps.log.warn('providers.remote.check-failed', { error: error instanceof Error ? error.message : String(error) }); });
     };
-    const stops = [this.#deps.bus.subscribe('system.status', check), this.#deps.bus.subscribe('catalog.changed', check)];
+    const stops = [this.#deps.bus.subscribe('system.status', check), this.#deps.bus.subscribe('catalog.changed', check), this.#deps.bus.subscribe('capabilities.changed', check)];
     return () => { for (const stop of stops) stop(); };
   }
 
@@ -214,7 +219,10 @@ export class SystemProviderSource implements ProviderSource {
     const systems = new Set(this.#deps.link.connected().map((c) => c.system));
     for (const system of systems) {
       const manifest = await this.#deps.catalog.manifest(system);
-      for (const provider of manifest?.providers ?? []) out.push({ system, provider, key: remoteProviderKey(system, provider.name) });
+      for (const provider of manifest?.providers ?? []) {
+        if (this.#deps.offered !== undefined && !await this.#deps.offered(system, provider.name)) continue;
+        out.push({ system, provider, key: remoteProviderKey(system, provider.name) });
+      }
     }
     return out;
   }

@@ -1,5 +1,5 @@
 /**
- * Queries on one instance, as the query agents' tools use them: the tables to write against, checking a draft, keeping
+ * Queries on one instance, as the query tools and the query authoring agent use them: the tables to write against, checking a draft, keeping
  * a checked one in the hub as a `database/query` fn of this instance (`hub/save_fn`), and running a saved one into
  * what the model reads. Saved queries are the hub's: their payload is read back with `hub/fn_get`, as the run's
  * person, so who may use one is always the hub's to say. Reads run straight away, their rows attached for the person;
@@ -7,13 +7,21 @@
  */
 import { CallFailed, SAVE_FN_TAKEN, type Log, type ResultBlock } from '@harness/sdk';
 import { Json, qualify, type InstanceName, type ApprovalPreview, type FnExample, type ProposedRun, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
-import { resultBlock } from '@harness/sdk/server';
 import { QUERY_KIND, database } from '../shared/index.ts';
 import { QueryPayload, SortArg, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
 import { argProblems, argsTypeOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
+
+/** Where an authoring draft stands: `check_query`'s answer with the request's args checked too, and the first rows a clean read gives. */
+export interface DraftTrial {
+  readonly check: QueryCheck;
+  readonly sample?: ReadonlyArray<Record<string, Json>>;
+}
+
+/** How rows read reach the person and the model: attached for the person, worded for whether anyone is watching. */
+export type ReadCtx = Pick<QueryRunCtx, 'attach'> & { readonly watched: boolean | undefined };
 import type { DatabaseSettings } from './env.ts';
 import type { DatabaseInstance } from './instance.ts';
-import { resultTable } from './results.ts';
+import { modelBlock, resultTable } from './results.ts';
 
 /** A saved fn as `hub/fn_get` gives it (the parts a query needs). */
 export interface StoredQuery {
@@ -115,7 +123,7 @@ export function queryInstance(fn: string): { instance: string; local: string } |
   return dot <= 0 ? undefined : { instance: local.slice(0, dot), local };
 }
 
-/** One instance's queries, for the query agents' tools. */
+/** One instance's queries, for the query tools and the query authoring agent. */
 export class QueryService {
   readonly #instance: () => DatabaseInstance | undefined;
   readonly #settings: DatabaseSettings;
@@ -136,7 +144,7 @@ export class QueryService {
     return mayUse(instance.config.audience, user) ? instance : notYours(instance.config.label);
   }
 
-  /** `tables`: what the agent writes against. */
+  /** `tables`: what a query is written against. */
   tables(instance: DatabaseInstance): TablesInfo {
     return { database: instance.info, writes: instance.writes, schema: instance.catalog.describe() };
   }
@@ -211,24 +219,42 @@ export class QueryService {
         approval: { run: proposed.run, state: 'waiting', says: `${preview.title}: this waits for the person to approve it in the chat. Tell them what it will do and end your turn; once approved it runs and its result shows, and if they decline you are told why.` },
       };
     }
-    return { ...base, result: await this.read(instance, compiled, plan, called, callOf(values, sort), ctx) };
+    return { ...base, result: await this.read(instance, compiled, plan, called, callOf(values, sort), { attach: ctx.attach, watched: ctx.run.watched }) };
   }
 
   /** Read rows for a call: attach them for the person, and give the model its result block (`args` as called, sort too, for the next page's call). */
-  async read(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, args: Readonly<Record<string, Json>>, ctx: Pick<QueryRunCtx, 'attach'>): Promise<ResultBlock> {
+  async read(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, args: Readonly<Record<string, Json>>, ctx: ReadCtx): Promise<ResultBlock> {
     const table = resultTable(await instance.read(plan), compiled.columns, plan);
     ctx.attach(table, fn.name);
-    return resultBlock(table, { fn, args });
+    return modelBlock(table, { fn, args }, ctx.watched);
+  }
+
+  /**
+   * Try an authoring draft: `check_query`'s answer, then the args for this request against the fn it would be (a
+   * missing required param is a problem, never NULL), then, for a clean read, its first `rows` rows with those args.
+   */
+  async tryDraft(instance: DatabaseInstance, draft: QueryDraft, args: Readonly<Record<string, Json>>, rows: number): Promise<DraftTrial> {
+    const check = this.check(instance, draft);
+    const compiled = instance.compile(this.#payload(instance, draft));
+    if (!check.ok || !('query' in compiled)) { return { check }; }
+    const problems = argProblems(argsTypeOf(compiled, draft.sorters ?? [], this.#limits()), Json.parse({ ...args }));
+    if (problems.length > 0) { return { check: { ...check, ok: false, problems: problems.map((problem) => `The args for this request: ${problem}`) } }; }
+    if (compiled.writes) { return { check }; }
+    const { values, sort } = callArgs(Json.parse({ ...args }));
+    const plan = instance.plan(compiled, compiled.list ? { ...values, limit: rows, offset: 0 } : values, sort);
+    const table = resultTable(await instance.read(plan), compiled.columns, plan);
+    const sample = table.rows.slice(0, rows).map((row) => Object.fromEntries(table.columns.map((column, at) => [column.name, row[at] ?? null])));
+    return { check, sample };
   }
 
   /** Run an approved write, and what the model reads about it. */
-  async write(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, ctx: Pick<QueryRunCtx, 'attach'>): Promise<WriteResult> {
+  async write(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, ctx: ReadCtx): Promise<WriteResult> {
     const written = await instance.write(plan);
     const shown = `${written.affected} ${written.affected === 1 ? 'row' : 'rows'} changed.`;
     if (written.columns.length === 0) { return { shown, affected: written.affected }; }
     const table = resultTable(written, compiled.columns, { offset: 0, limit: undefined, sort: [], cap: this.#settings.DATABASE_MAX_ROWS });
     ctx.attach(table, fn.name);
-    return { shown, affected: written.affected, returned: resultBlock(table, { fn }) };
+    return { shown, affected: written.affected, returned: modelBlock(table, { fn }, ctx.watched) };
   }
 
   /** What a write would do: its SQL, how many rows (from a rolled-back run), and the rows it matches now. */

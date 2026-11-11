@@ -245,6 +245,18 @@ describe('resources', () => {
     expect(await store.table('index').get({ embedder: DOCUMENT, kind: 'section', key: sectionIndexKey(uri, SectionKey.parse('Usage')) })).toBeUndefined();
   });
 
+  it('indexes nothing of a system that is installed and not live, nor under a root switched off (build 7)', async () => {
+    const { indexer, router, store } = ctx;
+    router.files.set(uri, { text: '# Intro\nhello\n', version: 'v1', format: 'markdown' });
+    await store.table('systems').put({ ...systemRow('shop', 'connected'), stage: 'installed' });
+    expect(await indexer.resource(uri)).toBeUndefined();
+    await store.table('systems').update(SystemName.parse('shop'), { stage: 'live' });
+    await store.table('itemSwitches').put({ system: SystemName.parse('shop'), section: 'roots', name: 'file:///docs', by: ActorId.parse('act_admin'), at: 1 });
+    expect(await indexer.resource(uri)).toBeUndefined();
+    await store.table('itemSwitches').remove({ system: SystemName.parse('shop'), section: 'roots', name: 'file:///docs' });
+    expect(await indexer.resource(uri)).toMatchObject({ to: 'v1' });
+  });
+
   it('uses a user’s rule over the defaults, and a system’s sectioner over its link', async () => {
     const { indexer, router, store, catalog } = ctx;
     await catalog.importManifest(await manifestFor(shop));

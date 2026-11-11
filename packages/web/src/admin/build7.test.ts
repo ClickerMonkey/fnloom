@@ -176,7 +176,7 @@ describe('a system’s own config component', () => {
   const TYPE = wireType(g.obj({ folder: g.text({ minLength: 1 }) }));
   /** A stand-in for a system's config component: shows the folder and offers a change. */
   const NotesConfig = defineComponent({
-    props: { config: { type: null, required: false }, type: { type: null, required: true }, validate: { type: Function, required: true }, client: { type: null, required: true } },
+    props: { config: { type: null, required: false, default: undefined }, type: { type: null, required: true }, validate: { type: Function, required: true }, client: { type: null, required: true } },
     emits: ['change'],
     setup(props, { emit }) {
       return () => h('div', { 'data-testid': 'notes-config' }, [

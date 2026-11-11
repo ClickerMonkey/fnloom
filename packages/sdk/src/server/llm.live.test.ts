@@ -1,14 +1,9 @@
 /**
  * Live (risk 4): a system-side aeye prompt with a tool, then a structured answer, through the forwarding provider and
- * the link, to a hub that runs it on a free OpenRouter model. The hub side here does what the hub's LLM gateway does:
+ * the link, to a hub that runs it on a free OpenRouter model. The hub side (the kit's `OpenRouterModelLink`) does what the hub's LLM gateway does:
  * rebuild the forwarded JSON schemas as zod, stream from the provider, send back the descriptors it used, then the
  * chunks and the cost. One prompt; a rate-limited model is skipped for the next. Run with `npm run test:live`.
  */
-import { AI } from '@aeye/ai';
-import type { Chunk, Message, Request } from '@aeye/core';
-import { models, strictSupport } from '@aeye/models';
-import { OpenRouterProvider } from '@aeye/openrouter';
-import { mintId, type Json, type LlmChunk, type LlmForward, type LlmForwardChunk } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fn } from '../fn.ts';
 import { g } from '../gin.ts';
@@ -16,6 +11,7 @@ import { system } from '../system.ts';
 import { z } from 'zod';
 import { harnessAiOf, serve, type RunningSystem } from './index.ts';
 import { FakeHub, liveEnv, liveModels } from './testing.ts';
+import { OpenRouterModelLink } from '../testing/openrouter.ts';
 
 const weather = system('weather', { description: 'Weather.' }).with({
   fns: {
@@ -26,65 +22,6 @@ const weather = system('weather', { description: 'Weather.' }).with({
     }),
   },
 });
-
-/** A forwarded JSON schema as zod again, wrapped when it isn't an object (tool parameters must be). */
-function objectSchema(json: Json): z.ZodType<object, object> {
-  const schema = z.fromJSONSchema(Object.fromEntries(Object.entries(typeof json === 'object' && json !== null && !Array.isArray(json) ? json : {})));
-  return schema instanceof z.ZodObject ? schema : z.object({ value: schema });
-}
-
-function aeyeMessage(message: LlmForward['request']['messages'][number]): Message {
-  return {
-    role: message.role,
-    content: typeof message.content === 'string' ? message.content : message.content.map((p) => ({ type: p.type, content: p.content })),
-    ...(message.toolCalls === undefined ? {} : { toolCalls: message.toolCalls }),
-    ...(message.toolCallId === undefined ? {} : { toolCallId: message.toolCallId }),
-  };
-}
-
-function wireChunk(chunk: Chunk): LlmChunk {
-  return {
-    ...(chunk.content === undefined ? {} : { content: chunk.content }),
-    ...(chunk.toolCallNamed === undefined ? {} : { toolCallNamed: chunk.toolCallNamed }),
-    ...(chunk.toolCallArguments === undefined ? {} : { toolCallArguments: chunk.toolCallArguments }),
-    ...(chunk.toolCall === undefined ? {} : { toolCall: chunk.toolCall }),
-    ...(chunk.finishReason === undefined ? {} : { finishReason: chunk.finishReason }),
-  };
-}
-
-/** The hub's side: run a forwarded request on OpenRouter and stream it back as the link expects. */
-function openRouterHub(key: string, model: string) {
-  const openrouter = new OpenRouterProvider({ apiKey: key });
-  const ai = AI.with().providers({ openrouter }).create({ models, modelOverrides: [...strictSupport] });
-  return async function* relay(forward: LlmForward): AsyncGenerator<LlmForwardChunk> {
-    const format = forward.request.responseFormat;
-    const request: Request = {
-      messages: forward.request.messages.map(aeyeMessage),
-      maxTokens: 2_000,
-      ...(forward.request.tools === undefined ? {} : {
-        tools: forward.request.tools.map((t) => ({ name: t.name, parameters: objectSchema(t.parameters), ...(t.description === undefined ? {} : { description: t.description }), ...(t.strict === undefined ? {} : { strict: t.strict }) })),
-      }),
-      ...(format === undefined || typeof format === 'string' ? {} : { responseFormat: { type: objectSchema(format.schema), strict: format.strict } }),
-    };
-    let described = false;
-    let usage = { input: 0, output: 0 };
-    let cost = 0;
-    for await (const chunk of ai.chat.stream(request, { metadata: { model: `openrouter/${model}` } })) {
-      if (!described) {
-        described = true;
-        const tools = Object.fromEntries((request.tools ?? []).flatMap((t) => (t.descriptor === undefined ? [] : [[t.name, t.descriptor]])));
-        const output = typeof request.responseFormat === 'object' ? request.responseFormat.descriptor : undefined;
-        yield { type: 'descriptors', tools, ...(output === undefined ? {} : { output }) };
-      }
-      if (chunk.usage !== undefined) {
-        usage = { input: chunk.usage.text?.input ?? usage.input, output: chunk.usage.text?.output ?? usage.output };
-        cost = chunk.usage.cost ?? cost;
-      }
-      yield { type: 'chunk', chunk: wireChunk(chunk) };
-    }
-    yield { type: 'done', usage, cost, interaction: mintId('llmInteraction'), model };
-  };
-}
 
 let running: RunningSystem<'weather'> | undefined;
 afterEach(async () => {
@@ -100,7 +37,8 @@ describe('the forwarding provider (live)', () => {
     const tried: string[] = [];
     for (const model of candidates) {
       const hub = new FakeHub();
-      hub.onLlm = openRouterHub(key ?? '', model);
+      const link = new OpenRouterModelLink({ key: key ?? '', models: [model] });
+      hub.onLlm = (forward) => link.llm(forward);
       const lookups: string[] = [];
       running = await serve(weather, {
         fns: {

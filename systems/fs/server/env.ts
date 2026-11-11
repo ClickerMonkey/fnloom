@@ -86,6 +86,8 @@ export const fsEnv = env({
   FS_HOSTED_CRASHES_PER_HOUR: z.number().int().min(1).default(5),
   /** How long reading a built system's contract may take. */
   FS_HOSTED_PROBE_TIMEOUT: z.number().int().min(1_000).default(60_000),
+  /** How long a folder's own tests may run before install_system shows its card (`ProcessSystemTests`). */
+  FS_TESTS_TIMEOUT: z.number().int().min(5_000).default(300_000),
 }).add(systemState('fs'));
 
 /** The fs system's settings, resolved. */

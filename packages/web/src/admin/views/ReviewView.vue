@@ -24,6 +24,7 @@ import DeclaredList from '../components/DeclaredList.vue';
 import GrantsView from '../components/GrantsView.vue';
 import LoadState from '../components/LoadState.vue';
 import PartsByKind from '../components/PartsByKind.vue';
+import SystemGraph from '../../graph/components/SystemGraph.vue';
 import RefusalList from '../components/RefusalList.vue';
 import ReviewFnList from '../components/ReviewFnList.vue';
 import StatusBadge from '../components/StatusBadge.vue';
@@ -63,6 +64,7 @@ const tabs = computed<readonly TabItem<ReviewTab>[]>(() => [
   { value: 'context', label: 'Context', count: context.value.length },
   { value: 'types', label: 'Types', count: types.value.length },
   { value: 'parts', label: 'Other parts' },
+  { value: 'graph', label: 'Graph' },
   { value: 'grants', label: 'Grants' },
   { value: 'config', label: 'Config' },
   { value: 'checks', label: 'Checks', ...(checksWarn(review.value?.checks) ? { icon: 'warning' as const } : {}) },
@@ -142,7 +144,7 @@ async function save(config: Json): Promise<void> {
         </UiBanner>
         <p v-else class="dim" data-testid="review-stage">{{ STAGE_ABOUT[review.stage] }} <span class="checks">{{ checksLine(review.checks) }}.</span></p>
         <UiTabs v-model="tab" :tabs="tabs" label="Review" />
-        <ReviewFnList v-if="tab === 'fns'" :fns="fns" :busy="store.switching.busy.value" @switch="(fn, on) => switchItem({ section: 'fns', name: fn }, on)" @test="startTest" />
+        <ReviewFnList v-if="tab === 'fns'" :fns="fns" :busy="store.switching.busy.value" :page-of="links.fn" @switch="(fn, on) => switchItem({ section: 'fns', name: fn }, on)" @test="startTest" />
         <template v-else-if="tab === 'context' || tab === 'types'">
           <UiEmpty v-if="(tab === 'context' ? context : types).length === 0" icon="layers" :title="tab === 'context' ? 'No context' : 'No types'" :body="`It declares no ${tab === 'context' ? 'context' : 'named types'}.`" />
           <DeclaredList v-else :items="tab === 'context' ? context : types" :busy="store.switching.busy.value" :page-of="tab === 'context' ? links.contextItem : undefined" @switch="switchDeclared" />
@@ -153,6 +155,7 @@ async function save(config: Json): Promise<void> {
         >
           <PartsByKind v-model:part="part" :groups="groups" :roots="roots" :root-page="rootPage" :owner-page="ownerPage" :is-on="isOn" :busy="store.switching.busy.value" @switch="switchItem" />
         </LoadState>
+        <SystemGraph v-else-if="tab === 'graph'" :system="review.system" />
         <GrantsView v-else-if="tab === 'grants'" :grants="review.manifest.grants" />
         <LoadState v-else-if="tab === 'config'" :loading="system.view.loading.value" :problem="system.view.problem.value" :ready="view !== undefined" :empty="false" @retry="name && system.open(name)">
           <ConfigWithCustom

@@ -4,7 +4,9 @@
  * (name, what it said about itself, version, address, key fingerprint, when the request expires) and whether the code
  * in the link is the one the system shows; the admin names the instance, fills in its config (the gin value editor,
  * from the config type the system sent) and pairs it in one step, or refuses. It then follows the system live until
- * it is connected and links to its admin page. Signing in comes first and returns here.
+ * it is connected; a newly paired system is installed, not live, so the page leads on to its review. Once it is
+ * paired, its config shows again with the system's own config component when its contract names one (build 7), so a
+ * config the hub refused can be fixed here. Signing in comes first and returns here.
  */
 import { InstanceName, PairingId, type AutoPairChoice, type Json } from '@harness/core';
 import { computed, onBeforeUnmount, provide, reactive, ref, shallowRef, watch } from 'vue';
@@ -15,13 +17,18 @@ import { useRouteQuery } from '../app/url.ts';
 import GinValueView from '../gin/GinValueView.vue';
 import { GIN_SECRETS } from '../gin/types.ts';
 import AutoPairPicker from '../admin/components/AutoPairPicker.vue';
+import ConfigWithCustom from '../admin/components/ConfigWithCustom.vue';
+import { secretFields } from '../admin/logic/instances.ts';
+import { configComponentsOf, configTarget } from '../admin/state/config-component.ts';
 import LoadState from '../admin/components/LoadState.vue';
 import { useStores } from '../state/stores.ts';
 import { UiBadge, UiBanner, UiButton, UiCard, UiEmpty, UiIcon, UiInput, UiSpinner, fullTime } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { admin, toasts } = useStores();
+const { admin, chat, toasts } = useStores();
 const store = admin.pairing;
+const systems = admin.system;
+const reviews = admin.review;
 const route = useRoute();
 const router = useRouter();
 const now = useNow(1_000);
@@ -47,7 +54,35 @@ watch(request, (r) => {
   if (r === undefined) { return; }
   if (instance.value === '') { instance.value = r.instance ?? 'main'; }
 }, { immediate: true });
-onBeforeUnmount(() => { store.close(); });
+onBeforeUnmount(() => { store.close(); systems.close(); reviews.close(); });
+
+/** Once paired: the system's own page data (its config) and its review (its stage and its own config component). */
+const paired = computed(() => (phase.value === 'connected' || phase.value === 'needs-config' ? store.system.value : undefined));
+watch(paired, (system) => { if (system !== undefined) { void systems.open(system); void reviews.open(system); } }, { immediate: true });
+const view = computed(() => (paired.value !== undefined && systems.view.value.value?.name === paired.value ? systems.view.value.value : undefined));
+const review = computed(() => (paired.value !== undefined && reviews.review.value.value?.system === paired.value ? reviews.review.value.value : undefined));
+const installed = computed(() => (review.value?.stage ?? view.value?.stage) === 'installed');
+const loader = configComponentsOf(chat);
+const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value.manifest)));
+/** Its config again after pairing: when the hub refused the one given, or the system draws its own settings. */
+const showConfig = computed(() => view.value?.configType !== undefined && (phase.value === 'needs-config' || target.value !== undefined));
+const configProblems = ref<readonly string[]>([]);
+const doneTitle = computed(() => {
+  const system = store.system.value ?? 'The system';
+  if (phase.value === 'joining') { return `Waiting for ${system} to connect…`; }
+  return phase.value === 'needs-config' ? `${system} needs its config` : `${system} is connected`;
+});
+const doneBody = computed(() => {
+  if (phase.value === 'joining') { return 'It was paired; it connects in a moment.'; }
+  if (phase.value === 'needs-config') { return 'It paired, but its config wasn’t accepted. Set it below or on its page.'; }
+  return installed.value ? 'It is installed, not live: nothing it offers is used until you review it and go live.' : 'Its fns are ready to use.';
+});
+
+async function saveConfig(config: Json): Promise<void> {
+  const result = await systems.configure(config);
+  configProblems.value = result.ok ? [] : result.problems;
+  if (result.ok) { toasts.ok('Config saved', `Version ${result.version}`); }
+}
 
 const matches = computed(() => code.value === '' || store.codeMatches(code.value));
 const instanceName = computed(() => InstanceName.safeParse(instance.value.trim()));
@@ -117,12 +152,18 @@ async function refuse(): Promise<void> {
             <UiSpinner v-if="phase === 'joining'" :size="20" />
             <UiIcon v-else :name="phase === 'connected' ? 'success' : 'warning'" :size="22" />
             <div>
-              <p class="name">{{ phase === 'connected' ? `${store.system.value} is connected` : phase === 'needs-config' ? `${store.system.value} needs its config` : `Waiting for ${store.system.value} to connect…` }}</p>
-              <p class="dim">{{ phase === 'connected' ? 'Its fns are ready to use.' : phase === 'needs-config' ? 'It paired, but its config wasn’t accepted. Set it on its page.' : 'It was paired; it connects in a moment.' }}</p>
+              <p class="name">{{ doneTitle }}</p>
+              <p class="dim" data-testid="pair-done-body">{{ doneBody }}</p>
             </div>
           </div>
           <div class="actions">
-            <UiButton v-if="store.system.value" variant="primary" icon="arrow-right" data-testid="pair-open-system" @click="store.system.value && router.push(links.system(store.system.value))">Open its page</UiButton>
+            <UiButton
+              v-if="store.system.value" :variant="installed ? 'ghost' : 'primary'" icon="arrow-right" data-testid="pair-open-system"
+              @click="store.system.value && router.push(links.system(store.system.value))"
+            >
+              Open its page
+            </UiButton>
+            <UiButton v-if="paired && installed" variant="primary" icon="eye" data-testid="pair-review" @click="paired && router.push(links.review(paired))">Review and go live</UiButton>
           </div>
         </UiCard>
 
@@ -133,6 +174,12 @@ async function refuse(): Promise<void> {
         <UiEmpty v-else-if="phase === 'elsewhere'" icon="check" title="Already answered" :body="`This request was ${request.status}.`">
           <template #actions><UiButton @click="router.push(links.system(request.name))">Open {{ request.name }}</UiButton></template>
         </UiEmpty>
+
+        <ConfigWithCustom
+          v-if="showConfig && view" :type="view.configType" :value="view.config?.value" :version="view.config?.version" :set-at="view.config?.setAt" :needs-config="view.needsConfig"
+          :now="now" :busy="systems.config.busy.value" :problems="configProblems" :secrets="secretFields(view.configSecrets, view.config?.value)" :target="target" :loader="loader"
+          data-testid="pair-config-after" @save="saveConfig"
+        />
       </template>
     </LoadState>
   </AppPage>

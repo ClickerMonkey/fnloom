@@ -38,10 +38,12 @@ export class StoreSystemAdmin implements SystemAdmin {
     const enabled: SystemEnabled = { functions: change.functions ?? record.enabled.functions, renderers: change.renderers ?? record.enabled.renderers, context };
     await this.#options.instances.syncSystem(system, { enabled });
     if (context !== (record.enabled.context ?? true)) {
-      // each item keeps its own switch (`disabled`); the system's is written beside it
+      // each item keeps its own switch (`disabled`); the system's is written beside it, and an installed system's
+      // context stays off until it goes live (`SystemLifecycle.goLive` writes the switch then)
       const { store } = this.#options;
+      const off = !context || record.stage === 'installed';
       await store.tx(async (tx) => {
-        for (const item of await allRows(tx.table('context'), { system })) { await tx.table('context').update(item.name, { systemOff: !context }); }
+        for (const item of await allRows(tx.table('context'), { system })) { await tx.table('context').update(item.name, { systemOff: off }); }
       });
     }
     this.#options.log.info('system.enabled', { system, ...enabled, by });

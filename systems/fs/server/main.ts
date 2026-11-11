@@ -24,6 +24,7 @@ import { createFsImpl } from './impl.ts';
 import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
 import { SupervisedRunner } from './runner.ts';
+import { ProcessSystemTests } from './tests.ts';
 import { NodeExec, NodeShell, chooseShell } from './shell.ts';
 import { DiskSnapshots } from './snapshots.ts';
 
@@ -63,6 +64,8 @@ const hosting = new Hosting({
     now: () => Date.now(),
     log: (key, fields) => { log.info(key, fields); },
   }),
+  // a folder's own tests run in a sandboxed child before its install card is shown
+  tests: new ProcessSystemTests({ nodeArgs: loader.nodeArgs, baseEnv: process.env, timeout: settings.FS_TESTS_TIMEOUT }),
   hubUrl: settings.HARNESS_HUB,
   host: { system: SystemName.parse(fs.name), instance: settings.HARNESS_INSTANCE },
   dataDir,

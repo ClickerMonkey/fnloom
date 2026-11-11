@@ -19,6 +19,7 @@ import type { Catalog } from '../catalog/index.ts';
 import { allRows } from '../catalog/rows.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ReviewEnv } from './env.ts';
+import type { ResourceRouter } from './index.ts';
 
 /** What the lifecycle needs. */
 export interface LifecycleOptions {
@@ -28,6 +29,8 @@ export interface LifecycleOptions {
   readonly log: Logger;
   readonly clock: () => number;
   readonly settings: Pick<ReviewEnv, 'HARNESS_REVIEW_SYSTEMS'>;
+  /** Asks a system for its resource roots again, so a system going live (or a root switched on) is indexed. */
+  readonly resources?: () => Pick<ResourceRouter, 'refresh'>;
 }
 
 /** One item of a manifest as the review compares it. */
@@ -40,8 +43,8 @@ interface ManifestItem {
   readonly effect?: { readonly thing: RegistryThing; readonly kind?: string };
 }
 
-/** The key of an item in a change list. */
-const keyOf = (item: Pick<ContractChange, 'section' | 'name'>): string => `${item.section}\u0000${item.name}`;
+/** The key of an item (or a change to one) within a system: its section and its listed name. */
+export const itemKey = (item: Pick<ContractChange, 'section' | 'name'>): string => `${item.section}\u0000${item.name}`;
 
 /** The registry thing each manifest section's runtime additions are, where a fn can declare them. */
 const SECTION_THINGS: Partial<Record<ContractChange['section'], RegistryThing>> = { fns: 'fns', types: 'types', context: 'context', kinds: 'kinds', components: 'components' };
@@ -49,7 +52,7 @@ const SECTION_THINGS: Partial<Record<ContractChange['section'], RegistryThing>> 
 /** Every item of a manifest, keyed by section and listed name (qualified, a `/command`, `<registry>: <label>`). */
 export function manifestItems(manifest: Manifest): Map<string, ManifestItem> {
   const out = new Map<string, ManifestItem>();
-  const add = (item: ManifestItem): void => { out.set(keyOf(item), item); };
+  const add = (item: ManifestItem): void => { out.set(itemKey(item), item); };
   for (const section of MANIFEST_SECTION_NAMES) {
     const runtime = runtimeNames(manifest, section);
     for (const decl of manifest[section]) {
@@ -90,17 +93,17 @@ export function contractChanges(before: Manifest | undefined, after: Manifest): 
 
 /** Fold newer changes onto ones already waiting, so a pending review always reads from the live version. */
 export function mergeChanges(waiting: readonly ContractChange[], newer: readonly ContractChange[]): ContractChange[] {
-  const out = new Map(waiting.map((change) => [keyOf(change), change]));
+  const out = new Map(waiting.map((change) => [itemKey(change), change]));
   for (const change of newer) {
-    const old = out.get(keyOf(change));
-    if (old === undefined) { out.set(keyOf(change), change); continue; }
+    const old = out.get(itemKey(change));
+    if (old === undefined) { out.set(itemKey(change), change); continue; }
     const before = old.change === 'added' ? undefined : old.before;
     const after = change.change === 'removed' ? undefined : change.after;
-    out.delete(keyOf(change));
+    out.delete(itemKey(change));
     if (before === undefined && after === undefined) { continue; }
     if (before !== undefined && after !== undefined && canonicalJson(before) === canonicalJson(after)) { continue; }
     const kind: ContractChange['change'] = before === undefined ? 'added' : after === undefined ? 'removed' : 'changed';
-    out.set(keyOf(change), { ...change, change: kind, ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) });
+    out.set(itemKey(change), { ...change, change: kind, ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) });
   }
   return [...out.values()];
 }
@@ -162,7 +165,7 @@ export class SystemLifecycle {
       allRows(store.table('itemSwitches'), { system }), allRows(store.table('fns'), { system }), allRows(store.table('context'), { system }), this.review(system),
     ]);
     const out = new Map<string, ItemRef>();
-    const add = (item: ItemRef): void => { out.set(keyOf(item), item); };
+    const add = (item: ItemRef): void => { out.set(itemKey(item), item); };
     for (const row of switches) { add({ section: row.section, name: row.name }); }
     for (const fn of fns) { if (fn.disabled) { add({ section: 'fns', name: fn.name }); } }
     for (const item of context) { if (item.disabled === true) { add({ section: 'context', name: item.name }); } }
@@ -182,6 +185,8 @@ export class SystemLifecycle {
     else { await table.put({ system: part.system, section: part.section, name: part.name, by, at: clock() }); }
     // a kind switched off takes its fns with it
     if (part.section === 'kinds') { await catalog.refreshAvailability(part.system); }
+    // a root switched back on is crawled again
+    if (part.section === 'roots' && part.on) { await this.#refreshResources(part.system); }
     bus.publish('capabilities.changed', {});
     log.info('system.part.switched', { system: part.system, section: part.section, name: part.name, on: part.on, by });
     return { on: part.on };
@@ -190,19 +195,19 @@ export class SystemLifecycle {
   /** Put the given items off, and every other item of the system that is off by an admin switch back on. */
   async #applyOff(system: SystemName, off: readonly ItemRef[], by: ActorId, among?: ReadonlySet<string>): Promise<void> {
     const { store, clock } = this.#options;
-    const wanted = new Set(off.map(keyOf));
-    const touched = (item: ItemRef): boolean => among === undefined || among.has(keyOf(item));
+    const wanted = new Set(off.map(itemKey));
+    const touched = (item: ItemRef): boolean => among === undefined || among.has(itemKey(item));
     await store.tx(async (tx) => {
       for (const fn of await allRows(tx.table('fns'), { system })) {
         const item: ItemRef = { section: 'fns', name: fn.name };
-        if (touched(item) && fn.disabled !== wanted.has(keyOf(item))) { await tx.table('fns').update(fn.name, { disabled: wanted.has(keyOf(item)) }); }
+        if (touched(item) && fn.disabled !== wanted.has(itemKey(item))) { await tx.table('fns').update(fn.name, { disabled: wanted.has(itemKey(item)) }); }
       }
       for (const row of await allRows(tx.table('context'), { system })) {
         const item: ItemRef = { section: 'context', name: row.name };
-        if (touched(item) && (row.disabled === true) !== wanted.has(keyOf(item))) { await tx.table('context').update(row.name, { disabled: wanted.has(keyOf(item)) }); }
+        if (touched(item) && (row.disabled === true) !== wanted.has(itemKey(item))) { await tx.table('context').update(row.name, { disabled: wanted.has(itemKey(item)) }); }
       }
       for (const row of await allRows(tx.table('itemSwitches'), { system })) {
-        if (touched(row) && !wanted.has(keyOf(row))) { await tx.table('itemSwitches').remove({ system, section: row.section, name: row.name }); }
+        if (touched(row) && !wanted.has(itemKey(row))) { await tx.table('itemSwitches').remove({ system, section: row.section, name: row.name }); }
       }
       for (const item of off) {
         if (item.section !== 'fns' && item.section !== 'context') { await tx.table('itemSwitches').put({ system, section: item.section, name: item.name, by, at: clock() }); }
@@ -235,6 +240,7 @@ export class SystemLifecycle {
       for (const item of await allRows(tx.table('context'), { system: request.system })) { await tx.table('context').update(item.name, { systemOff: record.enabled.context === false }); }
     });
     await catalog.refreshAvailability(request.system);
+    await this.#refreshResources(request.system);
     bus.publish('capabilities.changed', {});
     log.info('system.live', { system: request.system, hash: manifest.hash, off: request.off.length, by });
     return { stage: 'live', hash: manifest.hash };
@@ -247,7 +253,7 @@ export class SystemLifecycle {
     if (review?.pending === undefined) { throw refuse(409, 'NOTHING_PENDING', `${request.system} has no changes waiting`); }
     if (review.pending.hash !== request.hash) { throw refuse(409, 'CONTRACT_MOVED', `${request.system}'s changes moved since you reviewed them: review them again`); }
     const manifest = await this.#reviewed(request.system, request.hash);
-    const among = new Set(review.pending.changes.flatMap((change) => { const item = itemOf(change); return item === undefined ? [] : [keyOf(item)]; }));
+    const among = new Set(review.pending.changes.flatMap((change) => { const item = itemOf(change); return item === undefined ? [] : [itemKey(item)]; }));
     await this.#applyOff(request.system, request.off, by, among);
     const runtime = review.pending.changes.filter((change) => change.origin === 'runtime' && change.change !== 'removed').flatMap((change) => { const item = itemOf(change); return item === undefined ? [] : [item]; });
     const live: LiveContract = {
@@ -318,6 +324,13 @@ export class SystemLifecycle {
       bus.publish('capabilities.changed', {});
     }
     if (pending !== undefined) { log.info('system.review.pending', { system, hash: after.hash, changes: waiting.length }); }
+  }
+
+  /** Ask the system for its roots again (when it is away, its next connect does). */
+  async #refreshResources(system: SystemName): Promise<void> {
+    try { await this.#options.resources?.().refresh(system); } catch (error) {
+      this.#options.log.warn('system.resources.refresh-failed', { system, error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   /** Copy the install checks from the install run's approval onto the system's review. */

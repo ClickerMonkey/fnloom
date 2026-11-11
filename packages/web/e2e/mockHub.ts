@@ -37,6 +37,8 @@ import { MockBuild4, readAccess, readActors } from './mockBuild4.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
 import { MockFns } from './mockBuild5.ts';
+import { MockReviews } from './mockBuild7.ts';
+import { graphOf } from '../src/graph/test/graph.ts';
 import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer, systemPartsOf } from './mockBuild6.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
@@ -139,7 +141,8 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const RANDOM = SystemName.parse('random');
   admin.systems.set(RANDOM, systemView({ name: 'random', description: 'Rolls dice; written and installed from the chat.', status: 'connected', version: '0.2.0', fns: 1, configType: undefined, config: undefined, host: HOSTED_RANDOM }));
   /** A system as the admin pages get it, with its instances. */
-  const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name) });
+  const reviews = new MockReviews(() => NOW);
+  const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name), stage: reviews.stage(view.name) });
   /** Tell every signed-in browser about a change (set once the app exists). */
   let announce: (event: UserEvent) => void = () => undefined;
 
@@ -236,7 +239,20 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
         if (data.context !== undefined) { graph.switchSystem(data.system, data.context); }
         return admin.enable(data.system, data);
       },
-      switchItem: ({ data }) => (data.section === 'fns' ? admin.switchFn(data.name, data.on) : graph.switchItem(data.name, data.on)),
+      switchItem: ({ data }) => {
+        const system = reviews.systemOf(data.name);
+        if (system !== undefined) { reviews.switchItem(system, data, data.on); }
+        return data.section === 'fns' ? admin.switchFn(data.name, data.on) : graph.switchItem(data.name, data.on);
+      },
+      switchPart: ({ data }) => reviews.switchItem(data.system, data, data.on),
+      systemReview: ({ data }) => reviews.review(data.system),
+      goLive: ({ data }) => reviews.goLive(data),
+      approveReview: ({ data }) => reviews.approve(data),
+      rejectReview: ({ data }) => reviews.reject(data.system),
+      testCall: () => reviews.testCall(),
+      refusals: ({ data }) => reviews.refusals(data),
+      // build 7: the graph of every system's items, from the sample graph
+      graph: ({ data }) => graphOf(data),
       systemParts: ({ data }) => systemPartsOf(data.system),
       removeSystem: ({ data }) => admin.remove(data.system),
       installSystem: ({ data }) => admin.install(data.source, data.autoStart ?? true),
@@ -359,7 +375,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
     'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
     'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs', 'query', 'exploreRoots', 'exploreList', 'exploreRead',
-    'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'switchItem', 'systemParts', 'removeSystem', 'installSystem', 'startSystem',
+    'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'switchItem', 'switchPart', 'systemReview', 'goLive', 'approveReview', 'rejectReview', 'testCall', 'refusals', 'graph', 'systemParts', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',
     'runs', 'llmCalls', 'resources', 'resource',

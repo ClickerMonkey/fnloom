@@ -38,6 +38,7 @@ export const AUTHORING_CONFIG: GuideConfig = {
     { specifier: '@harness/sdk', file: at('packages/sdk/src/index.ts') },
     { specifier: '@harness/sdk/server', file: at('packages/sdk/src/server/index.ts') },
     { specifier: '@harness/sdk/server/testing', file: at('packages/sdk/src/server/testing.ts') },
+    { specifier: '@harness/sdk/testing', file: at('packages/sdk/src/testing/index.ts') },
     { specifier: '@harness/sdk/build', file: at('packages/sdk/src/build.ts') },
   ],
   external: [{ specifier: '@aeye/gin', from: at('packages/sdk/src/gin.ts'), names: GIN_EXTERNALS }],

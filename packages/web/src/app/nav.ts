@@ -31,6 +31,7 @@ const NAV: readonly NavSpec[] = [
   { id: 'inbox', to: links.inbox(), label: 'Inbox', icon: 'inbox', routes: [ROUTES.inbox], adminOnly: false },
   { id: 'resources', to: links.resources(), label: 'Resources', icon: 'layers', routes: [ROUTES.resources], adminOnly: false },
   { id: 'context', to: links.context(), label: 'Context', icon: 'book', routes: [ROUTES.context, ROUTES.contextItem], adminOnly: false },
+  { id: 'graph', to: links.graph(), label: 'Graph', icon: 'tree', routes: [ROUTES.graph], adminOnly: false },
   {
     id: 'admin', to: links.systems(), label: 'Admin', icon: 'shield', adminOnly: true,
     routes: [

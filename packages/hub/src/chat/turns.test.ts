@@ -123,6 +123,10 @@ describe('sending a message', () => {
     await expect(send({ type: 'command', context: 'git/guide', args: { topic: 'rebase' } })).rejects.toMatchObject({ code: 'unavailable' });
     expect(await w.store.table('turns').count({ session: w.session.id })).toBe(0);
     w.catalog.unavailable.delete('git/guide');
+    // an admin switched the /command itself off (build 7 per-item switches): a readable refusal, not a 500
+    await w.store.table('itemSwitches').put({ system: SystemName.parse('git'), section: 'commands', name: '/guide', by: w.admin.id, at: 1 });
+    await expect(send({ type: 'command', context: 'git/guide', args: { topic: 'rebase' } })).rejects.toMatchObject({ code: 'unavailable', message: '/guide can\'t be used now: an admin switched it off.' });
+    await w.store.table('itemSwitches').remove({ system: SystemName.parse('git'), section: 'commands', name: '/guide' });
     await send({ type: 'command', context: 'git/guide', args: { topic: 'rebase' } });
     expect((await w.store.table('sessions').get(w.session.id))?.context).toEqual(['git/guide']);
   });

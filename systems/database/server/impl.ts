@@ -1,22 +1,26 @@
 /**
  * The database system's implementation: one instance per database. The lifecycle opens the configured database and
  * rescans it (on start and on every config change), proposing an admin approval for type changes that would break
- * saved queries or drop a type. `get_query` and `edit_query` are agents the hub runs; here are their tools: `databases`
- * (the fleet), and `tables`, `check_query`, `save_query` and `run_query`, each done by the instance that has the
- * database (`at_instance`, forwarded with `on` when that is another one). Saved queries live in the hub; the `query`
- * kind runs them, and previews the writes among them for their approval.
+ * saved queries or drop a type. `get_query` picks the database (the one named, the only one, the decision model's pick,
+ * or a question back) and `edit_query` reads it off the saved query; both hand the request to `author_query` on that
+ * instance, which runs the query authoring agent (`authoring.ts`) on the run's `ctx.ai()` and then the query it kept.
+ * The direct tools (`databases`, `tables`, `check_query`, `save_query`, `run_query`) are each done by the instance
+ * that has the database (`at_instance`, forwarded with `on` when that is another one). Saved queries live in the hub;
+ * the `query` kind runs them, and previews the writes among them for their approval.
  */
 import { InstanceName, Json, QualifiedName, ShareRule, qualify, splitName, type ApprovalPreview, type FnEffects, type PreviewAnswer, type RunInfo } from '@harness/core';
 import { CallFailed, ResultBlockType, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
+import { AuthoringError } from '@harness/sdk/server';
 import { z } from 'zod';
 import { QUERY_KIND, database, type DatabaseContract } from '../shared/index.ts';
-import { ParamValues, QueryPayload, WriteResult, type Connection, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type ReadInstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
+import { ParamValues, QueryPayload, WriteResult, type AskWhichDatabase, type AuthorArgs, type Connection, type QueryAnswer as QueryAnswerValue, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type ReadInstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
 import { argProblems, argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
 import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } from './instance.ts';
 import { QueryService, callArgs, callOf, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
+import { QueryAuthoring, localName, queryAuthoring, type EditedQuery } from './authoring.ts';
 import { pickDatabase } from './pick.ts';
 import { TableFnService, type TableFnsCtx, type TableFnsReadCtx } from './table-fns.ts';
 import { hubTypeOf, qualifiedTypeOf, tableMetaOf } from './types.ts';
@@ -177,6 +181,17 @@ async function schemaPlan(
  */
 const NOT_VALUES = { path: 'args', message: 'args must be a JSON object of values by param name, such as { "status": "paid" }; you sent a string or a list. Send the object itself, not a string holding it.' };
 
+/**
+ * What get_query tells its caller when neither the request nor the decision model says which database: ask the person
+ * with input/ask_choice and call again, or, with nobody watching, say which databases could answer.
+ */
+export function askNext(ask: AskWhichDatabase, labels: readonly string[], watched: boolean | undefined): string {
+  const options = labels.map((label) => `"${label}"`).join(', ');
+  return watched === true
+    ? `Ask the person with input/ask_choice (question "${ask.ask}", options ${options}), end your turn, then call get_query again with the database they pick.`
+    : `Nobody is watching this run, so nobody can pick: say the request could be for ${options} and stop, or call get_query again naming the database.`;
+}
+
 /** A query's effects with its tables as the hub's type names. */
 function effectsOfQuery(instance: string, compiled: CompiledQuery): FnEffects {
   const { mode, reads, writes } = effectsOf(compiled);
@@ -273,7 +288,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   }
 
   /** The run's side of a query tool: its approvals, attachments and the hub's fns as its person. */
-  function runCtx(ctx: CtxOf<'at_instance'>): QueryRunCtx {
+  function runCtx(ctx: Pick<CtxOf<'at_instance'>, 'run' | 'log' | 'propose' | 'attach' | 'fns'>): QueryRunCtx {
     return {
       run: ctx.run, log: ctx.log,
       propose: (fn, args, options) => ctx.propose(fn, args, options),
@@ -365,6 +380,70 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     }
   }
 
+  /** The databases the run's person may use, this one included, each with its label and tables. */
+  async function usable(here: DatabaseInstance, ctx: Fleets & { readonly run: RunInfo }): Promise<FleetMember[]> {
+    const members = await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx);
+    return members.filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
+  }
+
+  /** Which of `members` a request is for (pick_database and get_query): the one named, the only one, the decision model's pick, a clear match, or a question back. */
+  function pickFor(
+    args: { readonly detailedDescription: string; readonly database?: string | undefined }, members: readonly FleetMember[],
+    ctx: Pick<CtxOf<'get_query'>, 'decide'>,
+  ): ReturnType<typeof pickDatabase> {
+    return pickDatabase(
+      { description: args.detailedDescription, asked: args.database, members, decide: (question, candidates) => ctx.decide(question, candidates, { max: 1 }) },
+      { min: s.DATABASE_PICK_MIN, margin: s.DATABASE_PICK_MARGIN },
+    );
+  }
+
+  /** Hand an authoring request to the instance with the database (`author_query` there, with `on`). */
+  async function authorOn(
+    ctx: { fns: { author(args: AuthorArgs, options: { on: InstanceName }): PromiseLike<QueryAnswerValue> } }, target: string, args: AuthorArgs,
+  ): Promise<QueryAnswerValue | QueryProblem> {
+    const on = InstanceName.safeParse(target.replace(/^database\//, ''));
+    if (!on.success) { return { invalid: `"${target}" isn't a database instance name; call database/databases for them.` }; }
+    try {
+      return await ctx.fns.author(args, { on: on.data });
+    } catch (error) {
+      if (error instanceof CallFailed && error.error.class !== 'cancelled') {
+        return error.error.class === 'caller' ? { invalid: error.error.message } : { failed: error.error.message };
+      }
+      throw error;
+    }
+  }
+
+  /** `author_query` here: the authoring agent finds or writes the query, then it runs with this request's args. */
+  async function authorHere(args: AuthorArgs, ctx: CtxOf<'author_query'>): Promise<QueryAnswerValue | QueryProblem> {
+    const here = await hereFor(ctx);
+    if (!('db' in here)) { return here; }
+    let editing: EditedQuery | undefined;
+    if (args.edit !== undefined) {
+      const stored = await ctx.fns.getFn({ fn: args.edit });
+      const payload = QueryPayload.safeParse(stored.payload);
+      const local = localName(stored.fn);
+      if (stored.kind !== QUERY_KIND || !payload.success || local === undefined) { return { invalid: `${args.edit} is not a saved database query.` }; }
+      if (payload.data.instance !== here.instance) { return { invalid: `${args.edit} runs on the ${payload.data.instance} database, not this one.` }; }
+      if (payload.data.generated !== undefined) { return { invalid: `${args.edit} is a generated table fn: table_fns_generate remakes it. Write a new query with get_query instead.` }; }
+      editing = { fn: stored.fn, local, payload: payload.data };
+    }
+    const run = runCtx(ctx);
+    const state = new QueryAuthoring({ here, queries, run, search: (query) => ctx.searchFns(query), editing, sampleRows: s.DATABASE_DRAFT_ROWS });
+    let authored: Awaited<ReturnType<typeof queryAuthoring.run>>['result'];
+    try {
+      authored = (await queryAuthoring.run(await ctx.ai(), args.request, state)).result;
+    } catch (error) {
+      if (!(error instanceof AuthoringError)) { throw error; }
+      const last = error.problems.length === 0 ? '' : ` Its last problems: ${error.problems.join(' ')}`;
+      return { failed: `No query was written: ${error.message}${last} Describe what you want differently or more exactly.` };
+    }
+    const chosen = state.chosen;
+    if (chosen === undefined) { return { failed: `The authoring agent kept ${authored.fn} without saying how.` }; }
+    const ran = await queries.run(here, authored.fn, chosen.args, run);
+    if (isProblem(ran)) { return ran; }
+    return { ...ran, fn: { ...ran.fn, version: authored.version, about: authored.about, call: authored.call, how: chosen.how, why: chosen.why } };
+  }
+
   /** A problem as the run's outcome: the caller's to fix, or a failure. */
   function refuse<O>(ctx: { invalid(problems: string): O; fail(cls: 'caller', message: string): O }, problem: QueryProblem): O {
     return 'invalid' in problem ? ctx.invalid(problem.invalid) : ctx.fail('caller', problem.failed);
@@ -405,12 +484,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         async run(args, ctx) {
           const here = instance;
           if (here === undefined) { return ctx.fail('caller', 'This database is not configured yet: an admin sets its connection on the system\'s page.'); }
-          const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
-            .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
-          const picked = await pickDatabase(
-            { description: args.detailedDescription, asked: args.database, members, decide: (question, candidates) => ctx.decide(question, candidates, { max: 1 }) },
-            { min: s.DATABASE_PICK_MIN, margin: s.DATABASE_PICK_MARGIN },
-          );
+          const members = await usable(here, ctx);
+          const picked = await pickFor(args, members, ctx);
           return 'invalid' in picked ? ctx.invalid([{ path: 'database', message: picked.invalid }]) : ctx.done(picked);
         },
       },
@@ -465,6 +540,36 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           if ('invalid' in target) { return ctx.invalid([{ path: 'database', message: target.invalid }]); }
           const op: InstanceOp = { op: 'table-fns-generate', table: target.table, names: args.names, ...(args.derived === undefined ? {} : { derived: args.derived }) };
           const answer = await at(ctx, target.instance, op, (found) => (found.op === 'table-fns-generate' ? found.generated : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
+      get_query: {
+        async run(args, ctx) {
+          const here = instance;
+          if (here === undefined) { return ctx.fail('caller', 'This database is not configured yet: an admin sets its connection on the system\'s page.'); }
+          const members = await usable(here, ctx);
+          // the database it names, the only one, the decision model's pick, or its tables' clear match; else ask
+          const picked = await pickFor(args, members, ctx);
+          if ('invalid' in picked) { return ctx.invalid([{ path: 'database', message: picked.invalid }]); }
+          if ('ask' in picked) {
+            const labels = picked.databases.map((name) => members.find((member) => member.instance === name)?.label ?? name);
+            return ctx.done({ ...picked, next: askNext(picked, labels, ctx.run.watched) });
+          }
+          const answer = await authorOn(ctx, picked.database, { request: args.detailedDescription });
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
+      edit_query: {
+        async run(args, ctx) {
+          const target = queryInstance(args.name);
+          if (target === undefined) { return ctx.invalid([{ path: 'name', message: `"${args.name}" isn't a saved query fn; they are named database/<database>.<name>.` }]); }
+          const answer = await authorOn(ctx, target.instance, { request: args.instructions, edit: qualify(database.name, target.local) });
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
+      author_query: {
+        async run(args, ctx) {
+          const answer = await authorHere(args, ctx);
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
       },
@@ -553,9 +658,9 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           const attach = (table: Parameters<QueryRunCtx['attach']>[0], title: string): void => { ctx.attach(database.attachments.result, table, title); };
           if (compiled.writes) {
             if (!instance.writes) { return ctx.fail('caller', `${instance.config.label} is read-only now.`); }
-            return ctx.done(Json.parse(await queries.write(instance, compiled, plan, fn, { attach })));
+            return ctx.done(Json.parse(await queries.write(instance, compiled, plan, fn, { attach, watched: ctx.run.watched })));
           }
-          return ctx.done(Json.parse(await queries.read(instance, compiled, plan, fn, callOf(values, sort), { attach })));
+          return ctx.done(Json.parse(await queries.read(instance, compiled, plan, fn, callOf(values, sort), { attach, watched: ctx.run.watched })));
         },
         async preview(payload, args, ctx): Promise<PreviewAnswer> {
           if (instance === undefined) { return { refused: 'This database is not configured yet.' }; }

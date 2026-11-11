@@ -5,6 +5,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory } from 'vue-router';
+import { SystemName } from '@harness/core';
 import { T0 } from '../admin/test/fakes.ts';
 import { STORES } from '../state/stores.ts';
 import { fakeStores } from '../test/fakes.ts';
@@ -170,6 +171,18 @@ describe('the pairing page, acting', () => {
     expect(approve instanceof HTMLButtonElement && approve.disabled).toBe(true);
     await click('[data-testid=pair-approve]');
     expect(admin.api.approvePairing.calls).toEqual([]);
+    app.unmount();
+  });
+
+  it('leads a newly paired system, installed and not live, on to its review', async () => {
+    const { app, admin, router } = await visit('/pair/par_1');
+    const paired = await admin.admin.pairing.approve(undefined, { root: '/notes' });
+    expect(paired.ok).toBe(true);
+    admin.user.push({ type: 'system', system: SystemName.parse('notes'), status: 'connected' });
+    await flushPromises();
+    expect(one('[data-testid=pair-done-body]').textContent).toContain('installed, not live');
+    await click('[data-testid=pair-review]');
+    await vi.waitFor(() => { expect(router.currentRoute.value.path).toBe('/admin/systems/notes/review'); });
     app.unmount();
   });
 

@@ -43,6 +43,11 @@ function view(row: FnExampleRecord, score?: number): FnExamplesPage['items'][num
   return { id: row.id, args: row.args, ...(row.result === undefined ? {} : { result: row.result }), ...(row.note === undefined ? {} : { note: row.note }), ...(score === undefined ? {} : { score }) };
 }
 
+/** The name the system page lists an example by (`SystemPart.name`, and `itemSwitches` when it is switched off). */
+export function examplePartName(row: Pick<FnExampleRecord, 'fn' | 'source' | 'key' | 'order'>): string {
+  return row.source === 'runtime' && row.key !== undefined ? `${row.fn} (${row.key})` : `${row.fn} #${String(row.order + 1)}`;
+}
+
 /** The examples, on the hub's store and index. */
 export class StoreFnExamples implements FnExamples {
   readonly #deps: FnExamplesDeps;
@@ -73,6 +78,13 @@ export class StoreFnExamples implements FnExamples {
     if (count < 1) return [];
     const total = await this.#deps.store().table('fnExamples').count({ fn: fn.name });
     if (total === 0) return [];
+    // examples an admin switched off are left out; then the rest go in their declared order
+    const off = await allRows(this.#deps.store().table('itemSwitches'), { where: { system: fn.system, section: 'examples' } });
+    if (off.length > 0) {
+      const names = new Set(off.map((row) => row.name));
+      const kept = (await this.#rows(fn.name)).filter((row) => !names.has(examplePartName(row))).sort((a, b) => a.order - b.order).slice(0, count);
+      return kept.map((row) => ({ args: row.args, ...(row.result === undefined ? {} : { result: row.result }), ...(row.note === undefined ? {} : { note: row.note }) }));
+    }
     // with no more than fit there's nothing to choose: they go in their declared order
     const chosen = total <= count || text.trim() === '' ? (await this.#inOrder(fn.name, count)).map((row) => view(row)) : await this.#ranked(fn.name, text, count);
     const filled = chosen.length > 0 ? chosen : (await this.#inOrder(fn.name, count)).map((row) => view(row));

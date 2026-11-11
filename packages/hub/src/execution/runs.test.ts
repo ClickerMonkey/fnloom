@@ -6,6 +6,7 @@ import type { RunInput } from './index.ts';
 import { invalidArgs, mergeProgress, settledOf } from './runs.ts';
 import { z } from 'zod';
 import { AGENT, ALICE, executionRig, settle, until, type ExecutionRig } from './testing.ts';
+import { systemRow } from '../catalog/fixtures.ts';
 
 const read = fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] });
 const write = fn({
@@ -30,6 +31,8 @@ const worded = fn({
     failed: { one: 'Reading {args.path} failed', many: '{n} reads failed' },
   },
 });
+const copying = system('fs', { description: 'Files.' }).with({ fns: { copy } });
+const outer = fn({ description: 'Copies.', args: g.obj({}), returns: g.text(), tags: ['read'], deps: { copy: copying.fns.copy } });
 const sweep = fn({ description: 'Sweep.', args: g.obj({}), returns: g.text(), tags: ['read'], deps: { remove: files.fns.remove } });
 
 let rig: ExecutionRig;
@@ -289,6 +292,26 @@ describe('runs on a system', () => {
     expect(await settled).toEqual({ status: 'background', run });
   });
 
+  it('marks a run watched only for a chat turn on a session someone has open, never nested or sessionless (build 7)', async () => {
+    const r = await started();
+    r.catalog.add('fs', 'outer', outer);
+    const fs = r.connect('fs');
+    const session = await r.session();
+    const turn = await r.turn({ session: session.id });
+    const watchedOf = (run: RunId): boolean | undefined => fs.requests.find((request) => request.run.id === run)?.run.watched;
+    r.presence.active = true;
+    const top = await r.module.runs.start({ ...input(turn, 'fs/outer', {}), session: session.id });
+    const child = await r.module.runs.start({ ...input(turn, 'fs/copy', { from: 'a' }), session: session.id, parent: top.run, key: 'c' });
+    const nested = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'b' }), session: session.id, parent: child.run, key: 'n' });
+    const sessionless = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'c' }), key: 's' });
+    await Promise.all([top.settled, child.settled, nested.settled, sessionless.settled]);
+    expect([watchedOf(top.run), watchedOf(child.run), watchedOf(nested.run), watchedOf(sessionless.run)]).toEqual([true, true, undefined, undefined]);
+    r.presence.active = false;
+    const away = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'd' }), session: session.id, key: 'away' });
+    await away.settled;
+    expect(watchedOf(away.run)).toBeUndefined();
+  });
+
   it('reports progress, narrows operations and undoes with the registered payload', async () => {
     const r = await started();
     const fs = r.connect('fs');
@@ -348,6 +371,20 @@ describe('refusing runs', () => {
     r.catalog.set('fs/read', { disabled: false, available: { unavailable: 'system-disconnected', detail: 'fs is offline' } });
     await expect(r.module.runs.start(input(turn, 'fs/read', { path: 'a' }))).rejects.toMatchObject({ error: { code: 'unavailable', class: 'retry', message: 'fs/read is unavailable: fs is offline' } });
     expect(await r.store.table('runs').count()).toBe(0);
+  });
+
+  it('runs an admin’s test call of an installed system’s fn, marked as a test, and nothing else of it (build 7)', async () => {
+    const r = await started();
+    r.connect('fs');
+    const turn = await r.turn();
+    await r.store.table('systems').put({ ...systemRow('fs', 'connected'), stage: 'installed' });
+    r.catalog.set('fs/read', { available: { unavailable: 'disabled', detail: 'fs is installed and waits for an admin to review it and go live' } });
+    await expect(r.module.runs.start(input(turn, 'fs/read', { path: 'a' }))).rejects.toMatchObject({ error: { code: 'unavailable' } });
+    const { run } = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'a' }), test: true });
+    expect((await r.store.table('runs').get(run))?.test).toBe(true);
+    // a system that is not connected can't be tested either
+    await r.store.table('systems').update(SystemName.parse('fs'), { status: 'disconnected' });
+    await expect(r.module.runs.start({ ...input(turn, 'fs/read', { path: 'b' }), key: 'b', test: true })).rejects.toMatchObject({ error: { code: 'unavailable' } });
   });
 
   it('refuses a child call (ctx.fns) to a fn that was switched off', async () => {

@@ -190,11 +190,18 @@ export class StoreCatalog implements Catalog {
     const fn = await this.fn(name);
     if (fn !== undefined) { return fn.available; }
     // a context item is served by its record's system: the hub for what it made itself (`memory/…`, `resource/…`)
-    const system = (await this.context(name))?.system ?? systemOf(name);
+    const context = await this.context(name);
+    const system = context?.system ?? systemOf(name);
     if (system === undefined) { return unavailable('system-disconnected', `${name} names no valid system`); }
+    // a context item has its own switch; any other part (a hook, mention, action, embedder, sectioner, …) is off by an
+    // admin's `itemSwitches` row, and every item that waits in a pending review is off until it is approved
+    const among = (section: string): boolean => (context === undefined ? section !== 'fns' : section === 'context');
     const pending = (await this.options.store.table('systemReviews').get(system))?.pending;
-    if (pending?.changes.some((change) => change.section === 'context' && change.name === name && change.change !== 'removed') === true) {
+    if (pending?.changes.some((change) => among(change.section) && change.name === name && change.change !== 'removed') === true) {
       return unavailable('disabled', `${name} changed and waits for an admin to approve it`);
+    }
+    if (context === undefined && (await this.options.store.table('itemSwitches').find({ where: { system, name }, limit: 1 })).items.length > 0) {
+      return unavailable('disabled', `${name} is switched off`);
     }
     return systemAvailability(system, await this.options.store.table('systems').get(system));
   }

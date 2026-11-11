@@ -309,3 +309,253 @@ The ref type of the hub's `llm` kind.
 ```ts
 type LlmKind = typeof hub.kinds.llm;
 ```
+
+#### `authoringAgent`
+
+function · `import { authoringAgent } from '@harness/sdk/server'`
+
+Declare an authoring agent: a forced find → inspect → draft → check → fix → save workflow on aeye.
+
+```ts
+function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringAgent<S, D>;
+```
+
+#### `AuthoringAgent`
+
+interface · `import { AuthoringAgent } from '@harness/sdk/server'`
+
+A declared authoring agent: run it inside a fn with the run's `ctx.ai()`.
+
+```ts
+interface AuthoringAgent<S, D> {
+  readonly name: string;
+  run(ai: HarnessAi, request: string, state: S): Promise<{ result: AuthoredFn; session: AuthoringSession<S, D> }>;
+}
+```
+
+#### `AuthoringAgentInput`
+
+interface · `import { AuthoringAgentInput } from '@harness/sdk/server'`
+
+What `authoringAgent` takes.
+
+```ts
+interface AuthoringAgentInput<S, D> {
+  readonly name: string;
+  readonly description: string;
+  /**
+   * The agent's job, step by step, with worked examples. Write it for the model. The current stage, the request and
+   * the stage guide are added after it each round.
+   */
+  readonly instructions: string;
+  /** Find and inspect tools (search, load, examples, …). */
+  readonly tools: ReadonlyArray<AuthoringTool<S, D>>;
+  /** The draft's args: the typed authoring schema (`buildQueryTool`'s for queries, gin's `buildSchemas` for types). */
+  readonly draft: { readonly description: string; readonly schema: z.ZodType<D> | ((session: AuthoringSession<S, D>) => z.ZodType<D>) };
+  /** Check a draft: every problem, one per line, in words the model can act on; a preview when it is clean. */
+  check(draft: D, session: AuthoringSession<S, D>): Promise<DraftCheck>;
+  /** Save a clean draft as a fn. */
+  save(draft: D, session: AuthoringSession<S, D>): Promise<AuthoredFn>;
+  /** Answer with an existing fn instead (found in `find`); a string is why it can't be reused. */
+  reuse?(fn: string, session: AuthoringSession<S, D>): Promise<AuthoredFn | string>;
+  /** The model, the aeye way (`role/chat`, `openrouter/…`); the hub picks when absent. */
+  readonly model?: string;
+  /** Failed checks it may fix; `HARNESS_AUTHORING_FIXES` when absent. */
+  readonly fixes?: number;
+  /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
+  readonly rounds?: number;
+}
+```
+
+#### `authoringTool`
+
+function · `import { authoringTool } from '@harness/sdk/server'`
+
+Declare an authoring tool.
+
+```ts
+function authoringTool<S, D, I extends object>(def: AuthoringToolInput<S, D, I>): AuthoringTool<S, D>;
+```
+
+#### `AuthoringTool`
+
+interface · `import { AuthoringTool } from '@harness/sdk/server'`
+
+An authoring tool with its args type erased: it makes its aeye tool for a session.
+
+```ts
+interface AuthoringTool<S, D> {
+  readonly name: string;
+  readonly stage: ToolStage;
+  make(ai: HarnessAi, session: AuthoringSession<S, D>): AeyeTool;
+}
+```
+
+#### `AuthoringToolInput`
+
+interface · `import { AuthoringToolInput } from '@harness/sdk/server'`
+
+One tool of an authoring agent, typed by its args; `authoringTool` erases the args for the agent's list.
+
+```ts
+interface AuthoringToolInput<S, D, I extends object> {
+  readonly name: string;
+  /** What it does, for the model. */
+  readonly description: string;
+  /** How and when to use it, for the model (added to the prompt's tools section). */
+  readonly instructions?: string;
+  readonly stage: ToolStage;
+  /** Its args: a zod schema, or one built from the session (a typed schema per instance). */
+  readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
+  /** Offered only while this also holds (a load tool while something is aware but not loaded). */
+  readonly when?: (session: AuthoringSession<S, D>) => boolean;
+  /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
+  call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
+}
+```
+
+#### `AuthoringSession`
+
+class · `import { AuthoringSession } from '@harness/sdk/server'`
+
+One run's working state: the stage reached, what was disclosed, the draft and its last check, the result.
+
+```ts
+class AuthoringSession<S, D> {
+  readonly disclosure: Disclosure;
+  /** What the caller asked for, word for word. */
+  readonly request: string;
+  /** The authoring fn's own state (the database, the instance, the type registry, …). */
+  readonly state: S;
+  constructor(request: string, state: S);
+  /** The current stage: the first one not done, `fix` while the last check failed, `save` once it passed. */
+  get stage(): "check" | "find" | "inspect" | "draft" | "fix" | "save";
+  /** Whether a tool of a stage may be offered now: every stage before it is done, and the run is still going. */
+  open(stage: ToolStage): boolean;
+  /** Mark a stage done (a tool call of that stage succeeded). */
+  done(stage: AuthoringStage, tool: string): void;
+  get draft(): D | undefined;
+  get lastCheck(): DraftCheck | undefined;
+  get fixes(): number;
+  get result(): { fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; } | undefined;
+  /** The tools called, in order, with their stage: what tests and status lines read. */
+  get log(): readonly { stage: AuthoringStage; tool: string; }[];
+  /** Keep a draft and its check; a failed check after an earlier draft counts as a fix. */
+  checked(draft: D, check: DraftCheck): void;
+  finish(result: AuthoredFn): void;
+  /** Give up: the fix cap was reached with this check. Every tool is withdrawn. */
+  stop(check: DraftCheck): void;
+  /** The check it gave up on, when it did. */
+  get stopped(): DraftCheck | undefined;
+  /** Neither saved nor given up. */
+  get going(): boolean;
+}
+```
+
+#### `AuthoringStage`
+
+type · `import { AuthoringStage } from '@harness/sdk/server'`
+
+```ts
+type AuthoringStage = (typeof AUTHORING_STAGES)[number];
+```
+
+#### `AUTHORING_STAGES`
+
+const · `import { AUTHORING_STAGES } from '@harness/sdk/server'`
+
+The fixed workflow, in order. `fix` is entered when a check fails and left when a draft checks clean.
+
+```ts
+const AUTHORING_STAGES: readonly ["find", "inspect", "draft", "check", "fix", "save"];
+```
+
+#### `ToolStage`
+
+type · `import { ToolStage } from '@harness/sdk/server'`
+
+The stages a tool belongs to (`check` and `fix` are the built-in `draft` tool's; `save` the built-in `save`).
+
+```ts
+type ToolStage = 'find' | 'inspect' | 'draft';
+```
+
+#### `DraftCheck`
+
+interface · `import { DraftCheck } from '@harness/sdk/server'`
+
+What a check of a draft found: the problems (one per line; empty when it is clean) and a preview when clean.
+
+```ts
+interface DraftCheck {
+  readonly problems: readonly string[];
+  readonly preview?: unknown;
+  /** Extra text for the model about the draft (the SQL it makes, the type it produces). */
+  readonly note?: string;
+}
+```
+
+#### `Disclosure`
+
+class · `import { Disclosure } from '@harness/sdk/server'`
+
+What has been seen, loaded and searched, per level (`type`, `fn`, `table`, …): product's progressive disclosure
+bookkeeping. Aware names have appeared somewhere (a search result, a reference); loaded names are fully shown.
+
+```ts
+class Disclosure {
+  /** A level's search ran, even with no results: a search proving absence is when creating becomes right. */
+  markSearched(level: string): void;
+  searched(level: string): boolean;
+  markAware(level: string, names: readonly string[]): void;
+  /** Loading makes a name aware too. */
+  markLoaded(level: string, names: readonly string[]): void;
+  isLoaded(level: string, name: string): boolean;
+  /** Names seen but not loaded yet, in the order they were seen: what a load tool may load. */
+  awareUnloaded(level: string): string[];
+  loaded(level: string): string[];
+}
+```
+
+#### `authoredFn`
+
+const · `import { authoredFn } from '@harness/sdk/server'`
+
+What an authoring fn answers the chat model with: the saved fn, what it does, how to call it again, and a short
+preview of what it gives. Never the working context.
+
+```ts
+const authoredFn: ObjType<{ fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; }>;
+```
+
+#### `AuthoredFn`
+
+type · `import { AuthoredFn } from '@harness/sdk/server'`
+
+```ts
+type AuthoredFn = Infer<typeof authoredFn>;
+```
+
+#### `AuthoringError`
+
+class · `import { AuthoringError } from '@harness/sdk/server'`
+
+Why an authoring run stopped without a fn.
+
+```ts
+class AuthoringError extends Error {
+  readonly stage: AuthoringStage;
+  readonly problems: readonly string[];
+  constructor(message: string, stage: AuthoringStage, problems: readonly string[]);
+}
+```
+
+#### `authoringEnv`
+
+const · `import { authoringEnv } from '@harness/sdk/server'`
+
+The authoring agents' tunables.
+
+```ts
+const authoringEnv: Env<EnvOutput<{}, { readonly HARNESS_AUTHORING_FIXES: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_ROUNDS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }>>;
+```

@@ -31,6 +31,13 @@ export function refusal(overrides: Record<string, unknown> = {}): RefusalRecord 
   });
 }
 
+/** Preview shots of each component in each state, on a phone and a desktop, light and dark. */
+export function previewShots(components: ReadonlyArray<readonly [string, readonly string[]]>): Array<Record<string, unknown>> {
+  return components.flatMap(([component, states]) => states.flatMap((state) => ['phone', 'desktop'].flatMap((viewport) => ['light', 'dark'].map((theme) => ({
+    component, state, viewport, theme, image: { hash: `${component.length}${state.length}${viewport.length}${theme.length}`.padEnd(64, 'a'), size: 2048, mime: 'image/png' },
+  })))));
+}
+
 /** The sample system's review: installed, with checks, nothing off, one refusal. */
 export function review(overrides: Record<string, unknown> = {}): SystemReview {
   return SystemReview.parse({
@@ -44,6 +51,7 @@ export function review(overrides: Record<string, unknown> = {}): SystemReview {
       tests: {
         system: 'notes', version: '1.0.0', ranAt: T0 - 120_000, duration: 1_500, passed: 3, failed: 1, skipped: 1,
         cases: [{ file: 'notes.test.ts', name: 'finds notes', status: 'failed', duration: 20, error: 'expected 2 got 1' }, { file: 'notes.test.ts', name: 'saves', status: 'passed', duration: 5 }],
+        previews: previewShots([['NoteCard', ['empty', 'typical', 'long']], ['NoteList', ['loading', 'error']]]),
       },
     },
     off: [],

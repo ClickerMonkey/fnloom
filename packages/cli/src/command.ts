@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import type { CliFiles } from './files.ts';
 import type { CliEnv, HubSession } from './hub.ts';
-import type { SystemBuilder } from '@harness/build';
+import type { SystemBuilder, SystemTestRunner } from '@harness/build';
 
 /** Where a command's output goes. */
 export interface CliOutput {
@@ -25,6 +25,8 @@ export interface CliIo {
   readonly cwd: string;
   /** Builds systems (typecheck, bundle, client). */
   readonly builder: SystemBuilder;
+  /** Runs system folders' own tests (`harness test`). */
+  readonly tests: SystemTestRunner;
   /** The CLI's settings (`cliEnv`). */
   readonly settings: CliEnv;
   /** Wait (polling a hub). */

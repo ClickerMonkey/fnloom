@@ -40,7 +40,9 @@ export class Sectioning {
   async choose(stat: ResourceStat, system: SystemName, form?: FormKind): Promise<QualifiedName> {
     const rule = best(await allRows(this.#store.table('sectionRules')), (r) => matchScore(r.match, stat, form));
     if (rule !== undefined) { return rule.sectioner; }
-    const own = best(await this.#catalog.entries('sectioners', { system }), (e) => matchScore(e.decl.match, stat, form));
+    // a sectioner an admin switched off is passed over for the hub's
+    const off = new Set((await allRows(this.#store.table('itemSwitches'), { system, section: 'sectioners' })).map((row) => row.name));
+    const own = best((await this.#catalog.entries('sectioners', { system })).filter((e) => !off.has(e.name)), (e) => matchScore(e.decl.match, stat, form));
     if (own !== undefined) { return own.name; }
     const hub = best([...this.#hub.values()], (s) => matchScore(s.match, stat, form));
     if (hub === undefined) { throw new Error('the hub has no sectioner that matches everything'); }

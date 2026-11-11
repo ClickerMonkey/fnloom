@@ -14,6 +14,7 @@ const notes = system('notes', { description: 'Notes.' }).with({
     read: fn({ description: 'Read a note.', args: g.obj({ id: g.text() }), returns: g.text(), effects: { mode: 'read' } }),
     write: fn({ description: 'Write a note.', args: g.obj({ id: g.text() }), returns: g.bool(), effects: { mode: 'write' } }),
     wipe: fn({ description: 'Delete every note.', args: g.obj({}), returns: g.bool(), effects: { mode: 'delete' } }),
+    peek: fn({ description: 'Read the projects table.', args: g.obj({}), returns: g.text(), effects: { mode: 'read', reads: [QualifiedName.parse('database/projects')] } }),
   },
 });
 
@@ -98,7 +99,19 @@ describe('calls and modes', () => {
     await rig.grants.check(LINK, 'call', { parent: writer.id, fn: 'notes/read' });
     expect(await refused(rig.grants.check(LINK, 'call', { parent: writer.id, fn: 'notes/wipe' }))).toContain('which can delete');
     expect(await refused(rig.grants.check(LINK, 'propose', { parent: reader.id, fn: 'write', args: {}, key: 'k', approver: 'person' }))).toBe('notes/read is declared read and tried notes/write, which can write');
-  });});
+  });
+
+  it('lets a run ask for the types its fn declares and its own system’s, and no others', async () => {
+    await withGrants({ hub: [] });
+    const peek = await runOf('peek');
+    await rig.grants.check(LINK, 'types', { names: ['database/projects', 'notes/note'], run: peek.id });
+    expect(await refused(rig.grants.check(LINK, 'types', { names: ['database/owners'], run: peek.id })))
+      .toBe('notes/peek declares the types it reads and writes, and database/owners is not among them');
+    // a fn that declares no types is not limited by them
+    await rig.grants.check(LINK, 'types', { names: ['database/owners'], run: (await runOf('read')).id });
+    expect((await rig.store.table('refusals').find({ where: { system: NOTES, rule: 'types' }, limit: 5 })).items.map((r) => r.fn)).toEqual(['notes/peek']);
+  });
+});
 
 describe('models and spend', () => {
   it('refuses a model or role not declared, and a run or day past its cap', async () => {

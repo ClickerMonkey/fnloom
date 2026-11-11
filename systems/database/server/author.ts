@@ -1,7 +1,7 @@
 /**
  * The enricher: a model refines one table's simple type (a description, and per column a closed set of values, a
  * format, a range and examples), read off the column's shape and a sample of its rows. A refused answer goes back
- * with its problems a few times at most. Queries are written by the query agents the hub runs (see the contract).
+ * with its problems a few times at most. Queries are written by the query authoring agent (`authoring.ts`).
  */
 import type { Llm } from '@harness/sdk';
 import type { z } from 'zod';

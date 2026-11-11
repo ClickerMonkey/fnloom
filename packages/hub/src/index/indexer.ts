@@ -26,6 +26,7 @@ import { messageOf } from '../catalog/scope.ts';
 import { Serial } from '../catalog/serial.ts';
 import { sha256Hex } from '../link/keys.ts';
 import type { ResourceRouter } from '../link/index.ts';
+import { underRoot } from '../link/resources.ts';
 import type { HubStore } from '../store/index.ts';
 import type { EmbedBatcher } from './batch.ts';
 import type { Embedders, IndexItem, IndexReader, Indexer, PrimaryText, VectorTiming } from './index.ts';
@@ -219,7 +220,7 @@ export class StoreIndexer implements Indexer {
   async resource(uri: ResourceUri): Promise<SectionDiff | undefined> {
     const { store, sectioning, clock, log } = this.#options;
     const route = this.#route(uri);
-    if (route === undefined) { return undefined; }
+    if (route === undefined || !await this.#offered(route.system, uri)) { return undefined; }
     const read = await this.#text(uri);
     const { stat, text, links } = read;
     const record = await store.table('resources').get(uri);
@@ -369,6 +370,17 @@ export class StoreIndexer implements Indexer {
     if (route === undefined || route.index === 'none') { return; }
     if (route.index === 'on-read' && (await this.#options.store.table('resources').get(uri)) === undefined) { return; }
     await this.resource(uri);
+  }
+
+  /**
+   * Whether a system's resource may be indexed (build 7): not while its system is installed and not yet live, nor
+   * under a root an admin switched off (`itemSwitches` rows of section `roots`, named by the root's URI).
+   */
+  async #offered(system: SystemName, uri: ResourceUri): Promise<boolean> {
+    const { store } = this.#options;
+    if ((await store.table('systems').get(system))?.stage === 'installed') { return false; }
+    const off = await allRows(store.table('itemSwitches'), { system, section: 'roots' });
+    return !off.some((row) => underRoot(uri, row.name));
   }
 
   /** A removed resource: drop its sections and their index entries. */

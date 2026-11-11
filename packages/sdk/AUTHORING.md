@@ -322,14 +322,19 @@ export { createImpl, type TemplateDeps } from './impl.ts';
 
 ```ts
 /**
- * The template system end to end over the SDK's real link runtime: `serve` connects to an in-memory hub (`FakeHub`),
- * says hello under the name in `system.json` and sends its manifest. Keep these passing as the system grows, and add
- * a test per fn, hook, mention and action beside this one (`hub.run('template/<fn>', args)` runs a fn).
+ * The template system with the SDK test kit (`@harness/sdk/testing`): `testHub` serves it to a fake hub in memory
+ * (the real link, handshake and wire checks; every `ctx.*` call recorded). Keep these passing as the system grows, and
+ * add a test of each sort beside them as it gets fns (the guide's Testing section has the details):
+ *
+ * - a fn call: `const { result, progress, hubCalls } = await kit.call('<fn>', args)`, typed by the contract;
+ * - a mocked model: `testHub(template, impl, { model: mockModel(['a reply', toolCall('<tool>', args)]) })`;
+ * - a real model: `realModel.it('…', async () => { … })`, skipped without `OPENROUTER_API_KEY`;
+ * - a component preview: `await preview({ name, module, states })`, shot at phone and desktop, light and dark;
+ * - a kind: `await kit.kindProps('<kind>', payload)`; a context folder: `await contextFolder(dir, template)`.
  */
 import { readFileSync } from 'node:fs';
 import { SystemPackageManifest } from '@harness/core';
-import { serve, type RunningSystem } from '@harness/sdk/server';
-import { FakeHub } from '@harness/sdk/server/testing';
+import { testHub, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { template } from '../shared/index.ts';
 import { templateEnv } from './env.ts';
@@ -337,11 +342,11 @@ import { createImpl } from './impl.ts';
 
 const packageManifest = SystemPackageManifest.parse(JSON.parse(readFileSync(new URL('../system.json', import.meta.url), 'utf8')));
 
-describe('template over the link', () => {
-  let running: RunningSystem<'template'> | undefined;
+describe('template', () => {
+  let kit: TestSystem<'template', (typeof template)['defs']> | undefined;
   afterEach(async () => {
-    await running?.stop();
-    running = undefined;
+    await kit?.stop();
+    kit = undefined;
   });
 
   it('is named as system.json says', () => {
@@ -349,14 +354,10 @@ describe('template over the link', () => {
   });
 
   it('connects, says hello and sends its manifest', async () => {
-    // TODO: once the contract declares config, give the fake hub a valid value here
-    const hub = new FakeHub({ config: {} });
-    const impl = createImpl({ settings: templateEnv.parse() });
-    running = await serve(template, impl, { hub: 'ws://hub.test/link', state: 'unused', version: packageManifest.version }, hub.host());
-    await running.ready();
-
-    expect(hub.hellos.map((hello) => hello.name)).toEqual([packageManifest.name]);
-    expect(hub.manifests).toHaveLength(1);
+    // TODO: once the contract declares config, give a valid value here
+    kit = await testHub(template, createImpl({ settings: templateEnv.parse() }), { config: {} });
+    expect(kit.hub.hellos.map((hello) => hello.name)).toEqual([packageManifest.name]);
+    expect(kit.hub.manifests).toHaveLength(1);
   });
 });
 ```
@@ -3234,6 +3235,256 @@ The ref type of the hub's `llm` kind.
 
 ```ts
 type LlmKind = typeof hub.kinds.llm;
+```
+
+#### `authoringAgent`
+
+function · `import { authoringAgent } from '@harness/sdk/server'`
+
+Declare an authoring agent: a forced find → inspect → draft → check → fix → save workflow on aeye.
+
+```ts
+function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringAgent<S, D>;
+```
+
+#### `AuthoringAgent`
+
+interface · `import { AuthoringAgent } from '@harness/sdk/server'`
+
+A declared authoring agent: run it inside a fn with the run's `ctx.ai()`.
+
+```ts
+interface AuthoringAgent<S, D> {
+  readonly name: string;
+  run(ai: HarnessAi, request: string, state: S): Promise<{ result: AuthoredFn; session: AuthoringSession<S, D> }>;
+}
+```
+
+#### `AuthoringAgentInput`
+
+interface · `import { AuthoringAgentInput } from '@harness/sdk/server'`
+
+What `authoringAgent` takes.
+
+```ts
+interface AuthoringAgentInput<S, D> {
+  readonly name: string;
+  readonly description: string;
+  /**
+   * The agent's job, step by step, with worked examples. Write it for the model. The current stage, the request and
+   * the stage guide are added after it each round.
+   */
+  readonly instructions: string;
+  /** Find and inspect tools (search, load, examples, …). */
+  readonly tools: ReadonlyArray<AuthoringTool<S, D>>;
+  /** The draft's args: the typed authoring schema (`buildQueryTool`'s for queries, gin's `buildSchemas` for types). */
+  readonly draft: { readonly description: string; readonly schema: z.ZodType<D> | ((session: AuthoringSession<S, D>) => z.ZodType<D>) };
+  /** Check a draft: every problem, one per line, in words the model can act on; a preview when it is clean. */
+  check(draft: D, session: AuthoringSession<S, D>): Promise<DraftCheck>;
+  /** Save a clean draft as a fn. */
+  save(draft: D, session: AuthoringSession<S, D>): Promise<AuthoredFn>;
+  /** Answer with an existing fn instead (found in `find`); a string is why it can't be reused. */
+  reuse?(fn: string, session: AuthoringSession<S, D>): Promise<AuthoredFn | string>;
+  /** The model, the aeye way (`role/chat`, `openrouter/…`); the hub picks when absent. */
+  readonly model?: string;
+  /** Failed checks it may fix; `HARNESS_AUTHORING_FIXES` when absent. */
+  readonly fixes?: number;
+  /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
+  readonly rounds?: number;
+}
+```
+
+#### `authoringTool`
+
+function · `import { authoringTool } from '@harness/sdk/server'`
+
+Declare an authoring tool.
+
+```ts
+function authoringTool<S, D, I extends object>(def: AuthoringToolInput<S, D, I>): AuthoringTool<S, D>;
+```
+
+#### `AuthoringTool`
+
+interface · `import { AuthoringTool } from '@harness/sdk/server'`
+
+An authoring tool with its args type erased: it makes its aeye tool for a session.
+
+```ts
+interface AuthoringTool<S, D> {
+  readonly name: string;
+  readonly stage: ToolStage;
+  make(ai: HarnessAi, session: AuthoringSession<S, D>): AeyeTool;
+}
+```
+
+#### `AuthoringToolInput`
+
+interface · `import { AuthoringToolInput } from '@harness/sdk/server'`
+
+One tool of an authoring agent, typed by its args; `authoringTool` erases the args for the agent's list.
+
+```ts
+interface AuthoringToolInput<S, D, I extends object> {
+  readonly name: string;
+  /** What it does, for the model. */
+  readonly description: string;
+  /** How and when to use it, for the model (added to the prompt's tools section). */
+  readonly instructions?: string;
+  readonly stage: ToolStage;
+  /** Its args: a zod schema, or one built from the session (a typed schema per instance). */
+  readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
+  /** Offered only while this also holds (a load tool while something is aware but not loaded). */
+  readonly when?: (session: AuthoringSession<S, D>) => boolean;
+  /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
+  call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
+}
+```
+
+#### `AuthoringSession`
+
+class · `import { AuthoringSession } from '@harness/sdk/server'`
+
+One run's working state: the stage reached, what was disclosed, the draft and its last check, the result.
+
+```ts
+class AuthoringSession<S, D> {
+  readonly disclosure: Disclosure;
+  /** What the caller asked for, word for word. */
+  readonly request: string;
+  /** The authoring fn's own state (the database, the instance, the type registry, …). */
+  readonly state: S;
+  constructor(request: string, state: S);
+  /** The current stage: the first one not done, `fix` while the last check failed, `save` once it passed. */
+  get stage(): "check" | "find" | "inspect" | "draft" | "fix" | "save";
+  /** Whether a tool of a stage may be offered now: every stage before it is done, and the run is still going. */
+  open(stage: ToolStage): boolean;
+  /** Mark a stage done (a tool call of that stage succeeded). */
+  done(stage: AuthoringStage, tool: string): void;
+  get draft(): D | undefined;
+  get lastCheck(): DraftCheck | undefined;
+  get fixes(): number;
+  get result(): { fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; } | undefined;
+  /** The tools called, in order, with their stage: what tests and status lines read. */
+  get log(): readonly { stage: AuthoringStage; tool: string; }[];
+  /** Keep a draft and its check; a failed check after an earlier draft counts as a fix. */
+  checked(draft: D, check: DraftCheck): void;
+  finish(result: AuthoredFn): void;
+  /** Give up: the fix cap was reached with this check. Every tool is withdrawn. */
+  stop(check: DraftCheck): void;
+  /** The check it gave up on, when it did. */
+  get stopped(): DraftCheck | undefined;
+  /** Neither saved nor given up. */
+  get going(): boolean;
+}
+```
+
+#### `AuthoringStage`
+
+type · `import { AuthoringStage } from '@harness/sdk/server'`
+
+```ts
+type AuthoringStage = (typeof AUTHORING_STAGES)[number];
+```
+
+#### `AUTHORING_STAGES`
+
+const · `import { AUTHORING_STAGES } from '@harness/sdk/server'`
+
+The fixed workflow, in order. `fix` is entered when a check fails and left when a draft checks clean.
+
+```ts
+const AUTHORING_STAGES: readonly ["find", "inspect", "draft", "check", "fix", "save"];
+```
+
+#### `ToolStage`
+
+type · `import { ToolStage } from '@harness/sdk/server'`
+
+The stages a tool belongs to (`check` and `fix` are the built-in `draft` tool's; `save` the built-in `save`).
+
+```ts
+type ToolStage = 'find' | 'inspect' | 'draft';
+```
+
+#### `DraftCheck`
+
+interface · `import { DraftCheck } from '@harness/sdk/server'`
+
+What a check of a draft found: the problems (one per line; empty when it is clean) and a preview when clean.
+
+```ts
+interface DraftCheck {
+  readonly problems: readonly string[];
+  readonly preview?: unknown;
+  /** Extra text for the model about the draft (the SQL it makes, the type it produces). */
+  readonly note?: string;
+}
+```
+
+#### `Disclosure`
+
+class · `import { Disclosure } from '@harness/sdk/server'`
+
+What has been seen, loaded and searched, per level (`type`, `fn`, `table`, …): product's progressive disclosure
+bookkeeping. Aware names have appeared somewhere (a search result, a reference); loaded names are fully shown.
+
+```ts
+class Disclosure {
+  /** A level's search ran, even with no results: a search proving absence is when creating becomes right. */
+  markSearched(level: string): void;
+  searched(level: string): boolean;
+  markAware(level: string, names: readonly string[]): void;
+  /** Loading makes a name aware too. */
+  markLoaded(level: string, names: readonly string[]): void;
+  isLoaded(level: string, name: string): boolean;
+  /** Names seen but not loaded yet, in the order they were seen: what a load tool may load. */
+  awareUnloaded(level: string): string[];
+  loaded(level: string): string[];
+}
+```
+
+#### `authoredFn`
+
+const · `import { authoredFn } from '@harness/sdk/server'`
+
+What an authoring fn answers the chat model with: the saved fn, what it does, how to call it again, and a short
+preview of what it gives. Never the working context.
+
+```ts
+const authoredFn: ObjType<{ fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; }>;
+```
+
+#### `AuthoredFn`
+
+type · `import { AuthoredFn } from '@harness/sdk/server'`
+
+```ts
+type AuthoredFn = Infer<typeof authoredFn>;
+```
+
+#### `AuthoringError`
+
+class · `import { AuthoringError } from '@harness/sdk/server'`
+
+Why an authoring run stopped without a fn.
+
+```ts
+class AuthoringError extends Error {
+  readonly stage: AuthoringStage;
+  readonly problems: readonly string[];
+  constructor(message: string, stage: AuthoringStage, problems: readonly string[]);
+}
+```
+
+#### `authoringEnv`
+
+const · `import { authoringEnv } from '@harness/sdk/server'`
+
+The authoring agents' tunables.
+
+```ts
+const authoringEnv: Env<EnvOutput<{}, { readonly HARNESS_AUTHORING_FIXES: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_ROUNDS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }>>;
 ```
 
 ## 11. Settings and attachments
@@ -8581,6 +8832,7 @@ Every command, read from the CLI itself:
 |---|---|
 | `harness system new <name> [--dir <parent folder>] [--from <template folder>]` | Make a system folder from the template, with its name filled in. |
 | `harness system build [dir] [--skip-typecheck]` | Typecheck a system, check its name and context, and bundle its server and client into dist/. |
+| `harness test [dir] [--previews] [--json] [--filter <text>]` | Run a system's own tests (the SDK test kit); --previews also shoots its components into a gallery. |
 | `harness system pack [dir] [--out <file>] [--skip-typecheck]` | Build if needed, then zip dist/ with every file hashed into a package the hub installs. |
 | `harness system install <zip \| folder \| npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>] [--no-start] [--wait <ms>]` | Install a package zip, a folder or an npm package on a hub, which pairs, configures and starts it. |
 | `harness system export-data <system> [--instance <name>] [--out <file>] [--with-secrets --yes]` | Download an installed instance’s data folder as a zip (its config too, with --with-secrets --yes). |
@@ -8759,7 +9011,33 @@ interface BuiltEntries {
 
 ## 25. Testing
 
-Test a system end to end without a network with **`FakeHub`** (`@harness/sdk/server/testing`): a hub in memory that
+Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
+
+- **`testHub(contract, impl, { config, model })`** serves the system to a fake hub in memory; every `ctx.*` call it
+  makes is recorded. `kit.call('<fn>', args)` takes the fn's own args type and gives `{ result, progress, hubCalls }`:
+  the typed result, the progress it reported, and what it asked the hub for (`calls`, `forwards` to the model,
+  `decisions`, `proposals`, `patches`, …). `kit.run` gives the outcome instead (for `invalid-input` or `failed`);
+  `callFn(contract, impl, '<fn>', args)` serves, calls and stops in one line. Call `kit.stop()` after each test.
+- **Models.** `mockModel([toolCall('search', { text: 'x' }), 'Saved.'])` answers `ctx.ai()` with scripted replies, in
+  order; `mockModel({ recording: 'test/title.json' })` replays replies recorded once from a real model. A few tests may
+  call a real free model with `realModel.it('…', async (model) => { … })` and pass `model` to `testHub`: they are
+  marked `real` and skipped without `OPENROUTER_API_KEY`.
+- **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
+  derives.
+- **Context.** `contextFolder(dir, contract)` checks the context folder: every file parses, every link resolves (fenced
+  code is skipped), and `fns` maps each context to the fns it brings. Expect `problems` to be empty.
+- **Components.** `preview({ name, module: new URL('./ResultView.vue', import.meta.url), states })` draws a component in
+  named states (`empty`, `loading`, `error`, `typical`, `long`, or your own; plain JSON props). A normal run only
+  bundles it; `harness test --previews` shoots each state at phone and desktop sizes in light and dark into
+  `.harness-test/previews/gallery.html`, for a model or a person to review. `renderHtml(component, props)` renders
+  in-process, for quick checks of what a state shows.
+
+**`harness test [dir]`** runs a folder's tests from anywhere and prints the counts and each failure (`--json` gives the
+whole report). `fs/install_system` runs them before an admin is asked, and the install card shows the result. Write
+tests with every system: a call per fn, a scripted-model test per agent, a `contextFolder` check, and a preview of each
+component.
+
+Underneath, the kit's hub is **`FakeHub`** (`@harness/sdk/server/testing`): a hub in memory that
 serves the real link spec, so the system under test runs its real link, handshake, runtime and wire checks. Only the
 hub's own behaviour is scripted: child calls (`onCall`), handler answers (`onHandle`), LLM answers (`onLlm`), type
 definitions (`onTypes`), resource reads (`onResource`), and setting values (`settings`).
@@ -9320,6 +9598,617 @@ interface KnownNames {
   /** Context it may link to besides its own files, qualified (its contract's and others'). */
   readonly context: ReadonlySet<string>;
 }
+```
+
+#### `testHub`
+
+function · `import { testHub } from '@harness/sdk/testing'`
+
+Serve a system to a fake hub in memory and wait until it is ready (connected, configured, its contract imported).
+
+```ts
+function testHub<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options?: TestHubOptions): Promise<TestSystem<N, C>>;
+```
+
+#### `TestSystem`
+
+class · `import { TestSystem } from '@harness/sdk/testing'`
+
+A system served to a fake hub: run its fns and kinds, read what it asked the hub for, and stop it.
+
+```ts
+class TestSystem<N extends string, C extends ContractShape> {
+  /** The fake hub, to script (`onCall`, `onDecide`, …) and read everything it recorded. */
+  readonly hub: FakeHub;
+  readonly running: RunningSystem<N>;
+  readonly contract: SystemContract<N, C>;
+  constructor(contract: SystemContract<N, C>, hub: FakeHub, running: RunningSystem<N>);
+  /** Run a fn with typed args; its outcome (a done result decoded to its type), progress and hub calls. */
+  run<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<TestRun<FnResultOf<C, K>>>;
+  /** Run a fn that should finish: its typed result, progress and hub calls; `CallNotDone` when it doesn't. */
+  call<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<TestCall<FnResultOf<C, K>>>;
+  /** What a kind makes of a payload, as the hub asks it when a fn of the kind is saved. */
+  kindProps<K extends KindNameOf<C>>(kind: K, payload: KindPayloadOf<C, K>): Promise<KindProps>;
+  /** Stop the system. */
+  stop(): Promise<void>;
+}
+```
+
+Refers to: [`RunRequest`](#core-runrequest).
+
+#### `TestHubOptions`
+
+interface · `import { TestHubOptions } from '@harness/sdk/testing'`
+
+How `testHub` sets up the fake hub and the system.
+
+```ts
+interface TestHubOptions {
+  /** The system's config, as a plain value (absent: none, so a system that needs one waits as `needs-config`). */
+  readonly config?: unknown;
+  /** The model behind `ctx.ai()` and `ctx.llm`: `mockModel(...)`, `realModel.link()`, … (default: answers `ok`). */
+  readonly model?: ModelLink | undefined;
+  /** More fake hub options (pairing, instance, auto-pair, …). */
+  readonly hub?: Omit<FakeHubOptions, 'config'>;
+  /** More serve options (its context folder, files, fetch, version, …). */
+  readonly serve?: Partial<Omit<ServeOptions, 'hub' | 'state'>>;
+}
+```
+
+#### `callFn`
+
+function · `import { callFn } from '@harness/sdk/testing'`
+
+Serve a system, call one fn and stop: the typed result, its progress and what it asked the hub for.
+
+```ts
+function callFn<N extends string, C extends ContractShape, K extends FnNameOf<C>>(contract: SystemContract<N, C>, impl: SystemImpl<C>, name: K, args: FnArgsOf<C, K>, options?: TestHubOptions): Promise<TestCall<FnResultOf<C, K>>>;
+```
+
+#### `CallNotDone`
+
+class · `import { CallNotDone } from '@harness/sdk/testing'`
+
+A run that `call` expected to finish but didn't; `outcome` says how it ended.
+
+```ts
+class CallNotDone extends Error {
+  readonly outcome: Exclude<OutcomeWire, { status: 'done' }>;
+  constructor(fn: string, outcome: Exclude<OutcomeWire, { status: 'done' }>);
+}
+```
+
+Refers to: [`OutcomeWire`](#core-outcomewire).
+
+#### `TestCall`
+
+interface · `import { TestCall } from '@harness/sdk/testing'`
+
+A finished run: its typed result, the progress it reported and what it asked the hub for.
+
+```ts
+interface TestCall<R> {
+  readonly result: R;
+  readonly progress: FakeHub['progress'];
+  readonly hubCalls: HubCalls;
+}
+```
+
+#### `TestRun`
+
+interface · `import { TestRun } from '@harness/sdk/testing'`
+
+A run of a fn under test: how it ended, the progress it reported and what it asked the hub for.
+
+```ts
+interface TestRun<R> {
+  readonly outcome: TestOutcome<R>;
+  readonly progress: FakeHub['progress'];
+  readonly hubCalls: HubCalls;
+}
+```
+
+#### `TestOutcome`
+
+type · `import { TestOutcome } from '@harness/sdk/testing'`
+
+How a run ended, with a done result decoded to the fn's own result type.
+
+```ts
+type TestOutcome<R> = (Omit<Extract<OutcomeWire, { status: 'done' }>, 'result'> & { readonly result: R }) | Exclude<OutcomeWire, { status: 'done' }>;
+```
+
+Refers to: [`OutcomeWire`](#core-outcomewire).
+
+#### `HubCalls`
+
+interface · `import { HubCalls } from '@harness/sdk/testing'`
+
+What a run asked of the hub, by endpoint, in order: the records the fake hub made while it ran.
+
+```ts
+interface HubCalls {
+  /** Child fn calls (`ctx.call`, deps, `hub/*` fns). */
+  readonly calls: FakeHub['calls'];
+  /** Chat model requests (`ctx.ai()`, `ctx.llm`). */
+  readonly forwards: FakeHub['forwards'];
+  /** Other model calls: embeddings, images, speech. */
+  readonly models: FakeHub['models'];
+  /** Questions for the decision model (`ctx.decide`). */
+  readonly decisions: FakeHub['decisions'];
+  /** Runs it proposed (`ctx.propose`). */
+  readonly proposals: FakeHub['proposals'];
+  /** Handlers it asked its caller to answer. */
+  readonly handled: FakeHub['handled'];
+  readonly attachments: FakeHub['attachments'];
+  readonly shares: FakeHub['shares'];
+  /** Type definitions it asked for (`ctx.types.definitions`). */
+  readonly typeRequests: FakeHub['typeRequests'];
+  /** Example changes it sent. */
+  readonly examples: FakeHub['exampleChanges'];
+  /** Runtime contract changes (fns, context, … added or removed). */
+  readonly patches: FakeHub['patches'];
+}
+```
+
+#### `FnNameOf`
+
+type · `import { FnNameOf } from '@harness/sdk/testing'`
+
+A fn of the contract, by local name.
+
+```ts
+type FnNameOf<C extends ContractShape> = keyof C['fns'] & string;
+```
+
+#### `FnArgsOf`
+
+type · `import { FnArgsOf } from '@harness/sdk/testing'`
+
+A fn's args, as its implementation receives them.
+
+```ts
+type FnArgsOf<C extends ContractShape, K extends FnNameOf<C>> = TypesOf<C['fns'][K]>['args'];
+```
+
+#### `FnResultOf`
+
+type · `import { FnResultOf } from '@harness/sdk/testing'`
+
+A fn's result, as its implementation returns it.
+
+```ts
+type FnResultOf<C extends ContractShape, K extends FnNameOf<C>> = TypesOf<C['fns'][K]>['result'];
+```
+
+#### `KindNameOf`
+
+type · `import { KindNameOf } from '@harness/sdk/testing'`
+
+A kind of the contract, by local name.
+
+```ts
+type KindNameOf<C extends ContractShape> = keyof C['kinds'] & string;
+```
+
+#### `KindPayloadOf`
+
+type · `import { KindPayloadOf } from '@harness/sdk/testing'`
+
+A kind's payload.
+
+```ts
+type KindPayloadOf<C extends ContractShape, K extends KindNameOf<C>> = C['kinds'][K] extends KindDef<infer P> ? P : never;
+```
+
+#### `KindProps`
+
+interface · `import { KindProps } from '@harness/sdk/testing'`
+
+What a kind makes of a payload: the problems with it, and the fn props it derives (signature, facts, display, …).
+
+```ts
+interface KindProps {
+  readonly problems: readonly string[];
+  readonly description: KindDescription | undefined;
+}
+```
+
+Refers to: [`KindDescription`](#core-kinddescription).
+
+#### `mockModel`
+
+function · `import { mockModel } from '@harness/sdk/testing'`
+
+A model for fast unit tests. Given steps, it answers each chat forward with the next step (then `done` once they
+run out); given a recording, it replays it, recording first from a real model when the file is missing.
+
+```ts
+const model = mockModel([toolCall('search', { text: 'notes' }), 'Saved notes/by_tag.']);
+const kit = await testHub(notes, impl, { model });
+```
+
+````ts
+/** A model for fast unit tests. Given steps, it answers each chat forward with the next step (then `done` once they
+run out); given a recording, it replays it, recording first from a real model when the file is missing.
+
+```ts
+const model = mockModel([toolCall('search', { text: 'notes' }), 'Saved notes/by_tag.']);
+const kit = await testHub(notes, impl, { model });
+``` */
+function mockModel(steps: readonly ScriptStep[], options?: { models?: readonly HubModelInfo[]; }): FakeModelLink;
+function mockModel(recording: RecordingOptions): RecordedModelLink;
+````
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+
+#### `toolCall`
+
+function · `import { toolCall } from '@harness/sdk/testing'`
+
+A reply that calls one tool with `args`.
+
+```ts
+function toolCall(name: string, args: object): LlmForwardChunk[];
+```
+
+Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+
+#### `ScriptStep`
+
+type · `import { ScriptStep } from '@harness/sdk/testing'`
+
+A scripted reply: the text, the chunks (`toolCall(...)`), or worked out from what was sent.
+
+```ts
+type ScriptStep = FakeReply | ((forward: LlmForward) => FakeReply);
+```
+
+Refers to: [`LlmForward`](#core-llmforward).
+
+#### `ModelRecording`
+
+const, type · `import { ModelRecording } from '@harness/sdk/testing'`
+
+A recording of a real model's replies, one per chat forward, in order.
+
+```ts
+type ModelRecording = {
+  replies: ({
+    type: "chunk";
+    chunk: {
+      content?: string | undefined;
+      reasoning?: string | undefined;
+      toolCallNamed?: {
+        id: string;
+        name: string;
+        arguments: string;
+      } | undefined;
+      toolCallArguments?: {
+        id: string;
+        name: string;
+        arguments: string;
+      } | undefined;
+      toolCall?: {
+        id: string;
+        name: string;
+        arguments: string;
+      } | undefined;
+      finishReason?: "refusal" | "length" | "stop" | "tool_calls" | "content_filter" | undefined;
+      refusal?: string | undefined;
+      usage?: {
+        input: number;
+        output: number;
+        cached?: number | undefined;
+        reasoning?: number | undefined;
+      } | undefined;
+    };
+  } | {
+    type: "descriptors";
+    tools: Record<string, string>;
+    output?: string | undefined;
+  } | {
+    type: "done";
+    usage: {
+      input: number;
+      output: number;
+      cached?: number | undefined;
+      reasoning?: number | undefined;
+    };
+    cost: number;
+    interaction: string;
+    model: string;
+  } | {
+    type: "error";
+    message: string;
+    kind: "provider" | "limit" | "model" | "tool";
+  })[][];
+};
+```
+
+Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+
+#### `RecordedModelLink`
+
+class · `import { RecordedModelLink } from '@harness/sdk/testing'`
+
+A model link that replays a recording, recording from a real model what the file doesn't have yet.
+
+```ts
+class RecordedModelLink implements ModelLink {
+  /** Every chat forward, in order. */
+  readonly forwards: LlmForward[];
+  constructor(options: RecordingOptions);
+  llm(forward: LlmForward, signal?: AbortSignal): AsyncGenerator<LlmForwardChunk>;
+  model(forward: ModelForward, signal?: AbortSignal): Promise<ModelForwardResult>;
+  models(): Promise<HubModelInfo[]>;
+  connected(): boolean;
+}
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+
+#### `RecordingOptions`
+
+interface · `import { RecordingOptions } from '@harness/sdk/testing'`
+
+How `mockModel` answers when given a recording.
+
+```ts
+interface RecordingOptions {
+  /** The JSON file of the recording. */
+  readonly recording: string;
+  /** The real model to record from when the file is missing or short (default `realModel.link()`). */
+  readonly live?: ModelLink | undefined;
+  /** The models it lists. */
+  readonly models?: readonly HubModelInfo[];
+}
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+
+#### `realModel`
+
+const · `import { realModel } from '@harness/sdk/testing'`
+
+A real free model (OpenRouter, `OPENROUTER_API_KEY`; the models of `HARNESS_LIVE_MODEL` and
+`HARNESS_LIVE_FALLBACKS`). `realModel.it` declares a test that calls it: marked `real`, skipped without a key.
+
+```ts
+const realModel: { link(): OpenRouterModelLink | undefined; available(): boolean; it(name: string, body: RealModelTest, timeout?: number): void; };
+```
+
+#### `RealModelTest`
+
+type · `import { RealModelTest } from '@harness/sdk/testing'`
+
+A test body that gets the real model.
+
+```ts
+type RealModelTest = (model: OpenRouterModelLink, context: TestContext) => Promise<void> | void;
+```
+
+#### `OpenRouterModelLink`
+
+class · `import { OpenRouterModelLink } from '@harness/sdk/testing'`
+
+A `ModelLink` that runs forwarded chat requests on free OpenRouter models. Only chat: other modalities are refused.
+
+```ts
+class OpenRouterModelLink implements ModelLink {
+  /** Every chat forward, in order. */
+  readonly forwards: LlmForward[];
+  /** The model that answered each forward, in order. */
+  readonly answeredBy: string[];
+  constructor(options: OpenRouterOptions);
+  llm(forward: LlmForward, signal?: AbortSignal): AsyncGenerator<LlmForwardChunk>;
+  model(forward: ModelForward): Promise<ModelForwardResult>;
+  models(): Promise<HubModelInfo[]>;
+  connected(): boolean;
+}
+```
+
+Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+
+#### `OpenRouterOptions`
+
+interface · `import { OpenRouterOptions } from '@harness/sdk/testing'`
+
+How an `OpenRouterModelLink` calls.
+
+```ts
+interface OpenRouterOptions {
+  /** The OpenRouter key. */
+  readonly key: string;
+  /** The models to try, first choice first (OpenRouter ids, e.g. `vendor/model:free`). */
+  readonly models: readonly string[];
+  /** The most tokens one reply may have (default 2000). */
+  readonly maxTokens?: number;
+}
+```
+
+#### `preview`
+
+function · `import { preview } from '@harness/sdk/testing'`
+
+Preview a component in its states. Without shooting, it bundles the component once to prove it builds and returns
+no shots; with shooting, every state, viewport and theme is saved and returned.
+
+```ts
+function preview(options: PreviewOptions): Promise<SavedShot[]>;
+```
+
+#### `PreviewOptions`
+
+interface · `import { PreviewOptions } from '@harness/sdk/testing'`
+
+What to preview: one component, from its module, in named states.
+
+```ts
+interface PreviewOptions {
+  /** The component's name as the client registers it (a renderer's type, a visual's entry, an input, an editor). */
+  readonly name: string;
+  /** The module that exports it: a `.vue` file or a module, as a path or `new URL('./X.vue', import.meta.url)`. */
+  readonly module: string | URL;
+  /** Its export (default `default`). */
+  readonly export?: string;
+  /** Props by state name: the kit's `empty`, `loading`, `error`, `typical`, `long`, or names of its own. Plain JSON. */
+  readonly states: Readonly<Record<string, JsonObject>>;
+  /** Default both. */
+  readonly viewports?: readonly PreviewViewport[];
+  /** Default both. */
+  readonly themes?: readonly PreviewTheme[];
+  /** Force shooting on or off (default `HARNESS_PREVIEWS`). */
+  readonly shoot?: boolean;
+}
+```
+
+Refers to: [`JsonObject`](#core-jsonobject), [`PreviewViewport`](#core-previewviewport).
+
+#### `SavedShot`
+
+interface · `import { SavedShot } from '@harness/sdk/testing'`
+
+One preview shot, with where its image was saved.
+
+```ts
+interface SavedShot extends PreviewShot {
+  readonly file: string;
+}
+```
+
+Refers to: [`PreviewShot`](#core-previewshot).
+
+#### `renderHtml`
+
+function · `import { renderHtml } from '@harness/sdk/testing'`
+
+Draw a component with props to HTML, in-process.
+
+```ts
+function renderHtml(component: Component, props?: JsonObject): Promise<string>;
+```
+
+Refers to: [`JsonObject`](#core-jsonobject).
+
+#### `galleryHtml`
+
+function · `import { galleryHtml } from '@harness/sdk/testing'`
+
+A page of every shot, grouped by component and state.
+
+```ts
+function galleryHtml(shots: readonly PreviewShot[]): string;
+```
+
+Refers to: [`PreviewShot`](#core-previewshot).
+
+#### `PreviewIndex`
+
+const, type · `import { PreviewIndex } from '@harness/sdk/testing'`
+
+The record of every shot in a preview folder (`shots.json`), which `harness test` reads into its report.
+
+```ts
+type PreviewIndex = {
+  shots: {
+    component: string;
+    state: string;
+    viewport: "phone" | "desktop";
+    theme: "light" | "dark";
+    image: {
+      hash: string;
+      size: number;
+      mime: string;
+    };
+  }[];
+};
+```
+
+Refers to: [`PreviewShot`](#core-previewshot).
+
+#### `PREVIEW_INDEX`
+
+const · `import { PREVIEW_INDEX } from '@harness/sdk/testing'`
+
+The file of the shots index in a preview folder.
+
+```ts
+const PREVIEW_INDEX: "shots.json";
+```
+
+#### `PREVIEW_THEMES`
+
+const · `import { PREVIEW_THEMES } from '@harness/sdk/testing'`
+
+The themes previews are shot in, from the shot contract.
+
+```ts
+const PREVIEW_THEMES: ("light" | "dark")[];
+```
+
+Refers to: [`PreviewShot`](#core-previewshot).
+
+#### `PreviewTheme`
+
+type · `import { PreviewTheme } from '@harness/sdk/testing'`
+
+```ts
+type PreviewTheme = PreviewShot['theme'];
+```
+
+Refers to: [`PreviewShot`](#core-previewshot).
+
+#### `contextFolder`
+
+function · `import { contextFolder } from '@harness/sdk/testing'`
+
+Check a system's context folder (`<system>/context`): every file parses, every link resolves, no imports cycle.
+
+```ts
+function contextFolder(dir: string, contract: AnyContract, other?: OtherNames): Promise<TestedContext>;
+```
+
+#### `TestedContext`
+
+interface · `import { TestedContext } from '@harness/sdk/testing'`
+
+A checked context folder.
+
+```ts
+interface TestedContext {
+  /** What each file becomes in the manifest, by qualified key. */
+  readonly context: ReadonlyMap<QualifiedName, ContextDecl>;
+  /** The fns each context brings when it is loaded, by qualified key. */
+  readonly fns: ReadonlyMap<QualifiedName, readonly QualifiedName[]>;
+  /** Every problem, as `file:line:col message`; empty when the folder is sound. */
+  readonly problems: readonly string[];
+}
+```
+
+Refers to: [`ContextDecl`](#core-contextdecl), [`QualifiedName`](#core-qualifiedname).
+
+#### `OtherNames`
+
+interface · `import { OtherNames } from '@harness/sdk/testing'`
+
+Names a folder may link to beyond its own system: other systems' or the hub's fns and context, qualified.
+
+```ts
+interface OtherNames {
+  readonly fns?: readonly QualifiedName[];
+  readonly context?: readonly QualifiedName[];
+}
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
+#### `kitEnv`
+
+const · `import { kitEnv } from '@harness/sdk/testing'`
+
+```ts
+const kitEnv: Env<EnvOutput<{}, { readonly HARNESS_PREVIEWS: z.ZodDefault<z.ZodBoolean>; readonly HARNESS_PREVIEW_DIR: z.ZodDefault<z.ZodString>; readonly HARNESS_PREVIEW_PHONE: z.ZodDefault<z.ZodString>; readonly HARNESS_PREVIEW_DESKTOP: z.ZodDefault<z.ZodString>; readonly HARNESS_PREVIEW_THEME: z.ZodOptional<z.ZodString>; }>>;
 ```
 
 ## 26. Common mistakes
@@ -15291,6 +16180,34 @@ type PreviewAnswer = {
 } | {
   refused: string;
 };
+```
+
+#### <a id="core-previewshot"></a>`PreviewShot`
+
+const, type · declared in `packages/core/src/checks.ts`
+
+One screenshot of a system's component in one state, viewport and theme, stored as hub content.
+
+```ts
+type PreviewShot = {
+  component: string;
+  state: string;
+  viewport: "phone" | "desktop";
+  theme: "light" | "dark";
+  image: {
+    hash: string;
+    size: number;
+    mime: string;
+  };
+};
+```
+
+#### <a id="core-previewviewport"></a>`PreviewViewport`
+
+const, type · declared in `packages/core/src/checks.ts`
+
+```ts
+type PreviewViewport = "phone" | "desktop";
 ```
 
 #### <a id="core-progressdecl"></a>`ProgressDecl`

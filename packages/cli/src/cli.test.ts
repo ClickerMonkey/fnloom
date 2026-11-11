@@ -178,6 +178,36 @@ describe('system build', () => {
   });
 });
 
+describe('test', () => {
+  const report = {
+    system: SystemName.parse('notes'), version: '1.0.0', ranAt: 1, duration: 2_300, passed: 3, failed: 1, skipped: 1,
+    cases: [
+      { file: 'server/notes.test.ts', name: 'notes > saves', status: 'failed' as const, duration: 5, error: 'expected 1 to be 2\n    at server/notes.test.ts:9:3' },
+      { file: 'server/notes.test.ts', name: 'notes > titles', status: 'skipped' as const, duration: 0, real: true },
+    ],
+  };
+
+  it("runs a folder's tests and prints the counts and each failure, failing when one failed", async () => {
+    const io = testIo();
+    io.tests.report = report;
+    expect(await runCli(['test', 'notes', '--previews'], io)).toBe(1);
+    expect(io.tests.runs).toEqual([{ dir: NOTES, options: { previews: true } }]);
+    expect(io.lines[0]).toBe('notes 1.0.0 (notes): 3 passed, 1 failed, 1 skipped, 1 on a real model in 2.3 s');
+    expect(io.lines.slice(1)).toEqual(['  failed: server/notes.test.ts > notes > saves', '    expected 1 to be 2', '    at server/notes.test.ts:9:3']);
+  });
+
+  it('prints the report as JSON, and says when a folder has no tests', async () => {
+    const io = testIo();
+    io.tests.report = { ...report, failed: 0, cases: [] };
+    expect(await runCli(['test', '--json', '--filter', 'saves'], io)).toBe(0);
+    expect(JSON.parse(io.lines[0] ?? '')).toMatchObject({ system: 'notes', failed: 0 });
+    expect(io.tests.runs[0]?.options).toEqual({ previews: false, filters: ['saves'] });
+    io.tests.report = undefined;
+    expect(await runCli(['test', 'notes'], io)).toBe(0);
+    expect(io.lines.at(-1)).toBe('notes has no tests.');
+  });
+});
+
 describe('system pack', () => {
   it('builds a stale folder, then zips dist/ with every file hashed', async () => {
     const io = testIo();

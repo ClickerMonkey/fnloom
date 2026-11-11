@@ -147,6 +147,25 @@ describe('remote providers', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(changes).toBe(1);
   });
+
+  it('leave out a provider that is not offered (its system installed, or the provider switched off)', async () => {
+    const { connection } = connectedShop();
+    const bus = new RecordingBus();
+    const { log } = memoryLog();
+    let offered = false;
+    const source = new SystemProviderSource({
+      link: { connected: () => [connection], connection: () => connection },
+      catalog: { manifest: () => Promise.resolve({ ...EMPTY_MANIFEST, providers: [LOCAL] }) },
+      bus, log, offered: () => Promise.resolve(offered),
+    });
+    expect(Object.keys(await source.load())).toEqual([]);
+    let changes = 0;
+    source.watch(() => { changes += 1; });
+    offered = true;
+    bus.publish('capabilities.changed', {});
+    await expect.poll(() => changes).toBe(1);
+    expect(Object.keys(await source.load())).toEqual(['shop/local']);
+  });
 });
 
 /** A manifest with nothing in it, for the fake catalog. */

@@ -12,10 +12,11 @@ import { listCommand, startCommand, stopCommand, uninstallCommand, upgradeComman
 import { mcpCommand } from './commands/mcp.ts';
 import { newCommand } from './commands/new.ts';
 import { packCommand } from './commands/pack.ts';
+import { testCommand } from './commands/test.ts';
 
 /** Every command, in the order help lists them. */
 export const COMMANDS = [
-  newCommand, buildCommand, packCommand, installCommand, exportDataCommand, listCommand, startCommand, stopCommand, upgradeCommand, uninstallCommand,
+  newCommand, buildCommand, testCommand, packCommand, installCommand, exportDataCommand, listCommand, startCommand, stopCommand, upgradeCommand, uninstallCommand,
   mcpCommand,
 ] as const satisfies readonly CliCommand[];
 
@@ -28,7 +29,7 @@ export function usageOf(definition: Pick<CliCommand, 'path' | 'usage'>): string 
 export function helpText(): string {
   const width = Math.max(...COMMANDS.map((c) => usageOf(c).length));
   return [
-    'harness: make, build, pack and install harness systems.',
+    'harness: make, build, test, pack and install harness systems.',
     '',
     ...COMMANDS.map((c) => `  ${usageOf(c).padEnd(width)}  ${c.summary}`),
     '',

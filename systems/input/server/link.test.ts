@@ -1,6 +1,6 @@
 /**
- * The input system over the SDK's real link runtime and an in-memory hub: `get_input` declared as an agent (its
- * prompt, tools and examples), its answer checked by the output hook, `check_form`, the quick forms, saving a form in
+ * The input system over the SDK's real link runtime and an in-memory hub: `get_input` declared as an authoring fn
+ * (the agent itself is tested in `authoring.test.ts`), `check_form`, the quick forms, saving a form in
  * the hub (`hub/save_fn`, a taken name tried again), and running a saved form through its kind. Nothing is kept here.
  */
 import { readFileSync } from 'node:fs';
@@ -46,17 +46,15 @@ describe('input over the link', () => {
     running = undefined;
   });
 
-  it('declares get_input as an agent with its prompt, tools and examples, and every fn with instructions', async () => {
+  it('declares get_input as an authoring fn with its examples and effects, and every fn with instructions', async () => {
     await start();
     expect(input.name).toBe(packageManifest.name);
     const manifest = hub.manifests[0];
     expect(manifest?.kinds.map((k) => k.name)).toEqual(['form']);
     expect(manifest?.fns.map((f) => f.name).sort()).toEqual(['ask_choice', 'ask_confirm', 'ask_date', 'ask_number', 'ask_text', 'check_form', 'get_input', 'save_form']);
-    const agent = manifest?.fns.find((f) => f.name === 'get_input');
-    expect(agent).toMatchObject({ kind: 'hub/llm', validate: { input: false, output: true } });
-    expect(agent?.payload).toMatchObject({ tools: [hubContract.fns.fns_search.name, hubContract.fns.fn_get.name, 'input/check_form'], toolExecution: 'sequential' });
-    expect(JSON.stringify(agent?.payload)).toContain('{{args.detailedDescription}}');
-    expect(agent?.examples?.[0]).toMatchObject({ result: { form: { title: 'Trip details' }, next: WAIT_FOR_ANSWERS } });
+    const getInput = manifest?.fns.find((f) => f.name === 'get_input');
+    expect(getInput).toMatchObject({ kind: 'native', deps: [hubContract.fns.fn_get.name, hubContract.fns.save_fn.name], effects: { mode: 'write', registry: [{ thing: 'fns', action: 'create', kind: FORM_KIND }] } });
+    expect(getInput?.examples?.[0]).toMatchObject({ result: { form: { title: 'Trip details' }, saved: 'input/trip_details', next: WAIT_FOR_ANSWERS } });
     for (const decl of manifest?.fns ?? []) {
       expect(decl.instructions, decl.name).toBeTruthy();
       expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);
@@ -65,17 +63,12 @@ describe('input over the link', () => {
     expect(manifest?.fns.find((f) => f.name === 'save_form')?.visibility).toBe('user');
   });
 
-  it('checks a draft form for the agent, and sends a bad answer back to it', async () => {
+  it('checks a draft form', async () => {
     await start();
     expect(done(await hub.run('input/check_form', { form: TRIP }))).toEqual({ ok: true, problems: [], fields: 2 });
     const wide = { ...TRIP, type: { name: 'obj', props: { a: { type: { name: 'text' } }, b: { type: { name: 'text' } }, c: { type: { name: 'text' } }, d: { type: { name: 'bool' } } } } };
     expect(done(await hub.run('input/check_form', { form: wide }))).toMatchObject({ ok: false, fields: 4, problems: [expect.stringContaining('at most 3')] });
     expect(done(await hub.run('input/check_form', { form: { ...TRIP, type: { name: 'obj', props: { a: { type: { name: 'color' } } } } } }))).toMatchObject({ ok: false, problems: [expect.stringContaining('"color"')] });
-    const check = (result: Json) => hub.peer().call('validate', { phase: 'output', run: hub.runInfo('input/get_input'), fn: 'get_input', args: { detailedDescription: 'x' }, result, attempt: 1 });
-    expect(await check({ form: TRIP, next: WAIT_FOR_ANSWERS })).toEqual({ ok: true });
-    const refused = await check({ form: { ...TRIP, type: { name: 'text' } }, next: WAIT_FOR_ANSWERS });
-    expect(refused).toMatchObject({ ok: false, action: 'retry' });
-    expect(refused).toHaveProperty('reason', expect.stringContaining('check_form'));
   });
 
   it('asks quick questions as one-field forms, and refuses a choice of one', async () => {

@@ -17,7 +17,33 @@ choices:
 
 ## 25. Testing
 
-Test a system end to end without a network with **`FakeHub`** (`@harness/sdk/server/testing`): a hub in memory that
+Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
+
+- **`testHub(contract, impl, { config, model })`** serves the system to a fake hub in memory; every `ctx.*` call it
+  makes is recorded. `kit.call('<fn>', args)` takes the fn's own args type and gives `{ result, progress, hubCalls }`:
+  the typed result, the progress it reported, and what it asked the hub for (`calls`, `forwards` to the model,
+  `decisions`, `proposals`, `patches`, …). `kit.run` gives the outcome instead (for `invalid-input` or `failed`);
+  `callFn(contract, impl, '<fn>', args)` serves, calls and stops in one line. Call `kit.stop()` after each test.
+- **Models.** `mockModel([toolCall('search', { text: 'x' }), 'Saved.'])` answers `ctx.ai()` with scripted replies, in
+  order; `mockModel({ recording: 'test/title.json' })` replays replies recorded once from a real model. A few tests may
+  call a real free model with `realModel.it('…', async (model) => { … })` and pass `model` to `testHub`: they are
+  marked `real` and skipped without `OPENROUTER_API_KEY`.
+- **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
+  derives.
+- **Context.** `contextFolder(dir, contract)` checks the context folder: every file parses, every link resolves (fenced
+  code is skipped), and `fns` maps each context to the fns it brings. Expect `problems` to be empty.
+- **Components.** `preview({ name, module: new URL('./ResultView.vue', import.meta.url), states })` draws a component in
+  named states (`empty`, `loading`, `error`, `typical`, `long`, or your own; plain JSON props). A normal run only
+  bundles it; `harness test --previews` shoots each state at phone and desktop sizes in light and dark into
+  `.harness-test/previews/gallery.html`, for a model or a person to review. `renderHtml(component, props)` renders
+  in-process, for quick checks of what a state shows.
+
+**`harness test [dir]`** runs a folder's tests from anywhere and prints the counts and each failure (`--json` gives the
+whole report). `fs/install_system` runs them before an admin is asked, and the install card shows the result. Write
+tests with every system: a call per fn, a scripted-model test per agent, a `contextFolder` check, and a preview of each
+component.
+
+Underneath, the kit's hub is **`FakeHub`** (`@harness/sdk/server/testing`): a hub in memory that
 serves the real link spec, so the system under test runs its real link, handshake, runtime and wire checks. Only the
 hub's own behaviour is scripted: child calls (`onCall`), handler answers (`onHandle`), LLM answers (`onLlm`), type
 definitions (`onTypes`), resource reads (`onResource`), and setting values (`settings`).

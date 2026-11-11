@@ -103,7 +103,7 @@ export function buildSystems(options: SystemsOptions) {
     store, log, clock, rate: store.ports.rate, limit: settings.packaging.HARNESS_AUTO_PAIR_LIMIT, window: settings.packaging.HARNESS_AUTO_PAIR_WINDOW,
     expiry: settings.packaging.HARNESS_AUTO_PAIR_EXPIRY,
   });
-  const lifecycle = new SystemLifecycle({ store, catalog, bus, log, clock, settings: settings.review });
+  const lifecycle = new SystemLifecycle({ store, catalog, bus, log, clock, settings: settings.review, resources: () => resources });
   const pairing = new StorePairingService({
     firstStage: () => lifecycle.firstStage, keepChecks: (system, checks) => lifecycle.setChecks(system, checks),
     store, bus, log, clock, instances, autoPairs, timeout: settings.link.HARNESS_PAIRING_TIMEOUT, publicUrl: settings.packaging.HARNESS_PUBLIC_URL,

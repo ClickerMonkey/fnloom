@@ -13,6 +13,7 @@ import type { PushStore } from './push.ts';
 import type { ResourcesStore } from '../resources/state/resources.ts';
 import type { ContextStore } from '../context/state/context.ts';
 import type { FnInfoStore } from '../fns/state/fn-info.ts';
+import type { GraphStore } from '../graph/state/graph.ts';
 import type { ClientLogs } from './client-logs.ts';
 import type { SessionStore } from './session.ts';
 import type { ThemeStore } from './theme.ts';
@@ -41,6 +42,8 @@ export interface Stores {
   readonly context: ContextStore;
   /** One fn's view (the fn modal and the fn page): what it is, its facts and its examples. */
   readonly fns: FnInfoStore;
+  /** A new graph view (the graph page, a system's Graph tab), each with its own query and page. */
+  readonly graph: () => GraphStore;
   /** The browser's logs and API traffic, sent to the hub. */
   readonly logs: ClientLogs;
 }

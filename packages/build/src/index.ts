@@ -5,6 +5,7 @@
  *   self-contained server bundle, client renderers, `dist/system.json`, and the bundle's scan.
  * - `checkContextFolder(dir, known)`: every context file's header, key and link, and `imports` cycles, with file and line.
  * - `scanBundle(code)`: the built-ins, computed imports, `eval`, `new Function` and URLs a bundle holds.
+ * - `runSystemTests(dir, files, options)`: the folder's own tests (the SDK test kit) as a `SystemTestReport`.
  * - `ViteBuilder` (`SystemBuilder`), `NodeFiles` (`BuildFiles`) and the system folder's layout (`DIST`, `BUILT`, …).
  */
 export {
@@ -16,3 +17,4 @@ export { checkContextFolder, type CheckedContext, type KnownNames } from './cont
 export { NodeFiles, type BuildFiles, type FileStat } from './files.ts';
 export { BUILT, DIST, FolderError, NOT_SOURCE, builtManifest, isStale, readSystemJson } from './folder.ts';
 export { RISKY_BUILTINS, SCAN_CONCERNS, ScanConcern, ScanConcernKind, ScanReport, scanBundle } from './scan.ts';
+export { PREVIEW_DIR, VitestRunner, runSystemTests, type SystemTestRunner, type TestRunOptions } from './tests.ts';

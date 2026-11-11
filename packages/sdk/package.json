@@ -10,12 +10,15 @@
     "./server/testing": "./src/server/testing.ts",
     "./build": "./src/build.ts",
     "./client": "./src/client-runtime.ts",
-    "./AUTHORING.md": "./AUTHORING.md"
+    "./AUTHORING.md": "./AUTHORING.md",
+    "./testing": "./src/testing/index.ts"
   },
   "dependencies": {
     "@aeye/ai": "file:../../../aits/packages/ai",
     "@aeye/core": "file:../../../aits/packages/core",
     "@aeye/gin": "file:../../../aits/packages/gin",
+    "@aeye/models": "file:../../../aits/packages/models",
+    "@aeye/openrouter": "file:../../../aits/packages/openrouter",
     "@aeye/resources": "file:../../../aits/packages/resources",
     "@ayepi/core": "file:../../../ayepi/packages/core",
     "@ayepi/env": "file:../../../ayepi/packages/env",
@@ -28,10 +31,28 @@
     "zod": "^4.6.7"
   },
   "peerDependencies": {
-    "vue": "^3.5.0"
+    "vue": "^3.5.0",
+    "vitest": "*",
+    "vite": "*",
+    "@vitejs/plugin-vue": "*",
+    "puppeteer": "*"
   },
   "devDependencies": {
     "@harness/system-fs": "*",
     "@types/qrcode": "^1.5.6"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    },
+    "@vitejs/plugin-vue": {
+      "optional": true
+    },
+    "puppeteer": {
+      "optional": true
+    }
   }
 }

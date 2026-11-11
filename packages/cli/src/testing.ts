@@ -6,10 +6,10 @@
 import { join, resolve, sep } from 'node:path';
 import { client } from '@ayepi/core/client';
 import type { CallReturn, ClientData } from '@ayepi/core';
-import { hubWebSpec, type ContentRef, type HubWebSpec, type Manifest } from '@harness/core';
+import { hubWebSpec, type SystemTestReport, type ContentRef, type HubWebSpec, type Manifest } from '@harness/core';
 import { sha256 } from '@harness/hub/package';
 import type { CliIo } from './command.ts';
-import type { ContractSummary, SystemBuilder } from '@harness/build';
+import type { ContractSummary, SystemBuilder, SystemTestRunner, TestRunOptions } from '@harness/build';
 import type { CliFiles, FileStat } from './files.ts';
 import { linesOf } from './commands/mcp.ts';
 import { cliEnv, type HubSession } from './hub.ts';
@@ -167,6 +167,18 @@ export interface TestIo extends CliIo {
   readonly warnings: string[];
   readonly memory: MemoryFiles;
   readonly built: FakeBuilder;
+  readonly tests: FakeTests;
+}
+
+/** A test runner that answers with a set report and records each folder it was asked to test. */
+export class FakeTests implements SystemTestRunner {
+  readonly runs: Array<{ dir: string; options: TestRunOptions }> = [];
+  report: SystemTestReport | undefined;
+
+  run(dir: string, options: TestRunOptions = {}): Promise<SystemTestReport | undefined> {
+    this.runs.push({ dir, options });
+    return Promise.resolve(this.report);
+  }
 }
 
 /** Io over memory files, a fake builder and the given hub; `cwd` is a made-up absolute folder. */
@@ -179,7 +191,7 @@ export function testIo(options: { hub?: FakeHub; cwd?: string; stdin?: readonly 
   const settings = cliEnv.parse();
   const built = new FakeBuilder(memory);
   return {
-    lines, warnings, memory, built, builder: built,
+    lines, warnings, memory, built, builder: built, tests: new FakeTests(),
     out: { line: (text) => { lines.push(text); }, warn: (text) => { warnings.push(text); } },
     files: memory,
     cwd,

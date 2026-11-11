@@ -219,6 +219,10 @@ describe('fn examples', () => {
     const overdue = await catalog.fn(q('books/overdue'));
     if (overdue === undefined) throw new Error('no fn');
     expect(await examples.forPrompt(overdue, 'any invoice at all', 1)).toEqual([{ args: { days: 1 }, note: 'any late invoice at all' }]);
+    // an example an admin switched off (by the name the system page lists it by) stays out of the prompt
+    await store.table('itemSwitches').put({ system: overdue.system, section: 'examples', name: 'books/overdue #1', by: ActorId.parse('act_admin'), at: 1 });
+    expect((await examples.forPrompt(overdue, '', 3)).map((e) => e.args)).toEqual([{ days: 90 }, { days: 1 }]);
+    await store.table('itemSwitches').remove({ system: overdue.system, section: 'examples', name: 'books/overdue #1' });
     // a changed declaration replaces what changed; a removed fn takes its examples with it
     await examples.sync([{ ...overdue, decl: { ...overdue.decl, examples: [{ args: { days: 30 }, note: 'a month late' }] } }], []);
     expect((await examples.page({ fn: q('books/overdue') }, asker)).total).toBe(1);
