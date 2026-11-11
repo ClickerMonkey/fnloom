@@ -32,6 +32,10 @@
  * - `config-secrets`: secret fields in a system's config (build 5).
  * - `context-files`: context folders (file headers, check problems) and what loading context did (build 6).
  * - `system-parts`: what a system added beyond its fns, context and types, for its admin page (build 6).
+ * - `checks`: the bundle scan, a system's test report and component previews (build 7).
+ * - `grants`: what a system may do through the hub, its config component and its stage (build 7).
+ * - `lifecycle`: installed vs live, reviews, item switches and refusals (build 7).
+ * - `graph`: the graph of systems' items and their relations (build 7).
  */
 export * from './primitives.ts';
 export * from './modes.ts';
@@ -76,3 +80,7 @@ export * from './approvals.ts';
 export * from './decisions.ts';
 export * from './config-secrets.ts';
 export * from './fn-facts.ts';
+export * from './checks.ts';
+export * from './grants.ts';
+export * from './lifecycle.ts';
+export * from './graph.ts';

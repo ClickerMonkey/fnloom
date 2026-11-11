@@ -8,6 +8,7 @@ import { CONTENT_HASH } from '../resources.ts';
 import { FnMetrics, noOutcomes, OutcomeCounts } from '../metrics.ts';
 import { AutoPairChoice } from '../auto-pair.ts';
 import { ConfigSecrets } from '../config-secrets.ts';
+import { SystemStage } from '../grants.ts';
 
 /**
  * Where an instance is. `needs-config`: connected, but without a valid config, so it can't be used yet. A system's
@@ -114,6 +115,8 @@ export const SystemRecord = z.object({
   /** Where a run goes when neither its args nor its session pick an instance (fleets). */
   defaultInstance: InstanceName.optional(),
   actor: ActorId,
+  /** Build 7: installed (nothing offered yet) or live; absent on rows stored before build 7, which count as live. */
+  stage: SystemStage.optional(),
 }).extend(LegacyInstanceFields.shape);
 export type SystemRecord = z.infer<typeof SystemRecord>;
 

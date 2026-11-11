@@ -50,6 +50,7 @@ export const ID_PREFIXES = {
   autoPair: 'apk',
   connection: 'cnx',
   fnExample: 'fex',
+  refusal: 'rfs',
 } as const;
 
 /** The kinds of id. */

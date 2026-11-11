@@ -61,6 +61,8 @@ export function systemsPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
       configureSystem: ({ data, user }) => ops.configure_system(data, user.id),
       enableSystem: ({ data, user }) => ops.enable_system(data, user.id),
       switchItem: ({ data, user }) => ops.switch_item(data, user.id),
+      // Build 7 stub (hub lane): store off items in `itemSwitches` and leave them out wherever they are offered.
+      switchPart: () => { throw reject(501, 'NOT_YET', 'switching this kind of item is not built yet'); },
       removeSystem: ({ data, user }) => ops.remove_system(data, user.id),
       installSystem: ({ data, user }) => ops.install_system(data, user.id),
       startSystem: ({ data, user }) => ops.start_system(data, user.id),

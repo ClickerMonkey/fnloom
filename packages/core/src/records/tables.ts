@@ -22,6 +22,7 @@ import { AutoPairSecret } from '../auto-pair.ts';
 import { HubOption } from '../suggestions.ts';
 import { AccessRecord } from '../access.ts';
 import { UserConnection } from '../connections.ts';
+import { ItemSwitch, RefusalRecord, SystemReviewRecord } from '../lifecycle.ts';
 import { FnExampleRecord, FnFactsRecord, FnTypeUse, FnUse, FnVersionRecord, TypeVersionRecord } from '../fn-facts.ts';
 import { ResourceUri } from '../resources.ts';
 
@@ -134,6 +135,10 @@ export const HUB_TABLES = {
   fnVersions: byField(FnVersionRecord, 'id'),
   // build 6
   typeVersions: byField(TypeVersionRecord, 'id'),
+  // build 7
+  itemSwitches: byFields(ItemSwitch, 'system', 'section', 'name'),
+  systemReviews: byField(SystemReviewRecord, 'system'),
+  refusals: byField(RefusalRecord, 'id'),
 } as const;
 
 /** The table names. */

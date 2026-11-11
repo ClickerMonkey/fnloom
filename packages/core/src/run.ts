@@ -57,6 +57,11 @@ export const RunInfo = z.object({
   caller: ActorId,
   attempt: z.number().int().min(1),
   priority: Priority,
+  /**
+   * Build 7: a person is watching this run as it happens (a chat turn on an open session). Absent or false for nested
+   * agents, MCP calls and background runs, whose results must not say "shown to the person".
+   */
+  watched: z.boolean().optional(),
 });
 export type RunInfo = z.infer<typeof RunInfo>;
 

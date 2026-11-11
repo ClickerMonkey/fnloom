@@ -97,6 +97,10 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `config-secrets.ts` (build 5) | `ConfigSecrets` (manifest `configSecrets`), `SECRET_KEPT`, `SealedConfigSecret` |
 | `fn-facts.ts` (build 5) | `FnSearchQuery` / `FnSearchPage` (the one search), `FnExamplesQuery` / `FnExamplesPatch`, `FnFacts`, `CostEstimate`, `KindEstimateRequest` / `Answer` (system link `estimate`), and the rows of the tables `fnExamples`, `fnFacts`, `fnTypes`, `fnUses`, `fnVersions` and (build 6) `typeVersions` |
 | `context-files.ts` (build 6) | `ContextFileHeader` (a context file's YAML header), `contextDeclOf`, `CONTEXT_BODY_REFERENCE`, `ContextFileProblem`, `LoadContextResult` (`hub/load_context`) |
+| `checks.ts` (build 7) | `ScanReport` (made by `@harness/build`), `SystemTestReport`, `PreviewShot`, `InstallChecks` (`ApprovalPreview.checks`) |
+| `grants.ts` (build 7) | `SystemGrants` (`Manifest.grants`: hub capabilities, models and spend, secrets, calls, network, files), `ConfigComponentDecl`, `SystemStage` |
+| `lifecycle.ts` (build 7) | installed vs live: `ItemRef`/`ItemSwitch`, `LiveContract`, `PendingReview`/`ContractChange`, `RefusalRecord`, `SystemReview`, `GoLiveRequest`, `TestCallRequest` |
+| `graph.ts` (build 7) | the system and global graph: `GraphNode`, `GraphEdge`, `GRAPH_EDGE_VERBS`, `GraphQuery`, `GraphPage` (web `graph`, hub fn `hub/graph`) |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.

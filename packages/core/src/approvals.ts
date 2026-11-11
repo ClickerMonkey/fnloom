@@ -13,6 +13,7 @@
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
 import { ActorId, ApprovalId, FnKindName, InstanceName, InstanceRef, Json, LocalName, RunId, SystemName, Timestamp } from './primitives.ts';
+import { InstallChecks } from './checks.ts';
 import { ResultTable } from './registries.ts';
 import { UserInfo } from './run.ts';
 
@@ -58,6 +59,8 @@ export const InstallSubject = z.object({
   sourceHash: z.string().min(1),
   /** The system instance that builds, starts and supervises it (`fs/main`). */
   host: InstanceRef,
+  /** Build 7: the hosted source folder it was built from, so the hub never reads the host fn's args for it. */
+  source: z.string().min(1).optional(),
   /** The version running now, when this replaces one. */
   replaces: z.object({ version: z.string().min(1), manifestHash: z.string().min(1) }).optional(),
 });
@@ -76,6 +79,8 @@ export const ApprovalPreview = z.object({
   irreversible: z.boolean(),
   /** Build 6: what the approval binds (an install's hashes), checked again when the run acts on it. */
   subject: ApprovalSubject.optional(),
+  /** Build 7: an install's bundle scan and test results, shown on its card (not part of what the approval binds). */
+  checks: InstallChecks.optional(),
 });
 export type ApprovalPreview = z.infer<typeof ApprovalPreview>;
 

@@ -17,6 +17,7 @@ import { FnApproval } from './approvals.ts';
 import { ConfigSecrets } from './config-secrets.ts';
 import { ContributionDecl, RegistryDecl } from './registries.ts';
 import { ShareRule } from './access.ts';
+import { ConfigComponentDecl, SystemGrants } from './grants.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -390,6 +391,10 @@ export const Manifest = z.object({
    * section. The hub stores them with origin `runtime`; everything else in the manifest is the contract's.
    */
   runtime: z.partialRecord(ManifestSection, z.array(LocalName)).optional(),
+  /** Build 7: what it may do through the hub (and, hosted, on its machine); absent, the base only. The hub enforces it. */
+  grants: SystemGrants.optional(),
+  /** Build 7: its own config component, drawn instead of or beside the gin form. */
+  configComponent: ConfigComponentDecl.optional(),
 });
 export type Manifest = z.infer<typeof Manifest>;
 

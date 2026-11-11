@@ -6,33 +6,13 @@
  */
 import { builtinModules } from 'node:module';
 import ts from 'typescript';
-import { z } from 'zod';
+import type { ScanConcern, ScanConcernKind, ScanReport } from '@harness/core';
 
 /** Built-ins that reach past the process's own data: processes, the network, other threads, code from text, the disk. */
 export const RISKY_BUILTINS = ['child_process', 'cluster', 'dgram', 'dns', 'fs', 'http', 'http2', 'https', 'net', 'tls', 'vm', 'worker_threads'] as const;
 
-/** What a line of concern is. */
-export const SCAN_CONCERNS = ['builtin', 'dynamic-import', 'dynamic-require', 'eval', 'new-function'] as const;
-export const ScanConcernKind = z.enum(SCAN_CONCERNS);
-export type ScanConcernKind = z.infer<typeof ScanConcernKind>;
-
-/** One line of concern: what it is, the line (1-based) and the code on it, cut short. */
-export const ScanConcern = z.object({ kind: ScanConcernKind, line: z.number().int().min(1), detail: z.string(), code: z.string() });
-export type ScanConcern = z.infer<typeof ScanConcern>;
-
-/** What the scan found in a bundle. */
-export const ScanReport = z.object({
-  /** The bundle's size in bytes. */
-  size: z.number().int().min(0),
-  /** Every Node built-in it imports or requires, without the `node:` prefix, sorted. */
-  builtins: z.array(z.string()),
-  /** The risky built-ins, non-literal imports and requires, `eval` and `new Function`, in bundle order. */
-  concerns: z.array(ScanConcern),
-  /** Literal http(s) URLs in it, sorted, and their hosts. */
-  urls: z.array(z.string()),
-  hosts: z.array(z.string()),
-});
-export type ScanReport = z.infer<typeof ScanReport>;
+// The report's shapes are core's (build 7), so the install card and the review page read them too.
+export { SCAN_CONCERNS, ScanConcern, ScanConcernKind, ScanReport } from '@harness/core';
 
 const BUILTINS: ReadonlySet<string> = new Set(builtinModules.map((name) => name.replace(/^node:/, '')));
 const RISKY: ReadonlySet<string> = new Set(RISKY_BUILTINS);

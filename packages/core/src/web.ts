@@ -41,6 +41,9 @@ import { PickOption, PickQuery } from './pickers.ts';
 import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, FnExamplesPage, FnExamplesQuery, FnFacts, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
 import { ContributionView } from './registries.ts';
 import { SystemParts, SystemPartsQuery } from './system-parts.ts';
+import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, SystemReview, TestCallRequest } from './lifecycle.ts';
+import { SystemStage } from './grants.ts';
+import { GraphPage, GraphQuery } from './graph.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
 
@@ -285,6 +288,13 @@ export const contentSlice = spec({
 export const SwitchItem = z.object({ section: z.enum(['fns', 'context']), name: QualifiedName, on: z.boolean() });
 export type SwitchItem = z.infer<typeof SwitchItem>;
 
+/**
+ * Build 7: any other item a system page lists (types, roots, kinds, commands, components, providers, examples, ...), by
+ * its system and its listed name (`SystemPart.name`, a root's URI). Off items are kept in `itemSwitches`.
+ */
+export const SwitchPart = z.object({ system: SystemName, section: ItemSection.exclude(['fns', 'context']), name: z.string().min(1), on: z.boolean() });
+export type SwitchPart = z.infer<typeof SwitchPart>;
+
 /** Systems and pairing (admins). */
 export const systemsSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
@@ -304,6 +314,7 @@ export const systemsSlice = spec({
     enableSystem: { body: z.object({ system: SystemName, functions: z.boolean().optional(), renderers: z.boolean().optional(), context: z.boolean().optional() }), response: z.object({ enabled: SystemEnabled }), ws: 'enableSystem' },
     /** Build 6: turn one of a system's fns or context items on or off by itself (`FnRecord.disabled`, `ContextRecord.disabled`). */
     switchItem: { body: SwitchItem, response: z.object({ on: z.boolean() }), ws: 'switchItem' },
+    switchPart: { body: SwitchPart, response: z.object({ on: z.boolean() }), ws: 'switchPart' },
     removeSystem: { body: z.object({ system: SystemName }), response: z.object({ fnsUnavailable: z.number().int() }), ws: 'removeSystem' },
     installSystem: { body: z.object({ source: InstallSource, config: Json.optional(), autoStart: z.boolean().optional() }), response: z.object({ name: SystemName }), ws: 'installSystem' },
     /** Start an installed system's instances, or one of them. */
@@ -650,6 +661,31 @@ export const explorerSlice = spec({
   }),
 });
 
+/**
+ * Review and go live (build 7, admins): what a system declares, its install checks and pending changes; going live or
+ * approving a pending review by the hash reviewed; test calls while installed; the refusals the hub logged.
+ */
+export const reviewSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    systemReview: { body: z.object({ system: SystemName }), response: SystemReview, ws: 'systemReview' },
+    /** Refused (409) when the system's contract hash is no longer `hash`. */
+    goLive: { body: GoLiveRequest, response: z.object({ stage: SystemStage, hash: z.string() }), ws: 'goLive' },
+    /** Approve the pending review (same body as going live), or drop it: the live version stays and the changes stay off. */
+    approveReview: { body: GoLiveRequest, response: z.object({ hash: z.string() }), ws: 'approveReview' },
+    rejectReview: { body: z.object({ system: SystemName, hash: z.string().min(1) }), response: z.object({ ok: z.boolean() }), ws: 'rejectReview' },
+    /** Run a fn of an installed system (or a pending item) as the admin, marked as a test. */
+    testCall: { body: TestCallRequest, response: z.object({ run: RunId }), ws: 'testCall' },
+    refusals: { body: RefusalQuery, response: RefusalPage, ws: 'refusals' },
+  }),
+});
+
+/** The graph of systems' items and how they connect (build 7), as the signed-in person may see it. */
+export const graphSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    graph: { body: GraphQuery, response: GraphPage, ws: 'graph' },
+  }),
+});
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
@@ -658,5 +694,6 @@ export const hubWebSpec = mergeSpecs(
   accessSlice, connectionsSlice, pickerSlice,
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,
+  reviewSlice, graphSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;
