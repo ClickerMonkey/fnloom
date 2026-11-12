@@ -30,11 +30,11 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `status` | the words its runs show, per phase (below) | tokens are checked against args and result |
 | `tags` | free labels; `read` marks a fn that changes nothing, so policies may run it without asking | |
 | `deps` | fns its implementation may call, as refs: `{ read: fs.fns.read }` | `ctx.fns.read(args)` exists, typed; nothing else can be called |
-| `handlers` | callbacks the caller may supply mid-run (**Handlers and progress**) | `ctx.handlers.confirm(...)` |
-| `progress` | `linear` or `steps({ … })` (**Handlers and progress**) | `ctx.progress.set(f)` or `ctx.progress.step(name, status)` |
+| `handlers` | callbacks the caller may supply mid-run ([Handlers and progress](context:fs/authoring.handlers-progress)) | `ctx.handlers.confirm(...)` |
+| `progress` | `linear` or `steps({ … })` ([Handlers and progress](context:fs/authoring.handlers-progress)) | `ctx.progress.set(f)` or `ctx.progress.step(name, status)` |
 | `undo` | a gin type of the undo payload: the fn is undoable | `undo(payload, ctx)` must be implemented |
 | `resume` | a gin type of the resume payload: the fn can pause | `ctx.pause(state)`, `ctx.onPause`, `ctx.resume` |
-| `state` | the session state fields it reads and writes (**Session state, forms and display**) | `ctx.state` sees exactly these fields |
+| `state` | the session state fields it reads and writes ([Session state, forms and display](context:fs/authoring.state-forms)) | `ctx.state` sees exactly these fields |
 | `form` | a gin type its renderer submits back to the waiting run | `await ctx.form()` |
 | `display` | how a finished run looks: `card` (default), `message`, `hidden` | |
 | `operations` | `{ cancel?, background? }`, both default `true`; pause and undo follow `resume` and `undo` | |
@@ -99,7 +99,7 @@ Return what the caller needs next (ids, counts, whether it was truncated), not a
 fn whose args are easy to get wrong. Tag read-only fns `read`.
 
 **Implementing a fn.** Each native fn is `{ async run(args, ctx) { … } }` under `fns` in the implementation, returning an
-outcome built with the ctx helpers (**Outcomes**):
+outcome built with the ctx helpers ([Outcomes](context:fs/authoring.outcomes)):
 
 _From `scripts/docs/example/server/impl.ts`:_
 
@@ -119,7 +119,7 @@ add: {
 ```
 
 Fns can also be added and removed while the system runs: `running.add(name, fn({ … }), impl)` returns the new fn's
-typed ref, and `running.remove(ref)` removes it (**The server**).
+typed ref, and `running.remove(ref)` removes it ([The server](context:fs/authoring.server)).
 
 **Validation hooks.** `validate: { input, output }` adds checks the hub asks the system for around a run. `input(ctx,
 args, state)` runs before the run starts: `{ ok: false, reason }` means the fn can't run now, and the model reads "Not

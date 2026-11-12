@@ -3,7 +3,7 @@
  * resource, live changes), the components alone, and both pages mounted in the app at a desktop and a phone width.
  */
 import { pickIn } from '../test/pickers.ts';
-import { QualifiedName, ResourceUri, type LinkTarget, type ShareRule } from '@harness/core';
+import { QualifiedName, ResourceUri, type ContextRecord, type LinkTarget, type ShareRule } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -18,7 +18,7 @@ import LinkDialog from './components/LinkDialog.vue';
 import LinkGroups from './components/LinkGroups.vue';
 import MemoryDialog from './components/MemoryDialog.vue';
 import {
-  bodyText, emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sizeText, targetText, weightPercent,
+  bodyText, emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sharedFacts, sharedText, sizeText, targetText, weightPercent,
 } from './logic/context.ts';
 import { targetRoute } from './logic/targets.ts';
 import { contextLink, contextRecord, fakeContext, fixtureGraph, T_CONTEXT } from './test/fakes.ts';
@@ -250,6 +250,25 @@ describe('the context components', () => {
     // every row on a system's page says who sees it, everyone included
     const everyone = mount(ContextRow, { props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT, detailed: true }, global: { plugins: [r] } });
     expect(everyone.get('[data-testid="context-seen-by"]').text()).toBe('Seen by people and agents');
+  });
+
+  it('says what every row shares once, above the list, and only what differs on a row', async () => {
+    const off = (key: string, extra: Partial<ContextRecord> = {}): ContextRecord => ({ ...contextRecord(key, { description: key }), systemOff: true, declaredBy: 'runtime', ...extra });
+    const rows = [off('fs/a'), off('fs/b')];
+    const shared = sharedFacts(rows);
+    expect(shared).toEqual({ systemOff: true, runtime: true, origin: 'system' });
+    expect(sharedText(shared)).toBe('All of these: their system’s context is off · added while running.');
+    expect(sharedFacts([rows[0] ?? off('fs/a')])).toEqual({ systemOff: false, runtime: false });
+    // one row switched off by itself: the list no longer shares "system context off", so each row says its own
+    expect(sharedFacts([...rows, off('fs/c', { disabled: true })]).systemOff).toBe(false);
+    const r = router();
+    const row = mount(ContextRow, { props: { record: off('fs/a'), to: links.contextItem(GUIDE), now: T_CONTEXT, shared }, global: { plugins: [r] } });
+    expect(row.find('[data-testid="context-off"]').exists()).toBe(false);
+    expect(row.find('[data-testid="context-runtime"]').exists()).toBe(false);
+    expect(row.find('.origin').exists()).toBe(false);
+    const alone = mount(ContextRow, { props: { record: off('fs/a'), to: links.contextItem(GUIDE), now: T_CONTEXT }, global: { plugins: [r] } });
+    expect(alone.get('[data-testid="context-off"]').text()).toBe('System context off');
+    expect(alone.get('.origin').text()).toBe('System');
   });
 
   it('link groups show both directions, and only drawn links out can be removed', async () => {

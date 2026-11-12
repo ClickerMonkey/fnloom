@@ -34,6 +34,7 @@
     "docs:authoring": "tsx scripts/docs/authoring.ts",
     "build": "npm run web:manifest && vue-tsc -b && npm run build -w @harness/web",
     "dev": "tsx scripts/dev.ts",
+    "live": "tsx scripts/live.ts",
     "e2e": "vitest run --project e2e",
     "check": "tsx scripts/web-manifest.ts --check && tsx scripts/env-example.ts --check && tsx scripts/docs/authoring.ts --check && vue-tsc -b && tsx scripts/lint.ts && npm run coverage && npm run explorer",
     "check:full": "npm run check && npm run test:live && npm run e2e",

@@ -89,7 +89,7 @@ export function createWebImpl(deps: WebDeps): WebServer {
           const page = searchPage(args.query, results, new Date(deps.now()).toISOString());
           const content = await deps.uploads.upload(ctx.signal, new TextEncoder().encode(page.markdown), 'text/markdown');
           const importing: ResourceImportArgs = { content, name: page.name };
-          const record = ResourceRecord.parse(await ctx.fns.importResource({ input: importing }));
+          const record = ResourceRecord.parse(await ctx.fns.importResource(importing));
           ctx.log.info('web.search.done', { results: results.results.length, depth: args.depth ?? 'basic', topic: args.topic ?? 'general', answer: results.answer !== undefined, uri: record.uri });
           return ctx.done({ ...results, uri: record.uri });
         }),
@@ -120,7 +120,7 @@ export function createWebImpl(deps: WebDeps): WebServer {
             held,
             importPage: async (url, into) => {
               const importing: ResourceImportArgs = { url, folder: into, ...(args.render === undefined ? {} : { render: args.render }) };
-              const record = ResourceRecord.parse(await ctx.fns.importResource({ input: importing }));
+              const record = ResourceRecord.parse(await ctx.fns.importResource(importing));
               return { uri: record.uri, title: record.stat.name };
             },
             agent: s.WEB_ROBOTS_AGENT,
@@ -151,7 +151,7 @@ export function createWebImpl(deps: WebDeps): WebServer {
           // the hub fns' args and results are the web endpoints' bodies and responses, so core's schemas check both; an
           // import's body is a union, which tool args carry as `input`
           const importing: ResourceImportArgs = { url: url.href, ...(args.render === undefined ? {} : { render: args.render }) };
-          const record = ResourceRecord.parse(await ctx.fns.importResource({ input: importing }));
+          const record = ResourceRecord.parse(await ctx.fns.importResource(importing));
           const reading: ResourceReadArgs = { uri: record.uri, maxChars: args.maxChars ?? s.WEB_READ_CHARS };
           const read = ResourceReadResult.parse(await ctx.fns.readResource(reading));
           const source = record.source?.from === 'web' ? record.source : undefined;

@@ -1,5 +1,5 @@
 /**
- * Runs that wait for a person (build 5). Two ways in, one approval record:
+ * Runs that wait for a person. Two ways in, one approval record:
  *
  * - **A fn that always asks** (`FnDecl.approval`): every run of it waits in `awaiting-approval` before it starts. When
  *   `preview` is set, the hub first asks the fn's system what the run would do (`preview` on the system link) and
@@ -43,7 +43,7 @@ export const PreviewPart = z.discriminatedUnion('type', [
 export type PreviewPart = z.infer<typeof PreviewPart>;
 
 /**
- * Build 6: what installing a system from the chat would start (`fs/install_system`). The hub reads it when the approved
+ * What installing a system from the chat would start (`fs/install_system`). The hub reads it when the approved
  * run asks for a pairing grant (`grantPairing`), and the system that connects with the grant must say the same name,
  * instance and manifest hash. The parts are shown on the card; only these fields bind.
  */
@@ -60,10 +60,10 @@ export const InstallSubject = z.object({
   sourceHash: z.string().min(1),
   /** The system instance that builds, starts and supervises it (`fs/main`). */
   host: InstanceRef,
-  /** Build 7: the hosted source folder it was built from, so the hub never reads the host fn's args for it. */
+  /** The hosted source folder it was built from, so the hub never reads the host fn's args for it. */
   source: z.string().min(1).optional(),
   /**
-   * Build 7: the grants its contract declares (`Manifest.grants`), listed on the card because they are enforced from
+   * The grants its contract declares (`Manifest.grants`), listed on the card because they are enforced from
    * the moment it starts; the install refuses a build whose grants differ.
    */
   grants: SystemGrants.optional(),
@@ -72,7 +72,7 @@ export const InstallSubject = z.object({
 });
 export type InstallSubject = z.infer<typeof InstallSubject>;
 
-/** Build 6: what an approval binds, beyond its words. One kind so far. */
+/** What an approval binds, beyond its words. One kind so far. */
 export const ApprovalSubject = z.discriminatedUnion('kind', [InstallSubject]);
 export type ApprovalSubject = z.infer<typeof ApprovalSubject>;
 
@@ -83,9 +83,9 @@ export const ApprovalPreview = z.object({
   parts: z.array(PreviewPart),
   /** Whether it changes data or schema in a way an undo cannot take back (a drop, a delete without a backup). */
   irreversible: z.boolean(),
-  /** Build 6: what the approval binds (an install's hashes), checked again when the run acts on it. */
+  /** What the approval binds (an install's hashes), checked again when the run acts on it. */
   subject: ApprovalSubject.optional(),
-  /** Build 7: an install's bundle scan and test results, shown on its card (not part of what the approval binds). */
+  /** An install's bundle scan and test results, shown on its card (not part of what the approval binds). */
   checks: InstallChecks.optional(),
 });
 export type ApprovalPreview = z.infer<typeof ApprovalPreview>;
@@ -101,7 +101,7 @@ export type ProposalApprover = z.infer<typeof ProposalApprover>;
 export const FnApproval = z.object({
   preview: z.boolean(),
   remember: z.boolean(),
-  /** Build 6: who decides; `person` when absent. With `admins` a member's call waits for an admin, who is notified. */
+  /** Who decides; `person` when absent. With `admins` a member's call waits for an admin, who is notified. */
   approver: ProposalApprover.optional(),
 });
 export type FnApproval = z.infer<typeof FnApproval>;
@@ -145,11 +145,11 @@ export const ProposeRun = z.object({
 }).refine((value) => value.parent !== undefined || value.approver === 'admins', { message: 'A run proposed outside a run waits for an admin.', path: ['approver'] });
 export type ProposeRun = z.infer<typeof ProposeRun>;
 
-/** Build 6: the approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK). */
+/** The approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK). */
 export const ApprovedRun = z.object({ by: ActorId, preview: ApprovalPreview });
 export type ApprovedRun = z.infer<typeof ApprovedRun>;
 
-/** Build 6: an approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`). */
+/** An approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`). */
 export const PairingGrantRequest = z.object({ run: RunId, subject: InstallSubject });
 export type PairingGrantRequest = z.infer<typeof PairingGrantRequest>;
 

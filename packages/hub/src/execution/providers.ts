@@ -14,7 +14,7 @@ import { OpenRouterProvider } from '@aeye/openrouter';
 import type { Logger } from '@ayepi/log';
 import { mintId, type ActorId, type ProviderConfig, type SecretId } from '@harness/core';
 import type { SecretVault } from '../api/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { OllamaProvider } from '../contextor/ollama.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';

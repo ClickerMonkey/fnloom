@@ -146,8 +146,8 @@ export default feature({
     }
 
     // ─── nothing reached the console that the owner saw ───
-    const bad = errors.filter((text) => /destructure|bum|Unhandled|TypeError/i.test(text));
-    check(bad.length === 0, `no unmount or type errors in the console: ${bad.join(' | ')}`);
+    const bad = errors.filter((text) => /destructure|bum|Unhandled|TypeError|renderer.load-failed/i.test(text));
+    check(bad.length === 0, `no unmount, type or renderer load errors in the console: ${bad.join(' | ')}`);
 
     // ─── fn mode picker saves on the session ───
     await page.click(tid('fn-mode-picker'));

@@ -21,7 +21,7 @@ Declare an actor setting.
 function setting<T>(def: { description: string; type: GinType<T>; appliesTo: ActorKind[]; merge: SettingMerge; editableBy?: SettingEditor[]; }): SettingDef<T>;
 ```
 
-Refers to: [`ActorKind`](#core-actorkind), [`SettingEditor`](#core-settingeditor), [`SettingMerge`](#core-settingmerge).
+Refers to: [`ActorKind`](context:fs/authoring.core-types#core-actorkind), [`SettingEditor`](context:fs/authoring.core-types#core-settingeditor), [`SettingMerge`](context:fs/authoring.core-types#core-settingmerge).
 
 #### `SettingDef`
 
@@ -41,7 +41,7 @@ interface SettingDef<T> {
 }
 ```
 
-Refers to: [`ActorKind`](#core-actorkind), [`SettingEditor`](#core-settingeditor), [`SettingMerge`](#core-settingmerge).
+Refers to: [`ActorKind`](context:fs/authoring.core-types#core-actorkind), [`SettingEditor`](context:fs/authoring.core-types#core-settingeditor), [`SettingMerge`](context:fs/authoring.core-types#core-settingmerge).
 
 #### `SettingRef`
 
@@ -57,7 +57,7 @@ interface SettingRef<N extends QualifiedName, T> {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `attachment`
 
@@ -96,4 +96,4 @@ interface AttachmentRef<N extends QualifiedName, T> {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).

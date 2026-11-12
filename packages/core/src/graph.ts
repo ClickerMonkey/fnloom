@@ -1,5 +1,5 @@
 /**
- * Build 7: the graph of everything systems declare and add, and how it connects, built from the relations the hub
+ * The graph of everything systems declare and add, and how it connects, built from the relations the hub
  * already records (context links, fn facts, fn uses, kinds, effects, type references, contributions). One query serves
  * the system graph (one system, its references into others greyed as `external`), the global graph (filters, a focus
  * N hops out, systems collapsed into one node) and the hub fn `hub/graph` the chat calls.

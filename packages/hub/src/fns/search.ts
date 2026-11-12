@@ -12,7 +12,7 @@ import type { AccessService } from '../access/index.ts';
 import type { FnViewSource } from '../contextor/index.ts';
 import type { Search } from '../index/index.ts';
 import type { HubStore, Where } from '../store/index.ts';
-import { rows } from '../execution/pages.ts';
+import { rows } from '../store/rows.ts';
 import type { FnsTuning } from './env.ts';
 import type { Asker, FnSearch } from './index.ts';
 

@@ -11,7 +11,7 @@ import {
   BudgetId, mintId, type ActorId, type BudgetRule, type LedgerEntry, type LimitScope, type ReservationId, type ResolvedLimits, type TurnId, type Usd,
 } from '@harness/core';
 import type { CallSite, Ledger } from './index.ts';
-import { allRows } from './pages.ts';
+import { allRows } from '../store/rows.ts';
 import type { ExecutionBase } from './ports.ts';
 import { budgetLabel, TURN_LABEL, type SpendReader } from './spend.ts';
 

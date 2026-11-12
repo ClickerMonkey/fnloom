@@ -3,7 +3,7 @@ import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { splitName, type ActorId, type ImportReport, type InstanceRef, type SwitchItem, type SystemEnabled, type SystemName } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 import type { AutoPairService } from './auto-pair.ts';
@@ -43,7 +43,7 @@ export class StoreSystemAdmin implements SystemAdmin {
       const { store } = this.#options;
       const off = !context || record.stage === 'installed';
       await store.tx(async (tx) => {
-        for (const item of await allRows(tx.table('context'), { system })) { await tx.table('context').update(item.name, { systemOff: off }); }
+        for (const item of await allRows(tx.table('context'), { where: { system } })) { await tx.table('context').update(item.name, { systemOff: off }); }
       });
     }
     this.#options.log.info('system.enabled', { system, ...enabled, by });

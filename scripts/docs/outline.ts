@@ -21,7 +21,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'gin',
     title: 'Types with gin',
-    exports: ['g', 'GinType', 'Infer', 'json', 'parseValue', 'encodeValue', 'wireType', 'referencesOf', 'loadTypes', 'LoadedTypes', 'ginOf', 'ginAs', 'toolArgsOf'],
+    exports: ['g', 'GinType', 'Infer', 'json', 'parseValue', 'encodeValue', 'wireType', 'referencesOf', 'loadTypes', 'LoadedTypes', 'ginOf', 'ginAs', 'toolArgsOf', 'ToolArgs', 'FlatArgs'],
     external: GIN_EXTERNALS,
   },
   {

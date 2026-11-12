@@ -42,7 +42,7 @@ describe('suggestions for a sent message', () => {
       id: IDS.message.parse('msg_old'), session: w.session.id, turn: IDS.turn.parse('trn_old'), author: w.admin.id, role: 'user', parts: [{ type: 'text', text: 'we use files' }],
       runs: [], status: 'done', replyAll: false, answerers: [], createdAt: 0,
     });
-    w.llm.answers = ['```json\n{"picks":[{"name":"fs/guide","reason":"explains files"}],"declined":[{"name":"fs/read","reason":"nothing to read yet"}]}\n```'];
+    w.llm.answers = ['{"picks":[{"name":"fs/guide","reason":"explains files"}],"declined":[{"name":"fs/read","reason":"nothing to read yet"}]}'];
     const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'how do files work', actor: w.admin.id });
     expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/guide']);
     expect(decided.record).toMatchObject({ by: 'decision', threshold: 0.3, call: 'mdl_1' });

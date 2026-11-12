@@ -7,7 +7,7 @@
 import { plugin } from '@ayepi/plugin';
 import { InstanceView, packagingSlice } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { allRows } from '../../catalog/rows.ts';
+import { allRows } from '../../store/rows.ts';
 import { knownSystem, type AdminOperations } from '../admin-ops.ts';
 import { type FullHandlers } from './access.ts';
 import { maskedInstance, type systemsPlugin } from './systems.ts';
@@ -20,7 +20,7 @@ export function packagingPlugin(hub: HubServices, systems: ReturnType<typeof sys
       pairing: ({ data }) => link.pairing.get(data.pairing),
       instances: async ({ data }) => {
         await knownSystem(hub, data.system);
-        const rows = await allRows(store.table('instances'), { system: data.system });
+        const rows = await allRows(store.table('instances'), { where: { system: data.system } });
         return rows.sort((a, b) => a.instance.localeCompare(b.instance)).map((row) => InstanceView.parse(maskedInstance(row)));
       },
       installPackage: ({ data, user }) => ops.install_package(data, user.id),

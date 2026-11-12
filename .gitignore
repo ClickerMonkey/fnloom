@@ -14,3 +14,5 @@ ui-tests/shots/
 # the screenshot gallery (npm run gallery), with its staging and swap folders
 ui-tests/gallery*/
 .harness-test/
+# npm run live: pinned builds of the hub and web app, one folder per commit
+.live/

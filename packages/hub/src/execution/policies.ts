@@ -19,7 +19,7 @@ import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { messageOf } from './errors.ts';
 import { AGENT_KIND, type PolicyEngine, type RunDecision } from './index.ts';
 import type { ExecutionDeps } from './ports.ts';
-import { allRows, rows } from './pages.ts';
+import { allRows, rows } from '../store/rows.ts';
 
 /**
  * With no matching policy: `read` fns (tagged, or whose effects say they only read, as a saved read query's do) and

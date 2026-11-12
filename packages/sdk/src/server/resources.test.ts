@@ -1,6 +1,6 @@
 /** Resources both ways (`ctx.resources` through the hub; serving reads, sections and content to it), events and edges. */
 import { reject } from '@ayepi/core';
-import { ResourceUri, SectionKey, type ResourceRead } from '@harness/core';
+import { InstallSubject, QualifiedName, ResourceUri, SectionKey, type ResourceRead } from '@harness/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sectioner, sectionKeys, kind } from '../declare.ts';
 import { fn } from '../fn.ts';
@@ -14,6 +14,7 @@ const docs = system('docs', { description: 'Documents.' }).with({
   fns: {
     peek: fn({ description: 'Read a resource.', args: g.obj({ uri: g.text() }), returns: g.obj({ text: g.text(), links: g.num(), known: g.bool() }) }),
     deep: fn({ description: 'Search resources.', args: g.obj({}), returns: g.text() }),
+    outline: fn({ description: 'List a resource\x27s sections.', args: g.obj({ uri: g.text() }), returns: g.list(g.text()) }),
   },
   kinds: { macro: kind({ description: 'A macro.', applicability: 'Macros.', payload: g.obj({ steps: g.list(g.text()) }) }) },
   sectioners: { lines: sectioner({ description: 'Lines.', match: {} }) },
@@ -43,9 +44,14 @@ async function start(hub: FakeHub): Promise<void> {
       deep: {
         async run(_a, ctx) {
           await expect(ctx.resources.search('x')).rejects.toThrow(/hub endpoint/);
-          await expect(ctx.resources.sections('doc://a')).rejects.toThrow(/hub endpoint/);
           await expect(ctx.resources.text('doc://a', [SectionKey.parse('a')])).rejects.toThrow(/whole text/);
           return ctx.done('ok');
+        },
+      },
+      outline: {
+        async run(args, ctx) {
+          const sections = await ctx.resources.sections(ResourceUri.parse(`doc://${args.uri}`));
+          return ctx.done(sections.map((section) => section.title));
         },
       },
     },
@@ -89,6 +95,26 @@ describe('ctx.resources', () => {
     };
     expect(await hub.run('docs/peek', { uri: 'a' })).toEqual({ status: 'done', result: { text: 'long body', links: 1, known: true } });
     expect(await hub.run('docs/peek', { uri: 'gone' })).toEqual({ status: 'done', result: { text: '', links: 0, known: false } });
+  });
+
+  it('lists a resource\'s sections through the hub, from the fake hub\'s fixtures', async () => {
+    const hub = new FakeHub();
+    await start(hub);
+    hub.sections.set('doc://a', [{ key: SectionKey.parse('a > intro'), path: ['intro'], title: 'Intro', start: 0, end: 5 }]);
+    expect(await hub.run('docs/outline', { uri: 'a' })).toEqual({ status: 'done', result: ['Intro'] });
+    expect(await hub.run('docs/outline', { uri: 'none' })).toEqual({ status: 'done', result: [] });
+  });
+
+  it('asks the hub for a pairing grant and the fake hub records it', async () => {
+    const hub = new FakeHub();
+    await start(hub);
+    if (running === undefined) { throw new Error('not started'); }
+    const subject = InstallSubject.parse({ kind: 'system-install', system: 'notes', instance: 'main', version: '1.0.0', manifestHash: 'm', bundleHash: 'b', sourceHash: 's', host: { system: 'fs', instance: 'main' } });
+    const run = hub.runInfo(QualifiedName.parse('fs/install_system')).id;
+    const grant = await running.grantPairing({ run, subject });
+    expect(grant.token).toMatch(/^pair-/);
+    expect(grant.expiresAt).toBeGreaterThan(Date.now());
+    expect(hub.pairingGrants).toEqual([{ run, subject, ...grant }]);
   });
 
   it('says plainly what the link cannot do yet', async () => {

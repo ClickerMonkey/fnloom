@@ -1,6 +1,6 @@
 import { QualifiedName, ResourceUri, RunId, SectionKey, type ContextRecord } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { madeName, piecesOf, slugOf, visibleMade } from './context.ts';
 import { ALICE, BOB, bytes, resourcesRig, SESSION, statOf } from './testing.ts';
 

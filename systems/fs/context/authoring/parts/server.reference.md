@@ -67,7 +67,7 @@ interface ServeOptions {
 }
 ```
 
-Refers to: [`Duration`](#core-duration).
+Refers to: [`Duration`](context:fs/authoring.core-types#core-duration).
 
 #### `McpServe`
 
@@ -90,7 +90,7 @@ A fn's MCP tool name: `<system>_<local>` in the characters MCP allows (`mcpToolN
 function mcpToolNameOf(fn: QualifiedName): string;
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `RunningSystem`
 
@@ -130,7 +130,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
    */
   grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
   /**
-   * Build 7: report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
+   * Report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
    * outside its `grants.network`, a path outside its `grants.files`. Refused unless this instance hosts it.
    */
   reportRefusal(refusal: HostRefusal): Promise<void>;
@@ -147,7 +147,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
 }
 ```
 
-Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`HostRefusal`](#core-hostrefusal), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
+Refers to: [`FnExamplesPatch`](context:fs/authoring.core-types#core-fnexamplespatch), [`HostRefusal`](context:fs/authoring.core-types#core-hostrefusal), [`ImportReport`](context:fs/authoring.core-types#core-importreport), [`PairingGrant`](context:fs/authoring.core-types#core-pairinggrant), [`PairingGrantRequest`](context:fs/authoring.core-types#core-pairinggrantrequest), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`TypeDecl`](context:fs/authoring.core-types#core-typedecl).
 
 #### `RunningStatus`
 
@@ -189,7 +189,7 @@ Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf
 };
 ```
 
-Refers to: [`ConnectDecl`](#core-connectdecl).
+Refers to: [`ConnectDecl`](context:fs/authoring.core-types#core-connectdecl).
 
 #### `FnImpl`
 
@@ -204,7 +204,7 @@ type FnImpl<T extends FnTypes, Cfg = unknown> =
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
-Refers to: [`PreviewAnswer`](#core-previewanswer), [`UndoOutcome`](#core-undooutcome).
+Refers to: [`PreviewAnswer`](context:fs/authoring.core-types#core-previewanswer), [`UndoOutcome`](context:fs/authoring.core-types#core-undooutcome).
 
 #### `ConnectImpl`
 
@@ -223,7 +223,7 @@ interface ConnectImpl<Cfg> {
 }
 ```
 
-Refers to: [`ConnectFinish`](#core-connectfinish), [`ConnectResult`](#core-connectresult), [`ConnectStart`](#core-connectstart), [`RunConnection`](#core-runconnection).
+Refers to: [`ConnectFinish`](context:fs/authoring.core-types#core-connectfinish), [`ConnectResult`](context:fs/authoring.core-types#core-connectresult), [`ConnectStart`](context:fs/authoring.core-types#core-connectstart), [`RunConnection`](context:fs/authoring.core-types#core-runconnection).
 
 #### `loggedHost`
 
@@ -285,7 +285,7 @@ The state folder an instance gets when none is named: `.harness/systems/<name>` 
 function defaultStateFolder(name: string, instance: InstanceName): string;
 ```
 
-Refers to: [`InstanceName`](#core-instancename).
+Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename).
 
 #### `SYSTEM_ENV`
 
@@ -332,7 +332,7 @@ const · `import { sdkEnv } from '@harness/sdk/server'`
 const sdkEnv: typeof sdkEnv; // too large to print: see its section
 ```
 
-Refers to: [`InstanceName`](#core-instancename).
+Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename).
 
 #### `SdkEnv`
 
@@ -408,7 +408,7 @@ interface LinkHostDeps {
 }
 ```
 
-Refers to: [`LogLine`](#core-logline).
+Refers to: [`LogLine`](context:fs/authoring.core-types#core-logline).
 
 #### `SystemStopped`
 
@@ -439,7 +439,7 @@ interface SystemPatch {
 }
 ```
 
-Refers to: [`ManifestPatch`](#core-manifestpatch), [`ManifestSection`](#core-manifestsection), [`SectionDecl`](#core-sectiondecl).
+Refers to: [`ManifestPatch`](context:fs/authoring.core-types#core-manifestpatch), [`ManifestSection`](context:fs/authoring.core-types#core-manifestsection), [`SectionDecl`](context:fs/authoring.core-types#core-sectiondecl).
 
 #### `PairingDisplay`
 
@@ -471,7 +471,7 @@ interface PairingShown {
 }
 ```
 
-Refers to: [`InstanceName`](#core-instancename), [`Timestamp`](#core-timestamp).
+Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`Timestamp`](context:fs/authoring.core-types#core-timestamp).
 
 #### `pairingDisplayFor`
 

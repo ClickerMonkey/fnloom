@@ -15,27 +15,27 @@
  * - `records/*`: what the hub stores, and `HUB_TABLES`.
  * - `system-events`: the hub events systems subscribe to.
  * - `web`: the web API spec (`hubWebSpec`) and its events.
- * - `modes`: chat modes, contextors, model limits and what a prompt held (build 2).
- * - `context-graph`: context origins and weighted links (build 2).
- * - `resource-forms`: raw content, converted and made forms, sources, families (build 2).
- * - `model-calls`: every model call of every modality, and model roles (build 2).
- * - `metrics`: fn metrics (build 2).
- * - `package`: system packages, instances, pairing info, data exports (build 2).
- * - `records/mcps`: hub MCPs (build 2).
- * - `query`: the filter and sort standard every list shares, and each list's fields (build 3).
- * - `suggestions`: what a message was suggested and not, with reasons; the decision model setting (build 3).
- * - `auto-pair`: auto-pair secrets (build 3).
+ * - `modes`: chat modes, contextors, model limits and what a prompt held.
+ * - `context-graph`: context origins and weighted links.
+ * - `resource-forms`: raw content, converted and made forms, sources, families.
+ * - `model-calls`: every model call of every modality, and model roles.
+ * - `metrics`: fn metrics.
+ * - `package`: system packages, instances, pairing info, data exports.
+ * - `records/mcps`: hub MCPs.
+ * - `query`: the filter and sort standard every list shares, and each list's fields.
+ * - `suggestions`: what a message was suggested and not, with reasons; the decision model setting.
+ * - `auto-pair`: auto-pair secrets.
  * - `access`, `connections`, `system-providers`, `validation`, `pickers`: build 4.
- * - `registries`: registries, contributions, visual fits and result tables (build 5).
- * - `approvals`: fns that always ask, proposed runs and their previews (build 5).
- * - `decisions`: the decision model for systems (build 5).
- * - `config-secrets`: secret fields in a system's config (build 5).
- * - `context-files`: context folders (file headers, check problems) and what loading context did (build 6).
- * - `system-parts`: what a system added beyond its fns, context and types, for its admin page (build 6).
- * - `checks`: the bundle scan, a system's test report and component previews (build 7).
- * - `grants`: what a system may do through the hub, its config component and its stage (build 7).
- * - `lifecycle`: installed vs live, reviews, item switches and refusals (build 7).
- * - `graph`: the graph of systems' items and their relations (build 7).
+ * - `registries`: registries, contributions, visual fits and result tables.
+ * - `approvals`: fns that always ask, proposed runs and their previews.
+ * - `decisions`: the decision model for systems.
+ * - `config-secrets`: secret fields in a system's config.
+ * - `context-files`: context folders (file headers, check problems) and what loading context did.
+ * - `system-parts`: what a system added beyond its fns, context and types, for its admin page.
+ * - `checks`: the bundle scan, a system's test report and component previews.
+ * - `grants`: what a system may do through the hub, its config component and its stage.
+ * - `lifecycle`: installed vs live, reviews, item switches and refusals.
+ * - `graph`: the graph of systems' items and their relations.
  */
 export * from './primitives.ts';
 export * from './modes.ts';

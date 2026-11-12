@@ -1,5 +1,5 @@
 /**
- * Auto pair (build 3). At pairing an admin may let an instance re-pair by itself: the hub hands it a secret unique to
+ * Auto pair. At pairing an admin may let an instance re-pair by itself: the hub hands it a secret unique to
  * that instance, with an expiry (90 days by default, or never). The system keeps it in its state dir and brings it in
  * its `hello` when its key is lost or the hub forgot it; the hub checks it (stored hashed, compared in constant time,
  * rate limited, never logged), takes the new key once the system signs the challenge with it, and rotates the secret:

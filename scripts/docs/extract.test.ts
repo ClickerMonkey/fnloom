@@ -1,7 +1,7 @@
 /** The API extractor over a fixture package: what each kind of export prints as, and which core types it reaches. */
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { extractApi, type ApiItem, type ApiModel } from './extract.ts';
+import { extractApi, plainBrands, type ApiItem, type ApiModel } from './extract.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const MINI = fileURLToPath(new URL('fixtures/mini/', import.meta.url));
@@ -111,5 +111,12 @@ describe('extractApi', { timeout: 60_000 }, () => {
 
   it('refuses an entry point that is not in the program', () => {
     expect(() => extractApi({ root: ROOT, entries: [{ specifier: 'x', file: `${MINI}missing.ts` }], reach: () => false, reachDepth: 1 })).toThrow('is not in the program');
+  });
+});
+
+describe('plainBrands', () => {
+  it('prints a zod brand as the name it brands, dropping the parentheses only when they wrap the brand', () => {
+    expect(plainBrands('calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;')).toBe('calls?: (`${string}/${string}` | SystemName)[] | undefined;');
+    expect(plainBrands('(string & z.core.$brand<"A"> | B)')).toBe('(A | B)');
   });
 });

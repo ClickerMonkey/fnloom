@@ -8,7 +8,7 @@ export { ACTIVE_RUN_STATUSES, SETTLED_RUN_STATUSES, isSettled, isUnsettled, type
 export { DEFAULT_STATUS, type StatusTemplates, type StatusForms, type RunPhase } from '@harness/core';
 export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens, PathsOf, TokensOf } from './status.ts';
 export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, type GinType, type Infer, type LoadedTypes } from './gin.ts';
-export { ginOf, ginAs, toolArgsOf } from './zod-gin.ts';
+export { ginOf, ginAs, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
 export {
   fn, handler, linear, steps, noProgress, progressDecl, kindFn, validationOf,
   type FnValidators,

@@ -3,7 +3,7 @@ import type { LlmMessage } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { contiguousTail, exchanges, textOf, firstAndLast, isPersonMessage, namedIn, personWords, shorten, shortenResults, summarise } from './history.ts';
 import type { FnView } from './index.ts';
-import { cardsSection, contextBlock, earlierBlock, fnCard, listedLine, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
+import { cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, listedLine, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
 import { ContextCatalog } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
 
@@ -31,6 +31,21 @@ describe('fn cards', () => {
     expect(full).toContain('Example: run({ fn: "fs/read", args: {"path":"docs/harness.md","lines":{"from":1,"to":80}} }) — the first 80 lines');
     expect(full).toContain('type fs/Entry = { path: text }');
     expect(fnCard(view, 'signature', 'text')).toContain(`<run fn="fs/read">${view.args}</run>`);
+  });
+
+  it('carry what a fn changes and its long-running warning beside its description', async () => {
+    const catalog = new ContextCatalog();
+    catalog.addFn('fs/read', fn({ description: 'Read a text file.', args: g.obj({ path: g.text() }), returns: g.text() }));
+    const views = new CatalogFnViews(catalog, undefined, {
+      registry: (names) => Promise.resolve(new Map(names.map((name) => [name, [{ action: 'create' as const, thing: 'fns' as const }]]))),
+      notices: (names) => Promise.resolve(new Map(names.map((name) => [name, `${name} usually takes about 3 minutes.`]))),
+    });
+    const view = await views.view('fs/read');
+    if (view === undefined) throw new Error('no view');
+    expect(describedWithEffects(view)).toBe(`Read a text file.\n${view.effects ?? ''}\nfs/read usually takes about 3 minutes.`);
+    expect(fnCard(view, 'signature', 'native').split('\n').slice(1, 3)).toEqual([view.effects, 'fs/read usually takes about 3 minutes.']);
+    // a quick fn has no warning
+    expect(describedWithEffects(await readView())).toBe('Read a text file.');
   });
 
   it('print a shared type once per prompt', async () => {

@@ -84,7 +84,7 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, D
 }
 ```
 
-Refers to: [`AllowedOperations`](#core-allowedoperations), [`ApprovedRun`](#core-approvedrun), [`ConnectionUpdate`](#core-connectionupdate), [`Detail`](#core-detail), [`ErrorClass`](#core-errorclass), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`RunConnection`](#core-runconnection), [`RunInfo`](#core-runinfo), [`ShareRule`](#core-sharerule), [`Usd`](#core-usd).
+Refers to: [`AllowedOperations`](context:fs/authoring.core-types#core-allowedoperations), [`ApprovedRun`](context:fs/authoring.core-types#core-approvedrun), [`ConnectionUpdate`](context:fs/authoring.core-types#core-connectionupdate), [`Detail`](context:fs/authoring.core-types#core-detail), [`ErrorClass`](context:fs/authoring.core-types#core-errorclass), [`InputProblem`](context:fs/authoring.core-types#core-inputproblem), [`Json`](context:fs/authoring.core-types#core-json), [`RunConnection`](context:fs/authoring.core-types#core-runconnection), [`RunInfo`](context:fs/authoring.core-types#core-runinfo), [`ShareRule`](context:fs/authoring.core-types#core-sharerule), [`Usd`](context:fs/authoring.core-types#core-usd).
 
 #### `Services`
 
@@ -113,7 +113,7 @@ interface Services extends SystemPlace, AiSource, AdminNotices {
 }
 ```
 
-Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
+Refers to: [`Link`](context:fs/authoring.core-types#core-link), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `SystemCtx`
 
@@ -150,7 +150,7 @@ interface SystemPlace {
 }
 ```
 
-Refers to: [`InstanceName`](#core-instancename).
+Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename).
 
 #### `UndoCtx`
 
@@ -166,7 +166,7 @@ interface UndoCtx<Cfg = unknown> extends Services {
 }
 ```
 
-Refers to: [`RunInfo`](#core-runinfo).
+Refers to: [`RunInfo`](context:fs/authoring.core-types#core-runinfo).
 
 #### `AskerCtx`
 
@@ -182,7 +182,7 @@ interface AskerCtx {
 }
 ```
 
-Refers to: [`SessionId`](#core-sessionid), [`TimeInfo`](#core-timeinfo), [`UserInfo`](#core-userinfo).
+Refers to: [`SessionId`](context:fs/authoring.core-types#core-sessionid), [`TimeInfo`](context:fs/authoring.core-types#core-timeinfo), [`UserInfo`](context:fs/authoring.core-types#core-userinfo).
 
 #### `BudgetInfo`
 
@@ -201,7 +201,7 @@ interface BudgetInfo {
 }
 ```
 
-Refers to: [`Duration`](#core-duration), [`Usd`](#core-usd).
+Refers to: [`Duration`](context:fs/authoring.core-types#core-duration), [`Usd`](context:fs/authoring.core-types#core-usd).
 
 #### `RunStatusView`
 
@@ -216,7 +216,7 @@ interface RunStatusView {
 }
 ```
 
-Refers to: [`Operations`](#core-operations), [`RunStatus`](#core-runstatus).
+Refers to: [`Operations`](context:fs/authoring.core-types#core-operations), [`RunStatus`](context:fs/authoring.core-types#core-runstatus).
 
 #### `Llm`
 
@@ -242,7 +242,7 @@ interface Llm {
 }
 ```
 
-Refers to: [`ModelChoice`](#core-modelchoice).
+Refers to: [`ModelChoice`](context:fs/authoring.core-types#core-modelchoice).
 
 #### `ForwardModality`
 
@@ -254,7 +254,7 @@ The modalities that go through the hub's `model` endpoint (chat has its own, `ll
 type ForwardModality = ModelForward['modality'];
 ```
 
-Refers to: [`ModelForward`](#core-modelforward).
+Refers to: [`ModelForward`](context:fs/authoring.core-types#core-modelforward).
 
 #### `ModelInput`
 
@@ -266,7 +266,7 @@ What a non-chat model call takes, by modality: core's `ModelForward`, without wh
 type ModelInput<M extends ForwardModality> = Omit<Extract<ModelForward, { modality: M }>, 'modality' | 'run'>;
 ```
 
-Refers to: [`ModelForward`](#core-modelforward).
+Refers to: [`ModelForward`](context:fs/authoring.core-types#core-modelforward).
 
 #### `ModelOutput`
 
@@ -278,7 +278,7 @@ What a non-chat model call gives back, by modality: core's `ModelForwardResult`,
 type ModelOutput<M extends ForwardModality> = Omit<Extract<ModelForwardResult, { modality: M }>, 'modality'>;
 ```
 
-Refers to: [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult).
 
 #### `Files`
 
@@ -298,7 +298,7 @@ interface Files {
 }
 ```
 
-Refers to: [`ContentRef`](#core-contentref), [`ResourceStat`](#core-resourcestat).
+Refers to: [`ContentRef`](context:fs/authoring.core-types#core-contentref), [`ResourceStat`](context:fs/authoring.core-types#core-resourcestat).
 
 #### `Resources`
 
@@ -316,7 +316,7 @@ interface Resources {
 }
 ```
 
-Refers to: [`ResourceHit`](#core-resourcehit), [`ResourceLink`](#core-resourcelink), [`ResourceStat`](#core-resourcestat), [`ResourceUri`](#core-resourceuri), [`Section`](#core-section), [`SectionKey`](#core-sectionkey).
+Refers to: [`ResourceHit`](context:fs/authoring.core-types#core-resourcehit), [`ResourceLink`](context:fs/authoring.core-types#core-resourcelink), [`ResourceStat`](context:fs/authoring.core-types#core-resourcestat), [`ResourceUri`](context:fs/authoring.core-types#core-resourceuri), [`Section`](context:fs/authoring.core-types#core-section), [`SectionKey`](context:fs/authoring.core-types#core-sectionkey).
 
 #### `Types`
 
@@ -334,7 +334,7 @@ interface Types {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`TypeDefinitions`](context:fs/authoring.core-types#core-typedefinitions).
 
 #### `Log`
 
@@ -351,7 +351,7 @@ interface Log {
 }
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `Proposals`
 
@@ -370,7 +370,7 @@ interface Proposals {
 }
 ```
 
-Refers to: [`Json`](#core-json), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`ProposedRun`](context:fs/authoring.core-types#core-proposedrun), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `ProposeOptions`
 
@@ -392,7 +392,7 @@ interface ProposeOptions {
 }
 ```
 
-Refers to: [`ApprovalPreview`](#core-approvalpreview), [`ProposalApprover`](#core-proposalapprover).
+Refers to: [`ApprovalPreview`](context:fs/authoring.core-types#core-approvalpreview), [`ProposalApprover`](context:fs/authoring.core-types#core-proposalapprover).
 
 #### `Decisions`
 
@@ -408,7 +408,7 @@ interface Decisions {
 }
 ```
 
-Refers to: [`DecideAnswer`](#core-decideanswer), [`DecideCandidate`](#core-decidecandidate).
+Refers to: [`DecideAnswer`](context:fs/authoring.core-types#core-decideanswer), [`DecideCandidate`](context:fs/authoring.core-types#core-decidecandidate).
 
 #### `DecideOptions`
 
@@ -436,7 +436,7 @@ interface Fleets {
 }
 ```
 
-Refers to: [`FleetInstance`](#core-fleetinstance).
+Refers to: [`FleetInstance`](context:fs/authoring.core-types#core-fleetinstance).
 
 #### `FnSearch`
 
@@ -453,7 +453,7 @@ interface FnSearch {
 }
 ```
 
-Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery).
+Refers to: [`FnExamplesPage`](context:fs/authoring.core-types#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types#core-fnsearchquery).
 
 #### `AiSource`
 
@@ -484,7 +484,7 @@ interface AdminNotices {
 }
 ```
 
-Refers to: [`AdminNotice`](#core-adminnotice).
+Refers to: [`AdminNotice`](context:fs/authoring.core-types#core-adminnotice).
 
 #### `hubAi`
 
@@ -518,7 +518,7 @@ The aeye model id of a hub model: its id under its provider (`openrouter/meta-ll
 function hubModelId(model: Pick<HubModelInfo, "id" | "provider">): string;
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo).
 
 #### `roleModelId`
 
@@ -541,7 +541,7 @@ price per million tokens, its tier and its limits. `id` and `name` override its 
 function aeyeModelOf(model: HubModelInfo, id?: string, name?: string): ModelInfo;
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo).
 
 #### `ModelLink`
 
@@ -563,7 +563,7 @@ interface ModelLink {
 }
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo), [`LlmForward`](context:fs/authoring.core-types#core-llmforward), [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk), [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult).
 
 #### `HubModelLink`
 
@@ -581,7 +581,7 @@ class HubModelLink implements ModelLink {
 }
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo), [`LlmForward`](context:fs/authoring.core-types#core-llmforward), [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk), [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult).
 
 #### `harnessAi`
 
@@ -649,7 +649,7 @@ class HarnessProvider implements Provider<HarnessProviderConfig> {
 }
 ```
 
-Refers to: [`ModelChoice`](#core-modelchoice).
+Refers to: [`ModelChoice`](context:fs/authoring.core-types#core-modelchoice).
 
 #### `HarnessProviderConfig`
 
@@ -667,7 +667,7 @@ interface HarnessProviderConfig {
 }
 ```
 
-Refers to: [`RunId`](#core-runid).
+Refers to: [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `HarnessMetadata`
 
@@ -681,7 +681,7 @@ interface HarnessMetadata {
 }
 ```
 
-Refers to: [`ModelChoice`](#core-modelchoice).
+Refers to: [`ModelChoice`](context:fs/authoring.core-types#core-modelchoice).
 
 #### `HubLlm`
 
@@ -706,7 +706,7 @@ class HubLlm implements Llm {
 }
 ```
 
-Refers to: [`ModelChoice`](#core-modelchoice).
+Refers to: [`ModelChoice`](context:fs/authoring.core-types#core-modelchoice).
 
 #### `HubLlmError`
 
@@ -722,7 +722,7 @@ class HubLlmError extends Error {
 }
 ```
 
-Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+Refers to: [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk).
 
 #### `HubModels`
 
@@ -741,7 +741,7 @@ class HubModels {
 }
 ```
 
-Refers to: [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`RunId`](#core-runid).
+Refers to: [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult), [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `HUB_MODEL`
 
@@ -765,4 +765,4 @@ An aeye request as it is forwarded to the hub.
 function wireRequest(request: Request): LlmRequest;
 ```
 
-Refers to: [`LlmRequest`](#core-llmrequest).
+Refers to: [`LlmRequest`](context:fs/authoring.core-types#core-llmrequest).

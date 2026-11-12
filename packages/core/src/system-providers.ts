@@ -1,5 +1,5 @@
 /**
- * Model providers (build 4): ones a system brings, and the AWS Bedrock provider's config.
+ * Model providers: ones a system brings, and the AWS Bedrock provider's config.
  *
  * A system declares aeye providers in its manifest (`providers`); the provider code runs in the system. The hub
  * registers each as a remote aeye provider named `<system>/<provider>`, so picking one of its models routes chat and

@@ -42,7 +42,7 @@ interface Lifecycle<Cfg> {
 }
 ```
 
-Refers to: [`Duration`](#core-duration), [`StopReason`](#core-stopreason).
+Refers to: [`Duration`](context:fs/authoring.core-types#core-duration), [`StopReason`](context:fs/authoring.core-types#core-stopreason).
 
 #### `EventHandlers`
 
@@ -56,4 +56,4 @@ type EventHandlers<Cfg> = {
 };
 ```
 
-Refers to: [`SystemEvent`](#core-systemevent).
+Refers to: [`SystemEvent`](context:fs/authoring.core-types#core-systemevent).

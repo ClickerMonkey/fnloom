@@ -9,7 +9,7 @@ import { ChatError, messageOf } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
 import type { StateService, UndoService } from './index.ts';
 import { isActiveRun, type StoreSessionService } from './sessions.ts';
-import { readAll } from './support.ts';
+import { someRows } from '../store/rows.ts';
 
 /** The tag of fns that only read, so a turn that ran them has nothing to undo there. */
 export { READ_TAG };
@@ -46,7 +46,7 @@ export class RunUndoService implements UndoService {
     }
     if (turn.status === 'running' || turn.status === 'paused') { throw new ChatError('conflict', 'Stop the turn before undoing it.'); }
     if (turn.status === 'undone') { throw new ChatError('conflict', 'This turn was already undone.'); }
-    const runs = await readAll(this.#deps.store.table('runs'), { where: { turn: id }, order: [['createdAt', 'desc']] }, this.#deps.settings.chat.HARNESS_UNDO_RUNS);
+    const runs = await someRows(this.#deps.store.table('runs'), { where: { turn: id }, order: [['createdAt', 'desc']] }, this.#deps.settings.chat.HARNESS_UNDO_RUNS);
     // A run still going in the background could change things after its undo, so the turn waits until all have ended.
     if (runs.some(isActiveRun)) { throw new ChatError('conflict', 'Some runs of this turn are still going. Undo it once they finish.'); }
     const report: UndoReport = { turn: id, undone: [], failed: [], notUndoable: [] };

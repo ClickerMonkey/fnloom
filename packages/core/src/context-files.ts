@@ -1,5 +1,5 @@
 /**
- * Build 6: context folders and loading context. A system's `context/` folder holds markdown files, each a YAML header
+ * Context folders and loading context. A system's `context/` folder holds markdown files, each a YAML header
  * (`ContextFileHeader`, any context metadata) and then the content. The system's build checks the folder and fails with
  * `ContextFileProblem`s; in dev it watches the folder and sends changes as runtime patches. The hub keys every item by
  * its stable `key` (`ContextDecl.name`), so a moved or renamed file updates the same record.

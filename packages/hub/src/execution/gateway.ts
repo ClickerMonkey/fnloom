@@ -23,9 +23,6 @@ import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { CallReceipts, LlmCallScope, type HubCallContext } from './scope.ts';
 import { chunkToWire, descriptorsOf, requestFromWire } from './wire.ts';
 
-/** How many times a forwarded request waits out a rate limit before it gives up. */
-const TRANSIENT_TRIES = 3;
-
 /** What the gateway uses. */
 export interface GatewayDeps extends Pick<ExecutionDeps, 'store' | 'clock' | 'log' | 'settings'> {
   readonly runs: Pick<RunService, 'get' | 'systemWork' | 'settle'>;
@@ -98,7 +95,7 @@ export class HubLlmGateway implements LlmGateway {
     // a transient limit (rate, budget wait) is retried after the wait it names, between attempts, so the wait holds no
     // slot; nothing is retried once a chunk went out or the caller stopped
     const task = retry(attempt, {
-      attempts: TRANSIENT_TRIES, base: 0, jitter: 0,
+      attempts: this.#deps.settings.execution.HARNESS_TRANSIENT_TRIES, base: 0, jitter: 0,
       on: (error) => (sent || signal.aborted ? false : transientDelay(error) ?? false),
       sleep: (ms) => this.#deps.sleep(ms, signal),
     }).then(async () => {

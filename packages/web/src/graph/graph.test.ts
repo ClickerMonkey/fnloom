@@ -11,6 +11,7 @@ import GraphDetails from './components/GraphDetails.vue';
 import GraphChips from './components/GraphChips.vue';
 import {
   clusterId, expandQuery, filterCount, graphElements, graphQueryOf, graphUrlOf, moreId, nodeFacts, openTarget, pickOf, readGraphUrl, shortName, withPart,
+  packGroups,
 } from './logic/graph.ts';
 import { GraphStore } from './state/graph.ts';
 import { graphOf, SAMPLE_NODES } from './test/graph.ts';
@@ -67,6 +68,28 @@ describe('what a node says and where it opens', () => {
     expect(openTarget({ ...nodeOf('system:database'), collapsed: 9 })).toMatchObject({ type: 'page', to: { params: { name: 'database', tab: 'graph' } } });
     expect(openTarget(nodeOf('component:notes/NoteCard'))).toMatchObject({ type: 'page', to: { params: { name: 'notes', tab: 'parts' } } });
     expect(shortName(nodeOf('type:database/main.projects'))).toBe('main.projects');
+  });
+});
+
+describe('placing clusters', () => {
+  it('puts groups in rows that never overlap, about as wide as the box', () => {
+    const groups = [{ width: 400, height: 300 }, { width: 200, height: 120 }, { width: 220, height: 160 }, { width: 180, height: 90 }, { width: 500, height: 60 }];
+    const gap = 50;
+    const places = packGroups(groups, { aspect: 16 / 9, gap });
+    const boxes = groups.map((g, at) => ({ ...g, ...(places[at] ?? { x: 0, y: 0 }) }));
+    for (const [i, a] of boxes.entries()) {
+      for (const b of boxes.slice(i + 1)) {
+        const apart = a.x + a.width + gap <= b.x || b.x + b.width + gap <= a.x || a.y + a.height + gap <= b.y || b.y + b.height + gap <= a.y;
+        expect(apart, JSON.stringify([a, b])).toBe(true);
+      }
+    }
+    // the tallest leads the first row; the whole is wider than tall for a wide box
+    expect(places[0]).toEqual({ x: 0, y: 0 });
+    const width = Math.max(...boxes.map((b) => b.x + b.width));
+    const height = Math.max(...boxes.map((b) => b.y + b.height));
+    expect(width).toBeGreaterThan(height);
+    expect(packGroups([], { aspect: 1, gap })).toEqual([]);
+    expect(packGroups([{ width: 10, height: 10 }], { aspect: Number.NaN, gap })).toEqual([{ x: 0, y: 0 }]);
   });
 });
 

@@ -82,6 +82,7 @@ const INSTRUCTIONS = [
   JSON.stringify(TRIP_FORM),
 ].join('\n');
 
+// #region authoring-tool
 /** `find_forms`: the saved forms the person may use that may fit. */
 const findForms = authoringTool<FormAuthoring, FormDraft, { text: string }>({
   name: 'find_forms',
@@ -99,6 +100,7 @@ const findForms = authoringTool<FormAuthoring, FormDraft, { text: string }>({
       : ['Saved forms that may fit:', ...page.items.map((hit) => `- ${hit.name}: ${hit.description}`)].join('\n');
   },
 });
+// #endregion authoring-tool
 
 /** `use_saved`: a saved form asks the same things; it is the answer as it is. */
 const useSaved = authoringTool<FormAuthoring, FormDraft, { fn: string }>({
@@ -202,6 +204,7 @@ function draftForm(draft: FormDraft, session: Session): InputFormValue {
   return form;
 }
 
+// #region authoring-agent
 /** The form authoring agent. Run it with the run's `ctx.ai()` and a `FormAuthoring`. */
 export const formAuthoring = authoringAgent<FormAuthoring, FormDraft>({
   name: 'form_author',
@@ -221,3 +224,4 @@ export const formAuthoring = authoringAgent<FormAuthoring, FormDraft>({
     return { fn: kept.fn, version: kept.version, signature: `${kept.fn}()`, about: form.description === '' ? form.title : form.description, reused: false, call: `${kept.fn}({})` };
   },
 });
+// #endregion authoring-agent

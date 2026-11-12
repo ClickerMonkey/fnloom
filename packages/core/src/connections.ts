@@ -1,5 +1,5 @@
 /**
- * Per-person systems (build 4). A system that acts as a person (Google Calendar) declares `connect` in its manifest.
+ * Per-person systems. A system that acts as a person (Google Calendar) declares `connect` in its manifest.
  * Once an admin has configured it, every person gets its page: they connect their own account (OAuth through the
  * hub's redirect, `/connect/callback`), pick the system's per-person settings, turn each of its fns on or off, choose
  * whether each may act without asking (otherwise an approval), and who else may use the connection. The hub keeps the

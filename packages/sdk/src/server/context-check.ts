@@ -3,8 +3,9 @@
  * against `ContextFileHeader`, a missing summary, duplicate keys), it follows every link: the header's `fns`,
  * `suggestFns`, `alwaysFor`, `imports`, `choices`, `links`, `parent` and `next`, and `[text](context:key)` / `fn:name`
  * references in the body, against the names the system knows (its own contract and context, and the hub's catalog or
- * the systems it requires), and refuses a context that loads itself through `imports`. Every problem has a file, line
- * and column.
+ * the systems it requires), and refuses a context that loads itself through `imports`. An anchor link in the body
+ * (`[text](#anchor)`, or `context:key#anchor` to another file of the folder) must name an anchor that file has: an
+ * `<a id>` or a heading. Every problem has a file, line and column.
  */
 import { didYouMean } from '@aeye/gin';
 import { CONTEXT_BODY_REFERENCE, qualify, type ContextFileProblem } from '@harness/core';
@@ -59,6 +60,18 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/;
  */
 function bodyLinks(file: ContextFile): Array<FileLink & { line: number; column: number }> {
   const found: Array<FileLink & { line: number; column: number }> = [];
+  for (const { line, number } of bodyLines(file)) {
+    for (const match of line.matchAll(new RegExp(CONTEXT_BODY_REFERENCE.source, 'g'))) {
+      const [, kind, to] = match;
+      if ((kind === 'fn' || kind === 'context') && to !== undefined) { found.push({ to, kind, key: undefined, line: number, column: match.index + 1 }); }
+    }
+  }
+  return found;
+}
+
+/** A file's body lines outside fenced code blocks, each with its 1-based line number in the file. */
+function bodyLines(file: ContextFile): Array<{ line: string; number: number }> {
+  const kept: Array<{ line: string; number: number }> = [];
   const lines = file.source.split(/\r?\n/);
   let fence: string | undefined;
   for (let index = file.bodyLine - 1; index < lines.length; index += 1) {
@@ -69,13 +82,55 @@ function bodyLinks(file: ContextFile): Array<FileLink & { line: number; column: 
       if (fence === undefined) { fence = marker; } else if (marker[0] === fence[0] && marker.length >= fence.length) { fence = undefined; }
       continue;
     }
-    if (fence !== undefined) { continue; }
-    for (const match of line.matchAll(new RegExp(CONTEXT_BODY_REFERENCE.source, 'g'))) {
-      const [, kind, to] = match;
-      if ((kind === 'fn' || kind === 'context') && to !== undefined) { found.push({ to, kind, key: undefined, line: index + 1, column: match.index + 1 }); }
+    if (fence === undefined) { kept.push({ line, number: index + 1 }); }
+  }
+  return kept;
+}
+
+/** An explicit anchor: `<a id="x"></a>` (or `name`). */
+const ANCHOR = /<a\s+(?:id|name)="([^"]+)"/g;
+/** A markdown heading line. */
+const HEADING = /^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$/;
+/** An in-page anchor link, `[text](#anchor)`. */
+const PAGE_ANCHOR = /\]\(#([^)\s]+)\)/g;
+/** A context link with an anchor, `context:key#anchor`. */
+const CONTEXT_ANCHOR = /\bcontext:([a-z][a-z0-9-]*\/[A-Za-z0-9_.-]*[A-Za-z0-9_])#([A-Za-z0-9_-]+)/g;
+
+/** A heading's anchor, the way markdown renderers make one: lower case, punctuation dropped, spaces as dashes. */
+export function headingAnchor(heading: string): string {
+  return heading.replace(/<[^>]*>/g, '').toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').trim().replace(/\s/g, '-');
+}
+
+/** The anchors a file has: its `<a id>`s and its headings'. */
+function anchorsOf(file: ContextFile): Set<string> {
+  const anchors = new Set<string>();
+  for (const { line } of bodyLines(file)) {
+    for (const match of line.matchAll(ANCHOR)) { if (match[1] !== undefined) { anchors.add(match[1]); } }
+    const heading = HEADING.exec(line)?.[1];
+    if (heading !== undefined) { anchors.add(headingAnchor(heading)); }
+  }
+  return anchors;
+}
+
+/** Anchor links in a file's body that name no anchor of their file: in-page ones, and ones into the folder's own files. */
+function anchorProblems(file: ContextFile, own: ReadonlyMap<string, ContextFile>, anchors: (file: ContextFile) => ReadonlySet<string>): ContextFileProblem[] {
+  const problems: ContextFileProblem[] = [];
+  for (const { line, number } of bodyLines(file)) {
+    for (const match of line.matchAll(PAGE_ANCHOR)) {
+      const anchor = match[1];
+      if (anchor !== undefined && !anchors(file).has(anchor)) {
+        problems.push(contextProblem(file.file, number, match.index + 1, 'broken-link', `the body links to #${anchor}, which this file has no anchor or heading for${didYouMean(anchor, [...anchors(file)], { max: 2 })}`));
+      }
+    }
+    for (const match of line.matchAll(CONTEXT_ANCHOR)) {
+      const [, key, anchor] = match;
+      const target = key === undefined ? undefined : own.get(key);
+      if (target !== undefined && anchor !== undefined && !anchors(target).has(anchor)) {
+        problems.push(contextProblem(file.file, number, match.index + 1, 'broken-link', `the body links to context:${key ?? ''}#${anchor}, which that file has no anchor or heading for${didYouMean(anchor, [...anchors(target)], { max: 2 })}`));
+      }
     }
   }
-  return found;
+  return problems;
 }
 
 /**
@@ -98,6 +153,12 @@ export async function checkContextFolder(dir: string, known: KnownNames, label?:
   const problems: ContextFileProblem[] = [...read.problems];
   const own = new Map(read.files.map((file) => [qualify(known.system, file.header.key), file]));
   const names = { fn: known.fns, context: new Set([...known.context, ...own.keys()]) };
+  const anchorCache = new Map<ContextFile, Set<string>>();
+  const anchors = (file: ContextFile): Set<string> => {
+    const found = anchorCache.get(file) ?? anchorsOf(file);
+    anchorCache.set(file, found);
+    return found;
+  };
   for (const file of read.files) {
     const links = [
       ...headerLinks(file).map((link) => ({ ...link, ...positionOf(file.source, link.to, link.key === undefined ? 1 : positionOf(file.source, `${link.key}:`).line) })),
@@ -108,6 +169,7 @@ export async function checkContextFolder(dir: string, known: KnownNames, label?:
       const where = link.key === undefined ? 'the body' : link.key;
       problems.push(contextProblem(file.file, link.line, link.column, 'broken-link', `${where} links to ${link.kind} ${link.to}, which doesn't exist${didYouMean(link.to, [...names[link.kind]], { max: 2 })}`));
     }
+    problems.push(...anchorProblems(file, own, anchors));
   }
   problems.push(...importCycles(own));
   return { files: read.files, problems };

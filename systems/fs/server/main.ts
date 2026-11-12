@@ -25,6 +25,7 @@ import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
 import { SupervisedRunner } from './runner.ts';
 import { endpointOf } from './socket-guard.ts';
+import { platformProbe } from './stale.ts';
 import { ProcessSystemTests } from './tests.ts';
 import { NodeExec, NodeShell, chooseShell } from './shell.ts';
 import { DiskSnapshots } from './snapshots.ts';
@@ -76,7 +77,12 @@ const hosting = new Hosting({
   hubUrl: settings.HARNESS_HUB,
   host: { system: SystemName.parse(fs.name), instance: settings.HARNESS_INSTANCE },
   dataDir,
-  limits: { connectTimeout: settings.FS_HOSTED_CONNECT_TIMEOUT, problems: settings.FS_HOSTED_PROBLEMS, outputTail: settings.FS_HOSTED_OUTPUT_TAIL },
+  probe: platformProbe(exec, process.platform, settings.FS_HOSTED_STALE_TIMEOUT),
+  onStale: (key, outcome) => { if ('failed' in outcome) { log.warn('fs.hosted.stale-failed', { key, error: outcome.failed }); } else if (outcome.killed) { log.info('fs.hosted.stale-killed', { key, pid: outcome.pid }); } },
+  limits: {
+    connectTimeout: settings.FS_HOSTED_CONNECT_TIMEOUT, problems: settings.FS_HOSTED_PROBLEMS, outputTail: settings.FS_HOSTED_OUTPUT_TAIL,
+    renameTries: settings.FS_HOSTED_RENAME_TRIES, renameWait: settings.FS_HOSTED_RENAME_WAIT,
+  },
 });
 
 const server = createFsImpl({

@@ -103,6 +103,12 @@ export const database = system('database', {
   registries: {
     [VISUALS]: { description: 'Ways to draw rows a query read. Each entry says whether a result fits it and how well. The app draws the table, a bar chart and a single value itself; systems add more here.', data: ResultData },
   },
+  // its own visuals in its own registry (client/own-visuals.ts), listed so the hub and the web app load its bundle for them
+  contributes: [
+    { registry: VISUALS_REGISTRY, name: 'table', label: 'Table', icon: 'table' },
+    { registry: VISUALS_REGISTRY, name: 'bar', label: 'Bar chart', icon: 'chart' },
+    { registry: VISUALS_REGISTRY, name: 'value', label: 'Value', icon: 'hash' },
+  ],
   configSecrets: [...CONFIG_SECRETS],
   // the query authoring agent and enrichment use models; writes and schema changes wait for approval; get_query asks
   // the decision model to pick a database; saved queries are hub fns it searches (the link's search), reads and saves

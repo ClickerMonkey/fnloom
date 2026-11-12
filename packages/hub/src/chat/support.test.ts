@@ -1,10 +1,7 @@
 import { IDS } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { ChatError } from './errors.ts';
-import { agentActorId, agentName, allowsSystem, asQualified, clip, collect, unmark, escapeAttribute, escapeBody, readAll, sameJson, turnScope } from './support.ts';
+import { agentActorId, agentName, allowsSystem, asQualified, clip, unmark, escapeAttribute, escapeBody, sameJson, turnScope } from './support.ts';
 import { knownZone, timeInfo, weekday } from '../execution/time.ts';
-import { testStore } from '../testing.ts';
-import { actorId } from './testing.ts';
 
 const at = Date.UTC(2026, 10, 7, 14, 30, 5);
 
@@ -67,51 +64,6 @@ describe('text', () => {
     expect(sameJson({ a: 1 }, { a: 2 })).toBe(false);
     expect(sameJson(undefined, undefined)).toBe(true);
     expect(sameJson(undefined, null)).toBe(false);
-  });
-});
-
-describe('paging', () => {
-  it('collects filtered rows across store pages with an exact cursor', async () => {
-    const s = await testStore();
-    for (let i = 0; i < 10; i++) {
-      await s.table('sessions').insert({
-        id: IDS.session.parse(`ses_${i}`), title: i % 2 === 0 ? `even ${i}` : `odd ${i}`, owner: actorId('act_a'), agent: 'hub/chat', participants: [], systems: 'all', tools: [], context: [],
-        status: 'idle', transcript: [], createdAt: i, updatedAt: i, archived: false,
-      });
-    }
-    const table = s.table('sessions');
-    const query = { order: [['createdAt', 'asc']] as const, limit: 2 };
-    const first = await collect(table, query, (r) => r.title.startsWith('even'));
-    expect(first.items.map((r) => r.title)).toEqual(['even 0', 'even 2']);
-    const second = await collect(table, { ...query, cursor: first.cursor }, (r) => r.title.startsWith('even'));
-    expect(second.items.map((r) => r.title)).toEqual(['even 4', 'even 6']);
-    const third = await collect(table, { ...query, cursor: second.cursor }, (r) => r.title.startsWith('even'));
-    expect(third.items.map((r) => r.title)).toEqual(['even 8']);
-    expect(third.cursor).toBeUndefined();
-  });
-
-  it('stops a long scan with a cursor to go on from', async () => {
-    const s = await testStore();
-    for (let i = 0; i < 6; i++) {
-      await s.table('sessions').insert({
-        id: IDS.session.parse(`ses_${i}`), title: `t${i}`, owner: actorId('act_a'), agent: 'hub/chat', participants: [], systems: 'all', tools: [], context: [],
-        status: 'idle', transcript: [], createdAt: i, updatedAt: i, archived: false,
-      });
-    }
-    const page = await collect(s.table('sessions'), { order: [['createdAt', 'asc']], limit: 1 }, () => false, 2);
-    expect(page.items).toEqual([]);
-    expect(page.cursor).toBeDefined();
-  });
-
-  it('refuses a cursor it did not give out', async () => {
-    await expect(collect((await testStore()).table('sessions'), { limit: 1, cursor: 'nonsense' }, () => true)).rejects.toBeInstanceOf(ChatError);
-  });
-
-  it('reads every row up to a maximum', async () => {
-    const s = await testStore();
-    for (let i = 0; i < 5; i++) { await s.table('memberships').insert({ group: actorId('act_g'), user: actorId(`act_${i}`), addedBy: actorId('act_a'), addedAt: i }); }
-    expect(await readAll(s.table('memberships'), { where: { group: actorId('act_g') } }, 3)).toHaveLength(3);
-    expect(await readAll(s.table('memberships'), {}, 100)).toHaveLength(5);
   });
 });
 

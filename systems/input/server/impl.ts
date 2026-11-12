@@ -142,6 +142,7 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
               return kept;
             },
           });
+          // #region authoring-run
           try {
             const { result } = await formAuthoring.run(await ctx.ai(), args.detailedDescription, state);
             const form = state.form;
@@ -152,6 +153,7 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
             const last = error.problems.length === 0 ? '' : ` Its last problems: ${error.problems.join(' ')}`;
             return ctx.fail('caller', `No form was made: ${error.message}${last} Describe the fields differently or more exactly.`);
           }
+          // #endregion authoring-run
         },
       },
     },

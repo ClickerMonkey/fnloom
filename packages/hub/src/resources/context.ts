@@ -21,7 +21,7 @@ import {
   type ResourceUri, type Section, type SectionKey,
 } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows, filteredPage } from '../store/rows.ts';
 import type { ContextGraph, DynamicContext } from '../contextor/index.ts';
 import type { Indexer } from '../index/index.ts';
 import { contextText } from '../index/indexer.ts';
@@ -198,13 +198,10 @@ export class StoreContextLibrary implements ContextLibrary {
   }
 
   async list(query: ContextQuery, who: Asking): Promise<Page<ContextRecord>> {
-    const rows = await allRows(this.#o.store.table('context'), undefined);
-    const shown = rows
-      .filter((record) => seesOrigin(record.origin, who))
-      .sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name));
-    const start = query.cursor === undefined ? 0 : Math.max(0, Number.parseInt(query.cursor, 10) || 0);
-    const limit = query.limit ?? PAGE_SIZE;
-    return { items: shown.slice(start, start + limit), ...(start + limit < shown.length ? { cursor: String(start + limit) } : {}) };
+    // newest first; equal times fall back to the key (the name), so the scan order is stable across pages
+    return filteredPage(this.#o.store.table('context'), {
+      order: [['updatedAt', 'desc']], limit: query.limit ?? PAGE_SIZE, ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+    }, (record) => seesOrigin(record.origin, who));
   }
 
   async item(name: QualifiedName, who: Asking): Promise<ContextItemView> {
@@ -321,13 +318,13 @@ export class StoreContextLibrary implements ContextLibrary {
   async #relatedTo(uris: readonly ResourceUri[]): Promise<QualifiedName[]> {
     if (uris.length === 0) { return []; }
     const wanted = new Set<string>(uris);
-    const rows = await allRows(this.#o.store.table('context'), { system: HUB_SYSTEM });
+    const rows = await allRows(this.#o.store.table('context'), { where: { system: HUB_SYSTEM } });
     return rows.filter((record) => record.origin?.type === 'resource' && record.origin.section === undefined && wanted.has(record.origin.uri)).map((record) => record.name);
   }
 
   /** Every item made from one resource. */
   async #madeFrom(uri: ResourceUri): Promise<ContextRecord[]> {
-    const rows = await allRows(this.#o.store.table('context'), { system: HUB_SYSTEM });
+    const rows = await allRows(this.#o.store.table('context'), { where: { system: HUB_SYSTEM } });
     return rows.filter((record) => record.origin?.type === 'resource' && record.origin.uri === uri);
   }
 
@@ -378,7 +375,7 @@ export function guardReach(options: ContextOptions, wide: boolean, who: Asking):
  * system manifests can't list: `alwaysFor` in the planner and `/command`s in the composer.
  */
 export async function visibleMade(store: HubStore, viewer: ContextViewer): Promise<ContextRecord[]> {
-  return (await allRows(store.table('context'), { system: HUB_SYSTEM }))
+  return (await allRows(store.table('context'), { where: { system: HUB_SYSTEM } }))
     .filter((record) => record.origin !== undefined && record.disabled !== true && seesOrigin(record.origin, viewer));
 }
 

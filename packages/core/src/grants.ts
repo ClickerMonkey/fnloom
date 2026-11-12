@@ -1,5 +1,5 @@
 /**
- * Build 7: what a system declares it may do through the hub (`Manifest.grants`), which the hub enforces over the link
+ * What a system declares it may do through the hub (`Manifest.grants`), which the hub enforces over the link
  * and the review page shows, its custom config component (`Manifest.configComponent`), and its stage: installed (paired,
  * nothing offered) or live (reviewed and switched on by an admin). A fn's own mode, types and registry effects stay on
  * `FnDecl.effects`; these are the system-wide limits beside them.

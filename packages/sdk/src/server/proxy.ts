@@ -1,5 +1,5 @@
 /**
- * Build 7: the network side of a supervised child's grants. Node 22 has no network permission, so a supervisor starts
+ * The network side of a supervised child's grants. Node 22 has no network permission, so a supervisor starts
  * an `AllowlistProxy` for each child and points the child at it (`proxyEnv`: `HTTP(S)_PROXY` and
  * `NODE_USE_ENV_PROXY`, which makes Node's `fetch` and `http(s)` go through it). The proxy lets through only the hosts
  * the system's `grants.network` names (`api.tavily.com`, or `*.googleapis.com` for any name under it) and reports

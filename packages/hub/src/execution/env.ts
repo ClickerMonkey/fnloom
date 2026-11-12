@@ -12,6 +12,7 @@ export const executionEnv = env({
   HARNESS_MODEL_RATE_LIMIT: z.number().int().min(1).default(120).describe('Most LLM calls that may start in one window on any one model.'),
   HARNESS_LLM_RATE_WINDOW: z.number().int().min(1_000).default(60_000).describe('The window both LLM rate limits count over.'),
   HARNESS_BUDGET_OVERRUN: z.number().min(0).max(1).default(0.05).describe('How far past a budget a call may go (a fraction of the budget), so an estimate a little low never blocks.'),
+  HARNESS_TRANSIENT_TRIES: z.number().int().min(1).max(20).default(3).describe('How many times an LLM call waits out a rate limit or a full budget (the wait it names) before it gives up.'),
   HARNESS_BUDGET_RECHECK: z.number().int().min(1_000).default(60_000).describe('How long a call waits before checking again when a budget whose rule says `wait` is full.'),
   HARNESS_RUN_RETRY_BASE: z.number().int().min(10).default(1_000).describe('The first delay before a failed run classed `retry` runs again (doubled on each retry).'),
   HARNESS_QUEUE_POLL: z.number().int().min(1).default(250).describe('How often the queues look for due work when idle.'),

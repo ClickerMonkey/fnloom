@@ -15,7 +15,7 @@ import {
   mintId, type ActorId, type AutoPairChoice, type AutoPairGrant, type AutoPairId, type AutoPairProof, type AutoPairSecret, type AutoPairView,
   type InstanceRef, type SystemName,
 } from '@harness/core';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { HubStore } from '../store/index.ts';
 import { randomToken, sha256Hex } from './keys.ts';
 
@@ -179,7 +179,7 @@ export class StoreAutoPairs implements AutoPairService {
   }
 
   async list(system?: SystemName): Promise<AutoPairView[]> {
-    const rows = await allRows(this.#options.store.table('autoPairSecrets'), system === undefined ? {} : { system });
+    const rows = await allRows(this.#options.store.table('autoPairSecrets'), { where: system === undefined ? {} : { system } });
     return rows.sort((a, b) => b.createdAt - a.createdAt).map(viewOf);
   }
 
@@ -220,6 +220,6 @@ export class StoreAutoPairs implements AutoPairService {
 
   /** A system's secrets that can still be used. */
   async #live(system: SystemName): Promise<AutoPairSecret[]> {
-    return (await allRows(this.#options.store.table('autoPairSecrets'), { system })).filter((row) => this.#usable(row));
+    return (await allRows(this.#options.store.table('autoPairSecrets'), { where: { system } })).filter((row) => this.#usable(row));
   }
 }

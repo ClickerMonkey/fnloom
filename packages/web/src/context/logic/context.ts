@@ -352,3 +352,34 @@ export function bodyText(text: string, decl: Pick<ContextRecord['decl'], 'title'
   if (decl.description !== '' && firstBlock().trim() === decl.description.trim()) { rest = rest.slice(firstBlock().length).trimStart(); }
   return rest;
 }
+
+/** What every row of a list of several context items shares, said once above the list rather than on each row. */
+export interface ContextShared {
+  /** Every item is off only because its system's context is switched off. */
+  readonly systemOff: boolean;
+  /** Every item was added while its system ran. */
+  readonly runtime: boolean;
+  /** Every item has this origin (its mark still shows it; the side column doesn't repeat the word). */
+  readonly origin?: ContextOriginType | undefined;
+}
+
+/** Nothing shared: each row says everything about itself. */
+export const NOTHING_SHARED: ContextShared = { systemOff: false, runtime: false };
+
+/** What a list's rows share; a list of one shares nothing (its row says it). */
+export function sharedFacts(records: readonly ContextRecord[]): ContextShared {
+  const [first, ...rest] = records;
+  if (first === undefined || rest.length === 0) { return NOTHING_SHARED; }
+  const origin = originOf(first);
+  return {
+    systemOff: records.every((record) => record.systemOff === true && record.disabled !== true),
+    runtime: records.every((record) => record.declaredBy === 'runtime'),
+    origin: records.every((record) => originOf(record) === origin) ? origin : undefined,
+  };
+}
+
+/** What a list's rows share, in words for the line above it ("system context off · added while running"). */
+export function sharedText(shared: ContextShared): string {
+  const words = [shared.systemOff ? 'their system’s context is off' : '', shared.runtime ? 'added while running' : ''].filter((word) => word !== '');
+  return words.length === 0 ? '' : `All of these: ${words.join(' · ')}.`;
+}

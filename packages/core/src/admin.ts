@@ -34,7 +34,7 @@ export const ModelInfo = z.object({
 export type ModelInfo = z.infer<typeof ModelInfo>;
 
 /**
- * Build 6: a model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
+ * A model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
  * what `ModelInfo` says plus what aeye's selection needs, and the hub roles it fills. `capabilities` are aeye's
  * capability names. Only the models the system may use are listed; the hub still checks access and budgets per call.
  */

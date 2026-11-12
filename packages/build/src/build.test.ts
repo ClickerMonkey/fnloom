@@ -74,6 +74,18 @@ describe('checkContextFolder', () => {
       'context/b.md:5:11 cycle imports load in a cycle: notes/a → notes/b → notes/a',
     ]);
   });
+
+  it('follows anchor links: in-page ones, and context: ones into its own files, to an <a id> or a heading', async () => {
+    const dir = await folder({
+      'a.md': header('key: a\ndescription: A.\nsummary: A.', '## Adding notes\n\nSee [adding](#adding-notes), [gone](#gone), [b](context:notes/b#core-x) and [b](context:notes/b#core-y).'),
+      'b.md': header('key: b\ndescription: B.\nsummary: B.', '#### <a id="core-x"></a>`X`\n\nText.'),
+    });
+    const problems = (await checkContextFolder(dir, KNOWN)).problems.map(formatContextProblem);
+    expect(problems).toEqual([
+      'context/a.md:8:35 broken-link the body links to #gone, which this file has no anchor or heading for',
+      'context/a.md:8:81 broken-link the body links to context:notes/b#core-y, which that file has no anchor or heading for — did you mean `core-x`?',
+    ]);
+  });
 });
 
 /** The notes contract the stand-in builder reads: one fn, `add`. */

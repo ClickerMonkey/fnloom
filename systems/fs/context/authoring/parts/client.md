@@ -115,13 +115,13 @@ function pin(id: string, pinned: boolean): void {
 **Talking back.** `view.system.send.<action>(input)` sends an action and returns a `Delivery` (`id`, live `status`, and
 `result`); it waits in the hub while the system is offline, and `view.system.online` says which. `view.system.run.<fn>(args)`
 starts a new run of one of the system's fns in the renderer's session, as a person would. A fn with a `form` gets
-`view.submit(value)` (the notes `review` form, `client/ReviewForm.vue` in **Worked examples**, calls
+`view.submit(value)` (the notes `review` form, `client/ReviewForm.vue` in [Worked examples](context:fs/authoring.examples), calls
 `view.submit({ approved, note })` and shows the answer once the run is done).
 
 **Inputs** are editors (and, read-only, viewers) of a named type, used wherever the chat draws a value of it: `!` forms,
 handler prompts, config forms, run cards, mention cards. They work with `v-model`: emit `update:modelValue` with a whole
 new value, and show `problems`. With `readonly` the same component only shows the value (the notes input,
-`client/NoteInput.vue` in **Worked examples**, draws a card then).
+`client/NoteInput.vue` in [Worked examples](context:fs/authoring.examples), draws a card then).
 
 **Resource viewers** are shared by format: a resource is shown with the viewer for its format, whichever system serves
 it, and the hub has viewers for the common ones (text, markdown, code, images, PDF, JSON, CSV, folders). A system's

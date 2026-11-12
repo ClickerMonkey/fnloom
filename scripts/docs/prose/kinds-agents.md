@@ -46,3 +46,44 @@ planner) with tools from any system.
   `toolExecution` is `parallel` (default) or `sequential`.
 
 <!-- include: scripts/docs/example/shared/index.ts#agent -->
+
+### Authoring agents
+
+Some fns write something hard: a query, a form's gin type, later an API call or code. Don't hand that to the chat model
+(it would carry every table or type in its context and guess at the shape), and don't make it an `agent()` (a free
+loop of tools can draft before it has looked, and never has to check). Write a native fn that runs an **authoring
+agent**: `authoringAgent({ name, description, instructions, tools, draft, check, save, reuse? })` from
+`@harness/sdk/server`, run with the run's `ctx.ai()`. The chat model passes only a description of what it wants and
+gets back an `AuthoredFn`: the saved fn, its signature, what it does, a short preview and how to call it again. Never
+the working context. Use `agent()` for a helper that answers or acts with tools; use `authoringAgent` when the result
+is a new fn kept in the hub.
+
+The agent works through fixed stages: **find** (search what exists; `reuse` answers with an existing fn), **inspect**
+(load the details of what the search found), **draft** (the built-in `draft` tool, whose args are your typed `draft`
+schema), **check** (your `check`, run on every draft: each problem on its own line, in words the model can act on),
+**fix** (a draft with problems sends the model back, up to `HARNESS_AUTHORING_FIXES` times) and **save** (offered only
+once a draft checked clean; your `save` keeps it as a fn). A tool of a stage is offered only once every stage before
+it is done, so the model can't draft before it has searched. `authoringTool({ name, stage, description, schema, when?,
+call })` declares a find or inspect tool; `when` narrows it further. `session.disclosure` (`Disclosure`) records what
+the model has seen (`markAware`), loaded (`markLoaded`) and searched (`markSearched`), per level (`fn`, `type`,
+`table`): a load tool is offered while something is aware but not loaded, and nothing is shown twice. The run's own
+state (deps, the instance, what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write
+`instructions` as the job step by step, with a worked example of a good draft.
+
+The input system's `get_input` writes a form this way. Its find tool:
+
+<!-- include: systems/input/server/authoring.ts#authoring-tool -->
+
+The agent, its draft schema, check and save:
+
+<!-- include: systems/input/server/authoring.ts#authoring-agent -->
+
+Its fn runs it and turns a run that gave up (`AuthoringError`, with the last problems) into a failure the chat model can
+act on:
+
+<!-- include: systems/input/server/impl.ts#authoring-run -->
+
+Test it with a scripted model (`mockModel` and `toolCall` from `@harness/sdk/testing`): each step is the tool call the
+model makes, and each forward shows which tools were offered at that stage.
+
+<!-- include: systems/input/server/authoring.test.ts#authoring-test -->

@@ -1,5 +1,5 @@
 /**
- * Visibility (build 4). Every system, fn, context item, resource root and person's connection has an owner and a
+ * Visibility. Every system, fn, context item, resource root and person's connection has an owner and a
  * visibility: `private` (only its owner), `shared` (its owner plus the people and groups in `with`), `public`
  * (everyone). The hub enforces it on every read, list, query, suggestion and fn call. A thing with no stored row is
  * `public` and owned by whoever added it, so build 3 data keeps working. A hub with one person shows none of this.

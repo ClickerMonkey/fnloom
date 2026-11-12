@@ -51,6 +51,8 @@ export interface FnFactsService {
   modes(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, FnMode>>;
   /** Build 6: what some fns create, update or remove in the hub, worked out deeply (`FnFacts.registry`). */
   registry(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, readonly RegistryEffect[]>>;
+  /** The long-running warnings of some fns ("x usually takes about 3 minutes."), from their run times; quick fns are left out. */
+  notices(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, string>>;
   /** Work out and store the facts of these fns again (their declarations changed), and forget removed ones. */
   refresh(fns: readonly FnRecord[], removed: readonly QualifiedName[]): Promise<void>;
 }
@@ -114,6 +116,8 @@ export interface FnsForPrompt {
   modes(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, FnMode>>;
   /** Build 6: what fns change in the hub, for the line in their descriptions; absent leaves the line out. */
   registry?(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, readonly RegistryEffect[]>>;
+  /** What long-running fns warn of, for the line beside it; absent leaves the warning out. */
+  notices?(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, string>>;
 }
 
 /** The module's services (`HubServices.fns`). */

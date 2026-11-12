@@ -138,7 +138,7 @@ export type ContextLink = z.infer<typeof ContextLink>;
 // ─── Hub fn shapes (args and results; the hub contract's gin types are made from these) ───────────────────────
 
 /**
- * The options a person-made context item takes beyond its text (build 3): the context page's Advanced section, and
+ * The options a person-made context item takes beyond its text: the context page's Advanced section, and
  * the same as a declared item's (`ContextDecl`). Absent fields keep their defaults (or, on an edit, their values).
  */
 export const ContextOptions = z.object({
@@ -172,7 +172,7 @@ export const RememberArgs = z.object({
   about: z.array(LinkTarget).optional(),
 }).extend(ContextOptions.shape);
 
-/** Edit a memory (build 3): any of what `remember` takes; the scope is fixed once written. */
+/** Edit a memory: any of what `remember` takes; the scope is fixed once written. */
 export const UpdateMemoryArgs = RememberArgs.omit({ scope: true }).partial().extend({
   name: QualifiedName,
   /** Options to remove; an option left out of the edit stays as it was. */

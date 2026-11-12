@@ -109,7 +109,6 @@ export const HUB_TABLES = {
   ledger: byField(LedgerEntry, 'id'),
   notifications: byField(Notification, 'id'),
   pushSubscriptions: byField(PushSubscription, 'id'),
-  // build 2
   instances: byFields(InstanceRecord, 'system', 'instance'),
   contextLinks: byFields(ContextLink, 'from', 'toKey', 'relation'),
   modelLimits: byField(ModelLimitsRecord, 'model'),
@@ -121,21 +120,16 @@ export const HUB_TABLES = {
   } satisfies TableDef<typeof ModelRoleRecord, ModelRole>,
   fnMetrics: byFields(FnMetricsDay, 'fn', 'day'),
   mcps: byField(HubMcp, 'id'),
-  // build 3
   autoPairSecrets: byField(AutoPairSecret, 'id'),
   hubOptions: byField(HubOption, 'key'),
-  // build 4
   access: byField(AccessRecord, 'key'),
   connections: byField(UserConnection, 'id'),
-  // build 5
   fnExamples: byField(FnExampleRecord, 'id'),
   fnFacts: byField(FnFactsRecord, 'fn'),
   fnTypes: byFields(FnTypeUse, 'fn', 'type', 'use'),
   fnUses: byFields(FnUse, 'fn', 'uses'),
   fnVersions: byField(FnVersionRecord, 'id'),
-  // build 6
   typeVersions: byField(TypeVersionRecord, 'id'),
-  // build 7
   itemSwitches: byFields(ItemSwitch, 'system', 'section', 'name'),
   systemReviews: byField(SystemReviewRecord, 'system'),
   refusals: byField(RefusalRecord, 'id'),

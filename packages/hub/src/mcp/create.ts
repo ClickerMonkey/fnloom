@@ -12,10 +12,8 @@ import { StoreMcpRegistry } from './registry.ts';
 import { CatalogMcpScopes } from './scopes.ts';
 import { HubMcpPrompts, HubMcpResources } from './sources.ts';
 import { JwtMcpTokens } from './tokens.ts';
+import { allRows } from '../store/rows.ts';
 import { HubMcpTools } from './tools.ts';
-
-/** How many MCPs the endpoints mount at most. */
-const MAX_MCPS = 500;
 
 /** Builds the mcp module. */
 export const mcpModule: ModuleFactory<'mcp'> = ({ hub }) => {
@@ -36,7 +34,7 @@ export const mcpModule: ModuleFactory<'mcp'> = ({ hub }) => {
   const endpoints: HubMcpEndpoints = new HubMcpEndpoints({
     registry: () => registry, tokens: () => tokens, bus: hub.bus, clock, log: hub.log, maxBody: settings.HARNESS_HUB_MCP_MAX_BODY, idleTimeout: settings.HARNESS_HUB_MCP_IDLE_TIMEOUT,
     serverInfo: { name: HUB_INFO.name, version: HUB_INFO.version },
-    list: async () => (await hub.store.table('mcps').find({ where: { enabled: true }, limit: MAX_MCPS })).items,
+    list: async () => allRows(hub.store.table('mcps'), { where: { enabled: true } }),
     parts: (mcp) => ({
       tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => hub.catalog, runner, log: hub.log, access: () => hub.access }),
       resources: new HubMcpResources(mcp.id, sources),

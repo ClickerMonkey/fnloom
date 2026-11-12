@@ -40,7 +40,7 @@ export const Session = z.object({
   /** The chat mode and contextor here, instead of the agent fn's. */
   mode: ChatModeConfig.optional(),
   contextor: ContextorConfig.optional(),
-  /** Build 5: how far the agent may go with fns here (absent: as far as the policies allow, like `delete`). */
+  /** How far the agent may go with fns here (absent: as far as the policies allow, like `delete`). */
   fnMode: ChatFnMode.optional(),
   /** What the graph contextor chose last, rewritten every cycle. */
   selection: GraphSelection.optional(),
@@ -73,7 +73,7 @@ const MentionPart = z.object({ type: z.literal('mention'), provider: QualifiedNa
 const CommandPart = z.object({ type: z.literal('command'), context: QualifiedName, args: z.record(z.string(), z.string()) });
 const FilePart = z.object({ type: z.literal('file'), ref: ContentRef, name: z.string() });
 /**
- * Answers to an input form (build 4): the model reads them as `<input-answer>` tags (`text` is what it reads, written
+ * Answers to an input form: the model reads them as `<input-answer>` tags (`text` is what it reads, written
  * by the web from the form's labels and values); the chat hides the part. `run` is the `input/*` run that asked.
  */
 const InputAnswerPart = z.object({ type: z.literal('input-answer'), run: RunId, title: z.string(), value: Json, text: z.string() });
@@ -90,7 +90,7 @@ export const MessagePart = z.discriminatedUnion('type', [
   CommandPart,
   z.object({ type: z.literal('invocation'), run: RunId, fn: QualifiedName }),
   /**
-   * Build 5: a fn call the assistant made, in the place it made it among its reasoning and text, so a message keeps
+   * A fn call the assistant made, in the place it made it among its reasoning and text, so a message keeps
    * the order the model produced them in.
    */
   z.object({ type: z.literal('call'), run: RunId, fn: QualifiedName }),
@@ -138,10 +138,10 @@ export const ChatMessage = z.object({
   replyAll: z.boolean(),
   /** The agents the hub woke for this message. */
   answerers: z.array(ActorId),
-  /** User messages (build 3): the fns and context suggested for it, and those left out with their reasons. */
+  /** User messages: the fns and context suggested for it, and those left out with their reasons. */
   suggestions: SuggestionRecord.optional(),
   /**
-   * Assistant messages (build 4): the model call behind it read no prompt cache although an earlier call of the session
+   * Assistant messages: the model call behind it read no prompt cache although an earlier call of the session
    * did, in full-history mode with a model that caches; the chat draws a wavy rule above it with `at`.
    */
   cacheMiss: z.object({ call: ModelCallId, at: Timestamp }).optional(),
@@ -164,7 +164,7 @@ export const SessionControls = z.object({
   /** Runs that won't stop on cancel. */
   uncancellable: z.array(RunId),
   undoLastTurn: z.boolean(),
-  /** Build 3: each run of the session a person can control, so the chat can stop, pause or resume one, some or all. */
+  /** Each run of the session a person can control, so the chat can stop, pause or resume one, some or all. */
   runs: z.array(ControllableRun).optional(),
 });
 export type SessionControls = z.infer<typeof SessionControls>;

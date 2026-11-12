@@ -73,7 +73,7 @@ describe('admin fns', () => {
 
   it('takes a body that is a union of shapes as its input field', async () => {
     const { r, asked, turn } = await started();
-    expect(await call(r, turn, 'configure_provider', { input: { provider: 'openrouter', apiKey: 'sk-or-1' } })).toEqual({ status: 'done', result: { models: 3 } });
+    expect(await call(r, turn, 'configure_provider', { provider: 'openrouter', apiKey: 'sk-or-1' })).toEqual({ status: 'done', result: { models: 3 } });
     expect(asked).toEqual([{ op: 'configure_provider', data: { provider: 'openrouter', apiKey: 'sk-or-1' }, by: ALICE }]);
   });
 
@@ -100,7 +100,7 @@ type ArgsOf<F> = F extends FnRef<QualifiedName, infer A, unknown> ? A : never;
 
 /** One valid body for every admin fn (the compiler checks each against its fn's args). */
 const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]> } = {
-  configure_provider: { input: { provider: 'ollama' } },
+  configure_provider: { provider: 'ollama' },
   set_model_category: { name: 'fast', description: 'Fast ones.', models: ['m'] },
   set_budget: { target: { scope: 'hub' }, period: 'per-turn', maxCost: 1, onLimit: 'refuse' },
   set_priority: { target: { scope: 'hub' } },
@@ -108,7 +108,7 @@ const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]>
   set_actor_setting: { setting: 'hub/theme', actor: ALICE, value: 'dark' },
   add_user: { email: 'bo@example.com', name: 'Bo', role: 'member' },
   add_group: { name: 'team', about: 'A team.' },
-  remove_rule: { input: { kind: 'budget', id: 'bgt_1' } },
+  remove_rule: { kind: 'budget', id: 'bgt_1' },
   approve_pairing: { pairing: 'par_1', approve: true },
   create_pairing_token: { expiresIn: 60 },
   configure_system: { system: 'fs', config: {} },
@@ -123,7 +123,7 @@ const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]>
   auto_pair_revoke: { id: 'apk_1' },
   system_reimport: { system: 'fs' },
   upgrade_system: { system: 'fs' },
-  set_model_role: { input: { role: 'chat', model: { model: 'm' } } },
+  set_model_role: { role: 'chat', model: { model: 'm' } },
   clear_model_role: { role: 'chat' },
   set_model_limits: { model: 'm', limits: {} },
   create_mcp: {

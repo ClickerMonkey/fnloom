@@ -136,7 +136,7 @@ describe('importing through a fn', () => {
   it('takes the import union as its `input` field, as the contract makes it', async () => {
     const { r, resources, turn } = await started();
     const content = await resources.content.put(bytes('# Note\n'), 'text/markdown');
-    const settled = await call(r, turn, 'resource_import', { input: { content, name: 'note.md' } });
+    const settled = await call(r, turn, 'resource_import', { content, name: 'note.md' });
     expect(settled).toMatchObject({ status: 'done', result: { uri: 'hub://resources/uploads/2026-11-07/note.md', source: { from: 'upload' } } });
   });
 });

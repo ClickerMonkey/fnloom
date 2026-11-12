@@ -92,7 +92,7 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations), [`ProposalApprover`](#core-proposalapprover).
+Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`Display`](context:fs/authoring.core-types#core-display), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnLimits`](context:fs/authoring.core-types#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`Operations`](context:fs/authoring.core-types#core-operations), [`ProposalApprover`](context:fs/authoring.core-types#core-proposalapprover).
 
 #### `FnExampleOf`
 
@@ -157,7 +157,7 @@ interface FnDef<T extends FnTypes> {
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
+Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`Display`](context:fs/authoring.core-types#core-display), [`FnApproval`](context:fs/authoring.core-types#core-fnapproval), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnLimits`](context:fs/authoring.core-types#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`Operations`](context:fs/authoring.core-types#core-operations).
 
 #### `AnyFnDef`
 
@@ -244,7 +244,7 @@ interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `AnyFnRef`
 
@@ -254,7 +254,7 @@ type · `import { AnyFnRef } from '@harness/sdk'`
 type AnyFnRef = FnRef<QualifiedName, unknown, unknown, Handlers>;
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `FnValidators`
 
@@ -272,7 +272,7 @@ interface FnValidators<A, R, St extends object> {
 }
 ```
 
-Refers to: [`InputVerdict`](#core-inputverdict), [`OutputVerdict`](#core-outputverdict).
+Refers to: [`InputVerdict`](context:fs/authoring.core-types#core-inputverdict), [`OutputVerdict`](context:fs/authoring.core-types#core-outputverdict).
 
 #### `ValidateCtx`
 
@@ -289,7 +289,7 @@ interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
 }
 ```
 
-Refers to: [`RunInfo`](#core-runinfo).
+Refers to: [`RunInfo`](context:fs/authoring.core-types#core-runinfo).
 
 #### `PreviewCtx`
 
@@ -305,7 +305,7 @@ interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
 }
 ```
 
-Refers to: [`RunId`](#core-runid), [`UserInfo`](#core-userinfo).
+Refers to: [`RunId`](context:fs/authoring.core-types#core-runid), [`UserInfo`](context:fs/authoring.core-types#core-userinfo).
 
 #### `DEFAULT_STATUS`
 

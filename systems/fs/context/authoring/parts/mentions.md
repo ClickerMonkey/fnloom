@@ -67,6 +67,6 @@ mentions: {
 },
 ```
 
-A custom hover card is a renderer under `mentions` in **The client**; without one the hub draws the `hover` answer.
+A custom hover card is a renderer under `mentions` in [The client](context:fs/authoring.client); without one the hub draws the `hover` answer.
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

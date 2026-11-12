@@ -124,15 +124,15 @@ type ApprovalPreview = {
   irreversible: boolean;
   subject?: {
     kind: "system-install";
-    system: string & z.core.$brand<"SystemName">;
-    instance: string & z.core.$brand<"InstanceName">;
+    system: SystemName;
+    instance: InstanceName;
     version: string;
     manifestHash: string;
     bundleHash: string;
     sourceHash: string;
     host: {
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
     };
     source?: string | undefined;
     grants?: {
@@ -144,7 +144,7 @@ type ApprovalPreview = {
         perDay?: number | undefined;
       } | undefined;
       secrets?: string[] | undefined;
-      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      calls?: (`${string}/${string}` | SystemName)[] | undefined;
       network?: string[] | undefined;
       files?: {
         read: string[];
@@ -170,7 +170,7 @@ type ApprovalPreview = {
       hosts: string[];
     };
     tests?: {
-      system: string & z.core.$brand<"SystemName">;
+      system: SystemName;
       version: string;
       ranAt: number;
       duration: number;
@@ -206,7 +206,7 @@ type ApprovalPreview = {
 
 const, type · declared in `packages/core/src/approvals.ts`
 
-Build 6: the approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK).
+The approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK).
 
 ```ts
 type ApprovedRun = {
@@ -257,15 +257,15 @@ type ApprovedRun = {
     irreversible: boolean;
     subject?: {
       kind: "system-install";
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
       version: string;
       manifestHash: string;
       bundleHash: string;
       sourceHash: string;
       host: {
-        system: string & z.core.$brand<"SystemName">;
-        instance: string & z.core.$brand<"InstanceName">;
+        system: SystemName;
+        instance: InstanceName;
       };
       source?: string | undefined;
       grants?: {
@@ -277,7 +277,7 @@ type ApprovedRun = {
           perDay?: number | undefined;
         } | undefined;
         secrets?: string[] | undefined;
-        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        calls?: (`${string}/${string}` | SystemName)[] | undefined;
         network?: string[] | undefined;
         files?: {
           read: string[];
@@ -303,7 +303,7 @@ type ApprovedRun = {
         hosts: string[];
       };
       tests?: {
-        system: string & z.core.$brand<"SystemName">;
+        system: SystemName;
         version: string;
         ranAt: number;
         duration: number;
@@ -594,7 +594,7 @@ type ContextDecl = {
     } | {
       kind: "resource";
       uri: `${string}://${string}`;
-      section?: (string & z.core.$brand<"SectionKey">) | undefined;
+      section?: SectionKey | undefined;
     };
     relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
     weight: number;
@@ -638,7 +638,7 @@ type ContextFileHeader = {
     } | {
       kind: "resource";
       uri: `${string}://${string}`;
-      section?: (string & z.core.$brand<"SectionKey">) | undefined;
+      section?: SectionKey | undefined;
     };
     relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
     weight: number;
@@ -863,7 +863,7 @@ of them a request is for (a database system picking the database).
 
 ```ts
 type FleetInstance = {
-  instance: string & z.core.$brand<"InstanceName">;
+  instance: InstanceName;
   description: string;
   online: boolean;
   config: z.core.util.JSONType;
@@ -965,7 +965,7 @@ type FnExamplesPage = {
 
 const, type · declared in `packages/core/src/fn-facts.ts`
 
-Build 6: a system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
+A system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
 the hub link). Examples in the fn's declaration are left alone.
 
 ```ts
@@ -1014,7 +1014,7 @@ type FnLimits = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-Build 5: which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
+Which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
 fn belongs to it the way `TypeDecl.instance` says. `any`: whichever connected instance the hub picks first (the
 session's pin, then the default), with no ambiguity refusal; the fn forwards with `on` itself when it must.
 Absent: the fleet rules (`FleetRouter`).
@@ -1022,7 +1022,7 @@ Absent: the fleet rules (`FleetRouter`).
 ```ts
 type FnRouting = {
   to: "instance";
-  instance: string & z.core.$brand<"InstanceName">;
+  instance: InstanceName;
 } | {
   to: "any";
 };
@@ -1039,14 +1039,14 @@ type FnSearchPage = {
   items: {
     item: "fn" | "context";
     name: `${string}/${string}`;
-    system: string & z.core.$brand<"SystemName">;
+    system: SystemName;
     description: string;
     available: boolean;
     kind?: string | undefined;
     mode?: "read" | "write" | "delete" | undefined;
     signature?: string | undefined;
     effects?: string | undefined;
-    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    instance?: InstanceName | undefined;
     score?: number | undefined;
     unavailable?: string | undefined;
   }[];
@@ -1070,8 +1070,8 @@ type FnSearchQuery = {
   match?: "text" | "semantic" | "hybrid" | undefined;
   items?: ("fn" | "context")[] | undefined;
   kinds?: (`${string}/${string}` | "native")[] | undefined;
-  systems?: (string & z.core.$brand<"SystemName">)[] | undefined;
-  instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+  systems?: SystemName[] | undefined;
+  instance?: InstanceName | undefined;
   visibility?: "shared" | "public" | "mine" | undefined;
   types?: {
     reads?: `${string}/${string}`[] | undefined;
@@ -1206,8 +1206,8 @@ Node's permission model refused, for an instance it hosts. The hub keeps it as t
 ```ts
 type HostRefusal = {
   instance: {
-    system: string & z.core.$brand<"SystemName">;
-    instance: string & z.core.$brand<"InstanceName">;
+    system: SystemName;
+    instance: InstanceName;
   };
   rule: "files" | "network";
   attempt: string;
@@ -1227,7 +1227,7 @@ type HubLinkSpec = typeof hubLinkSpec;
 
 const, type · declared in `packages/core/src/admin.ts`
 
-Build 6: a model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
+A model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
 what `ModelInfo` says plus what aeye's selection needs, and the hub roles it fills. `capabilities` are aeye's
 capability names. Only the models the system may use are listed; the hub still checks access and budgets per call.
 
@@ -1302,7 +1302,7 @@ One attached copy of a system: a fleet of fs machines is one system `fs` with in
 that runs one copy has the single instance `main`. Same shape as a system name.
 
 ```ts
-type InstanceName = string & z.core.$brand<"InstanceName">;
+type InstanceName = InstanceName;
 ```
 
 #### <a id="core-invalidinput"></a>`InvalidInput`
@@ -1455,7 +1455,7 @@ A link attachment: to a resource (or one of its sections), a URL, stored content
 ```ts
 type Link = {
   resource: `${string}://${string}`;
-  section?: (string & z.core.$brand<"SectionKey">) | undefined;
+  section?: SectionKey | undefined;
   title?: string | undefined;
 } | {
   url: string;
@@ -1481,8 +1481,8 @@ Who is on the other end of a link connection, once the handshake is done: the sy
 
 ```ts
 type LinkSession = {
-  system: string & z.core.$brand<"SystemName">;
-  instance: string & z.core.$brand<"InstanceName">;
+  system: SystemName;
+  instance: InstanceName;
   boot: string;
 };
 ```
@@ -1694,7 +1694,7 @@ type Manifest = {
   events: ("message" | "run" | "system" | "fns" | "resources")[];
   resources: boolean;
   config: TypeDef<any>;
-  requires: (string & z.core.$brand<"SystemName">)[];
+  requires: SystemName[];
   types: {
     name: string;
     description: string;
@@ -1708,7 +1708,7 @@ type Manifest = {
       subtitle?: string | undefined;
     };
     methods: string[];
-    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    instance?: InstanceName | undefined;
     audience?: {
       visibility: "private" | "shared" | "public";
       with: string[];
@@ -1838,7 +1838,7 @@ type Manifest = {
     } | undefined;
     routing?: {
       to: "instance";
-      instance: string & z.core.$brand<"InstanceName">;
+      instance: InstanceName;
     } | {
       to: "any";
     } | undefined;
@@ -1896,7 +1896,7 @@ type Manifest = {
       } | {
         kind: "resource";
         uri: `${string}://${string}`;
-        section?: (string & z.core.$brand<"SectionKey">) | undefined;
+        section?: SectionKey | undefined;
       };
       relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
       weight: number;
@@ -1939,7 +1939,7 @@ type Manifest = {
     state?: TypeDef<any> | undefined;
     expires?: number | undefined;
   }[];
-  name: string & z.core.$brand<"SystemName">;
+  name: SystemName;
   version: string;
   description: string;
   hash: string;
@@ -2009,7 +2009,7 @@ type Manifest = {
       perDay?: number | undefined;
     } | undefined;
     secrets?: string[] | undefined;
-    calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+    calls?: (`${string}/${string}` | SystemName)[] | undefined;
     network?: string[] | undefined;
     files?: {
       read: string[];
@@ -2046,7 +2046,7 @@ type ManifestPatch = {
         subtitle?: string | undefined;
       };
       methods: string[];
-      instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+      instance?: InstanceName | undefined;
       audience?: {
         visibility: "private" | "shared" | "public";
         with: string[];
@@ -2176,7 +2176,7 @@ type ManifestPatch = {
       } | undefined;
       routing?: {
         to: "instance";
-        instance: string & z.core.$brand<"InstanceName">;
+        instance: InstanceName;
       } | {
         to: "any";
       } | undefined;
@@ -2234,7 +2234,7 @@ type ManifestPatch = {
         } | {
           kind: "resource";
           uri: `${string}://${string}`;
-          section?: (string & z.core.$brand<"SectionKey">) | undefined;
+          section?: SectionKey | undefined;
         };
         relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
         weight: number;
@@ -2340,7 +2340,7 @@ type MentionHover = {
   body?: string | undefined;
   open?: {
     resource: `${string}://${string}`;
-    section?: (string & z.core.$brand<"SectionKey">) | undefined;
+    section?: SectionKey | undefined;
     title?: string | undefined;
   } | {
     url: string;
@@ -2466,7 +2466,7 @@ type MessagePart = {
   type: "link";
   link: {
     resource: `${string}://${string}`;
-    section?: (string & z.core.$brand<"SectionKey">) | undefined;
+    section?: SectionKey | undefined;
     title?: string | undefined;
   } | {
     url: string;
@@ -2765,22 +2765,22 @@ type PairingGrant = {
 
 const, type · declared in `packages/core/src/approvals.ts`
 
-Build 6: an approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
+An approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
 
 ```ts
 type PairingGrantRequest = {
   run: string;
   subject: {
     kind: "system-install";
-    system: string & z.core.$brand<"SystemName">;
-    instance: string & z.core.$brand<"InstanceName">;
+    system: SystemName;
+    instance: InstanceName;
     version: string;
     manifestHash: string;
     bundleHash: string;
     sourceHash: string;
     host: {
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
     };
     source?: string | undefined;
     grants?: {
@@ -2792,7 +2792,7 @@ type PairingGrantRequest = {
         perDay?: number | undefined;
       } | undefined;
       secrets?: string[] | undefined;
-      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      calls?: (`${string}/${string}` | SystemName)[] | undefined;
       network?: string[] | undefined;
       files?: {
         read: string[];
@@ -2826,7 +2826,7 @@ the manifest is sent (`pairingInfo` on the link).
 type PairingInfo = {
   pairing: string;
   description: string;
-  instance: string & z.core.$brand<"InstanceName">;
+  instance: InstanceName;
   configType?: TypeDef<any> | undefined;
   configSecrets?: string[] | undefined;
 };
@@ -2886,15 +2886,15 @@ type PreviewAnswer = {
     irreversible: boolean;
     subject?: {
       kind: "system-install";
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
       version: string;
       manifestHash: string;
       bundleHash: string;
       sourceHash: string;
       host: {
-        system: string & z.core.$brand<"SystemName">;
-        instance: string & z.core.$brand<"InstanceName">;
+        system: SystemName;
+        instance: InstanceName;
       };
       source?: string | undefined;
       grants?: {
@@ -2906,7 +2906,7 @@ type PreviewAnswer = {
           perDay?: number | undefined;
         } | undefined;
         secrets?: string[] | undefined;
-        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        calls?: (`${string}/${string}` | SystemName)[] | undefined;
         network?: string[] | undefined;
         files?: {
           read: string[];
@@ -2932,7 +2932,7 @@ type PreviewAnswer = {
         hosts: string[];
       };
       tests?: {
-        system: string & z.core.$brand<"SystemName">;
+        system: SystemName;
         version: string;
         ranAt: number;
         duration: number;
@@ -3106,7 +3106,7 @@ type ResourceHit = {
   title: string;
   preview: string;
   score: number;
-  section?: (string & z.core.$brand<"SectionKey">) | undefined;
+  section?: SectionKey | undefined;
 };
 ```
 
@@ -3204,7 +3204,7 @@ const, type · declared in `packages/core/src/resource-forms.ts`
 ```ts
 type ResourceSendArgs = {
   uri: `${string}://${string}`;
-  section?: (string & z.core.$brand<"SectionKey">) | undefined;
+  section?: SectionKey | undefined;
 };
 ```
 
@@ -3362,7 +3362,7 @@ type RunInfo = {
   };
   system: {
     name: string;
-    instance: string & z.core.$brand<"InstanceName">;
+    instance: InstanceName;
     boot: string;
     from?: {
       system: string;
@@ -3410,7 +3410,7 @@ type RunRequest = {
     };
     system: {
       name: string;
-      instance: string & z.core.$brand<"InstanceName">;
+      instance: InstanceName;
       boot: string;
       from?: {
         system: string;
@@ -3518,15 +3518,15 @@ type RunRequest = {
       irreversible: boolean;
       subject?: {
         kind: "system-install";
-        system: string & z.core.$brand<"SystemName">;
-        instance: string & z.core.$brand<"InstanceName">;
+        system: SystemName;
+        instance: InstanceName;
         version: string;
         manifestHash: string;
         bundleHash: string;
         sourceHash: string;
         host: {
-          system: string & z.core.$brand<"SystemName">;
-          instance: string & z.core.$brand<"InstanceName">;
+          system: SystemName;
+          instance: InstanceName;
         };
         source?: string | undefined;
         grants?: {
@@ -3538,7 +3538,7 @@ type RunRequest = {
             perDay?: number | undefined;
           } | undefined;
           secrets?: string[] | undefined;
-          calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+          calls?: (`${string}/${string}` | SystemName)[] | undefined;
           network?: string[] | undefined;
           files?: {
             read: string[];
@@ -3564,7 +3564,7 @@ type RunRequest = {
           hosts: string[];
         };
         tests?: {
-          system: string & z.core.$brand<"SystemName">;
+          system: SystemName;
           version: string;
           ranAt: number;
           duration: number;
@@ -3688,7 +3688,7 @@ A stable piece of a resource.
 
 ```ts
 type Section = {
-  key: string & z.core.$brand<"SectionKey">;
+  key: SectionKey;
   path: string[];
   title: string;
   start: number;
@@ -3715,7 +3715,7 @@ const, type · declared in `packages/core/src/resources.ts`
 A stable section key, made from structure (the heading path, the symbol name) so it survives content moving.
 
 ```ts
-type SectionKey = string & z.core.$brand<"SectionKey">;
+type SectionKey = SectionKey;
 ```
 
 #### <a id="core-sectionmatch"></a>`SectionMatch`
@@ -3873,7 +3873,7 @@ type SystemEvent = {
   }[];
 } | {
   type: "system";
-  system: string & z.core.$brand<"SystemName">;
+  system: SystemName;
   status: "connected" | "disconnected" | "removed";
 } | {
   type: "fns";
@@ -3899,7 +3899,7 @@ type SystemGrants = {
     perDay?: number | undefined;
   } | undefined;
   secrets?: string[] | undefined;
-  calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+  calls?: (`${string}/${string}` | SystemName)[] | undefined;
   network?: string[] | undefined;
   files?: {
     read: string[];
@@ -3926,7 +3926,7 @@ contract's name must equal `name` (`harness system build` and `serve()` check it
 ```ts
 type SystemPackageManifest = {
   format: 1;
-  name: string & z.core.$brand<"SystemName">;
+  name: SystemName;
   version: string;
   description: string;
   protocol: number;
@@ -3991,7 +3991,7 @@ type TypeDecl = {
     subtitle?: string | undefined;
   };
   methods: string[];
-  instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+  instance?: InstanceName | undefined;
   audience?: {
     visibility: "private" | "shared" | "public";
     with: string[];
@@ -4020,10 +4020,10 @@ type TypeDefinitions = {
     };
     description: string;
     name: `${string}/${string}`;
-    system: string & z.core.$brand<"SystemName">;
+    system: SystemName;
     references: `${string}/${string}`[];
     updatedAt: number;
-    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    instance?: InstanceName | undefined;
     audience?: {
       visibility: "private" | "shared" | "public";
       with: string[];

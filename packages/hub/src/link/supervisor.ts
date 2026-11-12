@@ -18,7 +18,7 @@ import {
   MAIN_INSTANCE, instanceLabel, type ActorId, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
   type Json, type StopReason, type SystemName,
 } from '@harness/core';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 import type { StoreConfigService } from './config.ts';

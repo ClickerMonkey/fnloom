@@ -1,5 +1,5 @@
 /**
- * The decision model for systems (build 5). The admin's suggestion decision model (`SuggestDecision`) can also choose
+ * The decision model for systems. The admin's suggestion decision model (`SuggestDecision`) can also choose
  * for a system between reusing something it has and making something new: the database system's `get_query` asks it
  * whether a saved query answers a description, the input system's `get_input` whether a saved form fits. The system
  * sends the question and its scored candidates (`decide` on the hub link); the hub answers with the model's picks, or

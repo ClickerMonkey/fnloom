@@ -1,5 +1,5 @@
 /**
- * Build 7: what is checked about a system before it runs and before it goes live: the scan of its built server bundle
+ * What is checked about a system before it runs and before it goes live: the scan of its built server bundle
  * (moved here from `@harness/build`, which still makes it), the result of its own tests (`harness test`, the SDK test
  * kit) and its component previews. `fs/install_system` puts them on the install card (`InstallSubject.checks`), and the
  * review page shows them (`SystemReview.checks`).

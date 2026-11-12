@@ -53,7 +53,7 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
       </div>
       <RouterLink class="stats" :to="runsOf(fn.name)" :title="fn.stats.lastRunAt === undefined ? 'Never run' : `Last run ${fullTime(fn.stats.lastRunAt)}`">
         <span class="runs">{{ runTotal(fn).toLocaleString() }} {{ runTotal(fn) === 1 ? 'run' : 'runs' }}</span>
-        <span v-if="runTotal(fn) > 0" class="dim">{{ failureRate(fn) }}<template v-if="fn.stats.outcomes['invalid-input'] > 0"> · {{ fn.stats.outcomes['invalid-input'] }} retried</template> · {{ formatDuration(fn.stats.averageTime) }}<template v-if="fn.stats.p95 !== undefined"> (p95 {{ formatDuration(fn.stats.p95) }})</template> · {{ formatCost(fn.stats.averageCost) }}</span>
+        <span v-if="runTotal(fn) > 0" class="dim detail">{{ failureRate(fn) }}<template v-if="fn.stats.outcomes['invalid-input'] > 0"> · {{ fn.stats.outcomes['invalid-input'] }} retried</template> · {{ formatDuration(fn.stats.averageTime) }}<template v-if="fn.stats.p95 !== undefined"> (p95 {{ formatDuration(fn.stats.p95) }})</template> · {{ formatCost(fn.stats.averageCost) }}</span>
         <span v-if="fn.stats.lastRunAt !== undefined" class="dim">last {{ relativeTime(fn.stats.lastRunAt, now) }}</span>
       </RouterLink>
     </li>
@@ -84,8 +84,11 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
 .stats:focus-visible { outline: none; box-shadow: var(--ring); }
 .runs { font-weight: var(--weight-medium); }
 .dim { color: var(--text-faint); font-size: var(--text-xs); }
+/* on a phone the run count stays beside the title (a row of its own would hold only "0 runs"); the rates and times
+   are a tap away on the fn's runs */
 @media (max-width: 559.98px) {
-  .fn { grid-template-columns: auto minmax(0, 1fr); }
-  .stats { grid-column: 2; justify-items: start; text-align: left; white-space: normal; margin-left: calc(var(--space-2) * -1); }
+  .fn { gap: var(--space-2); }
+  .stats { margin-top: calc(var(--space-1) * -1); margin-right: calc(var(--space-2) * -1); }
+  .detail { display: none; }
 }
 </style>

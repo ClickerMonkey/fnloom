@@ -94,7 +94,7 @@ export interface RunningSystem<N extends string> extends FnSearch, Fleets {
    */
   grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
   /**
-   * Build 7: report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
+   * Report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
    * outside its `grants.network`, a path outside its `grants.files`. Refused unless this instance hosts it.
    */
   reportRefusal(refusal: HostRefusal): Promise<void>;

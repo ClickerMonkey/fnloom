@@ -2,7 +2,8 @@
 /**
  * The list of chats: New chat, the list's search bar (the `sessions` list's query, written in `search`: the box, the sort
  * saying how it is sorted, the count) with the archive icon (active or archived), and the rows (newest activity first, live). Loading shows skeleton rows, a problem
- * shows Retry, and an empty list says how to start. "Load more" pages back.
+ * shows Retry, and an empty list says how to start, unless the page beside it already does (`homeShown`). "Load more"
+ * pages back.
  */
 import type { SessionId, SessionSummary } from '@harness/core';
 import { computed, ref } from 'vue';
@@ -26,7 +27,9 @@ const props = withDefaults(defineProps<{
   loadingMore: boolean;
   creating: boolean;
   now: number;
-}>(), { current: undefined, problem: '', partial: false });
+  /** The chat's home ("Start a conversation") shows beside the list, so an empty list doesn't say how to start again. */
+  homeShown?: boolean;
+}>(), { current: undefined, problem: '', partial: false, homeShown: false });
 
 const emit = defineEmits<{
   open: [id: SessionId];
@@ -72,7 +75,7 @@ defineExpose({ focusSearch: () => { searchBox.value?.focus(); } });
       <li v-for="n in 6" :key="n" class="skeleton"><UiSkeleton shape="lines" :lines="2" /></li>
     </ul>
     <UiEmpty
-      v-else-if="loaded && items.length === 0" icon="chat" :title="search !== '' ? 'No chats match' : archived ? 'Nothing archived' : 'No chats yet'"
+      v-else-if="loaded && items.length === 0 && (search !== '' || archived || !homeShown)" icon="chat" :title="search !== '' ? 'No chats match' : archived ? 'Nothing archived' : 'No chats yet'"
       :body="search !== '' ? 'Try other words.' : archived ? 'Archived chats show here.' : 'Start one with New chat.'"
     />
     <TransitionGroup v-else tag="ul" name="row" class="rows">

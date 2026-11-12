@@ -26,7 +26,7 @@ import { AUTO_MODEL } from '../contextor/limits.ts';
 import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
 import { OUTPUT_REFUSED, SystemGone } from './executors.ts';
-import { rows } from './pages.ts';
+import { rows } from '../store/rows.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type RunInput } from './index.ts';
 import type { ModelResolver } from './models.ts';
 import type { ControlAnswer, Conversation, ExecutionDeps, ExecutionJob, LlmEngine, RunExecutor } from './ports.ts';

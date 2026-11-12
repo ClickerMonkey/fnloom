@@ -46,7 +46,7 @@ type ResultBlock = {
 };
 ```
 
-Refers to: [`Json`](#core-json), [`ResultSort`](#core-resultsort).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`ResultSort`](context:fs/authoring.core-types#core-resultsort).
 
 #### `ResultBlockType`
 
@@ -72,7 +72,7 @@ type ResultColumnInfo = {
 };
 ```
 
-Refers to: [`ResultColumn`](#core-resultcolumn).
+Refers to: [`ResultColumn`](context:fs/authoring.core-types#core-resultcolumn).
 
 #### `ResultFn`
 
@@ -111,7 +111,7 @@ The result block for rows read: shown to the person when someone is watching, el
 function resultBlock(table: ResultTable, options: ResultBlockOptions): ResultBlock;
 ```
 
-Refers to: [`ResultTable`](#core-resulttable).
+Refers to: [`ResultTable`](context:fs/authoring.core-types#core-resulttable).
 
 #### `ResultBlockOptions`
 
@@ -136,7 +136,7 @@ interface ResultBlockOptions {
 }
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `rendererFolder`
 
@@ -182,7 +182,7 @@ type Outcome<T extends FnTypes> =
 | { status: 'cancelled'; partial?: T['result']; undo?: T['undo']; cost?: Usd };
 ```
 
-Refers to: [`FnError`](#core-fnerror), [`InvalidInput`](#core-invalidinput), [`Usd`](#core-usd).
+Refers to: [`FnError`](context:fs/authoring.core-types#core-fnerror), [`InvalidInput`](context:fs/authoring.core-types#core-invalidinput), [`Usd`](context:fs/authoring.core-types#core-usd).
 
 #### `Resume`
 
@@ -199,7 +199,7 @@ interface Resume<S> {
 }
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `Suspended`
 
@@ -215,7 +215,7 @@ class Suspended extends Error {
 }
 ```
 
-Refers to: [`RunId`](#core-runid).
+Refers to: [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `ACTIVE_RUN_STATUSES`
 
@@ -247,7 +247,7 @@ Whether a status is one a run never leaves on its own.
 function isSettled(status: RunStatus): status is SettledRunStatus;
 ```
 
-Refers to: [`RunStatus`](#core-runstatus).
+Refers to: [`RunStatus`](context:fs/authoring.core-types#core-runstatus).
 
 #### `isUnsettled`
 
@@ -259,7 +259,7 @@ Whether a run with this status is not finished yet (it may still change things).
 function isUnsettled(status: RunStatus): status is ActiveRunStatus;
 ```
 
-Refers to: [`RunStatus`](#core-runstatus).
+Refers to: [`RunStatus`](context:fs/authoring.core-types#core-runstatus).
 
 #### `ActiveRunStatus`
 
@@ -271,7 +271,7 @@ A status of a run that is not finished yet.
 type ActiveRunStatus = Exclude<RunStatus, SettledRunStatus>;
 ```
 
-Refers to: [`RunStatus`](#core-runstatus).
+Refers to: [`RunStatus`](context:fs/authoring.core-types#core-runstatus).
 
 #### `SettledRunStatus`
 
@@ -283,4 +283,4 @@ A status a run never leaves on its own.
 type SettledRunStatus = { [S in RunStatus]: (typeof SETTLED_BY_STATUS)[S] extends true ? S : never }[RunStatus];
 ```
 
-Refers to: [`RunStatus`](#core-runstatus).
+Refers to: [`RunStatus`](context:fs/authoring.core-types#core-runstatus).

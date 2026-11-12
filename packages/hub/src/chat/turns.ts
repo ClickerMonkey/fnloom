@@ -20,11 +20,9 @@ import { isAttached, type AttachedPart, type MentionService, type MessageEnriche
 import type { People } from './people.ts';
 import { UNTITLED, type StoreSessionService } from './sessions.ts';
 import type { StreamBuffer } from './streams.ts';
-import { allowsSystem, clip, participantOf, peopleOf, readAll, unmark } from './support.ts';
+import { allowsSystem, clip, participantOf, peopleOf, unmark } from './support.ts';
+import { allRows } from '../store/rows.ts';
 import { timeInfo } from '../execution/time.ts';
-
-/** The most runs a session is checked for when an agent is interrupted. */
-const MAX_SESSION_RUNS = 500;
 
 /** How long a notification's body may be. */
 const NOTIFICATION_BODY = 160;
@@ -322,7 +320,7 @@ export class StoreTurnService implements TurnService {
 
   /** The agent runs answering in a session now (each a turn's root, not a tool call). */
   async #answering(session: Session, except?: TurnId): Promise<Run[]> {
-    return (await readAll(this.#deps.store.table('runs'), { where: { session: session.id, kind: AGENT_KIND, status: { in: ACTIVE_RUN_STATUSES } } }, MAX_SESSION_RUNS))
+    return (await allRows(this.#deps.store.table('runs'), { where: { session: session.id, kind: AGENT_KIND, status: { in: ACTIVE_RUN_STATUSES } } }))
       .filter((run) => run.parent === undefined && run.turn !== except);
   }
 

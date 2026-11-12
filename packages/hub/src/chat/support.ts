@@ -1,13 +1,12 @@
 /** Small helpers the chat services share: a monotonic clock, agent actors, session scoping, paging and system calls. */
 import {
-  IDS, QualifiedName, splitName, type SystemName, type ActorId, type Json, type ManifestSection, type Page, type Participant, type Session, type SessionId,
+  IDS, QualifiedName, splitName, type SystemName, type ActorId, type Json, type ManifestSection, type Participant, type Session, type SessionId,
   type TurnId,
 } from '@harness/core';
 import { canonicalJson } from '@harness/sdk';
 import { HUB_SYSTEM, systemOf } from '../catalog/availability.ts';
 import type { Catalog, CatalogEntry } from '../catalog/index.ts';
 import type { SystemConnection, LinkService } from '../link/index.ts';
-import type { Table, TableQuery } from '../store/index.ts';
 import { ChatError } from './errors.ts';
 
 // ─── Time ─────────────────────────────────────────────────────────────────────
@@ -110,61 +109,6 @@ export function clip(text: string, max: number): string {
   const cut = flat.slice(0, max - 1);
   const space = cut.lastIndexOf(' ');
   return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
-}
-
-// ─── Paging ───────────────────────────────────────────────────────────────────
-
-/** A cursor into a filtered scan: the store's cursor of a page, and how many rows of that page were already seen. */
-function encodeCursor(store: string | undefined, skip: number): string {
-  return `${skip}:${store ?? ''}`;
-}
-
-function decodeCursor(cursor: string | undefined): { store: string | undefined; skip: number } {
-  if (cursor === undefined) { return { store: undefined, skip: 0 }; }
-  const at = cursor.indexOf(':');
-  const skip = Number.parseInt(cursor.slice(0, at), 10);
-  if (at < 0 || !Number.isSafeInteger(skip) || skip < 0) { throw new ChatError('invalid', 'That cursor is not one this list gave out.'); }
-  const store = cursor.slice(at + 1);
-  return { store: store === '' ? undefined : store, skip };
-}
-
-/**
- * A page of the rows that pass `keep`, scanning the table page by page. The cursor is exact (it remembers where in a
- * store page it stopped), and a scan stops after `maxPages` store pages with a cursor to go on from.
- */
-export async function collect<Row, Key>(
-  table: Table<Row, Key>, query: Omit<TableQuery<Row>, 'cursor'> & { cursor?: string | undefined }, keep: (row: Row) => boolean, maxPages = 20,
-): Promise<Page<Row>> {
-  let { store, skip } = decodeCursor(query.cursor);
-  const items: Row[] = [];
-  for (let scanned = 0; scanned < maxPages; scanned++) {
-    const page = await table.find({ ...query, ...(store === undefined ? {} : { cursor: store }) });
-    for (let i = skip; i < page.items.length; i++) {
-      const row = page.items[i];
-      if (row === undefined || !keep(row)) { continue; }
-      items.push(row);
-      if (items.length === query.limit) {
-        const more = i + 1 < page.items.length ? encodeCursor(store, i + 1) : page.cursor === undefined ? undefined : encodeCursor(page.cursor, 0);
-        return more === undefined ? { items } : { items, cursor: more };
-      }
-    }
-    if (page.cursor === undefined) { return { items }; }
-    store = page.cursor;
-    skip = 0;
-  }
-  return { items, cursor: encodeCursor(store, 0) };
-}
-
-/** Every row a query matches, up to `max`, following cursors. */
-export async function readAll<Row, Key>(table: Table<Row, Key>, query: Omit<TableQuery<Row>, 'cursor' | 'limit'>, max: number): Promise<Row[]> {
-  const rows: Row[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await table.find({ ...query, limit: Math.min(200, max - rows.length), ...(cursor === undefined ? {} : { cursor }) });
-    rows.push(...page.items);
-    cursor = page.cursor;
-  } while (cursor !== undefined && rows.length < max);
-  return rows;
 }
 
 // ─── Systems ──────────────────────────────────────────────────────────────────

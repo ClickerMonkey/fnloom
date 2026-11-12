@@ -21,7 +21,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`Section`](#core-section).
+Refers to: [`FnExamplesPage`](context:fs/authoring.core-types#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types#core-loadcontextresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types#core-mintmcptokenargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types#core-resourcesendargs), [`Section`](context:fs/authoring.core-types#core-section).
 
 #### `HubContract`
 
@@ -75,7 +75,6 @@ const ADMIN_ENDPOINTS = {
   install_package: packagingSlice.endpoints.installPackage,
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
-  // build 6
   suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
   auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
   system_reimport: systemsSlice.endpoints.reimport,
@@ -121,7 +120,7 @@ const HUB_READ_ENDPOINTS = {
   model_limits: contextorSlice.endpoints.modelLimits,
   /** Any list by the query standard (`LIST_FIELDS`): filters, sort, paging. */
   query: querySlice.endpoints.query,
-  /** Build 7: the graph of systems' fns, context, types and parts, and how they connect. */
+  /** The graph of systems' fns, context, types and parts, and how they connect. */
   graph: graphSlice.endpoints.graph,
 } as const satisfies Record<string, EndpointLike>;
 ```
@@ -169,7 +168,7 @@ type HubWriteFnName = keyof typeof HUB_WRITE_ENDPOINTS;
 
 const · `import { HUB_PERSON_ENDPOINTS } from '@harness/sdk'`
 
-Build 6: the rest of what a person does in the browser, as fns (fn name → endpoint), so the chat agent can do it
+The rest of what a person does in the browser, as fns (fn name → endpoint), so the chat agent can do it
 too, as the run's person: sessions, visibility, memory and context links, undoing a turn, background runs and
 per-person connections. None is tagged `read`, so each asks unless a policy allows it. Answering an approval or a
 question is left out on purpose: an agent must never answer what it asked.
@@ -194,7 +193,7 @@ const HUB_PERSON_ENDPOINTS = {
 
 type · `import { HubPersonFnName } from '@harness/sdk'`
 
-A person's write fn's name (build 6).
+A person's write fn's name.
 
 ```ts
 type HubPersonFnName = keyof typeof HUB_PERSON_ENDPOINTS;
@@ -204,7 +203,7 @@ type HubPersonFnName = keyof typeof HUB_PERSON_ENDPOINTS;
 
 const · `import { HUB_EXPLORE_ENDPOINTS } from '@harness/sdk'`
 
-Build 6: the file explorer's reads as fns (tagged `read`): a system's files live, as the run's person may see them.
+The file explorer's reads as fns (tagged `read`): a system's files live, as the run's person may see them.
 
 ```ts
 const HUB_EXPLORE_ENDPOINTS = {
@@ -218,7 +217,7 @@ const HUB_EXPLORE_ENDPOINTS = {
 
 type · `import { HubExploreFnName } from '@harness/sdk'`
 
-An explorer read fn's name (build 6).
+An explorer read fn's name.
 
 ```ts
 type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
@@ -228,7 +227,7 @@ type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
 
 const · `import { ADMIN_READ_ENDPOINTS } from '@harness/sdk'`
 
-Build 6: the admin pages' reads as fns (tagged `admin` and `read`): budgets, policies, priorities, providers,
+The admin pages' reads as fns (tagged `admin` and `read`): budgets, policies, priorities, providers,
 people, settings, hub MCPs, pairings, auto-pair secrets, instances and the suggestion decision model. They run only
 for an admin and never through a hub MCP; reading asks nobody.
 
@@ -253,7 +252,7 @@ const ADMIN_READ_ENDPOINTS = {
 
 type · `import { AdminReadFnName } from '@harness/sdk'`
 
-An admin read fn's name (build 6).
+An admin read fn's name.
 
 ```ts
 type AdminReadFnName = keyof typeof ADMIN_READ_ENDPOINTS;
@@ -303,7 +302,7 @@ const LlmPayloadType = g.obj({
 });
 ```
 
-Refers to: [`ModelLimits`](#core-modellimits).
+Refers to: [`ModelLimits`](context:fs/authoring.core-types#core-modellimits).
 
 #### `ModelChoiceType`
 
@@ -325,7 +324,7 @@ A chat mode's settings, as a gin type: core's `ChatModeConfig` input (defaults m
 const ChatModeType: GinType<{ type: "tools"; } | { type: "static"; protocol?: "text" | "auto" | "native" | undefined; placement?: "system-end" | "tail" | undefined; loadDetail?: "signature" | "listed" | "full" | undefined; }>;
 ```
 
-Refers to: [`ChatModeConfig`](#core-chatmodeconfig).
+Refers to: [`ChatModeConfig`](context:fs/authoring.core-types#core-chatmodeconfig).
 
 #### `ContextorType`
 
@@ -337,7 +336,7 @@ A contextor's settings, as a gin type: core's `ContextorConfig` input (defaults 
 const ContextorType = ginAs(ContextorConfig);
 ```
 
-Refers to: [`ContextorConfig`](#core-contextorconfig).
+Refers to: [`ContextorConfig`](context:fs/authoring.core-types#core-contextorconfig).
 
 #### `FnErrorType`
 
@@ -359,7 +358,7 @@ A fn as `hub/fn_get` gives it.
 const StoredFn: ObjType<{ fn: string; kind: string; description: string; version: number; available: boolean; instructions?: string | undefined; payload?: z.core.util.JSONType | undefined; owner?: string | undefined; routing?: { to: "instance"; instance: string; } | { to: "any"; } | undefined; }>;
 ```
 
-Refers to: [`FnRouting`](#core-fnrouting).
+Refers to: [`FnRouting`](context:fs/authoring.core-types#core-fnrouting).
 
 #### `SaveFnArgs`
 
@@ -382,7 +381,7 @@ const SaveFnArgs = g.obj({
 });
 ```
 
-Refers to: [`FnExample`](#core-fnexample), [`FnRouting`](#core-fnrouting), [`ShareRule`](#core-sharerule).
+Refers to: [`FnExample`](context:fs/authoring.core-types#core-fnexample), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`ShareRule`](context:fs/authoring.core-types#core-sharerule).
 
 #### `SAVE_FN_TAKEN`
 

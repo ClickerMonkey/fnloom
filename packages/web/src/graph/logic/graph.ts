@@ -324,3 +324,44 @@ export const FILTER_CHOICES = {
   stages: STAGE_CHOICES,
   effects: RegistryThing.options,
 } as const;
+
+/** A laid-out group's size (a system's cluster, or the nodes outside any), in graph units. */
+export interface GroupSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Where a group's top-left corner goes. */
+export interface GroupPlace {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * Place groups in rows so none overlaps: tallest first, each row filled left to right up to a width that makes the
+ * whole about as wide as the box it is drawn in (`aspect`, width over height), with `gap` between groups and rows.
+ * Each group keeps its own layout; only where it sits changes. The places come back in the groups' order.
+ */
+export function packGroups(groups: readonly GroupSize[], options: { readonly aspect: number; readonly gap: number }): GroupPlace[] {
+  const { gap } = options;
+  const aspect = Number.isFinite(options.aspect) && options.aspect > 0 ? options.aspect : 1;
+  const area = groups.reduce((sum, group) => sum + (group.width + gap) * (group.height + gap), 0);
+  const widest = groups.reduce((most, group) => Math.max(most, group.width), 0);
+  const rowWidth = Math.max(widest, Math.sqrt(area * aspect));
+  const order = groups.map((group, at) => ({ group, at })).sort((a, b) => b.group.height - a.group.height || a.at - b.at);
+  const places: GroupPlace[] = groups.map(() => ({ x: 0, y: 0 }));
+  let x = 0;
+  let y = 0;
+  let rowHeight = 0;
+  for (const { group, at } of order) {
+    if (x > 0 && x + group.width > rowWidth) {
+      x = 0;
+      y += rowHeight + gap;
+      rowHeight = 0;
+    }
+    places[at] = { x, y };
+    x += group.width + gap;
+    rowHeight = Math.max(rowHeight, group.height);
+  }
+  return places;
+}

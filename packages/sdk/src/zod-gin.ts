@@ -82,16 +82,58 @@ export function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>> {
 }
 
 /**
- * A fn's args read off a zod schema. Tool args are always an object, so a schema that isn't one (a union of shapes)
- * is taken as the field `input`; `read` turns args back into a value for the schema, checked by it.
+ * A fn's args read off a zod schema. Tool args are always an object: an object schema is taken as it is, and a union
+ * of objects (an import from a URL or from an upload, one provider of several) is flattened into one object with
+ * every member's fields, so the model passes plain args either way; the schema itself picks the member when `read`
+ * parses them. Any other schema is taken as the field `input`.
  */
 export function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType<ToolArgs<S>>; readonly read: (args: unknown) => z.output<S> } {
   if (schema instanceof z.ZodObject) return { args: typedAs<ToolArgs<S>>(ginOf(schema)), read: (args) => schema.parse(args) };
+  const members = objectMembers(schema);
+  if (members !== undefined) return { args: typedAs<ToolArgs<S>>(ginOf(flattened(members))), read: (args) => schema.parse(args) };
   return { args: typedAs<ToolArgs<S>>(g.obj({ input: ginOf(schema) })), read: (args) => schema.parse(Wrapped.parse(args).input) };
 }
 
-/** The args a tool for a zod schema takes: the schema's input when it is an object, else that input as `input`. */
-export type ToolArgs<S extends z.ZodType> = S extends z.ZodObject ? z.input<S> : { input: z.input<S> };
+/** The keys of any member of a union. */
+type KeysOf<U> = U extends unknown ? keyof U : never;
+
+/** What a key holds in whichever members have it. */
+type FieldOf<U, K extends PropertyKey> = U extends unknown ? (K extends keyof U ? U[K] : never) : never;
+
+/** A union of objects as one object: every member's fields, each one optional (the schema checks the member on read). */
+export type FlatArgs<U> = { [K in KeysOf<U>]?: FieldOf<U, K> };
+
+/**
+ * The args a tool for a zod schema takes: the schema's input when it is an object, a union of objects flattened into
+ * one, else that input as `input`.
+ */
+export type ToolArgs<S extends z.ZodType> = S extends z.ZodObject ? z.input<S> : S extends z.ZodUnion<readonly z.ZodObject[]> ? FlatArgs<z.input<S>> : { input: z.input<S> };
+
+/** The members of a union whose members are all objects; undefined for any other schema. */
+function objectMembers(schema: z.ZodType): z.ZodObject[] | undefined {
+  if (!(schema instanceof z.ZodUnion)) return undefined;
+  const members = schema.options.filter((option) => option instanceof z.ZodObject);
+  return members.length === schema.options.length ? members : undefined;
+}
+
+/**
+ * One object with every member's fields. A field is required only when every member requires it; a field whose
+ * members differ (the discriminator's literals, say) takes any of their types.
+ */
+function flattened(members: readonly z.ZodObject[]): z.ZodObject {
+  const shapes = members.map((member): Readonly<Record<string, z.core.$ZodType | undefined>> => member.shape);
+  const keys = [...new Set(shapes.flatMap((fields) => Object.keys(fields)))];
+  const shape: Record<string, z.core.$ZodType> = {};
+  for (const key of keys) {
+    const fields = shapes.flatMap((own) => { const field = own[key]; return field === undefined ? [] : [field]; });
+    const optional = fields.length < members.length || fields.some((field) => field._zod.optin === 'optional');
+    const [only, ...more] = [...new Set(fields.map(required))];
+    if (only === undefined) continue;
+    const type = more.length === 0 ? only : z.union([only, ...more]);
+    shape[key] = optional ? z.optional(type) : type;
+  }
+  return z.object(shape);
+}
 
 /** A gin type built by `ginOf` from a schema whose input is `T`, given that type. */
 function typedAs<T>(type: GinType): GinType<T> {

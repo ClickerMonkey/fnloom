@@ -67,7 +67,7 @@ export type InstalledSystem = z.infer<typeof InstalledSystem>;
 
 /**
  * What an admin has switched on. Functions off keeps renderers drawing old messages; renderers off uses plain views.
- * Context off (build 6) leaves every context item of the system out of selection, search and loading; absent means on.
+ * Context off leaves every context item of the system out of selection, search and loading; absent means on.
  */
 export const SystemEnabled = z.object({ functions: z.boolean(), renderers: z.boolean(), context: z.boolean().optional() });
 export type SystemEnabled = z.infer<typeof SystemEnabled>;
@@ -115,7 +115,7 @@ export const SystemRecord = z.object({
   /** Where a run goes when neither its args nor its session pick an instance (fleets). */
   defaultInstance: InstanceName.optional(),
   actor: ActorId,
-  /** Build 7: installed (nothing offered yet) or live; absent on rows stored before build 7, which count as live. */
+  /** Installed (nothing offered yet) or live; absent on rows stored before build 7, which count as live. */
   stage: SystemStage.optional(),
 }).extend(LegacyInstanceFields.shape);
 export type SystemRecord = z.infer<typeof SystemRecord>;
@@ -156,10 +156,10 @@ export const PairingToken = z.object({
   createdBy: ActorId,
   expiresAt: Timestamp,
   usedAt: Timestamp.optional(),
-  /** The instance it pairs may re-pair by itself (build 3): its secret is granted in the first welcome. */
+  /** The instance it pairs may re-pair by itself: its secret is granted in the first welcome. */
   autoPair: AutoPairChoice.optional(),
   /**
-   * Build 6: a token granted to an approved install run (`grantPairing`). It pairs only a hello with this instance and
+   * A token granted to an approved install run (`grantPairing`). It pairs only a hello with this instance and
    * manifest hash (and `PairingToken.name`), and grants auto pair, so the hosted system re-pairs by itself.
    */
   boundTo: z.object({ instance: InstanceName, manifestHash: z.string().min(1), host: InstanceRef, run: RunId }).optional(),
@@ -242,9 +242,9 @@ export const TypeRecord = TypeDecl.omit({ name: true, methods: true }).extend({
    * hub works these out from `def` itself; this is the only place they are kept.
    */
   references: z.array(QualifiedName),
-  /** Build 6: from its system's contract or added while running; absent on rows stored before build 6. */
+  /** From its system's contract or added while running; absent on rows stored before build 6. */
   declaredBy: DeclaredBy.optional(),
-  /** Build 6: hash of its declaration, so a change reads as a new version. */
+  /** Hash of its declaration, so a change reads as a new version. */
   version: z.string().optional(),
   updatedAt: Timestamp,
 });
@@ -261,16 +261,16 @@ export const ContextRecord = z.object({
   system: SystemName,
   /** Where it came from; absent means declared by its system. */
   origin: ContextOrigin.optional(),
-  /** Build 6: for a system's own context, from its contract (or context folder) or added while running. */
+  /** For a system's own context, from its contract (or context folder) or added while running. */
   declaredBy: DeclaredBy.optional(),
-  /** Build 6: hash of its declaration, so a change reads as a new version. */
+  /** Hash of its declaration, so a change reads as a new version. */
   version: z.string().optional(),
   decl: ContextDecl,
   /** Estimated tokens of the full content and of the summary; absent until the contextor sizes it. */
   tokens: ContextTokens.optional(),
   /** Turned off by a person (`hub/forget` disables memory); left out of every selection and search. */
   disabled: z.boolean().optional(),
-  /** Build 6: its system's context is switched off (`SystemEnabled.context`); kept apart from `disabled`, so switching the system back on restores each item's own switch. */
+  /** Its system's context is switched off (`SystemEnabled.context`); kept apart from `disabled`, so switching the system back on restores each item's own switch. */
   systemOff: z.boolean().optional(),
   /** References found in the text (`@fs/read`), added to what loading brings along. */
   mentions: z.object({ context: z.array(QualifiedName), fns: z.array(QualifiedName) }),

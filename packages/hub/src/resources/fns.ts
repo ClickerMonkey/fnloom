@@ -3,8 +3,8 @@
  * `hub/resource_read`, `hub/resource_outline`, `hub/resource_send`, `hub/context_get`) and writing
  * (`hub/resource_convert`, `hub/resource_import`, `hub/resource_rename`, `hub/resource_delete`,
  * `hub/context_from_resource`, `hub/remember`, `hub/forget`). The fns that mirror a web endpoint read their args with
- * that endpoint's body schema (`HUB_READ_ENDPOINTS`, `HUB_WRITE_ENDPOINTS`, through `toolArgsOf`, which unwraps a
- * body that isn't an object, such as an import's URL-or-content union) and run the same operation as its
+ * that endpoint's body schema (`HUB_READ_ENDPOINTS`, `HUB_WRITE_ENDPOINTS`, through `toolArgsOf`, which flattens a
+ * union body, such as an import's URL-or-content, into plain args) and run the same operation as its
  * handler, as the run's person, so the chat LLM sees and does what the browser does. Called through a hub MCP, each
  * fn also keeps to that MCP's rules: a resource outside them, or a context item it doesn't expose, is answered as if
  * it weren't there, and a listing leaves them out. Services are read when a fn runs, never while registering.

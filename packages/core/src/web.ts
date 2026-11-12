@@ -220,7 +220,7 @@ export const chatSlice = spec({
     },
     /** Run a fn by hand (`!fn`). */
     invoke: { body: z.object({ session: SessionId, fn: QualifiedName, args: Json, client: ClientInfo }), response: z.object({ turn: TurnId, run: RunId }), ws: 'invoke' },
-    /** Pause, resume or cancel the session's work: every run it applies to, or only `runs` (build 3). */
+    /** Pause, resume or cancel the session's work: every run it applies to, or only `runs`. */
     control: { body: z.object({ session: SessionId, action: SessionControlAction, runs: z.array(RunId).min(1).optional() }), response: SessionControls, ws: 'control' },
     presence: { body: Presence.omit({ user: true, lastActiveAt: true }), ws: 'presence' },
   }),
@@ -289,7 +289,7 @@ export const SwitchItem = z.object({ section: z.enum(['fns', 'context']), name: 
 export type SwitchItem = z.infer<typeof SwitchItem>;
 
 /**
- * Build 7: any other item a system page lists (types, roots, kinds, commands, components, providers, examples, ...), by
+ * Any other item a system page lists (types, roots, kinds, commands, components, providers, examples, ...), by
  * its system and its listed name (`SystemPart.name`, a root's URI). Off items are kept in `itemSwitches`.
  */
 export const SwitchPart = z.object({ system: SystemName, section: ItemSection.exclude(['fns', 'context']), name: z.string().min(1), on: z.boolean() });
@@ -312,7 +312,7 @@ export const systemsSlice = spec({
     configureSystem: { body: z.object({ system: SystemName, config: Json, instance: InstanceName.optional() }), response: z.union([z.object({ version: z.number().int() }), z.object({ problems: z.array(z.string()) })]), ws: 'configureSystem' },
     /** Turn a system's functions, renderers and context (every item of it, build 6) on or off separately. */
     enableSystem: { body: z.object({ system: SystemName, functions: z.boolean().optional(), renderers: z.boolean().optional(), context: z.boolean().optional() }), response: z.object({ enabled: SystemEnabled }), ws: 'enableSystem' },
-    /** Build 6: turn one of a system's fns or context items on or off by itself (`FnRecord.disabled`, `ContextRecord.disabled`). */
+    /** Turn one of a system's fns or context items on or off by itself (`FnRecord.disabled`, `ContextRecord.disabled`). */
     switchItem: { body: SwitchItem, response: z.object({ on: z.boolean() }), ws: 'switchItem' },
     switchPart: { body: SwitchPart, response: z.object({ on: z.boolean() }), ws: 'switchPart' },
     removeSystem: { body: z.object({ system: SystemName }), response: z.object({ fnsUnavailable: z.number().int() }), ws: 'removeSystem' },
@@ -322,7 +322,7 @@ export const systemsSlice = spec({
     /** Stop an installed system's instances, or one of them. */
     stopSystem: { body: z.object({ system: SystemName, instance: InstanceName.optional() }), response: z.object({ ok: z.boolean() }), ws: 'stopSystem' },
     /**
-     * Build 6: restart an instance. A hosted one (`InstanceRecord.host`) restarts through its host's
+     * Restart an instance. A hosted one (`InstanceRecord.host`) restarts through its host's
      * `restart_system` fn; start and stop go to the host's fns the same way.
      */
     restartSystem: { body: z.object({ system: SystemName, instance: InstanceName.optional(), reason: z.string().min(1).max(200) }), response: z.object({ ok: z.boolean() }), ws: 'restartSystem' },
@@ -353,7 +353,7 @@ export const adminSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
     /** A system's fns, with whether each can be used now and its running numbers. */
     systemFns: { body: z.object({ system: SystemName }), response: z.array(FnRecord), ws: 'systemFns' },
-    /** Build 6: what a system added beyond its fns, context and types (kinds, commands, providers, components, examples, …). */
+    /** What a system added beyond its fns, context and types (kinds, commands, providers, components, examples, …). */
     systemParts: { body: SystemPartsQuery, response: SystemParts, ws: 'systemParts' },
     /** The end of a system's output, oldest first; new lines arrive on `systemLog`. */
     systemLogs: { body: z.object({ system: SystemName, limit: z.number().int().min(1).max(2_000).optional() }), response: z.array(OutputLine), ws: 'systemLogs' },
@@ -436,7 +436,7 @@ export const contextSlice = spec({
     contexts: { body: ContextQuery, response: page(ContextRecord), ws: 'contexts' },
     contextItem: { body: z.object({ name: QualifiedName }), response: ContextItemView, ws: 'contextItem' },
     remember: { body: RememberArgs, response: z.object({ name: QualifiedName }), ws: 'remember' },
-    /** Edit a memory's text, title and options (build 3). */
+    /** Edit a memory's text, title and options. */
     updateMemory: { body: UpdateMemoryArgs, response: z.object({ name: QualifiedName }), ws: 'updateMemory' },
     forget: { body: z.object({ name: QualifiedName }), response: z.object({ ok: z.boolean() }), ws: 'forget' },
     linkContext: { body: z.object({ from: QualifiedName, to: LinkTarget, relation: DeclarableRelation, weight: z.number().min(0).max(1) }), response: ContextLink, ws: 'linkContext' },
@@ -610,7 +610,7 @@ export const pickerSlice = spec({
 // ─── Build 5 slices ───────────────────────────────────────────────────────────
 
 /**
- * Approvals by run (build 5): the approval of each named run the signed-in person may see, with its preview. The admin
+ * Approvals by run: the approval of each named run the signed-in person may see, with its preview. The admin
  * runs list finds waiting runs (`status` is `awaiting-approval`, in any session or none); `approve` answers them.
  */
 export const approvalsSlice = spec({
@@ -619,7 +619,7 @@ export const approvalsSlice = spec({
   }),
 });
 
-/** Registries (build 5): the entries every connected system contributes to a registry, so the app loads their bundles. */
+/** Registries: the entries every connected system contributes to a registry, so the app loads their bundles. */
 export const registriesSlice = spec({
   endpoints: use(tel, hubAuth).group({
     contributions: { body: z.object({ registry: QualifiedName }), response: z.array(ContributionView), ws: 'contributions' },
@@ -649,7 +649,7 @@ export const fnsSlice = mergeSpecs(
 );
 
 /**
- * The file explorer (build 6): browse and read a system's resources live (an fs instance's files), routed to the
+ * The file explorer: browse and read a system's resources live (an fs instance's files), routed to the
  * system that serves the URI as the signed-in person may see it. Nothing is imported or stored in the hub.
  */
 export const explorerSlice = spec({
@@ -679,7 +679,7 @@ export const reviewSlice = spec({
   }),
 });
 
-/** The graph of systems' items and how they connect (build 7), as the signed-in person may see it. */
+/** The graph of systems' items and how they connect, as the signed-in person may see it. */
 export const graphSlice = spec({
   endpoints: use(tel, hubAuth).group({
     graph: { body: GraphQuery, response: GraphPage, ws: 'graph' },

@@ -11,14 +11,12 @@ import { DAY_MS, mintId, type ActorId, type HubMcp, type HubMcpId, type HubMcpIn
 import type { EventBus } from '../bus.ts';
 import { MCP_PATH } from '../api/http.ts';
 import type { HubStore } from '../store/index.ts';
+import { allRows } from '../store/rows.ts';
 import { sha256Hex } from '../link/keys.ts';
 import type { McpRegistry } from './index.ts';
 
 /** The prefix every endpoint secret starts with, so a leaked one is easy to find. */
 export const SECRET_PREFIX = 'hmcp_';
-/** How many MCPs a list reads at most. */
-const MAX_MCPS = 500;
-
 /** A new endpoint secret. */
 export function newSecret(): string {
   return `${SECRET_PREFIX}${randomBytes(32).toString('base64url')}`;
@@ -55,8 +53,8 @@ export class StoreMcpRegistry implements McpRegistry {
   }
 
   async list(): Promise<HubMcpView[]> {
-    const page = await this.#deps.store.table('mcps').find({ order: [['name', 'asc']], limit: MAX_MCPS });
-    return Promise.all(page.items.map((record) => this.#view(record)));
+    const records = await allRows(this.#deps.store.table('mcps'), { order: [['name', 'asc']] });
+    return Promise.all(records.map((record) => this.#view(record)));
   }
 
   async get(mcp: HubMcpId): Promise<HubMcpView | undefined> {

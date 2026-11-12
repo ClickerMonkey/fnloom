@@ -9,7 +9,7 @@ import { compact, InstanceView, MAIN_INSTANCE, type BudgetView, type SettingView
 import type { ADMIN_READ_ENDPOINTS, AdminReadFnName, HUB_EXPLORE_ENDPOINTS, HUB_PERSON_ENDPOINTS, HubExploreFnName, HubPersonFnName } from '@harness/sdk';
 import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { knownSystem, modelsOf, providerRecords } from './admin-ops.ts';
 import { collect, PAGE } from './paging.ts';
 import { DEFAULT_AGENT } from '../chat/sessions.ts';
@@ -143,7 +143,7 @@ export function adminReadOperations(hub: HubServices): AdminReadOperations {
     instances_list: async (data, user) => {
       needAdmin(user);
       await knownSystem(hub, data.system);
-      const rows = await allRows(store.table('instances'), { system: data.system });
+      const rows = await allRows(store.table('instances'), { where: { system: data.system } });
       return rows.sort((a, b) => a.instance.localeCompare(b.instance)).map((row) => InstanceView.parse(maskedInstance(row)));
     },
     suggest_decision_get: (_data, user) => { needAdmin(user); return hub.chat.suggestions.setting(); },

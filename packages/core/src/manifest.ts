@@ -44,18 +44,18 @@ export const TypeDecl = z.object({
   display: TypeDisplay,
   methods: z.array(LocalName),
   /**
-   * Build 5: the fleet instance this type belongs to (a database's table types). A manifest or patch from another
+   * The fleet instance this type belongs to (a database's table types). A manifest or patch from another
    * instance of the system leaves it alone; absent, the type is the whole system's.
    */
   instance: InstanceName.optional(),
   /**
-   * Build 5: who may see the type, besides admins, when it is narrower than its system (a database's table types,
+   * Who may see the type, besides admins, when it is narrower than its system (a database's table types,
    * whose descriptions carry sample values, follow the database's audience). `private` leaves it to admins. Absent:
    * whoever sees its system.
    */
   audience: ShareRule.optional(),
   /**
-   * Build 6: the defining system's own facts about the type, kept with it in the hub and read back through
+   * The defining system's own facts about the type, kept with it in the hub and read back through
    * `ctx.types` (a table type's schema hash and enrichment). The hub stores them and never reads them.
    */
   meta: z.record(z.string(), Json).optional(),
@@ -93,9 +93,9 @@ export const KindDecl = z.object({
   approveChanges: z.boolean(),
   /** The status words of its fns that declare none. */
   status: StatusTemplates.optional(),
-  /** Build 6: its system answers `estimate` on the link, working out a fn's cost from its payload and args. */
+  /** Its system answers `estimate` on the link, working out a fn's cost from its payload and args. */
   estimates: z.boolean().optional(),
-  /** Build 6: how every fn of this kind asks before it runs; the hub copies it onto each fn saved of the kind. */
+  /** How every fn of this kind asks before it runs; the hub copies it onto each fn saved of the kind. */
   approval: FnApproval.optional(),
 });
 export type KindDecl = z.infer<typeof KindDecl>;
@@ -105,7 +105,7 @@ export type HandlerDecl = z.infer<typeof HandlerDecl>;
 
 /** `native`, or the qualified name of the kind that runs a fn. */
 /**
- * Build 5: which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
+ * Which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
  * fn belongs to it the way `TypeDecl.instance` says. `any`: whichever connected instance the hub picks first (the
  * session's pin, then the default), with no ambiguity refusal; the fn forwards with `on` itself when it must.
  * Absent: the fleet rules (`FleetRouter`).
@@ -145,7 +145,7 @@ export const RegistryAction = z.enum(REGISTRY_ACTIONS);
 export type RegistryAction = z.infer<typeof RegistryAction>;
 
 /**
- * Build 6: one thing a fn creates, updates or removes in the hub (`FnEffects.registry`): `{ thing: 'fns', action:
+ * One thing a fn creates, updates or removes in the hub (`FnEffects.registry`): `{ thing: 'fns', action:
  * 'create', kind: 'database/query' }` for a fn that saves queries. `kind` narrows `fns` to one fn kind; absent, any.
  */
 export const RegistryEffect = z.object({
@@ -166,7 +166,7 @@ export const FnEffects = z.object({
   writes: z.array(QualifiedName).optional(),
   /** Its own work spends nothing (reading a file); what it calls may still cost. */
   free: z.boolean().optional(),
-  /** Build 6: what it creates, updates or removes in the hub. The hub refuses a registry change a run's fn did not declare. */
+  /** What it creates, updates or removes in the hub. The hub refuses a registry change a run's fn did not declare. */
   registry: z.array(RegistryEffect).optional(),
 });
 export type FnEffects = z.infer<typeof FnEffects>;
@@ -189,7 +189,7 @@ export const FnDecl = z.object({
   instructions: z.string().optional(),
   kind: FnKindName,
   payload: Json.optional(),
-  /** Build 5: its payload as a person reads it, from its kind (`KindDescription.readable`). */
+  /** Its payload as a person reads it, from its kind (`KindDescription.readable`). */
   readable: ReadablePayload.optional(),
   args: GinTypeDef,
   returns: GinTypeDef,
@@ -214,16 +214,16 @@ export const FnDecl = z.object({
    * example's args against the fn's own args type when the contract is built, so a wrong example does not build.
    */
   examples: z.array(FnExample).optional(),
-  /** Build 4: the validation hooks its system runs before and after a run (`validate` on the system link). */
+  /** The validation hooks its system runs before and after a run (`validate` on the system link). */
   validate: FnValidation.optional(),
-  /** Build 5: every run waits for approval first, with the system's preview of what it would do (`approvals.ts`). */
+  /** Every run waits for approval first, with the system's preview of what it would do (`approvals.ts`). */
   approval: FnApproval.optional(),
-  /** Build 5: which fleet instance runs it. */
+  /** Which fleet instance runs it. */
   routing: FnRouting.optional(),
-  /** Build 5: what it does to data (see `FnFacts` for what the hub works out). */
+  /** What it does to data (see `FnFacts` for what the hub works out). */
   effects: FnEffects.optional(),
   /**
-   * Build 5: how many of its examples go into the model's prompt with it, the most relevant to the turn first (the
+   * How many of its examples go into the model's prompt with it, the most relevant to the turn first (the
    * hub's `HARNESS_FN_PROMPT_EXAMPLES` when absent). The rest are a `hub/fn_examples` call away.
    */
   promptExamples: z.number().int().min(0).max(20).optional(),
@@ -235,7 +235,7 @@ export const CommandArg = z.object({ name: z.string(), hint: z.string(), require
 export type CommandArg = z.infer<typeof CommandArg>;
 
 /**
- * Build 6: one choice a context offers the model next, in a choose-your-own-adventure graph: the context to load and a
+ * One choice a context offers the model next, in a choose-your-own-adventure graph: the context to load and a
  * one-line "pick this when…" written as a decision. The hub shows each with its token size; `hub/load_context` loads it.
  */
 export const ContextChoice = z.object({ to: QualifiedName, when: z.string().min(1).max(200) });
@@ -247,7 +247,7 @@ export type ContextChoice = z.infer<typeof ContextChoice>;
  */
 export const ContextDecl = z.object({
   name: LocalName,
-  /** Build 6: what people see; its description when absent. */
+  /** What people see; its description when absent. */
   title: z.string().min(1).optional(),
   description: z.string(),
   /** Absent for dynamic context: the hub asks the system for it on load. */
@@ -267,7 +267,7 @@ export const ContextDecl = z.object({
   /** Its parent in a hierarchy, and the next piece of a chain (a long text in ordered pieces). */
   parent: QualifiedName.optional(),
   next: QualifiedName.optional(),
-  /** Build 6: what the model may load next, each worded as a decision (see `ContextChoice`). */
+  /** What the model may load next, each worded as a decision (see `ContextChoice`). */
   choices: z.array(ContextChoice).optional(),
   /** Weighted links to other context, fns, types and resources. */
   links: z.array(DeclaredLink).optional(),
@@ -376,24 +376,24 @@ export const Manifest = z.object({
   config: GinTypeDef,
   /** Systems whose fns, kinds, types or context it refers to. */
   requires: z.array(SystemName),
-  /** Build 4: aeye providers whose code runs in the system; the hub registers each as `<system>/<name>`. */
+  /** Aeye providers whose code runs in the system; the hub registers each as `<system>/<name>`. */
   providers: z.array(SystemProviderDecl).optional(),
-  /** Build 4: a per-person system: each person connects their own account on its page. */
+  /** A per-person system: each person connects their own account on its page. */
   connect: ConnectDecl.optional(),
-  /** Build 5: registries it hosts, which systems contribute entries to from their client bundles. */
+  /** Registries it hosts, which systems contribute entries to from their client bundles. */
   registries: z.array(RegistryDecl).optional(),
-  /** Build 5: entries it adds to registries (its own or another system's). */
+  /** Entries it adds to registries (its own or another system's). */
   contributes: z.array(ContributionDecl).optional(),
-  /** Build 5: the secret fields of its config, which the hub seals (`config-secrets.ts`). */
+  /** The secret fields of its config, which the hub seals (`config-secrets.ts`). */
   configSecrets: ConfigSecrets.optional(),
   /**
-   * Build 6: the entries the running system added or replaced (`add`, `setTypes`, `patch`), by local name per
+   * The entries the running system added or replaced (`add`, `setTypes`, `patch`), by local name per
    * section. The hub stores them with origin `runtime`; everything else in the manifest is the contract's.
    */
   runtime: z.partialRecord(ManifestSection, z.array(LocalName)).optional(),
-  /** Build 7: what it may do through the hub (and, hosted, on its machine); absent, the base only. The hub enforces it. */
+  /** What it may do through the hub (and, hosted, on its machine); absent, the base only. The hub enforces it. */
   grants: SystemGrants.optional(),
-  /** Build 7: its own config component, drawn instead of or beside the gin form. */
+  /** Its own config component, drawn instead of or beside the gin form. */
   configComponent: ConfigComponentDecl.optional(),
 });
 export type Manifest = z.infer<typeof Manifest>;
@@ -409,11 +409,11 @@ export const ManifestPatch = z.object({
   upsert: z.object(sections).partial(),
   remove: z.partialRecord(ManifestSection, z.array(LocalName)),
   /**
-   * Build 6: the manifest's top-level lists, each replaced whole when present (they are short): providers, the
+   * The manifest's top-level lists, each replaced whole when present (they are short): providers, the
    * registries it hosts and its contributions to registries (its own or another system's).
    */
   lists: Manifest.pick({ providers: true, registries: true, contributes: true }).optional(),
-  /** Build 6: its resource roots changed; the hub asks for them again (`roots`). */
+  /** Its resource roots changed; the hub asks for them again (`roots`). */
   roots: z.literal(true).optional(),
 });
 export type ManifestPatch = z.infer<typeof ManifestPatch>;
@@ -448,11 +448,11 @@ export const KindDescription = z.object({
   status: StatusTemplates.optional(),
   limits: FnLimits.optional(),
   display: Display.optional(),
-  /** Build 5: every run of this payload's fn waits for approval (a write query), as `FnDecl.approval`. */
+  /** Every run of this payload's fn waits for approval (a write query), as `FnDecl.approval`. */
   approval: FnApproval.optional(),
-  /** Build 5: what this payload's fn does to data (a query's mode and the tables it reads and writes), over the fn's own. */
+  /** What this payload's fn does to data (a query's mode and the tables it reads and writes), over the fn's own. */
   effects: FnEffects.optional(),
-  /** Build 5: the payload as a person reads it (a query's SQL), shown on the fn's page over the stored JSON. */
+  /** The payload as a person reads it (a query's SQL), shown on the fn's page over the stored JSON. */
   readable: ReadablePayload.optional(),
 });
 export type KindDescription = z.infer<typeof KindDescription>;

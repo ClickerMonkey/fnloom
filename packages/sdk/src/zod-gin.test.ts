@@ -43,12 +43,19 @@ describe('gin types read off zod schemas', () => {
     expect(() => ginOf(z.promise(z.string()))).toThrow(/no gin type/);
   });
 
-  it('takes a non-object schema as the args field input, and reads it back through the schema', () => {
-    const Either = z.union([z.object({ a: z.string() }), z.object({ b: z.number() })]);
+  it('flattens a union of objects into plain args, and reads them back through the schema', () => {
+    const Either = z.discriminatedUnion('kind', [z.object({ kind: z.literal('a'), a: z.string() }), z.object({ kind: z.literal('b'), b: z.number(), note: z.string().optional() })]);
     const tool = toolArgsOf(Either);
-    expect(parseValue(tool.args, { input: { b: 2 } })).toEqual({ input: { b: 2 } });
-    expect(tool.read({ input: { b: 2 } })).toEqual({ b: 2 });
-    expect(() => tool.read({ b: 2 })).toThrow();
+    expect(parseValue(tool.args, { kind: 'b', b: 2 })).toEqual({ kind: 'b', b: 2 });
+    expect(() => parseValue(tool.args, { b: 2 })).toThrow();
+    expect(tool.read({ kind: 'b', b: 2 })).toEqual({ kind: 'b', b: 2 });
+    expect(() => tool.read({ kind: 'a', b: 2 })).toThrow();
+  });
+
+  it('takes any other non-object schema as the args field input', () => {
+    const tool = toolArgsOf(z.array(z.string()));
+    expect(tool.read({ input: ['x'] })).toEqual(['x']);
+    expect(() => tool.read(['x'])).toThrow();
     const plain = toolArgsOf(z.object({ a: z.string() }));
     expect(plain.read({ a: 'x' })).toEqual({ a: 'x' });
   });

@@ -1,5 +1,5 @@
 /**
- * Registries (build 5): a system declares a registry of components, and any system (itself included) contributes
+ * Registries: a system declares a registry of components, and any system (itself included) contributes
  * entries to it from its client bundle. The first registry is the database system's query visuals: each visual's
  * client code says whether a result table fits it and how well (`VisualFit`); the result view shows the best fit and
  * lets the person switch between every visual that fits. The table is always there, with the lowest score.

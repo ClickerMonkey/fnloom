@@ -4,7 +4,7 @@
  */
 import type { ActorId, BudgetRule, LedgerEntry, LimitScope, Usd } from '@harness/core';
 import type { HubStore, Where } from '../store/index.ts';
-import { allRows, rows } from './pages.ts';
+import { allRows, rows } from '../store/rows.ts';
 
 
 /** What has been spent against budgets. */

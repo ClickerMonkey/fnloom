@@ -43,7 +43,7 @@ systems/
   input/       @harness/system-input     the `input/form` kind, `get_input` (reuses a saved form or has an agent write a gin type), the `ask_*` fns, `save_form`, the form renderer (build 4)
   google-calendar/ @harness/system-google-calendar  a per-person `connect` system (OAuth): list, search, get, create, update and delete events (build 4)
   database/    @harness/system-database  a fleet, one instance per database (SQLite, Postgres, SQL Server): tables as types, the `database/query` kind, `get_query` / `edit_query`, `create_table` / `alter_table` through approval, the `query-visuals` registry and result view (build 5)
-scripts/       dev.ts (npm run dev), stack.ts (boots the stack; supervise.ts restarts a crashed dev process), hub-client.ts (the CLI's `@harness/cli/hub-client`) and
+scripts/       dev.ts (npm run dev) and live.ts (npm run live) over run-stack.ts, stack.ts (boots the stack; supervise.ts restarts a crashed dev process), hub-client.ts (the CLI's `@harness/cli/hub-client`) and
                session.ts (driving a hub from scripts), web-manifest.ts (generated web manifest), env-example.ts
   docs/        the authoring guide generator (`npm run docs:authoring`, `--check` in `npm run check`): the TypeScript
                compiler over the SDK's entry points (`extract.ts`), the section order every export must have a place in
@@ -135,7 +135,7 @@ through each other's implementation files. Each module's handlers are installed 
 
 | Module | Interfaces to implement | Libraries it uses |
 |---|---|---|
-| `store/` | `HubStore`, `Table`, `VectorIndex`, `TextIndex`, `AyepiPorts`, `StoreFactory` | better-sqlite3, sqlite-vec (768), Kysely, `@ayepi/sqlite` (work + rate ports) |
+| `store/` | `HubStore`, `Table`, `VectorIndex`, `TextIndex`, `AyepiPorts`, `StoreFactory`; `rows.ts`, the one paged-read helper (`rows`, `allRows`, `someRows`, `cappedRows`, `filteredPage` for a filter the database can't run) | better-sqlite3, sqlite-vec (768), Kysely, `@ayepi/sqlite` (work + rate ports) |
 | `catalog/` | `Catalog`, `FnSignature`, `KindDescriber` | `@aeye/gin` (`parse`, `compatible`, `typeClosure`, `toValueSchema`) |
 | `link/` | `LinkService`, `SystemConnection`, `PairingService`, `ConfigService`, `Supervisor` (build 6: `reads.ts`, the link reads checked as the run's person, and `grantPairing`) | `@ayepi/core` peers, `@ayepi/node`, `@ayepi/updown` |
 | `execution/` | `RunService`, `PolicyEngine`, `LimitResolver`, `Ledger`, `LlmGateway`, `AgentLoop` | `@ayepi/work`, `@ayepi/rate`, `@aeye/core` (`Prompt`, `PromptSuspend`), `@aeye/ai`, `@aeye/openrouter`, `@aeye/models` |
@@ -199,6 +199,7 @@ why).
 | `npm run lint` | `scripts/lint.ts`: ESLint (strict type-checked, no `any`, no casts, Vue), one area (each workspace, `scripts`, `e2e`, `ui-tests`) per process so the type-aware rules fit in memory |
 | `npm run web:manifest` | regenerate the web app's manifest from `hubWebSpec` |
 | `npm run dev` | `scripts/dev.ts` over `scripts/stack.ts`: builds the web app, starts the hub (serving it) on `HARNESS_PORT` (4300) bound to `0.0.0.0`, signs in as the admin from `.env`, pairs fs, the embedder and (with `TAVILY_API_KEY` set) the web system with one-time tokens the first time, configures fs with this repository as its root. Data in `HARNESS_DATA` (`.harness`). `HARNESS_DEV_ONLY=hub,fs` runs a subset; the components are `web` (the build), `hub`, `fs`, `embedder` and `web-system` |
+| `npm run live` | `scripts/live.ts` over the same `scripts/run-stack.ts`: bundles the hub (with the linked libraries) with esbuild and builds the web app into `.live/<commit>/` (`<commit>-<time>` for a tree with changes), then runs them with plain Node and nothing watched, on the same port, data and settings as `npm run dev`. Systems run from source, unwatched. README, "Running a stable stack" |
 | `npm run dev:web` | Vite with hot reload on `HARNESS_WEB_PORT` (4310), proxying the hub |
 | `npm run e2e` | `e2e/*.e2e.test.ts` (vitest project `e2e`): boots the stack (with the web system when `TAVILY_API_KEY` is set) on `HARNESS_E2E_PORT` (4330), data `.harness-test/e2e`, and drives it with a free OpenRouter model; the graph contextor suite uses the local Ollama and is skipped without it |
 | `npm run ui-tests` | `ui-tests/run.ts`: every UI feature script in `ui-tests/features/` against `HARNESS_UI_URL`, at each layout (desktop 1440, laptop 1180, tablet 768, phone 390; wide 1920 and phone-landscape 844x390 for the features that ask); shots in `ui-tests/shots/<feature>/` |
@@ -253,6 +254,11 @@ Still open (build 2's list is in [plans/build-2-design.md](plans/build-2-design.
   them against the library's at compile time); versioned converter ids (`htmlConverter@2`); `basenameFromLocation`
   for non-local `file://` URLs on Windows.
 - **@ayepi/mcp:** a stdio-to-HTTP proxy helper (the CLI's `harness mcp` bridges by hand).
+- **@aeye/resources:** robots.txt (parse a site's rules for a user agent and say whether a URL may be fetched, with its
+  crawl delay). The web system parses robots.txt itself for `web/crawl` (`systems/web/server/robots.ts`) until the owner
+  decides.
+- **@ayepi/log:** a browser transport (batched lines sent to an endpoint, with the same levels and fields as the
+  server's). The web app has its own log client (`packages/web/src/state/client-logs.ts`) until the owner decides.
 
 Done for build 2: `@ayepi/mcp` caller info, annotations, `McpRouter`, `BearerAuth`, views and `McpToolSet`;
 `@ayepi/push` (web push, which the hub sends with); `@aeye/resources` converted versions and converters, the url

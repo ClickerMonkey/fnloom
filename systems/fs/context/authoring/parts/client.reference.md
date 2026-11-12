@@ -56,7 +56,7 @@ interface ClientRenderers<C extends ContractShape> {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `ClientModule`
 
@@ -104,7 +104,7 @@ interface FnView<T extends FnTypes> {
 }
 ```
 
-Refers to: [`FnError`](#core-fnerror), [`RunId`](#core-runid), [`RunStatus`](#core-runstatus).
+Refers to: [`FnError`](context:fs/authoring.core-types#core-fnerror), [`RunId`](context:fs/authoring.core-types#core-runid), [`RunStatus`](context:fs/authoring.core-types#core-runstatus).
 
 #### `FnViewOf`
 
@@ -185,7 +185,7 @@ interface MentionView<T> {
 }
 ```
 
-Refers to: [`MentionHover`](#core-mentionhover), [`TypeDisplay`](#core-typedisplay).
+Refers to: [`MentionHover`](context:fs/authoring.core-types#core-mentionhover), [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
 
 #### `ResourceView`
 
@@ -205,7 +205,7 @@ interface ResourceView {
 }
 ```
 
-Refers to: [`FormKind`](#core-formkind), [`ResourceStat`](#core-resourcestat), [`SectionKey`](#core-sectionkey).
+Refers to: [`FormKind`](context:fs/authoring.core-types#core-formkind), [`ResourceStat`](context:fs/authoring.core-types#core-resourcestat), [`SectionKey`](context:fs/authoring.core-types#core-sectionkey).
 
 #### `SystemClient`
 
@@ -228,7 +228,7 @@ interface SystemClient<C extends ContractShape> {
 }
 ```
 
-Refers to: [`RunId`](#core-runid).
+Refers to: [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `WithSystem`
 
@@ -258,7 +258,7 @@ interface Delivery<R> {
 }
 ```
 
-Refers to: [`DeliveryId`](#core-deliveryid), [`DeliveryStatus`](#core-deliverystatus).
+Refers to: [`DeliveryId`](context:fs/authoring.core-types#core-deliveryid), [`DeliveryStatus`](context:fs/authoring.core-types#core-deliverystatus).
 
 #### `ResourceViewerEntry`
 
@@ -332,7 +332,7 @@ interface ResourceViewerProps {
 }
 ```
 
-Refers to: [`ResourceUri`](#core-resourceuri), [`SectionKey`](#core-sectionkey).
+Refers to: [`ResourceUri`](context:fs/authoring.core-types#core-resourceuri), [`SectionKey`](context:fs/authoring.core-types#core-sectionkey).
 
 #### `INPUT_ANSWERS`
 
@@ -365,7 +365,7 @@ Whether the hub has more than one person (a reactive getter), so a renderer offe
 const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>>;
 ```
 
-Refers to: [`AccessInfo`](#core-accessinfo).
+Refers to: [`AccessInfo`](context:fs/authoring.core-types#core-accessinfo).
 
 #### `SHARE_EDITOR`
 
@@ -392,7 +392,7 @@ interface ShareEditorProps {
 }
 ```
 
-Refers to: [`ShareRule`](#core-sharerule).
+Refers to: [`ShareRule`](context:fs/authoring.core-types#core-sharerule).
 
 #### `InputAnswer`
 
@@ -404,7 +404,7 @@ A form's answer as it was sent: the run's `input-answer` part, without its type 
 type InputAnswer = Omit<Extract<MessagePart, { type: 'input-answer' }>, 'type'>;
 ```
 
-Refers to: [`MessagePart`](#core-messagepart).
+Refers to: [`MessagePart`](context:fs/authoring.core-types#core-messagepart).
 
 #### `InputAnswers`
 
@@ -421,7 +421,7 @@ interface InputAnswers {
 }
 ```
 
-Refers to: [`RunId`](#core-runid).
+Refers to: [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `ValueEditorProps`
 
@@ -438,7 +438,7 @@ interface ValueEditorProps {
 }
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `buildClient`
 
@@ -537,7 +537,7 @@ interface WireViews {
 }
 ```
 
-Refers to: [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `Mount`
 
@@ -566,7 +566,7 @@ interface InputMount extends Mount<'input'> {
 }
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `VisualView`
 
@@ -580,7 +580,7 @@ interface VisualView {
 }
 ```
 
-Refers to: [`ResultTable`](#core-resulttable).
+Refers to: [`ResultTable`](context:fs/authoring.core-types#core-resulttable).
 
 #### `VisualEntry`
 
@@ -597,7 +597,7 @@ interface VisualEntry<C extends ContractShape> {
 }
 ```
 
-Refers to: [`ResultTable`](#core-resulttable), [`VisualFit`](#core-visualfit).
+Refers to: [`ResultTable`](context:fs/authoring.core-types#core-resulttable), [`VisualFit`](context:fs/authoring.core-types#core-visualfit).
 
 #### `VisualOption`
 
@@ -619,7 +619,7 @@ interface VisualOption {
 }
 ```
 
-Refers to: [`VisualFit`](#core-visualfit).
+Refers to: [`VisualFit`](context:fs/authoring.core-types#core-visualfit).
 
 #### `VisualSource`
 
@@ -633,7 +633,7 @@ interface VisualSource {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname), [`ResultTable`](#core-resulttable).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`ResultTable`](context:fs/authoring.core-types#core-resulttable).
 
 #### `VISUALS`
 

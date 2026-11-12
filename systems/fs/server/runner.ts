@@ -164,6 +164,7 @@ export class SupervisedRunner implements HostedRunner {
     const args = [...permissionArgs(grants), '--require', NETWORK_GUARD, launch.entry];
     const child: SupervisedProcess = this.#deps.starter.launch({ run: process.execPath, args, cwd: launch.cwd, env, onOutput: heard });
     entry.process = child;
+    if (child.pid !== undefined) { launch.spawned(child.pid); }
     void child.exited.then(async (exit) => {
       entry.output = exit.output;
       if (this.#entries.get(key) !== entry) { return; }

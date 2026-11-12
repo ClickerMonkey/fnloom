@@ -6,7 +6,7 @@
 import type { DefineComponent } from 'vue';
 import {
   agent, client, context, expectType, fn, type FIND_KINDS, g, hub, system, type,
-  type ChatModeType, type ContextorType, type Equal, type Infer, type InputViewOf, type LlmPayload, type ModelInput, type ModelOutput,
+  type ChatModeType, type ContextorType, type Equal, type FlatArgs, type Infer, type InputViewOf, type LlmPayload, type ModelInput, type ModelOutput,
   type ResourceView, type WithSystem,
 } from '@harness/sdk';
 import { serve } from '@harness/sdk/server';
@@ -182,8 +182,8 @@ void hub.fns.find_everything;
 
 expectType<Equal<Infer<typeof hub.fns.resource_read.args>, z.input<typeof resourcesSlice.endpoints.readResource.cfg.body>>>(true);
 expectType<Equal<Infer<typeof hub.fns.resource_read.returns>, z.input<typeof resourcesSlice.endpoints.readResource.cfg.response>>>(true);
-// a body that is not one object (a union of shapes) is the fn's `input`
-expectType<Equal<Infer<typeof hub.fns.set_model_role.args>, { input: z.input<typeof modelsSlice.endpoints.setModelRole.cfg.body> }>>(true);
+// a body that is a union of objects is flattened into one object of plain args (the schema picks the member on read)
+expectType<Equal<Infer<typeof hub.fns.set_model_role.args>, FlatArgs<z.input<typeof modelsSlice.endpoints.setModelRole.cfg.body>>>>(true);
 expectType<Equal<Infer<typeof hub.fns.forget.returns>, z.input<typeof contextSlice.endpoints.forget.cfg.response>>>(true);
 // @ts-expect-error a resource read needs its uri
 void ((args: Infer<typeof hub.fns.resource_read.args>) => args)({});

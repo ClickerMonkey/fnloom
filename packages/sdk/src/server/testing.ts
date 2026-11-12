@@ -17,7 +17,7 @@ import {
   type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
-  type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
+  type PairingGrant, type PairingGrantRequest, type ResourceRead, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
 import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
@@ -242,6 +242,8 @@ export class FakeHub {
   readonly decisions: Array<HubBody<'decide'>> = [];
   /** Example changes systems sent (`examples`). */
   readonly exampleChanges: Array<HubBody<'examples'>> = [];
+  /** Pairing tokens approved install runs asked for (`grantPairing`), with the grant the fake hub made. */
+  readonly pairingGrants: Array<PairingGrantRequest & PairingGrant> = [];
 
   // ─── What the hub holds ─────────────────────────────────────────────────────
   /** Paired keys by system name. */
@@ -252,6 +254,8 @@ export class FakeHub {
   readonly settings = new Map<string, Json>();
   /** Content by hash. */
   readonly content = new Map<string, Uint8Array>();
+  /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
+  readonly sections = new Map<string, Section[]>();
 
   // ─── Scripted behaviour ─────────────────────────────────────────────────────
   /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
@@ -604,14 +608,17 @@ export class FakeHub {
         fleet: () => this.onFleet(),
         searchFns: ({ data }) => Promise.resolve(this.fns.search(data)),
         fnExamples: ({ data }) => Promise.resolve(this.fns.examples(data)),
-        // Build 6 stubs (hub lane): fill in with the SDK work that uses them.
         examples: ({ data }) => {
           this.exampleChanges.push(data);
           return { added: data.upsert.length, removed: data.remove.length };
         },
         models: () => this.onModels(),
-        resourceSections: () => [],
-        grantPairing: () => Promise.reject(new Error('grantPairing is not served by the fake hub yet.')),
+        resourceSections: ({ data }) => this.sections.get(data.uri) ?? [],
+        grantPairing: ({ data }) => {
+          const grant: PairingGrant = { token: `pair-${randomUUID()}`, expiresAt: Date.now() + PAIRING_GRANT_MS };
+          this.pairingGrants.push({ ...data, ...grant });
+          return grant;
+        },
         model: async ({ data }) => {
           this.models.push(data);
           return this.onModel(data);
@@ -622,6 +629,9 @@ export class FakeHub {
       });
   }
 }
+
+/** How long a fake pairing grant lasts, like the real hub's short-lived grant. */
+const PAIRING_GRANT_MS = 10 * 60_000;
 
 /** A plain value as JSON, the way it would cross the wire. */
 function jsonOf(value: unknown): Json {

@@ -272,6 +272,10 @@ describe('fn facts', () => {
     expect(trip.longRunning).toBe(true);
     expect(trip.notice).toBe(`books/book_trip usually takes ${aboutDuration(trip.times?.typical ?? 0)}.`);
     expect(aboutDuration(185_000)).toBe('about 3 minutes');
+    // the same warning, without the cost estimate, for the fn lines the model reads
+    expect(await facts.notices([q('books/book_trip')])).toEqual(new Map([[q('books/book_trip'), trip.notice]]));
+    days.length = 0;
+    expect(await facts.notices([q('books/book_trip')])).toEqual(new Map());
   });
 
   it('works out again the facts of the fns that use a changed fn', async () => {
@@ -317,11 +321,13 @@ describe('chat fn mode', () => {
     const { log } = memoryLog();
     const answers: string[] = [];
     const sent: string[] = [];
+    const formats: unknown[] = [];
     const classifier = new LlmAutoClassifier({
       store: () => store, clock: () => 3, log, tuning: { HARNESS_AUTO_CLASSIFIER_WAIT: 5_000 },
       llm: () => ({
         chat: (input) => {
           sent.push(JSON.stringify(input.request.messages));
+          formats.push(input.request.responseFormat);
           const value = answers.shift();
           return value === undefined ? Promise.reject(new Error('down')) : Promise.resolve({ value, call: ModelCallId.parse('mdl_1'), cost: 0, model: 'cheap' });
         },
@@ -333,8 +339,10 @@ describe('chat fn mode', () => {
     expect((await classifier.classify(input)).allow).toBe(false);
     await classifier.set({ model: { model: { model: 'cheap' } }, messages: 2 }, ME);
     expect((await classifier.setting()).value.model).toEqual({ model: { model: 'cheap' } });
-    answers.push('Sure: {"allow": true, "reason": "You asked to book it."}');
+    answers.push('{"allow": true, "reason": "You asked to book it."}');
     expect(await classifier.classify(input)).toEqual({ allow: true, reason: 'You asked to book it.' });
+    // the verdict is asked for as structured output, so no JSON is scraped out of free text
+    expect(formats.at(-1)).toMatchObject({ strict: true, schema: { type: 'object', required: ['allow', 'reason'] } });
     expect(sent[0]).toContain('books/book_trip (write)');
     expect(sent[0]).toContain('Oslo');
     expect((await classifier.classify(input)).allow).toBe(false);

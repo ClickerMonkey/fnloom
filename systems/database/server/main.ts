@@ -24,7 +24,7 @@ const hub: HubLink = {
 };
 const server = createDatabaseImpl({
   settings, instance, dataDir,
-  enricher: new LlmEnricher({ retries: settings.DATABASE_AUTHOR_RETRIES }),
+  enricher: new LlmEnricher(),
   fleet: HUB_FLEET,
   hub: () => hub,
   now: () => Date.now(),

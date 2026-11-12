@@ -104,7 +104,7 @@ async function install(source: InstallSource, autoStart: boolean): Promise<void>
       </template>
       <ul class="systems" data-testid="systems">
         <li v-for="system in systems.sorted.value" :key="system.name">
-          <SystemCard :system="system" :now="now" :to="links.system(system.name)" />
+          <SystemCard :system="system" :now="now" :to="links.system(system.name)" :review="links.review(system.name)" />
         </li>
       </ul>
     </LoadState>

@@ -9,7 +9,7 @@
 import type { ModelInfo as AeyeModelInfo } from '@aeye/ai';
 import type { Logger } from '@ayepi/log';
 import { messageOf, MODEL_LIMIT_FIELDS, namesModel, type ActorId, type LimitSource, type ModelInfo, type ModelLimitField, type ModelLimits, type ModelLimitsView, type ProviderConfig, type ResolvedModelLimits } from '@harness/core';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ContextorEnv } from './env.ts';
 import type { ModelLimitsService } from './index.ts';

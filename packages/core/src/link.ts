@@ -49,12 +49,12 @@ export const Hello = z.object({
   publicKey: z.string(),
   manifestHash: z.string(),
   /**
-   * Build 6: the hash of its contract parts (the SDK's `contractHash`), which a pairing token granted to an approved
+   * The hash of its contract parts (the SDK's `contractHash`), which a pairing token granted to an approved
    * install (`boundTo.manifestHash`) must match.
    */
   contractHash: z.string().optional(),
   pairingToken: z.string().optional(),
-  /** An auto-pair secret (build 3): re-pairs this instance with the new key once the challenge is signed. */
+  /** An auto-pair secret: re-pairs this instance with the new key once the challenge is signed. */
   autoPair: AutoPairProof.optional(),
 });
 export type Hello = z.infer<typeof Hello>;
@@ -107,7 +107,7 @@ export const Welcome = z.object({
   /** The hub's copy is stale: send the manifest. */
   sendManifest: z.boolean(),
   limits: LinkLimits,
-  /** A new auto-pair secret (build 3): when one was granted at pairing, or rotated because the last one was used. */
+  /** A new auto-pair secret: when one was granted at pairing, or rotated because the last one was used. */
   autoPair: AutoPairGrant.optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
@@ -154,9 +154,9 @@ export const RunRequest = z.object({
   deadline: Timestamp,
   /** The config version to run with. The system already has the value, so requests stay small. */
   configVersion: z.number().int().min(0),
-  /** Build 4: the person's connection a per-person fn acts as (`connect` systems), with its credentials revealed. */
+  /** The person's connection a per-person fn acts as (`connect` systems), with its credentials revealed. */
   connection: RunConnection.optional(),
-  /** Build 6: the approval this run went ahead on, for a fn with `approval` (`ctx.approved`), so it can check what it runs. */
+  /** The approval this run went ahead on, for a fn with `approval` (`ctx.approved`), so it can check what it runs. */
   approved: ApprovedRun.optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;
@@ -253,13 +253,13 @@ const linked = use(linkTel, linkSession).group({
       uri: ResourceUri,
       want: z.array(ReadWant),
       run: RunId.optional(),
-      /** Build 6: only these sections' text (`ctx.resources.text(uri, sections)`). */
+      /** Only these sections' text (`ctx.resources.text(uri, sections)`). */
       sections: z.array(SectionKey).min(1).optional(),
     }),
     response: ResourceRead,
     ws: 'rs',
   },
-  /** Build 6: a resource's sections (`ctx.resources.sections`), as `run`'s person may read it. */
+  /** A resource's sections (`ctx.resources.sections`), as `run`'s person may read it. */
   resourceSections: { body: z.object({ uri: ResourceUri, run: RunId.optional() }), response: z.array(Section), ws: 'rsc' },
   /** A slice of stored content, read as `run`'s person (the system itself without a run). */
   content: { body: z.object({ ref: ContentRef, offset: z.number().int().min(0), length: z.number().int().min(1), run: RunId.optional() }), response: z.object({ chunk: z.string() }), ws: 'ct' },
@@ -275,45 +275,45 @@ const linked = use(linkTel, linkSession).group({
     ws: 'ss',
   },
   log: { body: LogLine, ws: 'lg' },
-  /** Build 4: refreshed credentials for a person's connection, or that it expired. */
+  /** Refreshed credentials for a person's connection, or that it expired. */
   connectionUpdate: { body: ConnectionUpdate, ws: 'cu' },
-  /** Build 4: a running fn gives a fn of its system (one it added) to its run's person, with who else may use it. */
+  /** A running fn gives a fn of its system (one it added) to its run's person, with who else may use it. */
   shareFn: { body: FnShare, ws: 'sh' },
-  /** Build 4: which of the named fns of its system a running fn's person may use now (the rest are left out). */
+  /** Which of the named fns of its system a running fn's person may use now (the rest are left out). */
   usableFns: { body: FnUsable, response: z.object({ fns: z.array(LocalName) }), ws: 'uf' },
-  /** Build 5: add a run of one of its own fns that waits for approval, with its preview (`ctx.propose`). */
+  /** Add a run of one of its own fns that waits for approval, with its preview (`ctx.propose`). */
   propose: { body: ProposeRun, response: ProposedRun, ws: 'po' },
-  /** Build 5: ask the admin's decision model to choose between candidates (`ctx.decide`); `off` when none is set. */
+  /** Ask the admin's decision model to choose between candidates (`ctx.decide`); `off` when none is set. */
   decide: { body: DecideRequest, response: DecideAnswer, ws: 'de' },
-  /** Build 5: every paired instance of the asking system, with its config (secrets kept back) and its own types. */
+  /** Every paired instance of the asking system, with its config (secrets kept back) and its own types. */
   fleet: { body: z.object({}), response: z.array(FleetInstance), ws: 'fl' },
   /**
-   * Build 5: search fns and context in the hub's database (`ctx.searchFns`), as `run`'s person sees them (as the system
+   * Search fns and context in the hub's database (`ctx.searchFns`), as `run`'s person sees them (as the system
    * itself without one: its own fns and what is public). How `get_input` and `get_query` find saved fns.
    */
   searchFns: { body: FnSearchQuery.extend({ run: RunId.optional() }), response: FnSearchPage, ws: 'sf' },
-  /** Build 5: a page of a fn's examples, the most relevant to `query` first (`ctx.fnExamples`). */
+  /** A page of a fn's examples, the most relevant to `query` first (`ctx.fnExamples`). */
   fnExamples: { body: FnExamplesQuery, response: FnExamplesPage, ws: 'fx' },
-  /** Build 6: add, replace or remove examples of the system's own fn while running (`RunningSystem.examples`). */
+  /** Add, replace or remove examples of the system's own fn while running (`RunningSystem.examples`). */
   examples: { body: FnExamplesPatch, response: z.object({ added: z.number().int().min(0), removed: z.number().int().min(0) }), ws: 'xp' },
   /**
-   * Build 6: the models the system may use, with the roles they fill, for its aeye (`ctx.ai()` / `hubAi()`). The hub
+   * The models the system may use, with the roles they fill, for its aeye (`ctx.ai()` / `hubAi()`). The hub
    * answers calls outside runs too, charged to the system's own budget and limits, and records every one.
    */
   models: { body: z.object({}), response: z.array(HubModelInfo), ws: 'mo' },
   /**
-   * Build 6: an approved install run (`fs/install_system`, approver `admins`) asks for a one-time pairing token bound
+   * An approved install run (`fs/install_system`, approver `admins`) asks for a one-time pairing token bound
    * to its subject. Refused unless `run` is this system instance's running, approved run whose stored preview has an
    * equal `subject`.
    */
   grantPairing: { body: PairingGrantRequest, response: PairingGrant, ws: 'gp' },
   /**
-   * Build 7: tell the hub's admins something about this system that needs a person (`ctx.notifyAdmins`), e.g. a hosted
+   * Tell the hub's admins something about this system that needs a person (`ctx.notifyAdmins`), e.g. a hosted
    * system disabled after too many crashes. Each admin gets an inbox item that links to the system's page.
    */
   notifyAdmins: { body: AdminNotice, ws: 'na' },
   /**
-   * Build 7: a host reports what its supervisor refused on the machine for an instance it hosts (`HostRefusal`: a host
+   * A host reports what its supervisor refused on the machine for an instance it hosts (`HostRefusal`: a host
    * outside `grants.network`, a path outside `grants.files`). Refused unless that instance's `host` is this one.
    */
   reportRefusal: { body: HostRefusal, ws: 'rx' },
@@ -400,9 +400,9 @@ export const systemLinkSpec = spec({
     // Build 4
     /** Run a fn's validation hook (`FnDecl.validate`): its input before the run, its result after it succeeds. */
     validate: endpoint({ body: ValidateRequest, response: ValidateAnswer, ws: 'vl' }),
-    /** Build 5: what a run of a fn with `approval.preview` would do, asked before the person decides. */
+    /** What a run of a fn with `approval.preview` would do, asked before the person decides. */
     preview: endpoint({ body: PreviewRequest, response: PreviewAnswer, ws: 'pv' }),
-    /** Build 6: what a fn of one of the system's kinds would cost (`KindDecl.estimates`). */
+    /** What a fn of one of the system's kinds would cost (`KindDecl.estimates`). */
     estimate: endpoint({ body: KindEstimateRequest, response: KindEstimateAnswer, ws: 'es' }),
     /** A chat call for one of the system's providers (manifest `providers`). */
     providerChat: endpoint({ body: ProviderChat, streamOut: ProviderChunk, ws: 'pc' }),

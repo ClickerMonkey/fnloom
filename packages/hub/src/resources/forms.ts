@@ -22,7 +22,7 @@ import {
   type ResourceForms, type ResourceRecord, type ResourceUri,
 } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { PrimaryText } from '../index/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ResourcesEnv } from './env.ts';
@@ -163,7 +163,7 @@ export class StoreFormService implements FormService {
     if (bytes.length > settings.HARNESS_IMPORT_MAX) { throw reject(413, 'TOO_LARGE', `${uri} is ${bytes.length} bytes, over the hub's ${settings.HARNESS_IMPORT_MAX}`); }
     const ref = await content.put(bytes, served === 'bytes' ? raw.stat.mime ?? 'application/octet-stream' : TEXT_MIME);
     const latest = await store.table('resources').get(uri);
-    const kinds = kindsOf(await allRows(store.table('forms'), { hash: ref.hash }));
+    const kinds = kindsOf(await allRows(store.table('forms'), { where: { hash: ref.hash } }));
     const primary = primaryOf(familyOfStat(raw.stat), kinds);
     const record: Snapshot = {
       ...latest, uri, system: raw.system, stat: raw.stat, links: raw.links, source: { from: 'system', system: raw.system, served }, raw: ref,
@@ -187,7 +187,7 @@ export class StoreFormService implements FormService {
     const current = this.#o.converters.current(type);
     if (current.length === 0) { return undefined; }
     const { hash } = record.raw;
-    const found = (await allRows(this.#o.store.table('forms'), { hash })).find((form) => isConvertedKind(form.kind) && current.includes(form.converter));
+    const found = (await allRows(this.#o.store.table('forms'), { where: { hash } })).find((form) => isConvertedKind(form.kind) && current.includes(form.converter));
     if (found !== undefined) { return found; }
     const declined = `${hash}:${type}:${current.join(',')}`;
     if (this.#declined.has(declined)) { return undefined; }
@@ -232,7 +232,7 @@ export class StoreFormService implements FormService {
 
   /** The forms of a raw hash, of one kind or all, newest first. */
   async #rows(hash: string, kind?: FormKind): Promise<FormRecord[]> {
-    const rows = await allRows(this.#o.store.table('forms'), kind === undefined ? { hash } : { hash, kind });
+    const rows = await allRows(this.#o.store.table('forms'), { where: kind === undefined ? { hash } : { hash, kind } });
     return rows.sort((a, b) => b.createdAt - a.createdAt);
   }
 

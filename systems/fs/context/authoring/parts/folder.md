@@ -33,7 +33,7 @@ systems/<name>/
 ```
 
 - **`system.json` is the one source of the name and version.** The contract's name (`system('<name>', …)`) must equal
-  `system.json`'s `name`; `harness system build` and `serve()` check it. Its schema is in **Packaging**.
+  `system.json`'s `name`; `harness system build` and `serve()` check it. Its schema is in [Packaging](context:fs/authoring.packaging).
 - **Config is not a file.** It lives in the hub's database, set by an admin and checked against the contract's config
   type. The system reads it as `ctx.config`.
 - **Data has its own folders.** The hub gives each installed instance `state`, `data` and `cache` folders outside the

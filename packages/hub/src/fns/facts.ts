@@ -12,7 +12,7 @@ import { parseValue, LlmPayloadType } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { GinScopes } from '../catalog/scope.ts';
 import { AGENT_KIND } from '../execution/index.ts';
-import { allRows, rows } from '../execution/pages.ts';
+import { allRows, rows } from '../store/rows.ts';
 import type { FnMetricsService } from '../metrics/index.ts';
 import { emptyDurations, mergeDurations, percentile } from '../metrics/rollup.ts';
 import type { HubStore } from '../store/index.ts';
@@ -71,12 +71,26 @@ export class StoreFnFacts implements FnFactsService {
     const history = await this.#deps.metrics().days(fn.name, this.#deps.tuning.HARNESS_FN_HISTORY_DAYS);
     const cost = await estimateCost(this.#deps.estimators, { fn, free: stored.free, args, history });
     const times = runTimes(history);
-    const longRunning = times !== undefined && times.typical > this.#deps.tuning.HARNESS_FN_LONG_RUNNING;
+    const notice = this.#notice(fn.name, times);
     return {
       fn: fn.name, kind: fn.decl.kind, mode: stored.mode, reads: stored.reads, writes: stored.writes, uses: stored.uses, free: stored.free, registry: stored.registry ?? [], cost,
-      ...(times === undefined ? {} : { times }), longRunning,
-      ...(longRunning ? { notice: `${fn.name} usually takes ${aboutDuration(times.typical)}.` } : {}),
+      ...(times === undefined ? {} : { times }), longRunning: notice !== undefined,
+      ...(notice === undefined ? {} : { notice }),
     };
+  }
+
+  async notices(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, string>> {
+    const out = new Map<QualifiedName, string>();
+    for (const name of new Set(fns)) {
+      const notice = this.#notice(name, runTimes(await this.#deps.metrics().days(name, this.#deps.tuning.HARNESS_FN_HISTORY_DAYS)));
+      if (notice !== undefined) out.set(name, notice);
+    }
+    return out;
+  }
+
+  /** The long-running warning of a fn whose typical run time is over the limit; undefined for one that runs quickly. */
+  #notice(name: QualifiedName, times: RunTimes | undefined): string | undefined {
+    return times !== undefined && times.typical > this.#deps.tuning.HARNESS_FN_LONG_RUNNING ? `${name} usually takes ${aboutDuration(times.typical)}.` : undefined;
   }
 
   async modes(fns: readonly QualifiedName[]): Promise<ReadonlyMap<QualifiedName, FnMode>> {

@@ -43,8 +43,9 @@ export class HubResources implements Resources {
     return (await this.#read(uri, ['links']))?.links ?? [];
   }
 
-  sections(_uri: ResourceUri): Promise<Section[]> {
-    return Promise.reject(new LinkGap('Listing a resource\'s sections needs a hub endpoint the link does not have yet.'));
+  async sections(uri: ResourceUri): Promise<Section[]> {
+    const hub = await this.#hub.ready(this.#signal);
+    return hub.call('resourceSections', { uri, ...(this.#run === undefined ? {} : { run: this.#run }) }, this.#signal === undefined ? {} : { signal: this.#signal });
   }
 
   search(_query: string): Promise<ResourceHit[]> {

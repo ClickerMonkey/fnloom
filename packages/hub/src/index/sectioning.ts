@@ -7,7 +7,7 @@
  */
 import type { FormKind, QualifiedName, ResourceStat, ResourceUri, Section, SystemName } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { ResourceRouter } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { hubSectioners, matchScore, type SectionInput, type Sectioner } from './sectioners.ts';
@@ -41,7 +41,7 @@ export class Sectioning {
     const rule = best(await allRows(this.#store.table('sectionRules')), (r) => matchScore(r.match, stat, form));
     if (rule !== undefined) { return rule.sectioner; }
     // a sectioner an admin switched off is passed over for the hub's
-    const off = new Set((await allRows(this.#store.table('itemSwitches'), { system, section: 'sectioners' })).map((row) => row.name));
+    const off = new Set((await allRows(this.#store.table('itemSwitches'), { where: { system, section: 'sectioners' } })).map((row) => row.name));
     const own = best((await this.#catalog.entries('sectioners', { system })).filter((e) => !off.has(e.name)), (e) => matchScore(e.decl.match, stat, form));
     if (own !== undefined) { return own.name; }
     const hub = best([...this.#hub.values()], (s) => matchScore(s.match, stat, form));

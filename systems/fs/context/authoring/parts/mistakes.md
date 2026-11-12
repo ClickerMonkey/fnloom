@@ -310,6 +310,10 @@ reason given. If you see one of these errors, the fix is in the reason.
 
 ### Mistakes that compile but are wrong
 
+- **Leaving a hub call out of `grants`.** Each `ctx` call past the base needs its capability in `grants.hub`
+  (`ctx.state` needs `state`, `ctx.setting` needs `settings`, `ctx.llm` needs `ai`), and each other system's fn it calls
+  needs `fns` and a place in `calls`. Under a hub that enforces them the call throws `NOT_GRANTED` and the fn fails;
+  declare them in `system()`, as [The contract](context:fs/authoring.contract) shows.
 - **Writing a TypeScript type by hand for a shape a gin type describes.** Infer it: `Infer<typeof X>`, `ValueOf<typeof T>`,
   `ConfigOf<(typeof c)['defs']>`.
 - **Referring to things by string.** Use refs (`notes.fns.find`, `hub.fns.ask_user`) in deps, tools, context, links and

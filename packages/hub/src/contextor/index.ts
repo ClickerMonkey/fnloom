@@ -99,6 +99,8 @@ export interface FnView {
   readonly types: ReadonlyMap<QualifiedName, string>;
   /** Build 6: what it changes in the hub, in one line ("Creates fns (database/query)."), worked out deeply; absent when nothing. */
   readonly effects?: string;
+  /** Its long-running warning ("x usually takes about 3 minutes."), from its run times; absent when it runs quickly. */
+  readonly notice?: string;
 }
 
 /** A context item chosen for a prompt, with the text at its detail (its line, its summary, or its content). */

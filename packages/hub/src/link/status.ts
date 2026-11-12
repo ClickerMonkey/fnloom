@@ -11,7 +11,7 @@ import {
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { Serial } from '../catalog/serial.ts';
 import type { HubStore } from '../store/index.ts';
 import type { LinkService } from './index.ts';
@@ -69,7 +69,7 @@ export class InstanceKeeper {
 
   /** Every instance of a system (removed ones too), by name. */
   async of(system: SystemName): Promise<InstanceRecord[]> {
-    return (await allRows(this.#store.table('instances'), { system })).sort((a, b) => a.instance.localeCompare(b.instance));
+    return (await allRows(this.#store.table('instances'), { where: { system } })).sort((a, b) => a.instance.localeCompare(b.instance));
   }
 
   /** The instance a system's calls go to when nothing else picks one (see `defaultInstanceOf`). */

@@ -57,6 +57,8 @@ class FakeHub {
   readonly decisions: Array<HubBody<'decide'>>;
   /** Example changes systems sent (`examples`). */
   readonly exampleChanges: Array<HubBody<'examples'>>;
+  /** Pairing tokens approved install runs asked for (`grantPairing`), with the grant the fake hub made. */
+  readonly pairingGrants: Array<PairingGrantRequest & PairingGrant>;
   /** Paired keys by system name. */
   readonly keys: Map<string, string>;
   /** Session state by owner (`run:<id>` / `delivery:<id>`). */
@@ -65,6 +67,8 @@ class FakeHub {
   readonly settings: Map<string, z.core.util.JSONType>;
   /** Content by hash. */
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
+  /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
+  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
   /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns: FakeHubFns;
   /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
@@ -132,7 +136,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AdminNotice`](context:fs/authoring.core-types#core-adminnotice), [`AutoPairProof`](context:fs/authoring.core-types#core-autopairproof), [`ConfigValue`](context:fs/authoring.core-types#core-configvalue), [`ConnectResult`](context:fs/authoring.core-types#core-connectresult), [`ContentRef`](context:fs/authoring.core-types#core-contentref), [`DecideAnswer`](context:fs/authoring.core-types#core-decideanswer), [`FleetInstance`](context:fs/authoring.core-types#core-fleetinstance), [`HandlerAnswer`](context:fs/authoring.core-types#core-handleranswer), [`HubLinkSpec`](context:fs/authoring.core-types#core-hublinkspec), [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo), [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`Json`](context:fs/authoring.core-types#core-json), [`JsonObject`](context:fs/authoring.core-types#core-jsonobject), [`KindEstimateAnswer`](context:fs/authoring.core-types#core-kindestimateanswer), [`LinkSession`](context:fs/authoring.core-types#core-linksession), [`LlmForward`](context:fs/authoring.core-types#core-llmforward), [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk), [`LogLine`](context:fs/authoring.core-types#core-logline), [`Manifest`](context:fs/authoring.core-types#core-manifest), [`ManifestPatch`](context:fs/authoring.core-types#core-manifestpatch), [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult), [`OutcomeWire`](context:fs/authoring.core-types#core-outcomewire), [`PairingGrant`](context:fs/authoring.core-types#core-pairinggrant), [`PairingGrantRequest`](context:fs/authoring.core-types#core-pairinggrantrequest), [`PairingId`](context:fs/authoring.core-types#core-pairingid), [`PairingInfo`](context:fs/authoring.core-types#core-pairinginfo), [`PreviewAnswer`](context:fs/authoring.core-types#core-previewanswer), [`ProposedRun`](context:fs/authoring.core-types#core-proposedrun), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`ResourceRead`](context:fs/authoring.core-types#core-resourceread), [`RunControl`](context:fs/authoring.core-types#core-runcontrol), [`RunInfo`](context:fs/authoring.core-types#core-runinfo), [`RunRequest`](context:fs/authoring.core-types#core-runrequest), [`RunSettled`](context:fs/authoring.core-types#core-runsettled), [`Section`](context:fs/authoring.core-types#core-section), [`StateOwner`](context:fs/authoring.core-types#core-stateowner), [`SystemLinkSpec`](context:fs/authoring.core-types#core-systemlinkspec), [`TypeDefinitions`](context:fs/authoring.core-types#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -163,7 +167,7 @@ interface FakeHubOptions {
 }
 ```
 
-Refers to: [`AutoPairGrant`](#core-autopairgrant), [`InstanceName`](#core-instancename).
+Refers to: [`AutoPairGrant`](context:fs/authoring.core-types#core-autopairgrant), [`InstanceName`](context:fs/authoring.core-types#core-instancename).
 
 #### `FakeProcess`
 
@@ -190,7 +194,7 @@ The person fake runs are for.
 const TEST_USER: UserInfo;
 ```
 
-Refers to: [`ActorId`](#core-actorid), [`UserInfo`](#core-userinfo).
+Refers to: [`ActorId`](context:fs/authoring.core-types#core-actorid), [`UserInfo`](context:fs/authoring.core-types#core-userinfo).
 
 #### `TEST_PLACE`
 
@@ -225,7 +229,7 @@ What a system sent to a hub endpoint, as the hub parsed it. Derived from `hubLin
 type HubBody<K extends keyof HubLinkSpec['endpoints']> = z.output<NonNullable<HubLinkSpec['endpoints'][K]['cfg']['body']>>;
 ```
 
-Refers to: [`HubLinkSpec`](#core-hublinkspec).
+Refers to: [`HubLinkSpec`](context:fs/authoring.core-types#core-hublinkspec).
 
 #### `SystemBody`
 
@@ -237,7 +241,7 @@ What the hub sends to a system endpoint. Derived from `systemLinkSpec`.
 type SystemBody<K extends keyof SystemLinkSpec['endpoints']> = SystemLinkSpec['endpoints'][K]['cfg'] extends { body: infer B extends z.ZodType } ? z.input<B> : never;
 ```
 
-Refers to: [`SystemLinkSpec`](#core-systemlinkspec).
+Refers to: [`SystemLinkSpec`](context:fs/authoring.core-types#core-systemlinkspec).
 
 #### `streamOf`
 
@@ -312,7 +316,7 @@ class MemoryKeyStore implements KeyStore {
 }
 ```
 
-Refers to: [`AutoPairGrant`](#core-autopairgrant).
+Refers to: [`AutoPairGrant`](context:fs/authoring.core-types#core-autopairgrant).
 
 #### `MemoryJournal`
 
@@ -328,7 +332,7 @@ class MemoryJournal implements OutcomeJournal {
 }
 ```
 
-Refers to: [`OutcomeWire`](#core-outcomewire), [`RunId`](#core-runid).
+Refers to: [`OutcomeWire`](context:fs/authoring.core-types#core-outcomewire), [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `FakeHubFns`
 
@@ -352,7 +356,7 @@ class FakeHubFns {
 }
 ```
 
-Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`RunSettled`](#core-runsettled).
+Refers to: [`FnExamplesPage`](context:fs/authoring.core-types#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types#core-fnsearchquery), [`RunSettled`](context:fs/authoring.core-types#core-runsettled).
 
 #### `KeptFn`
 
@@ -390,7 +394,7 @@ class FakeModelLink implements ModelLink {
 }
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo), [`LlmForward`](context:fs/authoring.core-types#core-llmforward), [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk), [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult).
 
 #### `fakeHubAi`
 
@@ -413,7 +417,7 @@ The chunks of a plain text reply, with a free `done`.
 function replyChunks(text: string): LlmForwardChunk[];
 ```
 
-Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+Refers to: [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk).
 
 #### `FakeModelOptions`
 
@@ -432,7 +436,7 @@ interface FakeModelOptions {
 }
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo), [`LlmForward`](context:fs/authoring.core-types#core-llmforward), [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult).
 
 #### `FakeReply`
 
@@ -444,7 +448,7 @@ What a fake answers one chat forward with: the text of the reply, or the chunks 
 type FakeReply = string | readonly LlmForwardChunk[];
 ```
 
-Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+Refers to: [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk).
 
 #### `checkContextFolder`
 
@@ -481,7 +485,7 @@ interface CheckedContext {
 }
 ```
 
-Refers to: [`ContextFileProblem`](#core-contextfileproblem).
+Refers to: [`ContextFileProblem`](context:fs/authoring.core-types#core-contextfileproblem).
 
 #### `KnownNames`
 
@@ -534,7 +538,7 @@ class TestSystem<N extends string, C extends ContractShape> {
 }
 ```
 
-Refers to: [`RunRequest`](#core-runrequest).
+Refers to: [`RunRequest`](context:fs/authoring.core-types#core-runrequest).
 
 #### `TestHubOptions`
 
@@ -578,7 +582,7 @@ class CallNotDone extends Error {
 }
 ```
 
-Refers to: [`OutcomeWire`](#core-outcomewire).
+Refers to: [`OutcomeWire`](context:fs/authoring.core-types#core-outcomewire).
 
 #### `TestCall`
 
@@ -618,7 +622,7 @@ How a run ended, with a done result decoded to the fn's own result type.
 type TestOutcome<R> = (Omit<Extract<OutcomeWire, { status: 'done' }>, 'result'> & { readonly result: R }) | Exclude<OutcomeWire, { status: 'done' }>;
 ```
 
-Refers to: [`OutcomeWire`](#core-outcomewire).
+Refers to: [`OutcomeWire`](context:fs/authoring.core-types#core-outcomewire).
 
 #### `HubCalls`
 
@@ -714,7 +718,7 @@ interface KindProps {
 }
 ```
 
-Refers to: [`KindDescription`](#core-kinddescription).
+Refers to: [`KindDescription`](context:fs/authoring.core-types#core-kinddescription).
 
 #### `mockModel`
 
@@ -740,7 +744,7 @@ function mockModel(steps: readonly ScriptStep[], options?: { models?: readonly H
 function mockModel(recording: RecordingOptions): RecordedModelLink;
 ````
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo).
 
 #### `toolCall`
 
@@ -752,7 +756,7 @@ A reply that calls one tool with `args`.
 function toolCall(name: string, args: object): LlmForwardChunk[];
 ```
 
-Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+Refers to: [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk).
 
 #### `ScriptStep`
 
@@ -764,7 +768,7 @@ A scripted reply: the text, the chunks (`toolCall(...)`), or worked out from wha
 type ScriptStep = FakeReply | ((forward: LlmForward) => FakeReply);
 ```
 
-Refers to: [`LlmForward`](#core-llmforward).
+Refers to: [`LlmForward`](context:fs/authoring.core-types#core-llmforward).
 
 #### `ModelRecording`
 
@@ -826,7 +830,7 @@ type ModelRecording = {
 };
 ```
 
-Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+Refers to: [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk).
 
 #### `RecordedModelLink`
 
@@ -846,7 +850,7 @@ class RecordedModelLink implements ModelLink {
 }
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo), [`LlmForward`](context:fs/authoring.core-types#core-llmforward), [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk), [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult).
 
 #### `RecordingOptions`
 
@@ -865,7 +869,7 @@ interface RecordingOptions {
 }
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo).
 
 #### `realModel`
 
@@ -908,7 +912,7 @@ class OpenRouterModelLink implements ModelLink {
 }
 ```
 
-Refers to: [`HubModelInfo`](#core-hubmodelinfo), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult).
+Refers to: [`HubModelInfo`](context:fs/authoring.core-types#core-hubmodelinfo), [`LlmForward`](context:fs/authoring.core-types#core-llmforward), [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk), [`ModelForward`](context:fs/authoring.core-types#core-modelforward), [`ModelForwardResult`](context:fs/authoring.core-types#core-modelforwardresult).
 
 #### `OpenRouterOptions`
 
@@ -963,7 +967,7 @@ interface PreviewOptions {
 }
 ```
 
-Refers to: [`JsonObject`](#core-jsonobject), [`PreviewViewport`](#core-previewviewport).
+Refers to: [`JsonObject`](context:fs/authoring.core-types#core-jsonobject), [`PreviewViewport`](context:fs/authoring.core-types#core-previewviewport).
 
 #### `SavedShot`
 
@@ -977,7 +981,7 @@ interface SavedShot extends PreviewShot {
 }
 ```
 
-Refers to: [`PreviewShot`](#core-previewshot).
+Refers to: [`PreviewShot`](context:fs/authoring.core-types#core-previewshot).
 
 #### `renderHtml`
 
@@ -989,7 +993,7 @@ Draw a component with props to HTML, in-process.
 function renderHtml(component: Component, props?: JsonObject): Promise<string>;
 ```
 
-Refers to: [`JsonObject`](#core-jsonobject).
+Refers to: [`JsonObject`](context:fs/authoring.core-types#core-jsonobject).
 
 #### `galleryHtml`
 
@@ -1001,7 +1005,7 @@ A page of every shot, grouped by component and state.
 function galleryHtml(shots: readonly PreviewShot[]): string;
 ```
 
-Refers to: [`PreviewShot`](#core-previewshot).
+Refers to: [`PreviewShot`](context:fs/authoring.core-types#core-previewshot).
 
 #### `PreviewIndex`
 
@@ -1025,7 +1029,7 @@ type PreviewIndex = {
 };
 ```
 
-Refers to: [`PreviewShot`](#core-previewshot).
+Refers to: [`PreviewShot`](context:fs/authoring.core-types#core-previewshot).
 
 #### `PREVIEW_INDEX`
 
@@ -1047,7 +1051,7 @@ The themes previews are shot in, from the shot contract.
 const PREVIEW_THEMES: ("light" | "dark")[];
 ```
 
-Refers to: [`PreviewShot`](#core-previewshot).
+Refers to: [`PreviewShot`](context:fs/authoring.core-types#core-previewshot).
 
 #### `PreviewTheme`
 
@@ -1057,7 +1061,7 @@ type · `import { PreviewTheme } from '@harness/sdk/testing'`
 type PreviewTheme = PreviewShot['theme'];
 ```
 
-Refers to: [`PreviewShot`](#core-previewshot).
+Refers to: [`PreviewShot`](context:fs/authoring.core-types#core-previewshot).
 
 #### `contextFolder`
 
@@ -1086,7 +1090,7 @@ interface TestedContext {
 }
 ```
 
-Refers to: [`ContextDecl`](#core-contextdecl), [`QualifiedName`](#core-qualifiedname).
+Refers to: [`ContextDecl`](context:fs/authoring.core-types#core-contextdecl), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `OtherNames`
 
@@ -1101,7 +1105,7 @@ interface OtherNames {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `kitEnv`
 

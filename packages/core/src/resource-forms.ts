@@ -187,7 +187,7 @@ export type ResourceReadResult = z.infer<typeof ResourceReadResult>;
 
 /** `hub/resource_import`: a URL or uploaded content into a hub resource. */
 export const ResourceImportArgs = z.union([
-  /** `folder` (build 4): where under the hub's imports the page goes, so a crawl keeps its pages under one root. */
+  /** `folder`: where under the hub's imports the page goes, so a crawl keeps its pages under one root. */
   z.object({ url: z.url(), render: RenderMode.optional(), name: z.string().optional(), folder: z.string().min(1).optional() }),
   z.object({ content: ContentRef, name: z.string().min(1), path: z.string().optional() }),
 ]);

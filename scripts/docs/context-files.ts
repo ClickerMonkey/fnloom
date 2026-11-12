@@ -3,11 +3,12 @@
  * header (`ContextFileHeader` from `@harness/core`) and then its content. The index (`fs/authoring`) offers the topic
  * groups as choices; each group offers its parts; each part offers its API reference (when it has one) and the part
  * after it. Every item but a reference brings the fns an author writes with, and the body names them as `fn:` links,
- * so the build checks them. The words are in `context-graph.ts`; the text is the guide's own, so the folder is never
- * edited by hand.
+ * so the build checks them. Links that worked in the single file are made to work across items (`context-links.ts`).
+ * The words are in `context-graph.ts`; the text is the guide's own, so the folder is never edited by hand.
  */
 import { ContextFileHeader, type QualifiedName } from '@harness/core';
 import { AUTHORING_GROUPS, AUTHORING_INDEX, PART_WORDS, type AuthoringGroup } from './context-graph.ts';
+import { anchorHomes, linkItem, sectionTitles } from './context-links.ts';
 import type { GuidePart } from './parts.ts';
 
 /** The system that serves the folder. */
@@ -58,9 +59,28 @@ function yaml(header: ContextFileHeader): string {
   return lines.join('\n');
 }
 
+/** A file before its links are made: its path, its header and its body. */
+interface Draft {
+  readonly path: string;
+  readonly header: ContextFileHeader;
+  readonly body: string;
+}
+
 /** A file from its header (checked against the schema, so the generator can't write a header the build refuses). */
-function file(path: string, header: Partial<ContextFileHeader> & Pick<ContextFileHeader, 'key' | 'description' | 'summary'>, body: string): ContextFile {
-  return { path, text: `${yaml(ContextFileHeader.parse(header))}\n\n${body.trim()}\n` };
+function file(path: string, header: Partial<ContextFileHeader> & Pick<ContextFileHeader, 'key' | 'description' | 'summary'>, body: string): Draft {
+  return { path, header: ContextFileHeader.parse(header), body };
+}
+
+/** The drafts as files, each body's anchors and section titles linked across the folder. */
+function linked(drafts: readonly Draft[], parts: readonly GuidePart[]): ContextFile[] {
+  const items = drafts.map((draft) => ({ key: qualified(draft.header.key), body: draft.body }));
+  const homes = anchorHomes(items);
+  const titles = sectionTitles(parts.map((part) => ({ key: qualified(partKey(part.topic.id)), title: part.topic.title })));
+  return items.map((item, index) => {
+    const draft = drafts[index];
+    if (draft === undefined) { throw new Error('a draft for every item'); }
+    return { path: draft.path, text: `${yaml(draft.header)}\n\n${linkItem(item, homes, titles).trim()}\n` };
+  });
 }
 
 /** A part's prose and its API reference, cut at the reference heading. */
@@ -94,7 +114,7 @@ export function contextFiles(parts: readonly GuidePart[]): ContextFile[] {
   };
 
   const indexFns = fnsOf(true);
-  const files: ContextFile[] = [file('index.md', {
+  const files: Draft[] = [file('index.md', {
     key: AUTHORING_INDEX.key,
     title: AUTHORING_INDEX.title,
     description: AUTHORING_INDEX.summary,
@@ -159,5 +179,5 @@ export function contextFiles(parts: readonly GuidePart[]): ContextFile[] {
       }, reference));
     }
   });
-  return files;
+  return linked(files, parts);
 }

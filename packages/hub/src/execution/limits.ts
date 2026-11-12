@@ -18,7 +18,7 @@ import {
 } from '@harness/core';
 import type { LimitResolver } from './index.ts';
 import type { ExecutionBase } from './ports.ts';
-import { allRows } from './pages.ts';
+import { allRows } from '../store/rows.ts';
 import type { SpendReader } from './spend.ts';
 
 /** How urgent a priority is: higher runs first. */

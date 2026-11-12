@@ -10,7 +10,7 @@ import { mintId, qualify, type FnExamplesPatch, type SystemName, type FnExample,
 import type { Catalog } from '../catalog/index.ts';
 import type { Indexer, Search } from '../index/index.ts';
 import type { HubStore } from '../store/index.ts';
-import { allRows } from '../execution/pages.ts';
+import { allRows } from '../store/rows.ts';
 import type { FnsTuning } from './env.ts';
 import type { Asker, FnExamples } from './index.ts';
 

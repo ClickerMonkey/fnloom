@@ -5,7 +5,7 @@
  * weight is worked out from their decayed use count whenever they are read); authored edges are a person's.
  */
 import { linkTargetKey, splitName, type ActorId, type ContextLink, type ContextRecord, type DeclarableRelation, type LinkTarget, type QualifiedName } from '@harness/core';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ContextGraph } from './index.ts';
@@ -16,7 +16,7 @@ export async function writeDerivedLinks(store: HubStore, record: Pick<ContextRec
   const table = store.table('contextLinks');
   const fresh = linksOf(record, at);
   const keep = new Set(fresh.map(linkKey));
-  for (const edge of await allRows(table, { from: record.name, source: { in: DERIVED_SOURCES } })) {
+  for (const edge of await allRows(table, { where: { from: record.name, source: { in: DERIVED_SOURCES } } })) {
     if (!keep.has(linkKey(edge))) await table.remove({ from: edge.from, toKey: edge.toKey, relation: edge.relation });
   }
   for (const edge of fresh) await table.put(edge);
@@ -25,7 +25,7 @@ export async function writeDerivedLinks(store: HubStore, record: Pick<ContextRec
 /** Remove every edge out of an item that is gone (the catalog calls this when it removes context). */
 export async function removeLinksFrom(store: HubStore, from: QualifiedName): Promise<void> {
   const table = store.table('contextLinks');
-  for (const edge of await allRows(table, { from })) await table.remove({ from: edge.from, toKey: edge.toKey, relation: edge.relation });
+  for (const edge of await allRows(table, { where: { from } })) await table.remove({ from: edge.from, toKey: edge.toKey, relation: edge.relation });
 }
 
 /** What the graph needs. */
@@ -47,11 +47,11 @@ export class StoreContextGraph implements ContextGraph {
   }
 
   async links(from: QualifiedName): Promise<ContextLink[]> {
-    return (await allRows(this.#deps.store.table('contextLinks'), { from })).map((edge) => this.#current(edge));
+    return (await allRows(this.#deps.store.table('contextLinks'), { where: { from } })).map((edge) => this.#current(edge));
   }
 
   async backlinks(to: LinkTarget): Promise<ContextLink[]> {
-    return (await allRows(this.#deps.store.table('contextLinks'), { toKey: linkTargetKey(to) })).map((edge) => this.#current(edge));
+    return (await allRows(this.#deps.store.table('contextLinks'), { where: { toKey: linkTargetKey(to) } })).map((edge) => this.#current(edge));
   }
 
   async neighbours(names: readonly QualifiedName[], hops: number, limit: number): Promise<ReadonlyMap<QualifiedName, number>> {
@@ -83,7 +83,7 @@ export class StoreContextGraph implements ContextGraph {
     const at = this.#deps.clock();
     await this.#deps.store.tx(async (tx) => {
       const table = tx.table('contextLinks');
-      for (const edge of await allRows(table, { from, source: 'resource' })) await table.remove({ from, toKey: edge.toKey, relation: edge.relation });
+      for (const edge of await allRows(table, { where: { from, source: 'resource' } })) await table.remove({ from, toKey: edge.toKey, relation: edge.relation });
       for (const edge of links) await table.put(link(from, edge.to, edge.relation, edge.weight, 'resource', at));
     });
   }

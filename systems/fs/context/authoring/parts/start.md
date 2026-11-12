@@ -26,14 +26,17 @@ Everything a system contributes is namespaced by its name: the `notes` system's 
 **To write a system, in order:**
 
 1. Copy the template: `harness system new <name>` (it copies `systems/template` to `systems/<name>` and puts the
-   name everywhere `template` stands). **The system folder and the template** shows every file of it.
+   name everywhere `template` stands). [The system folder and the template](context:fs/authoring.folder) shows every file of it.
 2. Write the **contract** in `shared/index.ts`: `system('<name>', { description }).with({ ... })`. Every shape is a gin
-   type made with `g` (**Types with gin**). The sections from **The contract** to **The hub contract** cover each part a contract can hold.
+   type made with `g` ([Types with gin](context:fs/authoring.gin)). The sections from [The contract](context:fs/authoring.contract) to [The hub contract](context:fs/authoring.hub) cover each part a contract can hold.
 3. Implement it in `server/impl.ts`. The implementation's type is computed from the contract, so the compiler lists
-   anything missing and refuses anything extra (**The server**, **The run context and services**, **Calling other fns**, **Config, events, lifecycle and data**).
-4. Optionally draw it in `client/`: Vue components typed by the contract (**The client**).
-5. Test it with the in-memory hub (`FakeHub`, **Testing**), then `npm run typecheck` and the tests.
-6. Run it against a hub, pair it, or build, pack and install it (**Packaging**). Read **Common mistakes** before you finish.
+   anything missing and refuses anything extra ([The server](context:fs/authoring.server), [The run context and services](context:fs/authoring.ctx), [Calling other fns](context:fs/authoring.calling), [Config, events, lifecycle and data](context:fs/authoring.lifecycle)).
+4. Optionally draw it in `client/`: Vue components typed by the contract ([The client](context:fs/authoring.client)).
+5. Test it with the test kit (`testHub`, `mockModel`, `contextFolder` and `preview` from `@harness/sdk/testing`,
+   [Testing](context:fs/authoring.testing)) and run the tests with `harness test`, which `fs/install_system` runs too.
+6. Run it against a hub, pair it, or build, pack and install it ([Packaging](context:fs/authoring.packaging)). An installed system is not live: an
+   admin reviews it in the hub and presses Go live before anything it offers can be called, so tell the person to do
+   that. Read [Common mistakes](context:fs/authoring.mistakes) before you finish.
 
 Three rules hold everywhere, and the compiler enforces them:
 
@@ -45,13 +48,13 @@ Three rules hold everywhere, and the compiler enforces them:
 - **The contract declares, the server implements.** Everything declared must be implemented, and nothing undeclared
   can be.
 
-The worked example throughout is the **notes** system (`scripts/docs/example`, shown whole in **Worked examples**): notes with
+The worked example throughout is the **notes** system (`scripts/docs/example`, shown whole in [Worked examples](context:fs/authoring.examples)): notes with
 titles and tags, kept per instance in the hub-given data folder. Every code sample in this guide is a region of a file
 that `npm run typecheck` compiles, so each is correct for this version of the SDK.
 
 **Imports.** Contracts and renderers import from `@harness/sdk` (pure, safe in the browser). Server code imports
-`serve` and friends from `@harness/sdk/server`, tests import `FakeHub` from `@harness/sdk/server/testing`, and a process
+`serve` and friends from `@harness/sdk/server`, tests import the test kit from `@harness/sdk/testing`, and a process
 that builds its renderers imports `buildClient` from `@harness/sdk/build`. Wire shapes (`ResourceStat`, `RunInfo`,
-`UndoOutcome`, …) are in `@harness/core`; **Core types** lists every one the SDK refers to, resolved to plain TypeScript.
+`UndoOutcome`, …) are in `@harness/core`; [Core types](context:fs/authoring.core-types) lists every one the SDK refers to, resolved to plain TypeScript.
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

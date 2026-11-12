@@ -54,7 +54,7 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
 }
 ```
 
-Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
+Refers to: [`ConfigComponentDecl`](context:fs/authoring.core-types#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types#core-systemgrants).
 
 #### `SystemRefs`
 
@@ -111,7 +111,7 @@ interface ContractShape {
 }
 ```
 
-Refers to: [`ConnectDecl`](#core-connectdecl).
+Refers to: [`ConnectDecl`](context:fs/authoring.core-types#core-connectdecl).
 
 #### `ContractSection`
 
@@ -173,7 +173,7 @@ type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
 };
 ```
 
-Refers to: [`ConnectDecl`](#core-connectdecl).
+Refers to: [`ConnectDecl`](context:fs/authoring.core-types#core-connectdecl).
 
 #### `AnyContract`
 
@@ -229,7 +229,7 @@ interface SystemInfo {
 }
 ```
 
-Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
+Refers to: [`ConfigComponentDecl`](context:fs/authoring.core-types#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types#core-systemgrants).
 
 #### `RegistryDef`
 

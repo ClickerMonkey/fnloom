@@ -11,15 +11,12 @@ import {
   type Section,
 } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { hubSectioners, matchScore, type Sectioner } from '../index/sectioners.ts';
 import type { HubStore } from '../store/index.ts';
 import { tableRowCounts } from './converters.ts';
 import type { Asking, FormService, ResourceReader } from './index.ts';
 import { kindsOf, textOf } from './rules.ts';
-
-/** How many characters a read gives when the caller doesn't say. */
-export const READ_CHARS = 20_000;
 
 /** File extensions of downloaded converted forms, by the media type of their text. */
 const EXTENSIONS: Readonly<Record<string, string>> = { 'text/markdown': '.md', 'text/plain': '.txt', 'application/json': '.json', 'application/yaml': '.yaml' };
@@ -29,6 +26,8 @@ export interface FormReaderOptions {
   readonly store: HubStore;
   readonly content: ContentStore;
   readonly forms: FormService;
+  /** How many characters a read gives when the caller doesn't say (`HARNESS_READ_CHARS`). */
+  readonly readChars: number;
 }
 
 /** The text of one form of a resource, its version when converted, and its form record. */
@@ -60,7 +59,7 @@ export class FormReader implements ResourceReader {
       text = text.slice(section.start, section.end);
     }
     const offset = Math.min(args.offset ?? 0, text.length);
-    const max = args.maxChars ?? READ_CHARS;
+    const max = args.maxChars ?? this.#o.readChars;
     return { ...base, text: text.slice(offset, offset + max), offset, total: text.length, truncated: offset + max < text.length };
   }
 
@@ -126,7 +125,7 @@ export class FormReader implements ResourceReader {
   async #sections(record: ResourceRecord, chosen: FormText): Promise<Section[]> {
     const form = chosen.form === 'raw' ? undefined : chosen.form;
     if (record.indexedVersion === record.stat.version) {
-      const rows = await allRows(this.#o.store.table('sections'), { uri: record.uri, version: record.stat.version });
+      const rows = await allRows(this.#o.store.table('sections'), { where: { uri: record.uri, version: record.stat.version } });
       const ofForm = rows.filter((row) => row.form === form);
       if (ofForm.length > 0) { return ofForm.sort((a, b) => a.start - b.start).map(({ uri: _uri, version: _version, hash: _hash, ...section }) => section); }
     }

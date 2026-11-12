@@ -16,7 +16,7 @@ import ContextRow from '../context/components/ContextRow.vue';
 import FromResourceDialog from '../context/components/FromResourceDialog.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
 import ListSearch from '../components/query/ListSearch.vue';
-import { filterOf, isFiltered, type MemoryDraft } from '../context/logic/context.ts';
+import { filterOf, isFiltered, sharedFacts, sharedText, type MemoryDraft } from '../context/logic/context.ts';
 import { hubListQuery, useListQuery } from '../state/query.ts';
 import { useStores } from '../state/stores.ts';
 import { UiButton } from '../ui/index.ts';
@@ -41,6 +41,9 @@ context.follow();
 
 const items = computed(() => context.list.items.value);
 const filtered = computed(() => isFiltered(filter.value));
+/** What every listed item shares, said once above the list instead of on every row. */
+const shared = computed(() => sharedFacts(items.value));
+const sharedLine = computed(() => sharedText(shared.value));
 
 async function remember(draft: MemoryDraft): Promise<void> {
   const result = await context.remember(draft);
@@ -77,8 +80,9 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
       :empty-body="filtered ? 'Try other words, or every origin.' : 'Systems add their skills and guides here; memory and context made from resources join them.'"
       empty-icon="book" @retry="context.show(filter)"
     >
+      <p v-if="sharedLine !== ''" class="shared" data-testid="context-shared">{{ sharedLine }}</p>
       <ul class="list" :class="{ refreshing: context.list.loading.value }" data-testid="context-list">
-        <li v-for="record in items" :key="record.name"><ContextRow :record="record" :to="links.contextItem(record.name)" :now="now" /></li>
+        <li v-for="record in items" :key="record.name"><ContextRow :record="record" :to="links.contextItem(record.name)" :now="now" :shared="shared" /></li>
       </ul>
       <div v-if="context.list.hasMore.value" class="more">
         <UiButton variant="ghost" :loading="context.list.loadingMore.value" data-testid="more" @click="context.list.more()">Show more</UiButton>
@@ -98,6 +102,7 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
   list-style: none; overflow: hidden; transition: opacity var(--fast) var(--ease);
 }
 .list > li + li { border-top: 1px solid var(--border); }
+.shared { margin: 0 0 var(--space-2); color: var(--text-dim); font-size: var(--text-sm); }
 .refreshing { opacity: 0.7; }
 .more { display: flex; justify-content: center; }
 </style>

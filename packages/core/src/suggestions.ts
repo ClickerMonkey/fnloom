@@ -1,5 +1,5 @@
 /**
- * Suggestions (build 3): what the hub offered a user message (fns and context), what it left out and why, and the
+ * Suggestions: what the hub offered a user message (fns and context), what it left out and why, and the
  * admin's decision model that can choose instead of a score threshold. The record rides on the user message, so the
  * chat shows a compact icon row with counts and, opened, the used and the not-used items with their reasons.
  */
@@ -31,7 +31,7 @@ export const SKIP_REASON_LABELS = {
 
 /**
  * One candidate fn or context item and what became of it. `note`: the decision model's reason, in its words.
- * `broughtBy` (build 6): a fn suggested because a suggested context brings it, at that context's score.
+ * `broughtBy`: a fn suggested because a suggested context brings it, at that context's score.
  */
 export const SuggestionOutcome = z.discriminatedUnion('used', [
   z.object({ used: z.literal(true), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), broughtBy: QualifiedName.optional(), note: z.string().optional() }),

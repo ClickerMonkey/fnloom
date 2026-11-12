@@ -13,7 +13,8 @@ import { ChatError, messageOf } from './errors.ts';
 import type { PresenceTracker, SessionService } from './index.ts';
 import type { People } from './people.ts';
 import type { StreamBuffer } from './streams.ts';
-import { agentActorId, collect, participantOf, peopleOf, readAll } from './support.ts';
+import { agentActorId, participantOf, peopleOf } from './support.ts';
+import { allRows, filteredPage } from '../store/rows.ts';
 
 /** The title of a session nobody has named yet. Its first message names it. */
 export const UNTITLED = 'New chat';
@@ -25,12 +26,6 @@ export const DEFAULT_AGENT: QualifiedName = hub.fns.chat.name;
 export function isActiveRun(run: Pick<Run, 'status'>): boolean {
   return isUnsettled(run.status);
 }
-
-/** The most active runs a session's controls look at. */
-const MAX_ACTIVE_RUNS = 500;
-
-/** The most rows of one table a session's deletion removes at once (more stay for the next try). */
-const MAX_DELETED = 100_000;
 
 /** The id of a session's own priority rule: one per session, replaced on change. */
 export function sessionPriorityRule(session: SessionId): PriorityRule['id'] {
@@ -91,7 +86,7 @@ export class StoreSessionService implements SessionService {
   }
 
   async list(viewer: ActorId, query: Compact<SessionListQuery>): Promise<Page<SessionSummary>> {
-    const page = await collect(
+    const page = await filteredPage(
       this.#deps.store.table('sessions'),
       { where: { owner: viewer, archived: false }, order: [['updatedAt', 'desc']], limit: query.limit ?? this.#deps.settings.chat.HARNESS_SESSION_PAGE, cursor: query.cursor },
       () => true,
@@ -143,9 +138,9 @@ export class StoreSessionService implements SessionService {
     }
     const removed = await store.tx(async (tx) => {
       let count = 0;
-      for (const message of await readAll(tx.table('messages'), { where: { session: id } }, MAX_DELETED)) { if (await tx.table('messages').remove(message.id)) { count++; } }
-      for (const delivery of await readAll(tx.table('deliveries'), { where: { session: id } }, MAX_DELETED)) { await tx.table('deliveries').remove(delivery.id); }
-      for (const field of await readAll(tx.table('stateFields'), { where: { session: id } }, MAX_DELETED)) {
+      for (const message of await allRows(tx.table('messages'), { where: { session: id } })) { if (await tx.table('messages').remove(message.id)) { count++; } }
+      for (const delivery of await allRows(tx.table('deliveries'), { where: { session: id } })) { await tx.table('deliveries').remove(delivery.id); }
+      for (const field of await allRows(tx.table('stateFields'), { where: { session: id } })) {
         await tx.table('stateFields').remove(field);
       }
       await tx.table('priorityRules').remove(sessionPriorityRule(id));
@@ -275,7 +270,7 @@ export class StoreSessionService implements SessionService {
   }
 
   async #active(session: SessionId): Promise<Run[]> {
-    return readAll(this.#deps.store.table('runs'), { where: { session, status: { in: ACTIVE_RUN_STATUSES } } }, MAX_ACTIVE_RUNS);
+    return allRows(this.#deps.store.table('runs'), { where: { session, status: { in: ACTIVE_RUN_STATUSES } } });
   }
 
   #changed(session: Session): void {

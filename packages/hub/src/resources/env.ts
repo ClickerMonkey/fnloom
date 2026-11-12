@@ -12,6 +12,7 @@ export const resourcesEnv = env({
   HARNESS_SNAPSHOT_MAX: z.number().int().min(0).default(2 * 1024 * 1024 * 1024).describe('Bytes of system resources\' raw snapshots kept before the oldest are dropped (their forms are kept).'),
   HARNESS_TABLE_ROWS: z.number().int().min(10).default(5_000).describe('Rows kept per table in a `table` form; the real count is kept beside it.'),
   HARNESS_DESCRIBE_ON_INDEX: z.boolean().default(false).describe('Describe and read text in images while indexing (else only when someone reads them).'),
+  HARNESS_READ_CHARS: z.number().int().min(100).max(200_000).default(20_000).describe('How many characters `hub/resource_read` gives when the caller doesn\'t say.'),
   HARNESS_FORM_CONCURRENCY: z.number().int().min(1).default(2).describe('Forms made at once.'),
   HARNESS_CONTEXT_PIECE_TOKENS: z.number().int().min(50).default(600).describe('A section longer than this becomes a chain of context pieces (small-model friendly).'),
   HARNESS_FETCH_TIMEOUT: z.number().int().min(1_000).default(30_000).describe('How long a URL import waits when the web system isn\'t connected and the hub fetches itself.'),

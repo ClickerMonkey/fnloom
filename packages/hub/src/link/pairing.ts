@@ -21,7 +21,7 @@ import {
   type SystemRecord, type Timestamp, type AutoPairChoice, type ConfigPath, type FnRecord, type InstallSubject, type HostedBy, type RunId, type PairingGrant, type PairingGrantRequest, type QualifiedName, type InstallChecks, type SystemStage,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 import type { AutoPairService } from './auto-pair.ts';
@@ -130,7 +130,7 @@ export class StorePairingService implements PairingService {
       return { kind: 'pairing', pairing: request.id, url: this.approvalUrl(request, asker.origin), expiresAt: request.expiresAt };
     }
 
-    const open = (await allRows(store.table('pairings'), { name: hello.name, status: 'pending' }))
+    const open = (await allRows(store.table('pairings'), { where: { name: hello.name, status: 'pending' } }))
       .find((r) => r.keyFingerprint === keyFingerprint && (r.instance ?? MAIN_INSTANCE) === hello.instance && r.expiresAt > now);
     const request = open ?? await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'code', code: pairingCode(), status: 'pending' });
     this.#waiting.set(request.id, { peer: asker.peer, origin: asker.origin });
@@ -166,7 +166,7 @@ export class StorePairingService implements PairingService {
   async pending(): Promise<PairingRequest[]> {
     const now = this.#options.clock();
     const out: PairingRequest[] = [];
-    for (const request of await allRows(this.#options.store.table('pairings'), { status: 'pending' })) {
+    for (const request of await allRows(this.#options.store.table('pairings'), { where: { status: 'pending' } })) {
       if (request.expiresAt > now) { out.push(request); continue; }
       this.#waiting.delete(request.id);
       this.#options.bus.publish('pairing', { pairing: await this.#options.store.table('pairings').update(request.id, { status: 'expired' }) });
@@ -261,7 +261,7 @@ export class StorePairingService implements PairingService {
     const { store, instances, log } = this.#options;
     const host = (await instances.get(ref))?.host;
     if (host === undefined) { return; }
-    for (const run of await allRows(store.table('runs'), { system: host.host.system, instance: host.host.instance, status: 'running' })) {
+    for (const run of await allRows(store.table('runs'), { where: { system: host.host.system, instance: host.host.instance, status: 'running' } })) {
       if ((await this.#options.fn(run.fn))?.decl.approval?.approver !== 'admins') { continue; }
       const installed = await this.#approvedInstall(run.id, (subject) => subject.system === ref.system && subject.instance === ref.instance
         && subject.manifestHash === manifestHash && subject.host.system === host.host.system && subject.host.instance === host.host.instance);
@@ -324,7 +324,7 @@ export class StorePairingService implements PairingService {
   async #supersede(paired: PairingRequest): Promise<void> {
     const { store, bus } = this.#options;
     const instance = paired.instance ?? MAIN_INSTANCE;
-    for (const request of await allRows(store.table('pairings'), { name: paired.name, status: 'pending' })) {
+    for (const request of await allRows(store.table('pairings'), { where: { name: paired.name, status: 'pending' } })) {
       if (request.id === paired.id || (request.instance ?? MAIN_INSTANCE) !== instance) { continue; }
       this.#waiting.delete(request.id);
       bus.publish('pairing', { pairing: await store.table('pairings').update(request.id, { status: 'expired' }) });

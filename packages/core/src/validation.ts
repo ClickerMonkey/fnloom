@@ -1,5 +1,5 @@
 /**
- * Fn validation hooks (build 4). A fn can declare `validate.input` and `validate.output` (TypeScript in its system,
+ * Fn validation hooks. A fn can declare `validate.input` and `validate.output` (TypeScript in its system,
  * given ctx, args, session state and, for output, the result). The hub calls the system's `validate` endpoint before
  * starting such a run and after it succeeds. A refused input tells the model the fn can't run now and why (a tool
  * result, not an error). A refused output either asks the model to try again with the reason, or stops the run with the

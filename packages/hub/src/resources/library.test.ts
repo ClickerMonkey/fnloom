@@ -1,6 +1,6 @@
 import { QualifiedName, ResourceUri, RunId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { ALICE, bytes, resourcesRig, statOf } from './testing.ts';
 
 const who = { actor: ALICE };

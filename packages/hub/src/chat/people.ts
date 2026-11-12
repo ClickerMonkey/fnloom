@@ -3,14 +3,12 @@ import type { ActorId, AgentActor, Asker, ClientInfo, QualifiedName, SessionId, 
 import type { ChatDeps } from './deps.ts';
 import { ChatError } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
-import { agentActorId, agentName, readAll } from './support.ts';
+import { agentActorId, agentName } from './support.ts';
+import { allRows } from '../store/rows.ts';
 import { timeInfo } from '../execution/time.ts';
 
 /** Where a person is, when their browser didn't say (a mention search, a scheduled turn). */
 const FALLBACK_PLACE = { timeZone: 'UTC', locale: 'en-US' } as const;
-
-/** The most groups one person's `UserInfo` lists. */
-const MAX_GROUPS = 200;
 
 /** Builds `UserInfo` and `Asker` from the actors table and what the browser reports, and finds agents' actors. */
 export class People {
@@ -30,7 +28,7 @@ export class People {
   /** The person as systems see them: their zone and locale from the browser, else from their profile, else UTC. */
   async info(actor: ActorId, client?: Pick<ClientInfo, 'timeZone' | 'locale'>): Promise<UserInfo> {
     const user = await this.user(actor);
-    const memberships = await readAll(this.#deps.store.table('memberships'), { where: { user: actor } }, MAX_GROUPS);
+    const memberships = await allRows(this.#deps.store.table('memberships'), { where: { user: actor } });
     const groups = await Promise.all(memberships.map(async (m) => this.#deps.store.table('actors').get(m.group)));
     return {
       id: user.id,

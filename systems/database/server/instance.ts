@@ -361,16 +361,15 @@ export class DatabaseInstance {
   async #enrichment(table: ScannedTable, catalog: TableCatalog, llm: Llm | undefined): Promise<TableEnrichment | undefined> {
     if (!this.config.enrich.on || llm === undefined) { return undefined; }
     const profile = await this.profile(table, catalog);
-    let written: Awaited<ReturnType<Enricher['enrich']>>;
     try {
-      written = await this.#deps.enricher.enrich(table, profile.sample, profile.distinct, llm, this.config.enrich.model);
+      const written = await this.#deps.enricher.enrich(table, profile.sample, profile.distinct, llm, this.config.enrich.model);
+      this.#unenriched.delete(table.spec.name);
+      return written;
     } catch {
-      // outside a run the hub refuses the call: a run enriches it later (`enrichLater`)
+      // outside a run the hub refuses the call, and an answer that doesn't fit throws: a run enriches it later (`enrichLater`)
       this.#unenriched.add(table.spec.name);
       return undefined;
     }
-    this.#unenriched.delete(table.spec.name);
-    return 'problems' in written ? undefined : written;
   }
 
   /**

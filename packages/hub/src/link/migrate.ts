@@ -6,7 +6,7 @@
  */
 import type { Logger } from '@ayepi/log';
 import { MAIN_INSTANCE, type InstanceRecord, type SystemRecord } from '@harness/core';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { HubStore } from '../store/index.ts';
 
 /** A system row split into its build 1 instance fields and the rest. */

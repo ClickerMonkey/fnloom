@@ -29,8 +29,12 @@ const now = useNow();
 const signedIn = session.signedIn;
 const bare = computed(() => route.meta.bare === true || !signedIn.value);
 const entries = computed(() => navEntries(route, session.user.value, { inbox: inbox.unread.value, admin: admin.systems.pending.value }, chat.connections.nav.value));
-/** The route's name for the page; a connect page takes its system's ("Calendar") once the nav knows it. */
+/**
+ * The page's name: the one thing a detail page is about (`fs`) when it says, else the route's; a connect page takes its
+ * system's ("Calendar") once the nav knows it.
+ */
 const title = computed(() => {
+  if (layout.pageTitle.value !== undefined) { return layout.pageTitle.value; }
   const page = route.name === ROUTES.connect ? chat.connections.nav.value.find((entry) => entry.system === route.params['system']) : undefined;
   return page?.title ?? route.meta.title ?? 'Harness';
 });

@@ -27,13 +27,6 @@ import { broughtFns, sizedChoices, withImports } from './brought.ts';
 import { baseScore, metricSettings, spread, wordShare, words, type Edge, type Signals } from './score.ts';
 import { forModel, usable } from './views.ts';
 
-/** How many of the newest exchanges the `used` metric looks at. */
-export const USED_WINDOW = 5;
-/** The characters a tool result in a floor exchange is shortened to when the exchange won't fit whole. */
-export const FLOOR_RESULT_CHARS = 600;
-/** The weight of memory when it sets none. */
-export const MEMORY_WEIGHT = 0.8;
-
 /** The text of a context item at a detail. Dynamic context not yet written by its system (`DynamicContext`) shows its summary at `full`. */
 export function contextText(record: ContextRecord, detail: Detail): string {
   switch (detail) {
@@ -111,7 +104,7 @@ function report(input: ContextorInput, type: SelectionReport['contextor'], parts
 }
 
 /** The linear history that fits `room` tokens: the newest exchanges whole, then the newest shortened, oldest left out. */
-function fitHistory(history: readonly Exchange[], room: number, input: ContextorInput): { messages: ReturnType<typeof shortenResults>; kept: number; used: number; cut: Cut[] } {
+function fitHistory(history: readonly Exchange[], room: number, input: ContextorInput, floorChars: number): { messages: ReturnType<typeof shortenResults>; kept: number; used: number; cut: Cut[] } {
   const cut: Cut[] = [];
   const kept: Exchange[] = [];
   let used = 0;
@@ -127,7 +120,7 @@ function fitHistory(history: readonly Exchange[], room: number, input: Contextor
   const left = history.length - kept.length;
   const newest = history.at(-1);
   if (kept.length === 0 && newest !== undefined) {
-    const shortened = shortenResults(newest.messages, FLOOR_RESULT_CHARS);
+    const shortened = shortenResults(newest.messages, floorChars);
     const cost = input.ctx.estimator.messages(shortened);
     if (cost <= room) {
       messages = shortened;
@@ -190,7 +183,7 @@ export class PlainContextorImpl implements Contextor {
     const extra = fit((await viewsOf(this.deps, injectedFns, input)).slice(0, Math.max(0, payload.maxTools - views.length)), (v) => input.mode.cost(v, detail, ctx), (v) => v.record.name);
     const fns: ChosenFn[] = [...views, ...extra].map((view) => ({ view, detail, activation: 1 }));
     const fnTokens = fns.reduce((sum, f) => sum + input.mode.cost(f.view, detail, ctx), 0);
-    const history = fitHistory(input.history, left, input);
+    const history = fitHistory(input.history, left, input, this.deps.settings.HARNESS_FLOOR_RESULT_CHARS);
     const all = [...context, ...injected];
     const historyAsk = input.ctx.estimator.messages(input.history.flatMap((e) => [...e.messages]));
     const wantedTokens = wanted.reduce((sum, r) => sum + contextCost(r, 'full', input), 0);
@@ -306,11 +299,11 @@ export class GraphContextorImpl implements Contextor {
       const signals: Signals = {
         ...(hitScore.has(candidate.name) ? { embedding: hitScore.get(candidate.name) } : {}),
         ...(query.size === 0 ? {} : { words: wordShare(query, describe) }),
-        ...(used === undefined ? {} : { turnsAgo: now - Math.max(...used), used: used.filter((turn) => turn >= now - USED_WINDOW).length / USED_WINDOW }),
+        ...(used === undefined ? {} : { turnsAgo: now - Math.max(...used), used: used.filter((turn) => turn >= now - settings.HARNESS_USED_WINDOW).length / settings.HARNESS_USED_WINDOW }),
         ...(candidate.kind === 'context' && candidate.record.origin?.type === 'memory' ? { age: (this.#deps.clock() - candidate.record.updatedAt) / 86_400_000 } : {}),
         ...(last.size === 0 ? {} : { selectedBefore: last.has(candidate.name) ? 1 : 0 }),
       };
-      base.set(candidate.name, baseScore(signals, weightOf(candidate), settingsByMetric));
+      base.set(candidate.name, baseScore(signals, weightOf(candidate, settings.HARNESS_MEMORY_WEIGHT), settingsByMetric));
     }
 
     // 3. spread over links between candidates
@@ -469,10 +462,10 @@ export class GraphContextorImpl implements Contextor {
   }
 }
 
-/** What a candidate weighs: its declared weight, memory 0.8 unless set. */
-function weightOf(candidate: Candidate): number {
+/** What a candidate weighs: its declared weight, else `memory` for a memory, else 1. */
+function weightOf(candidate: Candidate, memory: number): number {
   if (candidate.kind === 'fn') return 1;
-  return candidate.record.decl.weight ?? (candidate.record.origin?.type === 'memory' ? MEMORY_WEIGHT : 1);
+  return candidate.record.decl.weight ?? (candidate.record.origin?.type === 'memory' ? memory : 1);
 }
 
 /** The context a record imports (recursively, cycles cut) and the fns it and they bring, among the candidates. */

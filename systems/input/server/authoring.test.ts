@@ -25,6 +25,7 @@ const offered = (forward: LlmForward | undefined): string[] => (forward?.request
 describe('get_input', () => {
   it('writes a form, fixes a refused draft, keeps it as the person’s own, and reuses it next time', async () => {
     const tooWide = { ...TRIP, type: { name: 'obj', props: { ...TRIP.type.props, a: { docs: 'A?', type: { name: 'bool' } }, b: { docs: 'B?', type: { name: 'bool' } } } } };
+    // #region authoring-test
     const model = mockModel([
       toolCall('find_forms', { text: 'trip details' }), toolCall('field_types', {}), toolCall('draft', { draft: tooWide }), toolCall('draft', { draft: TRIP }), toolCall('save', {}), replyChunks('Saved.'),
       toolCall('find_forms', { text: 'trip details' }), toolCall('use_saved', { fn: 'input/trip_details' }), replyChunks('Reused.'),
@@ -43,6 +44,7 @@ describe('get_input', () => {
       expect(offered(forwards[3])).not.toContain('save');
       expect(JSON.stringify(forwards[3]?.request.messages)).toContain('at most 3');
       expect(offered(forwards[4])).toContain('save');
+      // #endregion authoring-test
 
       const reused = await kit.call('get_input', { detailedDescription: 'Trip: city and nights.' });
       expect(reused.result).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' }, next: HEADLESS_ASKED });

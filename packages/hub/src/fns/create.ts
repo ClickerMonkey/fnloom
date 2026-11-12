@@ -9,7 +9,7 @@ import { plugin } from '@ayepi/plugin';
 import { hubLinkSpec, type FnRecord, type QualifiedName, type RunId, type SystemName } from '@harness/core';
 import type { HubServices, ModuleFactory } from '../boot/index.ts';
 import { messageOf } from '../execution/errors.ts';
-import { rows } from '../execution/pages.ts';
+import { rows } from '../store/rows.ts';
 import { LlmAutoClassifier } from './auto.ts';
 import { ResourceClientLogs } from './client-logs.ts';
 import { AgentCostEstimator, DeclaredCostEstimator, FreeCostEstimator, HistoryCostEstimator, KindCostEstimator, UnknownCostEstimator } from './costs.ts';

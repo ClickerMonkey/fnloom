@@ -27,7 +27,7 @@ Every implementation gets a context (`ctx`) typed by what it implements.
   instance, and `system.from` when another system's fn called it; the caller, the attempt and the priority.
 - `ctx.fns`, `ctx.handlers`, `ctx.progress`, `ctx.state`, `ctx.form`: typed by the fn's declaration.
 - `ctx.done`, `ctx.invalid`, `ctx.fail`, `ctx.pause`, `ctx.cancelled`; `ctx.undoWith`, `ctx.onPause`, `ctx.allow`,
-  `ctx.resume`; `ctx.signal` (**Outcomes**).
+  `ctx.resume`; `ctx.signal` ([Outcomes](context:fs/authoring.outcomes)).
 - `ctx.budget`, for information: `remaining()` (the least money and time left across every budget that applies),
   `limitedBy()`, and `spend(cost, what)` to report a cost the hub can't see (a paid API call). The hub enforces LLM
   spend itself.

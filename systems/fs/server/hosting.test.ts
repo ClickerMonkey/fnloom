@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { InstanceName, SystemName, type InstallSubject, type PreviewPart, type SystemGrants, type SystemTestReport } from '@harness/core';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import type { ProcessProbe } from './stale.ts';
 import { Hosting, InstallRefused, capped, grantsReview, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
 
 const host = { system: SystemName.parse('fs'), instance: InstanceName.parse('main') };
@@ -59,6 +60,22 @@ class FakeBuilds implements SystemBuilds {
   }
 }
 
+/** Processes by pid as the probe sees them, and the ones it killed. */
+class FakeProbe implements ProcessProbe {
+  readonly lines = new Map<number, string>();
+  readonly killed: number[] = [];
+
+  commandLine(pid: number): Promise<string | undefined> {
+    return Promise.resolve(this.lines.get(pid));
+  }
+
+  kill(pid: number): Promise<void> {
+    this.killed.push(pid);
+    this.lines.delete(pid);
+    return Promise.resolve();
+  }
+}
+
 /** A runner that answers starts as told and remembers what it started. */
 class FakeRunner implements HostedRunner {
   answer: StartOutcome = { state: 'connected' };
@@ -67,6 +84,7 @@ class FakeRunner implements HostedRunner {
 
   start(key: string, launch: HostedLaunch): Promise<StartOutcome> {
     this.started.push({ key, launch });
+    launch.spawned(4120);
     if ('state' in this.answer) { this.running.set(key, { state: this.answer.state, pid: 4120, restartsLastHour: 0, output: 'random.serving' }); }
     return Promise.resolve(this.answer);
   }
@@ -85,15 +103,18 @@ describe('hosting systems written here', () => {
   const made: string[] = [];
   afterEach(() => { made.length = 0; });
 
-  function setup(tests?: SystemTests) {
+  function setup(tests?: SystemTests, data = folder('fs-data')) {
     const builds = new FakeBuilds();
     const runner = new FakeRunner();
-    const data = folder('fs-data');
+    const probe = new FakeProbe();
     made.push(data);
-    const hosting = new Hosting({ builds, runner, ...(tests === undefined ? {} : { tests }), hubUrl: 'ws://127.0.0.1:4551/link', host, dataDir: data, limits: { connectTimeout: 30_000, problems: 2, outputTail: 20 } });
+    const hosting = new Hosting({
+      builds, runner, probe, ...(tests === undefined ? {} : { tests }), hubUrl: 'ws://127.0.0.1:4551/link', host, dataDir: data,
+      limits: { connectTimeout: 30_000, problems: 2, outputTail: 20, renameTries: 3, renameWait: 1 },
+    });
     const grants: InstallSubject[] = [];
     const grant = (subject: InstallSubject) => { grants.push(subject); return Promise.resolve({ token: 'tok_1', expiresAt: 1 }); };
-    return { builds, runner, hosting, grants, grant };
+    return { builds, runner, probe, hosting, grants, grant, data };
   }
 
   it('refuses a folder that does not build with its file:line:col lines, before any card', async () => {
@@ -269,6 +290,35 @@ describe('hosting systems written here', () => {
     expect(await hosting.stop('random', undefined, true)).toEqual({ stopped: true, removed: true });
     expect(await hosting.records()).toEqual([]);
     await expect(hosting.restart('random', undefined)).rejects.toThrow('isn\'t hosted here. Nothing is.');
+  });
+
+  it('kills the process an fs that crashed left running before starting the system again, and only if it is still ours', async () => {
+    const first = setup();
+    const dir = folder();
+    const subject = (await first.hosting.preview(dir, {}, signal)).subject;
+    if (subject === undefined) { throw new Error('no subject'); }
+    await first.hosting.install(dir, subject, first.grant, signal);
+    const entry = first.runner.started[0]?.launch.entry ?? '';
+    // fs crashed: a new one starts on the same folders, and pid 4120 still runs the bundle
+    const again = setup(undefined, first.data);
+    again.probe.lines.set(4120, `node --permission --require guard.ts ${entry}`);
+    expect(await again.hosting.startAll()).toEqual([{ system: 'random/main', outcome: { state: 'connected' } }]);
+    expect(again.probe.killed).toEqual([4120]);
+    // a pid reused by something else is left alone
+    const third = setup(undefined, first.data);
+    third.probe.lines.set(4120, 'C:\\Windows\\notepad.exe');
+    await third.hosting.startAll();
+    expect(third.probe.killed).toEqual([]);
+  });
+
+  it('writes one instance\'s record one at a time, so overlapping restarts and stops never race on a temp file', async () => {
+    const { hosting, grant } = setup();
+    const dir = folder();
+    const subject = (await hosting.preview(dir, {}, signal)).subject;
+    if (subject === undefined) { throw new Error('no subject'); }
+    await hosting.install(dir, subject, grant, signal);
+    await Promise.all([hosting.restart('random', undefined), hosting.stop('random', undefined, false), hosting.restart('random', undefined)]);
+    expect(await hosting.records()).toMatchObject([{ system: 'random', start: true }]);
   });
 
   it('previews unchanged code again without removing the running bundle folder, and builds one preview at a time', async () => {

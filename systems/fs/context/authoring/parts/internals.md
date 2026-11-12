@@ -31,7 +31,7 @@ A contract's manifest, hashed and checked against core's `Manifest` schema.
 function manifestOf(contract: AnyContract, options: ManifestOptions): Promise<Manifest>;
 ```
 
-Refers to: [`Manifest`](#core-manifest).
+Refers to: [`Manifest`](context:fs/authoring.core-types#core-manifest).
 
 #### `manifestBody`
 
@@ -43,7 +43,7 @@ The body of a manifest: everything but its hash.
 function manifestBody(contract: AnyContract, options: ManifestOptions): Omit<Manifest, "hash">;
 ```
 
-Refers to: [`Manifest`](#core-manifest).
+Refers to: [`Manifest`](context:fs/authoring.core-types#core-manifest).
 
 #### `fnDecl`
 
@@ -85,7 +85,7 @@ JSON with object keys sorted, so equal content always hashes the same.
 function canonicalJson(value: Json): string;
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `contractHash`
 
@@ -100,7 +100,7 @@ its context, which may come from its context folder (all inside the approved bun
 function contractHash(manifest: Manifest): Promise<string>;
 ```
 
-Refers to: [`Manifest`](#core-manifest).
+Refers to: [`Manifest`](context:fs/authoring.core-types#core-manifest).
 
 #### `sha256`
 
@@ -194,7 +194,7 @@ interface KeyStore {
 }
 ```
 
-Refers to: [`AutoPairGrant`](#core-autopairgrant).
+Refers to: [`AutoPairGrant`](context:fs/authoring.core-types#core-autopairgrant).
 
 #### `FileKeyStore`
 
@@ -212,7 +212,7 @@ class FileKeyStore implements KeyStore {
 }
 ```
 
-Refers to: [`AutoPairGrant`](#core-autopairgrant).
+Refers to: [`AutoPairGrant`](context:fs/authoring.core-types#core-autopairgrant).
 
 #### `StoredKeyPair`
 
@@ -302,7 +302,7 @@ interface OutcomeJournal {
 }
 ```
 
-Refers to: [`OutcomeWire`](#core-outcomewire), [`RunId`](#core-runid).
+Refers to: [`OutcomeWire`](context:fs/authoring.core-types#core-outcomewire), [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `FileJournal`
 
@@ -319,7 +319,7 @@ class FileJournal implements OutcomeJournal {
 }
 ```
 
-Refers to: [`OutcomeWire`](#core-outcomewire), [`RunId`](#core-runid).
+Refers to: [`OutcomeWire`](context:fs/authoring.core-types#core-outcomewire), [`RunId`](context:fs/authoring.core-types#core-runid).
 
 #### `contentHash`
 
@@ -394,7 +394,7 @@ class InvalidValue extends Error {
 }
 ```
 
-Refers to: [`FnError`](#core-fnerror).
+Refers to: [`FnError`](context:fs/authoring.core-types#core-fnerror).
 
 #### `LinkTransport`
 
@@ -465,7 +465,7 @@ The typed hub, as a system calls it.
 type HubLink = ApiClient<HubLinkSpec>;
 ```
 
-Refers to: [`HubLinkSpec`](#core-hublinkspec).
+Refers to: [`HubLinkSpec`](context:fs/authoring.core-types#core-hublinkspec).
 
 #### `NodeFiles`
 
@@ -487,7 +487,7 @@ class NodeFiles implements Files {
 }
 ```
 
-Refers to: [`ContentRef`](#core-contentref), [`ResourceStat`](#core-resourcestat).
+Refers to: [`ContentRef`](context:fs/authoring.core-types#core-contentref), [`ResourceStat`](context:fs/authoring.core-types#core-resourcestat).
 
 #### `FilesFactory`
 
@@ -523,7 +523,7 @@ A file's `file://` URI. A system of many instances (a fleet) names its instance 
 function fileUri(path: string, instance?: InstanceName): ResourceUri;
 ```
 
-Refers to: [`InstanceName`](#core-instancename), [`ResourceUri`](#core-resourceuri).
+Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`ResourceUri`](context:fs/authoring.core-types#core-resourceuri).
 
 #### `uriInstance`
 
@@ -535,7 +535,7 @@ The instance a `file://` URI names as its host, if it names one (`undefined` for
 function uriInstance(uri: ResourceUri): InstanceName | undefined;
 ```
 
-Refers to: [`InstanceName`](#core-instancename), [`ResourceUri`](#core-resourceuri).
+Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`ResourceUri`](context:fs/authoring.core-types#core-resourceuri).
 
 #### `mimeOf`
 
@@ -728,7 +728,7 @@ interface ProcessGrants {
 }
 ```
 
-Refers to: [`SystemPackageManifest`](#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
 
 #### `CrashPolicy`
 
@@ -914,7 +914,7 @@ class McpFace implements McpToolSource {
 }
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `McpLimits`
 
@@ -980,7 +980,7 @@ class LlmWire {
 }
 ```
 
-Refers to: [`Json`](#core-json), [`LlmRequest`](#core-llmrequest).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`LlmRequest`](context:fs/authoring.core-types#core-llmrequest).
 
 #### `LlmWireOptions`
 
@@ -1009,7 +1009,7 @@ The strict-mode descriptors the provider chose while building a request, as they
 type LlmDescriptors = Omit<Extract<LlmForwardChunk, { type: 'descriptors' }>, 'type'>;
 ```
 
-Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
+Refers to: [`LlmForwardChunk`](context:fs/authoring.core-types#core-llmforwardchunk).
 
 #### `UNSENDABLE_CONTENT`
 
@@ -1041,7 +1041,7 @@ A request from the wire rebuilt as an aeye request: tool and output schemas back
 function requestFromWire(request: LlmRequest): Request;
 ```
 
-Refers to: [`LlmRequest`](#core-llmrequest).
+Refers to: [`LlmRequest`](context:fs/authoring.core-types#core-llmrequest).
 
 #### `isObjectSchema`
 

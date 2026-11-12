@@ -15,7 +15,7 @@ import {
 import type { ContentStore } from '../api/index.ts';
 import type { EventBus } from '../bus.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { Indexer } from '../index/index.ts';
 import { sectionIndexKey } from '../index/indexer.ts';
 import { sha256Hex } from '../link/keys.ts';
@@ -119,7 +119,7 @@ export class HubResourceLibrary implements ResourceLibrary {
     const record = await this.#own(uri);
     const referencedBy = await this.#references(uri);
     if (referencedBy > 0) { return { deleted: false, referencedBy }; }
-    const sections = record.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { uri, version: record.indexedVersion });
+    const sections = record.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { where: { uri, version: record.indexedVersion } });
     await store.tx(async (tx) => {
       for (const section of sections) { await tx.table('sections').remove(section); }
       await tx.table('resources').remove(uri);
@@ -132,7 +132,7 @@ export class HubResourceLibrary implements ResourceLibrary {
 
   async browse(query: ResourceQuery, _who: Asking): Promise<ResourcePage> {
     const now = this.#o.clock();
-    const rows = await allRows(this.#o.store.table('resources'), query.system === undefined ? undefined : { system: query.system });
+    const rows = await allRows(this.#o.store.table('resources'), { where: query.system === undefined ? undefined : { system: query.system } });
     const filtered = rows.filter((record) => matches(record, query)).sort((a, b) => b.seenAt - a.seenAt || a.uri.localeCompare(b.uri));
     const facets = facetsOf(filtered, query.group ?? 'type', { under: query.under, now });
     const shown = filtered.filter((record) => inGroup(record, query, now));
@@ -199,7 +199,7 @@ export class HubResourceLibrary implements ResourceLibrary {
   /** How many context items and links still point at a resource. */
   async #references(uri: ResourceUri): Promise<number> {
     const { store } = this.#o;
-    const made = (await allRows(store.table('context'), { system: HUB_SYSTEM })).filter((item) => item.origin?.type === 'resource' && item.origin.uri === uri).length;
+    const made = (await allRows(store.table('context'), { where: { system: HUB_SYSTEM } })).filter((item) => item.origin?.type === 'resource' && item.origin.uri === uri).length;
     const linked = await store.table('contextLinks').count({ toKey: resourceLinkKey(uri) });
     return made + linked;
   }

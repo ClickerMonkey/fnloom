@@ -190,11 +190,11 @@ export async function resourcesRig(options: { pieceTokens?: number; maxRows?: nu
   const changed: string[] = [];
   const settings = {
     HARNESS_CONTENT_AT: 'files', HARNESS_IMPORT_MAX: 10 * 1024 * 1024, HARNESS_SNAPSHOT_MAX: 1024 * 1024 * 1024, HARNESS_TABLE_ROWS: options.maxRows ?? 5_000,
-    HARNESS_DESCRIBE_ON_INDEX: false, HARNESS_FORM_CONCURRENCY: 2, HARNESS_CONTEXT_PIECE_TOKENS: options.pieceTokens ?? 600, HARNESS_FETCH_TIMEOUT: 5_000,
+    HARNESS_DESCRIBE_ON_INDEX: false, HARNESS_FORM_CONCURRENCY: 2, HARNESS_READ_CHARS: 20_000, HARNESS_CONTEXT_PIECE_TOKENS: options.pieceTokens ?? 600, HARNESS_FETCH_TIMEOUT: 5_000,
     HARNESS_FETCH_REDIRECTS: 8, HARNESS_FETCH_PRIVATE: false,
   } as const;
   const forms = new StoreFormService({ store, content, raw, converters, models, log, clock, settings, onForms: (record) => { changed.push(record.uri); } });
-  const reader = new FormReader({ store, content, forms });
+  const reader = new FormReader({ store, content, forms, readChars: settings.HARNESS_READ_CHARS });
   const library = new HubResourceLibrary({ store, content, forms: () => forms, fetcher, converters, indexer: () => indexer, bus, log, clock, settings, hubActor: HUB_ACTOR });
   const contexts: QualifiedName[] = [];
   const context = new StoreContextLibrary({

@@ -23,13 +23,13 @@ export type Modality = z.infer<typeof Modality>;
 
 /** What a chat call used: tokens in and out. */
 /**
- * Whether a chat model reads a prompt cache (build 4): `yes` from its aeye model info (cached-input pricing or a cache
+ * Whether a chat model reads a prompt cache: `yes` from its aeye model info (cached-input pricing or a cache
  * capability), `no` when the info says it has none, `unknown` when there is no info. The cache-miss line needs `yes`.
  */
 export const CacheSupport = z.enum(['yes', 'no', 'unknown']);
 export type CacheSupport = z.infer<typeof CacheSupport>;
 
-/** A chat call's tokens. `cached`: input read from the prompt cache; `caching`: whether the model can (build 4). */
+/** A chat call's tokens. `cached`: input read from the prompt cache; `caching`: whether the model can. */
 export const ChatUnits = z.object({ modality: z.literal('chat'), input: z.number().int().min(0), output: z.number().int().min(0), cached: z.number().int().min(0).optional(), reasoning: z.number().int().min(0).optional(), caching: CacheSupport.optional() });
 /** What an embedding call used: texts, their characters, and the vectors' size. */
 export const EmbedUnits = z.object({ modality: z.literal('embed'), texts: z.number().int().min(0), characters: z.number().int().min(0), tokens: z.number().int().min(0).optional(), dimensions: z.number().int().min(1) });

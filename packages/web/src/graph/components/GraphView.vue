@@ -1,17 +1,19 @@
 <script setup lang="ts">
 /**
  * A graph of systems' items drawn with Cytoscape.js (loaded on first use): a cluster per system, references outside
- * the view greyed, "+N more" stubs, laid out by the built-in force layout. Pan and zoom by drag, wheel or pinch;
+ * the view greyed, "+N more" stubs. Each system's cluster is laid out by itself with the built-in force layout, then the
+ * clusters are placed in rows (`packGroups`) so none overlaps another, and the first view fits the whole graph; labels
+ * hide while zoomed too far out to read. Pan and zoom by drag, wheel or pinch;
  * hovering a node or an edge shows what it is and lights its neighbours; a click or tap opens the details panel with
  * Open (a fn opens in the fn modal, through `open`) and "Show its neighbourhood" (`focus`); a stub asks to `expand`.
  * It follows light and dark, and fits again when its box changes size.
  */
 import type { GraphMore, GraphNode, GraphPage } from '@harness/core';
-import type { Core, EdgeSingular, EventObjectEdge, EventObjectNode, NodeSingular } from 'cytoscape';
+import type { Core, EdgeSingular, EventObjectEdge, EventObjectNode, NodeCollection, NodeSingular } from 'cytoscape';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { UiIconButton, UiSpinner } from '../../ui/index.ts';
 import { useDarkTheme } from '../../ui/theme.ts';
-import { graphElements, kindLabel, moreId, NODE_KIND_COLORS, pickOf, type GraphPick } from '../logic/graph.ts';
+import { graphElements, kindLabel, moreId, NODE_KIND_COLORS, packGroups, pickOf, type GraphPick } from '../logic/graph.ts';
 import { graphStyle, resolveColors, shapeClip } from '../palette.ts';
 import GraphDetails from './GraphDetails.vue';
 
@@ -42,8 +44,12 @@ type ElementEvent = EventObjectNode | EventObjectEdge;
 let moved = false;
 /** Room left around the graph when it is framed, clear of the zoom buttons and the legend. */
 const FIT_PADDING = 40;
-/** The zoom a graph opens at stays in this range, so labels are readable however many items there are. */
-const START_ZOOM = { min: 0.65, max: 1.3 } as const;
+/** The most a graph opens zoomed in (a small graph isn't blown up); it opens fitting the whole graph. */
+const START_ZOOM_MAX = 1.3;
+/** Room between two systems' clusters, and between rows of them, in graph units. */
+const CLUSTER_GAP = 72;
+/** Counts draws, so a layout still running for a page that was replaced doesn't frame the new one. */
+let drawn = 0;
 /** Whether part of the graph lies outside the box (then a hint says so, with a Fit button). */
 const cropped = ref(false);
 /** The next animation frame the crop check waits for, so a pan checks once per frame. */
@@ -72,41 +78,64 @@ function light(target: Element | undefined): void {
   near.addClass('lit');
 }
 
-function draw(): void {
+async function draw(): Promise<void> {
   const core = cy.value;
   if (core === undefined) { return; }
+  const turn = ++drawn;
   hover.value = undefined;
   picked.value = undefined;
   core.elements().remove();
   core.add(graphElements(props.page, { clusters: props.clusters }));
-  const layout = core.layout({
-    name: 'cose', animate: false, fit: false, nodeDimensionsIncludeLabels: true, padding: 16, componentSpacing: 24, nodeRepulsion: () => 2200, idealEdgeLength: () => 40,
-    nestingFactor: 0.8, gravity: 4, nodeOverlap: 8, numIter: 1500,
-  });
-  layout.one('layoutstop', () => { moved = false; frameView(); });
-  layout.run();
+  await layOut(core);
+  if (turn !== drawn || cy.value !== core) { return; }
+  moved = false;
+  frameView();
 }
 
 /**
- * Frame the graph so the first view shows as much as stays readable: the whole graph when it fits at a readable zoom,
- * else the shown systems' own items (references from other systems may fall outside), else the own items centred at
- * the smallest readable zoom. The zoom is clamped only after fitting; whatever is left outside is flagged by a hint.
+ * Lay out each system's cluster (and the nodes outside any) on its own, then place the groups in rows so no two
+ * overlap. One force layout over every compound at once lets clusters run into each other and piles labels up.
+ */
+async function layOut(core: Core): Promise<void> {
+  const groups: NodeCollection[] = core.nodes('.cluster').map((cluster) => cluster.children()).filter((children) => children.length > 0);
+  const loose = core.nodes().orphans().not('.cluster');
+  if (loose.length > 0) { groups.push(loose); }
+  for (const group of groups) {
+    // the cluster goes in with its children: the force layout reads a child's parent from the elements it lays out
+    const layout = group.union(group.parent()).union(group.edgesWith(group)).layout({
+      name: 'cose', animate: false, fit: false, randomize: true, nodeDimensionsIncludeLabels: true, padding: 0, componentSpacing: 48,
+      nodeRepulsion: () => 9000, idealEdgeLength: () => 70, nodeOverlap: 24, gravity: 2, numIter: 1500,
+    });
+    const stopped = layout.promiseOn('layoutstop');
+    layout.run();
+    await stopped;
+  }
+  // a cluster's box takes in its padding and title; the loose nodes' box their labels
+  const boxOf = (group: NodeCollection) => (group.parent().length > 0 ? group.parent() : group).boundingBox({ includeLabels: true });
+  const boxes = groups.map(boxOf);
+  const frameBox = frame.value;
+  const aspect = frameBox === null || frameBox.clientHeight === 0 ? 1.6 : frameBox.clientWidth / frameBox.clientHeight;
+  const places = packGroups(boxes.map((box) => ({ width: box.w, height: box.h })), { aspect, gap: CLUSTER_GAP });
+  groups.forEach((group, at) => {
+    const box = boxes[at];
+    const place = places[at];
+    if (box !== undefined && place !== undefined) { group.shift({ x: place.x - box.x1, y: place.y - box.y1 }); }
+  });
+}
+
+/**
+ * Frame the whole graph on first view (and after a resize, until the person pans or zooms), never zoomed in past
+ * `START_ZOOM_MAX`. Labels too small to read at that zoom stay hidden until zoomed in (the style's minimum size).
  */
 function frameView(): void {
   const core = cy.value;
   if (core === undefined) { return; }
   core.resize();
   if (core.width() === 0 || core.height() === 0 || core.elements().length === 0) { return; }
-  const own = core.nodes().not('.external').not('.more');
-  const targets = own.length > 0 && own.length < core.nodes().length ? [core.elements(), own] : [core.elements()];
-  for (const target of targets) {
-    core.fit(target, FIT_PADDING);
-    if (core.zoom() >= START_ZOOM.min) { break; }
-  }
-  const level = Math.min(START_ZOOM.max, Math.max(START_ZOOM.min, core.zoom()));
-  if (level !== core.zoom()) {
-    core.zoom(level);
-    core.center(own.length > 0 ? own : undefined);
+  core.fit(undefined, FIT_PADDING);
+  if (core.zoom() > START_ZOOM_MAX) {
+    core.zoom(START_ZOOM_MAX);
+    core.center();
   }
   checkCrop();
 }
@@ -159,7 +188,7 @@ onMounted(async () => {
     const core = cytoscape({ container, minZoom: 0.15, maxZoom: 3, boxSelectionEnabled: false, selectionType: 'single', autoungrabify: false });
     cy.value = core;
     restyle();
-    draw();
+    await draw();
     core.on('mouseover', 'node, edge', (event: ElementEvent) => {
       const pick = pickOf(props.page, event.target.id());
       if (pick === undefined || event.target.hasClass('cluster')) { return; }
@@ -195,7 +224,7 @@ onBeforeUnmount(() => {
   cy.value = undefined;
 });
 
-watch(() => props.page, draw);
+watch(() => props.page, () => { void draw(); });
 watch(dark, restyle);
 
 /** The element id a pick stands for. */
@@ -268,13 +297,12 @@ function expand(): void {
 @container graph (min-width: 720px) {
   .panel { left: auto; top: 48px; bottom: auto; width: 320px; max-height: calc(100% - 90px); }
 }
+/* the legend wraps onto more lines on a narrow box rather than running off its edge */
 .legend {
-  position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: nowrap; scroll-snap-type: x proximity;
-  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); gap: var(--space-3); margin: 0; padding: 4px 32px 4px var(--space-3); list-style: none;
-  overflow-x: auto; font-size: var(--text-xs); color: var(--text-dim); background: color-mix(in srgb, var(--surface) 88%, transparent); border-top: 1px solid var(--border);
-  white-space: nowrap; scrollbar-width: none;
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 0; padding: 4px var(--space-3); list-style: none;
+  font-size: var(--text-xs); color: var(--text-dim); background: color-mix(in srgb, var(--surface) 88%, transparent); border-top: 1px solid var(--border);
 }
-.legend li { display: inline-flex; align-items: center; gap: 4px; }
+.legend li { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .shape { width: 11px; height: 11px; flex: none; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .dot.external { border: 1px dashed var(--text-faint); background: transparent; }

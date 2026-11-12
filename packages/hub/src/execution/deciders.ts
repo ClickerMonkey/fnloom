@@ -7,7 +7,7 @@
 import { JudgeRequest, Verdict, type ActorId, type Approval, type QualifiedName, type Run } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Ledger, RunService } from './index.ts';
-import { rows } from './pages.ts';
+import { rows } from '../store/rows.ts';
 import type { ApprovalDeciders } from './policies.ts';
 import type { ExecutionBase } from './ports.ts';
 

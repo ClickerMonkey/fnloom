@@ -23,7 +23,7 @@ says so.
 function type<T, const M extends Methods = {}>(def: { description: string; shape: GinType<T>; display: Omit<TypeDisplay, "title" | "subtitle"> & { title?: NamingKeys<T>; subtitle?: NamingKeys<T>; }; methods?: M; }): TypeDef<T, M>;
 ```
 
-Refers to: [`TypeDisplay`](#core-typedisplay).
+Refers to: [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
 
 #### `TypeDef`
 
@@ -40,7 +40,7 @@ interface TypeDef<T, M extends Methods> {
 }
 ```
 
-Refers to: [`TypeDisplay`](#core-typedisplay).
+Refers to: [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
 
 #### `AnyTypeDef`
 
@@ -88,7 +88,7 @@ type TypeRef<N extends QualifiedName, T, M extends Methods = {}> = Extension<T> 
 };
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname), [`TypeDisplay`](#core-typedisplay).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
 
 #### `AnyTypeRef`
 
@@ -98,7 +98,7 @@ type · `import { AnyTypeRef } from '@harness/sdk'`
 type AnyTypeRef = TypeRef<QualifiedName, unknown, Methods>;
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `Methods`
 
@@ -120,7 +120,7 @@ A method's qualified name: `fs/Entry.reveal`.
 type MethodName<N extends QualifiedName, K> = N extends `${infer S}/${infer L}` ? QualifiedName<S, `${L}.${K & string}`> : never;
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `MethodArgs`
 
@@ -144,7 +144,7 @@ type MethodRefs<N extends QualifiedName, T, M extends Methods> = {
 };
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `MethodImpl`
 
@@ -158,4 +158,4 @@ type MethodImpl<V, T extends FnTypes, Cfg = unknown> =
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
-Refers to: [`UndoOutcome`](#core-undooutcome).
+Refers to: [`UndoOutcome`](context:fs/authoring.core-types#core-undooutcome).

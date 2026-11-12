@@ -33,7 +33,7 @@ export const SystemPart = z.object({
   owner: QualifiedName.optional(),
   /** Its declaration, shown when it is opened. */
   decl: Json,
-  /** Build 7: switched on (absent counts as on); switched by `switchItem`, stored in `itemSwitches`. */
+  /** Switched on (absent counts as on); switched by `switchItem`, stored in `itemSwitches`. */
   on: z.boolean().optional(),
 });
 export type SystemPart = z.infer<typeof SystemPart>;

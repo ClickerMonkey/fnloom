@@ -9,7 +9,7 @@ import { systemsSlice, adminOnly, SystemView, type InstanceRecord, type SystemRe
 import type { HubServices } from '../../boot/index.ts';
 import { type AdminOperations } from '../admin-ops.ts';
 import { type FullHandlers } from './access.ts';
-import { allRows } from '../../catalog/rows.ts';
+import { allRows } from '../../store/rows.ts';
 import { defaultInstanceOf } from '../../link/status.ts';
 import { maskSecrets } from '../../link/config-secrets.ts';
 
@@ -29,7 +29,7 @@ import type { HubReads } from '../reads.ts';
  */
 export async function systemView(hub: Pick<HubServices, 'catalog' | 'store'>, record: SystemRecord): Promise<SystemView> {
   const [fns, manifest, rows] = await Promise.all([
-    hub.catalog.fns({ system: record.name }), hub.catalog.manifest(record.name), allRows(hub.store.table('instances'), { system: record.name }),
+    hub.catalog.fns({ system: record.name }), hub.catalog.manifest(record.name), allRows(hub.store.table('instances'), { where: { system: record.name } }),
   ]);
   // a sealed secret field reads as SECRET_KEPT; sending that back keeps it
   const instances = rows.sort((a, b) => a.instance.localeCompare(b.instance)).map(maskedInstance);

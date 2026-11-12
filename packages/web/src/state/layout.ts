@@ -30,6 +30,11 @@ export class LayoutStore {
   readonly #saved: Ref<z.infer<typeof SavedLayout>>;
   /** Whether the navigation drawer is open (narrow screens). */
   readonly drawerOpen = ref(false);
+  /**
+   * The name of the one thing the page is about (`fs`, `Review fs`), set by a page that keeps its title: the phone's
+   * top bar shows it instead of the route's generic name ("System"). Not saved.
+   */
+  readonly pageTitle = ref<string | undefined>(undefined);
 
   constructor(store: KeyValueStore) {
     this.#saved = persisted(store, LAYOUT_KEY, SavedLayout, { collapsed: false, treeWidth: TREE_WIDTH.reset, groupRuns: true });

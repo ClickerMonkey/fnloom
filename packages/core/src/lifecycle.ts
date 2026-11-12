@@ -1,5 +1,5 @@
 /**
- * Build 7: installed vs live. A paired system is `installed`: the hub knows its contract but offers nothing. An admin
+ * Installed vs live. A paired system is `installed`: the hub knows its contract but offers nothing. An admin
  * reviews everything it declares on the review page (`SystemReview`), switches items off, configures it, makes test
  * calls, and goes live: the reviewed contract and its hash are saved (`LiveContract`). A later contract version, or a
  * runtime addition outside what was reviewed, waits as a `PendingReview` with its changes while the live version keeps

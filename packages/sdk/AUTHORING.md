@@ -58,8 +58,11 @@ Everything a system contributes is namespaced by its name: the `notes` system's 
 3. Implement it in `server/impl.ts`. The implementation's type is computed from the contract, so the compiler lists
    anything missing and refuses anything extra (**The server**, **The run context and services**, **Calling other fns**, **Config, events, lifecycle and data**).
 4. Optionally draw it in `client/`: Vue components typed by the contract (**The client**).
-5. Test it with the in-memory hub (`FakeHub`, **Testing**), then `npm run typecheck` and the tests.
-6. Run it against a hub, pair it, or build, pack and install it (**Packaging**). Read **Common mistakes** before you finish.
+5. Test it with the test kit (`testHub`, `mockModel`, `contextFolder` and `preview` from `@harness/sdk/testing`,
+   **Testing**) and run the tests with `harness test`, which `fs/install_system` runs too.
+6. Run it against a hub, pair it, or build, pack and install it (**Packaging**). An installed system is not live: an
+   admin reviews it in the hub and presses Go live before anything it offers can be called, so tell the person to do
+   that. Read **Common mistakes** before you finish.
 
 Three rules hold everywhere, and the compiler enforces them:
 
@@ -76,7 +79,7 @@ titles and tags, kept per instance in the hub-given data folder. Every code samp
 that `npm run typecheck` compiles, so each is correct for this version of the SDK.
 
 **Imports.** Contracts and renderers import from `@harness/sdk` (pure, safe in the browser). Server code imports
-`serve` and friends from `@harness/sdk/server`, tests import `FakeHub` from `@harness/sdk/server/testing`, and a process
+`serve` and friends from `@harness/sdk/server`, tests import the test kit from `@harness/sdk/testing`, and a process
 that builds its renderers imports `buildClient` from `@harness/sdk/build`. Wire shapes (`ResourceStat`, `RunInfo`,
 `UndoOutcome`, …) are in `@harness/core`; **Core types** lists every one the SDK refers to, resolved to plain TypeScript.
 
@@ -599,6 +602,47 @@ draws); `contributes`, the entries this system adds to any registry (`{ registry
 secret text fields (`connection.password`), which the hub seals and only `configure` carries in plain. A secret path
 that is not a text field of the config fails the manifest.
 
+**Grants and what the hub enforces.** `system(name, info)` also takes `grants` (`SystemGrants`): what the system may
+do through the hub, and on its machine when fs hosts it. The hub checks every call a system makes over the link
+against them. A system that declares none gets the base only: the handshake, its manifest and patches, uploading
+content, its own runs (progress, outcomes, handlers, control, logs), calling its own fns, `ctx.types` and its fleet.
+Anything else needs a capability in `grants.hub`:
+
+| What the system calls | Grant it needs |
+|---|---|
+| `ctx.llm` (`text`, `object`, `stream`, `image`, `transcribe`, `speak`), `ctx.ai()`, `hubAi()` | `hub: ['ai']`, and `models` to limit roles, models and spend (`perRun`, `perDay`) |
+| `ctx.llm.embed` | `hub: ['embed']` (or `ai`) |
+| `ctx.resources` (`stat`, `text`, `links`, `sections`, downloading content) | `hub: ['resources']` |
+| `ctx.fns.<dep>(…)` where the dep is another system's fn or a hub fn (`hub.fns.ask_user`) | `hub: ['fns']` and the fn (`hub/ask_user`) or its system (`database`) in `calls` |
+| `ctx.searchFns`, `ctx.fnExamples`, `running.examples` | `hub: ['search']` |
+| `ctx.decide` | `hub: ['decide']` |
+| `ctx.propose`, `running.grantPairing`, `running.reportRefusal` (hosting other systems) | `hub: ['approvals']` |
+| handing back refreshed credentials of a `connect` system | `hub: ['connections']` |
+| `ctx.setting(ref)` | `hub: ['settings']` |
+| `ctx.state` (`get`, `set`, `update`, `clear`) | `hub: ['state']` |
+| a hub secret by name | its name in `secrets` (its own config secrets are always its own) |
+| a host on the network, a path outside its folders (hosted by fs only) | the host in `network`, the path in `files` |
+
+Beyond the grants, the hub enforces what each fn declares in `effects`: a fn declared `read` can't call or propose a
+fn that writes or deletes (a hub fn tagged `own`, which changes only what the system owns, aside), a `write` fn can't
+call one that deletes, and a run whose fn declares the types it reads and writes asks `ctx.types` for no others. The
+notes system declares:
+
+_From `scripts/docs/example/shared/index.ts`:_
+
+```ts
+// find keeps its last query (state), remove reads the editing setting (settings), and share asks the person
+// through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai of its own
+grants: { hub: ['fns', 'settings', 'state'], calls: ['hub/ask_user'] },
+```
+
+A refused call throws in the system: the hub answers 403 with the code `NOT_GRANTED` and a line saying what was
+missing (`it didn't declare the state capability, which stateSet needs`), and a fn that doesn't catch it fails with
+that text. Every refusal is logged where the admin reviews the system, and a system that keeps going past its grants
+(`HARNESS_REFUSALS_PAUSE` refusals in `HARNESS_REFUSALS_WINDOW`) has its fns switched off until an admin turns them back
+on. So declare everything the code calls, and nothing more: the review page and the install card show the grants to
+the admin, who goes live on them.
+
 ### Reference: the contract
 
 #### `system`
@@ -1083,11 +1127,34 @@ function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>>;
 
 function · `import { toolArgsOf } from '@harness/sdk'`
 
-A fn's args read off a zod schema. Tool args are always an object, so a schema that isn't one (a union of shapes)
-is taken as the field `input`; `read` turns args back into a value for the schema, checked by it.
+A fn's args read off a zod schema. Tool args are always an object: an object schema is taken as it is, and a union
+of objects (an import from a URL or from an upload, one provider of several) is flattened into one object with
+every member's fields, so the model passes plain args either way; the schema itself picks the member when `read`
+parses them. Any other schema is taken as the field `input`.
 
 ```ts
 function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType<ToolArgs<S>>; readonly read: (args: unknown) => z.output<S>; };
+```
+
+#### `ToolArgs`
+
+type · `import { ToolArgs } from '@harness/sdk'`
+
+The args a tool for a zod schema takes: the schema's input when it is an object, a union of objects flattened into
+one, else that input as `input`.
+
+```ts
+type ToolArgs<S extends z.ZodType> = S extends z.ZodObject ? z.input<S> : S extends z.ZodUnion<readonly z.ZodObject[]> ? FlatArgs<z.input<S>> : { input: z.input<S> };
+```
+
+#### `FlatArgs`
+
+type · `import { FlatArgs } from '@harness/sdk'`
+
+A union of objects as one object: every member's fields, each one optional (the schema checks the member on read).
+
+```ts
+type FlatArgs<U> = { [K in KeysOf<U>]?: FieldOf<U, K> };
 ```
 
 #### `TypeBuilder`
@@ -2936,6 +3003,123 @@ _From `scripts/docs/example/shared/index.ts`:_
     }),
   },
 }));
+```
+
+### Authoring agents
+
+Some fns write something hard: a query, a form's gin type, later an API call or code. Don't hand that to the chat model
+(it would carry every table or type in its context and guess at the shape), and don't make it an `agent()` (a free
+loop of tools can draft before it has looked, and never has to check). Write a native fn that runs an **authoring
+agent**: `authoringAgent({ name, description, instructions, tools, draft, check, save, reuse? })` from
+`@harness/sdk/server`, run with the run's `ctx.ai()`. The chat model passes only a description of what it wants and
+gets back an `AuthoredFn`: the saved fn, its signature, what it does, a short preview and how to call it again. Never
+the working context. Use `agent()` for a helper that answers or acts with tools; use `authoringAgent` when the result
+is a new fn kept in the hub.
+
+The agent works through fixed stages: **find** (search what exists; `reuse` answers with an existing fn), **inspect**
+(load the details of what the search found), **draft** (the built-in `draft` tool, whose args are your typed `draft`
+schema), **check** (your `check`, run on every draft: each problem on its own line, in words the model can act on),
+**fix** (a draft with problems sends the model back, up to `HARNESS_AUTHORING_FIXES` times) and **save** (offered only
+once a draft checked clean; your `save` keeps it as a fn). A tool of a stage is offered only once every stage before
+it is done, so the model can't draft before it has searched. `authoringTool({ name, stage, description, schema, when?,
+call })` declares a find or inspect tool; `when` narrows it further. `session.disclosure` (`Disclosure`) records what
+the model has seen (`markAware`), loaded (`markLoaded`) and searched (`markSearched`), per level (`fn`, `type`,
+`table`): a load tool is offered while something is aware but not loaded, and nothing is shown twice. The run's own
+state (deps, the instance, what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write
+`instructions` as the job step by step, with a worked example of a good draft.
+
+The input system's `get_input` writes a form this way. Its find tool:
+
+_From `systems/input/server/authoring.ts`:_
+
+```ts
+/** `find_forms`: the saved forms the person may use that may fit. */
+const findForms = authoringTool<FormAuthoring, FormDraft, { text: string }>({
+  name: 'find_forms',
+  stage: 'find',
+  description: 'Search the saved forms the person may use by what the request asks for.',
+  instructions: 'Call it first, with what is asked in a few plain words.',
+  schema: z.object({ text: z.string().min(1).describe('What the form asks for, in plain words.') }),
+  async call({ text }, session) {
+    const page = await session.state.deps.search({ text, kinds: [FORM_KIND], items: ['fn'], limit: 6 });
+    session.disclosure.markSearched('fn');
+    session.disclosure.markAware('fn', page.items.map((hit) => hit.name));
+    session.disclosure.markAware('guide', ['fields']);
+    return page.items.length === 0
+      ? 'No saved form fits. See how forms are written with field_types.'
+      : ['Saved forms that may fit:', ...page.items.map((hit) => `- ${hit.name}: ${hit.description}`)].join('\n');
+  },
+});
+```
+
+The agent, its draft schema, check and save:
+
+_From `systems/input/server/authoring.ts`:_
+
+```ts
+/** The form authoring agent. Run it with the run's `ctx.ai()` and a `FormAuthoring`. */
+export const formAuthoring = authoringAgent<FormAuthoring, FormDraft>({
+  name: 'form_author',
+  description: 'Find or write the form that asks a person for what a request describes.',
+  instructions: INSTRUCTIONS,
+  tools: [findForms, useSaved, fieldTypes, loadForm],
+  draft: { description: 'a form: title, description, submit (optional) and its gin object type.', schema: FormDraftSchema },
+  check(draft, session) {
+    const form = formOf(draft);
+    if (form === undefined) { return Promise.resolve({ problems: ['The type is not a gin type: write it as { "name": "obj", "props": { … } }.'] }); }
+    return Promise.resolve({ problems: checkForm(form, session.state.deps.maxFields), note: `${fieldsOf(form.type).length} fields.` });
+  },
+  async save(draft, session) {
+    const form = draftForm(draft, session);
+    const kept = await session.state.deps.keep(form, session.request);
+    session.state.chose(form);
+    return { fn: kept.fn, version: kept.version, signature: `${kept.fn}()`, about: form.description === '' ? form.title : form.description, reused: false, call: `${kept.fn}({})` };
+  },
+});
+```
+
+Its fn runs it and turns a run that gave up (`AuthoringError`, with the last problems) into a failure the chat model can
+act on:
+
+_From `systems/input/server/impl.ts`:_
+
+```ts
+try {
+  const { result } = await formAuthoring.run(await ctx.ai(), args.detailedDescription, state);
+  const form = state.form;
+  if (form === undefined) { return ctx.fail('caller', `The form authoring agent kept ${result.fn} without its form.`); }
+  return ctx.done({ ...asked(ctx, form, result.fn), call: result.call });
+} catch (error) {
+  if (!(error instanceof AuthoringError)) { throw error; }
+  const last = error.problems.length === 0 ? '' : ` Its last problems: ${error.problems.join(' ')}`;
+  return ctx.fail('caller', `No form was made: ${error.message}${last} Describe the fields differently or more exactly.`);
+}
+```
+
+Test it with a scripted model (`mockModel` and `toolCall` from `@harness/sdk/testing`): each step is the tool call the
+model makes, and each forward shows which tools were offered at that stage.
+
+_From `systems/input/server/authoring.test.ts`:_
+
+```ts
+const model = mockModel([
+  toolCall('find_forms', { text: 'trip details' }), toolCall('field_types', {}), toolCall('draft', { draft: tooWide }), toolCall('draft', { draft: TRIP }), toolCall('save', {}), replyChunks('Saved.'),
+  toolCall('find_forms', { text: 'trip details' }), toolCall('use_saved', { fn: 'input/trip_details' }), replyChunks('Reused.'),
+]);
+const kit = await testHub(input, createInputImpl({ settings: inputEnv.parse() }), { config: {}, model });
+try {
+  const watched = kit.hub.runInfo(QualifiedName.parse('input/get_input'), { watched: true });
+  const made = await kit.call('get_input', { detailedDescription: 'The trip: the city and how many nights.' }, { run: watched });
+  expect(made.result).toMatchObject({ form: { title: 'Trip details' }, saved: 'input/trip_details', call: 'input/trip_details({})', next: WAIT_FOR_ANSWERS });
+  expect(kit.hub.fns.kept.get('input/trip_details')?.saved).toMatchObject({ kind: FORM_KIND, payload: TRIP, share: { visibility: 'private', with: [] } });
+  const forwards = made.hubCalls.forwards;
+  // find first; the field guide and draft only after; save only after a clean draft
+  expect(offered(forwards[0])).toEqual(['find_forms']);
+  expect(offered(forwards[1])).toEqual(['field_types', 'find_forms']);
+  expect(offered(forwards[2])).toEqual(['draft', 'find_forms']);
+  expect(offered(forwards[3])).not.toContain('save');
+  expect(JSON.stringify(forwards[3]?.request.messages)).toContain('at most 3');
+  expect(offered(forwards[4])).toContain('save');
 ```
 
 ### Reference: kinds and agents
@@ -5170,16 +5354,12 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{
-    input: or<obj{
-      url: text,
-      render?: enum<text>{auto, always, never},
-      name?: text,
-      folder?: text{minLength=1}
-    }, obj{
-      content: obj{hash: text, size: num{whole=true, min=0}, mime: text},
-      name: text{minLength=1},
-      path?: text
-    }>
+    url?: text,
+    render?: enum<text>{auto, always, never},
+    name?: or<text, text{minLength=1}>,
+    folder?: text{minLength=1},
+    content?: obj{hash: text, size: num{whole=true, min=0}, mime: text},
+    path?: text
   }) => obj{ uri, system, stat, links, indexedVersion?, sectioner?, source?, raw?, forms?, primary?, seenAt … }
   ```
 - `hub/resource_rename`: Rename a hub resource.
@@ -5359,7 +5539,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/configure_provider`: Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted. Tags: `admin`.
 
   ```text
-  (obj{ input … }) => obj{models: num{whole=true}}
+  (obj{ provider, apiKey?, baseURL?, contextWindow?, region?, auth?, profilePrefix? … }) => obj{models: num{whole=true}}
   ```
 - `hub/set_model_category`: Add a model category (a named, ordered list of models), or change the one with this id. Tags: `admin`.
 
@@ -5399,7 +5579,10 @@ This is the hub contract as the SDK declares it now:
 - `hub/remove_rule`: Remove a budget, priority rule, policy, model category or provider. Tags: `admin`.
 
   ```text
-  (obj{ input … }) => obj{ok: bool}
+  (obj{
+    kind: or<literal<text>{value="budget"}, literal<text>{value="priority"}, literal<text>{value="policy"}, literal<text>{value="category"}, literal<text>{value="provider"}>,
+    id: or<text, text, text, text, text>
+  }) => obj{ok: bool}
   ```
 - `hub/approve_pairing`: Approve or refuse a system that asked to pair with the hub, optionally naming its instance and setting its config. Tags: `admin`.
 
@@ -5487,7 +5670,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/set_model_role`: Choose the model (and provider) for a job: chat, transcription, dictation (or the browser's own), speech, describing images, reading text in them. Tags: `admin`.
 
   ```text
-  (obj{ input … }) => obj{ role, choice?, from, resolved? … }
+  (obj{ role, engine?, language?, model?, provider? … }) => obj{ role, choice?, from, resolved? … }
   ```
 - `hub/clear_model_role`: Clear a job's model choice, so it falls back to the hub's default (or is off). Tags: `admin`.
 
@@ -5855,7 +6038,6 @@ const ADMIN_ENDPOINTS = {
   install_package: packagingSlice.endpoints.installPackage,
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
-  // build 6
   suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
   auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
   system_reimport: systemsSlice.endpoints.reimport,
@@ -5901,7 +6083,7 @@ const HUB_READ_ENDPOINTS = {
   model_limits: contextorSlice.endpoints.modelLimits,
   /** Any list by the query standard (`LIST_FIELDS`): filters, sort, paging. */
   query: querySlice.endpoints.query,
-  /** Build 7: the graph of systems' fns, context, types and parts, and how they connect. */
+  /** The graph of systems' fns, context, types and parts, and how they connect. */
   graph: graphSlice.endpoints.graph,
 } as const satisfies Record<string, EndpointLike>;
 ```
@@ -5949,7 +6131,7 @@ type HubWriteFnName = keyof typeof HUB_WRITE_ENDPOINTS;
 
 const · `import { HUB_PERSON_ENDPOINTS } from '@harness/sdk'`
 
-Build 6: the rest of what a person does in the browser, as fns (fn name → endpoint), so the chat agent can do it
+The rest of what a person does in the browser, as fns (fn name → endpoint), so the chat agent can do it
 too, as the run's person: sessions, visibility, memory and context links, undoing a turn, background runs and
 per-person connections. None is tagged `read`, so each asks unless a policy allows it. Answering an approval or a
 question is left out on purpose: an agent must never answer what it asked.
@@ -5974,7 +6156,7 @@ const HUB_PERSON_ENDPOINTS = {
 
 type · `import { HubPersonFnName } from '@harness/sdk'`
 
-A person's write fn's name (build 6).
+A person's write fn's name.
 
 ```ts
 type HubPersonFnName = keyof typeof HUB_PERSON_ENDPOINTS;
@@ -5984,7 +6166,7 @@ type HubPersonFnName = keyof typeof HUB_PERSON_ENDPOINTS;
 
 const · `import { HUB_EXPLORE_ENDPOINTS } from '@harness/sdk'`
 
-Build 6: the file explorer's reads as fns (tagged `read`): a system's files live, as the run's person may see them.
+The file explorer's reads as fns (tagged `read`): a system's files live, as the run's person may see them.
 
 ```ts
 const HUB_EXPLORE_ENDPOINTS = {
@@ -5998,7 +6180,7 @@ const HUB_EXPLORE_ENDPOINTS = {
 
 type · `import { HubExploreFnName } from '@harness/sdk'`
 
-An explorer read fn's name (build 6).
+An explorer read fn's name.
 
 ```ts
 type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
@@ -6008,7 +6190,7 @@ type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
 
 const · `import { ADMIN_READ_ENDPOINTS } from '@harness/sdk'`
 
-Build 6: the admin pages' reads as fns (tagged `admin` and `read`): budgets, policies, priorities, providers,
+The admin pages' reads as fns (tagged `admin` and `read`): budgets, policies, priorities, providers,
 people, settings, hub MCPs, pairings, auto-pair secrets, instances and the suggestion decision model. They run only
 for an admin and never through a hub MCP; reading asks nobody.
 
@@ -6033,7 +6215,7 @@ const ADMIN_READ_ENDPOINTS = {
 
 type · `import { AdminReadFnName } from '@harness/sdk'`
 
-An admin read fn's name (build 6).
+An admin read fn's name.
 
 ```ts
 type AdminReadFnName = keyof typeof ADMIN_READ_ENDPOINTS;
@@ -6404,7 +6586,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
    */
   grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
   /**
-   * Build 7: report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
+   * Report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
    * outside its `grants.network`, a path outside its `grants.files`. Refused unless this instance hosts it.
    */
   reportRefusal(refusal: HostRefusal): Promise<void>;
@@ -7843,6 +8025,14 @@ valid value is set the system shows as needing config and its fns, mentions and 
 value is `ctx.config` in every context, typed; a run keeps the value it started with. Config lives in the hub's
 database, never in a file of the system. Mark secrets plainly in the field docs; never log them.
 
+The hub draws the config as a form from its gin type, on the review, system and pairing pages. A system whose config
+needs more (a connection test, a picker that lists what the service has) draws its own: `system(name, {
+configComponent: { component: 'connection', mode: 'replace' } })` names a component in its client's `configs`
+(`client(contract, { configs: { connection: Component } })`), drawn instead of the form (`replace`) or under it
+(`beside`). It gets `ConfigView` props: the saved `config`, its gin `type`, `validate(value)` (the problems, one per
+line) and `change(value)` to hand the edited config to the page, plus `system` to send its actions. The page saves the
+value, and the hub still checks it with the gin type before storing it.
+
 ### Events
 
 `events` handles hub events by type, and the system is subscribed to exactly the types it handles: `message` (a chat
@@ -8872,8 +9062,26 @@ Every command, read from the CLI itself:
 `harness system new` fills the name in everywhere the template has `template`: as is in strings and paths, in camel
 case in identifiers (`templateEnv` becomes `notesDbEnv`) and Pascal case in type names (`TemplateDeps` becomes
 `NotesDbDeps`). `build` typechecks, checks the contract's name against `system.json`, bundles `server/main.ts` (all but
-`server.external`) and the client into `dist/`; `pack` hashes every file into `files` and zips `dist/`; the hub checks a
-zip before installing it (format, protocol, every file's hash, no path leaving the folder).
+`server.external`) and the client into `dist/`, and writes `dist/contract.json`: the manifest the built bundle declares
+and its hash, read in a child process with no file writes, network or child processes. Pairing and install bind to that
+hash, so the contract an admin approved is the one that runs. `pack` hashes every file into `files` and zips `dist/`;
+the hub checks a zip before installing it (format, protocol, every file's hash, no path leaving the folder).
+
+### Installing from the chat, review and Go live
+
+`fs/install_system` builds the folder, runs its tests and shows an admin a card: what the system adds (or the change
+from the running version), the bundle scan (the Node built-ins it uses, risky ones as concerns, the hosts and URLs in
+its code), the test results, and the grants it declares, which are enforced from the moment it starts. Once the card is
+approved, fs starts it and it pairs with the hub. It is then **installed**, not live: the hub knows its contract but
+offers nothing of it, and only an admin's test calls run. An admin opens its review page
+(`/admin/systems/<name>/review`), looks over what it declares and adds, switches off anything unwanted, and presses
+**Go live**. From then on a change to its contract (a new fn, a changed type, other grants) waits as a **pending
+review** with a diff: the live version keeps serving and the change stays off until an admin approves it. Additions a
+fn declared it makes while running (its registry effects) go live at once.
+
+So after `fs/install_system` says it connected, tell the person what is left: an admin reviews the system at
+`/admin/systems/<name>/review` and presses Go live (or approves the pending review, after an update). Don't call its
+fns before then; they aren't offered yet.
 
 Commands that talk to a hub take `--hub <url>` and `--token <token>` (or `HARNESS_URL`, `HARNESS_TOKEN`, or the admin
 account in `.env`). An installed package is code that runs as the hub's user: install only what you trust.
@@ -8882,7 +9090,8 @@ account in `.env`). An installed package is code that runs as the hub's user: in
 
 Start the process by hand against a running hub: `HARNESS_HUB=ws://127.0.0.1:4300/link npx tsx systems/<name>/server/main.ts`.
 The first start waits for pairing (approve it in the hub's admin pages, or start it with `HARNESS_PAIRING_TOKEN` from a
-token an admin made). A system that runs under the hub (installed) restarts when it exits with `RESTART_CODE`, which
+token an admin made); once paired it is installed and waits for review and Go live, like a system installed from the
+chat. A system that runs under the hub (installed) restarts when it exits with `RESTART_CODE`, which
 `running.restart(reason)` does for it. The fs system can edit a system's source and restart it, so an agent can add
 fns to a system and see them live.
 
@@ -9198,6 +9407,8 @@ class FakeHub {
   readonly decisions: Array<HubBody<'decide'>>;
   /** Example changes systems sent (`examples`). */
   readonly exampleChanges: Array<HubBody<'examples'>>;
+  /** Pairing tokens approved install runs asked for (`grantPairing`), with the grant the fake hub made. */
+  readonly pairingGrants: Array<PairingGrantRequest & PairingGrant>;
   /** Paired keys by system name. */
   readonly keys: Map<string, string>;
   /** Session state by owner (`run:<id>` / `delivery:<id>`). */
@@ -9206,6 +9417,8 @@ class FakeHub {
   readonly settings: Map<string, z.core.util.JSONType>;
   /** Content by hash. */
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
+  /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
+  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
   /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns: FakeHubFns;
   /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
@@ -9273,7 +9486,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -10549,6 +10762,10 @@ reason given. If you see one of these errors, the fix is in the reason.
 
 ### Mistakes that compile but are wrong
 
+- **Leaving a hub call out of `grants`.** Each `ctx` call past the base needs its capability in `grants.hub`
+  (`ctx.state` needs `state`, `ctx.setting` needs `settings`, `ctx.llm` needs `ai`), and each other system's fn it calls
+  needs `fns` and a place in `calls`. Under a hub that enforces them the call throws `NOT_GRANTED` and the fn fails;
+  declare them in `system()`, as **The contract** shows.
 - **Writing a TypeScript type by hand for a shape a gin type describes.** Infer it: `Infer<typeof X>`, `ValueOf<typeof T>`,
   `ConfigOf<(typeof c)['defs']>`.
 - **Referring to things by string.** Use refs (`notes.fns.find`, `hub.fns.ask_user`) in deps, tools, context, links and
@@ -11528,7 +11745,14 @@ export const StampArgs = g.obj({ text: g.text({ minLength: 1 }) });
 
 // #region contract
 /** The notes system's contract. */
-export const notes = system('notes', { description: 'Notes: write, find and tidy titled notes with tags.' })
+export const notes = system('notes', {
+  description: 'Notes: write, find and tidy titled notes with tags.',
+  // #region grants
+  // find keeps its last query (state), remove reads the editing setting (settings), and share asks the person
+  // through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai of its own
+  grants: { hub: ['fns', 'settings', 'state'], calls: ['hub/ask_user'] },
+  // #endregion grants
+})
   .with({
     // #region config
     // what the system needs before it can be used; an admin sets it in the hub, and `ctx.config` has it, typed
@@ -13569,15 +13793,15 @@ type ApprovalPreview = {
   irreversible: boolean;
   subject?: {
     kind: "system-install";
-    system: string & z.core.$brand<"SystemName">;
-    instance: string & z.core.$brand<"InstanceName">;
+    system: SystemName;
+    instance: InstanceName;
     version: string;
     manifestHash: string;
     bundleHash: string;
     sourceHash: string;
     host: {
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
     };
     source?: string | undefined;
     grants?: {
@@ -13589,7 +13813,7 @@ type ApprovalPreview = {
         perDay?: number | undefined;
       } | undefined;
       secrets?: string[] | undefined;
-      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      calls?: (`${string}/${string}` | SystemName)[] | undefined;
       network?: string[] | undefined;
       files?: {
         read: string[];
@@ -13615,7 +13839,7 @@ type ApprovalPreview = {
       hosts: string[];
     };
     tests?: {
-      system: string & z.core.$brand<"SystemName">;
+      system: SystemName;
       version: string;
       ranAt: number;
       duration: number;
@@ -13651,7 +13875,7 @@ type ApprovalPreview = {
 
 const, type · declared in `packages/core/src/approvals.ts`
 
-Build 6: the approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK).
+The approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK).
 
 ```ts
 type ApprovedRun = {
@@ -13702,15 +13926,15 @@ type ApprovedRun = {
     irreversible: boolean;
     subject?: {
       kind: "system-install";
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
       version: string;
       manifestHash: string;
       bundleHash: string;
       sourceHash: string;
       host: {
-        system: string & z.core.$brand<"SystemName">;
-        instance: string & z.core.$brand<"InstanceName">;
+        system: SystemName;
+        instance: InstanceName;
       };
       source?: string | undefined;
       grants?: {
@@ -13722,7 +13946,7 @@ type ApprovedRun = {
           perDay?: number | undefined;
         } | undefined;
         secrets?: string[] | undefined;
-        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        calls?: (`${string}/${string}` | SystemName)[] | undefined;
         network?: string[] | undefined;
         files?: {
           read: string[];
@@ -13748,7 +13972,7 @@ type ApprovedRun = {
         hosts: string[];
       };
       tests?: {
-        system: string & z.core.$brand<"SystemName">;
+        system: SystemName;
         version: string;
         ranAt: number;
         duration: number;
@@ -14039,7 +14263,7 @@ type ContextDecl = {
     } | {
       kind: "resource";
       uri: `${string}://${string}`;
-      section?: (string & z.core.$brand<"SectionKey">) | undefined;
+      section?: SectionKey | undefined;
     };
     relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
     weight: number;
@@ -14083,7 +14307,7 @@ type ContextFileHeader = {
     } | {
       kind: "resource";
       uri: `${string}://${string}`;
-      section?: (string & z.core.$brand<"SectionKey">) | undefined;
+      section?: SectionKey | undefined;
     };
     relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
     weight: number;
@@ -14308,7 +14532,7 @@ of them a request is for (a database system picking the database).
 
 ```ts
 type FleetInstance = {
-  instance: string & z.core.$brand<"InstanceName">;
+  instance: InstanceName;
   description: string;
   online: boolean;
   config: z.core.util.JSONType;
@@ -14410,7 +14634,7 @@ type FnExamplesPage = {
 
 const, type · declared in `packages/core/src/fn-facts.ts`
 
-Build 6: a system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
+A system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
 the hub link). Examples in the fn's declaration are left alone.
 
 ```ts
@@ -14459,7 +14683,7 @@ type FnLimits = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-Build 5: which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
+Which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
 fn belongs to it the way `TypeDecl.instance` says. `any`: whichever connected instance the hub picks first (the
 session's pin, then the default), with no ambiguity refusal; the fn forwards with `on` itself when it must.
 Absent: the fleet rules (`FleetRouter`).
@@ -14467,7 +14691,7 @@ Absent: the fleet rules (`FleetRouter`).
 ```ts
 type FnRouting = {
   to: "instance";
-  instance: string & z.core.$brand<"InstanceName">;
+  instance: InstanceName;
 } | {
   to: "any";
 };
@@ -14484,14 +14708,14 @@ type FnSearchPage = {
   items: {
     item: "fn" | "context";
     name: `${string}/${string}`;
-    system: string & z.core.$brand<"SystemName">;
+    system: SystemName;
     description: string;
     available: boolean;
     kind?: string | undefined;
     mode?: "read" | "write" | "delete" | undefined;
     signature?: string | undefined;
     effects?: string | undefined;
-    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    instance?: InstanceName | undefined;
     score?: number | undefined;
     unavailable?: string | undefined;
   }[];
@@ -14515,8 +14739,8 @@ type FnSearchQuery = {
   match?: "text" | "semantic" | "hybrid" | undefined;
   items?: ("fn" | "context")[] | undefined;
   kinds?: (`${string}/${string}` | "native")[] | undefined;
-  systems?: (string & z.core.$brand<"SystemName">)[] | undefined;
-  instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+  systems?: SystemName[] | undefined;
+  instance?: InstanceName | undefined;
   visibility?: "shared" | "public" | "mine" | undefined;
   types?: {
     reads?: `${string}/${string}`[] | undefined;
@@ -14651,8 +14875,8 @@ Node's permission model refused, for an instance it hosts. The hub keeps it as t
 ```ts
 type HostRefusal = {
   instance: {
-    system: string & z.core.$brand<"SystemName">;
-    instance: string & z.core.$brand<"InstanceName">;
+    system: SystemName;
+    instance: InstanceName;
   };
   rule: "files" | "network";
   attempt: string;
@@ -14672,7 +14896,7 @@ type HubLinkSpec = typeof hubLinkSpec;
 
 const, type · declared in `packages/core/src/admin.ts`
 
-Build 6: a model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
+A model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
 what `ModelInfo` says plus what aeye's selection needs, and the hub roles it fills. `capabilities` are aeye's
 capability names. Only the models the system may use are listed; the hub still checks access and budgets per call.
 
@@ -14747,7 +14971,7 @@ One attached copy of a system: a fleet of fs machines is one system `fs` with in
 that runs one copy has the single instance `main`. Same shape as a system name.
 
 ```ts
-type InstanceName = string & z.core.$brand<"InstanceName">;
+type InstanceName = InstanceName;
 ```
 
 #### <a id="core-invalidinput"></a>`InvalidInput`
@@ -14900,7 +15124,7 @@ A link attachment: to a resource (or one of its sections), a URL, stored content
 ```ts
 type Link = {
   resource: `${string}://${string}`;
-  section?: (string & z.core.$brand<"SectionKey">) | undefined;
+  section?: SectionKey | undefined;
   title?: string | undefined;
 } | {
   url: string;
@@ -14926,8 +15150,8 @@ Who is on the other end of a link connection, once the handshake is done: the sy
 
 ```ts
 type LinkSession = {
-  system: string & z.core.$brand<"SystemName">;
-  instance: string & z.core.$brand<"InstanceName">;
+  system: SystemName;
+  instance: InstanceName;
   boot: string;
 };
 ```
@@ -15139,7 +15363,7 @@ type Manifest = {
   events: ("message" | "run" | "system" | "fns" | "resources")[];
   resources: boolean;
   config: TypeDef<any>;
-  requires: (string & z.core.$brand<"SystemName">)[];
+  requires: SystemName[];
   types: {
     name: string;
     description: string;
@@ -15153,7 +15377,7 @@ type Manifest = {
       subtitle?: string | undefined;
     };
     methods: string[];
-    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    instance?: InstanceName | undefined;
     audience?: {
       visibility: "private" | "shared" | "public";
       with: string[];
@@ -15283,7 +15507,7 @@ type Manifest = {
     } | undefined;
     routing?: {
       to: "instance";
-      instance: string & z.core.$brand<"InstanceName">;
+      instance: InstanceName;
     } | {
       to: "any";
     } | undefined;
@@ -15341,7 +15565,7 @@ type Manifest = {
       } | {
         kind: "resource";
         uri: `${string}://${string}`;
-        section?: (string & z.core.$brand<"SectionKey">) | undefined;
+        section?: SectionKey | undefined;
       };
       relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
       weight: number;
@@ -15384,7 +15608,7 @@ type Manifest = {
     state?: TypeDef<any> | undefined;
     expires?: number | undefined;
   }[];
-  name: string & z.core.$brand<"SystemName">;
+  name: SystemName;
   version: string;
   description: string;
   hash: string;
@@ -15454,7 +15678,7 @@ type Manifest = {
       perDay?: number | undefined;
     } | undefined;
     secrets?: string[] | undefined;
-    calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+    calls?: (`${string}/${string}` | SystemName)[] | undefined;
     network?: string[] | undefined;
     files?: {
       read: string[];
@@ -15491,7 +15715,7 @@ type ManifestPatch = {
         subtitle?: string | undefined;
       };
       methods: string[];
-      instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+      instance?: InstanceName | undefined;
       audience?: {
         visibility: "private" | "shared" | "public";
         with: string[];
@@ -15621,7 +15845,7 @@ type ManifestPatch = {
       } | undefined;
       routing?: {
         to: "instance";
-        instance: string & z.core.$brand<"InstanceName">;
+        instance: InstanceName;
       } | {
         to: "any";
       } | undefined;
@@ -15679,7 +15903,7 @@ type ManifestPatch = {
         } | {
           kind: "resource";
           uri: `${string}://${string}`;
-          section?: (string & z.core.$brand<"SectionKey">) | undefined;
+          section?: SectionKey | undefined;
         };
         relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
         weight: number;
@@ -15785,7 +16009,7 @@ type MentionHover = {
   body?: string | undefined;
   open?: {
     resource: `${string}://${string}`;
-    section?: (string & z.core.$brand<"SectionKey">) | undefined;
+    section?: SectionKey | undefined;
     title?: string | undefined;
   } | {
     url: string;
@@ -15911,7 +16135,7 @@ type MessagePart = {
   type: "link";
   link: {
     resource: `${string}://${string}`;
-    section?: (string & z.core.$brand<"SectionKey">) | undefined;
+    section?: SectionKey | undefined;
     title?: string | undefined;
   } | {
     url: string;
@@ -16210,22 +16434,22 @@ type PairingGrant = {
 
 const, type · declared in `packages/core/src/approvals.ts`
 
-Build 6: an approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
+An approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
 
 ```ts
 type PairingGrantRequest = {
   run: string;
   subject: {
     kind: "system-install";
-    system: string & z.core.$brand<"SystemName">;
-    instance: string & z.core.$brand<"InstanceName">;
+    system: SystemName;
+    instance: InstanceName;
     version: string;
     manifestHash: string;
     bundleHash: string;
     sourceHash: string;
     host: {
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
     };
     source?: string | undefined;
     grants?: {
@@ -16237,7 +16461,7 @@ type PairingGrantRequest = {
         perDay?: number | undefined;
       } | undefined;
       secrets?: string[] | undefined;
-      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      calls?: (`${string}/${string}` | SystemName)[] | undefined;
       network?: string[] | undefined;
       files?: {
         read: string[];
@@ -16271,7 +16495,7 @@ the manifest is sent (`pairingInfo` on the link).
 type PairingInfo = {
   pairing: string;
   description: string;
-  instance: string & z.core.$brand<"InstanceName">;
+  instance: InstanceName;
   configType?: TypeDef<any> | undefined;
   configSecrets?: string[] | undefined;
 };
@@ -16331,15 +16555,15 @@ type PreviewAnswer = {
     irreversible: boolean;
     subject?: {
       kind: "system-install";
-      system: string & z.core.$brand<"SystemName">;
-      instance: string & z.core.$brand<"InstanceName">;
+      system: SystemName;
+      instance: InstanceName;
       version: string;
       manifestHash: string;
       bundleHash: string;
       sourceHash: string;
       host: {
-        system: string & z.core.$brand<"SystemName">;
-        instance: string & z.core.$brand<"InstanceName">;
+        system: SystemName;
+        instance: InstanceName;
       };
       source?: string | undefined;
       grants?: {
@@ -16351,7 +16575,7 @@ type PreviewAnswer = {
           perDay?: number | undefined;
         } | undefined;
         secrets?: string[] | undefined;
-        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        calls?: (`${string}/${string}` | SystemName)[] | undefined;
         network?: string[] | undefined;
         files?: {
           read: string[];
@@ -16377,7 +16601,7 @@ type PreviewAnswer = {
         hosts: string[];
       };
       tests?: {
-        system: string & z.core.$brand<"SystemName">;
+        system: SystemName;
         version: string;
         ranAt: number;
         duration: number;
@@ -16551,7 +16775,7 @@ type ResourceHit = {
   title: string;
   preview: string;
   score: number;
-  section?: (string & z.core.$brand<"SectionKey">) | undefined;
+  section?: SectionKey | undefined;
 };
 ```
 
@@ -16649,7 +16873,7 @@ const, type · declared in `packages/core/src/resource-forms.ts`
 ```ts
 type ResourceSendArgs = {
   uri: `${string}://${string}`;
-  section?: (string & z.core.$brand<"SectionKey">) | undefined;
+  section?: SectionKey | undefined;
 };
 ```
 
@@ -16807,7 +17031,7 @@ type RunInfo = {
   };
   system: {
     name: string;
-    instance: string & z.core.$brand<"InstanceName">;
+    instance: InstanceName;
     boot: string;
     from?: {
       system: string;
@@ -16855,7 +17079,7 @@ type RunRequest = {
     };
     system: {
       name: string;
-      instance: string & z.core.$brand<"InstanceName">;
+      instance: InstanceName;
       boot: string;
       from?: {
         system: string;
@@ -16963,15 +17187,15 @@ type RunRequest = {
       irreversible: boolean;
       subject?: {
         kind: "system-install";
-        system: string & z.core.$brand<"SystemName">;
-        instance: string & z.core.$brand<"InstanceName">;
+        system: SystemName;
+        instance: InstanceName;
         version: string;
         manifestHash: string;
         bundleHash: string;
         sourceHash: string;
         host: {
-          system: string & z.core.$brand<"SystemName">;
-          instance: string & z.core.$brand<"InstanceName">;
+          system: SystemName;
+          instance: InstanceName;
         };
         source?: string | undefined;
         grants?: {
@@ -16983,7 +17207,7 @@ type RunRequest = {
             perDay?: number | undefined;
           } | undefined;
           secrets?: string[] | undefined;
-          calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+          calls?: (`${string}/${string}` | SystemName)[] | undefined;
           network?: string[] | undefined;
           files?: {
             read: string[];
@@ -17009,7 +17233,7 @@ type RunRequest = {
           hosts: string[];
         };
         tests?: {
-          system: string & z.core.$brand<"SystemName">;
+          system: SystemName;
           version: string;
           ranAt: number;
           duration: number;
@@ -17133,7 +17357,7 @@ A stable piece of a resource.
 
 ```ts
 type Section = {
-  key: string & z.core.$brand<"SectionKey">;
+  key: SectionKey;
   path: string[];
   title: string;
   start: number;
@@ -17160,7 +17384,7 @@ const, type · declared in `packages/core/src/resources.ts`
 A stable section key, made from structure (the heading path, the symbol name) so it survives content moving.
 
 ```ts
-type SectionKey = string & z.core.$brand<"SectionKey">;
+type SectionKey = SectionKey;
 ```
 
 #### <a id="core-sectionmatch"></a>`SectionMatch`
@@ -17318,7 +17542,7 @@ type SystemEvent = {
   }[];
 } | {
   type: "system";
-  system: string & z.core.$brand<"SystemName">;
+  system: SystemName;
   status: "connected" | "disconnected" | "removed";
 } | {
   type: "fns";
@@ -17344,7 +17568,7 @@ type SystemGrants = {
     perDay?: number | undefined;
   } | undefined;
   secrets?: string[] | undefined;
-  calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+  calls?: (`${string}/${string}` | SystemName)[] | undefined;
   network?: string[] | undefined;
   files?: {
     read: string[];
@@ -17371,7 +17595,7 @@ contract's name must equal `name` (`harness system build` and `serve()` check it
 ```ts
 type SystemPackageManifest = {
   format: 1;
-  name: string & z.core.$brand<"SystemName">;
+  name: SystemName;
   version: string;
   description: string;
   protocol: number;
@@ -17436,7 +17660,7 @@ type TypeDecl = {
     subtitle?: string | undefined;
   };
   methods: string[];
-  instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+  instance?: InstanceName | undefined;
   audience?: {
     visibility: "private" | "shared" | "public";
     with: string[];
@@ -17465,10 +17689,10 @@ type TypeDefinitions = {
     };
     description: string;
     name: `${string}/${string}`;
-    system: string & z.core.$brand<"SystemName">;
+    system: SystemName;
     references: `${string}/${string}`[];
     updatedAt: number;
-    instance?: (string & z.core.$brand<"InstanceName">) | undefined;
+    instance?: InstanceName | undefined;
     audience?: {
       visibility: "private" | "shared" | "public";
       with: string[];

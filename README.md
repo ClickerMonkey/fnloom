@@ -76,8 +76,25 @@ the hub).
 
 Every other setting is in `.env.example`, generated from the settings schemas (`npm run env:example`).
 
-Ports: 4300 the hub (`npm run dev`), 4310 Vite (`npm run dev:web`), 4330 and 4331 the e2e suite's own hubs, 4421 the
+Ports: 4300 the hub (`npm run dev` or `npm run live`), 4310 Vite (`npm run dev:web`), 4330 and 4331 the e2e suite's own hubs, 4421 the
 package suite's, 4480 and 4481 `npm run ui-tests:mock`, 8760 the embedder service, 11434 Ollama.
+
+## Running a stable stack
+
+`npm run dev` restarts the hub and each system whenever their source changes, so a stack you use while code is being
+edited drops its connections at every save. `npm run live` runs one that edits can't touch:
+
+1. It bundles the hub, with every package it imports (the linked `@aeye/*` and `@ayepi/*` libraries too), into one
+   file, and builds the web app, both into `.live/<commit>/` (gitignored). A tree with uncommitted changes builds into
+   `.live/<commit>-<time>/` instead, so a build in use is never rewritten. A clean tree reuses its commit's build.
+2. It runs that bundle with plain Node, watching nothing, on the same port, data folder and settings as
+   `npm run dev`. Stop `npm run dev` first, since both use the same port and data.
+3. The systems run from this tree's source, also unwatched. An edit reaches a system only when it restarts, either on
+   purpose or after a crash.
+
+Library dist rebuilds don't reach the hub either, because the libraries are inside the bundle. Native modules
+(better-sqlite3, sqlite-vec) and Vite, which the hub uses at run time to build systems' client renderers, still come
+from `node_modules`. To take new code, stop `npm run live` and start it again. Delete old `.live/` folders by hand.
 
 ## Systems
 

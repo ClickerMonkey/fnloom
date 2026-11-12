@@ -13,6 +13,7 @@ import { barFit, tableFit, valueFit } from '../shared/visuals.ts';
 import ResultView from './ResultView.vue';
 import { OWN_VISUALS } from './own-visuals.ts';
 import { fitting } from './visuals.ts';
+import databaseClient from './index.ts';
 
 const table = (columns: ResultTable['columns'], rows: ResultTable['rows']): ResultTable => ({ columns, rows, offset: 0, truncated: false, sort: [] });
 const BY_STATUS = table([{ name: 'status', kind: 'text', nullable: false }, { name: 'total', kind: 'number', nullable: false }], [['open', 122], ['paid', 135.5], ['refunded', 7.25]]);
@@ -73,5 +74,12 @@ describe('ResultView', () => {
     const view = mount(ResultView, { props: { data: BY_STATUS, title: 'x', system }, global: { provide: { [VISUALS]: source } } });
     expect(view.find('figure.pie').text()).toBe('3');
     expect(view.findAll('[role="radio"]').map((button) => button.text())).toEqual(['Pie chart', 'Table']);
+  });
+});
+
+describe('the client module', () => {
+  it('loads: every visual it registers is in the contributes list', () => {
+    const listed = databaseClient.contract.contributes.map((c) => `${c.registry} ${c.name}`);
+    expect(listed).toEqual(Object.keys(OWN_VISUALS).map((name) => `database/query-visuals ${name}`));
   });
 });

@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { AccessScope } from '../access/index.ts';
 import { mayOffer } from '../access/hits.ts';
 import { pinnedModel } from '../models/pinned.ts';
+import { structuredAnswer } from '../models/structured.ts';
 import type { ChatDeps } from './deps.ts';
 import type { DecidedSuggestions, SuggestionDecider } from './index.ts';
 import { plainText } from './turns.ts';
@@ -20,24 +21,17 @@ import { plainText } from './turns.ts';
 /** The purpose the decision model's calls are recorded under. */
 export const SUGGESTION_PURPOSE = 'suggestions';
 
-/** What the decision model answers: the names it picks and those it declines, each with a reason. */
-const DecisionAnswer = z.object({
-  picks: z.array(z.object({ name: z.string(), reason: z.string().optional() })),
-  declined: z.array(z.object({ name: z.string(), reason: z.string().optional() })).optional(),
+/** A pick or a decline, by the candidate's key, with why. */
+const DecisionItem = z.object({
+  name: z.string().describe('The candidate\'s key (kind:name), exactly as given.'),
+  reason: z.string().optional().describe('Why, in under 12 words.'),
 });
 
-/** The JSON object in a model's answer (fenced or bare), or undefined. */
-export function answerJson(text: string): unknown {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) { return undefined; }
-  try {
-    const value: unknown = JSON.parse(text.slice(start, end + 1));
-    return value;
-  } catch {
-    return undefined;
-  }
-}
+/** What the decision model answers: the names it picks and those it declines, each with a reason. */
+const DecisionAnswer = structuredAnswer(z.object({
+  picks: z.array(DecisionItem).describe('The candidates that clearly help with the latest message.'),
+  declined: z.array(DecisionItem).optional().describe('Candidates left out, when there is a reason worth keeping.'),
+}));
 
 /** One candidate left out. */
 function skipped(item: Pick<Suggestion, 'kind' | 'name' | 'score'>, reason: SkipReason, note?: string): SuggestionOutcome {
@@ -142,16 +136,16 @@ export class HubSuggestions implements SuggestionDecider {
     try {
       const recent = await this.#recent(input.session, decision.messages - 1);
       const answer = await this.#deps.llm.chat(
-        { request: { messages: prompt([...recent, input.text], pool, decision.cap), temperature: 0 }, ...(await this.#model(decision)), priority: 'interactive' },
+        { request: { messages: prompt([...recent, input.text], pool, decision.cap), temperature: 0, responseFormat: DecisionAnswer.responseFormat }, ...(await this.#model(decision)), priority: 'interactive' },
         { purpose: SUGGESTION_PURPOSE }, AbortSignal.timeout(this.#deps.settings.chat.HARNESS_SUGGEST_DECISION_TIMEOUT),
       );
       call = answer.call;
-      const parsed = DecisionAnswer.safeParse(answerJson(answer.value));
-      if (!parsed.success) { throw new Error('the decision model did not answer the JSON asked for'); }
+      const parsed = DecisionAnswer.read(answer.value);
+      if (parsed === undefined) { throw new Error('the decision model did not answer the JSON asked for'); }
       const reasons = new Map<Suggestion, string | undefined>();
-      for (const declined of parsed.data.declined ?? []) { const item = candidateFor(pool, declined.name); if (item !== undefined) { reasons.set(item, declined.reason); } }
+      for (const declined of parsed.declined ?? []) { const item = candidateFor(pool, declined.name); if (item !== undefined) { reasons.set(item, declined.reason); } }
       const picked = new Map<Suggestion, string | undefined>();
-      for (const pick of parsed.data.picks) { const item = candidateFor(pool, pick.name); if (item !== undefined && picked.size < decision.cap) { picked.set(item, pick.reason); } }
+      for (const pick of parsed.picks) { const item = candidateFor(pool, pick.name); if (item !== undefined && picked.size < decision.cap) { picked.set(item, pick.reason); } }
       const chosen = pool.filter((item) => picked.has(item));
       const items = pool.map((item) => (picked.has(item) ? used(item, picked.get(item)) : skipped(item, 'declined', reasons.get(item))));
       this.#deps.log.info('suggestions.decided', { session: input.session, candidates: pool.length, picked: chosen.length, call });
@@ -169,7 +163,7 @@ export class HubSuggestions implements SuggestionDecider {
     if (!decision.enabled || decision.model === undefined) { return { by: 'off' }; }
     try {
       const answer = await this.#deps.llm.chat(
-        { request: { messages: systemDecisionPrompt(request), temperature: 0 }, ...(await this.#model(decision)), priority: 'interactive' },
+        { request: { messages: systemDecisionPrompt(request), temperature: 0, responseFormat: SystemDecisionAnswer.responseFormat }, ...(await this.#model(decision)), priority: 'interactive' },
         { purpose: SYSTEM_DECISION_PURPOSE, run: request.run }, AbortSignal.timeout(this.#deps.settings.chat.HARNESS_SUGGEST_DECISION_TIMEOUT),
       );
       const decided = systemDecision(request, answer.value);
@@ -216,7 +210,7 @@ export function prompt(messages: readonly string[], pool: readonly Suggestion[],
   const system = [
     'You choose which tools (fns) and context items to offer an assistant for the latest user message.',
     `Pick at most ${cap} that clearly help with what the user is asking now; pick none when none fit.`,
-    'Answer with JSON only: {"picks":[{"name":"...","reason":"..."}],"declined":[{"name":"...","reason":"..."}]}. Use the key of each candidate (kind:name) exactly as given; keep each reason under 12 words.',
+    'Name each candidate by its key (kind:name) exactly as given. For example, for a question about the weather with a candidate fn:weather/today, pick { "name": "fn:weather/today", "reason": "Answers today\'s weather." }.',
   ].join('\n');
   const recent = messages.map((text, i) => `${i === messages.length - 1 ? 'Latest' : 'Earlier'}: ${text}`).join('\n');
   const candidates = pool.map((item) => `- ${candidateKey(item)} (score ${item.score.toFixed(2)}): ${item.description}`).join('\n');
@@ -230,17 +224,20 @@ export function prompt(messages: readonly string[], pool: readonly Suggestion[],
 export const SYSTEM_DECISION_PURPOSE = 'decide';
 
 /** What the decision model answers a system: the ids it picks, best first, and why it picked none. */
-const SystemDecisionAnswer = z.object({
-  picked: z.array(z.object({ id: z.string(), why: z.string().optional() })),
-  note: z.string().optional(),
-});
+const SystemDecisionAnswer = structuredAnswer(z.object({
+  picked: z.array(z.object({
+    id: z.string().describe('The candidate\'s id, exactly as given.'),
+    why: z.string().optional().describe('Why it answers what is wanted, in under 15 words.'),
+  })).describe('The candidates that fully answer what is wanted, best first; none when none does.'),
+  note: z.string().optional().describe('When none is picked, why.'),
+}));
 
 /** The decision model's prompt for a system's question: the candidates by id with their scores, and the JSON to answer with. */
 export function systemDecisionPrompt(request: DecideRequest): LlmMessage[] {
   const system = [
     'You decide whether something that already exists answers what is wanted, so it is reused instead of made again.',
     `Pick at most ${request.max} candidates that fully answer what is wanted, best first; pick none when none does, and say why in "note".`,
-    'Answer with JSON only: {"picked":[{"id":"...","why":"..."}],"note":"..."}. Use each candidate\'s id exactly as given; keep each reason under 15 words.',
+    'Use each candidate\'s id exactly as given.',
   ].join('\n');
   const candidates = request.candidates.map((item) => `- id ${JSON.stringify(item.id)} (score ${item.score.toFixed(2)}): ${item.text}`).join('\n');
   return [
@@ -251,13 +248,13 @@ export function systemDecisionPrompt(request: DecideRequest): LlmMessage[] {
 
 /** Read the decision model's answer to a system: only ids among the candidates, each once, at most `max`. */
 export function systemDecision(request: DecideRequest, text: string): Extract<DecideAnswer, { by: 'decision' }> {
-  const parsed = SystemDecisionAnswer.safeParse(answerJson(text));
-  if (!parsed.success) { throw new Error('the decision model did not answer the JSON asked for'); }
+  const parsed = SystemDecisionAnswer.read(text);
+  if (parsed === undefined) { throw new Error('the decision model did not answer the JSON asked for'); }
   const ids = new Set(request.candidates.map((item) => item.id));
   const picked: Array<{ id: string; why?: string }> = [];
-  for (const pick of parsed.data.picked) {
+  for (const pick of parsed.picked) {
     if (!ids.has(pick.id) || picked.some((p) => p.id === pick.id) || picked.length >= request.max) { continue; }
     picked.push(pick.why === undefined ? { id: pick.id } : { id: pick.id, why: pick.why });
   }
-  return { by: 'decision', picked, ...(parsed.data.note === undefined || picked.length > 0 ? {} : { note: parsed.data.note }) };
+  return { by: 'decision', picked, ...(parsed.note === undefined || picked.length > 0 ? {} : { note: parsed.note }) };
 }

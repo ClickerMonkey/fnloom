@@ -91,7 +91,7 @@ review: {
 },
 ```
 
-The renderer is in **The client**.
+The renderer is in [The client](context:fs/authoring.client).
 
 ### Display
 

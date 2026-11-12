@@ -124,4 +124,121 @@ _From `scripts/docs/example/shared/index.ts`:_
 }));
 ```
 
+### Authoring agents
+
+Some fns write something hard: a query, a form's gin type, later an API call or code. Don't hand that to the chat model
+(it would carry every table or type in its context and guess at the shape), and don't make it an `agent()` (a free
+loop of tools can draft before it has looked, and never has to check). Write a native fn that runs an **authoring
+agent**: `authoringAgent({ name, description, instructions, tools, draft, check, save, reuse? })` from
+`@harness/sdk/server`, run with the run's `ctx.ai()`. The chat model passes only a description of what it wants and
+gets back an `AuthoredFn`: the saved fn, its signature, what it does, a short preview and how to call it again. Never
+the working context. Use `agent()` for a helper that answers or acts with tools; use `authoringAgent` when the result
+is a new fn kept in the hub.
+
+The agent works through fixed stages: **find** (search what exists; `reuse` answers with an existing fn), **inspect**
+(load the details of what the search found), **draft** (the built-in `draft` tool, whose args are your typed `draft`
+schema), **check** (your `check`, run on every draft: each problem on its own line, in words the model can act on),
+**fix** (a draft with problems sends the model back, up to `HARNESS_AUTHORING_FIXES` times) and **save** (offered only
+once a draft checked clean; your `save` keeps it as a fn). A tool of a stage is offered only once every stage before
+it is done, so the model can't draft before it has searched. `authoringTool({ name, stage, description, schema, when?,
+call })` declares a find or inspect tool; `when` narrows it further. `session.disclosure` (`Disclosure`) records what
+the model has seen (`markAware`), loaded (`markLoaded`) and searched (`markSearched`), per level (`fn`, `type`,
+`table`): a load tool is offered while something is aware but not loaded, and nothing is shown twice. The run's own
+state (deps, the instance, what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write
+`instructions` as the job step by step, with a worked example of a good draft.
+
+The input system's `get_input` writes a form this way. Its find tool:
+
+_From `systems/input/server/authoring.ts`:_
+
+```ts
+/** `find_forms`: the saved forms the person may use that may fit. */
+const findForms = authoringTool<FormAuthoring, FormDraft, { text: string }>({
+  name: 'find_forms',
+  stage: 'find',
+  description: 'Search the saved forms the person may use by what the request asks for.',
+  instructions: 'Call it first, with what is asked in a few plain words.',
+  schema: z.object({ text: z.string().min(1).describe('What the form asks for, in plain words.') }),
+  async call({ text }, session) {
+    const page = await session.state.deps.search({ text, kinds: [FORM_KIND], items: ['fn'], limit: 6 });
+    session.disclosure.markSearched('fn');
+    session.disclosure.markAware('fn', page.items.map((hit) => hit.name));
+    session.disclosure.markAware('guide', ['fields']);
+    return page.items.length === 0
+      ? 'No saved form fits. See how forms are written with field_types.'
+      : ['Saved forms that may fit:', ...page.items.map((hit) => `- ${hit.name}: ${hit.description}`)].join('\n');
+  },
+});
+```
+
+The agent, its draft schema, check and save:
+
+_From `systems/input/server/authoring.ts`:_
+
+```ts
+/** The form authoring agent. Run it with the run's `ctx.ai()` and a `FormAuthoring`. */
+export const formAuthoring = authoringAgent<FormAuthoring, FormDraft>({
+  name: 'form_author',
+  description: 'Find or write the form that asks a person for what a request describes.',
+  instructions: INSTRUCTIONS,
+  tools: [findForms, useSaved, fieldTypes, loadForm],
+  draft: { description: 'a form: title, description, submit (optional) and its gin object type.', schema: FormDraftSchema },
+  check(draft, session) {
+    const form = formOf(draft);
+    if (form === undefined) { return Promise.resolve({ problems: ['The type is not a gin type: write it as { "name": "obj", "props": { … } }.'] }); }
+    return Promise.resolve({ problems: checkForm(form, session.state.deps.maxFields), note: `${fieldsOf(form.type).length} fields.` });
+  },
+  async save(draft, session) {
+    const form = draftForm(draft, session);
+    const kept = await session.state.deps.keep(form, session.request);
+    session.state.chose(form);
+    return { fn: kept.fn, version: kept.version, signature: `${kept.fn}()`, about: form.description === '' ? form.title : form.description, reused: false, call: `${kept.fn}({})` };
+  },
+});
+```
+
+Its fn runs it and turns a run that gave up (`AuthoringError`, with the last problems) into a failure the chat model can
+act on:
+
+_From `systems/input/server/impl.ts`:_
+
+```ts
+try {
+  const { result } = await formAuthoring.run(await ctx.ai(), args.detailedDescription, state);
+  const form = state.form;
+  if (form === undefined) { return ctx.fail('caller', `The form authoring agent kept ${result.fn} without its form.`); }
+  return ctx.done({ ...asked(ctx, form, result.fn), call: result.call });
+} catch (error) {
+  if (!(error instanceof AuthoringError)) { throw error; }
+  const last = error.problems.length === 0 ? '' : ` Its last problems: ${error.problems.join(' ')}`;
+  return ctx.fail('caller', `No form was made: ${error.message}${last} Describe the fields differently or more exactly.`);
+}
+```
+
+Test it with a scripted model (`mockModel` and `toolCall` from `@harness/sdk/testing`): each step is the tool call the
+model makes, and each forward shows which tools were offered at that stage.
+
+_From `systems/input/server/authoring.test.ts`:_
+
+```ts
+const model = mockModel([
+  toolCall('find_forms', { text: 'trip details' }), toolCall('field_types', {}), toolCall('draft', { draft: tooWide }), toolCall('draft', { draft: TRIP }), toolCall('save', {}), replyChunks('Saved.'),
+  toolCall('find_forms', { text: 'trip details' }), toolCall('use_saved', { fn: 'input/trip_details' }), replyChunks('Reused.'),
+]);
+const kit = await testHub(input, createInputImpl({ settings: inputEnv.parse() }), { config: {}, model });
+try {
+  const watched = kit.hub.runInfo(QualifiedName.parse('input/get_input'), { watched: true });
+  const made = await kit.call('get_input', { detailedDescription: 'The trip: the city and how many nights.' }, { run: watched });
+  expect(made.result).toMatchObject({ form: { title: 'Trip details' }, saved: 'input/trip_details', call: 'input/trip_details({})', next: WAIT_FOR_ANSWERS });
+  expect(kit.hub.fns.kept.get('input/trip_details')?.saved).toMatchObject({ kind: FORM_KIND, payload: TRIP, share: { visibility: 'private', with: [] } });
+  const forwards = made.hubCalls.forwards;
+  // find first; the field guide and draft only after; save only after a clean draft
+  expect(offered(forwards[0])).toEqual(['find_forms']);
+  expect(offered(forwards[1])).toEqual(['field_types', 'find_forms']);
+  expect(offered(forwards[2])).toEqual(['draft', 'find_forms']);
+  expect(offered(forwards[3])).not.toContain('save');
+  expect(JSON.stringify(forwards[3]?.request.messages)).toContain('at most 3');
+  expect(offered(forwards[4])).toContain('save');
+```
+
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

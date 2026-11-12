@@ -17,7 +17,7 @@ import { letsIn } from '../access/scope.ts';
 import type { SecretVault } from '../api/index.ts';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { LinkService, SystemConnection } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ConnectionsEnv } from './env.ts';
@@ -70,7 +70,7 @@ export class StoreConnectionService implements ConnectionService {
   async pages(asker: ActorId): Promise<ConnectPage[]> {
     const pages: ConnectPage[] = [];
     for (const { system, decl, ready } of await this.#decls()) {
-      const connections = await allRows(this.#table(), { owner: asker, system });
+      const connections = await allRows(this.#table(), { where: { owner: asker, system } });
       pages.push({ system, decl, ready, connections: connections.sort((a, b) => b.createdAt - a.createdAt).map(connectionView) });
     }
     return pages;
@@ -212,7 +212,7 @@ export class StoreConnectionService implements ConnectionService {
 
   async gate(actor: ActorId, groups: ReadonlySet<ActorId>): Promise<ConnectionGate> {
     const decls = new Map<string, { system: SystemName; decl: ConnectDecl }>((await this.#decls()).map((entry) => [entry.system, entry]));
-    const usable = (await allRows(this.#table(), { status: 'connected' }))
+    const usable = (await allRows(this.#table(), { where: { status: 'connected' } }))
       .filter((row) => decls.has(row.system) && letsIn({ owner: row.owner, ...row.share }, actor, groups))
       .sort((a, b) => (a.owner === actor ? 0 : 1) - (b.owner === actor ? 0 : 1) || b.createdAt - a.createdAt);
     return {
@@ -241,7 +241,7 @@ export class StoreConnectionService implements ConnectionService {
 
   /** Store a new pending row, dropping the person's earlier sign-ins to the same system that never came back. */
   async #begin(row: UserConnection): Promise<void> {
-    for (const stale of await allRows(this.#table(), { owner: row.owner, system: row.system, status: 'pending' })) {
+    for (const stale of await allRows(this.#table(), { where: { owner: row.owner, system: row.system, status: 'pending' } })) {
       await this.#table().remove(stale.id);
     }
     await this.#table().insert(row);

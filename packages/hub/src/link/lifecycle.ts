@@ -16,7 +16,7 @@ import {
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { Serial } from '../catalog/serial.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ReviewEnv } from './env.ts';
@@ -200,7 +200,7 @@ export class SystemLifecycle {
    * wherever it offers that section. Pending items are added unless `switchedOnly`.
    */
   async off(section: ItemSection, options: { system?: SystemName; switchedOnly?: boolean } = {}): Promise<Set<string>> {
-    const rows = await allRows(this.#options.store.table('itemSwitches'), { section, ...(options.system === undefined ? {} : { system: options.system }) });
+    const rows = await allRows(this.#options.store.table('itemSwitches'), { where: { section, ...(options.system === undefined ? {} : { system: options.system }) } });
     const out = new Set(rows.map((row) => row.name));
     if (options.switchedOnly !== true) { for (const name of await this.held(section)) { out.add(name); } }
     return out;
@@ -210,7 +210,7 @@ export class SystemLifecycle {
   async offItems(system: SystemName): Promise<ItemRef[]> {
     const { store } = this.#options;
     const [switches, fns, context, review] = await Promise.all([
-      allRows(store.table('itemSwitches'), { system }), allRows(store.table('fns'), { system }), allRows(store.table('context'), { system }), this.review(system),
+      allRows(store.table('itemSwitches'), { where: { system } }), allRows(store.table('fns'), { where: { system } }), allRows(store.table('context'), { where: { system } }), this.review(system),
     ]);
     const out = new Map<string, ItemRef>();
     const add = (item: ItemRef): void => { out.set(itemKey(item), item); };
@@ -246,15 +246,15 @@ export class SystemLifecycle {
     const wanted = new Set(off.map(itemKey));
     const touched = (item: ItemRef): boolean => among === undefined || among.has(itemKey(item));
     await store.tx(async (tx) => {
-      for (const fn of await allRows(tx.table('fns'), { system })) {
+      for (const fn of await allRows(tx.table('fns'), { where: { system } })) {
         const item: ItemRef = { section: 'fns', name: fn.name };
         if (touched(item) && fn.disabled !== wanted.has(itemKey(item))) { await tx.table('fns').update(fn.name, { disabled: wanted.has(itemKey(item)) }); }
       }
-      for (const row of await allRows(tx.table('context'), { system })) {
+      for (const row of await allRows(tx.table('context'), { where: { system } })) {
         const item: ItemRef = { section: 'context', name: row.name };
         if (touched(item) && (row.disabled === true) !== wanted.has(itemKey(item))) { await tx.table('context').update(row.name, { disabled: wanted.has(itemKey(item)) }); }
       }
-      for (const row of await allRows(tx.table('itemSwitches'), { system })) {
+      for (const row of await allRows(tx.table('itemSwitches'), { where: { system } })) {
         if (touched(row) && !wanted.has(itemKey(row))) { await tx.table('itemSwitches').remove({ system, section: row.section, name: row.name }); }
       }
       for (const item of off) {
@@ -289,7 +289,7 @@ export class SystemLifecycle {
     await store.table('systems').update(request.system, { stage: 'live' });
     // its context was off while installed; it follows the system's context switch from now on
     await store.tx(async (tx) => {
-      for (const item of await allRows(tx.table('context'), { system: request.system })) { await tx.table('context').update(item.name, { systemOff: record.enabled.context === false }); }
+      for (const item of await allRows(tx.table('context'), { where: { system: request.system } })) { await tx.table('context').update(item.name, { systemOff: record.enabled.context === false }); }
     });
     await catalog.refreshAvailability(request.system);
     await this.#refreshResources(request.system);

@@ -88,7 +88,7 @@ describe('the database system over the link', () => {
     }
     expect(manifest?.fns.find((item) => item.name === 'change_schema')).toMatchObject({ approval: { preview: true, remember: false }, visibility: 'none' });
     expect(manifest?.registries?.map((item) => item.name)).toEqual(['query-visuals']);
-    expect(manifest?.contributes).toBeUndefined();
+    expect(manifest?.contributes?.map((item) => `${item.registry} ${item.name}`)).toEqual(['database/query-visuals table', 'database/query-visuals bar', 'database/query-visuals value']);
     expect(manifest?.configSecrets).toEqual(['connection.url', 'connection.password']);
     expect(types.upserts[0]?.sort()).toEqual(['main.customers', 'main.orders']);
   });

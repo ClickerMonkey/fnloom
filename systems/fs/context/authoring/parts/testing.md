@@ -120,7 +120,7 @@ them, `npm test` skips them.
 
 **Compile-time tests.** For a mistake the types must refuse, write it under `// @ts-expect-error <why>`: if it ever
 compiles, `npm run typecheck` fails. `expectType<Equal<A, B>>(true)` asserts two types are the same. The SDK's own
-compile-time tests are the source of **Common mistakes**.
+compile-time tests are the source of [Common mistakes](context:fs/authoring.mistakes).
 
 **Before you finish:** `npm run typecheck` (every project, the new system included once it is in the root
 `tsconfig.json` references), `npx vitest run systems/<name>`, and `npm run lint`.

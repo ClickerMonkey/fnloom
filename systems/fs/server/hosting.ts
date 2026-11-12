@@ -15,7 +15,11 @@
  * - **Folders**: `<dataDir>/hosted/<system>/<instance>/{state,data,cache}` and bundles in
  *   `<dataDir>/hosted/<system>/versions/<bundleHash>/`, the same layout the hub's supervisor uses. What is hosted
  *   (`host.json` beside the instance's folders) is the supervisor's own bookkeeping: which bundle to start, and whether.
+ *   The pid of each spawn is kept beside it (`process.json`, `stale.ts`), so when fs starts after a crash the process
+ *   it left running is killed before the system starts again. Writes to one instance's files go one at a time, and
+ *   renames are tried again while Windows still holds a handle in the folder.
  */
+import { randomUUID } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -23,6 +27,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, ScanReport, SystemGrants, SystemName, SystemPackageManifest, type ApprovalPreview, type FileGrant, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
 import { z } from 'zod';
 import type { HostedStatusValue, HostedStateValue, InstallResultValue } from '../shared/hosting.ts';
+import { HostedProcess, killStale, type ProcessProbe } from './stale.ts';
 
 /** Names a hosted system may never take. */
 const RESERVED = new Set(['hub']);
@@ -161,6 +166,8 @@ export interface HostedLaunch {
   readonly files: { readonly read: readonly string[]; readonly write: readonly string[] };
   /** `grants.network`: the hosts its allowlist proxy lets through (none declared, none). */
   readonly network: readonly string[];
+  /** Told the pid of every process started for it (the first and each restart), so a later fs can find it. */
+  readonly spawned: (pid: number) => void;
 }
 
 /** How a start went: it said it connected (or waits for config), it exited first, or it said nothing in time. */
@@ -197,6 +204,8 @@ export interface HostingDeps {
   /** Runs the folder's tests for the card; without it the card carries the scan only. */
   readonly tests?: SystemTests;
   readonly runner: HostedRunner;
+  /** Finds and kills a hosted process an earlier fs left running. */
+  readonly probe: ProcessProbe;
   /** The hub's link URL, for the hosted processes. */
   readonly hubUrl: string;
   /** This fs instance, the host. */
@@ -210,7 +219,13 @@ export interface HostingDeps {
     readonly problems: number;
     /** Characters of output kept for a crash. */
     readonly outputTail: number;
+    /** Tries of a rename Windows refuses while a handle is still open in it (EPERM, EBUSY, EACCES). */
+    readonly renameTries: number;
+    /** The first wait between those tries, doubling each time. */
+    readonly renameWait: number;
   };
+  /** Told of a stale hosted process found (and killed or not) or a lookup that failed, when fs starts. */
+  readonly onStale?: (key: string, outcome: { killed: boolean; pid: number } | { failed: string }) => void;
 }
 
 /** What is hosted, kept beside the instance's folders. */
@@ -269,6 +284,8 @@ export class Hosting {
   readonly #deps: HostingDeps;
   /** The preview or install under way for each system, so two never build, start, write or prune its versions at once. */
   readonly #installing = new Map<string, Promise<unknown>>();
+  /** The last write to each instance's files, so two never race on one file. */
+  readonly #writes = new Map<string, Promise<void>>();
 
   constructor(deps: HostingDeps) {
     this.#deps = deps;
@@ -280,9 +297,9 @@ export class Hosting {
   }
 
   /** An instance's folders, as the hub's supervisor lays them out. */
-  folders(system: string, instance: string): { state: string; data: string; cache: string; record: string } {
+  folders(system: string, instance: string): { state: string; data: string; cache: string; record: string; process: string } {
     const at = join(this.root, system, instance);
-    return { state: join(at, 'state'), data: join(at, 'data'), cache: join(at, 'cache'), record: join(at, 'host.json') };
+    return { state: join(at, 'state'), data: join(at, 'data'), cache: join(at, 'cache'), record: join(at, 'host.json'), process: join(at, 'process.json') };
   }
 
   /** Where a version's bundle is built. */
@@ -443,7 +460,10 @@ export class Hosting {
 
   /** Start every hosted system marked to start (when fs starts). Each start is logged by the caller; failures are kept in its status. */
   async startAll(): Promise<{ system: string; outcome: HostedStart }[]> {
-    const marked = (await this.records()).filter((record) => record.start);
+    const records = await this.records();
+    // a process an fs that crashed left running goes first, or the system would run twice
+    await Promise.all(records.map((record) => this.#reap(record)));
+    const marked = records.filter((record) => record.start);
     return await Promise.all(marked.map(async (record) => ({ system: `${record.system}/${record.instance}`, outcome: await this.#start(record, undefined) })));
   }
 
@@ -530,7 +550,7 @@ export class Hosting {
       if (await isFolder(target)) {
         await cp(scratch, target, { recursive: true, force: true });
       } else {
-        await rename(scratch, target);
+        await this.#rename(scratch, target);
       }
       const built: BuiltSystem = { ...answer.built, entry: join(target, relativeTo(scratch, answer.built.entry)) };
       await writeFile(join(target, BUILT_FILE), JSON.stringify(built), 'utf8');
@@ -578,14 +598,61 @@ export class Hosting {
     return await this.#deps.runner.start(keyOf(record), {
       ref: { system: record.system, instance: record.instance }, entry: record.entry, cwd: this.versionFolder(record.system, record.bundleHash),
       writes: [dirs.state, dirs.data, dirs.cache], env, permissions: record.permissions, files, network: record.grants?.network ?? [],
+      spawned: (pid) => { this.#keep(record, dirs.process, { pid, entry: record.entry }).catch(() => undefined); },
     }, this.#deps.limits.connectTimeout);
   }
 
   async #write(record: HostedRecord): Promise<void> {
-    const file = this.folders(record.system, record.instance).record;
-    await mkdir(join(file, '..'), { recursive: true });
-    await writeFile(`${file}.tmp`, JSON.stringify(record, null, 2), 'utf8');
-    await rename(`${file}.tmp`, file);
+    await this.#keep(record, this.folders(record.system, record.instance).record, record);
+  }
+
+  /** Write one of an instance's files whole, after its earlier writes, through a temp file of its own. */
+  #keep(owner: Pick<HostedRecord, 'system' | 'instance'>, file: string, value: HostedRecord | HostedProcess): Promise<void> {
+    const key = keyOf(owner);
+    const write = async (): Promise<void> => {
+      await mkdir(dirname(file), { recursive: true });
+      const temp = `${file}.${randomUUID()}.tmp`;
+      await writeFile(temp, JSON.stringify(value, null, 2), 'utf8');
+      await this.#rename(temp, file);
+    };
+    const next = (this.#writes.get(key) ?? Promise.resolve()).then(write);
+    const settled = next.catch(() => undefined);
+    this.#writes.set(key, settled);
+    void settled.then(() => { if (this.#writes.get(key) === settled) { this.#writes.delete(key); } });
+    return next;
+  }
+
+  /** Kill the process `process.json` names if it still runs this instance's bundle (an fs that crashed left it). */
+  async #reap(record: HostedRecord): Promise<void> {
+    const file = this.folders(record.system, record.instance).process;
+    let kept: HostedProcess;
+    try {
+      kept = HostedProcess.parse(JSON.parse(await readFile(file, 'utf8')));
+    } catch (error) {
+      if (!isMissing(error)) { this.#deps.onStale?.(keyOf(record), { failed: error instanceof Error ? error.message : String(error) }); }
+      return;
+    }
+    try {
+      const killed = await killStale(this.#deps.probe, kept);
+      this.#deps.onStale?.(keyOf(record), { killed, pid: kept.pid });
+      await rm(file, { force: true });
+    } catch (error) {
+      this.#deps.onStale?.(keyOf(record), { failed: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** Rename, trying again with a doubling wait while Windows refuses because a handle is still open in it. */
+  async #rename(from: string, to: string): Promise<void> {
+    const { renameTries, renameWait } = this.#deps.limits;
+    for (let tried = 1; ; tried += 1) {
+      try {
+        await rename(from, to);
+        return;
+      } catch (error) {
+        if (tried >= renameTries || !isHeld(error)) { throw error; }
+        await new Promise((done) => { setTimeout(done, renameWait * 2 ** (tried - 1)); });
+      }
+    }
   }
 
   /** Remove bundles no instance of the system runs any more. */
@@ -630,6 +697,11 @@ async function isFolder(path: string): Promise<boolean> {
     if (isMissing(error)) { return false; }
     throw error;
   }
+}
+
+/** Whether a rename failed because something still holds a handle in it (Windows: Defender, the indexer, a child not fully gone). */
+function isHeld(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error.code === 'EPERM' || error.code === 'EBUSY' || error.code === 'EACCES');
 }
 
 function isMissing(error: unknown): boolean {

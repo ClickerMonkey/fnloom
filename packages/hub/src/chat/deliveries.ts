@@ -13,7 +13,8 @@ import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import type { DeliveryService } from './index.ts';
 import type { People } from './people.ts';
-import { allowsSystem, callSystem, entryOf, readAll } from './support.ts';
+import { allowsSystem, callSystem, entryOf } from './support.ts';
+import { someRows } from '../store/rows.ts';
 
 /** How many queued deliveries are read at a time while draining a system's queue. */
 const BATCH = 50;
@@ -129,7 +130,7 @@ export class LinkDeliveryService implements DeliveryService {
 
   async #requeueInterrupted(system: SystemName): Promise<void> {
     const deliveries = this.#deps.store.table('deliveries');
-    const cut = await readAll(deliveries, { where: { system, status: 'delivered' } }, BATCH);
+    const cut = await someRows(deliveries, { where: { system, status: 'delivered' } }, BATCH);
     for (const delivery of cut) {
       this.#publish(await deliveries.update(delivery.id, { status: 'queued' }));
       this.#deps.log.info('chat.delivery.requeued', { delivery: delivery.id, system, reason: 'interrupted' });

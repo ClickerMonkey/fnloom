@@ -153,9 +153,9 @@ export const Approval = z.object({
   status: z.enum(['pending', 'approved', 'denied', 'expired']),
   decisions: z.array(z.object({ by: ActorId, approve: z.boolean(), remember: Remember, reason: z.string().optional(), at: Timestamp })),
   createdAt: Timestamp,
-  /** Build 5: what the run would do, from its system (`FnDecl.approval.preview`, or a proposed run). */
+  /** What the run would do, from its system (`FnDecl.approval.preview`, or a proposed run). */
   preview: ApprovalPreview.optional(),
-  /** Build 5: the run was added by its system (`propose`), not called. */
+  /** The run was added by its system (`propose`), not called. */
   proposed: z.boolean().optional(),
 });
 export type Approval = z.infer<typeof Approval>;

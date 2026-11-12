@@ -4,8 +4,9 @@
  * fleet's copies, each with its own page; another copy can be installed from a package zip), its config form, what it
  * added to the hub (its fns and its context items, each switched on or off by itself and with its own page; its named
  * types; everything else it added: resource roots, kinds, commands, providers, components, examples, …, one kind at a
- * time and each with its own switch), the calls the hub refused, and its live output. Its stage (installed or live)
- * shows beside its status, with a link to its review. Removing asks first.
+ * time and each with its own switch), the calls the hub refused, and its live output. While it is only installed (or
+ * changes wait), a banner says so with the link to its review; a live system has a Review link beside its status.
+ * Removing asks first.
  */
 import { MAIN_INSTANCE, SystemName, type AutoPairId, type InstanceName, type ItemRef, type Json, type QualifiedName, type RefusalRule, type ResourceRoot, type RunId, type SystemEnabled, type SystemPartSection } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
@@ -37,7 +38,7 @@ import SystemOverview from '../components/SystemOverview.vue';
 import { partGroups, SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
 import { contextLabel } from '../../context/logic/context.ts';
 import { secretFields } from '../logic/instances.ts';
-import { declaredItems, STAGE_LOOK } from '../logic/review.ts';
+import { declaredItems } from '../logic/review.ts';
 import { PartTab, SystemTab } from '../sections.ts';
 import { configComponentsOf, configTarget } from '../state/config-component.ts';
 
@@ -193,18 +194,23 @@ async function act(action: SystemAction, version?: string): Promise<void> {
       <RouterLink :to="links.systems()" class="crumb" data-testid="back-to-systems"><UiIcon name="chevron-left" :size="14" />Systems</RouterLink>
     </template>
     <template v-if="view" #actions>
-      <RouterLink v-if="name !== undefined && view.status === 'connected'" :to="links.explore(name, MAIN_INSTANCE)" class="waiting" data-testid="system-explore"><UiIcon name="folder" :size="14" />Files</RouterLink>
-      <RouterLink v-if="name !== undefined" :to="links.waitingRuns(name)" class="waiting" data-testid="system-waiting-runs"><UiIcon name="shield" :size="14" />Waiting runs</RouterLink>
-      <RouterLink v-if="name !== undefined" :to="links.review(name, review?.pending ? 'pending' : 'fns')" class="waiting" data-testid="system-review">
-        <UiIcon name="eye" :size="14" />Review
+      <!-- the banner below says when it is not live or changes wait, with its own link to the review: the header
+           doesn't repeat it. On a phone the links are icons, so they and the status share one row -->
+      <RouterLink v-if="name !== undefined && view.status === 'connected'" :to="links.explore(name, MAIN_INSTANCE)" class="waiting" title="Files" data-testid="system-explore">
+        <UiIcon name="folder" :size="14" /><span class="word">Files</span>
       </RouterLink>
-      <StatusBadge :look="STAGE_LOOK[stage]" data-testid="system-stage" />
+      <RouterLink v-if="name !== undefined" :to="links.waitingRuns(name)" class="waiting" title="Waiting runs" data-testid="system-waiting-runs">
+        <UiIcon name="shield" :size="14" /><span class="word">Waiting runs</span>
+      </RouterLink>
+      <RouterLink v-if="name !== undefined && stage === 'live' && review?.pending === undefined" :to="links.review(name)" class="waiting" title="Review" data-testid="system-review">
+        <UiIcon name="eye" :size="14" /><span class="word">Review</span>
+      </RouterLink>
       <StatusBadge :look="SYSTEM_STATUS_LOOK[view.status]" />
     </template>
     <LoadState :loading="store.view.loading.value" :problem="store.view.problem.value" :ready="view !== undefined" :empty="false" :lines="8" @retry="name && store.open(name)">
       <template v-if="view">
         <UiBanner v-if="stage === 'installed'" tone="warn" data-testid="system-installed">
-          It is installed but not live: nothing it offers is used until it is reviewed.
+          Not live yet: nothing it offers is used until it is reviewed.
           <template #actions><RouterLink v-if="name !== undefined" :to="links.review(name)">Review and go live</RouterLink></template>
         </UiBanner>
         <UiBanner v-else-if="review?.pending" tone="warn" data-testid="system-pending">
@@ -316,6 +322,10 @@ async function act(action: SystemAction, version?: string): Promise<void> {
 .all-context { margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .search-fns { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-sm); }
 .waiting { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }
+@media (max-width: 759.98px) {
+  .waiting { position: relative; justify-content: center; min-width: 32px; min-height: 32px; border-radius: var(--radius); }
+  .waiting .word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 .sub { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .bar .dim { flex: 1 1 280px; }

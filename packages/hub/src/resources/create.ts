@@ -34,7 +34,7 @@ export const resourcesModule: ModuleFactory<'resources'> = ({ hub, hubActor }) =
     store, content, raw, converters, models, log, clock, settings,
     onForms: (record) => { bus.publish('resource.forms', { uri: record.uri, forms: badges(record) }); },
   });
-  const reader = new FormReader({ store, content, forms });
+  const reader = new FormReader({ store, content, forms, readChars: settings.HARNESS_READ_CHARS });
   const fetcher = new WebSystemFetcher({
     webConnected: () => hub.link.connections.connection(WEB) !== undefined, runs: () => hub.execution.runs, content, hubActor,
     fallback: new LibraryFetcher({ converters, settings }),

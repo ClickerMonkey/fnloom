@@ -19,7 +19,7 @@ import { contextTokens } from '../contextor/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { AvailabilityRules, heldFns, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
 import type { Catalog, CatalogEntry, FnSignature, KindDescriber } from './index.ts';
-import { allRows } from './rows.ts';
+import { allRows } from '../store/rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
 import { Serial } from './serial.ts';
 
@@ -168,7 +168,7 @@ export class StoreCatalog implements Catalog {
   async fns(filter: { system?: SystemName; names?: readonly QualifiedName[]; available?: boolean }): Promise<FnRecord[]> {
     const fns = this.options.store.table('fns');
     const rows = filter.names === undefined
-      ? await allRows(fns, filter.system === undefined ? undefined : { system: filter.system })
+      ? await allRows(fns, filter.system === undefined ? {} : { where: { system: filter.system } })
       : (await Promise.all(filter.names.map((name) => fns.get(name)))).filter((row) => row !== undefined);
     return rows.filter((row) => (filter.system === undefined || row.system === filter.system) && (filter.available === undefined || (row.available === true) === filter.available));
   }
@@ -335,7 +335,7 @@ export class StoreCatalog implements Catalog {
   async #refresh(): Promise<FnRecord[]> {
     const { store } = this.options;
     const [systems, kinds, fns, reviews, kindsOff] = await Promise.all([
-      allRows(store.table('systems')), allRows(store.table('kinds')), allRows(store.table('fns')), allRows(store.table('systemReviews')), allRows(store.table('itemSwitches'), { section: 'kinds' }),
+      allRows(store.table('systems')), allRows(store.table('kinds')), allRows(store.table('fns')), allRows(store.table('systemReviews')), allRows(store.table('itemSwitches'), { where: { section: 'kinds' } }),
     ]);
     const rules = new AvailabilityRules({
       systems: new Map(systems.map((r) => [r.name, r])),
@@ -357,7 +357,7 @@ export class StoreCatalog implements Catalog {
   async #redescribeKindsOf(system: SystemName): Promise<FnRecord[]> {
     const { store } = this.options;
     if (systemAvailability(system, await store.table('systems').get(system), { staged: false }) !== true) { return []; }
-    const kindNames = new Set<string>((await allRows(store.table('kinds'), { system })).map((k) => k.name));
+    const kindNames = new Set<string>((await allRows(store.table('kinds'), { where: { system } })).map((k) => k.name));
     if (kindNames.size === 0) { return []; }
     return this.#redescribe((await allRows(store.table('fns'))).filter((fn) => kindNames.has(fn.decl.kind)));
   }

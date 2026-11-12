@@ -68,7 +68,7 @@ export function shopConfig(overrides: Partial<DatabaseConfig> = {}): DatabaseCon
 }
 
 /** An enricher that never runs (enrichment is off), or one that answers from a script. */
-export const NO_ENRICHER: Enricher = { enrich: () => Promise.resolve({ problems: ['not in this test'] }) };
+export const NO_ENRICHER: Enricher = { enrich: () => Promise.reject(new Error('Enrichment is not in this test.')) };
 
 /** The hub's side, recording what it was given and keeping the table types as the hub would. */
 export class RecordingHub implements HubSide {

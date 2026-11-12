@@ -52,25 +52,34 @@ export function typeDefinition(name: QualifiedName, record: Pick<TypeRecord, 'de
 /** What fns change in the hub, worked out deeply (`FnFactsService.registry`). */
 export type RegistrySource = (fns: readonly QualifiedName[]) => Promise<ReadonlyMap<QualifiedName, readonly RegistryEffect[]>>;
 
+/** What long-running fns warn of (`FnFactsService.notices`). */
+export type NoticeSource = (fns: readonly QualifiedName[]) => Promise<ReadonlyMap<QualifiedName, string>>;
+
+/** Where the lines beside a view's description come from; each one left out leaves its line out. */
+export interface FnViewLines {
+  readonly registry?: RegistrySource;
+  readonly notices?: NoticeSource;
+}
+
 /** Fn views over the catalog. */
 export class CatalogFnViews implements FnViewSource {
   readonly #catalog: Pick<Catalog, 'fn' | 'signature' | 'typeClosure' | 'type'>;
   readonly #scopes: GinScopes;
-  readonly #registry: RegistrySource | undefined;
+  readonly #lines: FnViewLines;
   readonly #cache = new Map<QualifiedName, { readonly version: string; readonly view: FnView }>();
 
-  /** With `registry`, each view carries the line saying what its fn changes in the hub. */
-  constructor(catalog: Pick<Catalog, 'fn' | 'signature' | 'typeClosure' | 'type'>, scopes: GinScopes = new GinScopes(), registry?: RegistrySource) {
+  /** With `lines.registry`, each view carries the line saying what its fn changes in the hub; with `lines.notices`, its long-running warning. */
+  constructor(catalog: Pick<Catalog, 'fn' | 'signature' | 'typeClosure' | 'type'>, scopes: GinScopes = new GinScopes(), lines: FnViewLines = {}) {
     this.#catalog = catalog;
     this.#scopes = scopes;
-    this.#registry = registry;
+    this.#lines = lines;
   }
 
   async view(name: QualifiedName): Promise<FnView | undefined> {
     const record = await this.#catalog.fn(name);
     if (record === undefined) return undefined;
     // the parts made from the declaration are kept per version; the record itself (switched off, available) is always fresh
-    // what it changes is read fresh too: it follows the fns it uses, which change on their own
+    // what it changes and how long it runs are read fresh too: they follow the fns it uses and its runs
     const effects = await this.#effects(name);
     const cached = this.#cache.get(name);
     if (cached?.version === record.version) return { ...cached.view, record, ...effects };
@@ -80,11 +89,14 @@ export class CatalogFnViews implements FnViewSource {
     return { ...view, ...effects };
   }
 
-  /** The view's effects line, when the fn changes anything in the hub. */
-  async #effects(name: QualifiedName): Promise<Pick<FnView, 'effects'>> {
-    if (this.#registry === undefined) return {};
-    const line = effectsLine((await this.#registry([name])).get(name) ?? []);
-    return line === undefined ? {} : { effects: line };
+  /** The view's effects line, when the fn changes anything in the hub, and its warning, when it usually runs long. */
+  async #effects(name: QualifiedName): Promise<Pick<FnView, 'effects' | 'notice'>> {
+    const { registry, notices } = this.#lines;
+    const [effects, notice] = await Promise.all([
+      registry === undefined ? undefined : registry([name]).then((found) => effectsLine(found.get(name) ?? [])),
+      notices === undefined ? undefined : notices([name]).then((found) => found.get(name)),
+    ]);
+    return { ...(effects === undefined ? {} : { effects }), ...(notice === undefined ? {} : { notice }) };
   }
 
   async typeText(name: QualifiedName): Promise<string | undefined> {

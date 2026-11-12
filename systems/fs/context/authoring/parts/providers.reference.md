@@ -37,7 +37,7 @@ interface ProviderInput {
 }
 ```
 
-Refers to: [`ProviderModelDecl`](#core-providermodeldecl).
+Refers to: [`ProviderModelDecl`](context:fs/authoring.core-types#core-providermodeldecl).
 
 #### `ProviderDef`
 
@@ -52,7 +52,7 @@ interface ProviderDef {
 }
 ```
 
-Refers to: [`ProviderModelDecl`](#core-providermodeldecl).
+Refers to: [`ProviderModelDecl`](context:fs/authoring.core-types#core-providermodeldecl).
 
 #### `ProviderImpl`
 
@@ -78,4 +78,4 @@ interface ProviderRef<N extends QualifiedName> {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).

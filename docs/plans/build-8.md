@@ -64,3 +64,63 @@ owner's notes, starting from product's data surfaces (`packages/app/src/next/sur
   - In `auto` chat mode the classifier model sees these flags. Writes to them always need approval.
 
   The rules come from one list, are configurable per fs instance, and are tested.
+
+## From the audit gate (2026-11-12)
+
+Findings left for build 8 or the owner:
+
+- **[major, harness] Hub and system API not grouped or indexed** (packages/hub, hub fns and context; build-6-design.md
+  Status 'Not finished' item 1): Build 6 and Decided 'Context folders' ask for an API that is grouped, indexed and
+  searchable, with an index context item per group. Only the fs authoring guide is grouped; the hub's and systems' fn
+  API has no group index items. Not on the build 8 list yet.
+- **[major, harness] Version history only for fns and types** (packages/hub/src/store/schema.ts:86, catalog.ts:484):
+  Decided says every runtime-added item keeps its version history. Context, kinds, commands, components, examples and
+  providers keep none. Fix: a uniform versions table (or one per kind) that RunningSystem.patch writes to.
+- **[major, code] Whole shared tables cached in process memory** (packages/hub/src/access/service.ts:136-138;
+  catalog.ts:766-772, 362, 390, 601): AccessService and Catalog load whole tables into memory for the process life,
+  and #referencing, kind-fn listing and work.others run allRows('fns') then filter in JS. Stale with a second hub
+  process or a direct store write. Fix: query by key or filter in the store.
+- **[major, fsdocs] The worked example teaches a local store, load-all and in-memory search**
+  (scripts/docs/example/server/impl.ts:28-33, 121-127; start.md): notes live in a file store under ctx.dataDir and find
+  loads all and substring-filters. Fix: rebuild on hub types, records and hub search; add a 'where data lives' rule to
+  start.md and mistakes.md.
+- **[minor, fsdocs] Very large parts weaken progressive disclosure** (parts/core-types.md 104 KB, examples.md 77 KB,
+  hub.md, testing.reference.md, internals.md): one lookup costs 20-26k tokens. Fix: split core-types by source module
+  and examples per file, each with a choices list.
+
+Deferred by the fixers:
+
+- **Catalog load-all** (packages/hub/src/catalog/catalog.ts): #redescribeKindsOf, #referencing and #others need fns
+  by kind and by signature types; no indexed table holds that (fnTypes holds fact types, not signature mentions). Fix:
+  a new (fn, kind, type) index table written in the fn's transaction, also replacing #describedTypes. #load keeps
+  types and manifests in memory because gin's TypeLookup is synchronous. A few hours and a design change.
+- **Resource browse is still load-all** (packages/hub resources): facets and substring search need store group-by
+  counts, prefix filter or LIKE, plus family/source columns with a migration and date/folder buckets.
+- **Notice not shown on approval and running cards** (packages/web): the hub already sends FnFacts.notice via the
+  facts endpoint and on the model's fn line.
+- **System fns changing the hub without declaring it**: wrong on inspection, no change (runs.ts #checkDep; deps'
+  declared effects count as the caller's).
+- **Ollama context sizes** (packages/hub, OLLAMA_CTX, OLLAMA_LEGACY_CTX): left; they are Ollama's own defaults and
+  HARNESS_OLLAMA_DEFAULT_CTX is the setting.
+- **Owner call: METRIC_DEFAULTS** (6 metrics x 3 numbers): overridable per contextor today; moving it into env (18
+  settings or one JSON setting) is the owner's call.
+- **Deliveries BATCH (50)** (packages/hub/src/chat/deliveries.ts): kept; a per-pass page size, not a cap.
+- **Old `{ input: ... }` wording** (docs/reference/hub-surface.md lines 264, 275, 283, 292, 606): configure_provider,
+  remove_rule, set_model_role and resource_import take plain args now.
+- **Owner call: esbuild devDependency** (package.json): `npm run live` imports esbuild, present only through Vite.
+  Run `npm i -D esbuild` once to add it and update the lockfile.
+- **Second paging helper** (packages/hub/src/api/paging.ts): its own `collect` and `first` (PAGE 100) could move into
+  store/rows.ts.
+- **Old helper files deleted** (packages/hub/src/catalog/rows.ts, packages/hub/src/execution/pages.ts): removed with
+  `git rm`; committed in the audit gate commit.
+- **Owner call: @-mention 'recent pages' kept in memory** (systems/web/server/mentions.ts): needs a hub link endpoint
+  that searches resources as the person mentioning (ctx.resources.search is a declared gap). The owner decides how the
+  hub trusts which person a system answers for (for example, tied to the mention request the hub sent). Then
+  RecentPages and WEB_RECENT_PAGES can go.
+- **No test for the rename retry** (EPERM/EBUSY/EACCES): it would need a fake file system or a held Windows handle.
+  The temp-name and one-at-a-time writes are tested.
+- **Inbox 'needs config' notices on a fresh hub** (packages/hub/src/chat/notifications.ts #system): hold the
+  'config-needed' notice for a short grace period from an @ayepi/env slice, and drop it if the system connects first.
+- **Graph overlap on a real stack** (packages/web graph view): only checked against the mock's sample graph. The real
+  fs cluster (many authoring.* items) still needs a look; fit-all on first load hides labels until zoom-in.
+- **Duplicate 'New chat' button** (packages/web chat list): on desktop it shows beside the panel's own 'New chat'.

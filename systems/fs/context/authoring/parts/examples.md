@@ -960,7 +960,14 @@ export const StampArgs = g.obj({ text: g.text({ minLength: 1 }) });
 
 // #region contract
 /** The notes system's contract. */
-export const notes = system('notes', { description: 'Notes: write, find and tidy titled notes with tags.' })
+export const notes = system('notes', {
+  description: 'Notes: write, find and tidy titled notes with tags.',
+  // #region grants
+  // find keeps its last query (state), remove reads the editing setting (settings), and share asks the person
+  // through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai of its own
+  grants: { hub: ['fns', 'settings', 'state'], calls: ['hub/ask_user'] },
+  // #endregion grants
+})
   .with({
     // #region config
     // what the system needs before it can be used; an admin sets it in the hub, and `ctx.config` has it, typed

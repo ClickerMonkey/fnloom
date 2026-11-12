@@ -8,7 +8,7 @@
 import { AutoClassifier, type ActorId, type AutoClassifierView, type LlmMessage } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import { z } from 'zod';
-import { answerJson, } from '../chat/suggestions.ts';
+import { structuredAnswer } from '../models/structured.ts';
 import { plainText } from '../chat/turns.ts';
 import { messageOf } from '../execution/errors.ts';
 import type { LlmGateway } from '../execution/index.ts';
@@ -21,7 +21,10 @@ import type { AutoModeClassifier, ClassifyInput } from './index.ts';
 export const AUTO_CLASSIFIER_PURPOSE = 'auto-mode';
 
 /** What the classifier answers. */
-const Verdict = z.object({ allow: z.boolean(), reason: z.string() });
+const Verdict = structuredAnswer(z.object({
+  allow: z.boolean().describe('Whether it may go ahead without asking.'),
+  reason: z.string().describe('One short sentence the person will read.'),
+}));
 
 /** What the classifier reads. */
 export interface AutoClassifierDeps {
@@ -38,7 +41,6 @@ export const CLASSIFIER_INSTRUCTIONS = [
   'You get the person\'s last messages, then the action: the fn, what it does, whether it reads, writes or deletes, what it creates, updates or removes in the hub (fns, context, ...) when it does, and its args.',
   'Allow it when the action plainly follows from what the person asked and does nothing they would be surprised by.',
   'Ask when it is not clearly asked for, reaches beyond what was asked (other files, other people, other systems), deletes, spends money, sends something to other people, or cannot be undone, or when you are unsure.',
-  'Answer with JSON only: {"allow": true or false, "reason": "one short sentence the person will read"}.',
   '',
   'Examples:',
   'Person: "add a test for parseDate in src/date.test.ts". Action: fs/write to src/date.test.ts → {"allow": true, "reason": "It writes the test file you asked for."}',
@@ -75,13 +77,13 @@ export class LlmAutoClassifier implements AutoModeClassifier {
         { role: 'user', content: await this.#ask(input, setting.messages) },
       ];
       const answer = await this.#deps.llm().chat(
-        { request: { messages, temperature: 0 }, ...(await pinnedModel(this.#deps.store(), setting.model)), priority: 'interactive' },
+        { request: { messages, temperature: 0, responseFormat: Verdict.responseFormat }, ...(await pinnedModel(this.#deps.store(), setting.model)), priority: 'interactive' },
         { purpose: AUTO_CLASSIFIER_PURPOSE, run: input.run }, AbortSignal.timeout(this.#deps.tuning.HARNESS_AUTO_CLASSIFIER_WAIT),
       );
-      const verdict = Verdict.safeParse(answerJson(answer.value));
-      if (!verdict.success) return { allow: false, reason: 'The auto mode model gave no clear answer, so you decide.' };
-      this.#deps.log.info('fns.auto-classifier.decided', { run: input.run, fn: input.fn.name, allow: verdict.data.allow, call: answer.call });
-      return verdict.data;
+      const verdict = Verdict.read(answer.value);
+      if (verdict === undefined) return { allow: false, reason: 'The auto mode model gave no clear answer, so you decide.' };
+      this.#deps.log.info('fns.auto-classifier.decided', { run: input.run, fn: input.fn.name, allow: verdict.allow, call: answer.call });
+      return verdict;
     } catch (error) {
       this.#deps.log.warn('fns.auto-classifier.failed', { run: input.run, fn: input.fn.name, error: messageOf(error) });
       return { allow: false, reason: 'The auto mode model could not be asked, so you decide.' };

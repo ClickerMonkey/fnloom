@@ -110,7 +110,7 @@ describe('web over the link', () => {
     expect(basic).toMatchObject({ cost: 0.01 });
     expect(done(basic)).toEqual({ answer: 'Cats sleep a lot.', results: [{ title: 'Cats', url: 'https://example.com/cats', snippet: 'About cats', score: 0.9 }], uri: 'hub://resources/searches/cats' });
     const imported = hub.calls.find((call) => call.fn === 'hub/resource_import')?.args;
-    expect(imported).toMatchObject({ input: { name: 'Web search: cats', content: { mime: 'text/markdown' } } });
+    expect(imported).toMatchObject({ name: 'Web search: cats', content: { mime: 'text/markdown' } });
     const hash = JSON.stringify(imported).match(/"hash":"([^"]+)"/)?.[1] ?? '';
     const page = new TextDecoder().decode(hub.content.get(hash));
     expect(page).toContain('# Web search: cats');
@@ -162,7 +162,7 @@ describe('web over the link', () => {
     const result = done(await hub.run('web/read', { url: 'example.com', render: 'always', maxChars: 40 }));
     expect(result).toEqual({ uri: 'hub://resources/web/article', title: 'An article', finalUrl: 'https://example.com/', text: '# An article\n\nReadable text.', truncated: true, rendered: true });
     expect(calls).toEqual([
-      { fn: 'hub/resource_import', args: { input: { url: 'https://example.com/', render: 'always' } } },
+      { fn: 'hub/resource_import', args: { url: 'https://example.com/', render: 'always' } },
       { fn: 'hub/resource_read', args: { uri: 'hub://resources/web/article', maxChars: 40 } },
     ]);
     expect(server.recent.get('https://example.com/')?.uri).toBe('hub://resources/web/article');
@@ -194,7 +194,7 @@ describe('web over the link', () => {
     const result = done(await hub.run('web/crawl', { url: 'https://example.com/', maxPages: 500 }));
     expect(result).toMatchObject({ count: 1, root: 'hub://resources/web', moreSkipped: 0 });
     const asked = hub.calls.find((call) => call.fn === 'hub/resource_import')?.args;
-    const { input } = z.object({ input: z.object({ url: z.string(), folder: z.string() }).strict() }).parse(asked);
+    const input = z.object({ url: z.string(), folder: z.string() }).strict().parse(asked);
     expect(input.url).toBe('https://example.com/');
     expect(input.folder).toMatch(/^crawls\/example\.com-\d{8}-\d{4}$/);
     expect(fetchedBack).toMatchObject({ title: 'An article' });

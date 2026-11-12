@@ -58,7 +58,7 @@ export const RunInfo = z.object({
   attempt: z.number().int().min(1),
   priority: Priority,
   /**
-   * Build 7: a person is watching this run as it happens (a chat turn on an open session). Absent or false for nested
+   * A person is watching this run as it happens (a chat turn on an open session). Absent or false for nested
    * agents, MCP calls and background runs, whose results must not say "shown to the person".
    */
   watched: z.boolean().optional(),
@@ -256,7 +256,7 @@ export const OutcomeWire = z.discriminatedUnion('status', [
   z.object({ status: z.literal('invalid-input'), invalid: InvalidInput, undo: Json.optional(), cost: Usd.optional() }),
   z.object({ status: z.literal('paused'), resume: Json, cost: Usd.optional() }),
   z.object({ status: z.literal('failed'), error: FnError, undo: Json.optional(), cost: Usd.optional() }),
-  // `error` (build 6): why, when someone declined it ("Declined by Ann: …"); kept in the run's errors too
+  // `error`: why, when someone declined it ("Declined by Ann: …"); kept in the run's errors too
   z.object({ status: z.literal('cancelled'), partial: Json.optional(), undo: Json.optional(), cost: Usd.optional(), error: FnError.optional() }),
 ]);
 export type OutcomeWire = z.infer<typeof OutcomeWire>;

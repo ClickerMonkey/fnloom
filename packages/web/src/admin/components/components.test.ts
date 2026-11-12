@@ -84,14 +84,21 @@ describe('UiSelect', () => {
 
 describe('lists and cards', () => {
   it('SystemCard shows status, process, what needs the admin and when it was seen', () => {
-    const card = mount(SystemCard, { props: { system: systemView({ status: 'disconnected', installed: installed({ status: 'crashed' }), lastSeenAt: T0 - 120_000, enabled: { functions: false, renderers: true } }), now: T0, to: '/x' }, global: { stubs } });
+    const card = mount(SystemCard, { props: { system: systemView({ status: 'disconnected', installed: installed({ status: 'crashed' }), lastSeenAt: T0 - 120_000, enabled: { functions: false, renderers: true } }), now: T0, to: '/x', review: '/x/review' }, global: { stubs } });
     expect(card.text()).toContain('Offline');
     expect(card.text()).toContain('Crashed');
     expect(card.text()).toContain('Functions off');
     expect(card.text()).toContain('Seen 2m');
     expect(card.text()).toContain('12 fns');
-    const config = mount(SystemCard, { props: { system: systemView({ status: 'needs-config', needsConfig: true }), now: T0, to: '/x' }, global: { stubs } });
+    const config = mount(SystemCard, { props: { system: systemView({ status: 'needs-config', needsConfig: true }), now: T0, to: '/x', review: '/x/review' }, global: { stubs } });
     expect(config.text().match(/Needs config/g)).toHaveLength(1);
+    // one sign of presence: the status badge, never a second "Online now"; a system not live links to its review
+    const live = mount(SystemCard, { props: { system: systemView({ status: 'connected', lastSeenAt: T0 }), now: T0, to: '/x', review: '/x/review' }, global: { stubs } });
+    expect(live.text().match(/Connected/g)).toHaveLength(1);
+    expect(live.text()).not.toMatch(/Online now|Seen/);
+    expect(live.find('[data-testid=system-card-installed]').exists()).toBe(false);
+    const installedOnly = mount(SystemCard, { props: { system: systemView({ status: 'connected', stage: 'installed' }), now: T0, to: '/x', review: '/x/review' }, global: { stubs } });
+    expect(installedOnly.getComponent<typeof RouterLinkStub>('[data-testid=system-card-installed]').props('to')).toBe('/x/review');
   });
 
   it('PairingCard shows the code to compare and answers', async () => {

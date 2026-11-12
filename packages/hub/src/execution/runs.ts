@@ -21,7 +21,7 @@ import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
 import { checkedInstall } from '../link/install.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
 import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
-import { rows } from './pages.ts';
+import { rows } from '../store/rows.ts';
 import { SystemGone } from './executors.ts';
 import { AGENT_KIND, type Ledger, type LimitResolver, type PolicyEngine, type RunInput, type RunService } from './index.ts';
 import type { ControlAnswer, ExecutionDeps, RunCosts, RunEvents, RunExecutor, RunSettler } from './ports.ts';

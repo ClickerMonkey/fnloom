@@ -30,6 +30,9 @@ export default defineConfig({
           environment: 'happy-dom',
           include: ['packages/web/src/**/*.test.ts', 'systems/*/client/**/*.test.ts'],
           exclude: [live, '**/node_modules/**'],
+          // the first test in a file that mounts App.vue pays for vite's transform of a lazy route's whole tree (and
+          // coverage instrumentation under `npm run check`); on a full parallel run that can pass the 5 s default
+          testTimeout: 20_000,
         },
       },
       {

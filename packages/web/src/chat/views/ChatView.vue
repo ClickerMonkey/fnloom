@@ -273,7 +273,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="chat" :class="{ compact, roomy: roomy && panelOpen }" data-testid="chat">
     <aside v-if="listColumn" class="list">
-      <SessionList ref="list" v-bind="listBind" :current="url.session.value" v-on="listOn" />
+      <SessionList ref="list" v-bind="listBind" :current="url.session.value" :home-shown="url.session.value === undefined && !phone" v-on="listOn" />
     </aside>
     <UiModal v-else-if="url.session.value !== undefined" v-model:open="listOpen" placement="left" label="Chats" width="320px">
       <SessionList ref="list" v-bind="listBind" :current="url.session.value" v-on="listOn" />
@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
       />
       <SessionList v-else-if="phone" ref="list" class="home-list" v-bind="listBind" v-on="listOn" />
       <div v-else class="start" :class="{ split: compact }">
-        <SessionList v-if="compact" ref="list" class="home-list side-list" v-bind="listBind" v-on="listOn" />
+        <SessionList v-if="compact" ref="list" class="home-list side-list" v-bind="listBind" home-shown v-on="listOn" />
         <UiEmpty class="home" icon="chat" tone="accent" title="Start a conversation" body="Chat with your agent, and run the fns your connected systems offer." data-testid="chat-home">
           <template #actions><UiButton variant="primary" icon="plus" :loading="sessions.creating.value" @click="create">New chat</UiButton></template>
         </UiEmpty>

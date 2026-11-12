@@ -33,9 +33,9 @@ export const FnExampleRecord = FnExample.extend({
   id: FnExampleId,
   fn: QualifiedName,
   system: SystemName,
-  /** `runtime` (build 6): its system added it while running (`examples` on the link), under its own `key`. */
+  /** `runtime`: its system added it while running (`examples` on the link), under its own `key`. */
   source: z.enum(['decl', 'added', 'runtime']),
-  /** Build 6: the system's key for a `runtime` example, so it can replace or remove it. */
+  /** The system's key for a `runtime` example, so it can replace or remove it. */
   key: z.string().min(1).max(200).optional(),
   /** Its place among the fn's declared examples (0 for added ones). */
   order: z.number().int().min(0),
@@ -46,7 +46,7 @@ export const FnExampleRecord = FnExample.extend({
 export type FnExampleRecord = z.infer<typeof FnExampleRecord>;
 
 /**
- * Build 6: a system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
+ * A system adds, replaces (by `key`) or removes examples of one of its own fns while running (`examples` on
  * the hub link). Examples in the fn's declaration are left alone.
  */
 export const FnExamplesPatch = z.object({
@@ -107,7 +107,7 @@ export const FnSearchQuery = z.object({
   types: z.object({ reads: z.array(QualifiedName).optional(), writes: z.array(QualifiedName).optional() }).optional(),
   modes: z.array(FnMode).min(1).optional(),
   /**
-   * Build 6: only fns that create, update or remove one of these things in the hub (`FnFacts.registry`); `action`
+   * Only fns that create, update or remove one of these things in the hub (`FnFacts.registry`); `action`
    * and `kind` narrow each when given.
    */
   effects: z.array(z.object({ thing: RegistryThing, action: RegistryAction.optional(), kind: z.string().min(1).optional() })).min(1).optional(),
@@ -133,7 +133,7 @@ export const FnSearchHit = z.object({
   mode: FnMode.optional(),
   /** A fn's one-line signature, `name(args) → returns`, for calling it. */
   signature: z.string().optional(),
-  /** Build 6: what a fn changes in the hub, in one line (`effectsLine`): "Creates fns (database/query)." */
+  /** What a fn changes in the hub, in one line (`effectsLine`): "Creates fns (database/query)." */
   effects: z.string().optional(),
   instance: InstanceName.optional(),
   score: z.number().optional(),
@@ -182,7 +182,7 @@ export const FnFacts = z.object({
   /** The fns it uses, directly or through others. */
   uses: z.array(QualifiedName),
   free: z.boolean(),
-  /** Build 6: what it and everything it uses create, update or remove in the hub, each once. */
+  /** What it and everything it uses create, update or remove in the hub, each once. */
   registry: z.array(RegistryEffect),
   cost: CostEstimate,
   times: RunTimes.optional(),
@@ -191,7 +191,7 @@ export const FnFacts = z.object({
 });
 export type FnFacts = z.infer<typeof FnFacts>;
 
-/** Build 6: the hub asks a kind's system what a fn of that kind would cost (`estimate` on the system link). */
+/** The hub asks a kind's system what a fn of that kind would cost (`estimate` on the system link). */
 export const KindEstimateRequest = z.object({
   kind: z.string().min(1),
   payload: Json,
@@ -250,7 +250,7 @@ export type ClientLogReceipt = z.infer<typeof ClientLogReceipt>;
  * cost and run times, which come from its run history when asked. Its scalar columns are what search filters on.
  */
 export const FnFactsRecord = FnFacts.pick({ fn: true, kind: true, mode: true, reads: true, writes: true, uses: true, free: true }).extend({
-  /** Build 6: absent on facts worked out before build 6; they are worked out again as their fns change. */
+  /** Absent on facts worked out before build 6; they are worked out again as their fns change. */
   registry: z.array(RegistryEffect).optional(),
   system: SystemName,
   instance: InstanceName.optional(),
@@ -282,7 +282,7 @@ export const FnVersionRecord = z.object({
 export type FnVersionRecord = z.infer<typeof FnVersionRecord>;
 
 /**
- * Build 6: an earlier version of a named type (the `typeVersions` table), written whenever a manifest, patch or runtime
+ * An earlier version of a named type (the `typeVersions` table), written whenever a manifest, patch or runtime
  * change replaces its definition, numbered from 1 per type. `meta` is kept with it, so a table type's schema hash at
  * each version can be looked back on.
  */

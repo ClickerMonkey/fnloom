@@ -34,7 +34,7 @@ export const PackagePath = z.string().min(1).refine(
 );
 export type PackagePath = z.infer<typeof PackagePath>;
 
-/** Build 6: the extra Node permissions a system asks for in `system.json`. */
+/** The extra Node permissions a system asks for in `system.json`. */
 export const SystemPermissions = z.object({ childProcess: z.boolean(), workers: z.boolean() });
 export type SystemPermissions = z.infer<typeof SystemPermissions>;
 
@@ -63,7 +63,7 @@ export const SystemPackageManifest = z.object({
   /** sha-256 of every packed file, written by `pack` and checked by install (corruption, not malice). */
   files: z.record(PackagePath, z.string().regex(CONTENT_HASH)).optional(),
   /**
-   * Build 6: what the process may do beyond reading its bundle and writing its own folders, under Node's permission
+   * What the process may do beyond reading its bundle and writing its own folders, under Node's permission
    * model (each absent is false). The install card shows these; without them a hosted system can't start child
    * processes or workers.
    */
@@ -82,7 +82,7 @@ export type InstanceDirs = z.infer<typeof InstanceDirs>;
  * The hub's row for one instance of a system (key `[system, instance]`): its key, what it runs, its config, its
  * status and, when the hub runs it, its process and folders. The one place each of these facts lives.
  */
-/** Build 6: the system instance that hosts another, and what it runs. */
+/** The system instance that hosts another, and what it runs. */
 export const HostedBy = z.object({
   host: InstanceRef,
   /** The source folder on the host's machine. */
@@ -108,7 +108,7 @@ export const InstanceRecord = z.object({
   /** Set for an instance the hub installed and runs: its process. */
   installed: InstalledSystem.optional(),
   /**
-   * Build 6: set for an instance another system builds and runs (installed from the chat through `fs/install_system`):
+   * Set for an instance another system builds and runs (installed from the chat through `fs/install_system`):
    * who hosts it, from which folder, which bundle, and the approval it was started on. The hub's admin start, stop and
    * restart for it go to the host's fns.
    */
@@ -147,7 +147,7 @@ export const PairingInfo = z.object({
   instance: InstanceName,
   /** Its config type, so the page can ask for config at approval. */
   configType: GinTypeDef.optional(),
-  /** Build 5: its config's secret fields, which the pairing page asks for as passwords and the hub seals. */
+  /** Its config's secret fields, which the pairing page asks for as passwords and the hub seals. */
   configSecrets: ConfigSecrets.optional(),
 });
 export type PairingInfo = z.infer<typeof PairingInfo>;

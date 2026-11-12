@@ -32,22 +32,39 @@ export const FORMAT_PATTERNS: Readonly<Record<TextFormat, string>> = {
 
 /** What a model adds to one column. */
 export const ColumnEnrichment = z.object({
-  description: z.string().min(1).optional(),
+  description: z.string().min(1).optional().describe('What the column holds.'),
   /** The closed set of values the column holds (a status, a category), when it clearly has one. */
-  values: z.array(z.union([z.string(), z.number()])).min(1).max(40).optional(),
-  format: TextFormat.optional(),
-  min: z.number().optional(),
-  max: z.number().optional(),
-  examples: z.array(z.string()).max(5).optional(),
+  values: z.array(z.union([z.string(), z.number()])).min(1).max(40).optional()
+    .describe('The closed set of values, only when the column clearly holds one: a status, a type, a category.'),
+  format: TextFormat.optional().describe('The format of a text column, when every value has it.'),
+  min: z.number().optional().describe('The smallest value, only for a clear bound like a percentage or a rating.'),
+  max: z.number().optional().describe('The largest value, only for a clear bound like a percentage or a rating.'),
+  examples: z.array(z.string()).max(5).optional().describe('Up to 3 typical values, as text.'),
 });
 export type ColumnEnrichment = z.infer<typeof ColumnEnrichment>;
 
 /** What a model adds to one table's type. */
 export const TableEnrichment = z.object({
-  description: z.string().min(1),
+  description: z.string().min(1).describe('One sentence on what a row is.'),
   columns: z.record(z.string(), ColumnEnrichment),
 });
 export type TableEnrichment = z.infer<typeof TableEnrichment>;
+
+/**
+ * The enricher's answer: `TableEnrichment` with its columns as a list, each naming its column, since a structured
+ * answer can't have keys of the model's choosing (`enrichmentOf` turns it back into the kept shape).
+ */
+export const EnrichmentAnswer = TableEnrichment.extend({
+  columns: z.array(ColumnEnrichment.extend({ column: z.string().min(1).describe('The column\'s name, exactly as given.') }))
+    .describe('Only the columns there is something sure to say about.'),
+});
+export type EnrichmentAnswer = z.infer<typeof EnrichmentAnswer>;
+
+/** An answer as the enrichment kept with the type, keeping only columns the table has. */
+export function enrichmentOf(answer: EnrichmentAnswer, columns: ReadonlySet<string>): TableEnrichment {
+  const kept = answer.columns.filter((entry) => columns.has(entry.column)).map(({ column, ...rest }) => [column, rest] as const);
+  return { description: answer.description, columns: Object.fromEntries(kept) };
+}
 
 /**
  * What the system keeps with each table type in the hub (`TypeDecl.meta`, read back through `ctx.types`): the schema

@@ -8,7 +8,7 @@ import {
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import type { HubStore } from '../store/index.ts';
 import type { AccessScope, AccessService, ConnectionGate } from './index.ts';
 import { ActorScope, letsIn } from './scope.ts';
@@ -139,7 +139,7 @@ export class StoreAccessService implements AccessService {
   }
 
   async #groups(actor: ActorId): Promise<ReadonlySet<ActorId>> {
-    return new Set((await allRows(this.#deps.store.table('memberships'), { user: actor })).map((m) => m.group));
+    return new Set((await allRows(this.#deps.store.table('memberships'), { where: { user: actor } })).map((m) => m.group));
   }
 
   async #connection(target: Extract<AccessTarget, { kind: 'connection' }>): Promise<UserConnection> {

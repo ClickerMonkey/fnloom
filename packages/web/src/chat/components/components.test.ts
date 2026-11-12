@@ -397,6 +397,16 @@ describe('session list and header', () => {
     expect(list.emitted('create')).toHaveLength(1);
   });
 
+  it('leaves the empty state to the chat home when it shows beside the list', async () => {
+    const base = { items: [], search: '', archived: false, loading: false, loaded: true, hasMore: false, loadingMore: false, creating: false, now: T0 };
+    expect(mount(SessionList, { props: base }).text()).toContain('No chats yet');
+    const beside = mount(SessionList, { props: { ...base, homeShown: true } });
+    expect(beside.text()).not.toContain('No chats yet');
+    expect(beside.findAll('[data-testid=new-chat]')).toHaveLength(1);
+    await beside.setProps({ search: 'zzz' });
+    expect(beside.text()).toContain('No chats match');
+  });
+
   it('keeps the phone header to one row, with the rest in its menu', async () => {
     const header = mount(ChatHeader, { props: { title: 'Router', status: 'running', people: [{ name: 'Ada', agent: false }], compact: true, canUndo: true, hasTurn: true, archived: false }, attachTo: document.body });
     expect(header.find('[data-testid=open-tree]').exists()).toBe(false);

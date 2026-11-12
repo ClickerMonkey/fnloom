@@ -25,6 +25,14 @@ valid value is set the system shows as needing config and its fns, mentions and 
 value is `ctx.config` in every context, typed; a run keeps the value it started with. Config lives in the hub's
 database, never in a file of the system. Mark secrets plainly in the field docs; never log them.
 
+The hub draws the config as a form from its gin type, on the review, system and pairing pages. A system whose config
+needs more (a connection test, a picker that lists what the service has) draws its own: `system(name, {
+configComponent: { component: 'connection', mode: 'replace' } })` names a component in its client's `configs`
+(`client(contract, { configs: { connection: Component } })`), drawn instead of the form (`replace`) or under it
+(`beside`). It gets `ConfigView` props: the saved `config`, its gin `type`, `validate(value)` (the problems, one per
+line) and `change(value)` to hand the edited config to the page, plus `system` to send its actions. The page saves the
+value, and the hub still checks it with the gin type before storing it.
+
 ### Events
 
 `events` handles hub events by type, and the system is subscribed to exactly the types it handles: `message` (a chat

@@ -16,10 +16,7 @@ import {
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
 import type { ApproverDirectory, NotificationService, PresenceTracker } from './index.ts';
-import { readAll } from './support.ts';
-
-/** The most admins (or group members) one event notifies. */
-const MAX_AUDIENCE = 200;
+import { allRows } from '../store/rows.ts';
 
 /** How many already-notified event ids are remembered, so a repeated event doesn't notify twice. */
 const REMEMBERED = 2_000;
@@ -72,9 +69,9 @@ export class StoreApprovers implements ApproverDirectory {
     switch (approver.by) {
       case 'turn-user': return [turnUser];
       case 'actor': return [approver.actor];
-      case 'group': return (await readAll(this.#deps.store.table('memberships'), { where: { group: approver.group } }, MAX_AUDIENCE)).map((m) => m.user);
+      case 'group': return (await allRows(this.#deps.store.table('memberships'), { where: { group: approver.group } })).map((m) => m.user);
       case 'admins': {
-        const users = await readAll(this.#deps.store.table('actors'), { where: { kind: 'user' } }, MAX_AUDIENCE);
+        const users = await allRows(this.#deps.store.table('actors'), { where: { kind: 'user' } });
         return users.flatMap((user) => (user.kind === 'user' && user.role === 'admin' && !user.disabled ? [user.id] : []));
       }
       // a judge or the hub decides by itself (the policy engine's deciders), so no person answers
@@ -242,7 +239,7 @@ export class StoreNotifications implements NotificationService {
   }
 
   async #admins(send: (user: ActorId) => Promise<Notification>): Promise<void> {
-    const users = await readAll(this.#deps.store.table('actors'), { where: { kind: 'user' } }, MAX_AUDIENCE);
+    const users = await allRows(this.#deps.store.table('actors'), { where: { kind: 'user' } });
     for (const user of users) {
       if (user.kind === 'user' && user.role === 'admin' && !user.disabled) { await send(user.id); }
     }

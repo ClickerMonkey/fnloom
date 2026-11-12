@@ -20,8 +20,8 @@ import {
 import type { AccessScope } from '../access/index.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows, PAGE } from '../catalog/rows.ts';
-import type { HubStore, Table, Where } from '../store/index.ts';
+import { allRows, cappedRows } from '../store/rows.ts';
+import type { HubStore } from '../store/index.ts';
 
 /** What the graph reads. */
 export interface GraphDeps {
@@ -65,19 +65,6 @@ function merge(into: Part, part: Part): void {
   for (const [id, node] of part.nodes) { into.nodes.set(id, node); }
   into.edges.push(...part.edges);
   into.more.push(...part.more);
-}
-
-/** Up to `cap` rows matching `where`, read page by page, and how many more there are. */
-async function capped<Row, Key>(table: Table<Row, Key>, where: Where<Row>, cap: number): Promise<{ rows: Row[]; hidden: number }> {
-  const rows: Row[] = [];
-  let cursor: string | undefined;
-  while (rows.length < cap) {
-    const page = await table.find({ where, limit: Math.min(PAGE, cap - rows.length), ...(cursor === undefined ? {} : { cursor }) });
-    rows.push(...page.items);
-    cursor = page.cursor;
-    if (cursor === undefined) { return { rows, hidden: 0 }; }
-  }
-  return { rows, hidden: Math.max(0, (await table.count(where)) - rows.length) };
 }
 
 /** No rows, for a table the query's filters leave nothing of. */
@@ -215,8 +202,8 @@ export class HubGraph {
         if (fn === undefined || !access.seesFn(fn)) { return out; }
         const [facts, examples, state, calls, callers, types, mentions] = await Promise.all([
           store.table('fnFacts').get(fn.name), this.#exampleCounts([fn.name]), stateOf(fn.system),
-          capped(store.table('fnUses'), { fn: fn.name }, cap), capped(store.table('fnUses'), { uses: fn.name }, cap),
-          capped(store.table('fnTypes'), { fn: fn.name }, cap), capped(store.table('contextLinks'), { toKey: linkTargetKey({ kind: 'fn', name: fn.name }) }, cap),
+          cappedRows(store.table('fnUses'), { fn: fn.name }, cap), cappedRows(store.table('fnUses'), { uses: fn.name }, cap),
+          cappedRows(store.table('fnTypes'), { fn: fn.name }, cap), cappedRows(store.table('contextLinks'), { toKey: linkTargetKey({ kind: 'fn', name: fn.name }) }, cap),
         ]);
         const node = fnNode(fn, facts, examples.get(fn.name) ?? 0, { stage: state.stage, pending: state.pending.has(partKey('fns', fn.name)) }, false);
         await belongs(node);
@@ -233,7 +220,7 @@ export class HubGraph {
       case 'type': {
         const type = name === undefined ? undefined : await store.table('types').get(name);
         if (type === undefined || !access.seesType(type)) { return out; }
-        const [state, users] = await Promise.all([stateOf(type.system), capped(store.table('fnTypes'), { type: type.name }, cap)]);
+        const [state, users] = await Promise.all([stateOf(type.system), cappedRows(store.table('fnTypes'), { type: type.name }, cap)]);
         const node = typeNode(type, state.stage, state.pending.has(partKey('types', type.name)));
         await belongs(node);
         out.edges.push(...typeEdges(type, node));
@@ -245,7 +232,7 @@ export class HubGraph {
         const item = name === undefined ? undefined : await store.table('context').get(name);
         if (item === undefined || !access.seesContext(item)) { return out; }
         const [links, linked, state] = await Promise.all([
-          capped(store.table('contextLinks'), { from: item.name }, cap), capped(store.table('contextLinks'), { toKey: linkTargetKey({ kind: 'context', name: item.name }) }, cap),
+          cappedRows(store.table('contextLinks'), { from: item.name }, cap), cappedRows(store.table('contextLinks'), { toKey: linkTargetKey({ kind: 'context', name: item.name }) }, cap),
           item.system === HUB_SYSTEM ? Promise.resolve(undefined) : stateOf(item.system),
         ]);
         const node = contextNode(item, state?.stage, state?.pending.has(partKey('context', item.name)) === true);
@@ -258,7 +245,7 @@ export class HubGraph {
       case 'kind': {
         const found = name === undefined ? undefined : await store.table('kinds').get(name);
         if (found === undefined || !access.seesSystem(found.system)) { return out; }
-        const [state, made] = await Promise.all([stateOf(found.system), capped(store.table('fnFacts'), { kind: found.name }, cap)]);
+        const [state, made] = await Promise.all([stateOf(found.system), cappedRows(store.table('fnFacts'), { kind: found.name }, cap)]);
         const node = kindNodeIn(found, state);
         await belongs(node);
         for (const facts of made.rows) { out.edges.push(edge(facts.fn, found.name, 'kind', { from: nodeId('fn', facts.fn), to: node.id })); }
@@ -286,7 +273,7 @@ export class HubGraph {
   async #state(system: SystemName): Promise<SystemState> {
     const { store, catalog } = this.#deps;
     const [record, manifest, review, switches] = await Promise.all([
-      store.table('systems').get(system), catalog.manifest(system), store.table('systemReviews').get(system), allRows(store.table('itemSwitches'), { system }),
+      store.table('systems').get(system), catalog.manifest(system), store.table('systemReviews').get(system), allRows(store.table('itemSwitches'), { where: { system } }),
     ]);
     return {
       manifest, node: systemNodeOf(system, record, manifest), stage: record?.stage ?? (system === HUB_SYSTEM ? undefined : 'live'),
@@ -349,11 +336,11 @@ export class HubGraph {
     const { store } = this.#deps;
     const [state, fns, context, types, kinds, instances] = await Promise.all([
       stateOf(system),
-      wants('fn') ? capped(store.table('fns'), { system }, cap) : none<FnRecord>(),
-      wants('context') || wants('command') ? capped(store.table('context'), { system }, cap) : none<ContextRecord>(),
-      wants('type') ? capped(store.table('types'), { system }, cap) : none<TypeRecord>(),
-      wants('kind') ? capped(store.table('kinds'), { system }, cap) : none<KindRecord>(),
-      wants('instance') ? capped(store.table('instances'), { system }, cap) : none<InstanceRecord>(),
+      wants('fn') ? cappedRows(store.table('fns'), { system }, cap) : none<FnRecord>(),
+      wants('context') || wants('command') ? cappedRows(store.table('context'), { system }, cap) : none<ContextRecord>(),
+      wants('type') ? cappedRows(store.table('types'), { system }, cap) : none<TypeRecord>(),
+      wants('kind') ? cappedRows(store.table('kinds'), { system }, cap) : none<KindRecord>(),
+      wants('instance') ? cappedRows(store.table('instances'), { system }, cap) : none<InstanceRecord>(),
     ]);
     const out = emptyPart();
     const systemNode = state.node;
@@ -374,8 +361,8 @@ export class HubGraph {
     const fnNames = seenFns.map((fn) => fn.name);
     if (fnNames.length > 0) {
       const [facts, examples, uses, typeUses] = await Promise.all([
-        allRows(store.table('fnFacts'), { fn: { in: fnNames } }), this.#exampleCounts(fnNames),
-        allRows(store.table('fnUses'), { fn: { in: fnNames } }), allRows(store.table('fnTypes'), { fn: { in: fnNames } }),
+        allRows(store.table('fnFacts'), { where: { fn: { in: fnNames } } }), this.#exampleCounts(fnNames),
+        allRows(store.table('fnUses'), { where: { fn: { in: fnNames } } }), allRows(store.table('fnTypes'), { where: { fn: { in: fnNames } } }),
       ]);
       const factsOf = new Map(facts.map((f) => [f.fn, f]));
       const byName = new Map(seenFns.map((fn) => [fn.name, fn]));
@@ -390,7 +377,7 @@ export class HubGraph {
     for (const item of seenContext) { merge(out, commandOf(item, put(contextNode(item, state.stage, state.pending.has(partKey('context', item.name)))), state)); }
     const names = seenContext.map((item) => item.name);
     if (names.length > 0) {
-      for (const link of await allRows(store.table('contextLinks'), { from: { in: names } })) { const e = linkEdge(link); if (e !== undefined) { out.edges.push(e); } }
+      for (const link of await allRows(store.table('contextLinks'), { where: { from: { in: names } } })) { const e = linkEdge(link); if (e !== undefined) { out.edges.push(e); } }
     }
     for (const type of types.rows) {
       if (access.seesType(type)) { out.edges.push(...typeEdges(type, put(typeNode(type, state.stage, state.pending.has(partKey('types', type.name)))))); }
@@ -417,7 +404,7 @@ export class HubGraph {
   async #exampleCounts(fns: readonly QualifiedName[]): Promise<Map<QualifiedName, number>> {
     const out = new Map<QualifiedName, number>();
     if (fns.length === 0) { return out; }
-    for (const row of await allRows(this.#deps.store.table('fnExamples'), { fn: { in: [...fns] } })) { out.set(row.fn, (out.get(row.fn) ?? 0) + 1); }
+    for (const row of await allRows(this.#deps.store.table('fnExamples'), { where: { fn: { in: [...fns] } } })) { out.set(row.fn, (out.get(row.fn) ?? 0) + 1); }
     return out;
   }
 }
@@ -620,7 +607,7 @@ function finish(part: Pick<Part, 'nodes' | 'edges'>, unread: readonly GraphMore[
     for (const stub of unread) {
       const node = into.get(stub.node) ?? stub.node;
       if (!shown.has(node)) { continue; }
-      const key = `${node} ${stub.kind}`;
+      const key = `${node}\u0000${stub.kind}`;
       out.set(key, { node, kind: stub.kind, count: (out.get(key)?.count ?? 0) + stub.count });
     }
     return [...out.values()];

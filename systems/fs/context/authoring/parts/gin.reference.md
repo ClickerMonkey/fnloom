@@ -53,7 +53,7 @@ Any JSON. The LLM and the input form get no structure from it, so prefer a real 
 function json(): GinType<Json>;
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `parseValue`
 
@@ -76,7 +76,7 @@ A checked value as JSON for the wire (dates as ISO strings, absent optional fiel
 function encodeValue<T>(type: GinType<T>, value: T): Json;
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `wireType`
 
@@ -88,7 +88,7 @@ A gin type's JSON definition, as it travels to the hub.
 function wireType(type: GinType): GinTypeDef;
 ```
 
-Refers to: [`GinTypeDef`](#core-gintypedef).
+Refers to: [`GinTypeDef`](context:fs/authoring.core-types#core-gintypedef).
 
 #### `referencesOf`
 
@@ -102,7 +102,7 @@ for itself from the wire definition (`TypeRecord.references`); this is for code 
 function referencesOf(type: GinType): QualifiedName[];
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `loadTypes`
 
@@ -116,7 +116,7 @@ definition is invalid.
 function loadTypes(definitions: TypeDefinitions): LoadedTypes;
 ```
 
-Refers to: [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`TypeDefinitions`](context:fs/authoring.core-types#core-typedefinitions).
 
 #### `LoadedTypes`
 
@@ -133,7 +133,7 @@ interface LoadedTypes {
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `ginOf`
 
@@ -162,11 +162,34 @@ function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>>;
 
 function · `import { toolArgsOf } from '@harness/sdk'`
 
-A fn's args read off a zod schema. Tool args are always an object, so a schema that isn't one (a union of shapes)
-is taken as the field `input`; `read` turns args back into a value for the schema, checked by it.
+A fn's args read off a zod schema. Tool args are always an object: an object schema is taken as it is, and a union
+of objects (an import from a URL or from an upload, one provider of several) is flattened into one object with
+every member's fields, so the model passes plain args either way; the schema itself picks the member when `read`
+parses them. Any other schema is taken as the field `input`.
 
 ```ts
 function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType<ToolArgs<S>>; readonly read: (args: unknown) => z.output<S>; };
+```
+
+#### `ToolArgs`
+
+type · `import { ToolArgs } from '@harness/sdk'`
+
+The args a tool for a zod schema takes: the schema's input when it is an object, a union of objects flattened into
+one, else that input as `input`.
+
+```ts
+type ToolArgs<S extends z.ZodType> = S extends z.ZodObject ? z.input<S> : S extends z.ZodUnion<readonly z.ZodObject[]> ? FlatArgs<z.input<S>> : { input: z.input<S> };
+```
+
+#### `FlatArgs`
+
+type · `import { FlatArgs } from '@harness/sdk'`
+
+A union of objects as one object: every member's fields, each one optional (the schema checks the member on read).
+
+```ts
+type FlatArgs<U> = { [K in KeysOf<U>]?: FieldOf<U, K> };
 ```
 
 #### `TypeBuilder`

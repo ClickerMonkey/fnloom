@@ -86,6 +86,12 @@ export const fsEnv = env({
   FS_HOSTED_CRASHES_PER_HOUR: z.number().int().min(1).default(5),
   /** How long reading a built system's contract may take. */
   FS_HOSTED_PROBE_TIMEOUT: z.number().int().min(1_000).default(60_000),
+  /** How long looking up (or killing) a hosted process an earlier fs left running may take, when fs starts. */
+  FS_HOSTED_STALE_TIMEOUT: z.number().int().min(500).default(10_000),
+  /** How many times a hosted folder or record rename is tried while Windows still holds a handle in it (EPERM, EBUSY). */
+  FS_HOSTED_RENAME_TRIES: z.number().int().min(1).default(6),
+  /** The first wait between those tries; it doubles each time. */
+  FS_HOSTED_RENAME_WAIT: z.number().int().min(1).default(50),
   /** How long a folder's own tests may run before install_system shows its card (`ProcessSystemTests`). */
   FS_TESTS_TIMEOUT: z.number().int().min(5_000).default(300_000),
 }).add(systemState('fs'));

@@ -1,5 +1,5 @@
 /**
- * Pickers (build 4): one search-as-you-type multi-select for every input that names things (fns, context, systems,
+ * Pickers: one search-as-you-type multi-select for every input that names things (fns, context, systems,
  * people, models, resources, types). The web's `UiPicker` asks `pick` for options and `pick` with `values` to label the
  * chips it already holds. The hub answers only with what the asker may see.
  */

@@ -21,7 +21,7 @@ import {
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../catalog/rows.ts';
+import { allRows } from '../store/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import { Serial } from '../catalog/serial.ts';
 import { sha256Hex } from '../link/keys.ts';
@@ -206,13 +206,13 @@ export class StoreIndexer implements Indexer {
     const { store, catalog, document } = this.#options;
     const items: IndexItem[] = [
       ...(await catalog.fns({ system })).map((fn): IndexItem => ({ kind: 'fn', key: fn.name, text: fnText(fn.name, fn.decl), system })),
-      ...(await allRows(store.table('context'), { system })).map((c): IndexItem => ({ kind: 'context', key: c.name, text: contextText(c.name, c.decl), system })),
-      ...(await allRows(store.table('types'), { system })).map((t): IndexItem => ({ kind: 'type', key: t.name, text: typeText(t), system })),
+      ...(await allRows(store.table('context'), { where: { system } })).map((c): IndexItem => ({ kind: 'context', key: c.name, text: contextText(c.name, c.decl), system })),
+      ...(await allRows(store.table('types'), { where: { system } })).map((t): IndexItem => ({ kind: 'type', key: t.name, text: typeText(t), system })),
     ];
     await this.upsert(items);
     const current = new Set(items.map((i) => compositeKey(i.kind, i.key)));
     for (const kind of CONTRACT_KINDS) {
-      const stale = (await allRows(store.table('index'), { embedder: document, system, kind })).filter((r) => !current.has(compositeKey(kind, r.key)));
+      const stale = (await allRows(store.table('index'), { where: { embedder: document, system, kind } })).filter((r) => !current.has(compositeKey(kind, r.key)));
       await this.remove(kind, stale.map((r) => r.key));
     }
   }
@@ -227,7 +227,7 @@ export class StoreIndexer implements Indexer {
     if (record?.indexedVersion === stat.version) { return undefined; }
     const sectioner = await sectioning.choose(stat, route.system, read.form);
     const sections = await sectioning.cut(sectioner, uri, { text, stat, ...(read.form === undefined ? {} : { form: read.form }), ...(read.version === undefined ? {} : { version: read.version }) });
-    const before = record?.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { uri, version: record.indexedVersion });
+    const before = record?.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { where: { uri, version: record.indexedVersion } });
     const old = new Map(before.map((row) => [row.key, row]));
     const rows: SectionRow[] = sections.map((s) => ({ ...s, uri, version: stat.version, hash: sha256Hex(text.slice(s.start, s.end)) }));
     const diff: SectionDiff = { uri, from: record?.indexedVersion ?? '', to: stat.version, added: [], changed: [], removed: [] };
@@ -260,7 +260,7 @@ export class StoreIndexer implements Indexer {
     const active = embedders.active();
     if (active === undefined) { return; }
     await this.#sized(active.document.dimensions);
-    const waiting = (await allRows(store.table('index'), { embedder: document })).filter((r) => r.vectorHash !== r.hash);
+    const waiting = (await allRows(store.table('index'), { where: { embedder: document } })).filter((r) => r.vectorHash !== r.hash);
     await this.#embed(waiting);
   }
 
@@ -272,7 +272,7 @@ export class StoreIndexer implements Indexer {
     const { store, document, log } = this.#options;
     if (!(await store.vectors.ensure(document, dimensions))) { return; }
     log.warn('index.vectors.resized', { embedder: document, dimensions });
-    for (const [index, row] of (await allRows(store.table('index'), { embedder: document })).entries()) {
+    for (const [index, row] of (await allRows(store.table('index'), { where: { embedder: document } })).entries()) {
       await breathe(index);
       if (row.vectorHash !== undefined) { await store.table('index').put(withoutVector(row)); }
     }
@@ -379,7 +379,7 @@ export class StoreIndexer implements Indexer {
   async #offered(system: SystemName, uri: ResourceUri): Promise<boolean> {
     const { store } = this.#options;
     if ((await store.table('systems').get(system))?.stage === 'installed') { return false; }
-    const off = await allRows(store.table('itemSwitches'), { system, section: 'roots' });
+    const off = await allRows(store.table('itemSwitches'), { where: { system, section: 'roots' } });
     return !off.some((row) => underRoot(uri, row.name));
   }
 
@@ -388,7 +388,7 @@ export class StoreIndexer implements Indexer {
     const { store } = this.#options;
     const record = await store.table('resources').get(uri);
     if (record === undefined) { return; }
-    const rows = record.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { uri, version: record.indexedVersion });
+    const rows = record.indexedVersion === undefined ? [] : await allRows(store.table('sections'), { where: { uri, version: record.indexedVersion } });
     for (const row of rows) { await store.table('sections').remove(row); }
     await this.remove('section', rows.map((r) => sectionIndexKey(uri, r.key)));
     await store.table('resources').remove(uri);

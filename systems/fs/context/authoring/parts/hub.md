@@ -410,16 +410,12 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{
-    input: or<obj{
-      url: text,
-      render?: enum<text>{auto, always, never},
-      name?: text,
-      folder?: text{minLength=1}
-    }, obj{
-      content: obj{hash: text, size: num{whole=true, min=0}, mime: text},
-      name: text{minLength=1},
-      path?: text
-    }>
+    url?: text,
+    render?: enum<text>{auto, always, never},
+    name?: or<text, text{minLength=1}>,
+    folder?: text{minLength=1},
+    content?: obj{hash: text, size: num{whole=true, min=0}, mime: text},
+    path?: text
   }) => obj{ uri, system, stat, links, indexedVersion?, sectioner?, source?, raw?, forms?, primary?, seenAt … }
   ```
 - `hub/resource_rename`: Rename a hub resource.
@@ -599,7 +595,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/configure_provider`: Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted. Tags: `admin`.
 
   ```text
-  (obj{ input … }) => obj{models: num{whole=true}}
+  (obj{ provider, apiKey?, baseURL?, contextWindow?, region?, auth?, profilePrefix? … }) => obj{models: num{whole=true}}
   ```
 - `hub/set_model_category`: Add a model category (a named, ordered list of models), or change the one with this id. Tags: `admin`.
 
@@ -639,7 +635,10 @@ This is the hub contract as the SDK declares it now:
 - `hub/remove_rule`: Remove a budget, priority rule, policy, model category or provider. Tags: `admin`.
 
   ```text
-  (obj{ input … }) => obj{ok: bool}
+  (obj{
+    kind: or<literal<text>{value="budget"}, literal<text>{value="priority"}, literal<text>{value="policy"}, literal<text>{value="category"}, literal<text>{value="provider"}>,
+    id: or<text, text, text, text, text>
+  }) => obj{ok: bool}
   ```
 - `hub/approve_pairing`: Approve or refuse a system that asked to pair with the hub, optionally naming its instance and setting its config. Tags: `admin`.
 
@@ -727,7 +726,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/set_model_role`: Choose the model (and provider) for a job: chat, transcription, dictation (or the browser's own), speech, describing images, reading text in them. Tags: `admin`.
 
   ```text
-  (obj{ input … }) => obj{ role, choice?, from, resolved? … }
+  (obj{ role, engine?, language?, model?, provider? … }) => obj{ role, choice?, from, resolved? … }
   ```
 - `hub/clear_model_role`: Clear a job's model choice, so it falls back to the hub's default (or is off). Tags: `admin`.
 

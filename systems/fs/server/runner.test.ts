@@ -46,10 +46,13 @@ class FakeStarter implements ProcessStarter {
   }
 }
 
+/** The pids the runner said it spawned. */
+const spawnedPids: number[] = [];
+
 const launch: HostedLaunch = {
   ref: { system: SystemName.parse('random'), instance: MAIN_INSTANCE }, files: { read: ['/shared/notes'], write: ['/shared/out'] }, network: ['api.example.com'],
   entry: '/hosted/random/versions/b1/server/main.js', cwd: '/hosted/random/versions/b1', writes: ['/hosted/random/main/state', '/hosted/random/main/data'],
-  env: { HARNESS_INSTANCE: 'main' }, permissions: undefined,
+  env: { HARNESS_INSTANCE: 'main' }, permissions: undefined, spawned: (pid) => { spawnedPids.push(pid); },
 };
 
 /** What a hosted process's SDK prints when its status changes (`HARNESS_LOG_JSON`). */
@@ -94,6 +97,8 @@ describe('the hosted runner', () => {
     expect(args).not.toContain('--allow-child-process');
     expect(args.at(-1)).toBe(launch.entry);
     expect(runner.status('random/main')).toMatchObject({ state: 'connected', pid: 100, restartsLastHour: 0 });
+    // the pid goes to hosting, which keeps it so a later fs can kill an orphan
+    expect(spawnedPids.at(-1)).toBe(100);
   });
 
   it('lets it reach only its declared paths and hosts, and reports what it was refused', async () => {

@@ -56,6 +56,11 @@ export interface StackOptions {
   readonly build: boolean;
   /** Restart the hub and systems when their source changes (`tsx watch`). */
   readonly watch: boolean;
+  /**
+   * A bundled hub to run with plain Node instead of the hub's source (`npm run live`), and the built web app it serves.
+   * Never watched.
+   */
+  readonly pinned?: { readonly hub: string; readonly web: string };
   /** Which of hub, fs, embedder, web-system, input and calendar to run (`web` is the build step). */
   readonly only: ReadonlySet<ComponentName>;
   readonly systems: StackSystems;
@@ -208,7 +213,9 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     const lanUrls = lanAddresses().map((address) => `http://${address}:${options.port}`);
     if (options.only.has('hub')) {
       const entry = join(ROOT, 'packages', 'hub', 'src', 'main.ts');
-      launch('hub', options.watch ? [TSX, 'watch', entry] : [TSX, entry], {
+      const args = options.pinned !== undefined ? [options.pinned.hub] : options.watch ? [TSX, 'watch', entry] : [TSX, entry];
+      launch('hub', args, {
+        ...(options.pinned === undefined ? {} : { HARNESS_WEB_DIST: options.pinned.web }),
         HARNESS_PORT: String(options.port), HARNESS_HOST: '0.0.0.0', HARNESS_DATA: data, HARNESS_URL: lanUrls[0] ?? url,
         HARNESS_ADMIN_EMAIL: options.admin.email, HARNESS_ADMIN_PASSWORD: options.admin.password, ...options.hubEnv,
       }, async () => (await fetch(`${url}/readyz`)).ok);

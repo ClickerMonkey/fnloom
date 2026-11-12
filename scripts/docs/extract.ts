@@ -86,6 +86,17 @@ const PRINT_FLAGS: ts.TypeFormatFlags = ts.TypeFormatFlags.NoTruncation | ts.Typ
 
 const PRINTER = ts.createPrinter({ removeComments: true });
 
+/** A zod brand as TypeScript prints it: `string & z.core.$brand<"SystemName">`, maybe in parentheses. */
+const BRAND = /\(((?:string|number) & z\.core\.\$brand<"[A-Za-z_]\w*">)\)|(?:string|number) & z\.core\.\$brand<"([A-Za-z_]\w*)">/g;
+
+/**
+ * A printed type with each zod brand as the name it brands (`SystemName`), which is what an author writes and reads;
+ * the intersection is zod's internals. Parentheses around a brand go with it, since a name needs none.
+ */
+export function plainBrands(text: string): string {
+  return text.replace(BRAND, (_whole, inner: string | undefined, name: string | undefined) => (inner === undefined ? name ?? '' : plainBrands(inner)));
+}
+
 /** A const whose type prints longer than this is shown by its initializer instead. */
 const LONG_TYPE = 320;
 /** A const whose initializer is longer than this is shown by its type name only. */
@@ -289,17 +300,22 @@ class ApiExtractor {
     throw new Error(`docs: ${name} is a ${ts.SyntaxKind[decl.kind]}, which the extractor does not print`);
   }
 
+  /** A type on one line, zod brands as their names. */
+  #typeString(type: ts.Type, at: ts.Node, flags: ts.TypeFormatFlags): string {
+    return plainBrands(this.#checker.typeToString(type, at, flags));
+  }
+
   /** A type in full, object literals over several lines. */
   #printType(type: ts.Type, at: ts.Node): string {
     const node = this.#checker.typeToTypeNode(type, at, ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.InTypeAlias | ts.NodeBuilderFlags.MultilineObjectLiterals | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope);
-    if (node === undefined) { return this.#checker.typeToString(type, at, PRINT_FLAGS); }
-    return PRINTER.printNode(ts.EmitHint.Unspecified, node, at.getSourceFile()).replaceAll('    ', '  ');
+    if (node === undefined) { return this.#typeString(type, at, PRINT_FLAGS); }
+    return plainBrands(PRINTER.printNode(ts.EmitHint.Unspecified, node, at.getSourceFile()).replaceAll('    ', '  '));
   }
 
   #printConst(name: string, decl: ts.VariableDeclaration): string {
     const source = decl.getSourceFile();
     if (decl.type !== undefined) { return `const ${name}: ${decl.type.getText(source)};`; }
-    const type = this.#checker.typeToString(this.#checker.getTypeAtLocation(decl.name), decl, PRINT_FLAGS);
+    const type = this.#typeString(this.#checker.getTypeAtLocation(decl.name), decl, PRINT_FLAGS);
     if (type.length <= LONG_TYPE) { return `const ${name}: ${type};`; }
     const init = decl.initializer?.getText(source);
     if (init !== undefined && init.length <= LONG_INITIALIZER) { return `const ${name} = ${dedent(init)};`; }
@@ -344,7 +360,7 @@ class ApiExtractor {
       return `constructor(${member.parameters.map((p) => p.getText(source)).join(', ')});`;
     }
     if (ts.isPropertyDeclaration(member)) {
-      const type = member.type?.getText(source) ?? this.#checker.typeToString(this.#checker.getTypeAtLocation(member), member, PRINT_FLAGS);
+      const type = member.type?.getText(source) ?? this.#typeString(this.#checker.getTypeAtLocation(member), member, PRINT_FLAGS);
       return `${prefix}${member.name.getText(source)}${member.questionToken === undefined ? '' : '?'}: ${type};`;
     }
     if (ts.isMethodDeclaration(member)) {
@@ -356,7 +372,7 @@ class ApiExtractor {
     }
     if (ts.isGetAccessorDeclaration(member)) {
       const signature = this.#checker.getSignatureFromDeclaration(member);
-      const type = signature === undefined ? 'unknown' : this.#checker.typeToString(signature.getReturnType(), member, PRINT_FLAGS);
+      const type = signature === undefined ? 'unknown' : this.#typeString(signature.getReturnType(), member, PRINT_FLAGS);
       return `${prefix}get ${member.name.getText(source)}(): ${type};`;
     }
     return undefined;

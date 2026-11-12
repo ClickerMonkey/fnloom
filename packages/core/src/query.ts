@@ -1,5 +1,5 @@
 /**
- * The query standard (build 3): one filter and sort model for every list the hub serves (resources, fns, runs, model
+ * The query standard: one filter and sort model for every list the hub serves (resources, fns, runs, model
  * calls, LLM calls, sessions, context, notifications, systems). Each list declares its fields once here, in
  * `LIST_FIELDS`; the hub filters, sorts and pages server side by that declaration (and refuses a query that breaks it,
  * with `queryProblems`); the web app's search box builds its filter menu and pills from it; and the hub fn

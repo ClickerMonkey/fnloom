@@ -5,15 +5,17 @@
  * may see it when not everyone, the choices it offers, stale or forgotten), with its size and when it last changed.
  * `detailed` (a system's admin page) also says where it was declared (its contract or while running), its version and
  * who sees it, on every row, and leaves its origin's mark (every row there is the system's) and saying it is off to the
- * switch beside it. The key is never shown. The whole row is a link to the item's page.
+ * switch beside it. What every row of the list shares (`shared`: all off with their system's context, all added while
+ * running, one origin) is said once above the list, not on the row. The key is never shown. The whole row is a link to
+ * the item's page.
  */
 import { contextOff, type ContextRecord } from '@harness/core';
 import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { fullTime, relativeTime, UiBadge, UiIcon } from '../../ui/index.ts';
-import { AUDIENCE_WORDS, contextLabel, DECLARED_WORDS, ORIGIN_WORDS, originOf, sizeText } from '../logic/context.ts';
+import { AUDIENCE_WORDS, contextLabel, DECLARED_WORDS, NOTHING_SHARED, ORIGIN_WORDS, originOf, sizeText, type ContextShared } from '../logic/context.ts';
 
-const props = defineProps<{ record: ContextRecord; to: RouteLocationRaw; now: number; detailed?: boolean }>();
+const props = withDefaults(defineProps<{ record: ContextRecord; to: RouteLocationRaw; now: number; detailed?: boolean; shared?: ContextShared }>(), { detailed: false, shared: () => NOTHING_SHARED });
 const label = computed(() => contextLabel(props.record.decl));
 /** The description, under a title; a row without a title already reads as its description. */
 const description = computed(() => (props.record.decl.title === undefined ? '' : props.record.decl.description));
@@ -39,15 +41,15 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
         <UiBadge v-if="record.decl.alwaysFor.length > 0" tone="accent">Always given</UiBadge>
         <UiBadge v-if="seenBy !== ''" data-testid="context-seen-by">{{ seenBy }}</UiBadge>
         <UiBadge v-if="choices > 0">{{ choices }} {{ choices === 1 ? 'choice' : 'choices' }}</UiBadge>
-        <UiBadge v-if="!detailed && record.declaredBy === 'runtime'" tone="accent" :title="record.version === undefined ? undefined : `Version ${record.version.slice(0, 8)}`" data-testid="context-runtime">Added while running</UiBadge>
+        <UiBadge v-if="!detailed && record.declaredBy === 'runtime' && !shared.runtime" tone="accent" :title="record.version === undefined ? undefined : `Version ${record.version.slice(0, 8)}`" data-testid="context-runtime">Added while running</UiBadge>
         <UiBadge v-if="record.stale" tone="warn">Stale</UiBadge>
-        <UiBadge v-if="off && !detailed" data-testid="context-off">{{ offWord }}</UiBadge>
+        <UiBadge v-if="off && !detailed && !(shared.systemOff && record.disabled !== true)" data-testid="context-off">{{ offWord }}</UiBadge>
       </span>
       <span v-if="description !== ''" class="description">{{ description }}</span>
     </span>
     <span class="side">
       <span v-if="detailed" class="origin" data-testid="context-declared">{{ declared }}<code v-if="record.version !== undefined" class="version" :title="`Version ${record.version}`">{{ record.version.slice(0, 8) }}</code></span>
-      <span v-else class="origin">{{ origin.short }}</span>
+      <span v-else-if="shared.origin === undefined" class="origin">{{ origin.short }}</span>
       <span class="facts">
         <span v-if="sizeText(record) !== undefined" class="tokens">{{ sizeText(record) }}</span>
         <time class="when" :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time>

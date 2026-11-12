@@ -67,7 +67,7 @@ interface KindImpl<P, Cfg = unknown> {
 }
 ```
 
-Refers to: [`CostEstimate`](#core-costestimate), [`Json`](#core-json), [`KindDescription`](#core-kinddescription), [`PreviewAnswer`](#core-previewanswer), [`UndoOutcome`](#core-undooutcome).
+Refers to: [`CostEstimate`](context:fs/authoring.core-types#core-costestimate), [`Json`](context:fs/authoring.core-types#core-json), [`KindDescription`](context:fs/authoring.core-types#core-kinddescription), [`PreviewAnswer`](context:fs/authoring.core-types#core-previewanswer), [`UndoOutcome`](context:fs/authoring.core-types#core-undooutcome).
 
 #### `KindEstimateInput`
 
@@ -82,7 +82,7 @@ interface KindEstimateInput {
 }
 ```
 
-Refers to: [`CostEstimate`](#core-costestimate), [`Json`](#core-json).
+Refers to: [`CostEstimate`](context:fs/authoring.core-types#core-costestimate), [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `KindCheckCtx`
 
@@ -97,7 +97,7 @@ interface KindCheckCtx {
 }
 ```
 
-Refers to: [`GinTypeDef`](#core-gintypedef), [`QualifiedName`](#core-qualifiedname).
+Refers to: [`GinTypeDef`](context:fs/authoring.core-types#core-gintypedef), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `KindRunCtx`
 
@@ -113,7 +113,7 @@ interface KindRunCtx<Cfg = unknown> extends Omit<FnCtx<UntypedFn, Cfg>, 'fns' | 
 }
 ```
 
-Refers to: [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname), [`StepStatus`](#core-stepstatus).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`StepStatus`](context:fs/authoring.core-types#core-stepstatus).
 
 #### `KindRef`
 
@@ -134,7 +134,7 @@ interface KindRef<N extends QualifiedName, P> {
 }
 ```
 
-Refers to: [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `AnyKindRef`
 
@@ -144,7 +144,7 @@ type · `import { AnyKindRef } from '@harness/sdk'`
 type AnyKindRef = KindRef<QualifiedName, unknown>;
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
 
 #### `kindFn`
 
@@ -191,7 +191,7 @@ interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`FnEffects`](#core-fneffects), [`FnRouting`](#core-fnrouting).
+Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting).
 
 #### `KindFnTypes`
 
@@ -217,7 +217,7 @@ interface UntypedFn {
 }
 ```
 
-Refers to: [`Json`](#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types#core-json).
 
 #### `agent`
 
@@ -282,7 +282,7 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`FnEffects`](#core-fneffects), [`FnRouting`](#core-fnrouting), [`ModelChoice`](#core-modelchoice).
+Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`ModelChoice`](context:fs/authoring.core-types#core-modelchoice).
 
 #### `AgentFnTypes`
 
