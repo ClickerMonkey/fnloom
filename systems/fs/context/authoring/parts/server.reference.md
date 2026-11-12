@@ -129,6 +129,11 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
    * Refused unless `request.run` is this instance's running run whose approval's subject is `request.subject`.
    */
   grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
+  /**
+   * Build 7: report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
+   * outside its `grants.network`, a path outside its `grants.files`. Refused unless this instance hosts it.
+   */
+  reportRefusal(refusal: HostRefusal): Promise<void>;
   /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
   ai(): Promise<HarnessAi>;
   /**
@@ -142,7 +147,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
 }
 ```
 
-Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
+Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`HostRefusal`](#core-hostrefusal), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
 
 #### `RunningStatus`
 

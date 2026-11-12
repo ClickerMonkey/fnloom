@@ -32,7 +32,7 @@ function originIn(manifest: Manifest, section: ManifestSection): (local: string)
 }
 
 /** Everything a system added beyond its fns, context and types; empty for a system the catalog has no manifest of. */
-export async function systemParts(hub: Pick<HubServices, 'catalog' | 'store' | 'link'>, system: SystemName): Promise<SystemParts> {
+export async function systemParts(hub: Pick<HubServices, 'catalog' | 'store'> & { readonly link: Pick<HubServices['link'], 'lifecycle'> }, system: SystemName): Promise<SystemParts> {
   const manifest = await hub.catalog.manifest(system);
   if (manifest === undefined) { return { parts: [], more: {} }; }
   const parts: SystemPart[] = [];

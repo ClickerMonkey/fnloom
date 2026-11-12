@@ -3,6 +3,7 @@ import { MAIN_INSTANCE, mintId, QualifiedName, SystemName, type Manifest } from 
 import { context, fn, g, kind, system } from '@harness/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fake } from '../api/testing/rig.ts';
+import { systemParts } from '../api/system-parts.ts';
 import { refusalPage, systemReview } from '../api/web/review.ts';
 import { ADMIN, declOf, manifestFor } from '../catalog/fixtures.ts';
 import type { FnsServices } from '../fns/index.ts';
@@ -130,6 +131,29 @@ describe('installed vs live', () => {
     const first = await refusalPage(rig, { limit: 1 });
     expect(first.items).toHaveLength(1);
     expect(first.next).toBeDefined();
+  });
+
+  it('reads a system\'s stage (live for one it doesn\'t know) and keeps its install checks beside the review', async () => {
+    const { hash } = await installed();
+    expect(await rig.lifecycle.stage(NOTES)).toBe('installed');
+    expect(await rig.lifecycle.stage(SystemName.parse('ghost'))).toBe('live');
+    const checks = { scan: { size: 10, builtins: [], concerns: [], urls: [], hosts: [] } };
+    await rig.lifecycle.setChecks(NOTES, checks);
+    await rig.lifecycle.goLive({ system: NOTES, hash, off: [] }, ADMIN);
+    expect(await rig.lifecycle.review(NOTES)).toMatchObject({ checks, live: { hash } });
+    expect(await rig.lifecycle.stage(NOTES)).toBe('live');
+  });
+
+  it('lists the parts beyond fns, context and types, each with its version and whether it is on', async () => {
+    const { hash } = await installed();
+    const hub = { catalog: rig.catalog, store: rig.store, link: rig };
+    expect(await systemParts(hub, SystemName.parse('ghost'))).toEqual({ parts: [], more: {} });
+    const before = await systemParts(hub, NOTES);
+    expect(before.parts).toMatchObject([{ section: 'kinds', name: 'notes/saved', about: 'A saved note search.', origin: 'contract', on: true }]);
+    expect(before.more).toEqual({});
+    await rig.lifecycle.goLive({ system: NOTES, hash, off: [{ section: 'kinds', name: 'notes/saved' }] }, ADMIN);
+    const after = await systemParts(hub, NOTES);
+    expect(after.parts.map((p) => [p.name, p.on, p.version])).toEqual([['notes/saved', false, before.parts[0]?.version]]);
   });
 
   it('holds a new contract version for review while the rest keeps working, then approves it', async () => {

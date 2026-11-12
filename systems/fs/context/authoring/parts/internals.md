@@ -798,6 +798,98 @@ The status a line of a child's JSON log reports, if it is a status line.
 function statusOfLine(line: string): RunningStatus | undefined;
 ```
 
+#### `AccessDeniedReader`
+
+class · `import { AccessDeniedReader } from '@harness/sdk/server'`
+
+Reads a child's output for the errors Node's permission model throws (`code: 'ERR_ACCESS_DENIED'` with its
+`permission` and `resource` fields, as an uncaught error prints them), so a supervisor can report the refusal.
+
+```ts
+class AccessDeniedReader {
+  /** Feed one line; returns the refusal once its error has been read through. */
+  line(line: string): AccessDenied | undefined;
+}
+```
+
+#### `AccessDenied`
+
+interface · `import { AccessDenied } from '@harness/sdk/server'`
+
+A file access Node's permission model refused, as the child printed it.
+
+```ts
+interface AccessDenied {
+  /** `FileSystemRead` or `FileSystemWrite` (or another of Node's permission scopes). */
+  readonly permission: string;
+  /** The path, when the error named it. */
+  readonly resource?: string;
+}
+```
+
+#### `AllowlistProxy`
+
+class · `import { AllowlistProxy } from '@harness/sdk/server'`
+
+An HTTP proxy on 127.0.0.1 that lets through only allowed hosts: `CONNECT` tunnels for https, forwarding for http.
+
+```ts
+class AllowlistProxy {
+  constructor(options: AllowlistProxyOptions);
+  /** Listen on a free port of 127.0.0.1; resolves to the proxy's URL. */
+  start(): Promise<string>;
+  /** Stop listening and cut every open tunnel. */
+  close(): Promise<void>;
+}
+```
+
+#### `AllowlistProxyOptions`
+
+interface · `import { AllowlistProxyOptions } from '@harness/sdk/server'`
+
+What an allowlist proxy lets through, and who hears of what it refuses.
+
+```ts
+interface AllowlistProxyOptions {
+  /** The hosts let through (`grants.network`, plus the hub's own). */
+  readonly allow: readonly string[];
+  readonly onRefused: (refusal: ProxyRefusal) => void;
+}
+```
+
+#### `ProxyRefusal`
+
+interface · `import { ProxyRefusal } from '@harness/sdk/server'`
+
+A host the proxy refused.
+
+```ts
+interface ProxyRefusal {
+  readonly host: string;
+  readonly port: number;
+}
+```
+
+#### `hostAllowed`
+
+function · `import { hostAllowed } from '@harness/sdk/server'`
+
+Whether a host is one the patterns allow: the same name, or for `*.example.com` any name under `example.com`.
+
+```ts
+function hostAllowed(patterns: readonly string[], host: string): boolean;
+```
+
+#### `proxyEnv`
+
+function · `import { proxyEnv } from '@harness/sdk/server'`
+
+The variables that send a child's `fetch` and `http(s)` through the proxy at `url`, with `direct` hosts not proxied.
+
+```ts
+function proxyEnv(url: string, direct: readonly string[]): Record<string, string>;
+```
+
 #### `McpFace`
 
 class · `import { McpFace } from '@harness/sdk/server'`

@@ -105,6 +105,8 @@ export class SystemEmbedders implements Embedders {
     options.links.onChange(() => { void this.refresh(); });
     options.bus.subscribe('system.status', () => { void this.refresh(); });
     options.bus.subscribe('catalog.changed', () => { void this.refresh(); });
+    // going live (build 7) changes what is offered without changing a fn: an embedder system has none
+    options.bus.subscribe('capabilities.changed', () => { void this.refresh(); });
   }
 
   get(name: QualifiedName): Embedder | undefined {

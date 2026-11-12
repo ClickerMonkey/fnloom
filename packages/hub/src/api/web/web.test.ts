@@ -602,6 +602,25 @@ describe('admin reads', () => {
     expect((await web.client.call('fns', {}, as)).items).toBeInstanceOf(Array);
   });
 
+  it('serves the review page\'s calls to admins, refusing a system or fn it doesn\'t know', async () => {
+    const decided: string[] = [];
+    const { web, as, me } = await signedIn({ link: { lifecycle: {
+      review: () => Promise.resolve(undefined),
+      goLive: (request, by) => { decided.push(`live ${request.hash} ${by}`); return Promise.resolve({ stage: 'live', hash: request.hash }); },
+      approve: (request) => { decided.push(`approve ${request.hash}`); return Promise.resolve({ hash: request.hash }); },
+      reject: (_system, hash) => { decided.push(`reject ${hash}`); return Promise.resolve({ ok: true }); },
+    } }, catalog: { fn: () => Promise.resolve(undefined), manifest: () => Promise.resolve(undefined), fns: () => Promise.resolve([]) } });
+    const ghost = SystemName.parse('ghost');
+    const status = (promise: Promise<unknown>) => promise.then(() => 'answered', (error: unknown) => (error instanceof ApiError ? error.status : 'thrown'));
+    expect(await status(web.client.call('systemReview', { system: ghost }, as))).toBe(404);
+    expect(await web.client.call('goLive', { system: ghost, hash: 'h1', off: [] }, as)).toEqual({ stage: 'live', hash: 'h1' });
+    expect(await web.client.call('approveReview', { system: ghost, hash: 'h2', off: [] }, as)).toEqual({ hash: 'h2' });
+    expect(await web.client.call('rejectReview', { system: ghost, hash: 'h3' }, as)).toEqual({ ok: true });
+    expect(decided).toEqual([`live h1 ${me}`, 'approve h2', 'reject h3']);
+    expect(await status(web.client.call('testCall', { fn: QualifiedName.parse('ghost/nothing'), args: {} }, as))).toBe(404);
+    expect(await web.client.call('refusals', { system: ghost }, as)).toMatchObject({ items: [] });
+  });
+
   it('shows a system\'s output and its fns', async () => {
     const lines = [{ at: 1, stream: 'stdout' as const, text: 'info fs.ready' }];
     const { web, as } = await signedIn({

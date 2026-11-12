@@ -222,3 +222,32 @@ exists.
   - the authoring fix cap
   - the kit's real-model id
 - Web runs `npm run web:manifest` after any core web change (done for this one).
+
+## Status (end of build 7)
+
+- **1. Authoring fns:** done. `authoringAgent()` (`sdk/src/authoring.ts`) over `agent()`; `get_query` / `edit_query` draft
+  against `@aeye/query`'s `buildSchemas`; `get_input` on the same agent; `@aeye/query` and `@aeye/gin` authoring helpers
+  with product's tests ported (aits `harness` branch).
+- **2. Testing:** done. `@harness/sdk/testing` (`testHub`, `callFn`, `mockModel`, `realModel`, `preview`, `kindProps`,
+  `contextFolder`), `harness test [dir] [--previews]`, install checks on the card and the review page, the guide's
+  Testing section. The real-model and preview-shot parts run only in `kit.live.test.ts` (`npm run test:live`), so
+  they are left out of the unit coverage.
+- **3. Database recs 4–5:** done (`RunInfo.watched` wording, `run_query` write mode, missing params refused, database
+  choice through `ctx.decide` / `ask_choice`).
+- **4. Generated table fns:** done (`@aeye/query` `tableFns` / `tableFnQuery`, database `table_fns_available` /
+  `table_fns_generate`).
+- **5. Installed vs live, review, enforcement:** done (`link/lifecycle.ts`, `link/grants.ts`, refusals and the pause,
+  Node fs permissions, the allowlist proxy and fs's socket guard, `configComponent`, the review page).
+- **6. Graphs:** done (`hub/src/graph/`, `hub/graph`, `/graph`, Graph tabs, Cytoscape in `GraphView.vue`).
+- **Carry-overs:** done except the two below.
+
+Not finished:
+- fs does not yet kill a stale pid recorded in `host.json` at start (the runner keeps pids in memory only).
+- `npm run live` was not built: the proposal stands (bundle the hub and web into `.live/<sha>/` and run it without
+  watching); it needs the owner's go-ahead.
+- Final checks (2026-11-12): `npm run check` passes (unit and component tests time out at 5 s only while other
+  projects' suites load the machine; the same files pass alone). `npm run e2e`: 75 of 77 pass. The two misses,
+  `get_query` reusing its saved fn and fn suggestions from a draft, wait on embeddings, and the shared embedding
+  service on :8760 took about 58 s for ten short texts that day, so the hub's 60 s embed calls timed out. Rerun them
+  when the service is idle. A real bug found on the way is fixed: the hub took up an embedder system only on a fn
+  change, so one that went live (it has no fns) was never used; it now also follows `capabilities.changed`.

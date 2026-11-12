@@ -441,7 +441,7 @@ class AuthoringSession<S, D> {
   get draft(): D | undefined;
   get lastCheck(): DraftCheck | undefined;
   get fixes(): number;
-  get result(): { fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; } | undefined;
+  get result(): { fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: z.core.util.JSONType | undefined; } | undefined;
   /** The tools called, in order, with their stage: what tests and status lines read. */
   get log(): readonly { stage: AuthoringStage; tool: string; }[];
   /** Keep a draft and its check; a failed check after an earlier draft counts as a fix. */
@@ -493,7 +493,7 @@ What a check of a draft found: the problems (one per line; empty when it is clea
 ```ts
 interface DraftCheck {
   readonly problems: readonly string[];
-  readonly preview?: unknown;
+  readonly preview?: AuthoredFn['preview'];
   /** Extra text for the model about the draft (the SQL it makes, the type it produces). */
   readonly note?: string;
 }
@@ -529,7 +529,7 @@ What an authoring fn answers the chat model with: the saved fn, what it does, ho
 preview of what it gives. Never the working context.
 
 ```ts
-const authoredFn: ObjType<{ fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; }>;
+const authoredFn: ObjType<{ fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: z.core.util.JSONType | undefined; }>;
 ```
 
 #### `AuthoredFn`

@@ -33,7 +33,7 @@ packages/
   hub/         @harness/hub     the hub: one folder per module, each with an index.ts interface
   web/         @harness/web     Vue 3 + Vite + vue-router chat and admin app
   cli/         @harness/cli     the `harness` CLI: system new|build|pack|install|export-data, mcp (build 2, packaging lane); its bin runs under tsx (build 6)
-  build/       @harness/build   building a system folder (build 6): `buildSystem` (typecheck, contract name, `checkContextFolder`, server bundle, client, `dist/context/`), `ViteBuilder`, the bundle scan; used by the CLI and by fs `install_system`
+  build/       @harness/build   building a system folder (build 6): `buildSystem` (typecheck, contract name, `checkContextFolder`, server bundle, client, `dist/context/`), `ViteBuilder`, the bundle scan; build 7: `dist/contract.json` (the manifest and hash, read in a child process with no fs-write, network or child-process permissions); used by the CLI and by fs `install_system`
     e2e/                        reusable puppeteer scenarios (every viewport, light and dark, layout checks)
 systems/
   fs/          @harness/system-fs        shared/ (contract), server/, client/ (Vue renderers), context/ (the authoring guide as a context graph); build 6: hosting (`hosting.ts`, `builds.ts`, `runner.ts`: `install_system`, `system_status`, `restart_system`, `stop_system`, hosted folders)
@@ -118,6 +118,8 @@ field and serializes by name; its methods' args are `self` plus their own args.
 
 **Build 6** adds `ctx.ai()` on every ctx and `hubAi(system)` (an `@aeye/ai` instance over the hub link `models`), `RunningSystem.patch` / `examples()`, the `context/` watch in dev, and `server/supervise.ts` (env allowlist, permission flags, crash backoff), which the hub supervisor and fs hosting share.
 
+**Build 7** adds `authoringAgent()` (`authoring.ts`: a staged agent over `agent()`, find → inspect → draft → check → fix → save, each stage's tools shown once the one before is done, with the `authoredFn` result), `system({ grants, configComponent })`, the test kit `@harness/sdk/testing` (`testing/`: `testHub`, `callFn`, `mockModel`, `realModel`, `preview`, `kindProps`, `contextFolder`), and in `server/` the allowlist proxy (`proxy.ts`: `AllowlistProxy`, `proxyEnv`, refusals sent to the hub) and `AccessDeniedReader` (Node permission denials read from the child's stderr) beside `NodeStarter`.
+
 **Built by the SDK lane** (interfaces in `sdk/src/server/index.ts` and `sdk/src/ctx.ts`): `LinkHost implements
 SystemHost` (the WebSocket link with ayepi peers, pairing keys via `KeyStore`, `FnCtx` / `ActionCtx` /
 `SystemCtx` services, outcome helpers, resume by call key, the outcome journal), the forwarding aeye provider
@@ -141,6 +143,7 @@ through each other's implementation files. Each module's handlers are installed 
 | `index/` | `Embedder`, `Embedders`, `Indexer`, `Search`, `Suggester` | `@ayepi/work` batches, `@aeye/resources` |
 | `api/` | `PasswordHasher`, `Authenticator`, `ContentStore`, `PushService`, `EventRelay` | `@ayepi/auth`, `@ayepi/files`, `@ayepi/otel`, `@ayepi/cache`, `@ayepi/rate` (sign-in), `@ayepi/push` |
 | `boot/` | `HubServices`, `RunningHub`, `StartHub`, `COMPONENTS`; env slices in `env.ts`, merged as `HUB_SETTINGS` (`mergeEnvs`; `.env.example` is generated from it by `scripts/env-example.ts`); the hub fns (`hub-fns.ts`) and the admin fns (`admin-fns.ts`), which run the same `AdminOperations` (`api/admin-ops.ts`) as the web admin endpoints | `@ayepi/env`, `@ayepi/log`, `@ayepi/updown`, `@ayepi/codec` |
+| `graph/` (build 7) | the system and global graph (`graph.ts`): nodes and edges from stored rows through the hub database's queries, filters, focus with hops, collapse, the cap with `GraphMore`, the asker's visibility; served by `api/web/graph.ts` and the hub fn `hub/graph` | core `graph.ts` |
 | `bus.ts` | `EventBus`, `HubEvents` | — |
 | `contextor/` (build 2) | `PromptPlanner`, `ChatMode`, `Contextor`, `TokenEstimates`, `ModelLimitsService`, `ContextGraph` (factories typed by `ChatModeFactories` / `ContextorFactories`) (build 6: `brought.ts`, what a context brings every time: its imports and fns, for every contextor and `hub/load_context`) | `@aeye/core`, `@aeye/gin` (`toCode`, `toCodeDefinition`), `@aeye/models` |
 | `resources/` (build 2) | `ResourceLibrary`, `Converters`, `FormService`, `ResourceReader`, `MessageContent`, `ContextLibrary` | `@aeye/resources` (registry, converters, `sectionVersion`, `fetchResource`), `@ayepi/files`, `@ayepi/work` |
@@ -156,6 +159,8 @@ Build 2's modules are wired into `HubServices` (`contextor`, `resources`, `mcp`,
 their `create.ts` factories (`BUILD_2_MODULES` in `boot/modules.ts`); each serves its own web slice from its plugin in
 `api/web/`. Build 4 adds `HubServices.access` and `HubServices.connections` the same way; `api/web/build4.ts` serves
 `accessSlice`, `connectionsSlice` and `pickerSlice` (`api/web/pickers.ts`: `pick` per source, filtered by access).
+
+Build 7 adds to `link/`: `lifecycle.ts` (installed vs live: `goLive`, pending reviews, `approveReview` / `rejectReview`, test calls), `grants.ts` (the one enforcement guard on the link dispatcher and run checks, `RefusalRecord`s and the pause past `HARNESS_REFUSALS_PAUSE`); `api/web/review.ts` serves the review page (`/admin/systems/:name/review`).
 
 The `link/` module also owns installed systems and fleets: `system.json` is checked by `checkManifest`
 (`link/package/format.ts`, the zip format beside it), the per-instance facts (key, config, status, install, folders)

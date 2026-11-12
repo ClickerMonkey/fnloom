@@ -4,7 +4,7 @@ import {
 } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StoreCatalog } from '../catalog/catalog.ts';
-import { manifestFor, shop, systemRow, vectors as vectorsContract } from '../catalog/fixtures.ts';
+import { ADMIN, manifestFor, shop, systemRow, vectors as vectorsContract } from '../catalog/fixtures.ts';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { ResourceRouter } from '../link/index.ts';
 import { FakeSystem, linkRig, pairDirectly } from '../link/rig.ts';
@@ -495,6 +495,21 @@ describe('embedders from systems', () => {
     await settle(5);
     await embedders.refresh();
     expect(embedders.active()).toBeUndefined();
+    await rig.stop();
+  });
+
+  it('takes up an embedder system once an admin goes live with it, though going live changes no fn', async () => {
+    const rig = await linkRig({ review: { HARNESS_REVIEW_SYSTEMS: true } });
+    const embedders = new SystemEmbedders({ catalog: rig.catalog, links: rig.links, bus: rig.bus, log: rig.log, clock: () => rig.time.now, document: DOCUMENT, query: QUERY, batch: 2 });
+    const system = new FakeSystem(rig.app, 'vectors', await manifestFor(vectorsContract));
+    await pairDirectly(rig, system);
+    await system.start();
+    await embedders.refresh();
+    expect(embedders.active()).toBeUndefined();
+    const stored = await rig.catalog.manifest(SystemName.parse('vectors'));
+    await rig.lifecycle.goLive({ system: SystemName.parse('vectors'), hash: stored?.hash ?? '', off: [] }, ADMIN);
+    await settle(5);
+    expect(embedders.active()?.document.name).toBe(DOCUMENT);
     await rig.stop();
   });
 });

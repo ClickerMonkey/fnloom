@@ -58,8 +58,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**/*.{ts,vue}', 'systems/*/{shared,server,client}/**/*.{ts,vue}'],
-      // process entry points only wire the real parts together and start them; the e2e suite runs them
-      exclude: ['**/*.test.ts', '**/manifest.gen.ts', '**/*.d.ts', 'systems/*/server/main.ts', 'systems/fs/server/manifest-probe.ts', 'packages/cli/src/main.ts', 'packages/cli/src/io.ts'],
+      // process entry points only wire the real parts together and start them; the e2e suite runs them. The kit's real
+      // model and preview shots need OpenRouter and Chrome, so `kit.live.test.ts` runs them; fs's shots script is a CLI.
+      exclude: ['**/*.test.ts', '**/manifest.gen.ts', '**/*.d.ts', 'systems/*/server/main.ts', 'systems/fs/server/manifest-probe.ts', 'packages/cli/src/main.ts', 'packages/cli/src/io.ts',
+        'packages/sdk/src/testing/openrouter.ts', 'packages/sdk/src/testing/preview.ts', 'systems/fs/client/preview/shots.ts'],
       // floors a little under today's numbers, so coverage can't quietly fall; `npm run check` runs with coverage.
       // Each glob counts every file it matches (so `packages/hub/src/**` includes execution); the execution engine, the
       // SDK runtime and build 2's modules (the contextor, hub MCPs, resources, the CLI, the web system) have floors of

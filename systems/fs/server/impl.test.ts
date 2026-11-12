@@ -68,6 +68,16 @@ describe('the fs implementation', () => {
     expect(progress.at(-1)?.[0]).toBe(1);
   });
 
+  it('says the hosting fns need @harness/build on an fs without it', async () => {
+    const { fns } = server.impl;
+    const previewed = await fns.install_system.preview?.({ path: 'sys' }, { ...systemCtx({ config }), run: mintId('run') });
+    expect(previewed !== undefined && 'refused' in previewed ? previewed.refused : '').toContain('build systems');
+    expect(failure(await fns.install_system.run({ path: 'sys' }, fnCtx<TypesOf<Fns['install_system']>>(none(), { config }).ctx)).code).toBe('no-hosting');
+    expect(failure(await fns.system_status.run({}, fnCtx<TypesOf<Fns['system_status']>>(none(), { config }).ctx)).code).toBe('no-hosting');
+    expect(failure(await fns.restart_system.run({ system: 'notes', reason: 'stuck' }, fnCtx<TypesOf<Fns['restart_system']>>(none(), { config }).ctx)).code).toBe('no-hosting');
+    expect(failure(await fns.stop_system.run({ system: 'notes' }, fnCtx<TypesOf<Fns['stop_system']>>({ ...none(), handlers: { confirm: undefined } }, { config }).ctx)).code).toBe('no-hosting');
+  });
+
   it('turns problems into caller failures with codes', async () => {
     const { fns } = server.impl;
     expect(failure(await fns.read.run({ path: '../outside.txt' }, fnCtx<TypesOf<Fns['read']>>(none(), { config: config }).ctx))).toMatchObject({ class: 'caller', code: 'outside' });

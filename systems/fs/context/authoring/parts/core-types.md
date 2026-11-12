@@ -135,6 +135,22 @@ type ApprovalPreview = {
       instance: string & z.core.$brand<"InstanceName">;
     };
     source?: string | undefined;
+    grants?: {
+      hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+      models?: {
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        models?: string[] | undefined;
+        perRun?: number | undefined;
+        perDay?: number | undefined;
+      } | undefined;
+      secrets?: string[] | undefined;
+      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      network?: string[] | undefined;
+      files?: {
+        read: string[];
+        write: string[];
+      } | undefined;
+    } | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
@@ -252,6 +268,22 @@ type ApprovedRun = {
         instance: string & z.core.$brand<"InstanceName">;
       };
       source?: string | undefined;
+      grants?: {
+        hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+        models?: {
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          models?: string[] | undefined;
+          perRun?: number | undefined;
+          perDay?: number | undefined;
+        } | undefined;
+        secrets?: string[] | undefined;
+        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        network?: string[] | undefined;
+        files?: {
+          read: string[];
+          write: string[];
+        } | undefined;
+      } | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
@@ -1161,6 +1193,25 @@ type HookInput = {
     timeZone: string;
     local: string;
   };
+};
+```
+
+#### <a id="core-hostrefusal"></a>`HostRefusal`
+
+const, type · declared in `packages/core/src/lifecycle.ts`
+
+A refusal a host saw on the machine (`reportRefusal` on the link): a host its allowlist proxy refused, or a path
+Node's permission model refused, for an instance it hosts. The hub keeps it as that instance's `RefusalRecord`.
+
+```ts
+type HostRefusal = {
+  instance: {
+    system: string & z.core.$brand<"SystemName">;
+    instance: string & z.core.$brand<"InstanceName">;
+  };
+  rule: "files" | "network";
+  attempt: string;
+  detail: string;
 };
 ```
 
@@ -2732,6 +2783,22 @@ type PairingGrantRequest = {
       instance: string & z.core.$brand<"InstanceName">;
     };
     source?: string | undefined;
+    grants?: {
+      hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+      models?: {
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        models?: string[] | undefined;
+        perRun?: number | undefined;
+        perDay?: number | undefined;
+      } | undefined;
+      secrets?: string[] | undefined;
+      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      network?: string[] | undefined;
+      files?: {
+        read: string[];
+        write: string[];
+      } | undefined;
+    } | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
@@ -2830,6 +2897,22 @@ type PreviewAnswer = {
         instance: string & z.core.$brand<"InstanceName">;
       };
       source?: string | undefined;
+      grants?: {
+        hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+        models?: {
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          models?: string[] | undefined;
+          perRun?: number | undefined;
+          perDay?: number | undefined;
+        } | undefined;
+        secrets?: string[] | undefined;
+        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        network?: string[] | undefined;
+        files?: {
+          read: string[];
+          write: string[];
+        } | undefined;
+      } | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
@@ -3446,6 +3529,22 @@ type RunRequest = {
           instance: string & z.core.$brand<"InstanceName">;
         };
         source?: string | undefined;
+        grants?: {
+          hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+          models?: {
+            roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+            models?: string[] | undefined;
+            perRun?: number | undefined;
+            perDay?: number | undefined;
+          } | undefined;
+          secrets?: string[] | undefined;
+          calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+          network?: string[] | undefined;
+          files?: {
+            read: string[];
+            write: string[];
+          } | undefined;
+        } | undefined;
         replaces?: {
           version: string;
           manifestHash: string;

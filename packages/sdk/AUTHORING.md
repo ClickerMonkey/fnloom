@@ -3370,7 +3370,7 @@ class AuthoringSession<S, D> {
   get draft(): D | undefined;
   get lastCheck(): DraftCheck | undefined;
   get fixes(): number;
-  get result(): { fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; } | undefined;
+  get result(): { fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: z.core.util.JSONType | undefined; } | undefined;
   /** The tools called, in order, with their stage: what tests and status lines read. */
   get log(): readonly { stage: AuthoringStage; tool: string; }[];
   /** Keep a draft and its check; a failed check after an earlier draft counts as a fix. */
@@ -3422,7 +3422,7 @@ What a check of a draft found: the problems (one per line; empty when it is clea
 ```ts
 interface DraftCheck {
   readonly problems: readonly string[];
-  readonly preview?: unknown;
+  readonly preview?: AuthoredFn['preview'];
   /** Extra text for the model about the draft (the SQL it makes, the type it produces). */
   readonly note?: string;
 }
@@ -3458,7 +3458,7 @@ What an authoring fn answers the chat model with: the saved fn, what it does, ho
 preview of what it gives. Never the working context.
 
 ```ts
-const authoredFn: ObjType<{ fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: any; }>;
+const authoredFn: ObjType<{ fn: string; version: number; signature: string; about: string; reused: boolean; call: string; preview?: z.core.util.JSONType | undefined; }>;
 ```
 
 #### `AuthoredFn`
@@ -6403,6 +6403,11 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
    * Refused unless `request.run` is this instance's running run whose approval's subject is `request.subject`.
    */
   grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
+  /**
+   * Build 7: report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
+   * outside its `grants.network`, a path outside its `grants.files`. Refused unless this instance hosts it.
+   */
+  reportRefusal(refusal: HostRefusal): Promise<void>;
   /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
   ai(): Promise<HarnessAi>;
   /**
@@ -6416,7 +6421,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
 }
 ```
 
-Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
+Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`HostRefusal`](#core-hostrefusal), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
 
 #### `RunningStatus`
 
@@ -9185,6 +9190,8 @@ class FakeHub {
   readonly pairingInfos: PairingInfo[];
   /** What the system told the admins (`ctx.notifyAdmins`), in order. */
   readonly notices: AdminNotice[];
+  /** What a host's supervisor refused for the systems it hosts (`reportRefusal`), in order. */
+  readonly hostRefusals: HubBody<'reportRefusal'>[];
   /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
   readonly proposals: Array<HubBody<'propose'> & ProposedRun>;
   /** What systems asked the decision model (`decide`). */
@@ -12966,6 +12973,98 @@ The status a line of a child's JSON log reports, if it is a status line.
 function statusOfLine(line: string): RunningStatus | undefined;
 ```
 
+#### `AccessDeniedReader`
+
+class · `import { AccessDeniedReader } from '@harness/sdk/server'`
+
+Reads a child's output for the errors Node's permission model throws (`code: 'ERR_ACCESS_DENIED'` with its
+`permission` and `resource` fields, as an uncaught error prints them), so a supervisor can report the refusal.
+
+```ts
+class AccessDeniedReader {
+  /** Feed one line; returns the refusal once its error has been read through. */
+  line(line: string): AccessDenied | undefined;
+}
+```
+
+#### `AccessDenied`
+
+interface · `import { AccessDenied } from '@harness/sdk/server'`
+
+A file access Node's permission model refused, as the child printed it.
+
+```ts
+interface AccessDenied {
+  /** `FileSystemRead` or `FileSystemWrite` (or another of Node's permission scopes). */
+  readonly permission: string;
+  /** The path, when the error named it. */
+  readonly resource?: string;
+}
+```
+
+#### `AllowlistProxy`
+
+class · `import { AllowlistProxy } from '@harness/sdk/server'`
+
+An HTTP proxy on 127.0.0.1 that lets through only allowed hosts: `CONNECT` tunnels for https, forwarding for http.
+
+```ts
+class AllowlistProxy {
+  constructor(options: AllowlistProxyOptions);
+  /** Listen on a free port of 127.0.0.1; resolves to the proxy's URL. */
+  start(): Promise<string>;
+  /** Stop listening and cut every open tunnel. */
+  close(): Promise<void>;
+}
+```
+
+#### `AllowlistProxyOptions`
+
+interface · `import { AllowlistProxyOptions } from '@harness/sdk/server'`
+
+What an allowlist proxy lets through, and who hears of what it refuses.
+
+```ts
+interface AllowlistProxyOptions {
+  /** The hosts let through (`grants.network`, plus the hub's own). */
+  readonly allow: readonly string[];
+  readonly onRefused: (refusal: ProxyRefusal) => void;
+}
+```
+
+#### `ProxyRefusal`
+
+interface · `import { ProxyRefusal } from '@harness/sdk/server'`
+
+A host the proxy refused.
+
+```ts
+interface ProxyRefusal {
+  readonly host: string;
+  readonly port: number;
+}
+```
+
+#### `hostAllowed`
+
+function · `import { hostAllowed } from '@harness/sdk/server'`
+
+Whether a host is one the patterns allow: the same name, or for `*.example.com` any name under `example.com`.
+
+```ts
+function hostAllowed(patterns: readonly string[], host: string): boolean;
+```
+
+#### `proxyEnv`
+
+function · `import { proxyEnv } from '@harness/sdk/server'`
+
+The variables that send a child's `fetch` and `http(s)` through the proxy at `url`, with `direct` hosts not proxied.
+
+```ts
+function proxyEnv(url: string, direct: readonly string[]): Record<string, string>;
+```
+
 #### `McpFace`
 
 class · `import { McpFace } from '@harness/sdk/server'`
@@ -13481,6 +13580,22 @@ type ApprovalPreview = {
       instance: string & z.core.$brand<"InstanceName">;
     };
     source?: string | undefined;
+    grants?: {
+      hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+      models?: {
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        models?: string[] | undefined;
+        perRun?: number | undefined;
+        perDay?: number | undefined;
+      } | undefined;
+      secrets?: string[] | undefined;
+      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      network?: string[] | undefined;
+      files?: {
+        read: string[];
+        write: string[];
+      } | undefined;
+    } | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
@@ -13598,6 +13713,22 @@ type ApprovedRun = {
         instance: string & z.core.$brand<"InstanceName">;
       };
       source?: string | undefined;
+      grants?: {
+        hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+        models?: {
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          models?: string[] | undefined;
+          perRun?: number | undefined;
+          perDay?: number | undefined;
+        } | undefined;
+        secrets?: string[] | undefined;
+        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        network?: string[] | undefined;
+        files?: {
+          read: string[];
+          write: string[];
+        } | undefined;
+      } | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
@@ -14507,6 +14638,25 @@ type HookInput = {
     timeZone: string;
     local: string;
   };
+};
+```
+
+#### <a id="core-hostrefusal"></a>`HostRefusal`
+
+const, type · declared in `packages/core/src/lifecycle.ts`
+
+A refusal a host saw on the machine (`reportRefusal` on the link): a host its allowlist proxy refused, or a path
+Node's permission model refused, for an instance it hosts. The hub keeps it as that instance's `RefusalRecord`.
+
+```ts
+type HostRefusal = {
+  instance: {
+    system: string & z.core.$brand<"SystemName">;
+    instance: string & z.core.$brand<"InstanceName">;
+  };
+  rule: "files" | "network";
+  attempt: string;
+  detail: string;
 };
 ```
 
@@ -16078,6 +16228,22 @@ type PairingGrantRequest = {
       instance: string & z.core.$brand<"InstanceName">;
     };
     source?: string | undefined;
+    grants?: {
+      hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+      models?: {
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        models?: string[] | undefined;
+        perRun?: number | undefined;
+        perDay?: number | undefined;
+      } | undefined;
+      secrets?: string[] | undefined;
+      calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+      network?: string[] | undefined;
+      files?: {
+        read: string[];
+        write: string[];
+      } | undefined;
+    } | undefined;
     replaces?: {
       version: string;
       manifestHash: string;
@@ -16176,6 +16342,22 @@ type PreviewAnswer = {
         instance: string & z.core.$brand<"InstanceName">;
       };
       source?: string | undefined;
+      grants?: {
+        hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+        models?: {
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          models?: string[] | undefined;
+          perRun?: number | undefined;
+          perDay?: number | undefined;
+        } | undefined;
+        secrets?: string[] | undefined;
+        calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+        network?: string[] | undefined;
+        files?: {
+          read: string[];
+          write: string[];
+        } | undefined;
+      } | undefined;
       replaces?: {
         version: string;
         manifestHash: string;
@@ -16792,6 +16974,22 @@ type RunRequest = {
           instance: string & z.core.$brand<"InstanceName">;
         };
         source?: string | undefined;
+        grants?: {
+          hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+          models?: {
+            roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+            models?: string[] | undefined;
+            perRun?: number | undefined;
+            perDay?: number | undefined;
+          } | undefined;
+          secrets?: string[] | undefined;
+          calls?: (`${string}/${string}` | (string & z.core.$brand<"SystemName">))[] | undefined;
+          network?: string[] | undefined;
+          files?: {
+            read: string[];
+            write: string[];
+          } | undefined;
+        } | undefined;
         replaces?: {
           version: string;
           manifestHash: string;

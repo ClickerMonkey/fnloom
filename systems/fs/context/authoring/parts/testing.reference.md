@@ -49,6 +49,8 @@ class FakeHub {
   readonly pairingInfos: PairingInfo[];
   /** What the system told the admins (`ctx.notifyAdmins`), in order. */
   readonly notices: AdminNotice[];
+  /** What a host's supervisor refused for the systems it hosts (`reportRefusal`), in order. */
+  readonly hostRefusals: HubBody<'reportRefusal'>[];
   /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
   readonly proposals: Array<HubBody<'propose'> & ProposedRun>;
   /** What systems asked the decision model (`decide`). */

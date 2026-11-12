@@ -7,6 +7,7 @@ import { COMMANDS, findCommand, helpText, runCli, usageOf } from './cli.ts';
 import { command, optionsOf, parseCommand, UsageError } from './command.ts';
 import { builtManifest, isExternal, isStale, readSystemJson } from '@harness/build';
 import { npmSpec } from './commands/install.ts';
+import { reportLines } from './commands/test.ts';
 import { cases, rename } from './commands/new.ts';
 import { instanceLine, systemLines } from './commands/manage.ts';
 import { hubTarget } from './hub.ts';
@@ -205,6 +206,13 @@ describe('test', () => {
     io.tests.report = undefined;
     expect(await runCli(['test', 'notes'], io)).toBe(0);
     expect(io.lines.at(-1)).toBe('notes has no tests.');
+    expect(await runCli(['test', '--json'], io)).toBe(0);
+    expect(io.lines.at(-1)).toBe('null');
+  });
+
+  it('counts the tests left out and points at the preview gallery', () => {
+    const lines = reportLines({ ...report, more: 4, previews: [], cases: [{ file: 'a.test.ts', name: 'a', status: 'failed', duration: 1 }] }, '.', 'previews');
+    expect(lines.slice(1)).toEqual(['  failed: a.test.ts > a', '  and 4 more tests', `previews: 0 shots in ${join('previews', 'gallery.html')}`]);
   });
 });
 

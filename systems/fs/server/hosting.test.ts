@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { InstanceName, SystemName, type InstallSubject, type PreviewPart, type SystemGrants, type SystemTestReport } from '@harness/core';
-import { afterEach, describe, expect, it } from 'vitest';
-import { Hosting, InstallRefused, capped, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { Hosting, InstallRefused, capped, grantsReview, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
 
 const host = { system: SystemName.parse('fs'), instance: InstanceName.parse('main') };
 const signal = new AbortController().signal;
@@ -12,10 +13,14 @@ function cardText(parts: readonly PreviewPart[]): string {
   return parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
 }
 
+/** The temp folders the tests made, removed after the file runs. */
+const folders: string[] = [];
+afterAll(() => { for (const dir of folders) rmSync(dir, { recursive: true, force: true }); });
+
 /** A system folder in a fresh temp folder. */
 function folder(name = 'random', version = '0.1.0'): string {
-  mkdirSync('.harness-test', { recursive: true });
-  const dir = mkdtempSync(join('.harness-test', 'hosting-'));
+  const dir = mkdtempSync(join(tmpdir(), 'harness-hosting-'));
+  folders.push(dir);
   writeFileSync(join(dir, 'system.json'), JSON.stringify({ format: 1, name, version, description: 'Random numbers.', protocol: 1, server: { entry: 'server/main.ts' } }));
   return dir;
 }
@@ -180,7 +185,7 @@ describe('hosting systems written here', () => {
   it('flags grants outside its own folders, refuses a root or fs\'s data, and starts only the grants approved', async () => {
     const { builds, hosting, grant } = setup();
     const dir = folder();
-    const outside = resolve('.harness-test', 'shared-notes');
+    const outside = join(tmpdir(), 'harness-shared-notes');
     builds.grants = { hub: ['ai'], network: [], files: { read: [outside], write: [] }, secrets: ['TAVILY'] };
     const card = cardText((await hosting.preview(dir, {}, signal)).parts);
     expect(card).toContain(`- Reads: \`${outside}\` (outside its own folders)`);
@@ -192,7 +197,7 @@ describe('hosting systems written here', () => {
       return hosting.preview(dir, {}, signal).then(() => '', (error: unknown) => (error instanceof InstallRefused ? error.message : 'other'));
     };
     expect(await refusal([resolve('/')])).toContain('is never granted');
-    expect(await refusal([resolve('.harness-test')])).toContain('is never granted');
+    expect(await refusal([tmpdir()])).toContain('is never granted');
     builds.grants = { hub: [], files: { read: [outside], write: [] } };
     const subject = (await hosting.preview(dir, {}, signal)).subject;
     if (subject === undefined) { throw new Error('no subject'); }
@@ -258,6 +263,9 @@ describe('hosting systems written here', () => {
     expect(await hosting.stop('random', undefined, false)).toEqual({ stopped: true, removed: false });
     expect(await hosting.records()).toMatchObject([{ start: false }]);
     expect(await hosting.startAll()).toEqual([]);
+    await hosting.stopAll();
+    expect([...runner.running.values()].map((seen) => seen.state)).toEqual(['stopped']);
+    expect(await hosting.removes('random', undefined)).toEqual([join(hosting.root, 'random', 'main')]);
     expect(await hosting.stop('random', undefined, true)).toEqual({ stopped: true, removed: true });
     expect(await hosting.records()).toEqual([]);
     await expect(hosting.restart('random', undefined)).rejects.toThrow('isn\'t hosted here. Nothing is.');
@@ -283,5 +291,17 @@ describe('hosting systems written here', () => {
   it('caps problem lines and diffs fns by name', () => {
     expect(capped(['a', 'b', 'c'], 2)).toBe('a\nb\nand 1 more');
     expect(fnsDiff(['x/a (read)', 'x/b (read)'], ['x/a (write)', 'x/c (read)'])).toEqual(['adds x/c (read)', 'removes x/b (read)', 'changes x/a (write) (was x/a (read))']);
+  });
+});
+
+describe('grantsReview', () => {
+  const places = { own: [], dataFolder: join(tmpdir(), 'harness-data'), fsData: join(tmpdir(), 'harness-fs'), home: tmpdir() };
+
+  it('lists model grants part by part, and any role when it names none', () => {
+    const full = grantsReview({ hub: ['ai'], models: { roles: ['chat'], models: ['openrouter/free'], perRun: 0.5, perDay: 2 }, secrets: [], calls: ['web/search'] }, places).lines;
+    expect(full).toContain('- Models: roles chat, models openrouter/free, up to $0.5 a run, $2 a day');
+    expect(full).toContain('- Calls: web/search');
+    expect(grantsReview({ hub: [], models: {} }, places).lines).toContain('- Models: any role');
+    expect(grantsReview(undefined, places).lines).toEqual(['Grants, enforced from the moment it starts:', '- Network: no hosts', '- Hub: the base only']);
   });
 });
