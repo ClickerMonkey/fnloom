@@ -57,7 +57,8 @@ const largeOpen = computed({ get: () => large.value !== undefined, set: (open: b
 .gallery-wrap { display: grid; gap: var(--space-3); min-width: 0; }
 .theme { justify-self: start; }
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: var(--space-2); align-items: start; margin: 0; padding: 0; list-style: none; }
-.gallery.pictures { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
+/* auto-fit so a short list stretches across the row; tracks wide enough that a shot's text can be read */
+.gallery.pictures { grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: var(--space-3); }
 .component { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
 .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
 .name { font-family: var(--mono); font-size: var(--text-sm); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
@@ -69,8 +70,9 @@ const largeOpen = computed({ get: () => large.value !== undefined, set: (open: b
 .shot:hover { border-color: var(--border-strong, var(--accent)); }
 .shot:focus-visible { outline: none; box-shadow: var(--ring); }
 .shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
-.shot.phone { flex: 0 0 auto; width: 25%; aspect-ratio: 9 / 16; }
-.shot.desktop { flex: 1 1 0; min-width: 0; aspect-ratio: 16 / 10; }
+/* the phone shot as tall as the desktop one beside it (9/16 against 16/10 makes it about a quarter of the pair), both capped so one component on a wide row stays a sensible size */
+.shot.phone { flex: 0 1 26%; max-width: 225px; min-width: 0; aspect-ratio: 9 / 16; }
+.shot.desktop { flex: 1 1 0; min-width: 0; max-width: 640px; aspect-ratio: 16 / 10; }
 .state-list { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 .dim { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 </style>

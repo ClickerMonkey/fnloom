@@ -211,6 +211,22 @@ export function checksWarn(checks: InstallChecks | undefined): boolean {
   return checks !== undefined && ((checks.tests?.failed ?? 0) > 0 || checks.scan.concerns.length > 0);
 }
 
+/**
+ * What in the checks argues against going live, as one sentence ("1 test failed and the scan found 2 concerns"), or
+ * undefined when nothing does.
+ */
+export function checksConcerns(checks: InstallChecks | undefined): string | undefined {
+  if (checks === undefined || !checksWarn(checks)) { return undefined; }
+  const failed = checks.tests?.failed ?? 0;
+  const concerns = checks.scan.concerns.length;
+  const parts = [
+    ...(failed > 0 ? [`${failed} ${failed === 1 ? 'test' : 'tests'} failed`] : []),
+    ...(concerns > 0 ? [`the scan found ${concerns} ${concerns === 1 ? 'concern' : 'concerns'}`] : []),
+  ];
+  const sentence = parts.join(' and ');
+  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}`;
+}
+
 /** Where the hub serves a file of a system's client build (`/clients/<system>/<hash>/<path>`, as the hub's `clientUrl`). */
 export function clientFileUrl(system: SystemName, client: Pick<ClientAssets, 'hash' | 'entry'>): string {
   return `/clients/${encodeURIComponent(system)}/${client.hash}/${client.entry.split('/').map(encodeURIComponent).join('/')}`;

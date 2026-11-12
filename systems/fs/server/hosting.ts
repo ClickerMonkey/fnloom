@@ -17,8 +17,10 @@
  *   (`host.json` beside the instance's folders) is the supervisor's own bookkeeping: which bundle to start, and whether.
  */
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
-import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, ScanReport, SystemGrants, SystemName, SystemPackageManifest, type ApprovalPreview, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, ScanReport, SystemGrants, SystemName, SystemPackageManifest, type ApprovalPreview, type FileGrant, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
 import { z } from 'zod';
 import type { HostedStatusValue, HostedStateValue, InstallResultValue } from '../shared/hosting.ts';
 
@@ -74,6 +76,74 @@ export function scanLines(scan: ScanReport): string[] {
     scan.hosts.length === 0 ? 'Names no web hosts.' : `Web hosts it names: ${scan.hosts.join(', ')}.`,
     `Bundle: ${String(kb)} KB.`,
   ];
+}
+
+/** `grants.files` as absolute paths: a relative one is under the instance's data folder. */
+export function grantedPaths(files: FileGrant | undefined, dataFolder: string): { read: string[]; write: string[] } {
+  const paths = (list: readonly string[] | undefined): string[] => (list ?? []).map((path) => (isAbsolute(path) ? resolve(path) : resolve(dataFolder, path)));
+  return { read: paths(files?.read), write: paths(files?.write) };
+}
+
+/** Whether `path` is `folder` or inside it (letter case ignored on Windows). */
+function within(folder: string, path: string): boolean {
+  const fold = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value);
+  const rel = relative(fold(folder), fold(path));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** Where a review of grants looks. */
+export interface GrantPlaces {
+  /** The instance's own folders (state, data, cache). */
+  readonly own: readonly string[];
+  /** Where its relative paths are (its data folder). */
+  readonly dataFolder: string;
+  /** fs's whole data folder: every hosted system's bundles, keys and records. */
+  readonly fsData: string;
+  readonly home: string;
+}
+
+/** A granted path as a card item, with what is notable about it, and whether it is never granted. */
+function pathItem(path: string, places: GrantPlaces): { text: string; never: boolean } {
+  const root = dirname(path) === path;
+  const notes = [
+    ...(places.own.some((folder) => within(folder, path)) ? [] : ['outside its own folders']),
+    // a whole drive, the home folder or a folder holding it, or a folder at the top of a drive
+    ...(root || within(path, places.home) || dirname(dirname(path)) === dirname(path) ? ['BROAD'] : []),
+  ];
+  return { text: notes.length === 0 ? `\`${path}\`` : `\`${path}\` (${notes.join(', ')})`, never: root || within(path, places.fsData) };
+}
+
+/**
+ * The grants a contract declares, as card lines: they are enforced from the moment the system starts (files and
+ * network on this machine, the rest by the hub), before any review page. A path outside its own folders is marked and
+ * a broad one flagged; a filesystem root, or a folder holding fs's data, is never granted (`refused` says so).
+ */
+export function grantsReview(grants: SystemGrants | undefined, places: GrantPlaces): { lines: string[]; refused?: string } {
+  const files = grantedPaths(grants?.files, places.dataFolder);
+  const reads = files.read.map((path) => pathItem(path, places));
+  const writes = files.write.map((path) => pathItem(path, places));
+  const list = (label: string, items: readonly string[]): string[] => (items.length === 0 ? [] : [`- ${label}: ${items.join(', ')}`]);
+  const models = grants?.models;
+  const network = grants?.network ?? [];
+  const hub = grants?.hub ?? [];
+  const lines = [
+    'Grants, enforced from the moment it starts:',
+    ...list('Reads', reads.map((item) => item.text)),
+    ...list('Writes', writes.map((item) => item.text)),
+    `- Network: ${network.length === 0 ? 'no hosts' : network.join(', ')}`,
+    `- Hub: ${hub.length === 0 ? 'the base only' : hub.join(', ')}`,
+    ...list('Models', models === undefined ? [] : [
+      models.roles === undefined ? 'any role' : `roles ${models.roles.join(', ')}`,
+      ...(models.models === undefined ? [] : [`models ${models.models.join(', ')}`]),
+      ...(models.perRun === undefined ? [] : [`up to $${String(models.perRun)} a run`]),
+      ...(models.perDay === undefined ? [] : [`$${String(models.perDay)} a day`]),
+    ]),
+    ...list('Secrets', grants?.secrets ?? []),
+    ...list('Calls', grants?.calls ?? []),
+  ];
+  const never = [...reads, ...writes].filter((item) => item.never).map((item) => item.text);
+  if (never.length === 0) { return { lines }; }
+  return { lines, refused: `Its grants.files name ${never.join(', ')}: a filesystem root, or a folder holding fs's data (every hosted system's code and keys), is never granted. Name only the folders it needs.` };
 }
 
 /** What the runner starts: a bundle under tsx, in its folders, with only the environment given. */
@@ -230,6 +300,9 @@ export class Hosting {
     const hosted = await this.record(manifest.name, instance);
     if (RESERVED.has(manifest.name)) { throw new InstallRefused(`"${manifest.name}" is reserved for the hub: rename the system in system.json and its contract.`); }
     const built = await this.#serial(manifest.name, () => this.#build(folder, manifest.name, signal));
+    const dirs = this.folders(manifest.name, instance);
+    const grants = grantsReview(built.grants, { own: [dirs.state, dirs.data, dirs.cache], dataFolder: dirs.data, fsData: this.#deps.dataDir, home: homedir() });
+    if (grants.refused !== undefined) { throw new InstallRefused(grants.refused); }
     const sourceHash = await this.#deps.builds.sourceHash(folder);
     // the folder's own tests run before an admin is asked, and their result goes on the card beside the scan
     const tests = await this.#deps.tests?.run(folder, signal);
@@ -244,6 +317,7 @@ export class Hosting {
       sourceHash,
       host: this.#deps.host,
       source: folder,
+      ...(built.grants === undefined ? {} : { grants: built.grants }),
       ...(hosted === undefined ? {} : { replaces: { version: hosted.version, manifestHash: hosted.manifestHash } }),
     };
     const where = `${this.#deps.host.system}/${this.#deps.host.instance}`;
@@ -264,6 +338,7 @@ export class Hosting {
           ...(kept.length === 0 ? [] : ['', hosted === undefined ? 'Fns:' : 'Fns it keeps:', ...kept.map((line) => `- ${line}`)]),
           ...(built.adds.length === 0 ? [] : ['', 'Also adds:', ...built.adds.map((line) => `- ${line}`)]),
           ...(permissions.length === 0 ? [] : ['', `Asks to: ${permissions.join(', ')}.`]),
+          '', ...grants.lines,
         ].join('\n'),
       },
       ...(hosted === undefined ? [] : [{ type: 'text' as const, text: ['Changes from the running version:', ...(diff.length === 0 ? ['- no fns added, removed or changed'] : diff.map((line) => `- ${line}`))].join('\n') }]),
@@ -300,6 +375,8 @@ export class Hosting {
       if (again.bundleHash !== subject.bundleHash) { throw new InstallRefused('The build is not the one approved; call install_system again.'); }
       built = again;
     }
+    // it starts with the grants the card showed, or not at all
+    if (!isDeepStrictEqual(built.grants, subject.grants)) { throw new InstallRefused('Its grants are not the ones approved; call install_system again.'); }
     const hosted = await this.record(subject.system, subject.instance);
     // what it may do comes from the approved build, never from system.json read again
     // a system already hosted here keeps its key and re-pairs by itself; a new one needs a token bound to this approval
@@ -497,8 +574,7 @@ export class Hosting {
       ...(token === undefined ? {} : { HARNESS_PAIRING_TOKEN: token }),
     };
     // its declared paths, relative to its data folder or absolute
-    const paths = (list: readonly string[] | undefined): string[] => (list ?? []).map((path) => (isAbsolute(path) ? resolve(path) : resolve(dirs.data, path)));
-    const files = { read: paths(record.grants?.files?.read), write: paths(record.grants?.files?.write) };
+    const files = grantedPaths(record.grants?.files, dirs.data);
     return await this.#deps.runner.start(keyOf(record), {
       ref: { system: record.system, instance: record.instance }, entry: record.entry, cwd: this.versionFolder(record.system, record.bundleHash),
       writes: [dirs.state, dirs.data, dirs.cache], env, permissions: record.permissions, files, network: record.grants?.network ?? [],

@@ -13,6 +13,7 @@ import { SystemName } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { ContentStore } from './index.ts';
 import { mimeOf } from './mime.ts';
+import { clientItemName, type SystemLifecycle } from '../link/lifecycle.ts';
 
 /** Serves one kind of file; resolves true when it answered the request. */
 export interface FileRoute {
@@ -77,14 +78,16 @@ export class WebAppRoute implements FileRoute {
 /** The prefix client builds are served under. */
 export const CLIENTS_PATH = '/clients/';
 
-/** Systems' client builds, from their content refs. */
+/** Systems' client builds, from their content refs; none while switched off or changed and waiting for review. */
 export class ClientBuildRoute implements FileRoute {
   readonly #catalog: Pick<Catalog, 'manifest'>;
   readonly #content: Pick<ContentStore, 'open'>;
+  readonly #lifecycle: () => Pick<SystemLifecycle, 'off'>;
 
-  constructor(options: { catalog: Pick<Catalog, 'manifest'>; content: Pick<ContentStore, 'open'> }) {
+  constructor(options: { catalog: Pick<Catalog, 'manifest'>; content: Pick<ContentStore, 'open'>; lifecycle: () => Pick<SystemLifecycle, 'off'> }) {
     this.#catalog = options.catalog;
     this.#content = options.content;
+    this.#lifecycle = options.lifecycle;
   }
 
   async serve(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
@@ -94,7 +97,8 @@ export class ClientBuildRoute implements FileRoute {
     const [system, build, ...rest] = parts;
     const name = SystemName.safeParse(system);
     if (!name.success || build === undefined || rest.length === 0) { return notFound(res); }
-    const client = (await this.#catalog.manifest(name.data))?.client;
+    const off = await this.#lifecycle().off('components', { system: name.data });
+    const client = off.has(clientItemName(name.data)) ? undefined : (await this.#catalog.manifest(name.data))?.client;
     const file = client?.hash === build ? client.files.find((f) => f.path === rest.join('/')) : undefined;
     const bytes = file === undefined ? undefined : await this.#content.open(file.hash);
     if (file === undefined || bytes === undefined) { return notFound(res); }

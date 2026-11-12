@@ -1,11 +1,16 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { InstanceName, SystemName, type InstallSubject, type SystemTestReport } from '@harness/core';
+import { join, resolve } from 'node:path';
+import { InstanceName, SystemName, type InstallSubject, type PreviewPart, type SystemGrants, type SystemTestReport } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Hosting, InstallRefused, capped, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
 
 const host = { system: SystemName.parse('fs'), instance: InstanceName.parse('main') };
 const signal = new AbortController().signal;
+
+/** The card's text parts, joined. */
+function cardText(parts: readonly PreviewPart[]): string {
+  return parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+}
 
 /** A system folder in a fresh temp folder. */
 function folder(name = 'random', version = '0.1.0'): string {
@@ -21,6 +26,7 @@ class FakeBuilds implements SystemBuilds {
   fns = ['random/random (read)'];
   source = 'source-1';
   builds = 0;
+  grants: SystemGrants = { hub: [], network: ['api.example.com'], files: { read: ['shared'], write: [] } };
 
   sourceHash(): Promise<string> {
     return Promise.resolve(this.source);
@@ -42,7 +48,7 @@ class FakeBuilds implements SystemBuilds {
         manifest: { format: 1, name: SystemName.parse('random'), version, description: 'Random numbers.', protocol: 1, server: { entry: 'server/main.js', external: {} }, instances: 'one' },
         manifestHash: `m-${this.fns.join(',')}`, bundleHash: `b-${this.source}`, entry: join(outDir, 'server', 'main.js'),
         fns: this.fns, adds: [], scan: { size: 2048, builtins: [], concerns: [], urls: [], hosts: [] },
-        grants: { hub: [], network: ['api.example.com'], files: { read: ['shared'], write: [] } },
+        grants: this.grants,
       },
     });
   }
@@ -114,6 +120,12 @@ describe('hosting systems written here', () => {
     expect(preview.title).toBe('Install random 0.1.0 on fs/main');
     expect(preview.subject).toMatchObject({ kind: 'system-install', system: 'random', instance: 'main', bundleHash: 'b-source-1', sourceHash: 'source-1', host });
     expect(JSON.stringify(preview.parts)).toContain('random/random (read)');
+    // the grants it starts with are on the card and bound by the subject
+    const card = cardText(preview.parts);
+    expect(card).toContain('Grants, enforced from the moment it starts:');
+    expect(card).toContain('- Network: api.example.com');
+    expect(card).toMatch(/- Reads: `[^`]*shared`\n/);
+    expect(preview.subject?.grants).toEqual({ hub: [], network: ['api.example.com'], files: { read: ['shared'], write: [] } });
     if (preview.subject === undefined) { throw new Error('no subject'); }
     const result = await hosting.install(dir, preview.subject, grant, signal);
     expect(result).toMatchObject({ system: 'random', instance: 'main', status: 'connected', fns: ['random/random'] });
@@ -163,6 +175,29 @@ describe('hosting systems written here', () => {
     await hosting.install(dir, update.subject, grant, signal);
     // the hosted system already has its key: no second token
     expect(grants).toHaveLength(1);
+  });
+
+  it('flags grants outside its own folders, refuses a root or fs\'s data, and starts only the grants approved', async () => {
+    const { builds, hosting, grant } = setup();
+    const dir = folder();
+    const outside = resolve('.harness-test', 'shared-notes');
+    builds.grants = { hub: ['ai'], network: [], files: { read: [outside], write: [] }, secrets: ['TAVILY'] };
+    const card = cardText((await hosting.preview(dir, {}, signal)).parts);
+    expect(card).toContain(`- Reads: \`${outside}\` (outside its own folders)`);
+    expect(card).toContain('- Network: no hosts');
+    expect(card).toContain('- Hub: ai');
+    expect(card).toContain('- Secrets: TAVILY');
+    const refusal = (write: string[]) => {
+      builds.grants = { hub: [], files: { read: [], write } };
+      return hosting.preview(dir, {}, signal).then(() => '', (error: unknown) => (error instanceof InstallRefused ? error.message : 'other'));
+    };
+    expect(await refusal([resolve('/')])).toContain('is never granted');
+    expect(await refusal([resolve('.harness-test')])).toContain('is never granted');
+    builds.grants = { hub: [], files: { read: [outside], write: [] } };
+    const subject = (await hosting.preview(dir, {}, signal)).subject;
+    if (subject === undefined) { throw new Error('no subject'); }
+    // a subject whose grants differ from the build's is never started
+    await expect(hosting.install(dir, { ...subject, grants: { hub: [], network: ['evil.example.net'] } }, grant, signal)).rejects.toThrow('Its grants are not the ones approved');
   });
 
   it('gives the model the exit code and the end of the output when it crashes before connecting', async () => {

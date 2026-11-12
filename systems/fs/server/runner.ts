@@ -3,20 +3,32 @@
  * child of fs, started by a `ProcessStarter` (the scrubbed environment, fs's tsx loader first) under Node's permission
  * model (`permissionArgs`: read its bundle and the loader, write its own folders, child processes and workers only when
  * `system.json` asks, plus the paths its contract's `grants.files` names), its network through an allowlist proxy of the
- * hosts its `grants.network` names (`proxyEnv`; the hub link goes direct), and restarted after a crash by the `CrashPolicy` (backoff doubling, a cap per hour, then
+ * hosts its `grants.network` names (`proxyEnv`; the hub link goes direct) with its sockets held to that proxy and the hub
+ * (`hosted-network-guard.ts`, preloaded, so a raw socket or a client with its own agent can't go around the proxy), and restarted after a crash by the `CrashPolicy` (backoff doubling, a cap per hour, then
  * disabled). A start waits until that very process says the hub welcomed it (its `system.status` log line, `connected`
  * or `needs-config`: the SDK writes it once the hub accepted its key and, for a first install, the approved contract),
  * it exits, or the time is up. Another instance of the system, or the old process of an update, never counts. A host
- * the proxy refuses, and a path Node's permission model refuses (read from what the child prints), are reported to the
+ * the proxy or the socket guard refuses, and a path Node's permission model refuses (read from what the child prints), are reported to the
  * hub as that instance's refusals.
  */
 import { AccessDeniedReader, permissionArgs, proxyEnv, statusOfLine, type CrashPolicy, type ProcessStarter, type ProxyRefusal, type SupervisedProcess } from '@harness/sdk/server';
 import type { HostRefusal, RestartPolicy } from '@harness/core';
 import type { HostedStateValue } from '../shared/hosting.ts';
+import { fileURLToPath } from 'node:url';
 import type { HostedLaunch, HostedRunner, RunnerStatus, StartOutcome } from './hosting.ts';
+import { NETWORK_ALLOW_VAR, endpointOf, endpointsText, refusedOfLine, type Endpoint } from './socket-guard.ts';
 
 /** An hour, the window restarts are counted in. */
 const HOUR = 3_600_000;
+
+/**
+ * What each hosted process preloads to hold its sockets to its proxy and the hub. `--require`, not `--import`: a
+ * preload runs before the loader's `--import`, so Node strips the guard's types itself (tsx would need a worker to
+ * transform it, which the permission model denies), and tsx still registers its hooks after it.
+ */
+const NETWORK_GUARD = fileURLToPath(new URL('./hosted-network-guard.ts', import.meta.url));
+/** The guard's files, which every hosted process may read. */
+const GUARD_FILES = [NETWORK_GUARD, fileURLToPath(new URL('./socket-guard.ts', import.meta.url))];
 
 /** A child's network gate: listens, and is closed when the child is stopped for good (`AllowlistProxy`). */
 export interface NetworkGate {
@@ -29,8 +41,8 @@ export interface NetworkGate {
 export interface RunnerDeps {
   /** A gate letting through only `allow`, telling `refused` of every other host. */
   readonly gate: (allow: readonly string[], refused: (refusal: ProxyRefusal) => void) => NetworkGate;
-  /** Hosts every child reaches directly, never through its gate (the hub's). */
-  readonly direct: readonly string[];
+  /** Where every child connects directly, never through its gate (the hub). */
+  readonly direct: readonly Endpoint[];
   /** Sends a refusal to the hub. */
   readonly refused: (refusal: HostRefusal) => void;
   readonly starter: ProcessStarter;
@@ -71,12 +83,7 @@ export class SupervisedRunner implements HostedRunner {
   async start(key: string, launch: HostedLaunch, timeout: number): Promise<StartOutcome> {
     await this.stop(key);
     this.#deps.policy.forget(key);
-    const gate = this.#deps.gate([...launch.network, ...this.#deps.direct], (refusal) => {
-      this.#deps.refused({
-        instance: launch.ref, rule: 'network', attempt: `${refusal.host}:${String(refusal.port)}`,
-        detail: `${launch.ref.system} tried to reach ${refusal.host}, which its grants.network doesn't name`,
-      });
-    });
+    const gate = this.#deps.gate([...launch.network, ...this.#directHosts()], (refusal) => { this.#refusedHost(launch, refusal.host, `${refusal.host}:${String(refusal.port)}`); });
     const entry: Entry = { launch, process: undefined, state: 'starting', output: '', restarts: [], stopping: false, said: undefined, gate: { gate, url: await gate.start() } };
     this.#entries.set(key, entry);
     const child = this.#spawn(key, entry);
@@ -129,7 +136,7 @@ export class SupervisedRunner implements HostedRunner {
   #spawn(key: string, entry: Entry): SupervisedProcess {
     const { launch } = entry;
     const grants = {
-      read: [launch.cwd, ...this.#deps.reads, ...launch.files.read], write: [...launch.writes, ...launch.files.write],
+      read: [launch.cwd, ...this.#deps.reads, ...GUARD_FILES, ...launch.files.read], write: [...launch.writes, ...launch.files.write],
       ...(launch.permissions === undefined ? {} : { permissions: launch.permissions }),
     };
     entry.said = undefined;
@@ -141,6 +148,8 @@ export class SupervisedRunner implements HostedRunner {
       partial = lines.pop() ?? '';
       for (const line of lines) {
         this.#heard(entry, child, line);
+        const target = refusedOfLine(line);
+        if (target !== undefined) { this.#refusedHost(launch, target.replace(/:\d+$/, ''), target); }
         const access = denied.line(line);
         if (access !== undefined) {
           const what = access.resource ?? 'a path';
@@ -148,8 +157,12 @@ export class SupervisedRunner implements HostedRunner {
         }
       }
     };
-    const env = { ...launch.env, ...proxyEnv(entry.gate.url, this.#deps.direct) };
-    const child: SupervisedProcess = this.#deps.starter.launch({ run: process.execPath, args: [...permissionArgs(grants), launch.entry], cwd: launch.cwd, env, onOutput: heard });
+    const env = {
+      ...launch.env, ...proxyEnv(entry.gate.url, this.#directHosts()),
+      [NETWORK_ALLOW_VAR]: endpointsText([endpointOf(entry.gate.url), ...this.#deps.direct]),
+    };
+    const args = [...permissionArgs(grants), '--require', NETWORK_GUARD, launch.entry];
+    const child: SupervisedProcess = this.#deps.starter.launch({ run: process.execPath, args, cwd: launch.cwd, env, onOutput: heard });
     entry.process = child;
     void child.exited.then(async (exit) => {
       entry.output = exit.output;
@@ -181,6 +194,16 @@ export class SupervisedRunner implements HostedRunner {
       }
     });
     return child;
+  }
+
+  /** The hosts of the direct endpoints (the hub's), which skip the proxy. */
+  #directHosts(): string[] {
+    return [...new Set(this.#deps.direct.map((endpoint) => endpoint.host))];
+  }
+
+  /** Tell the hub the instance tried to reach `host` (`attempt` is what it asked for), which its grants don't name. */
+  #refusedHost(launch: HostedLaunch, host: string, attempt: string): void {
+    this.#deps.refused({ instance: launch.ref, rule: 'network', attempt, detail: `${launch.ref.system} tried to reach ${host}, which its grants.network doesn't name` });
   }
 
   /** A line the entry's process printed: a status line of the current process is what it says of the hub. */

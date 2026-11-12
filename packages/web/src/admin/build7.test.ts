@@ -13,7 +13,7 @@ import ChangeList from './components/ChangeList.vue';
 import ConfigCustom from './components/ConfigCustom.vue';
 import PartsByKind from './components/PartsByKind.vue';
 import ReviewFnList from './components/ReviewFnList.vue';
-import { checksLine, checksWarn, clientFileUrl, declaredItems, fnReviews, grantRows, lineDiff, refusalLine, timeText, withSwitch } from './logic/review.ts';
+import { checksConcerns, checksLine, checksWarn, clientFileUrl, declaredItems, fnReviews, grantRows, lineDiff, refusalLine, timeText, withSwitch } from './logic/review.ts';
 import { partChoices, partGroups, shownPart } from './logic/systems.ts';
 import { ConfigComponents, configTarget } from './state/config-component.ts';
 import { fakeAdmin, fakeAdminApi } from './test/fakes.ts';
@@ -69,6 +69,8 @@ describe('review logic', () => {
     expect(checksLine(review().checks)).toBe('3 passed, 1 failed, 1 skipped · 1 scan concern');
     expect(checksWarn(review().checks)).toBe(true);
     expect(checksLine(undefined)).toBe('No checks recorded');
+    expect(checksConcerns(review().checks)).toBe('1 test failed and the scan found 1 concern');
+    expect(checksConcerns(undefined)).toBeUndefined();
   });
 
   it('offers only the part kinds a system has, falling back to the first', () => {

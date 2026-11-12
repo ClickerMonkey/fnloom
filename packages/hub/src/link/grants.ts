@@ -16,12 +16,13 @@ import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
   HUB_CAPABILITIES, LocalName, mintId, ModelChoice, OWN_TAG, qualify, QualifiedName, RunId, splitName,
-  type hubLinkSpec, type FnMode, type FnRecord, type HubCapability, type LinkSession, type RefusalRecord, type RefusalRule, type Run, type SystemGrants, type SystemName,
+  type hubLinkSpec, type FnMode, type FnRecord, type HubCapability, type LinkSession, type ModelRole, type RefusalRecord, type RefusalRule, type Run, type SystemGrants, type SystemName,
 } from '@harness/core';
 import { z } from 'zod';
 import type { EventBus } from '../bus.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Catalog } from '../catalog/index.ts';
+import { ROLE_OF } from '../models/gateway.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ReviewEnv } from './env.ts';
 import type { SystemAdmin } from './index.ts';
@@ -68,6 +69,11 @@ const CallBody = z.object({ parent: RunId, fn: QualifiedName });
 const TypesBody = z.object({ names: z.array(QualifiedName), run: RunId.optional() });
 const ProposeBody = z.object({ fn: LocalName, parent: RunId.optional() });
 const ModelBody = z.object({ run: RunId.optional(), model: ModelChoice.optional(), modality: z.string().optional() });
+
+/** The role a model call that names no model uses, by its modality (`ROLE_OF`); none for a modality without one. */
+function roleOfModality(modality: string | undefined): ModelRole | undefined {
+  return Object.entries(ROLE_OF).find(([name]) => name === modality)?.[1];
+}
 
 /** What the guard reads and does. */
 export interface GrantGuardOptions {
@@ -236,8 +242,13 @@ export class SystemGrantGuard {
     return { rule: 'types', attempt: outside.join(', '), run: run?.id, fn: run?.fn, detail: `${asker}, and ${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} not among them` };
   }
 
-  /** A model call: its model or role must be granted, and the run and the system's day must be under their caps. */
-  async #model(link: LinkSession, grants: SystemGrants, endpoint: string, body: { run?: RunId | undefined; model?: ModelChoice | undefined } | undefined): Promise<Refusal | undefined> {
+  /**
+   * A model call: its model or role must be granted, and the run and the system's day must be under their caps. A call
+   * that names no model uses its role's (`chat` for `llm`, `ROLE_OF` for the rest), so that role must be granted;
+   * automatic selection, or a modality with no role, may pick any model, so it is refused once roles or models are declared.
+   * An embedding is the `embed` capability's: it uses the hub's embedder, not a model role.
+   */
+  async #model(link: LinkSession, grants: SystemGrants, endpoint: string, body: { run?: RunId | undefined; model?: ModelChoice | undefined; modality?: string | undefined } | undefined): Promise<Refusal | undefined> {
     const limits = grants.models;
     if (limits === undefined || body === undefined) { return undefined; }
     const run = body.run;
@@ -247,6 +258,19 @@ export class SystemGrantGuard {
     }
     if (choice !== undefined && 'category' in choice && limits.roles !== undefined && !limits.roles.some((role) => role === choice.category)) {
       return { rule: 'models', attempt: choice.category, run, detail: `it didn't declare that it uses the ${choice.category} models` };
+    }
+    const restricted = limits.roles !== undefined || limits.models !== undefined;
+    if (choice !== undefined && 'auto' in choice && restricted) {
+      return { rule: 'models', attempt: 'auto', run, detail: 'it declared the models it uses, and automatic selection may pick any model' };
+    }
+    if (choice === undefined && body.modality !== 'embed') {
+      const role = endpoint === 'llm' ? 'chat' : roleOfModality(body.modality);
+      if (role === undefined && restricted) {
+        return { rule: 'models', attempt: body.modality ?? endpoint, run, detail: `it declared the models it uses, and a ${body.modality ?? endpoint} call that names none may use any model` };
+      }
+      if (role !== undefined && limits.roles !== undefined && !limits.roles.includes(role)) {
+        return { rule: 'models', attempt: role, run, detail: `it names no model, so it would use the ${role} role, which it didn't declare` };
+      }
     }
     if (limits.perDay !== undefined) {
       const spent = await this.spentToday(link.system);

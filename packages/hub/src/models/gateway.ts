@@ -14,7 +14,7 @@ import type { HubStore } from '../store/index.ts';
 import type { ModelGateway, ModelRoles, ModelSite } from './index.ts';
 
 /** The role whose model a modality uses when the call names none. */
-const ROLE_OF = { embed: undefined, image: undefined, transcribe: 'transcribe', speech: 'speak' } as const satisfies Record<ModelForward['modality'], ModelRole | undefined>;
+export const ROLE_OF = { embed: undefined, image: undefined, transcribe: 'transcribe', speech: 'speak' } as const satisfies Record<ModelForward['modality'], ModelRole | undefined>;
 
 /** What the gateway uses. */
 export interface ModelGatewayDeps {

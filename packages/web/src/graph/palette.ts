@@ -66,8 +66,8 @@ export function graphStyle(colors: GraphColors, dark: boolean): StylesheetJson {
     {
       selector: 'node',
       style: {
-        label: 'data(label)', 'font-size': 13, 'font-family': 'ui-sans-serif, system-ui, sans-serif', color: colors.text, 'text-valign': 'bottom', 'text-margin-y': 4,
-        'text-wrap': 'ellipsis', 'text-max-width': '120px', width: 24, height: 24, 'border-width': 2, 'border-color': colors.surface, 'min-zoomed-font-size': 5,
+        label: 'data(label)', 'font-size': 16, 'font-family': 'ui-sans-serif, system-ui, sans-serif', color: colors.text, 'text-valign': 'bottom', 'text-margin-y': 4,
+        'text-wrap': 'ellipsis', 'text-max-width': '140px', width: 24, height: 24, 'border-width': 2, 'border-color': colors.surface, 'min-zoomed-font-size': 5,
         'text-background-color': colors.surface, 'text-background-opacity': 0.7, 'text-background-padding': '1px', 'text-background-shape': 'roundrectangle',
       },
     },
@@ -77,20 +77,20 @@ export function graphStyle(colors: GraphColors, dark: boolean): StylesheetJson {
       selector: 'node.cluster',
       style: {
         shape: 'round-rectangle', 'background-color': colors.surface2, 'background-opacity': 0.55, 'border-width': 1, 'border-color': colors.border, label: 'data(label)',
-        'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -4, 'font-size': 12, 'font-weight': 600, color: colors.dim, padding: '14px', 'text-background-opacity': 0,
+        'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -4, 'font-size': 18, 'font-weight': 700, color: colors.text, padding: '14px', 'text-background-opacity': 0,
       },
     },
-    { selector: 'node.cluster.external', style: { 'border-style': 'dashed', 'border-color': colors.strong, 'background-opacity': 0.25 } },
+    { selector: 'node.cluster.external', style: { color: colors.dim, 'border-style': 'dashed', 'border-color': colors.strong, 'background-opacity': 0.25 } },
     // greyed a bit, still readable: a paler fill and a dashed ring, its label in the dim text colour
     { selector: 'node.external', style: { 'background-opacity': 0.5, 'border-style': 'dashed', 'border-width': 2, 'border-color': colors.dim, color: colors.dim } },
     { selector: 'node.off', style: { 'background-opacity': 0.35 } },
     { selector: 'node.pending', style: { 'border-color': colors.warn, 'border-width': 3 } },
-    { selector: 'node.collapsed', style: { width: 46, height: 46, 'font-size': 12 } },
+    { selector: 'node.collapsed', style: { width: 46, height: 46, 'font-size': 16 } },
     {
       selector: 'node.more',
       style: {
         shape: 'round-rectangle', 'background-color': colors.surface2, 'border-width': 1, 'border-style': 'dashed', 'border-color': colors.strong, color: colors.dim,
-        'text-valign': 'center', 'text-margin-y': 0, width: 'label', height: 20, padding: '6px', 'font-size': 10, 'text-background-opacity': 0,
+        'text-valign': 'center', 'text-margin-y': 0, width: 'label', height: 20, padding: '6px', 'font-size': 13, 'text-background-opacity': 0,
       },
     },
     {

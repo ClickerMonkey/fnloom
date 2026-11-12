@@ -63,7 +63,7 @@ function setup() {
   const refusals: HostRefusal[] = [];
   let now = 0;
   const runner = new SupervisedRunner({
-    gate: (allow, refused) => { const gate = new FakeGate(allow, refused); gates.push(gate); return gate; }, direct: ['hub.local'], refused: (refusal) => { refusals.push(refusal); },
+    gate: (allow, refused) => { const gate = new FakeGate(allow, refused); gates.push(gate); return gate; }, direct: [{ host: 'hub.local', port: 4300 }], refused: (refusal) => { refusals.push(refusal); },
     starter, policy: new CrashPolicy({ maxWait: 10, restartCode: 75, clock: () => now }), restart: { policy: 'on-failure', backoff: 1, maxPerHour: 2 },
     reads: ['/repo/node_modules'], every: 1, wait: (ms) => { now += ms; return new Promise((done) => { setTimeout(done, 1); }); }, now: () => now, log: () => undefined,
   });
@@ -107,12 +107,19 @@ describe('the hosted runner', () => {
     expect(args.some((arg) => arg.startsWith('--allow-fs-read=') && arg.includes('notes'))).toBe(true);
     expect(args.some((arg) => arg.startsWith('--allow-fs-write=') && arg.includes('out'))).toBe(true);
     expect(started?.env).toMatchObject({ HTTPS_PROXY: 'http://127.0.0.1:9', NODE_USE_ENV_PROXY: '1', NO_PROXY: 'hub.local', HARNESS_INSTANCE: 'main' });
+    // its sockets are held to the proxy and the hub by the guard it loads first
+    expect(started?.env).toMatchObject({ HARNESS_NETWORK_ALLOW: '127.0.0.1:9,hub.local:4300' });
+    expect(args.at(-3)).toBe('--require');
+    expect(args.at(-2)).toMatch(/hosted-network-guard\.ts$/);
+    expect(args.some((arg) => arg.startsWith('--allow-fs-read=') && arg.endsWith('socket-guard.ts'))).toBe(true);
     expect(gates[0]?.allow).toEqual(['api.example.com', 'hub.local']);
 
     gates[0]?.refuse({ host: 'evil.example.net', port: 443 });
+    started?.onOutput?.('harness.network.refused 10.0.0.5:11434\n');
     started?.onOutput?.("  code: 'ERR_ACCESS_DENIED',\n  permission: 'FileSystemRead',\n  resource: '/etc/passwd'\n}\n");
     expect(refusals).toEqual([
       { instance: launch.ref, rule: 'network', attempt: 'evil.example.net:443', detail: "random tried to reach evil.example.net, which its grants.network doesn't name" },
+      { instance: launch.ref, rule: 'network', attempt: '10.0.0.5:11434', detail: "random tried to reach 10.0.0.5, which its grants.network doesn't name" },
       { instance: launch.ref, rule: 'files', attempt: '/etc/passwd', detail: "random tried FileSystemRead on /etc/passwd, which its grants.files doesn't name" },
     ]);
     await runner.stop('random/main');

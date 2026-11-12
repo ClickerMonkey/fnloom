@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SystemName, type Manifest } from '@harness/core';
 import { clientUrl } from './web/chat.ts';
+import { clientItemName } from '../link/lifecycle.ts';
 import { ClientBuildRoute, WebAppRoute, type FileRoute } from './serve.ts';
 import { testManifest } from './testing/rig.ts';
 
@@ -74,8 +75,11 @@ describe('ClientBuildRoute', () => {
   const fileHash = 'b'.repeat(64);
   const manifest = { client: { entry: 'index.js', hash: 'build1', files: [{ path: 'chunks/view.js', size: 6, hash: fileHash }] } };
   let site: Awaited<ReturnType<typeof serveRoutes>>;
+  /** The components switched off or waiting for review. */
+  const held = new Set<string>();
   beforeAll(async () => {
     const route = new ClientBuildRoute({
+      lifecycle: () => ({ off: () => Promise.resolve(held) }),
       catalog: { manifest: (system) => Promise.resolve(system === fs ? parseManifest(manifest) : undefined) },
       content: {
         open: (hash) => Promise.resolve(hash === fileHash
@@ -94,6 +98,11 @@ describe('ClientBuildRoute', () => {
     expect(res.headers.get('cache-control')).toContain('immutable');
     expect(res.headers.get('etag')).toBe(`"${fileHash}"`);
     expect(await res.text()).toBe('view()');
+  });
+
+  it('serves nothing while the build is switched off or waits for review', async () => {
+    held.add(clientItemName(fs));
+    try { expect((await fetch(`${site.url}${clientUrl(fs, 'build1', 'chunks/view.js')}`)).status).toBe(404); } finally { held.clear(); }
   });
 
   it('says not modified when the browser has it', async () => {

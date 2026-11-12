@@ -131,11 +131,15 @@ describe('calls and modes', () => {
 
 describe('models and spend', () => {
   it('refuses a model or role not declared, and a run or day past its cap', async () => {
-    await withGrants({ hub: ['ai'], models: { roles: ['chat'], models: ['openrouter/free'], perRun: 0.5, perDay: 1 } });
+    await withGrants({ hub: ['ai'], models: { roles: ['chat', 'speak'], models: ['openrouter/free'], perRun: 0.5, perDay: 1 } });
     const run = await runOf('read');
     await rig.grants.check(LINK, 'llm', { run: run.id, request: { messages: [] }, model: { model: 'openrouter/free' }, stream: false });
     expect(await refused(rig.grants.check(LINK, 'llm', { run: run.id, request: { messages: [] }, model: { model: 'openai/gpt-5' }, stream: false }))).toBe('it didn\'t declare that it uses the model openai/gpt-5');
     expect(await refused(rig.grants.check(LINK, 'model', { modality: 'image', prompt: 'a cat', model: { category: 'vision' } }))).toBe('it didn\'t declare that it uses the vision models');
+    // naming no model uses a role, which must be declared; automatic selection or an image with no model may use any
+    expect(await refused(rig.grants.check(LINK, 'model', { run: run.id, modality: 'transcribe', audio: { hash: 'a'.repeat(64), size: 1, mime: 'audio/wav' } }))).toBe("it names no model, so it would use the transcribe role, which it didn't declare");
+    expect(await refused(rig.grants.check(LINK, 'llm', { run: run.id, request: { messages: [] }, model: { auto: { accuracy: 1 } }, stream: false }))).toBe('it declared the models it uses, and automatic selection may pick any model');
+    expect(await refused(rig.grants.check(LINK, 'model', { run: run.id, modality: 'image', prompt: 'a cat' }))).toContain('may use any model');
     await rig.store.table('runs').update(run.id, { totalCost: 0.6 });
     expect(await refused(rig.grants.check(LINK, 'llm', { run: run.id, request: { messages: [] }, stream: false }))).toContain('its cap of $0.5000 per run');
     // with a per-run cap, a model call must name one of its own runs

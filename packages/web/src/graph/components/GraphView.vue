@@ -44,6 +44,10 @@ let moved = false;
 const FIT_PADDING = 40;
 /** The zoom a graph opens at stays in this range, so labels are readable however many items there are. */
 const START_ZOOM = { min: 0.65, max: 1.3 } as const;
+/** Whether part of the graph lies outside the box (then a hint says so, with a Fit button). */
+const cropped = ref(false);
+/** The next animation frame the crop check waits for, so a pan checks once per frame. */
+let cropCheck = 0;
 
 const kinds = computed(() => [...new Set(props.page.nodes.map((node) => node.kind))]);
 const legendColor = (kind: GraphNode['kind']): string => NODE_KIND_COLORS[kind][dark.value ? 1 : 0];
@@ -76,28 +80,48 @@ function draw(): void {
   core.elements().remove();
   core.add(graphElements(props.page, { clusters: props.clusters }));
   const layout = core.layout({
-    name: 'cose', animate: false, fit: false, nodeDimensionsIncludeLabels: true, padding: 16, componentSpacing: 24, nodeRepulsion: () => 2800, idealEdgeLength: () => 46,
-    nestingFactor: 0.9, gravity: 2.5, nodeOverlap: 8, numIter: 1500,
+    name: 'cose', animate: false, fit: false, nodeDimensionsIncludeLabels: true, padding: 16, componentSpacing: 24, nodeRepulsion: () => 2200, idealEdgeLength: () => 40,
+    nestingFactor: 0.8, gravity: 4, nodeOverlap: 8, numIter: 1500,
   });
   layout.one('layoutstop', () => { moved = false; frameView(); });
   layout.run();
 }
 
 /**
- * Frame the graph: fit it in the box (clear of the buttons and the legend), then keep the zoom in the readable range;
- * a large graph opens centred at the smallest readable zoom, to pan around or fit with the button.
+ * Frame the graph so the first view shows as much as stays readable: the whole graph when it fits at a readable zoom,
+ * else the shown systems' own items (references from other systems may fall outside), else the own items centred at
+ * the smallest readable zoom. The zoom is clamped only after fitting; whatever is left outside is flagged by a hint.
  */
 function frameView(): void {
   const core = cy.value;
   if (core === undefined) { return; }
   core.resize();
   if (core.width() === 0 || core.height() === 0 || core.elements().length === 0) { return; }
-  core.fit(undefined, FIT_PADDING);
+  const own = core.nodes().not('.external').not('.more');
+  const targets = own.length > 0 && own.length < core.nodes().length ? [core.elements(), own] : [core.elements()];
+  for (const target of targets) {
+    core.fit(target, FIT_PADDING);
+    if (core.zoom() >= START_ZOOM.min) { break; }
+  }
   const level = Math.min(START_ZOOM.max, Math.max(START_ZOOM.min, core.zoom()));
   if (level !== core.zoom()) {
     core.zoom(level);
-    core.center();
+    core.center(own.length > 0 ? own : undefined);
   }
+  checkCrop();
+}
+
+/** Note whether any element lies outside the box (checked once per frame while panning or zooming). */
+function checkCrop(): void {
+  if (cropCheck !== 0) { return; }
+  cropCheck = requestAnimationFrame(() => {
+    cropCheck = 0;
+    const core = cy.value;
+    if (core === undefined || core.elements().length === 0) { cropped.value = false; return; }
+    const box = core.elements().renderedBoundingBox();
+    const slack = 2;
+    cropped.value = box.x1 < -slack || box.y1 < -slack || box.x2 > core.width() + slack || box.y2 > core.height() + slack;
+  });
 }
 
 /** Fit everything in view, however small it gets (the Fit button). */
@@ -155,7 +179,7 @@ onMounted(async () => {
       if (pick.type === 'node' && pick.node.kind === 'fn' && !pick.node.external) { emit('open', pick.node); }
     });
     core.on('tap', (event) => { if (event.target === core) { picked.value = undefined; light(undefined); } });
-    core.on('pan zoom', () => { hover.value = undefined; });
+    core.on('pan zoom', () => { hover.value = undefined; checkCrop(); });
     core.on('dragpan scrollzoom pinchzoom', () => { moved = true; });
     resize = new ResizeObserver(() => { core.resize(); if (!moved) { frameView(); } });
     resize.observe(container);
@@ -166,6 +190,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   resize?.disconnect();
+  cancelAnimationFrame(cropCheck);
   cy.value?.destroy();
   cy.value = undefined;
 });
@@ -206,6 +231,7 @@ function expand(): void {
       <UiIconButton icon="minus" label="Zoom out" size="sm" @click="zoomBy(1 / 1.3)" />
       <UiIconButton icon="grid" label="Fit to view" size="sm" data-testid="graph-fit" @click="fitAll" />
     </div>
+    <button v-if="cropped" type="button" class="cropped" data-testid="graph-cropped" @click="fitAll">More outside the view · Fit all</button>
     <div v-if="hover && !picked" class="hover" :style="hoverStyle" data-testid="graph-hover" role="tooltip">
       <GraphDetails :pick="hover.pick" />
     </div>
@@ -225,6 +251,13 @@ function expand(): void {
 .loading { position: absolute; inset: 0; display: grid; place-items: center; }
 .problem { position: absolute; inset: auto var(--space-3) var(--space-3); margin: 0; color: var(--danger); }
 .tools { position: absolute; top: var(--space-2); right: var(--space-2); display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.cropped {
+  position: absolute; top: var(--space-2); left: var(--space-2); max-width: calc(100% - 120px); padding: 4px var(--space-2); border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); color: var(--text-dim); font: inherit; font-size: var(--text-xs); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cropped:hover { color: var(--text); border-color: var(--border-strong, var(--accent)); }
+.cropped:focus-visible { outline: none; box-shadow: var(--ring); }
 .hover, .panel {
   position: absolute; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
   box-shadow: var(--shadow-lg);

@@ -60,7 +60,7 @@ export type AuthoredFn = Infer<typeof authoredFn>;
 /** What a check of a draft found: the problems (one per line; empty when it is clean) and a preview when clean. */
 export interface DraftCheck {
   readonly problems: readonly string[];
-  readonly preview?: unknown;
+  readonly preview?: AuthoredFn['preview'];
   /** Extra text for the model about the draft (the SQL it makes, the type it produces). */
   readonly note?: string;
 }

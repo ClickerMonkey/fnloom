@@ -10,7 +10,7 @@ import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { canonicalJson } from '@harness/sdk';
 import {
-  effectCovered, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames,
+  effectCovered, FnDecl, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames,
   type ActorId, type ContractChange, type DeclaredBy, type GoLiveRequest, type ItemRef, type ItemSection, type LiveContract, type Manifest, type PendingReview,
   type RegistryEffect, type RegistryThing, type SwitchPart, type SystemName, type SystemReviewRecord, type SystemStage,
 } from '@harness/core';
@@ -50,7 +50,16 @@ export const itemKey = (item: Pick<ContractChange, 'section' | 'name'>): string 
 /** The registry thing each manifest section's runtime additions are, where a fn can declare them. */
 const SECTION_THINGS: Partial<Record<ContractChange['section'], RegistryThing>> = { fns: 'fns', types: 'types', context: 'context', kinds: 'kinds', components: 'components' };
 
-/** Every item of a manifest, keyed by section and listed name (qualified, a `/command`, `<registry>: <label>`). */
+/** The name its client build is listed by among a system's components: the code the web loads for its renderers and config component. */
+export const clientItemName = (system: SystemName): string => `${system}: client build`;
+
+/**
+ * Every item of a manifest, keyed by section and listed name (qualified, a `/command`, `<registry>: <label>`). Besides
+ * its sections, the parts a review must see change: its client build and config component (as components, so a
+ * changed build is held off until approved), and, as whole-system items like its config type, its per-person connect
+ * page, the hub events it gets and whether it serves resources. Node permissions are not here: they are the package's
+ * (`system.json`), which only an admin installs.
+ */
 export function manifestItems(manifest: Manifest): Map<string, ManifestItem> {
   const out = new Map<string, ManifestItem>();
   const add = (item: ManifestItem): void => { out.set(itemKey(item), item); };
@@ -73,6 +82,11 @@ export function manifestItems(manifest: Manifest): Map<string, ManifestItem> {
   for (const decl of manifest.contributes ?? []) { add({ section: 'components', name: `${decl.registry}: ${decl.label}`, origin: 'contract', decl: Json.parse(decl), effect: { thing: 'components' } }); }
   add({ section: 'grants', name: manifest.name, origin: 'contract', decl: Json.parse(manifest.grants ?? { hub: [] }) });
   add({ section: 'config', name: manifest.name, origin: 'contract', decl: Json.parse(manifest.config) });
+  if (manifest.client !== undefined) { add({ section: 'components', name: clientItemName(manifest.name), origin: 'contract', decl: Json.parse(manifest.client) }); }
+  if (manifest.configComponent !== undefined) { add({ section: 'components', name: `${manifest.name}: config component`, origin: 'contract', decl: Json.parse(manifest.configComponent) }); }
+  if (manifest.connect !== undefined) { add({ section: 'config', name: `${manifest.name} connect`, origin: 'contract', decl: Json.parse(manifest.connect) }); }
+  add({ section: 'config', name: `${manifest.name} events`, origin: 'contract', decl: [...manifest.events].sort() });
+  add({ section: 'config', name: `${manifest.name} resources`, origin: 'contract', decl: manifest.resources });
   return out;
 }
 
@@ -126,6 +140,23 @@ export function foldRuntime(runtime: readonly ItemRef[], changes: readonly Contr
     if (change.change === 'removed') { out.delete(itemKey(item)); } else { out.set(itemKey(item), item); }
   }
   return [...out.values()];
+}
+
+/**
+ * What the reviewed contract's fns declared they create, update or remove in the hub: the fns of `before` as an admin
+ * approved them. A fn waiting for review counts as its live version (none when it is new), and a runtime addition that
+ * went live without an admin (`LiveContract.runtime`) counts not at all, so nothing a system sends covers itself.
+ */
+export function reviewedEffects(before: Manifest, review: Pick<SystemReviewRecord, 'live' | 'pending'> | undefined): RegistryEffect[] {
+  const waiting = new Map((review?.pending?.changes ?? []).filter((change) => change.section === 'fns').map((change) => [change.name, change]));
+  const unreviewed = new Set((review?.live?.runtime ?? []).filter((item) => item.section === 'fns').map((item) => item.name));
+  return before.fns.flatMap((decl) => {
+    const name = qualify(before.name, decl.name);
+    if (unreviewed.has(name)) { return []; }
+    const change = waiting.get(name);
+    const live = change === undefined ? decl : FnDecl.safeParse(change.before).data;
+    return live?.effects?.registry ?? [];
+  });
 }
 
 /** Installed vs live, reviews and per-item switches, on the hub's store. */
@@ -334,7 +365,7 @@ export class SystemLifecycle {
       await store.table('systemReviews').put({ ...(review ?? {}), system, live: { ...live, hash: after.hash, version: after.version, grants: after.grants ?? live.grants }, updatedAt: clock() });
       return;
     }
-    const declared = await this.#declaredEffects(system);
+    const declared = reviewedEffects(before, review);
     const changes = contractChanges(before, after);
     const covered = changes.filter((change) => this.#covered(change, declared));
     const waiting = mergeChanges(review?.pending?.changes ?? [], changes.filter((change) => !covered.includes(change)));
@@ -371,11 +402,6 @@ export class SystemLifecycle {
       const review = await this.review(system);
       await store.table('systemReviews').put({ ...(review ?? {}), system, checks, updatedAt: clock() });
     });
-  }
-
-  /** What the system's fns declared they create, update or remove in the hub. */
-  async #declaredEffects(system: SystemName): Promise<RegistryEffect[]> {
-    return (await this.#options.catalog.fns({ system })).flatMap((fn) => fn.decl.effects?.registry ?? []);
   }
 
   /** Whether a change is a runtime addition one of the system's fns declared. */

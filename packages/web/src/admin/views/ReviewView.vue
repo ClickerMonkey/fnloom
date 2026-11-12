@@ -30,7 +30,7 @@ import ReviewFnList from '../components/ReviewFnList.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import TestCallDialog from '../components/TestCallDialog.vue';
 import { secretFields } from '../logic/instances.ts';
-import { checksLine, checksWarn, declaredItems, fnReviews, STAGE_ABOUT, STAGE_LOOK, type DeclaredItem, type FnReview } from '../logic/review.ts';
+import { checksConcerns, checksLine, checksWarn, declaredItems, fnReviews, STAGE_ABOUT, STAGE_LOOK, type DeclaredItem, type FnReview } from '../logic/review.ts';
 import { partGroups } from '../logic/systems.ts';
 import { PartTab, ReviewTab } from '../sections.ts';
 import { configComponentsOf, configTarget } from '../state/config-component.ts';
@@ -102,7 +102,9 @@ const rootPage = (root: ResourceRoot): RouteLocationRaw => (name.value === undef
 const ownerPage = (section: SystemPartSection, owner: QualifiedName): RouteLocationRaw => (section === 'examples' ? links.fn(owner) : links.contextItem(owner));
 
 const offCount = computed(() => review.value?.off.length ?? 0);
-const goLiveBody = computed(() => `Its ${fns.value.length} fns, ${context.value.length} context items and the rest of what it declares become available${offCount.value > 0 ? `, except the ${offCount.value} switched off` : ''}. Changes after this wait for review.`);
+/** What in the checks argues against going live, when anything does. */
+const concerns = computed(() => checksConcerns(review.value?.checks));
+const goLiveBody = computed(() => `${concerns.value === undefined ? '' : `${concerns.value}: see the Checks tab before going live. `}Its ${fns.value.length} fns, ${context.value.length} context items and the rest of what it declares become available${offCount.value > 0 ? `, except the ${offCount.value} switched off` : ''}. Changes after this wait for review.`);
 
 async function goLive(): Promise<void> {
   const result = await store.goLive();
@@ -131,7 +133,7 @@ async function save(config: Json): Promise<void> {
     </template>
     <template v-if="review" #actions>
       <StatusBadge :look="STAGE_LOOK[review.stage]" />
-      <UiButton v-if="review.stage === 'installed'" variant="primary" icon="play" :loading="store.deciding.busy.value" data-testid="go-live" @click="confirming = true">Go live</UiButton>
+      <UiButton v-if="review.stage === 'installed'" :variant="concerns === undefined ? 'primary' : 'danger'" :icon="concerns === undefined ? 'play' : 'warning'" :loading="store.deciding.busy.value" data-testid="go-live" @click="confirming = true">Go live</UiButton>
       <template v-else-if="review.pending">
         <UiButton variant="ghost" :disabled="store.deciding.busy.value" data-testid="reject-review" @click="reject">Reject</UiButton>
         <UiButton variant="primary" icon="check" :loading="store.deciding.busy.value" data-testid="approve-review" @click="approve">Approve changes</UiButton>
@@ -142,7 +144,11 @@ async function save(config: Json): Promise<void> {
         <UiBanner v-if="review.pending" tone="warn" data-testid="review-pending">
           {{ changes.length }} {{ changes.length === 1 ? 'change waits' : 'changes wait' }} ({{ review.pending.by === 'contract' ? `version ${review.pending.version}` : 'added while running' }}). The live version keeps working; the changes stay off until approved.
         </UiBanner>
-        <p v-else class="dim" data-testid="review-stage">{{ STAGE_ABOUT[review.stage] }} <span v-if="tab !== 'checks'" class="checks">{{ checksLine(review.checks) }}.</span></p>
+        <UiBanner v-if="concerns !== undefined" tone="danger" data-testid="review-concerns">
+          {{ concerns }}.
+          <template v-if="tab !== 'checks'" #actions><UiButton variant="ghost" size="sm" data-testid="review-see-checks" @click="tab = 'checks'">See the checks</UiButton></template>
+        </UiBanner>
+        <p v-if="!review.pending" class="dim" data-testid="review-stage">{{ STAGE_ABOUT[review.stage] }} <span v-if="tab !== 'checks' && concerns === undefined" class="checks">{{ checksLine(review.checks) }}.</span></p>
         <UiTabs v-model="tab" :tabs="tabs" label="Review" />
         <ReviewFnList v-if="tab === 'fns'" :fns="fns" :busy="store.switching.busy.value" :page-of="links.fn" @switch="(fn, on) => switchItem({ section: 'fns', name: fn }, on)" @test="startTest" />
         <template v-else-if="tab === 'context' || tab === 'types'">
@@ -181,7 +187,7 @@ async function save(config: Json): Promise<void> {
       :fn="testing?.decl" :title="testing?.name ?? ''" :busy="store.testing.busy.value" :problem="store.testing.problem.value" :run="testRun" :run-page="runPage"
       @call="testCall" @close="testing = undefined"
     />
-    <ConfirmDialog v-model:open="confirming" :title="`Make ${name ?? 'it'} live?`" :body="goLiveBody" confirm="Go live" :danger="false" :busy="store.deciding.busy.value" @confirm="goLive" />
+    <ConfirmDialog v-model:open="confirming" :title="`Make ${name ?? 'it'} live?`" :body="goLiveBody" :confirm="concerns === undefined ? 'Go live' : 'Go live anyway'" :danger="concerns !== undefined" :busy="store.deciding.busy.value" @confirm="goLive" />
   </AppPage>
 </template>
 

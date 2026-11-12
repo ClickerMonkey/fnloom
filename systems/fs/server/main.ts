@@ -24,6 +24,7 @@ import { createFsImpl } from './impl.ts';
 import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
 import { SupervisedRunner } from './runner.ts';
+import { endpointOf } from './socket-guard.ts';
 import { ProcessSystemTests } from './tests.ts';
 import { NodeExec, NodeShell, chooseShell } from './shell.ts';
 import { DiskSnapshots } from './snapshots.ts';
@@ -65,7 +66,7 @@ const hosting = new Hosting({
     log: (key, fields) => { log.info(key, fields); },
     gate: (allow, refused) => new AllowlistProxy({ allow, onRefused: refused }),
     // the hub link goes direct, never through a hosted system's proxy
-    direct: [new URL(settings.HARNESS_HUB).hostname],
+    direct: [endpointOf(settings.HARNESS_HUB)],
     refused: (refusal) => {
       running.reportRefusal(refusal).catch((error: unknown) => { log.warn('fs.hosted.refusal-unsent', { system: refusal.instance.system, rule: refusal.rule, error: error instanceof Error ? error.message : String(error) }); });
     },

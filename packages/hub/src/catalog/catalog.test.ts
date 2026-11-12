@@ -1,7 +1,7 @@
 import { ContextDecl, GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { StoreCatalog } from './catalog.ts';
+import { manifestHashOf, StoreCatalog } from './catalog.ts';
 import { ADMIN, declOf, manifestFor, orders, shop, systemRow, vectors } from './fixtures.ts';
 import type { KindDescriber } from './index.ts';
 import { RecordingBus, memoryLog, testStore } from '../testing.ts';
@@ -315,7 +315,10 @@ describe('patches, runtime fns and re-imports', () => {
     const report = await catalog.importPatch(SHOP, { hash: 'h2', upsert: { fns: [{ ...get, name: 'find' }] }, remove: { fns: ['list'] } });
     expect(report.added).toEqual(['shop/find']);
     expect(report.removed).toEqual(['shop/list']);
-    expect((await catalog.manifest(SHOP))?.hash).toBe('h2');
+    const stored = await catalog.manifest(SHOP);
+    // the hub hashes what it stores, never keeping the hash the system sent
+    expect(stored?.hash).toBe(stored === undefined ? undefined : await manifestHashOf(stored));
+    expect(stored?.hash).not.toBe('h2');
   });
 
   it('keeps the fns a patch adds as the running system’s own, replaces the top-level lists whole, and versions replaced types with their meta (build 6)', async () => {

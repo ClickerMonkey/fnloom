@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
 import { ActorId, ApprovalId, FnKindName, InstanceName, InstanceRef, Json, LocalName, RunId, SystemName, Timestamp } from './primitives.ts';
 import { InstallChecks } from './checks.ts';
+import { SystemGrants } from './grants.ts';
 import { ResultTable } from './registries.ts';
 import { UserInfo } from './run.ts';
 
@@ -61,6 +62,11 @@ export const InstallSubject = z.object({
   host: InstanceRef,
   /** Build 7: the hosted source folder it was built from, so the hub never reads the host fn's args for it. */
   source: z.string().min(1).optional(),
+  /**
+   * Build 7: the grants its contract declares (`Manifest.grants`), listed on the card because they are enforced from
+   * the moment it starts; the install refuses a build whose grants differ.
+   */
+  grants: SystemGrants.optional(),
   /** The version running now, when this replaces one. */
   replaces: z.object({ version: z.string().min(1), manifestHash: z.string().min(1) }).optional(),
 });

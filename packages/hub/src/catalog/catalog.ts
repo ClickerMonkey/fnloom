@@ -91,6 +91,17 @@ async function hashOf(value: unknown): Promise<string> {
   return sha256(canonicalJson(Json.parse(value)));
 }
 
+/**
+ * The hash of a manifest as the hub stores it: its body (everything but `hash`), so a hash names exactly one content.
+ * The hub never keeps the hash a system sends: a review approves this one, and the same content always hashes the same.
+ */
+export async function manifestHashOf(manifest: Omit<Manifest, 'hash'> & { hash?: string }): Promise<string> {
+  const { hash: _sent, ...body } = manifest;
+  // a spread can leave a key present but undefined; JSON drops it, as the system's own hash does
+  const plain: unknown = JSON.parse(JSON.stringify(body));
+  return hashOf(plain);
+}
+
 /** Whether two declarations are the same. */
 function sameDecl(a: unknown, b: unknown): boolean {
   return canonicalJson(Json.parse(a)) === canonicalJson(Json.parse(b));
@@ -264,7 +275,8 @@ export class StoreCatalog implements Catalog {
         for (const decl of upsert[section] ?? []) { names.add(decl.name); }
         if (names.size > 0) { runtimeLists[section] = [...names].sort(); }
       }
-      const next: Manifest = { ...previous, ...sections, ...patch.lists, hash: patch.hash, runtime: runtimeLists };
+      // the patch's own hash is not kept: the import hashes what it stores
+      const next: Manifest = { ...previous, ...sections, ...patch.lists, runtime: runtimeLists };
       return this.#import(from === undefined ? next : fromInstance(previous, next, from), false);
     });
   }
@@ -454,7 +466,8 @@ export class StoreCatalog implements Catalog {
       sectioners: await checkSection('sectioners', next.sectioners),
       actions: await checkSection('actions', next.actions),
     };
-    const stored: Manifest = { ...next, ...accepted };
+    const body: Manifest = { ...next, ...accepted };
+    const stored: Manifest = { ...body, hash: await manifestHashOf(body) };
     const now = clock();
 
     const fnWrites: FnRecord[] = [];

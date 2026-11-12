@@ -14,6 +14,7 @@ import { CLIENTS_PATH } from '../serve.ts';
 import { userInfo, visibleSession, type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
 import { dictationOf } from '../../models/roles.ts';
+import { clientItemName } from '../../link/lifecycle.ts';
 import { visibleMade } from '../../resources/context.ts';
 import type { HubReads } from '../reads.ts';
 
@@ -30,7 +31,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   const seen = systems.filter((s) => access.seesSystem(s.name));
   // an installed system (not yet live) offers nothing, like one that is not connected
   const usable = new Set(seen.filter((s) => systemAvailability(s.name, s) === true && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
-  const [commandsOff, mentionsOff] = await Promise.all([hub.link.lifecycle.off('commands'), hub.link.lifecycle.off('mentions')]);
+  const [commandsOff, mentionsOff, componentsOff] = await Promise.all([hub.link.lifecycle.off('commands'), hub.link.lifecycle.off('mentions'), hub.link.lifecycle.off('components')]);
   const seenNames = new Set(seen.map((s) => s.name));
   /** Why a seen system's commands can't run in this session now. */
   const unusableReason = (name: SystemName): string => {
@@ -80,7 +81,8 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
       const f = byName.get(qualify(t.system, `${t.decl.name}.${method}`));
       return f === undefined || !byHand(f) ? [] : [{ type: t.name, method, fn: f.name, description: f.decl.description, args: f.decl.args }];
     })),
-    clients: manifests.flatMap(({ system, manifest }) => (manifest?.client === undefined ? [] : [{
+    // a client build switched off, or changed and waiting for review, is not loaded
+    clients: manifests.flatMap(({ system, manifest }) => (manifest?.client === undefined || componentsOff.has(clientItemName(system)) ? [] : [{
       system, url: clientUrl(system, manifest.client.hash, manifest.client.entry), hash: manifest.client.hash,
     }])),
     systems: seen.filter((s) => allows(scope, s.name)).map((s) => ({ name: s.name, status: s.status, enabled: s.enabled.functions })),

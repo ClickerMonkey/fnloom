@@ -261,7 +261,7 @@ export const queryAuthoring = authoringAgent<QueryAuthoring, AuthoringDraft>({
     const trial = await state.queries.tryDraft(state.here, asDraft(draft), draft.args ?? {}, state.sampleRows);
     problems.push(...trial.check.problems);
     const note = [trial.check.sql === undefined ? '' : `SQL: ${trial.check.sql}`, trial.check.signature === undefined ? '' : `Fn: ${trial.check.signature}`].filter((line) => line !== '').join('\n');
-    return { problems, ...(trial.sample === undefined ? {} : { preview: trial.sample }), ...(note === '' ? {} : { note }) };
+    return { problems, ...(trial.sample === undefined ? {} : { preview: [...trial.sample] }), ...(note === '' ? {} : { note }) };
   },
   async save(draft, session) {
     const state = session.state;
