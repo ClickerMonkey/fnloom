@@ -14,6 +14,7 @@ import { settle } from '../../testing.ts';
 import { instanceRow } from '../../catalog/fixtures.ts';
 import { entriesFrom, rig, testManifest, webRig, type Fakes } from '../testing/rig.ts';
 import { clientUrl } from './chat.ts';
+import { testCall } from './review.ts';
 
 const sessionId = SessionId.parse('ses_1');
 const client = { timeZone: 'Europe/Paris', locale: 'fr', now: 1 };
@@ -619,6 +620,64 @@ describe('admin reads', () => {
     expect(decided).toEqual([`live h1 ${me}`, 'approve h2', 'reject h3']);
     expect(await status(web.client.call('testCall', { fn: QualifiedName.parse('ghost/nothing'), args: {} }, as))).toBe(404);
     expect(await web.client.call('refusals', { system: ghost }, as)).toMatchObject({ items: [] });
+  });
+
+  it('runs a test call as the admin in a turn of its own, and closes the turn as the run settles', async () => {
+    const fns = new TestCatalog();
+    const ping = fns.add('notes', 'ping', fn({ description: 'Ping.', args: g.obj({}), returns: g.text() }));
+    const resolved: ResolvedLimits = { priority: 'normal', priorityFrom: { default: 'hub' }, turn: { cost: 1, time: 1_000 }, budgets: [] };
+    const started: Array<{ fn: string; key: string; test?: boolean; turn: TurnId; on?: string }> = [];
+    const outcomes = [
+      () => Promise.resolve({ status: 'done' as const, result: 'pong' }),
+      () => Promise.resolve({ status: 'failed' as const, error: { class: 'fatal' as const, message: 'no' } }),
+      () => Promise.reject(new Error('lost')),
+    ];
+    const { r, web, as, me } = await signedIn({
+      catalog: { fn: (name) => Promise.resolve(name === ping.name ? ping : undefined) },
+      execution: {
+        limits: { resolve: () => Promise.resolve(resolved) },
+        runs: { start: (input) => {
+          started.push({ fn: input.fn, key: input.key, turn: input.turn, ...(input.test === undefined ? {} : { test: input.test }), ...(input.on === undefined ? {} : { on: input.on }) });
+          const outcome = outcomes[started.length - 1];
+          if (outcome === undefined) { throw new Error('one test call too many'); }
+          return Promise.resolve({ run: RunId.parse(`run_${String(started.length)}`), settled: outcome() });
+        } },
+      },
+    });
+    const done = await web.client.call('testCall', { fn: ping.name, args: {} }, as);
+    const failed = await web.client.call('testCall', { fn: ping.name, args: {}, instance: MAIN_INSTANCE }, as);
+    await web.client.call('testCall', { fn: ping.name, args: {} }, as);
+    await settle();
+    expect(started.map((s) => ({ fn: s.fn, key: s.key, test: s.test, on: s.on }))).toEqual([
+      { fn: 'notes/ping', key: 'test:notes/ping', test: true, on: undefined },
+      { fn: 'notes/ping', key: 'test:notes/ping', test: true, on: MAIN_INSTANCE },
+      { fn: 'notes/ping', key: 'test:notes/ping', test: true, on: undefined },
+    ]);
+    const [first, second, third] = await Promise.all(started.map((s) => r.store.table('turns').get(s.turn)));
+    expect(first).toMatchObject({ actor: me, root: done.run, status: 'done', limits: resolved, endedAt: r.now });
+    expect(second).toMatchObject({ root: failed.run, status: 'failed', endedAt: r.now });
+    // a run that never settles leaves its turn running, and the hub logs why
+    expect(third).toMatchObject({ status: 'running' });
+    expect(r.records.some((record) => record.msg === 'review.test-call-failed')).toBe(true);
+  });
+
+  it('refuses a test call from anyone but a person', async () => {
+    const fns = new TestCatalog();
+    const ping = fns.add('notes', 'ping', fn({ description: 'Ping.', args: g.obj({}), returns: g.text() }));
+    const r = await rig({ catalog: { fn: () => Promise.resolve(ping) } });
+    const group = mintId('actor');
+    await r.store.table('actors').insert({ id: group, kind: 'group', name: 'Team', about: '', createdAt: 1, disabled: false });
+    await expect(testCall(r.hub, { fn: ping.name, args: {} }, group)).rejects.toMatchObject({ status: 403, code: 'NOT_A_PERSON' });
+  });
+
+  it('draws the graph of the systems the signed-in person sees', async () => {
+    const notes = SystemName.parse('notes');
+    const { r, web, as } = await signedIn({ catalog: { manifest: (system) => Promise.resolve(system === notes ? testManifest(notes) : undefined) } });
+    await r.store.table('systems').insert(systemRow('notes'));
+    await r.store.table('systems').insert(systemRow('gone', { status: 'removed' }));
+    const page = await web.client.call('graph', {}, as);
+    expect(page.nodes.map((node) => node.system)).toEqual(['notes']);
+    expect(page.edges).toEqual([]);
   });
 
   it('shows a system\'s output and its fns', async () => {
