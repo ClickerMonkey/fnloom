@@ -274,6 +274,8 @@ export class TestSystem {
       content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
       form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere, estimate: notHere,
       preview: ({ data }) => { this.previews.push(data); return this.behaviour.preview(data); },
+      // build 8: hub lane gives the fake system `flags` answers for the gate tests
+      flags: () => ({ flags: [] }),
       validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
       providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
       providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),

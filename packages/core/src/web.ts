@@ -44,6 +44,11 @@ import { SystemParts, SystemPartsQuery } from './system-parts.ts';
 import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, SystemReview, TestCallRequest } from './lifecycle.ts';
 import { SystemStage } from './grants.ts';
 import { GraphPage, GraphQuery } from './graph.ts';
+import { HubIdentity, SetHubName } from './identity.ts';
+import { ItemVersionsPage, ItemVersionsQuery } from './versions.ts';
+import { DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordVersionsPage, RecordVersionsQuery } from './data.ts';
+import { WidgetActionOption, WidgetActionsQuery } from './widgets.ts';
+import { ResultTable } from './registries.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
 
@@ -61,7 +66,7 @@ export const Tokens = z.object({ access: z.string(), refresh: z.string(), expire
 export type Tokens = z.infer<typeof Tokens>;
 
 /** Whether the hub still needs its admin account made. */
-export const SetupState = z.object({ needsAdmin: z.boolean(), name: z.string(), version: z.string() });
+export const SetupState = HubIdentity.pick({ name: true, version: true }).extend({ needsAdmin: z.boolean() });
 export type SetupState = z.infer<typeof SetupState>;
 
 /** A suggestion for the message being written: fns and context that match it by meaning. */
@@ -144,6 +149,8 @@ export const UserEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resource'), uri: ResourceUri, forms: z.array(FormKind) }),
   /** A context item was written, linked or forgotten. */
   z.object({ type: z.literal('context'), name: QualifiedName }),
+  /** Build 8: the hub's display name changed; every open tab shows the new one. */
+  z.object({ type: z.literal('identity'), identity: HubIdentity }),
 ]);
 export type UserEvent = z.infer<typeof UserEvent>;
 
@@ -686,6 +693,49 @@ export const graphSlice = spec({
   }),
 });
 
+// ─── Build 8 ──────────────────────────────────────────────────────────────────
+
+/** The hub's display name: anyone may read it (the sign-in page shows it); admins set it. */
+export const identitySlice = mergeSpecs(
+  spec({
+    endpoints: use(tel).group({
+      identity: { method: 'GET', response: HubIdentity, ws: 'identity' },
+    }),
+  }),
+  spec({
+    endpoints: use(tel, hubAuth, adminOnly).group({
+      setHubName: { body: SetHubName, response: HubIdentity, ws: 'setHubName' },
+    }),
+  }),
+);
+
+/** Any item's version history (fns, types, context, kinds, commands, components, examples, providers, ...). */
+export const versionsSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    itemVersions: { body: ItemVersionsQuery, response: ItemVersionsPage, ws: 'itemVersions' },
+  }),
+});
+
+/** The data system: stored types and their records, as the signed-in person (`data.ts`). */
+export const dataSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    dataSets: { body: DataSetQuery, response: DataSetPage, ws: 'dataSets' },
+    records: { body: RecordQuery, response: RecordPage, ws: 'records' },
+    record: { body: RecordGet, response: z.object({ record: DataRecord.optional() }), ws: 'record' },
+    recordTable: { body: RecordTableQuery, response: ResultTable, ws: 'recordTable' },
+    saveRecord: { body: RecordSave, response: DataRecord, ws: 'saveRecord' },
+    removeRecord: { body: RecordRemove, response: z.object({ removed: z.boolean() }), ws: 'removeRecord' },
+    recordVersions: { body: RecordVersionsQuery, response: RecordVersionsPage, ws: 'recordVersions' },
+  }),
+});
+
+/** Widgets: the actions offered on rows of some types, narrowed by a widget (`widgets.ts`). */
+export const widgetsSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    widgetActions: { body: WidgetActionsQuery, response: z.array(WidgetActionOption), ws: 'widgetActions' },
+  }),
+});
+
 /** The web API: every endpoint and event the browser uses, joined from the slices (a name used twice doesn't compile). */
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
@@ -695,5 +745,6 @@ export const hubWebSpec = mergeSpecs(
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,
   reviewSlice, graphSlice,
+  identitySlice, versionsSlice, dataSlice, widgetsSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

@@ -626,12 +626,24 @@ export class FakeHub {
         pairingInfo: ({ data }) => { this.pairingInfos.push(data); },
         notifyAdmins: ({ data }) => { this.notices.push(data); },
         reportRefusal: ({ data }) => { this.hostRefusals.push(data); },
+        // build 8: platform lane gives the fake hub the data system and mention search
+        mentionResources: () => notServed('mentionResources'),
+        records: () => notServed('records'),
+        record: () => notServed('record'),
+        recordTable: () => notServed('recordTable'),
+        saveRecord: () => notServed('saveRecord'),
+        removeRecord: () => notServed('removeRecord'),
       });
   }
 }
 
 /** How long a fake pairing grant lasts, like the real hub's short-lived grant. */
 const PAIRING_GRANT_MS = 10 * 60_000;
+
+/** A hub link endpoint the fake hub does not answer yet. */
+function notServed(endpoint: string): never {
+  throw new Error(`the fake hub does not serve ${endpoint} yet`);
+}
 
 /** A plain value as JSON, the way it would cross the wire. */
 function jsonOf(value: unknown): Json {

@@ -19,6 +19,10 @@ import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewAnswer, PreviewR
 import { HubModelInfo } from './admin.ts';
 import { HostRefusal } from './lifecycle.ts';
 import { DecideAnswer, DecideRequest } from './decisions.ts';
+import { DataRecord, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery } from './data.ts';
+import { MentionRequestId, MentionResourceHits, MentionResourceSearch } from './mention-search.ts';
+import { FlagsAnswer } from './sensitivity.ts';
+import { ResultTable } from './registries.ts';
 import { FnExamplesPage, FnExamplesPatch, FnExamplesQuery, FnSearchPage, FnSearchQuery, KindEstimateAnswer, KindEstimateRequest } from './fn-facts.ts';
 import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
@@ -317,6 +321,18 @@ const linked = use(linkTel, linkSession).group({
    * outside `grants.network`, a path outside `grants.files`). Refused unless that instance's `host` is this one.
    */
   reportRefusal: { body: HostRefusal, ws: 'rx' },
+  // Build 8
+  /**
+   * Search the hub's resources for an `@` search the hub sent this system (`MentionResourceSearch.request`), as the
+   * person who is mentioning. Refused when the request is unknown, stale or another system's.
+   */
+  mentionResources: { body: MentionResourceSearch, response: MentionResourceHits, ws: 'mr' },
+  /** The data system (`data.ts`), as the run's person (`run`), or as the system outside a run. Capability `data`. */
+  records: { body: RecordQuery, response: RecordPage, ws: 'rq' },
+  record: { body: RecordGet, response: z.object({ record: DataRecord.optional() }), ws: 'rg' },
+  recordTable: { body: RecordTableQuery, response: ResultTable, ws: 'rtb' },
+  saveRecord: { body: RecordSave, response: DataRecord, ws: 'rsv' },
+  removeRecord: { body: RecordRemove, response: z.object({ removed: z.boolean() }), ws: 'rrm' },
 });
 
 /** What a system calls on the hub. */
@@ -377,7 +393,13 @@ export const systemLinkSpec = spec({
     embed: endpoint({ body: z.object({ embedder: z.string(), texts: z.array(z.string()) }), response: z.object({ vectors: z.array(z.array(z.number())) }), ws: 'em' }),
     hook: endpoint({ body: z.object({ hook: z.string(), message: HookInput }), response: z.array(HookBlock), ws: 'hk' }),
     /** `@` search. */
-    mentions: endpoint({ body: Asker.extend({ provider: z.string(), query: z.string() }), response: z.array(MentionOption), ws: 'mn' }),
+    mentions: endpoint({
+      // build 8: `request` ties a resource search the system makes for these options to the person asking (`mentionResources`)
+      // optional until the hub lane mints one for every search; a system without one can't search resources for it
+      body: Asker.extend({ provider: z.string(), query: z.string(), request: MentionRequestId.optional() }),
+      response: z.array(MentionOption),
+      ws: 'mn',
+    }),
     /** A mention's hover card, asked for when a person hovers it. */
     mentionHover: endpoint({ body: Asker.extend({ provider: z.string(), target: Json }), response: z.object({ hover: MentionHover.optional() }), ws: 'mh' }),
     /** A mention's text for the LLM, asked for when the message is sent. */
@@ -412,6 +434,9 @@ export const systemLinkSpec = spec({
     connectFinish: endpoint({ body: ConnectFinish, response: ConnectResult, ws: 'cn' }),
     /** The person disconnected: revoke the credentials at the provider where it can. */
     disconnect: endpoint({ body: RunConnection.pick({ id: true, owner: true, credentials: true }), ws: 'dc' }),
+    // Build 8
+    /** Which sensitive files a run of a fn with `flags` would touch (`sensitivity.ts`), asked before the mode gate. */
+    flags: endpoint({ body: PreviewRequest, response: FlagsAnswer, ws: 'fg' }),
   },
 });
 export type SystemLinkSpec = typeof systemLinkSpec;

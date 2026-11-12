@@ -51,6 +51,10 @@ export const ID_PREFIXES = {
   connection: 'cnx',
   fnExample: 'fex',
   refusal: 'rfs',
+  /** Build 8: a record of a stored type (the data system). */
+  record: 'rec',
+  /** Build 8: one `@` search the hub sent a system, which its resource search is tied to. */
+  mentionRequest: 'mrq',
 } as const;
 
 /** The kinds of id. */

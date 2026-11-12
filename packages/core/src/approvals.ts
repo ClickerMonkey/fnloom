@@ -17,6 +17,7 @@ import { InstallChecks } from './checks.ts';
 import { SystemGrants } from './grants.ts';
 import { ResultTable } from './registries.ts';
 import { UserInfo } from './run.ts';
+import { SensitivityFlag } from './sensitivity.ts';
 
 /** One part of what a run would do, as the approval card shows it. */
 export const PreviewPart = z.discriminatedUnion('type', [
@@ -39,6 +40,8 @@ export const PreviewPart = z.discriminatedUnion('type', [
     /** Saved fns this change would break, by qualified name, with why. */
     breaks: z.array(z.object({ fn: z.string(), why: z.string() })),
   }),
+  /** Build 8: sensitive files the call would touch (`sensitivity.ts`), each with its rule's words. */
+  z.object({ type: z.literal('flags'), flags: z.array(SensitivityFlag).min(1) }),
 ]);
 export type PreviewPart = z.infer<typeof PreviewPart>;
 

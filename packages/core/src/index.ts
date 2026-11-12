@@ -36,6 +36,10 @@
  * - `grants`: what a system may do through the hub, its config component and its stage.
  * - `lifecycle`: installed vs live, reviews, item switches and refusals.
  * - `graph`: the graph of systems' items and their relations.
+ * - build 8: `sensitivity` (sensitive files and their rules), `changes` (what a command changed), `identity` (the hub's
+ *   display name), `versions` (every item's version history), `data` (the data system's records), `widgets` (widget
+ *   specs, actions and visual shapes), `api-index` (API groups and their index items), `mention-search` (resource
+ *   search tied to a mention request).
  */
 export * from './primitives.ts';
 export * from './modes.ts';
@@ -84,3 +88,11 @@ export * from './checks.ts';
 export * from './grants.ts';
 export * from './lifecycle.ts';
 export * from './graph.ts';
+export * from './sensitivity.ts';
+export * from './changes.ts';
+export * from './identity.ts';
+export * from './versions.ts';
+export * from './data.ts';
+export * from './widgets.ts';
+export * from './api-index.ts';
+export * from './mention-search.ts';

@@ -22,8 +22,9 @@ import { QualifiedName, SystemName, Usd } from './primitives.ts';
  * - `connections`: `connectionUpdate`
  * - `settings`: `setting`
  * - `state`: `stateGet`, `stateSet`
+ * - `data` (build 8): `records`, `record`, `recordTable`, `saveRecord`, `removeRecord`
  */
-export const HUB_CAPABILITIES = ['ai', 'embed', 'resources', 'fns', 'search', 'decide', 'approvals', 'connections', 'settings', 'state'] as const;
+export const HUB_CAPABILITIES = ['ai', 'embed', 'resources', 'fns', 'search', 'decide', 'approvals', 'connections', 'settings', 'state', 'data'] as const;
 export const HubCapability = z.enum(HUB_CAPABILITIES);
 export type HubCapability = z.infer<typeof HubCapability>;
 

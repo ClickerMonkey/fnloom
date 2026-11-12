@@ -23,7 +23,9 @@ import { HubOption } from '../suggestions.ts';
 import { AccessRecord } from '../access.ts';
 import { UserConnection } from '../connections.ts';
 import { ItemSwitch, RefusalRecord, SystemReviewRecord } from '../lifecycle.ts';
-import { FnExampleRecord, FnFactsRecord, FnTypeUse, FnUse, FnVersionRecord, TypeVersionRecord } from '../fn-facts.ts';
+import { FnExampleRecord, FnFactsRecord, FnSignatureType, FnTypeUse, FnUse, FnVersionRecord, TypeVersionRecord } from '../fn-facts.ts';
+import { DataRecord, RecordVersion } from '../data.ts';
+import { ItemVersionRecord } from '../versions.ts';
 import { ResourceUri } from '../resources.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
@@ -133,6 +135,11 @@ export const HUB_TABLES = {
   itemSwitches: byFields(ItemSwitch, 'system', 'section', 'name'),
   systemReviews: byField(SystemReviewRecord, 'system'),
   refusals: byField(RefusalRecord, 'id'),
+  // build 8
+  fnSignatureTypes: byFields(FnSignatureType, 'fn', 'type'),
+  itemVersions: byField(ItemVersionRecord, 'id'),
+  records: byField(DataRecord, 'id'),
+  recordVersions: byField(RecordVersion, 'id'),
 } as const;
 
 /** The table names. */

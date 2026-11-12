@@ -18,6 +18,8 @@ import { ConfigSecrets } from './config-secrets.ts';
 import { ContributionDecl, RegistryDecl } from './registries.ts';
 import { ShareRule } from './access.ts';
 import { ConfigComponentDecl, SystemGrants } from './grants.ts';
+import { RecordStorage } from './data.ts';
+import { ApiGroupDecl } from './api-index.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -59,6 +61,8 @@ export const TypeDecl = z.object({
    * `ctx.types` (a table type's schema hash and enrichment). The hub stores them and never reads them.
    */
   meta: z.record(z.string(), Json).optional(),
+  /** Build 8: the hub keeps records of this type (the data system, `data.ts`). */
+  records: RecordStorage.optional(),
 });
 export type TypeDecl = z.infer<typeof TypeDecl>;
 
@@ -135,7 +139,7 @@ export const ChatFnMode = z.enum(CHAT_FN_MODES);
 export type ChatFnMode = z.infer<typeof ChatFnMode>;
 
 /** The things in the hub a fn can create, update or remove (`RegistryEffect`). `approvals` are runs awaiting approval. */
-export const REGISTRY_THINGS = ['fns', 'types', 'context', 'resources', 'kinds', 'components', 'examples', 'approvals', 'secrets', 'connections'] as const;
+export const REGISTRY_THINGS = ['fns', 'types', 'context', 'resources', 'kinds', 'components', 'examples', 'approvals', 'secrets', 'connections', 'records'] as const;
 export const RegistryThing = z.enum(REGISTRY_THINGS);
 export type RegistryThing = z.infer<typeof RegistryThing>;
 
@@ -227,6 +231,13 @@ export const FnDecl = z.object({
    * hub's `HARNESS_FN_PROMPT_EXAMPLES` when absent). The rest are a `hub/fn_examples` call away.
    */
   promptExamples: z.number().int().min(0).max(20).optional(),
+  /** Build 8: the API group it is listed in (`Manifest.groups`, `api-index.ts`); `general` when absent. */
+  group: LocalName.optional(),
+  /**
+   * Build 8: before a run, the hub asks its system which sensitive files the call would touch (`flags` on the system
+   * link, `sensitivity.ts`), and refuses, asks or goes ahead by the answer.
+   */
+  flags: z.boolean().optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 
@@ -395,6 +406,8 @@ export const Manifest = z.object({
   grants: SystemGrants.optional(),
   /** Its own config component, drawn instead of or beside the gin form. */
   configComponent: ConfigComponentDecl.optional(),
+  /** Build 8: its API groups, each described once (`FnDecl.group`). */
+  groups: z.array(ApiGroupDecl).optional(),
 });
 export type Manifest = z.infer<typeof Manifest>;
 

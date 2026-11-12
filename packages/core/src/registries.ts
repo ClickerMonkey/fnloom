@@ -13,6 +13,36 @@ import { Json, LocalName, QualifiedName, SystemName } from './primitives.ts';
 
 // ─── Registries and contributions (manifest) ─────────────────────────────────
 
+/** The kinds of value a result column holds, for formatting and for visuals' match logic. */
+export const COLUMN_KINDS = ['text', 'integer', 'number', 'boolean', 'date', 'datetime', 'time', 'uuid', 'json', 'binary'] as const;
+export const ColumnKind = z.enum(COLUMN_KINDS);
+export type ColumnKind = z.infer<typeof ColumnKind>;
+
+/**
+ * One input of a visual (build 8): a named slot that columns bind to ("label", "value", "start"), the column kinds it
+ * takes, whether it must be bound, and whether it takes several columns (the series of a line chart).
+ */
+export const VisualChannel = z.object({
+  name: LocalName,
+  label: z.string().min(1),
+  accepts: z.array(ColumnKind).min(1),
+  required: z.boolean(),
+  many: z.boolean(),
+});
+export type VisualChannel = z.infer<typeof VisualChannel>;
+
+/**
+ * The data a visual draws (build 8): its channels, how many rows it shows well, and whether it only tells the truth
+ * about a whole result (a pie of one page lies, so `whole` visuals are refused for a partial table unless the widget
+ * pages it).
+ */
+export const VisualShape = z.object({
+  channels: z.array(VisualChannel).min(1),
+  rows: z.object({ min: z.number().int().min(0), max: z.number().int().min(1).optional() }),
+  whole: z.boolean(),
+});
+export type VisualShape = z.infer<typeof VisualShape>;
+
 /** A registry a system hosts (`Manifest.registries`): its name, what it is for, and the data every entry is given. */
 export const RegistryDecl = z.object({
   name: LocalName,
@@ -35,6 +65,11 @@ export const ContributionDecl = z.object({
   description: z.string().optional(),
   /** An icon name from the web app's icon set. */
   icon: z.string().optional(),
+  /**
+   * Build 8: what data a visual can draw, declared so the hub and agents can judge a fit without the client code
+   * (`declaredFit`); the client's match logic still scores it. Absent: only the client can tell.
+   */
+  shape: VisualShape.optional(),
 });
 export type ContributionDecl = z.infer<typeof ContributionDecl>;
 
@@ -54,10 +89,6 @@ export const TABLE_VISUAL_SCORE = 0;
 
 // ─── Result tables ────────────────────────────────────────────────────────────
 
-/** The kinds of value a result column holds, for formatting and for visuals' match logic. */
-export const COLUMN_KINDS = ['text', 'integer', 'number', 'boolean', 'date', 'datetime', 'time', 'uuid', 'json', 'binary'] as const;
-export const ColumnKind = z.enum(COLUMN_KINDS);
-export type ColumnKind = z.infer<typeof ColumnKind>;
 
 /** One column of a result: its name, label, kind, and its gin type when the source knows a more exact one. */
 export const ResultColumn = z.object({

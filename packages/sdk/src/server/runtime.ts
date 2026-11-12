@@ -223,6 +223,8 @@ export class SystemRuntime<C extends ContractShape> {
       validate: ({ data, signal }) => this.#validate(data, signal),
       preview: ({ data, signal }) => this.#preview(data, signal),
       estimate: ({ data, signal }) => this.#estimate(data, signal),
+      // build 8: platform lane answers from the fn's `flags` hook; until then no fn declares `flags`
+      flags: () => ({ flags: [] }),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),

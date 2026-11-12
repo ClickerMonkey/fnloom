@@ -98,6 +98,7 @@ export const CAPABILITY_WORDS = {
   connections: 'Update people’s connections',
   settings: 'Read settings',
   state: 'Keep state in the hub',
+  data: 'Read and write records in the hub',
 } as const satisfies Record<HubCapability, string>;
 
 /** One row of a system's grants. */

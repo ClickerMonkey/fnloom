@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import { FnDecl, FnExample, FnMode, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
 import { RoleModel } from './model-calls.ts';
-import { ActorId, Duration, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
+import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
 import { ResourceUri } from './resources.ts';
 
 /** A fn example's id. */
@@ -262,6 +262,14 @@ export type FnFactsRecord = z.infer<typeof FnFactsRecord>;
 export const FnTypeUse = z.object({ fn: QualifiedName, type: QualifiedName, use: z.enum(['read', 'write']) });
 export type FnTypeUse = z.infer<typeof FnTypeUse>;
 
+/**
+ * Build 8: one named type a fn's signature mentions (the `fnSignatureTypes` table: its args, result and kind payload,
+ * as written, not deeply), written in the fn's transaction, so the catalog finds the fns to re-describe or refuse when
+ * a type changes by querying, not by loading every fn.
+ */
+export const FnSignatureType = z.object({ fn: QualifiedName, type: QualifiedName, kind: FnKindName, system: SystemName });
+export type FnSignatureType = z.infer<typeof FnSignatureType>;
+
 /** One fn another uses, deeply (the `fnUses` table), so a change to `uses` refreshes the facts of `fn` in the database. */
 export const FnUse = z.object({ fn: QualifiedName, uses: QualifiedName });
 export type FnUse = z.infer<typeof FnUse>;
@@ -303,7 +311,7 @@ export type TypeVersionRecord = z.infer<typeof TypeVersionRecord>;
 /** How a thing reads in an effects line. */
 const THING_WORDS: { readonly [T in RegistryThing]: string } = {
   fns: 'fns', types: 'types', context: 'context', resources: 'resources', kinds: 'kinds', components: 'components',
-  examples: 'examples', approvals: 'runs awaiting approval', secrets: 'secrets', connections: 'connections',
+  examples: 'examples', approvals: 'runs awaiting approval', secrets: 'secrets', connections: 'connections', records: 'records',
 };
 
 /** How an action starts an effects line. */

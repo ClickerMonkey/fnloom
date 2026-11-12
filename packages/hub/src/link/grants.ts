@@ -34,7 +34,7 @@ export type HubLinkEndpoint = keyof (typeof hubLinkSpec)['endpoints'];
 export const CAPABILITY_ENDPOINTS = {
   ai: ['llm', 'model', 'models'],
   embed: [],
-  resources: ['resource', 'resourceSections', 'content'],
+  resources: ['resource', 'resourceSections', 'content', 'mentionResources'],
   fns: ['call', 'usableFns', 'shareFn'],
   search: ['searchFns', 'fnExamples', 'examples'],
   decide: ['decide'],
@@ -42,6 +42,8 @@ export const CAPABILITY_ENDPOINTS = {
   connections: ['connectionUpdate'],
   settings: ['setting'],
   state: ['stateGet', 'stateSet'],
+  // build 8: served by the hub lane (the data system)
+  data: ['records', 'record', 'recordTable', 'saveRecord', 'removeRecord'],
 } as const satisfies Record<HubCapability, readonly HubLinkEndpoint[]>;
 
 /** The capability an endpoint needs, or none for the base (handshake, contract, uploads, its own runs, logs, types, fleet). */

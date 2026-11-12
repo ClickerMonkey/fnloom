@@ -16,7 +16,8 @@ defineProps<{ parts: readonly PreviewPart[] }>();
       <h4 class="title">{{ part.title }}</h4>
       <ResultGrid :table="part.table" :title="part.title" />
     </section>
-    <TypeDiff v-else :part="part" />
+    <TypeDiff v-else-if="part.type === 'type-diff'" :part="part" />
+    <!-- build 8: web lane draws the `flags` part (sensitive files the call would touch) -->
   </template>
 </template>
 
