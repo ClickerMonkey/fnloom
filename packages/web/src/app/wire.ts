@@ -17,7 +17,7 @@ import { InboxStore } from '../state/inbox.ts';
 import { LayoutStore } from '../state/layout.ts';
 import { BrowserPush, PushStore, SERVICE_WORKERS } from '../state/push.ts';
 import { windowStorageChanges } from '../state/persisted.ts';
-import { SessionStore } from '../state/session.ts';
+import { cookieMark, SessionStore } from '../state/session.ts';
 import { ResourcesStore } from '../resources/state/resources.ts';
 import { ContextStore } from '../context/state/context.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
@@ -45,7 +45,7 @@ import { Toasts } from '../state/toasts.ts';
 
 /** Build the app's stores for `win`. */
 export function createStores(win: Window): Stores {
-  const session = new SessionStore(win.localStorage, Date.now, windowStorageChanges(win));
+  const session = new SessionStore(win.localStorage, Date.now, windowStorageChanges(win), cookieMark(win.document));
   const { hub: plain } = createHub({ origin: win.location.origin, token: () => session.accessToken.value, unauthorized: () => keeper.recover() });
   // the logs go out through the plain client, so sending them is never itself traffic
   const logs = new ClientLogs({ send: clientLogsCaller(plain), signedIn: () => session.signedIn.value, page: () => win.location.pathname });
@@ -83,7 +83,7 @@ export function createStores(win: Window): Stores {
     connection,
     chat,
     admin,
-    signInForm: () => new SignInForm(api.auth, session),
+    signInForm: () => new SignInForm(api.auth, session, win.localStorage),
     resources,
     context: new ContextStore({ api: api.context, events: api.contextEvents }),
     fns: new FnInfoStore(api.fns, api.userEvents),

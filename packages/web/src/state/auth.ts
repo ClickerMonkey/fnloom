@@ -1,6 +1,8 @@
 /**
  * Signing in and staying signed in. `SignInForm` drives the sign-in page: whether the hub still needs its admin
  * account, the form's checks (the endpoint's own body schemas, so the page and the hub agree) and submitting.
+ * "Remember me" keeps the session past the browser closing and keeps the email for the next sign-in; the password is
+ * left to the browser's password manager.
  * `SessionKeeper` refreshes the access token shortly before it expires, and signs out.
  *
  * Every tab shares one stored session, and the hub treats a refresh token used twice as stolen (it ends the whole
@@ -9,29 +11,42 @@
  */
 import { hubWebSpec, type SetupState } from '@harness/core';
 import { ref, shallowRef, watch, type WatchStopHandle } from 'vue';
+import { z } from 'zod';
 import { BEFORE_SIGN_IN, type AuthApi } from '../api/auth.ts';
 import { checkForm, problemText, type FieldProblems } from './problems.ts';
+import { readStored, type KeyValueStore } from './persisted.ts';
 import type { SessionStore } from './session.ts';
 
 /** The admin form's schema; sign-in uses its email and password. */
 const CreateAdmin = hubWebSpec.endpoints.createAdmin.cfg.body;
 const SignIn = hubWebSpec.endpoints.signIn.cfg.body;
 
-/** What the sign-in form holds. */
+/** What the sign-in form holds. `remember` is "Remember me" (true when left out). */
 export interface SignInInput {
   email: string;
   password: string;
   name: string;
+  remember?: boolean;
 }
 
+/** Where the last sign-in's choice is kept. */
+export const SIGN_IN_KEY = 'harness.sign-in';
+
+/** The last sign-in's choice: "Remember me", and the email when it was ticked. */
+export const RememberedSignIn = z.object({ remember: z.boolean(), email: z.string().optional() });
+export type RememberedSignIn = z.infer<typeof RememberedSignIn>;
+
 /** The fields that can have a problem. */
-export type SignInField = keyof SignInInput;
+export type SignInField = Exclude<keyof SignInInput, 'remember'>;
 
 /** The sign-in page's state. */
 export class SignInForm {
   readonly #api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn'>;
   readonly #session: SessionStore;
+  readonly #store: KeyValueStore | undefined;
 
+  /** The last sign-in's choice, to fill the form with: "Remember me" ticked and its email, or unticked and empty. */
+  readonly remembered: RememberedSignIn;
   /** What the hub says about itself; undefined until loaded. */
   readonly setup = shallowRef<SetupState | undefined>();
   readonly loading = ref(true);
@@ -41,9 +56,12 @@ export class SignInForm {
   /** A problem with one field. */
   readonly fields = shallowRef<FieldProblems<SignInField>>({});
 
-  constructor(api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn'>, session: SessionStore) {
+  /** `store` keeps the last sign-in's choice; without it the form starts with "Remember me" ticked and no email. */
+  constructor(api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn'>, session: SessionStore, store?: KeyValueStore) {
     this.#api = api;
     this.#session = session;
+    this.#store = store;
+    this.remembered = (store === undefined ? undefined : readStored(store, SIGN_IN_KEY, RememberedSignIn)) ?? { remember: true };
   }
 
   /** Whether this hub still needs its admin account made. */
@@ -75,7 +93,9 @@ export class SignInForm {
       const tokens = this.needsAdmin
         ? await this.#api.createAdmin.call({ email: input.email, name: input.name, password: input.password }, BEFORE_SIGN_IN)
         : await this.#api.signIn.call({ email: input.email, password: input.password }, BEFORE_SIGN_IN);
-      this.#session.keep(tokens);
+      const remember = input.remember ?? true;
+      this.#session.keep(tokens, remember);
+      this.#store?.setItem(SIGN_IN_KEY, JSON.stringify(remember ? { remember, email: input.email } : { remember }));
       return true;
     } catch (error) {
       this.problem.value = problemText(error, "Couldn't sign in. Try again.");

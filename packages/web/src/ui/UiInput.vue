@@ -2,15 +2,18 @@
 /**
  * A one-line text input with its label, hint and error (`v-model` is the text, always a string, even for
  * `type="number"`, where Vue's own v-model would hand back a number). Optional leading icon and a clear button.
- * `focus()` is exposed for callers that move focus to it.
+ * A password input can offer a show/hide button (`revealable`). `name` is the field's form name, which password
+ * managers use to recognise a sign-in form. `focus()` is exposed for callers that move focus to it.
  */
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import UiField from './UiField.vue';
 import UiIcon from './UiIcon.vue';
 import type { IconName } from './icons.ts';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   label?: string;
+  name?: string | undefined;
+  revealable?: boolean;
   hint?: string;
   error?: string;
   type?: 'text' | 'email' | 'password' | 'search' | 'url' | 'number' | 'tel';
@@ -24,13 +27,17 @@ withDefaults(defineProps<{
   autofocus?: boolean;
   size?: 'sm' | 'md';
 }>(), {
-  label: '', hint: '', error: '', type: 'text', placeholder: '', autocomplete: 'off', icon: undefined,
+  label: '', name: undefined, revealable: false, hint: '', error: '', type: 'text', placeholder: '', autocomplete: 'off', icon: undefined,
   required: false, disabled: false, clearable: false, hideLabel: false, autofocus: false, size: 'md',
 });
 
 const model = defineModel<string>({ required: true });
 const emit = defineEmits<{ enter: [] }>();
 const input = ref<HTMLInputElement | null>(null);
+/** Whether a revealable password is shown as plain text. */
+const shown = ref(false);
+const canReveal = computed(() => props.revealable && props.type === 'password');
+const shownType = computed(() => (canReveal.value && shown.value ? 'text' : props.type));
 
 /** The text as typed. */
 function onInput(event: Event): void {
@@ -50,10 +57,16 @@ defineExpose({ focus: () => input.value?.focus() });
     <div class="ui-input" :class="[size, { invalid: field.invalid, disabled, 'has-icon': icon }]">
       <UiIcon v-if="icon" class="lead" :name="icon" :size="16" />
       <input
-        :id="field.id" ref="input" :value="model" :type="type" :placeholder="placeholder" :autocomplete="autocomplete"
+        :id="field.id" ref="input" :value="model" :type="shownType" :name="name" :placeholder="placeholder" :autocomplete="autocomplete"
         :required="required" :disabled="disabled" :aria-invalid="field.invalid ? 'true' : undefined" :aria-describedby="field.describedBy"
         :data-autofocus="autofocus ? '' : undefined" @input="onInput" @keydown.enter="emit('enter')"
       />
+      <button
+        v-if="canReveal" type="button" class="reveal" :aria-label="shown ? 'Hide password' : 'Show password'" :aria-pressed="shown ? 'true' : 'false'"
+        :disabled="disabled" data-testid="reveal-password" @click="shown = !shown"
+      >
+        <UiIcon :name="shown ? 'eye-off' : 'eye'" :size="16" />
+      </button>
       <button v-if="clearable && model !== ''" type="button" class="clear" aria-label="Clear" @click="clear">
         <UiIcon name="x" :size="14" />
       </button>
@@ -81,5 +94,11 @@ input[type='search']::-webkit-search-cancel-button { display: none; }
   display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-full);
   background: var(--surface-3); color: var(--text-dim); transition: background-color var(--fast) var(--ease);
 }
+.reveal {
+  display: grid; place-items: center; flex: none; width: 32px; height: 32px; margin-right: calc(-1 * var(--space-2)); padding: 0; border: 0;
+  border-radius: var(--radius-sm); background: transparent; color: var(--text-dim); transition: color var(--fast) var(--ease);
+}
+.reveal:hover { color: var(--text); }
+.reveal:focus-visible { outline: none; box-shadow: var(--ring); }
 .clear:hover { background: var(--border-strong); color: var(--text); }
 </style>

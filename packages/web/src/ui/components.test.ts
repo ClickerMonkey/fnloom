@@ -51,6 +51,21 @@ describe('UiIconButton', () => {
 });
 
 describe('UiInput and UiTextarea', () => {
+  it('shows and hides a revealable password, and carries its form name', async () => {
+    const input = mount(UiInput, { props: { label: 'Password', name: 'password', type: 'password', revealable: true, modelValue: 'hunter2' } });
+    const field = () => input.get('input');
+    expect(field().attributes('type')).toBe('password');
+    expect(field().attributes('name')).toBe('password');
+    const reveal = input.get('[data-testid="reveal-password"]');
+    expect(reveal.attributes('aria-label')).toBe('Show password');
+    await reveal.trigger('click');
+    expect(field().attributes('type')).toBe('text');
+    expect(reveal.attributes('aria-pressed')).toBe('true');
+    await reveal.trigger('click');
+    expect(field().attributes('type')).toBe('password');
+    expect(mount(UiInput, { props: { label: 'Name', revealable: true, modelValue: '' } }).find('[data-testid="reveal-password"]').exists()).toBe(false);
+  });
+
   it('ties the label, hint and error to the input, and clears', async () => {
     const value = ref('hello');
     const input = mount(UiInput, { props: { label: 'Name', hint: 'Shown to others', clearable: true, modelValue: value.value, 'onUpdate:modelValue': (v: string) => { value.value = v; } } });

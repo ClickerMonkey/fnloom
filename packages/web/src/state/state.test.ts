@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { z } from 'zod';
 import { failingCaller, fakeApi, fakeCaller, fakeConnection, fakeMedia, fakeUserEvents, memoryStore, notification, tokens } from '../test/fakes.ts';
-import { BrowserLock, LocalLock, REFRESH_AHEAD, REFRESH_LOCK, SessionKeeper, SignInForm } from './auth.ts';
+import { BrowserLock, LocalLock, REFRESH_AHEAD, REFRESH_LOCK, SessionKeeper, SIGN_IN_KEY, SignInForm } from './auth.ts';
 import { BACK_ONLINE_FOR, ConnectionStore, OFFLINE_AFTER } from './connection.ts';
 import { INBOX_PAGE, InboxStore } from './inbox.ts';
 import { LAYOUT_KEY, LayoutStore, TREE_WIDTH } from './layout.ts';
 import { persisted, readStored, type KeyValueStore, type StorageChanges } from './persisted.ts';
 import { checkForm, problemText } from './problems.ts';
-import { SESSION_KEY, SessionStore } from './session.ts';
+import { ALIVE_COOKIE, cookieMark, SESSION_KEY, SessionStore, type BrowserSessionMark } from './session.ts';
 import { THEME_KEY, ThemeStore } from './theme.ts';
 import { TOAST_DEFAULTS, Toasts } from './toasts.ts';
 
@@ -47,6 +47,43 @@ describe('SessionStore', () => {
     reloaded.forget();
     expect(reloaded.signedIn.value).toBe(false);
     expect(store.data.has(SESSION_KEY)).toBe(false);
+  });
+
+  it('ends a session kept without "Remember me" once the browser session is over', () => {
+    const store = memoryStore();
+    let alive = false;
+    const mark: BrowserSessionMark = { alive: () => alive, set: () => { alive = true; }, clear: () => { alive = false; } };
+    const first = new SessionStore(store, () => 0, undefined, mark);
+    first.keep(tokens(), false);
+    expect(alive).toBe(true);
+    expect(first.remembered.value).toBe(false);
+    first.keep(tokens({ access: 'rotated' }));
+    expect(first.remembered.value).toBe(false);
+    expect(new SessionStore(store, () => 0, undefined, mark).signedIn.value).toBe(true);
+    alive = false;
+    expect(new SessionStore(store, () => 0, undefined, mark).signedIn.value).toBe(false);
+    expect(store.data.has(SESSION_KEY)).toBe(false);
+  });
+
+  it('keeps a remembered session, and an older one with no choice stored, across browser sessions', () => {
+    const mark: BrowserSessionMark = { alive: () => false, set: () => undefined, clear: () => undefined };
+    const store = memoryStore();
+    new SessionStore(store, () => 0, undefined, mark).keep(tokens(), true);
+    expect(new SessionStore(store, () => 0, undefined, mark).remembered.value).toBe(true);
+    const old = memoryStore({ [SESSION_KEY]: JSON.stringify({ access: 'a', refresh: 'r', user: tokens().user, expiresAt: 5 }) });
+    expect(new SessionStore(old, () => 0, undefined, mark).signedIn.value).toBe(true);
+  });
+
+  it('marks the browser session with a cookie that has no expiry', () => {
+    const doc = { cookie: '' };
+    const mark = cookieMark(doc);
+    expect(mark.alive()).toBe(false);
+    mark.set();
+    expect(doc.cookie).toBe(`${ALIVE_COOKIE}=1; Path=/; SameSite=Lax`);
+    doc.cookie = `theme=dark; ${ALIVE_COOKIE}=1`;
+    expect(mark.alive()).toBe(true);
+    mark.clear();
+    expect(doc.cookie).toContain('Max-Age=0');
   });
 
   it('treats a stored session in an old shape as signed out', () => {
@@ -89,6 +126,19 @@ describe('SignInForm', () => {
     expect(await form.submit({ email: 'ada@example.com', password: 'x', name: '' })).toBe(false);
     expect(form.problem.value).toBe('Wrong email or password.');
     expect(form.busy.value).toBe(false);
+  });
+
+  it('remembers the email when "Remember me" is ticked, and forgets it when not', async () => {
+    const store = memoryStore();
+    const session = new SessionStore(memoryStore());
+    expect(new SignInForm(fakeApi().auth, session, store).remembered).toEqual({ remember: true });
+    await new SignInForm(fakeApi().auth, session, store).submit({ email: 'ada@example.com', password: 'secret', name: '', remember: true });
+    expect(new SignInForm(fakeApi().auth, session, store).remembered).toEqual({ remember: true, email: 'ada@example.com' });
+    expect(session.remembered.value).toBe(true);
+    await new SignInForm(fakeApi().auth, session, store).submit({ email: 'ada@example.com', password: 'secret', name: '', remember: false });
+    expect(store.data.get(SIGN_IN_KEY)).toBe('{"remember":false}');
+    expect(new SignInForm(fakeApi().auth, session, store).remembered).toEqual({ remember: false });
+    expect(session.remembered.value).toBe(false);
   });
 
   it('reports a hub it cannot reach', async () => {
