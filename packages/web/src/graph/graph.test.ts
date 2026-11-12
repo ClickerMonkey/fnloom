@@ -51,7 +51,7 @@ describe('the graph URL', () => {
 describe('what a node says and where it opens', () => {
   it('lists only the facts that apply', () => {
     const lines = Object.fromEntries(nodeFacts(nodeOf('fn:fs/write')).map((line) => [line.label, line.value]));
-    expect(lines).toEqual({ 'Fn kind': 'native', Mode: 'write', Writes: 'fs/file', 'Visible to': 'People and models', Examples: '2', State: 'On · Live' });
+    expect(lines).toEqual({ 'Fn kind': 'Native', Mode: 'write', Writes: 'fs/file', 'Visible to': 'People and models', Examples: '2', State: 'On · Live' });
     const pending = Object.fromEntries(nodeFacts(nodeOf('fn:notes/add')).map((line) => [line.label, line.value]));
     expect(pending['State']).toBe('On · Waiting for review');
     const effects = Object.fromEntries(nodeFacts(nodeOf('fn:database/create_query')).map((line) => [line.label, line.value]));

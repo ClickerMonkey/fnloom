@@ -1,6 +1,6 @@
 /**
  * The hub's side of the system link for what this module answers: the handshake (`hello`, `prove`, `pairingInfo`),
- * the contract (`manifest`, `patch`), resource changes (`resourcesChanged`), the fleet and logs (`log`) (reads checked
+ * the contract (`manifest`, `patch`), resource changes (`resourcesChanged`), the fleet, logs (`log`) and what a host refused for a system it hosts (`reportRefusal`) (reads checked
  * as a person are `reads.ts`), plus the `linkSession` guard every endpoint after the handshake runs behind. `linkPlugin` packages them as
  * an `@ayepi/plugin` over `LINK_SPEC` (this module's slice of `hubLinkSpec`; it binds `linkSession` once for every
  * slice); boot installs it on the hub link server, which must be made with `{ peers: PeerLinkService.peers }`.
@@ -26,6 +26,7 @@ import { autoPairRefused, type AutoPairMatch, type AutoPairService } from './aut
 import type { StorePairingService } from './pairing.ts';
 import type { InstanceKeeper } from './status.ts';
 import { maskSecrets } from './config-secrets.ts';
+import { Serial } from '../catalog/serial.ts';
 import type { SystemGrantGuard } from './grants.ts';
 import type { SystemLifecycle } from './lifecycle.ts';
 
@@ -36,7 +37,7 @@ export const LINK_SPEC = spec({
   endpoints: {
     hello: endpoints.hello, prove: endpoints.prove, pairingInfo: endpoints.pairingInfo, manifest: endpoints.manifest, patch: endpoints.patch,
     resourcesChanged: endpoints.resourcesChanged, log: endpoints.log,
-    fleet: endpoints.fleet,
+    fleet: endpoints.fleet, reportRefusal: endpoints.reportRefusal,
   },
 });
 export type LinkSpec = typeof LINK_SPEC;
@@ -63,7 +64,7 @@ export interface LinkHandlerOptions {
   /** Build 7: contract changes of a live system wait for review. */
   readonly lifecycle: Pick<SystemLifecycle, 'contractChanged'>;
   /** Build 7: what a system may do through the hub, checked before every endpoint. */
-  readonly grants: Pick<SystemGrantGuard, 'check'>;
+  readonly grants: Pick<SystemGrantGuard, 'check' | 'refused'>;
 }
 
 /** Where a socket came from, as far as its upgrade request says. */
@@ -87,6 +88,8 @@ export function originOf(conn: WsConn): string {
 export class LinkHandshake {
   readonly #options: LinkHandlerOptions;
   /** Sockets that said hello with a known key (or a good auto-pair secret) and were sent a nonce. */
+  /** Manifest and patch imports, one at a time. */
+  readonly #imports = new Serial();
   readonly #challenges = new Map<WsConn, { hello: Hello; ref: InstanceRef; nonce: string; autoPair?: AutoPairMatch }>();
 
   constructor(options: LinkHandlerOptions) {
@@ -122,17 +125,13 @@ export class LinkHandshake {
       },
       manifest: async ({ data, link }) => {
         if (data.name !== link.system) { throw refuse(403, 'WRONG_SYSTEM', `this link is ${link.system}, not ${data.name}`); }
-        const before = await catalog.manifest(link.system);
-        const report = await catalog.importManifest(data, link.instance);
-        await this.#options.lifecycle.contractChanged(link.system, before, await catalog.manifest(link.system));
+        const report = await this.#imported(link, () => catalog.importManifest(data, link.instance));
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', { description: data.description, version: data.version });
         if (data.resources) { await resources.refresh(link.system, link.instance); }
         return report;
       },
       patch: async ({ data, link }) => {
-        const before = await catalog.manifest(link.system);
-        const report = await catalog.importPatch(link.system, data, link.instance);
-        await this.#options.lifecycle.contractChanged(link.system, before, await catalog.manifest(link.system));
+        const report = await this.#imported(link, () => catalog.importPatch(link.system, data, link.instance));
         await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', {});
         // its resource roots changed: ask for them again
         if (data.roots === true) { await resources.refresh(link.system, link.instance); }
@@ -147,11 +146,33 @@ export class LinkHandshake {
           types: types.filter((type) => type.instance === row.instance).map((type) => ({ name: type.name, description: type.description })),
         }));
       },
+      reportRefusal: async ({ data, link }) => {
+        const hosted = await this.#options.instances.get(data.instance);
+        const host = hosted?.host?.host;
+        if (host === undefined || host.system !== link.system || host.instance !== link.instance) {
+          throw refuse(403, 'NOT_YOUR_HOSTED', `${data.instance.system}/${data.instance.instance} is not hosted by ${link.system}/${link.instance}`);
+        }
+        await this.#options.grants.refused(data.instance, { rule: data.rule, attempt: data.attempt, detail: data.detail });
+      },
       log: ({ data, link }) => {
         log.log(data.level, data.key, { system: link.system, instance: link.instance, ...data.fields });
         this.#options.output.logged(link.system, data);
       },
     };
+  }
+
+  /**
+   * Import a manifest or patch and hand the move to the lifecycle, one import at a time, so two instances sending at
+   * once each compare against the contract the other left (and no change is lost or counted twice).
+   */
+  #imported<T>(link: LinkSession, importIt: () => Promise<T>): Promise<T> {
+    const { catalog, lifecycle } = this.#options;
+    return this.#imports.run(async () => {
+      const before = await catalog.manifest(link.system);
+      const report = await importIt();
+      await lifecycle.contractChanged(link.system, before, await catalog.manifest(link.system));
+      return report;
+    });
   }
 
   async #hello(hello: Hello, conn: WsConn | undefined): Promise<Awaited<ReturnType<LinkHandlers['hello']>>> {

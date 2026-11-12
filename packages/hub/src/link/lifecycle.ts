@@ -17,6 +17,7 @@ import {
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { allRows } from '../catalog/rows.ts';
+import { Serial } from '../catalog/serial.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ReviewEnv } from './env.ts';
 import type { ResourceRouter } from './index.ts';
@@ -113,9 +114,25 @@ function itemOf(change: ContractChange): ItemRef | undefined {
   return change.section === 'grants' || change.section === 'config' ? undefined : { section: change.section, name: change.name };
 }
 
+/**
+ * Fold changes that went live onto a live contract's runtime items: an added or changed one is listed once, a removed
+ * one is dropped. Only runtime changes count, as `LiveContract.runtime` lists what was added at runtime.
+ */
+export function foldRuntime(runtime: readonly ItemRef[], changes: readonly ContractChange[]): ItemRef[] {
+  const out = new Map(runtime.map((item) => [itemKey(item), item]));
+  for (const change of changes) {
+    const item = change.origin === 'runtime' ? itemOf(change) : undefined;
+    if (item === undefined) { continue; }
+    if (change.change === 'removed') { out.delete(itemKey(item)); } else { out.set(itemKey(item), item); }
+  }
+  return [...out.values()];
+}
+
 /** Installed vs live, reviews and per-item switches, on the hub's store. */
 export class SystemLifecycle {
   readonly #options: LifecycleOptions;
+  /** Every read-modify-write of a review row, one at a time, so two manifests or an approve at once lose nothing. */
+  readonly #reviews = new Serial();
 
   constructor(options: LifecycleOptions) {
     this.#options = options;
@@ -224,7 +241,11 @@ export class SystemLifecycle {
   }
 
   /** Go live: save the reviewed contract and the items kept off, then offer everything else. */
-  async goLive(request: GoLiveRequest, by: ActorId): Promise<{ stage: SystemStage; hash: string }> {
+  goLive(request: GoLiveRequest, by: ActorId): Promise<{ stage: SystemStage; hash: string }> {
+    return this.#reviews.run(() => this.#goLive(request, by));
+  }
+
+  async #goLive(request: GoLiveRequest, by: ActorId): Promise<{ stage: SystemStage; hash: string }> {
     const { store, catalog, clock, log, bus } = this.#options;
     const record = await store.table('systems').get(request.system);
     if (record === undefined) { throw refuse(404, 'NO_SYSTEM', `no system ${request.system}`); }
@@ -247,7 +268,11 @@ export class SystemLifecycle {
   }
 
   /** Approve a pending review: what waited becomes live, except the items kept off. */
-  async approve(request: GoLiveRequest, by: ActorId): Promise<{ hash: string }> {
+  approve(request: GoLiveRequest, by: ActorId): Promise<{ hash: string }> {
+    return this.#reviews.run(() => this.#approve(request, by));
+  }
+
+  async #approve(request: GoLiveRequest, by: ActorId): Promise<{ hash: string }> {
     const { store, catalog, clock, log, bus } = this.#options;
     const review = await this.review(request.system);
     if (review?.pending === undefined) { throw refuse(409, 'NOTHING_PENDING', `${request.system} has no changes waiting`); }
@@ -255,9 +280,8 @@ export class SystemLifecycle {
     const manifest = await this.#reviewed(request.system, request.hash);
     const among = new Set(review.pending.changes.flatMap((change) => { const item = itemOf(change); return item === undefined ? [] : [itemKey(item)]; }));
     await this.#applyOff(request.system, request.off, by, among);
-    const runtime = review.pending.changes.filter((change) => change.origin === 'runtime' && change.change !== 'removed').flatMap((change) => { const item = itemOf(change); return item === undefined ? [] : [item]; });
     const live: LiveContract = {
-      version: manifest.version, hash: manifest.hash, grants: manifest.grants ?? { hub: [] }, runtime: [...(review.live?.runtime ?? []), ...runtime], by, at: clock(),
+      version: manifest.version, hash: manifest.hash, grants: manifest.grants ?? { hub: [] }, runtime: foldRuntime(review.live?.runtime ?? [], review.pending.changes), by, at: clock(),
     };
     const { pending: _approved, ...rest } = review;
     await store.table('systemReviews').put({ ...rest, live, updatedAt: clock() });
@@ -268,7 +292,11 @@ export class SystemLifecycle {
   }
 
   /** Drop a pending review: the live version stays, and what waited stays off (switched off by the admin). */
-  async reject(system: SystemName, hash: string, by: ActorId): Promise<{ ok: boolean }> {
+  reject(system: SystemName, hash: string, by: ActorId): Promise<{ ok: boolean }> {
+    return this.#reviews.run(() => this.#reject(system, hash, by));
+  }
+
+  async #reject(system: SystemName, hash: string, by: ActorId): Promise<{ ok: boolean }> {
     const { store, catalog, clock, log, bus } = this.#options;
     const review = await this.review(system);
     if (review?.pending === undefined) { throw refuse(409, 'NOTHING_PENDING', `${system} has no changes waiting`); }
@@ -288,7 +316,11 @@ export class SystemLifecycle {
    * A live system's contract moved from `before` to `after` (a manifest or patch was imported). Runtime additions its
    * fns declared are approved at once; everything else waits in its pending review, held off until approved.
    */
-  async contractChanged(system: SystemName, before: Manifest | undefined, after: Manifest | undefined): Promise<void> {
+  contractChanged(system: SystemName, before: Manifest | undefined, after: Manifest | undefined): Promise<void> {
+    return this.#reviews.run(() => this.#contractChanged(system, before, after));
+  }
+
+  async #contractChanged(system: SystemName, before: Manifest | undefined, after: Manifest | undefined): Promise<void> {
     const { store, catalog, clock, log, settings, bus } = this.#options;
     if (after === undefined || before?.hash === after.hash) { return; }
     const record = await store.table('systems').get(system);
@@ -306,8 +338,7 @@ export class SystemLifecycle {
     const changes = contractChanges(before, after);
     const covered = changes.filter((change) => this.#covered(change, declared));
     const waiting = mergeChanges(review?.pending?.changes ?? [], changes.filter((change) => !covered.includes(change)));
-    const approved = covered.flatMap((change) => { const item = change.change === 'removed' ? undefined : itemOf(change); return item === undefined ? [] : [item]; });
-    const nextLive: LiveContract = { ...live, runtime: [...live.runtime, ...approved], ...(waiting.length === 0 ? { hash: after.hash, version: after.version } : {}) };
+    const nextLive: LiveContract = { ...live, runtime: foldRuntime(live.runtime, covered), ...(waiting.length === 0 ? { hash: after.hash, version: after.version } : {}) };
     const pending: PendingReview | undefined = waiting.length === 0 ? undefined : {
       version: after.version, hash: after.hash, by: waiting.every((change) => change.origin === 'runtime') ? 'runtime' : 'contract', changes: waiting, since: review?.pending?.since ?? clock(),
     };
@@ -334,10 +365,12 @@ export class SystemLifecycle {
   }
 
   /** Copy the install checks from the install run's approval onto the system's review. */
-  async setChecks(system: SystemName, checks: NonNullable<SystemReviewRecord['checks']>): Promise<void> {
+  setChecks(system: SystemName, checks: NonNullable<SystemReviewRecord['checks']>): Promise<void> {
     const { store, clock } = this.#options;
-    const review = await this.review(system);
-    await store.table('systemReviews').put({ ...(review ?? {}), system, checks, updatedAt: clock() });
+    return this.#reviews.run(async () => {
+      const review = await this.review(system);
+      await store.table('systemReviews').put({ ...(review ?? {}), system, checks, updatedAt: clock() });
+    });
   }
 
   /** What the system's fns declared they create, update or remove in the hub. */

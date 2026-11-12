@@ -20,7 +20,7 @@ import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
   type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
-  type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch, PairingGrantRequest, type PairingGrant,
+  type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch, HostRefusal, PairingGrantRequest, type PairingGrant,
 } from '@harness/core';
 import type { Log, SystemPlace } from '../ctx.ts';
 import { fleets, fnSearch } from './asks.ts';
@@ -336,6 +336,11 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   async grantPairing(request: PairingGrantRequest): Promise<PairingGrant> {
     const hub = await this.#access.ready(this.#stop.signal);
     return hub.call('grantPairing', PairingGrantRequest.parse(request), { signal: this.#stop.signal });
+  }
+
+  async reportRefusal(refusal: HostRefusal): Promise<void> {
+    const hub = await this.#access.ready(this.#stop.signal);
+    await hub.call('reportRefusal', HostRefusal.parse(refusal), { signal: this.#stop.signal });
   }
 
   async examples(fn: string, change: { upsert?: FnExamplesPatch['upsert']; remove?: readonly string[] }): Promise<{ added: number; removed: number }> {

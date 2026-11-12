@@ -42,6 +42,7 @@ class FakeBuilds implements SystemBuilds {
         manifest: { format: 1, name: SystemName.parse('random'), version, description: 'Random numbers.', protocol: 1, server: { entry: 'server/main.js', external: {} }, instances: 'one' },
         manifestHash: `m-${this.fns.join(',')}`, bundleHash: `b-${this.source}`, entry: join(outDir, 'server', 'main.js'),
         fns: this.fns, adds: [], scan: { size: 2048, builtins: [], concerns: [], urls: [], hosts: [] },
+        grants: { hub: [], network: ['api.example.com'], files: { read: ['shared'], write: [] } },
       },
     });
   }
@@ -122,6 +123,9 @@ describe('hosting systems written here', () => {
     // only the hub, its folders and the SDK's own settings: never fs's environment
     expect(Object.keys(launch?.env ?? {}).every((name) => name.startsWith('HARNESS_'))).toBe(true);
     expect(launch?.entry.replaceAll('\\', '/')).toContain('/hosted/random/versions/b-source-1/server/main.js');
+    // what its approved contract declares: a path under its data folder, and its hosts
+    expect(launch?.network).toEqual(['api.example.com']);
+    expect(launch?.files.read.map((path) => path.replaceAll('\\', '/'))).toEqual([expect.stringMatching(/\/hosted\/random\/main\/data\/shared$/)]);
     expect(await hosting.status()).toMatchObject([{ system: 'random', state: 'connected', pid: 4120 }]);
   });
 

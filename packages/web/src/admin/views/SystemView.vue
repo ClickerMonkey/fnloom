@@ -37,7 +37,7 @@ import SystemOverview from '../components/SystemOverview.vue';
 import { partGroups, SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
 import { contextLabel } from '../../context/logic/context.ts';
 import { secretFields } from '../logic/instances.ts';
-import { STAGE_LOOK } from '../logic/review.ts';
+import { declaredItems, STAGE_LOOK } from '../logic/review.ts';
 import { PartTab, SystemTab } from '../sections.ts';
 import { configComponentsOf, configTarget } from '../state/config-component.ts';
 
@@ -95,13 +95,19 @@ async function switchPart(item: ItemRef, on: boolean): Promise<void> {
   if (name.value !== undefined) { void parts.loadOthers(name.value); }
 }
 
+/** A tab's count: what its list loaded, else what the review declares, else none yet. */
+function countOf(loaded: number | undefined, section: 'context' | 'types'): { count?: number } {
+  if (loaded !== undefined) { return { count: loaded }; }
+  return review.value === undefined ? {} : { count: declaredItems(review.value, section).length };
+}
+
 const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'instances', label: 'Instances', count: view.value?.instances.length ?? 0 },
   { value: 'config', label: 'Config' },
   { value: 'fns', label: 'Fns', count: view.value?.fns ?? 0 },
-  { value: 'context', label: 'Context', ...(parts.contextCount.value === undefined ? {} : { count: parts.contextCount.value }) },
-  { value: 'types', label: 'Types', ...(parts.typeCount.value === undefined ? {} : { count: parts.typeCount.value }) },
+  { value: 'context', label: 'Context', ...countOf(parts.contextCount.value, 'context') },
+  { value: 'types', label: 'Types', ...countOf(parts.typeCount.value, 'types') },
   { value: 'parts', label: 'Other parts', ...(others.value === undefined ? {} : { count: otherCount.value }) },
   { value: 'graph', label: 'Graph' },
   { value: 'refusals', label: 'Refusals', count: review.value?.refusals.total ?? 0 },
@@ -118,7 +124,7 @@ watch([tab, name], ([current, system]) => {
   if (current === 'fns') { void store.loadFns(); }
   if (current === 'context' && system !== undefined) { void parts.loadContext(system); }
   if (current === 'types' && system !== undefined) { void parts.loadTypes(system); }
-  if (current === 'parts' && system !== undefined) { void parts.loadOthers(system); }
+  if (system !== undefined && (current === 'parts' || parts.others.value.value === undefined)) { void parts.loadOthers(system); }
   if (current === 'refusals' && system !== undefined) { void reviews.loadRefusals(system, rule.value === 'all' ? undefined : rule.value); }
   if (current === 'logs') { void store.followLogs(); } else { store.unfollowLogs(); }
 }, { immediate: true });
@@ -190,7 +196,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
       <RouterLink v-if="name !== undefined && view.status === 'connected'" :to="links.explore(name, MAIN_INSTANCE)" class="waiting" data-testid="system-explore"><UiIcon name="folder" :size="14" />Files</RouterLink>
       <RouterLink v-if="name !== undefined" :to="links.waitingRuns(name)" class="waiting" data-testid="system-waiting-runs"><UiIcon name="shield" :size="14" />Waiting runs</RouterLink>
       <RouterLink v-if="name !== undefined" :to="links.review(name, review?.pending ? 'pending' : 'fns')" class="waiting" data-testid="system-review">
-        <UiIcon name="eye" :size="14" />{{ review?.pending ? 'Review changes' : 'Review' }}
+        <UiIcon name="eye" :size="14" />Review
       </RouterLink>
       <StatusBadge :look="STAGE_LOOK[stage]" data-testid="system-stage" />
       <StatusBadge :look="SYSTEM_STATUS_LOOK[view.status]" />

@@ -17,8 +17,8 @@
  *   (`host.json` beside the instance's folders) is the supervisor's own bookkeeping: which bundle to start, and whether.
  */
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, ScanReport, SystemName, SystemPackageManifest, type ApprovalPreview, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
+import { isAbsolute, join, resolve } from 'node:path';
+import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, ScanReport, SystemGrants, SystemName, SystemPackageManifest, type ApprovalPreview, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
 import { z } from 'zod';
 import type { HostedStatusValue, HostedStateValue, InstallResultValue } from '../shared/hosting.ts';
 
@@ -31,6 +31,8 @@ export const BuiltSystem = z.object({
   manifest: SystemPackageManifest,
   /** The hash of the contract the bundle declares, which its hello must carry. */
   manifestHash: z.string().min(1),
+  /** What the contract declares it may do (`Manifest.grants`): its files and network are enforced on this machine. */
+  grants: SystemGrants.optional(),
   /** sha-256 of the self-contained server bundle. */
   bundleHash: z.string().min(1),
   /** The bundle's server file, under the build folder. */
@@ -76,6 +78,8 @@ export function scanLines(scan: ScanReport): string[] {
 
 /** What the runner starts: a bundle under tsx, in its folders, with only the environment given. */
 export interface HostedLaunch {
+  /** The instance it runs, for the refusals reported to the hub. */
+  readonly ref: InstanceRef;
   readonly entry: string;
   /** Where it runs: its bundle folder, which it may read. */
   readonly cwd: string;
@@ -83,6 +87,10 @@ export interface HostedLaunch {
   readonly writes: readonly string[];
   readonly env: Readonly<Record<string, string>>;
   readonly permissions: SystemPackageManifest['permissions'];
+  /** `grants.files`, as absolute paths: what it may read and write beyond its own folders. */
+  readonly files: { readonly read: readonly string[]; readonly write: readonly string[] };
+  /** `grants.network`: the hosts its allowlist proxy lets through (none declared, none). */
+  readonly network: readonly string[];
 }
 
 /** How a start went: it said it connected (or waits for config), it exited first, or it said nothing in time. */
@@ -148,6 +156,8 @@ export const HostedRecord = z.object({
   entry: z.string().min(1),
   fns: z.array(z.string()),
   permissions: SystemPackageManifest.shape.permissions,
+  /** What its approved contract declares it may do; absent on records from before build 7, which get no more than their own folders. */
+  grants: SystemGrants.optional(),
   /** Whether fs starts it when it starts (false once stopped). */
   start: z.boolean(),
 });
@@ -296,7 +306,7 @@ export class Hosting {
     const token = hosted === undefined ? (await grant(subject)).token : undefined;
     const record: HostedRecord = {
       system: subject.system, instance: subject.instance, version: subject.version, folder, bundleHash: subject.bundleHash,
-      manifestHash: subject.manifestHash, entry: built.entry, fns: [...built.fns], permissions: built.manifest.permissions, start: true,
+      manifestHash: subject.manifestHash, entry: built.entry, fns: [...built.fns], permissions: built.manifest.permissions, ...(built.grants === undefined ? {} : { grants: built.grants }), start: true,
     };
     const outcome = await this.#start(record, token);
     if (!('state' in outcome)) {
@@ -486,7 +496,13 @@ export class Hosting {
       HARNESS_LOG_LEVEL: 'info',
       ...(token === undefined ? {} : { HARNESS_PAIRING_TOKEN: token }),
     };
-    return await this.#deps.runner.start(keyOf(record), { entry: record.entry, cwd: this.versionFolder(record.system, record.bundleHash), writes: [dirs.state, dirs.data, dirs.cache], env, permissions: record.permissions }, this.#deps.limits.connectTimeout);
+    // its declared paths, relative to its data folder or absolute
+    const paths = (list: readonly string[] | undefined): string[] => (list ?? []).map((path) => (isAbsolute(path) ? resolve(path) : resolve(dirs.data, path)));
+    const files = { read: paths(record.grants?.files?.read), write: paths(record.grants?.files?.write) };
+    return await this.#deps.runner.start(keyOf(record), {
+      ref: { system: record.system, instance: record.instance }, entry: record.entry, cwd: this.versionFolder(record.system, record.bundleHash),
+      writes: [dirs.state, dirs.data, dirs.cache], env, permissions: record.permissions, files, network: record.grants?.network ?? [],
+    }, this.#deps.limits.connectTimeout);
   }
 
   async #write(record: HostedRecord): Promise<void> {

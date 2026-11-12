@@ -8,11 +8,11 @@
  */
 import type { GraphMore, GraphNode, GraphPage } from '@harness/core';
 import type { Core, EdgeSingular, EventObjectEdge, EventObjectNode, NodeSingular } from 'cytoscape';
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { UiIconButton, UiSpinner } from '../../ui/index.ts';
 import { useDarkTheme } from '../../ui/theme.ts';
 import { graphElements, kindLabel, moreId, NODE_KIND_COLORS, pickOf, type GraphPick } from '../logic/graph.ts';
-import { graphStyle, resolveColors } from '../palette.ts';
+import { graphStyle, resolveColors, shapeClip } from '../palette.ts';
 import GraphDetails from './GraphDetails.vue';
 
 const props = withDefaults(defineProps<{
@@ -25,6 +25,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ open: [node: GraphNode]; focus: [node: GraphNode]; expand: [more: GraphMore] }>();
 
 const frame = ref<HTMLElement | null>(null);
+const panel = ref<HTMLElement | null>(null);
 const canvas = ref<HTMLElement | null>(null);
 const cy = shallowRef<Core | undefined>(undefined);
 const problem = ref('');
@@ -39,6 +40,10 @@ type Element = NodeSingular | EdgeSingular;
 type ElementEvent = EventObjectNode | EventObjectEdge;
 /** Whether the person panned or zoomed since the last layout (then a resize keeps their view). */
 let moved = false;
+/** Room left around the graph when it is framed, clear of the zoom buttons and the legend. */
+const FIT_PADDING = 40;
+/** The zoom a graph opens at stays in this range, so labels are readable however many items there are. */
+const START_ZOOM = { min: 0.65, max: 1.3 } as const;
 
 const kinds = computed(() => [...new Set(props.page.nodes.map((node) => node.kind))]);
 const legendColor = (kind: GraphNode['kind']): string => NODE_KIND_COLORS[kind][dark.value ? 1 : 0];
@@ -70,12 +75,50 @@ function draw(): void {
   picked.value = undefined;
   core.elements().remove();
   core.add(graphElements(props.page, { clusters: props.clusters }));
-  core.layout({
-    name: 'cose', animate: false, nodeDimensionsIncludeLabels: true, padding: 16, componentSpacing: 24, nodeRepulsion: () => 2800, idealEdgeLength: () => 46,
+  const layout = core.layout({
+    name: 'cose', animate: false, fit: false, nodeDimensionsIncludeLabels: true, padding: 16, componentSpacing: 24, nodeRepulsion: () => 2800, idealEdgeLength: () => 46,
     nestingFactor: 0.9, gravity: 2.5, nodeOverlap: 8, numIter: 1500,
-  }).run();
-  moved = false;
-  core.fit(undefined, 16);
+  });
+  layout.one('layoutstop', () => { moved = false; frameView(); });
+  layout.run();
+}
+
+/**
+ * Frame the graph: fit it in the box (clear of the buttons and the legend), then keep the zoom in the readable range;
+ * a large graph opens centred at the smallest readable zoom, to pan around or fit with the button.
+ */
+function frameView(): void {
+  const core = cy.value;
+  if (core === undefined) { return; }
+  core.resize();
+  if (core.width() === 0 || core.height() === 0 || core.elements().length === 0) { return; }
+  core.fit(undefined, FIT_PADDING);
+  const level = Math.min(START_ZOOM.max, Math.max(START_ZOOM.min, core.zoom()));
+  if (level !== core.zoom()) {
+    core.zoom(level);
+    core.center();
+  }
+}
+
+/** Fit everything in view, however small it gets (the Fit button). */
+function fitAll(): void {
+  cy.value?.fit(undefined, FIT_PADDING);
+}
+
+/** Pan so the chosen node sits in the part of the box the details panel leaves free. */
+async function keepClear(target: Element): Promise<void> {
+  await nextTick();
+  const core = cy.value;
+  const box = frame.value;
+  const sheet = panel.value;
+  if (core === undefined || box === null || sheet === null || !target.isNode()) { return; }
+  const at = target.renderedPosition();
+  const docked = sheet.offsetLeft > box.clientWidth / 2;
+  const free = docked ? { x: 0, y: 0, width: sheet.offsetLeft, height: box.clientHeight } : { x: 0, y: 0, width: box.clientWidth, height: sheet.offsetTop };
+  const margin = 32;
+  const inside = at.x > free.x + margin && at.x < free.x + free.width - margin && at.y > free.y + margin && at.y < free.y + free.height - margin;
+  if (inside) { return; }
+  core.animate({ panBy: { x: free.x + free.width / 2 - at.x, y: free.y + free.height / 2 - at.y } }, { duration: 200 });
 }
 
 function restyle(): void {
@@ -108,12 +151,13 @@ onMounted(async () => {
       hover.value = undefined;
       picked.value = pick;
       light(event.target);
+      void keepClear(event.target);
       if (pick.type === 'node' && pick.node.kind === 'fn' && !pick.node.external) { emit('open', pick.node); }
     });
     core.on('tap', (event) => { if (event.target === core) { picked.value = undefined; light(undefined); } });
     core.on('pan zoom', () => { hover.value = undefined; });
     core.on('dragpan scrollzoom pinchzoom', () => { moved = true; });
-    resize = new ResizeObserver(() => { core.resize(); if (!moved) { core.fit(undefined, 16); } });
+    resize = new ResizeObserver(() => { core.resize(); if (!moved) { frameView(); } });
     resize.observe(container);
   } catch (error) {
     problem.value = error instanceof Error ? error.message : String(error);
@@ -160,23 +204,23 @@ function expand(): void {
     <div class="tools">
       <UiIconButton icon="plus" label="Zoom in" size="sm" @click="zoomBy(1.3)" />
       <UiIconButton icon="minus" label="Zoom out" size="sm" @click="zoomBy(1 / 1.3)" />
-      <UiIconButton icon="grid" label="Fit to view" size="sm" data-testid="graph-fit" @click="cy?.fit(undefined, 16)" />
+      <UiIconButton icon="grid" label="Fit to view" size="sm" data-testid="graph-fit" @click="fitAll" />
     </div>
     <div v-if="hover && !picked" class="hover" :style="hoverStyle" data-testid="graph-hover" role="tooltip">
       <GraphDetails :pick="hover.pick" />
     </div>
-    <div v-if="picked" class="panel" data-testid="graph-panel">
+    <div v-if="picked" ref="panel" class="panel" data-testid="graph-panel">
       <GraphDetails :pick="picked" actions @open="emit('open', $event)" @focus="emit('focus', $event)" @expand="expand" @close="close" />
     </div>
     <ul class="legend" aria-label="Kinds">
-      <li v-for="kind in kinds" :key="kind"><span class="dot" :style="{ background: legendColor(kind) }" />{{ kindLabel(kind) }}</li>
+      <li v-for="kind in kinds" :key="kind"><span class="shape" :style="{ background: legendColor(kind), clipPath: shapeClip(kind) }" />{{ kindLabel(kind) }}</li>
       <li class="dim"><span class="dot external" />Outside this view</li>
     </ul>
   </div>
 </template>
 
 <style scoped>
-.graph { position: relative; min-height: 320px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.graph { position: relative; container: graph / inline-size; min-height: 320px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
 .canvas { position: absolute; inset: 0; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; }
 .problem { position: absolute; inset: auto var(--space-3) var(--space-3); margin: 0; color: var(--danger); }
@@ -186,13 +230,19 @@ function expand(): void {
   box-shadow: var(--shadow-lg);
 }
 .hover { pointer-events: none; z-index: 2; }
-.panel { left: var(--space-2); bottom: 34px; width: min(340px, calc(100% - 2 * var(--space-2))); max-height: calc(100% - 80px); overflow: auto; z-index: 3; }
+/* a bottom sheet on a narrow box, docked to the right below the zoom buttons on a wide one; the graph pans the chosen node clear of it */
+.panel { left: var(--space-2); right: var(--space-2); bottom: 34px; max-height: 45%; overflow: auto; z-index: 3; }
+@container graph (min-width: 720px) {
+  .panel { left: auto; top: 48px; bottom: auto; width: 320px; max-height: calc(100% - 90px); }
+}
 .legend {
-  position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: nowrap; gap: var(--space-3); margin: 0; padding: 4px var(--space-3); list-style: none;
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: nowrap; scroll-snap-type: x proximity;
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); gap: var(--space-3); margin: 0; padding: 4px 32px 4px var(--space-3); list-style: none;
   overflow-x: auto; font-size: var(--text-xs); color: var(--text-dim); background: color-mix(in srgb, var(--surface) 88%, transparent); border-top: 1px solid var(--border);
   white-space: nowrap; scrollbar-width: none;
 }
 .legend li { display: inline-flex; align-items: center; gap: 4px; }
+.shape { width: 11px; height: 11px; flex: none; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .dot.external { border: 1px dashed var(--text-faint); background: transparent; }
 .dim { color: var(--text-faint); }

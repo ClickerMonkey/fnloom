@@ -6,7 +6,7 @@
 import { REFUSAL_RULES, type RefusalRecord, type RefusalRule, type RunId } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { relativeTime, fullTime, UiBadge, UiSelect, type SelectOption } from '../../ui/index.ts';
-import { RULE_WORDS } from '../logic/review.ts';
+import { refusalLine, RULE_WORDS } from '../logic/review.ts';
 
 defineProps<{
   refusals: readonly RefusalRecord[];
@@ -24,13 +24,12 @@ const RULES: readonly SelectOption<RefusalRule | 'all'>[] = [{ value: 'all', lab
     <UiSelect v-model="rule" class="filter" :options="RULES" label="Rule" hide-label data-testid="refusal-rule" />
     <ul v-if="refusals.length > 0" class="list" data-testid="refusal-list">
       <li v-for="refusal in refusals" :key="refusal.id" class="row" :data-rule="refusal.rule">
-        <UiBadge tone="danger">{{ RULE_WORDS[refusal.rule] }}</UiBadge>
+        <UiBadge tone="danger" class="rule">{{ RULE_WORDS[refusal.rule] }}</UiBadge>
         <span class="main">
-          <span class="detail">{{ refusal.detail }}</span>
+          <span class="detail">{{ refusalLine(refusal) }}</span>
           <span class="meta">
-            <code>{{ refusal.attempt }}</code>
-            <span v-if="refusal.fn"> · from <code>{{ refusal.fn }}</code></span>
-            <span> · {{ refusal.instance }}</span>
+            <span v-if="refusal.fn">From <code>{{ refusal.fn }}</code> · </span>
+            <span>on {{ refusal.instance }}</span>
             <RouterLink v-if="refusal.run" :to="runPage(refusal.run)"> · open the run</RouterLink>
           </span>
         </span>
@@ -46,6 +45,7 @@ const RULES: readonly SelectOption<RefusalRule | 'all'>[] = [{ value: 'all', lab
 .list { display: grid; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); list-style: none; overflow: hidden; }
 .list > li + li { border-top: 1px solid var(--border); }
 .row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-4); }
+.rule { justify-self: start; }
 .main { display: grid; gap: 2px; min-width: 0; }
 .detail { font-size: var(--text-sm); overflow-wrap: anywhere; }
 .meta { color: var(--text-dim); font-size: var(--text-xs); overflow-wrap: anywhere; }

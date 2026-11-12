@@ -4,7 +4,7 @@
  * rejecting, switching items and test calls change what is kept, so the review page can be used end to end.
  */
 import {
-  mintId, RefusalPage, SystemReview, type GoLiveRequest, type ItemRef, type RefusalQuery, type RunId, type SystemName, type SystemStage,
+  mintId, RefusalPage, SystemReview, type GoLiveRequest, type PreviewShot, type ItemRef, type RefusalQuery, type RunId, type SystemName, type SystemStage,
 } from '@harness/core';
 import { notesManifest, refusal, review } from '../src/admin/test/review.ts';
 
@@ -29,7 +29,7 @@ export class MockReviews {
   review(system: SystemName): SystemReview {
     const known = this.#reviews.get(system);
     if (known !== undefined) { return known; }
-    const made = system === 'notes' ? review() : this.#live(system);
+    const made = system === 'notes' ? this.#notes() : this.#live(system);
     this.#reviews.set(system, made);
     return made;
   }
@@ -91,6 +91,29 @@ export class MockReviews {
     return RefusalPage.parse({ items: all.filter((item) => query.rule === undefined || item.rule === query.rule) });
   }
 
+  /**
+   * The installed `notes`: both fns with their facts, every test listed, the refusals the refusals page lists, and a
+   * drawn picture for each preview shot (as the hub's presigned links would give).
+   */
+  #notes(): SystemReview {
+    const base = review();
+    const cost = { min: 0, typical: 0, max: 0, basis: 'free', runs: 12 };
+    const facts = [
+      { fn: 'notes/find', kind: 'native', mode: 'read', reads: ['notes/Note'], writes: [], uses: ['notes/find'], free: true, registry: [], cost, times: { runs: 12, typical: 180, slow: 420, longest: 900 }, longRunning: false },
+      ...base.facts,
+    ];
+    const tests = base.checks?.tests;
+    const cases = [
+      ...(tests?.cases ?? []),
+      { file: 'notes.test.ts', name: 'lists notes newest first', status: 'passed', duration: 7 },
+      { file: 'notes.test.ts', name: 'keeps the folder in config', status: 'passed', duration: 3 },
+      { file: 'notes.real.test.ts', name: 'titles a note with a model', status: 'skipped', duration: 0, real: true },
+    ];
+    const last = this.refusals({ system: base.system }).items;
+    const previewUrls = Object.fromEntries((tests?.previews ?? []).map((shot) => [shot.image.hash, drawnShot(shot)]));
+    return SystemReview.parse({ ...base, facts, checks: { ...base.checks, tests: { ...tests, cases } }, refusals: { total: last.length, last }, previewUrls });
+  }
+
   /** A live system; `fs` has version 1.1.0 waiting with an added fn, a changed one and wider grants. */
   #live(system: SystemName): SystemReview {
     const manifest = notesManifest(`hash-${system}`, { name: system });
@@ -108,4 +131,20 @@ export class MockReviews {
       ...review({ system, manifest }), stage: 'live', live, checks: undefined, refusals: { total: 0, last: [] }, ...(pending === undefined ? {} : { pending }),
     });
   }
+}
+
+/** A picture standing in for a preview shot: the component in its state, sized and coloured for its viewport and theme. */
+function drawnShot(shot: PreviewShot): string {
+  const phone = shot.viewport === 'phone';
+  const [width, height] = phone ? [360, 640] : [1280, 800];
+  const dark = shot.theme === 'dark';
+  const [page, card, ink, faint] = dark ? ['#14161a', '#1f2228', '#e8eaed', '#3a3f48'] : ['#f6f7f9', '#ffffff', '#1d2025', '#dde1e6'];
+  const rows = shot.state === 'empty' ? 0 : shot.state === 'long' ? 9 : shot.state === 'typical' ? 4 : 0;
+  const pad = phone ? 20 : 48;
+  const lines = Array.from({ length: rows }, (_, index) => `<rect x="${pad + 16}" y="${pad + 96 + index * 52}" width="${(width - 2 * pad - 32) * (index % 3 === 2 ? 0.6 : 0.9)}" height="28" rx="6" fill="${faint}"/>`).join('');
+  const middle = shot.state === 'loading' ? `<circle cx="${width / 2}" cy="${height / 2}" r="28" fill="none" stroke="#4f7cff" stroke-width="6" stroke-dasharray="120 60"/>`
+    : shot.state === 'error' ? `<rect x="${pad + 16}" y="${pad + 96}" width="${width - 2 * pad - 32}" height="56" rx="8" fill="#e5484d" opacity="0.85"/>`
+    : shot.state === 'empty' ? `<text x="${width / 2}" y="${height / 2}" font-family="sans-serif" font-size="${phone ? 22 : 30}" fill="${ink}" opacity="0.55" text-anchor="middle">No notes yet</text>` : lines;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="${page}"/><rect x="${pad}" y="${pad}" width="${width - 2 * pad}" height="${height - 2 * pad}" rx="14" fill="${card}" stroke="${faint}"/><text x="${pad + 16}" y="${pad + 48}" font-family="sans-serif" font-size="${phone ? 24 : 32}" font-weight="600" fill="${ink}">${shot.component}</text>${middle}</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }

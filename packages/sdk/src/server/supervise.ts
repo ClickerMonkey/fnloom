@@ -34,6 +34,46 @@ export function statusOfLine(line: string): RunningStatus | undefined {
   return parsed.success ? parsed.data.status : undefined;
 }
 
+/** A file access Node's permission model refused, as the child printed it. */
+export interface AccessDenied {
+  /** `FileSystemRead` or `FileSystemWrite` (or another of Node's permission scopes). */
+  readonly permission: string;
+  /** The path, when the error named it. */
+  readonly resource?: string;
+}
+
+/** A quoted value in an error's printed fields (`  resource: '...'`), unescaped. */
+function fieldOf(line: string, name: string): string | undefined {
+  const match = new RegExp(`^\\s*${name}: '(.*)',?$`).exec(line);
+  return match?.[1]?.replace(/\\\\/g, '\\');
+}
+
+/**
+ * Reads a child's output for the errors Node's permission model throws (`code: 'ERR_ACCESS_DENIED'` with its
+ * `permission` and `resource` fields, as an uncaught error prints them), so a supervisor can report the refusal.
+ */
+export class AccessDeniedReader {
+  #open = false;
+  #permission: string | undefined;
+
+  /** Feed one line; returns the refusal once its error has been read through. */
+  line(line: string): AccessDenied | undefined {
+    if (/code: 'ERR_ACCESS_DENIED'/.test(line)) {
+      this.#open = true;
+      this.#permission = undefined;
+      return undefined;
+    }
+    if (!this.#open) { return undefined; }
+    const permission = fieldOf(line, 'permission');
+    if (permission !== undefined) { this.#permission = permission; return undefined; }
+    // Windows paths come in their long form (`\\?\C:\...`)
+    const resource = fieldOf(line, 'resource')?.replace(/^\\\\\?\\/, '');
+    if (resource === undefined && !/^\s*\}/.test(line)) { return undefined; }
+    this.#open = false;
+    return { permission: this.#permission ?? 'FileSystem', ...(resource === undefined ? {} : { resource }) };
+  }
+}
+
 /** How to run a process: the program, its arguments, its working folder and the variables it adds. */
 export interface ProcessCommand {
   readonly run: string;

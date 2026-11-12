@@ -9,7 +9,7 @@ import type { Page } from 'puppeteer';
 import { check, feature, inEachScheme, isTouch, open, settle, tid } from '../kit.ts';
 
 /** One drawn node: id, classes and where it is on the page. */
-interface DrawnNode { readonly id: string; readonly classes: string; readonly x: number; readonly y: number }
+interface DrawnNode { readonly id: string; readonly classes: string; readonly x: number; readonly y: number; readonly inView: boolean }
 
 /**
  * The drawn graph's nodes, read from the graph library's instance (Cytoscape keeps it on its container as `_cyreg.cy`).
@@ -23,7 +23,11 @@ function drawnNodes(el: Element): DrawnNode[] | undefined {
   const box = el.getBoundingClientRect();
   return cy.nodes().map((node) => {
     const at = node.renderedPosition();
-    return { id: node.id(), classes: node.classes().join(' '), x: box.left + at.x, y: box.top + at.y };
+    const x = box.left + at.x;
+    const y = box.top + at.y;
+    // clear of the edges, the zoom buttons (top) and the legend (bottom), and on screen: where a person can point at it
+    const inView = x > box.left + 16 && x < box.right - 16 && y > box.top + 48 && y < box.bottom - 40 && y < window.innerHeight - 8 && x < window.innerWidth - 8;
+    return { id: node.id(), classes: node.classes().join(' '), x, y, inView };
   });
 }
 
@@ -49,7 +53,7 @@ export default feature({
       await open(ctx, '/graph', tid('graph-canvas'));
       const nodes = await drawn(page);
       check(nodes.some((node) => node.classes.includes('cluster')), 'the global graph draws a cluster per system');
-      const fn = nodes.find((node) => node.id === 'fn:fs/write') ?? nodes.find((node) => node.id.startsWith('fn:'));
+      const fn = nodes.find((node) => node.id === 'fn:fs/write' && node.inView) ?? nodes.find((node) => node.id.startsWith('fn:') && node.inView && !node.classes.includes('external'));
       check(fn !== undefined, 'the graph draws fns');
       if (isTouch(ctx)) {
         await page.touchscreen.tap(fn.x, fn.y);
@@ -68,7 +72,7 @@ export default feature({
 
     // a context item opens its details panel with Open and its neighbourhood
     const nodes = await drawn(page);
-    const item = nodes.find((node) => node.id === 'context:fs/authoring');
+    const item = nodes.find((node) => node.id === 'context:fs/authoring' && node.inView) ?? nodes.find((node) => node.id.startsWith('context:') && node.inView && !node.classes.includes('external'));
     check(item !== undefined, 'the graph draws context');
     if (isTouch(ctx)) { await page.touchscreen.tap(item.x, item.y); } else { await page.mouse.click(item.x, item.y); }
     await page.waitForSelector(tid('graph-panel'), { timeout: 5_000 });

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { NodeFiles, ViteBuilder } from '@harness/build';
 import { SystemName } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { CrashPolicy, NodeStarter, RESTART_CODE, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
+import { AllowlistProxy, CrashPolicy, NodeStarter, RESTART_CODE, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
 import { fs } from '../shared/index.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
@@ -63,6 +63,12 @@ const hosting = new Hosting({
     wait: (ms) => new Promise((done) => { setTimeout(done, ms); }),
     now: () => Date.now(),
     log: (key, fields) => { log.info(key, fields); },
+    gate: (allow, refused) => new AllowlistProxy({ allow, onRefused: refused }),
+    // the hub link goes direct, never through a hosted system's proxy
+    direct: [new URL(settings.HARNESS_HUB).hostname],
+    refused: (refusal) => {
+      running.reportRefusal(refusal).catch((error: unknown) => { log.warn('fs.hosted.refusal-unsent', { system: refusal.instance.system, rule: refusal.rule, error: error instanceof Error ? error.message : String(error) }); });
+    },
   }),
   // a folder's own tests run in a sandboxed child before its install card is shown
   tests: new ProcessSystemTests({ nodeArgs: loader.nodeArgs, baseEnv: process.env, timeout: settings.FS_TESTS_TIMEOUT }),

@@ -142,7 +142,7 @@ async function save(config: Json): Promise<void> {
         <UiBanner v-if="review.pending" tone="warn" data-testid="review-pending">
           {{ changes.length }} {{ changes.length === 1 ? 'change waits' : 'changes wait' }} ({{ review.pending.by === 'contract' ? `version ${review.pending.version}` : 'added while running' }}). The live version keeps working; the changes stay off until approved.
         </UiBanner>
-        <p v-else class="dim" data-testid="review-stage">{{ STAGE_ABOUT[review.stage] }} <span class="checks">{{ checksLine(review.checks) }}.</span></p>
+        <p v-else class="dim" data-testid="review-stage">{{ STAGE_ABOUT[review.stage] }} <span v-if="tab !== 'checks'" class="checks">{{ checksLine(review.checks) }}.</span></p>
         <UiTabs v-model="tab" :tabs="tabs" label="Review" />
         <ReviewFnList v-if="tab === 'fns'" :fns="fns" :busy="store.switching.busy.value" :page-of="links.fn" @switch="(fn, on) => switchItem({ section: 'fns', name: fn }, on)" @test="startTest" />
         <template v-else-if="tab === 'context' || tab === 'types'">
@@ -163,7 +163,7 @@ async function save(config: Json): Promise<void> {
             :busy="system.config.busy.value" :problems="problems" :secrets="secretFields(view.configSecrets, view.config?.value)" :target="target" :loader="loader" @save="save"
           />
         </LoadState>
-        <ChecksView v-else-if="tab === 'checks'" :checks="review.checks" />
+        <ChecksView v-else-if="tab === 'checks'" :checks="review.checks" :preview-urls="review.previewUrls ?? {}" />
         <template v-else-if="tab === 'pending'">
           <UiEmpty v-if="changes.length === 0" icon="check" title="Nothing waits" :body="review.stage === 'installed' ? 'It isn’t live yet: everything is under review.' : 'What is live is what was reviewed.'" />
           <ChangeList v-else :changes="changes" />

@@ -6,7 +6,7 @@
  * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
-import type { AutoPairGrant, Duration, FnExamplesPatch, ImportReport, PairingGrant, PairingGrantRequest, QualifiedName, TypeDecl } from '@harness/core';
+import type { AutoPairGrant, Duration, FnExamplesPatch, HostRefusal, ImportReport, PairingGrant, PairingGrantRequest, QualifiedName, TypeDecl } from '@harness/core';
 import type { Fleets, FnSearch } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
@@ -93,6 +93,11 @@ export interface RunningSystem<N extends string> extends FnSearch, Fleets {
    * Refused unless `request.run` is this instance's running run whose approval's subject is `request.subject`.
    */
   grantPairing(request: PairingGrantRequest): Promise<PairingGrant>;
+  /**
+   * Build 7: report what this host's supervisor refused on the machine for an instance it hosts (`reportRefusal`): a host
+   * outside its `grants.network`, a path outside its `grants.files`. Refused unless this instance hosts it.
+   */
+  reportRefusal(refusal: HostRefusal): Promise<void>;
   /** An `@aeye/ai` instance backed by the hub with its models listed; calls are the system's own, on its budget (`hubAi`). */
   ai(): Promise<HarnessAi>;
   /**
@@ -170,9 +175,10 @@ export { ProviderServer, providerErrorKind, type ProviderServerParts } from './p
 export { NodeFiles, fileUri, uriInstance, mimeOf, type FilesFactory, type FilesScope } from './files.ts';
 export { NodeProcess, type ProcessControl } from './process.ts';
 export {
-  BASIC_ENV, CrashPolicy, RunningStatus, SHARED_ENV, STATUS_LOG, NodeStarter, permissionArgs, scrubbedEnv, statusOfLine,
-  type CrashPolicyOptions, type ExitDecision, type NodeStarterOptions, type ProcessCommand, type ProcessExit, type ProcessGrants, type ProcessStarter, type SupervisedProcess,
+  AccessDeniedReader, BASIC_ENV, CrashPolicy, RunningStatus, SHARED_ENV, STATUS_LOG, NodeStarter, permissionArgs, scrubbedEnv, statusOfLine,
+  type AccessDenied, type CrashPolicyOptions, type ExitDecision, type NodeStarterOptions, type ProcessCommand, type ProcessExit, type ProcessGrants, type ProcessStarter, type SupervisedProcess,
 } from './supervise.ts';
+export { AllowlistProxy, hostAllowed, proxyEnv, type AllowlistProxyOptions, type ProxyRefusal } from './proxy.ts';
 export { StateConflict } from './state.ts';
 export { McpFace, mcpToolNameOf, type McpLimits } from './mcp.ts';
 export {

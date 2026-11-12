@@ -110,6 +110,22 @@ describe('calls and modes', () => {
     // a fn that declares no types is not limited by them
     await rig.grants.check(LINK, 'types', { names: ['database/owners'], run: (await runOf('read')).id });
     expect((await rig.store.table('refusals').find({ where: { system: NOTES, rule: 'types' }, limit: 5 })).items.map((r) => r.fn)).toEqual(['notes/peek']);
+    // under no run, or another system's run, notes/read declares none, so its system is not limited either
+    await rig.grants.check(LINK, 'types', { names: ['database/owners'] });
+  });
+
+  it('holds a system whose fns all declare their types to them when it names no run, or a run not its own', async () => {
+    await newRig({ review: { HARNESS_GRANTS: 'enforce' } });
+    const typed = system('notes', { description: 'Notes.' }).with({
+      fns: { peek: fn({ description: 'Read the projects table.', args: g.obj({}), returns: g.text(), effects: { mode: 'read', reads: [QualifiedName.parse('database/projects')] } }) },
+    });
+    const fake = new FakeSystem(rig.app, 'notes', await manifestFor(typed));
+    await pairDirectly(rig, fake);
+    await fake.start();
+    await rig.grants.check(LINK, 'types', { names: ['database/projects'] });
+    expect(await refused(rig.grants.check(LINK, 'types', { names: ['database/owners'] }))).toBe("notes's fns declare the types they read and write, and database/owners is not among them");
+    const foreign = await rig.store.table('runs').update((await runOf('peek')).id, { system: SystemName.parse('tasks') });
+    expect(await refused(rig.grants.check(LINK, 'types', { names: ['database/owners'], run: foreign.id }))).toContain("notes's fns declare");
   });
 });
 
@@ -122,8 +138,28 @@ describe('models and spend', () => {
     expect(await refused(rig.grants.check(LINK, 'model', { modality: 'image', prompt: 'a cat', model: { category: 'vision' } }))).toBe('it didn\'t declare that it uses the vision models');
     await rig.store.table('runs').update(run.id, { totalCost: 0.6 });
     expect(await refused(rig.grants.check(LINK, 'llm', { run: run.id, request: { messages: [] }, stream: false }))).toContain('its cap of $0.5000 per run');
+    // with a per-run cap, a model call must name one of its own runs
+    expect(await refused(rig.grants.check(LINK, 'model', { modality: 'speech', text: 'hi' }))).toContain('must name one of its own runs');
     await rig.store.table('ledger').insert({ id: mintId('ledger'), at: rig.time.now, cost: 1.2, tokens: 10, actor: ActorId.parse('act_admin'), system: NOTES, fn: QualifiedName.parse('notes/read'), run: run.id });
     expect(await refused(rig.grants.check(LINK, 'model', { modality: 'speech', text: 'hi' }))).toContain('per day');
+  });
+});
+
+describe('host refusals', () => {
+  it('keeps what a host refused for an instance it hosts, and refuses a report from anyone else', async () => {
+    await newRig({ review: { HARNESS_GRANTS: 'enforce' } });
+    const fake = new FakeSystem(rig.app, 'notes', { ...await manifestFor(notes), grants: { hub: ['approvals'] } });
+    await pairDirectly(rig, fake);
+    await fake.start();
+    const ref = { system: SystemName.parse('random'), instance: MAIN_INSTANCE };
+    const report = { instance: ref, rule: 'network', attempt: 'evil.example.net:443', detail: 'random tried to reach evil.example.net' } as const;
+    await expect(fake.sdk.call('reportRefusal', report)).rejects.toMatchObject({ status: 403 });
+    await rig.store.table('instances').put({
+      system: ref.system, instance: ref.instance, description: '', status: 'connected', keyFingerprint: 'f', publicKey: 'k', version: '0.1.0', manifestHash: 'm',
+      host: { host: { system: NOTES, instance: MAIN_INSTANCE }, path: '/src/random', bundleHash: 'b', approval: mintId('approval') },
+    });
+    await fake.sdk.call('reportRefusal', report);
+    expect((await rig.store.table('refusals').find({ where: { system: ref.system }, limit: 5 })).items).toMatchObject([{ rule: 'network', attempt: 'evil.example.net:443', instance: 'main' }]);
   });
 });
 

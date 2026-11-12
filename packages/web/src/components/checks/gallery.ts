@@ -32,3 +32,19 @@ export function previewGroups(shots: readonly PreviewShot[]): PreviewGroup[] {
     states: [...states].map(([state, list]) => ({ state, shots: [...list].sort((a, b) => order(a) - order(b)) })),
   }));
 }
+
+/** The theme a gallery shows its shots in. */
+export type PreviewTheme = (typeof THEMES)[number];
+
+/** A state's shots in one theme, phone first, each with its image link when the hub gave one. */
+export function shotsIn(state: PreviewState, theme: PreviewTheme, urls: Readonly<Record<string, string>>): Array<{ readonly shot: PreviewShot; readonly url: string | undefined }> {
+  return state.shots.filter((shot) => shot.theme === theme).map((shot) => ({ shot, url: urls[shot.image.hash] }));
+}
+
+/** One line saying which sizes and themes a component was shot in: "phone and desktop, light and dark". */
+export function shotSummary(group: PreviewGroup): string {
+  const all = group.states.flatMap((state) => state.shots);
+  const viewports = PREVIEW_VIEWPORTS.filter((viewport) => all.some((shot) => shot.viewport === viewport));
+  const themes = THEMES.filter((theme) => all.some((shot) => shot.theme === theme));
+  return `${viewports.join(' and ')}, ${themes.join(' and ')}`;
+}

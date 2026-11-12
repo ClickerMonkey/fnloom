@@ -31,10 +31,13 @@ export function refusal(overrides: Record<string, unknown> = {}): RefusalRecord 
   });
 }
 
+/** A made-up content hash that differs for each key: its characters in hex, cut or padded to 64. */
+const hexOf = (key: string): string => Array.from({ length: key.length }, (_, at) => key.charCodeAt(at).toString(16).padStart(2, '0')).join('').slice(0, 64).padEnd(64, '0');
+
 /** Preview shots of each component in each state, on a phone and a desktop, light and dark. */
 export function previewShots(components: ReadonlyArray<readonly [string, readonly string[]]>): Array<Record<string, unknown>> {
   return components.flatMap(([component, states]) => states.flatMap((state) => ['phone', 'desktop'].flatMap((viewport) => ['light', 'dark'].map((theme) => ({
-    component, state, viewport, theme, image: { hash: `${component.length}${state.length}${viewport.length}${theme.length}`.padEnd(64, 'a'), size: 2048, mime: 'image/png' },
+    component, state, viewport, theme, image: { hash: hexOf(`${component}-${state}-${viewport}-${theme}`), size: 2048, mime: 'image/png' },
   })))));
 }
 

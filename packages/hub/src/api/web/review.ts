@@ -5,8 +5,9 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { mintId, reviewSlice, type ActorId, type FnFacts, type RefusalPage, type RefusalQuery, type RunId, type SystemName, type SystemReview, type TestCallRequest } from '@harness/core';
+import { mintId, reviewSlice, type ActorId, type FnFacts, type PreviewShot, type RefusalPage, type RefusalQuery, type RunId, type SystemName, type SystemReview, type TestCallRequest } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
+import type { ContentStore } from '../index.ts';
 import { messageOf } from '../../catalog/scope.ts';
 import { timeInfo } from '../../execution/time.ts';
 import type { Where } from '../../store/index.ts';
@@ -19,7 +20,10 @@ const REFUSAL_PAGE = 50;
 const REVIEW_REFUSALS = 10;
 
 /** Everything the review page shows about one system beyond its other endpoints. */
-export async function systemReview(hub: Pick<HubServices, 'store' | 'catalog' | 'fns' | 'log'> & { readonly link: Pick<HubServices['link'], 'lifecycle'> }, system: SystemName): Promise<SystemReview> {
+export async function systemReview(
+  hub: Pick<HubServices, 'store' | 'catalog' | 'fns' | 'log'> & { readonly link: Pick<HubServices['link'], 'lifecycle'>; readonly api: { readonly content: Pick<ContentStore, 'presignDownload'> } },
+  system: SystemName,
+): Promise<SystemReview> {
   const [record, manifest, fns, review, off] = await Promise.all([
     hub.store.table('systems').get(system), hub.catalog.manifest(system), hub.catalog.fns({ system }), hub.link.lifecycle.review(system), hub.link.lifecycle.offItems(system),
   ]);
@@ -35,12 +39,23 @@ export async function systemReview(hub: Pick<HubServices, 'store' | 'catalog' | 
     hub.store.table('refusals').count({ system }),
     hub.store.table('refusals').find({ where: { system }, order: [['at', 'desc']], limit: REVIEW_REFUSALS }),
   ]);
+  const previewUrls = await previewLinks(hub.api.content, review?.checks?.tests?.previews ?? []);
   return {
     system, stage: record.stage ?? 'live', manifest, facts, off, refusals: { total, last: last.items },
+    ...(Object.keys(previewUrls).length === 0 ? {} : { previewUrls }),
     ...(review?.checks === undefined ? {} : { checks: review.checks }),
     ...(review?.live === undefined ? {} : { live: review.live }),
     ...(review?.pending === undefined ? {} : { pending: review.pending }),
   };
+}
+
+/** A presigned link to each preview image, by its content hash, named after the component, state, viewport and theme. */
+async function previewLinks(content: Pick<ContentStore, 'presignDownload'>, shots: readonly PreviewShot[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const shot of shots) {
+    if (out[shot.image.hash] === undefined) { out[shot.image.hash] = await content.presignDownload(shot.image, `${shot.component}-${shot.state}-${shot.viewport}-${shot.theme}.png`); }
+  }
+  return out;
 }
 
 /** A page of refusals, newest first. */

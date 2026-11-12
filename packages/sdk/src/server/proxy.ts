@@ -1,0 +1,133 @@
+/**
+ * Build 7: the network side of a supervised child's grants. Node 22 has no network permission, so a supervisor starts
+ * an `AllowlistProxy` for each child and points the child at it (`proxyEnv`: `HTTP(S)_PROXY` and
+ * `NODE_USE_ENV_PROXY`, which makes Node's `fetch` and `http(s)` go through it). The proxy lets through only the hosts
+ * the system's `grants.network` names (`api.tavily.com`, or `*.googleapis.com` for any name under it) and reports
+ * every other host it is asked for, which the supervisor sends to the hub as a `network` refusal.
+ *
+ * It holds back what goes through Node's proxy support; a raw socket opened on purpose is not proxied. The hub link
+ * goes direct (`NO_PROXY`).
+ */
+import { createServer, request as forward, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { connect, type AddressInfo, type Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
+
+/** Whether a host is one the patterns allow: the same name, or for `*.example.com` any name under `example.com`. */
+export function hostAllowed(patterns: readonly string[], host: string): boolean {
+  const name = host.toLowerCase().replace(/\.$/, '');
+  return patterns.some((pattern) => {
+    const allowed = pattern.toLowerCase();
+    return allowed.startsWith('*.') ? name.endsWith(allowed.slice(1)) : name === allowed;
+  });
+}
+
+/** A host the proxy refused. */
+export interface ProxyRefusal {
+  readonly host: string;
+  readonly port: number;
+}
+
+/** What an allowlist proxy lets through, and who hears of what it refuses. */
+export interface AllowlistProxyOptions {
+  /** The hosts let through (`grants.network`, plus the hub's own). */
+  readonly allow: readonly string[];
+  readonly onRefused: (refusal: ProxyRefusal) => void;
+}
+
+/** The variables that send a child's `fetch` and `http(s)` through the proxy at `url`, with `direct` hosts not proxied. */
+export function proxyEnv(url: string, direct: readonly string[]): Record<string, string> {
+  const noProxy = direct.join(',');
+  return { HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url, NO_PROXY: noProxy, no_proxy: noProxy, NODE_USE_ENV_PROXY: '1' };
+}
+
+/** The host and port of a `CONNECT` target (`api.example.com:443`, `[::1]:443`). */
+function targetOf(authority: string, fallback: number): ProxyRefusal | undefined {
+  try {
+    const url = new URL(`http://${authority}`);
+    return { host: url.hostname.replace(/^\[|\]$/g, ''), port: url.port === '' ? fallback : Number(url.port) };
+  } catch {
+    return undefined;
+  }
+}
+
+/** An HTTP proxy on 127.0.0.1 that lets through only allowed hosts: `CONNECT` tunnels for https, forwarding for http. */
+export class AllowlistProxy {
+  readonly #options: AllowlistProxyOptions;
+  readonly #server: Server;
+  readonly #open = new Set<Duplex>();
+
+  constructor(options: AllowlistProxyOptions) {
+    this.#options = options;
+    this.#server = createServer((req, res) => { this.#request(req, res); });
+    this.#server.on('connect', (req: IncomingMessage, client: Duplex, head: Buffer) => { this.#tunnel(req, client, head); });
+  }
+
+  /** Listen on a free port of 127.0.0.1; resolves to the proxy's URL. */
+  start(): Promise<string> {
+    return new Promise((done, fail) => {
+      this.#server.once('error', fail);
+      this.#server.listen(0, '127.0.0.1', () => {
+        const address: AddressInfo | string | null = this.#server.address();
+        if (address === null || typeof address === 'string') { fail(new Error('the proxy has no port')); return; }
+        done(`http://127.0.0.1:${String(address.port)}`);
+      });
+    });
+  }
+
+  /** Stop listening and cut every open tunnel. */
+  close(): Promise<void> {
+    for (const socket of this.#open) { socket.destroy(); }
+    return new Promise((done) => { this.#server.close(() => { done(); }); });
+  }
+
+  /** Whether a host may be reached; a refused one is reported. */
+  #allowed(target: ProxyRefusal): boolean {
+    if (hostAllowed(this.#options.allow, target.host)) { return true; }
+    this.#options.onRefused(target);
+    return false;
+  }
+
+  #keep(socket: Duplex): void {
+    this.#open.add(socket);
+    socket.once('close', () => { this.#open.delete(socket); });
+  }
+
+  #tunnel(req: IncomingMessage, client: Duplex, head: Buffer): void {
+    this.#keep(client);
+    client.on('error', () => { client.destroy(); });
+    const target = targetOf(req.url ?? '', 443);
+    if (target === undefined || !this.#allowed(target)) {
+      client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    const upstream: Socket = connect(target.port, target.host, () => {
+      client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      if (head.length > 0) { upstream.write(head); }
+      upstream.pipe(client);
+      client.pipe(upstream);
+    });
+    this.#keep(upstream);
+    upstream.on('error', () => { client.end('HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n'); upstream.destroy(); });
+  }
+
+  #request(req: IncomingMessage, res: ServerResponse): void {
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '');
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
+    const target = { host: url.hostname.replace(/^\[|\]$/g, ''), port: url.port === '' ? 80 : Number(url.port) };
+    if (url.protocol !== 'http:' || !this.#allowed(target)) {
+      res.writeHead(403).end();
+      return;
+    }
+    const upstream = forward({ host: target.host, port: target.port, method: req.method, path: `${url.pathname}${url.search}`, headers: req.headers }, (answer) => {
+      res.writeHead(answer.statusCode ?? 502, answer.headers);
+      answer.pipe(res);
+    });
+    upstream.on('error', () => { if (!res.headersSent) { res.writeHead(502); } res.end(); });
+    req.pipe(upstream);
+  }
+}

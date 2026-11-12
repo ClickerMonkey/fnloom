@@ -34,7 +34,7 @@ export const NODE_KIND_LABELS = {
 /** Each edge kind as a filter names it. */
 export const EDGE_KIND_LABELS = {
   brings: 'Brings', names: 'Mentions', loads: 'Loads', next: 'Offers next', reads: 'Reads', writes: 'Writes', calls: 'Calls', uses: 'Depends on',
-  kind: 'Fn kind', creates: 'Creates', updates: 'Updates', removes: 'Removes', refers: 'Refers to', renders: 'Renders', contributes: 'Contributes to',
+  kind: 'Is of kind', creates: 'Creates', updates: 'Updates', removes: 'Removes', refers: 'Refers to', renders: 'Renders', contributes: 'Contributes to',
   belongs: 'Belongs to',
 } as const satisfies Record<GraphEdgeKind, string>;
 
@@ -46,15 +46,15 @@ export const NODE_KIND_COLORS = {
   system: ['#4b5563', '#9ca3af'],
   instance: ['#6b7280', '#a1a1aa'],
   fn: ['#2a78d6', '#5b9cf0'],
-  context: ['#1baf7a', '#34c08c'],
-  type: ['#eb6834', '#f08a5d'],
+  context: ['#15936a', '#34c08c'],
+  type: ['#e3572b', '#f08a5d'],
   kind: ['#8b5cf6', '#a78bfa'],
   resource: ['#0e9aa7', '#38bdc9'],
-  root: ['#0e7490', '#22a3c4'],
-  component: ['#db2777', '#f472b6'],
-  registry: ['#b45309', '#e0a040'],
-  command: ['#15803d', '#4ade80'],
-  provider: ['#c2410c', '#fb923c'],
+  root: ['#4d7c0f', '#a3e635'],
+  component: ['#c026d3', '#e879f9'],
+  registry: ['#4f46e5', '#818cf8'],
+  command: ['#a16207', '#eab308'],
+  provider: ['#be123c', '#fb7185'],
 } as const satisfies Record<GraphNodeKind, readonly [string, string]>;
 
 /** The graph keys of a page's URL query: the string values, without any key whose value can't be read. */
@@ -171,7 +171,7 @@ export function nodeFacts(node: GraphNode): FactLine[] {
   const { facts } = node;
   const lines: FactLine[] = [];
   if (node.collapsed !== undefined) { lines.push({ label: 'Stands for', value: `${node.collapsed} items` }); }
-  if (facts.fnKind !== undefined) { lines.push({ label: 'Fn kind', value: facts.fnKind }); }
+  if (facts.fnKind !== undefined) { lines.push({ label: 'Fn kind', value: fnKindLabel(facts.fnKind) }); }
   if (facts.mode !== undefined) { lines.push({ label: 'Mode', value: facts.mode }); }
   if (facts.effects !== undefined && facts.effects.length > 0) {
     lines.push({ label: 'Effects', value: facts.effects.map((effect) => `${effect.action} ${effect.kind === undefined ? effect.thing : `${effect.kind} fns`}`).join(', ') });
@@ -185,6 +185,12 @@ export function nodeFacts(node: GraphNode): FactLine[] {
   if (node.external) { lines.push({ label: 'From', value: node.system === undefined ? 'the hub' : `${node.system} (outside this view)` }); }
   return lines;
 }
+
+/** A fn kind as filters and details name it: the built-in `native` reads "Native", the rest by their own name. */
+export const fnKindLabel = (kind: string): string => (kind === 'native' ? 'Native' : kind);
+
+/** A registry thing as the effects filter names it ("Context"). */
+export const effectLabel = (thing: string): string => `${thing.charAt(0).toUpperCase()}${thing.slice(1)}`;
 
 /** A node's kind as its heading names it. */
 export const kindLabel = (kind: GraphNodeKind): string => NODE_KIND_LABELS[kind][0];

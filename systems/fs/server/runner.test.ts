@@ -1,7 +1,23 @@
+import { MAIN_INSTANCE, SystemName, type HostRefusal } from '@harness/core';
 import { CrashPolicy, type ProcessCommand, type ProcessExit, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
 import { describe, expect, it } from 'vitest';
 import type { HostedLaunch } from './hosting.ts';
-import { SupervisedRunner } from './runner.ts';
+import { SupervisedRunner, type NetworkGate } from './runner.ts';
+
+/** A gate that keeps what it was told to let through, and can be made to refuse a host. */
+class FakeGate implements NetworkGate {
+  closed = false;
+  readonly allow: readonly string[];
+  readonly refuse: (refusal: { host: string; port: number }) => void;
+
+  constructor(allow: readonly string[], refuse: (refusal: { host: string; port: number }) => void) {
+    this.allow = allow;
+    this.refuse = refuse;
+  }
+
+  start(): Promise<string> { return Promise.resolve('http://127.0.0.1:9'); }
+  close(): Promise<void> { this.closed = true; return Promise.resolve(); }
+}
 
 /** A process the test ends by hand. */
 class FakeProcess implements SupervisedProcess {
@@ -31,6 +47,7 @@ class FakeStarter implements ProcessStarter {
 }
 
 const launch: HostedLaunch = {
+  ref: { system: SystemName.parse('random'), instance: MAIN_INSTANCE }, files: { read: ['/shared/notes'], write: ['/shared/out'] }, network: ['api.example.com'],
   entry: '/hosted/random/versions/b1/server/main.js', cwd: '/hosted/random/versions/b1', writes: ['/hosted/random/main/state', '/hosted/random/main/data'],
   env: { HARNESS_INSTANCE: 'main' }, permissions: undefined,
 };
@@ -42,12 +59,15 @@ function statusLine(status: string): string {
 
 function setup() {
   const starter = new FakeStarter();
+  const gates: FakeGate[] = [];
+  const refusals: HostRefusal[] = [];
   let now = 0;
   const runner = new SupervisedRunner({
+    gate: (allow, refused) => { const gate = new FakeGate(allow, refused); gates.push(gate); return gate; }, direct: ['hub.local'], refused: (refusal) => { refusals.push(refusal); },
     starter, policy: new CrashPolicy({ maxWait: 10, restartCode: 75, clock: () => now }), restart: { policy: 'on-failure', backoff: 1, maxPerHour: 2 },
     reads: ['/repo/node_modules'], every: 1, wait: (ms) => { now += ms; return new Promise((done) => { setTimeout(done, 1); }); }, now: () => now, log: () => undefined,
   });
-  return { starter, runner };
+  return { starter, runner, gates, refusals };
 }
 
 const settle = () => new Promise((done) => { setTimeout(done, 30); });
@@ -74,6 +94,29 @@ describe('the hosted runner', () => {
     expect(args).not.toContain('--allow-child-process');
     expect(args.at(-1)).toBe(launch.entry);
     expect(runner.status('random/main')).toMatchObject({ state: 'connected', pid: 100, restartsLastHour: 0 });
+  });
+
+  it('lets it reach only its declared paths and hosts, and reports what it was refused', async () => {
+    const { starter, runner, gates, refusals } = setup();
+    const starting = runner.start('random/main', launch, 1_000);
+    await settle();
+    const started = starter.started[0]?.command;
+    started?.onOutput?.(statusLine('connected'));
+    await starting;
+    const args = started?.args ?? [];
+    expect(args.some((arg) => arg.startsWith('--allow-fs-read=') && arg.includes('notes'))).toBe(true);
+    expect(args.some((arg) => arg.startsWith('--allow-fs-write=') && arg.includes('out'))).toBe(true);
+    expect(started?.env).toMatchObject({ HTTPS_PROXY: 'http://127.0.0.1:9', NODE_USE_ENV_PROXY: '1', NO_PROXY: 'hub.local', HARNESS_INSTANCE: 'main' });
+    expect(gates[0]?.allow).toEqual(['api.example.com', 'hub.local']);
+
+    gates[0]?.refuse({ host: 'evil.example.net', port: 443 });
+    started?.onOutput?.("  code: 'ERR_ACCESS_DENIED',\n  permission: 'FileSystemRead',\n  resource: '/etc/passwd'\n}\n");
+    expect(refusals).toEqual([
+      { instance: launch.ref, rule: 'network', attempt: 'evil.example.net:443', detail: "random tried to reach evil.example.net, which its grants.network doesn't name" },
+      { instance: launch.ref, rule: 'files', attempt: '/etc/passwd', detail: "random tried FileSystemRead on /etc/passwd, which its grants.files doesn't name" },
+    ]);
+    await runner.stop('random/main');
+    expect(gates[0]?.closed).toBe(true);
   });
 
   it('gives an exit before connecting back with its output, and stops one that never connects', async () => {

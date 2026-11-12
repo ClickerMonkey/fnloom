@@ -3,7 +3,7 @@
  * only plain colours, not `light-dark()` or `oklch()`), and the stylesheet drawn with them, so the graph follows light
  * and dark with the rest of the app.
  */
-import { GRAPH_NODE_KINDS } from '@harness/core';
+import { GRAPH_NODE_KINDS, type GraphNodeKind } from '@harness/core';
 import type { StylesheetJson } from 'cytoscape';
 import { NODE_KIND_COLORS } from './logic/graph.ts';
 
@@ -39,10 +39,26 @@ export function resolveColors(within: HTMLElement): GraphColors {
 }
 
 /** Each node kind's shape. */
-const SHAPES = {
+export const SHAPES = {
   system: 'hexagon', instance: 'round-hexagon', fn: 'ellipse', context: 'round-rectangle', type: 'diamond', kind: 'round-tag', resource: 'barrel',
   root: 'round-triangle', component: 'round-rectangle', registry: 'barrel', command: 'round-triangle', provider: 'round-pentagon',
-} as const;
+} as const satisfies Record<GraphNodeKind, string>;
+
+/** Each node shape as a CSS `clip-path`, so the legend draws the same shapes the graph does. */
+const SHAPE_CLIPS = {
+  hexagon: 'polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%)',
+  'round-hexagon': 'polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%)',
+  ellipse: 'circle(50%)',
+  'round-rectangle': 'inset(8% round 22%)',
+  diamond: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)',
+  'round-tag': 'polygon(0 10%, 70% 10%, 100% 50%, 70% 90%, 0 90%)',
+  barrel: 'inset(0 4% round 30% / 18%)',
+  'round-triangle': 'polygon(50% 4%, 100% 96%, 0 96%)',
+  'round-pentagon': 'polygon(50% 0, 100% 38%, 81% 100%, 19% 100%, 0 38%)',
+} as const satisfies Record<(typeof SHAPES)[GraphNodeKind], string>;
+
+/** A node kind's shape as the legend draws it. */
+export const shapeClip = (kind: GraphNodeKind): string => SHAPE_CLIPS[SHAPES[kind]];
 
 /** The stylesheet the graph draws with, in light or dark. */
 export function graphStyle(colors: GraphColors, dark: boolean): StylesheetJson {
@@ -50,8 +66,8 @@ export function graphStyle(colors: GraphColors, dark: boolean): StylesheetJson {
     {
       selector: 'node',
       style: {
-        label: 'data(label)', 'font-size': 11, 'font-family': 'ui-sans-serif, system-ui, sans-serif', color: colors.text, 'text-valign': 'bottom', 'text-margin-y': 4,
-        'text-wrap': 'ellipsis', 'text-max-width': '120px', width: 24, height: 24, 'border-width': 2, 'border-color': colors.surface, 'min-zoomed-font-size': 7,
+        label: 'data(label)', 'font-size': 13, 'font-family': 'ui-sans-serif, system-ui, sans-serif', color: colors.text, 'text-valign': 'bottom', 'text-margin-y': 4,
+        'text-wrap': 'ellipsis', 'text-max-width': '120px', width: 24, height: 24, 'border-width': 2, 'border-color': colors.surface, 'min-zoomed-font-size': 5,
         'text-background-color': colors.surface, 'text-background-opacity': 0.7, 'text-background-padding': '1px', 'text-background-shape': 'roundrectangle',
       },
     },
@@ -64,8 +80,9 @@ export function graphStyle(colors: GraphColors, dark: boolean): StylesheetJson {
         'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -4, 'font-size': 12, 'font-weight': 600, color: colors.dim, padding: '14px', 'text-background-opacity': 0,
       },
     },
-    { selector: 'node.cluster.external', style: { 'border-style': 'dashed', 'background-opacity': 0.2 } },
-    { selector: 'node.external', style: { opacity: 0.45, 'border-style': 'dashed', 'border-color': colors.faint } },
+    { selector: 'node.cluster.external', style: { 'border-style': 'dashed', 'border-color': colors.strong, 'background-opacity': 0.25 } },
+    // greyed a bit, still readable: a paler fill and a dashed ring, its label in the dim text colour
+    { selector: 'node.external', style: { 'background-opacity': 0.5, 'border-style': 'dashed', 'border-width': 2, 'border-color': colors.dim, color: colors.dim } },
     { selector: 'node.off', style: { 'background-opacity': 0.35 } },
     { selector: 'node.pending', style: { 'border-color': colors.warn, 'border-width': 3 } },
     { selector: 'node.collapsed', style: { width: 46, height: 46, 'font-size': 12 } },

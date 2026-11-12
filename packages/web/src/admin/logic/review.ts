@@ -5,8 +5,9 @@
  */
 import {
   effectsLine, qualify, type ClientAssets, type ContractChange, type FnDecl, type FnFacts, type HubCapability, type InstallChecks, type ItemRef, type ItemSection,
-  type Json, type QualifiedName, type RefusalRule, type SystemGrants, type SystemName, type SystemReview, type SystemStage,
+  type Json, type QualifiedName, type RefusalRecord, type RefusalRule, type SystemGrants, type SystemName, type SystemReview, type SystemStage,
 } from '@harness/core';
+import { formatDuration } from '../../chat/logic/format.ts';
 import type { Tone } from '../../ui/index.ts';
 import type { StatusLook } from './systems.ts';
 
@@ -213,4 +214,17 @@ export function checksWarn(checks: InstallChecks | undefined): boolean {
 /** Where the hub serves a file of a system's client build (`/clients/<system>/<hash>/<path>`, as the hub's `clientUrl`). */
 export function clientFileUrl(system: SystemName, client: Pick<ClientAssets, 'hash' | 'entry'>): string {
   return `/clients/${encodeURIComponent(system)}/${client.hash}/${client.entry.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+/** How long a fn takes, in one line: from its run history, else whether it usually runs long, else that it hasn't run. */
+export function timeText(facts: Pick<FnFacts, 'times' | 'longRunning'>): string {
+  const times = facts.times;
+  if (times !== undefined && times.runs > 0) { return `About ${formatDuration(times.typical)}, slow ${formatDuration(times.slow)}`; }
+  return facts.longRunning ? 'Usually runs long' : 'No runs yet';
+}
+
+/** A refusal in one plain sentence: what it tried, then why it was refused ("Tried OPENAI_API_KEY: it may read only NOTES_TOKEN."). */
+export function refusalLine(refusal: Pick<RefusalRecord, 'attempt' | 'detail'>): string {
+  const why = refusal.detail.trim().replace(/\.$/, '');
+  return `Tried ${refusal.attempt}: ${why}.`;
 }

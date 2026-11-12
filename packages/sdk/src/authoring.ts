@@ -19,7 +19,7 @@ import type { AI, AIContextRequired, AIMetadataRequired } from '@aeye/ai';
 import type { ToolCompatible } from '@aeye/core';
 import { env } from '@ayepi/env';
 import { z } from 'zod';
-import { g, type Infer } from './gin.ts';
+import { g, json, type Infer } from './gin.ts';
 import { HUB_MODEL, type HarnessAi } from './server/llm.ts';
 
 /** The authoring agents' tunables. */
@@ -51,7 +51,7 @@ export const authoredFn = g.obj({
   /** An existing fn was the answer; nothing new was saved. */
   reused: g.bool(),
   /** A short look at what it gives (the first rows, the type), when there is one. */
-  preview: g.optional(g.any()),
+  preview: g.optional(json()),
   /** How to call it again, as the chat model would write the call. */
   call: g.text(),
 });

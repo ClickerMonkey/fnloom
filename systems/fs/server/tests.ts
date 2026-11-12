@@ -1,17 +1,22 @@
 /**
  * `SystemTests` in a sandboxed child process: install_system runs a folder's own tests (the SDK test kit, through
  * `@harness/build`'s `runSystemTests`) before its install card is shown, so the card carries their result beside the
- * scan. The code is not approved yet, so the child gets:
+ * scan. The code is not approved yet, so it runs in two layers of processes:
  *
- * - a scrubbed environment (`scrubbedEnv`: no keys, tokens or the hub's secrets);
- * - Node's permission model: it may read only the folder, the temp folder and the code its tests run on (`readRoots`:
- *   the harness install's `node_modules`, `packages` and `systems`, its top-level config files, and the repos of the
- *   libraries linked into `node_modules`), never the hub's or fs's data folders; and write only the folder's own
- *   `.harness-test` and the temp folder. Vitest needs workers, child processes and native addons (its bundler), so
- *   those are allowed, which Node says can weaken the model; the network is not limited by Node at all;
- * - a time limit (`FS_TESTS_TIMEOUT`), and the run's cancel.
+ * - The runner (`run-tests.ts`) runs only trusted code: vitest, vite and the Vue plugin, never the folder's own config
+ *   (`TestRunOptions.sandbox`). It transforms the test files and starts the processes that run them, so it needs
+ *   child processes, workers and native addons (vite's bundler), and those are allowed to it alone.
+ * - The test processes (vitest's `forks` pool, started with `testArgs`) run the folder's code with no child
+ *   processes, workers or addons, and with the network shut (`network-guard.ts`, since Node 22's permission model
+ *   doesn't limit it).
  *
- * The child (`run-tests.ts`) prints the report as its last line; anything else is a refusal with its output.
+ * Both get a scrubbed environment (`scrubbedEnv`: no keys, tokens or the hub's secrets), and Node's permission model
+ * lets them read only the folder, the temp folder and the code the tests run on (`readRoots`: the harness install's
+ * `node_modules`, `packages` and `systems`, its top-level config files, and the repos of the libraries linked into
+ * `node_modules`), never the hub's or fs's data folders, and write only the folder's own `.harness-test` and the temp
+ * folder. The run has a time limit (`FS_TESTS_TIMEOUT`) and the run's cancel.
+ *
+ * The runner prints the report as its last line; anything else is a refusal with its output.
  */
 import { execFile } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, realpathSync, type Dirent } from 'node:fs';
@@ -50,6 +55,8 @@ export const NODE_CHILD: ChildRunner = {
 
 /** The child script beside this file. */
 const SCRIPT = fileURLToPath(new URL('./run-tests.ts', import.meta.url));
+/** What the test processes load first to shut the network. */
+const NETWORK_GUARD = new URL('./network-guard.ts', import.meta.url).href;
 
 /** The child's last line: the report, or `null` when the folder has no tests. */
 const ChildAnswer = z.union([SystemTestReport, z.null()]);
@@ -140,8 +147,8 @@ export class ProcessSystemTests implements SystemTests {
     this.#options = options;
   }
 
-  /** The Node flags that sandbox a run of `dir`'s tests. */
-  sandboxArgs(dir: string): string[] {
+  /** The permission model's file grants for a run of `dir`'s tests (both layers). */
+  fileArgs(dir: string): string[] {
     const temp = this.#options.tempDir ?? tmpdir();
     const reads = this.#options.reads ?? installRoots(dirname(SCRIPT)).flatMap(readRoots);
     // tsx asks whether the file system is case-sensitive by looking for the cwd (the folder) with its letters' case
@@ -150,8 +157,20 @@ export class ProcessSystemTests implements SystemTests {
     return [
       '--permission', ...[...new Set([dir, swapped, temp, ...reads, ...workspaceProbes(dir)])].map((path) => `--allow-fs-read=${path}`),
       `--allow-fs-write=${join(dir, '.harness-test')}`, `--allow-fs-write=${temp}`,
-      '--allow-worker', '--allow-child-process', '--allow-addons',
     ];
+  }
+
+  /** The Node flags of the runner, which runs only vitest and vite: the file grants, and processes, workers and addons. */
+  sandboxArgs(dir: string): string[] {
+    return [...this.fileArgs(dir), '--allow-worker', '--allow-child-process', '--allow-addons'];
+  }
+
+  /**
+   * The Node flags of the processes that run the test files: the file grants only, and the network shut. No TypeScript
+   * loader: tsx's needs a worker, and vite transforms the test files (Node strips the guard's types itself).
+   */
+  testArgs(dir: string): string[] {
+    return [...this.fileArgs(dir), '--import', NETWORK_GUARD];
   }
 
   /**
@@ -166,7 +185,7 @@ export class ProcessSystemTests implements SystemTests {
   async run(dir: string, signal: AbortSignal): Promise<SystemTestReport | undefined> {
     const { nodeArgs, timeout } = this.#options;
     const child = this.#options.child ?? NODE_CHILD;
-    const ran = await child.run(process.execPath, [...this.sandboxArgs(dir), ...nodeArgs, SCRIPT, dir], { cwd: dir, env: this.childEnv(), timeout, signal });
+    const ran = await child.run(process.execPath, [...this.sandboxArgs(dir), ...nodeArgs, SCRIPT, dir, JSON.stringify(this.testArgs(dir))], { cwd: dir, env: this.childEnv(), timeout, signal });
     const last = ran.stdout.trimEnd().split('\n').at(-1) ?? '';
     let answer: unknown;
     try {

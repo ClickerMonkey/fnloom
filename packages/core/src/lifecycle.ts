@@ -10,7 +10,7 @@ import { InstallChecks } from './checks.ts';
 import { FnFacts } from './fn-facts.ts';
 import { SystemGrants, SystemStage } from './grants.ts';
 import { Manifest } from './manifest.ts';
-import { ActorId, IDS, InstanceName, Json, QualifiedName, RunId, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, IDS, InstanceName, InstanceRef, Json, QualifiedName, RunId, SystemName, Timestamp } from './primitives.ts';
 import { DeclaredBy } from './records/systems.ts';
 import { SYSTEM_PART_SECTIONS } from './system-parts.ts';
 
@@ -104,6 +104,23 @@ export const RefusalRecord = z.object({
 });
 export type RefusalRecord = z.infer<typeof RefusalRecord>;
 
+/** The rules a host's supervisor enforces on the machine, under Node's permission model and its allowlist proxy. */
+export const HostRefusalRule = RefusalRule.extract(['network', 'files']);
+export type HostRefusalRule = z.infer<typeof HostRefusalRule>;
+
+/**
+ * A refusal a host saw on the machine (`reportRefusal` on the link): a host its allowlist proxy refused, or a path
+ * Node's permission model refused, for an instance it hosts. The hub keeps it as that instance's `RefusalRecord`.
+ */
+export const HostRefusal = z.object({
+  instance: InstanceRef,
+  rule: HostRefusalRule,
+  /** The host (`api.example.com:443`) or the path. */
+  attempt: z.string().min(1).max(1000),
+  detail: z.string().min(1).max(2000),
+});
+export type HostRefusal = z.infer<typeof HostRefusal>;
+
 /** A page of refusals, newest first. */
 export const RefusalQuery = z.object({ system: SystemName.optional(), rule: RefusalRule.optional(), cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional() });
 export type RefusalQuery = z.infer<typeof RefusalQuery>;
@@ -125,6 +142,8 @@ export const SystemReview = z.object({
   pending: PendingReview.optional(),
   off: z.array(ItemRef),
   refusals: z.object({ total: z.number().int().min(0), last: z.array(RefusalRecord).max(10) }),
+  /** Short-lived links to the checks' preview images, by content hash, so the gallery can show them (made per read, never stored). */
+  previewUrls: z.record(z.string(), z.string()).optional(),
 });
 export type SystemReview = z.infer<typeof SystemReview>;
 

@@ -17,6 +17,7 @@ import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from 
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
 import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
 import { HubModelInfo } from './admin.ts';
+import { HostRefusal } from './lifecycle.ts';
 import { DecideAnswer, DecideRequest } from './decisions.ts';
 import { FnExamplesPage, FnExamplesPatch, FnExamplesQuery, FnSearchPage, FnSearchQuery, KindEstimateAnswer, KindEstimateRequest } from './fn-facts.ts';
 import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
@@ -311,6 +312,11 @@ const linked = use(linkTel, linkSession).group({
    * system disabled after too many crashes. Each admin gets an inbox item that links to the system's page.
    */
   notifyAdmins: { body: AdminNotice, ws: 'na' },
+  /**
+   * Build 7: a host reports what its supervisor refused on the machine for an instance it hosts (`HostRefusal`: a host
+   * outside `grants.network`, a path outside `grants.files`). Refused unless that instance's `host` is this one.
+   */
+  reportRefusal: { body: HostRefusal, ws: 'rx' },
 });
 
 /** What a system calls on the hub. */

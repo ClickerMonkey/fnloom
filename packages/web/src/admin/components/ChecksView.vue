@@ -11,7 +11,11 @@ import PreviewGallery from '../../components/checks/PreviewGallery.vue';
 import TestResults from '../../components/checks/TestResults.vue';
 import { UiBadge, UiCard, UiEmpty } from '../../ui/index.ts';
 
-const props = defineProps<{ checks: InstallChecks | undefined }>();
+const props = withDefaults(defineProps<{
+  checks: InstallChecks | undefined;
+  /** Links to the preview images, by content hash. */
+  previewUrls?: Readonly<Record<string, string>>;
+}>(), { previewUrls: () => ({}) });
 const tests = computed(() => props.checks?.tests);
 </script>
 
@@ -24,7 +28,7 @@ const tests = computed(() => props.checks?.tests);
       <TestResults v-if="tests" :tests="tests" />
     </UiCard>
     <UiCard v-if="(tests?.previews?.length ?? 0) > 0" title="Component previews" subtitle="Each component in its named states, on a phone and a desktop, light and dark.">
-      <PreviewGallery :shots="tests?.previews ?? []" />
+      <PreviewGallery :shots="tests?.previews ?? []" :urls="previewUrls" />
     </UiCard>
     <UiCard title="Bundle scan" :subtitle="formatBytes(checks.scan.size)">
       <dl class="scan">

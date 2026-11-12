@@ -7,9 +7,8 @@
  */
 import type { FnKindName, GraphQuery, SystemName } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { UiButton, UiInput, UiPicker, UiSegmented, UiSwitch } from '../../ui/index.ts';
-import { listSource } from '../../ui/picker.ts';
-import { EDGE_KIND_LABELS, FILTER_CHOICES, filterCount, NODE_KIND_LABELS, STAGE_LABELS, withPart } from '../logic/graph.ts';
+import { UiButton, UiInput, UiSegmented, UiSwitch } from '../../ui/index.ts';
+import { EDGE_KIND_LABELS, effectLabel, FILTER_CHOICES, filterCount, fnKindLabel, NODE_KIND_LABELS, STAGE_LABELS, withPart } from '../logic/graph.ts';
 import GraphChips from './GraphChips.vue';
 
 const props = withDefaults(defineProps<{
@@ -39,9 +38,9 @@ const edgeOptions = FILTER_CHOICES.edgeKinds.map((kind) => ({ value: kind, label
 const modeOptions = FILTER_CHOICES.modes.map((value) => ({ value, label: { read: 'Reads', write: 'Writes', delete: 'Deletes' }[value] }));
 const visibilityOptions = FILTER_CHOICES.visibility.map((value) => ({ value, label: { user: 'People', llm: 'Models', both: 'Both', none: 'Hidden' }[value] }));
 const stageOptions = FILTER_CHOICES.stages.map((value) => ({ value, label: STAGE_LABELS[value] }));
-const effectOptions = FILTER_CHOICES.effects.map((value) => ({ value, label: value }));
-const fnKindOptions = computed(() => props.fnKinds.map((value) => ({ value, label: value === 'native' ? 'Plain' : value })));
-const systemSource = computed(() => listSource(props.systems.map((name) => ({ value: name, label: name }))));
+const effectOptions = FILTER_CHOICES.effects.map((value) => ({ value, label: effectLabel(value) }));
+const fnKindOptions = computed(() => props.fnKinds.map((value) => ({ value, label: fnKindLabel(value) })));
+const systemOptions = computed(() => props.systems.map((name) => ({ value: name, label: name })));
 
 const nodeKinds = computed({ get: () => query.value.nodeKinds ?? [], set: (value) => { query.value = withPart(query.value, 'nodeKinds', [...value]); } });
 const edgeKinds = computed({ get: () => query.value.edgeKinds ?? [], set: (value) => { query.value = withPart(query.value, 'edgeKinds', [...value]); } });
@@ -89,10 +88,10 @@ function clear(): void {
       <UiButton v-if="count > 0 || query.text || query.focus" size="sm" variant="ghost" @click="clear">Clear</UiButton>
     </div>
     <div v-if="open" class="panel" data-testid="graph-filter-panel">
-      <div v-if="!scoped && systems.length + props.systems.length > 0" class="pickers">
-        <UiPicker v-model="systems" :source="systemSource" label="Systems" placeholder="All systems" />
-        <UiPicker v-model="collapse" :source="systemSource" label="Collapse into one node" placeholder="None" />
-      </div>
+      <template v-if="!scoped && props.systems.length > 0">
+        <GraphChips v-model="systems" label="Only systems" :options="systemOptions" testid="graph-filter-systems" />
+        <GraphChips v-model="collapse" label="Collapse into one node" :options="systemOptions" />
+      </template>
       <GraphChips v-model="nodeKinds" label="Items" :options="nodeOptions" testid="graph-filter-nodes" />
       <GraphChips v-model="edgeKinds" label="Links" :options="edgeOptions" testid="graph-filter-edges" />
       <GraphChips v-if="fnKindOptions.length > 0" v-model="chosenFnKinds" label="Fn kinds" :options="fnKindOptions" />
@@ -115,6 +114,5 @@ function clear(): void {
 .focus { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
 .focus-name { font-size: var(--text-sm); font-family: var(--mono); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-.pickers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
 </style>

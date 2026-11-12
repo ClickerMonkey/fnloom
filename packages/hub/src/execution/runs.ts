@@ -296,7 +296,6 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     return { run: id, settled };
   }
 
-  /** What the run's chat's fn mode says about it: only calls an agent makes in a session are checked. */
   /** Whether a run of the fn's own system calls it, and that run's fn declares at least the fn's mode (`withinParent`). */
   async #withinParent(fn: FnRecord, parent: Run | undefined): Promise<boolean> {
     if (parent === undefined || parent.system !== fn.system || fn.system === HUB_SYSTEM) return false;
@@ -305,6 +304,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     return mode !== undefined && parentMode !== undefined && FN_MODES.indexOf(parentMode) >= FN_MODES.indexOf(mode);
   }
 
+  /** What the run's chat's fn mode says about it: only calls an agent makes in a session are checked. */
   async #mode(run: Run, fn: FnRecord, parent: Run | undefined): Promise<ModeVerdict> {
     if (this.#gate === undefined || parent?.kind !== AGENT_KIND || run.session === undefined) return { effect: 'pass' };
     const session = await this.#deps.store.table('sessions').get(run.session);
@@ -863,17 +863,23 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     return page.items[0];
   }
 
-  /** A child call must be to one of its parent's declared deps (agents call their tools, checked by the agent loop). */
   /**
-   * A system's fn may call only the deps it declares. Agents call what their tools allow, and the hub's own fns call
-   * what the hub's code does (`hub/resource_import` fetching a URL through `web/fetch_raw`): no system declares those.
+   * Whether a test call (or a child of one) may run a fn that is unavailable: only when the one thing keeping it off is
+   * that its executing system is installed and not live yet. A fn switched off, a system paused or away, and anything on
+   * a live system (held for review, a kind switched off) stays unavailable to tests too.
    */
-  /** Whether a test call may run a fn: its executing system is connected (being installed and not live doesn't count). */
   async #testable(fn: FnRecord): Promise<boolean> {
+    if (fn.disabled) return false;
     const system = SystemName.parse(executingSystem(fn));
-    return systemAvailability(system, await this.#deps.store.table('systems').get(system), { staged: false }) === true;
+    const record = await this.#deps.store.table('systems').get(system);
+    return record?.stage === 'installed' && systemAvailability(system, record, { staged: false }) === true;
   }
 
+  /**
+   * A child call must be to one of its parent's declared deps. Agents call what their tools allow (checked by the agent
+   * loop), and the hub's own fns call what the hub's code does (`hub/resource_import` fetching a URL through
+   * `web/fetch_raw`): no system declares those.
+   */
   async #checkDep(parent: Run, fn: FnRecord): Promise<void> {
     if (parent.kind === AGENT_KIND || parent.system === HUB_SYSTEM) return;
     const parentFn = await this.#deps.catalog.fn(parent.fn);

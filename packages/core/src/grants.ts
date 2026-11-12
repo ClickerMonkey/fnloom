@@ -18,7 +18,7 @@ import { QualifiedName, SystemName, Usd } from './primitives.ts';
  * - `fns`: `call`, `usableFns`, `shareFn` (calling other fns; which ones is `SystemGrants.calls`)
  * - `search`: `searchFns`, `fnExamples`, `examples`
  * - `decide`: `decide`
- * - `approvals`: `propose`, `grantPairing`
+ * - `approvals`: `propose`, `grantPairing`, `reportRefusal` (hosting others)
  * - `connections`: `connectionUpdate`
  * - `settings`: `setting`
  * - `state`: `stateGet`, `stateSet`
@@ -53,7 +53,7 @@ export const SystemGrants = z.object({
   models: ModelGrant.optional(),
   /** Hub secrets it may read, by name (its own config secrets are always its own). */
   secrets: z.array(z.string().min(1)).optional(),
-  /** The fns (`database/query_run`) or whole systems (`database`) it may call; its fns' `deps` must fall inside. */
+  /** The fns (`database/run_query`) or whole systems (`database`) it may call; its fns' `deps` must fall inside. */
   calls: z.array(z.union([QualifiedName, SystemName])).optional(),
   /** Hosts it may reach (`api.tavily.com`, `*.googleapis.com`); enforced by the supervisor for hosted systems. */
   network: z.array(z.string().min(1)).optional(),

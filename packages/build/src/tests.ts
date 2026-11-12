@@ -35,6 +35,12 @@ export interface TestRunOptions {
   readonly previewDir?: string;
   /** Only test files whose path contains one of these. */
   readonly filters?: readonly string[];
+  /**
+   * Run code no admin has approved yet (fs's install checks): the test files run in child processes started with
+   * these Node flags (vitest's `forks` pool), which sandbox them, and the folder's own vitest or vite config is never
+   * loaded, since a config runs in this process, outside that sandbox.
+   */
+  readonly sandbox?: { readonly execArgv: readonly string[] };
 }
 
 /** Runs a system folder's tests. An interface so the CLI's tests use a fake. */
@@ -68,7 +74,8 @@ function errorText(errors: readonly { message: string; stack?: string | undefine
 export async function runSystemTests(dir: string, files: BuildFiles, options: TestRunOptions = {}): Promise<SystemTestReport | undefined> {
   const manifest = await readSystemJson(files, dir);
   const previewDir = options.previews === true ? options.previewDir ?? join(dir, PREVIEW_DIR) : undefined;
-  const hasConfig = (await Promise.all(CONFIG_FILES.map((file) => files.stat(join(dir, file))))).some((stat) => stat !== undefined);
+  const hasConfig = options.sandbox === undefined
+    && (await Promise.all(CONFIG_FILES.map((file) => files.stat(join(dir, file))))).some((stat) => stat !== undefined);
   const { createVitest } = await import('vitest/node');
   const plugins = hasConfig ? [] : [(await import('@vitejs/plugin-vue')).default()];
   const started = Date.now();
@@ -78,6 +85,7 @@ export async function runSystemTests(dir: string, files: BuildFiles, options: Te
     passWithNoTests: true,
     reporters: [],
     ...(hasConfig ? {} : { config: false, include: TEST_FILES, exclude: NOT_TESTS }),
+    ...(options.sandbox === undefined ? {} : { pool: 'forks', execArgv: [...options.sandbox.execArgv] }),
     env: { HARNESS_PREVIEWS: options.previews === true ? 'true' : 'false', ...(previewDir === undefined ? {} : { HARNESS_PREVIEW_DIR: previewDir }) },
     // a named fs allow-list stops vite searching the folders above for a workspace root, which a sandboxed run
     // (fs's install checks, under Node's permission model) may not look at
@@ -103,12 +111,16 @@ export async function runSystemTests(dir: string, files: BuildFiles, options: Te
         });
       }
     }
+    // an error outside any test (a test process that would not start, a rejection nobody caught) is a failed case too
+    for (const error of run.unhandledErrors) {
+      cases.push({ file: '(the run)', name: 'an error outside the tests', status: 'failed', duration: 0, error: (error instanceof Error ? errorText([error]) : undefined) ?? String(error).slice(0, MAX_ERROR) });
+    }
     const count = (status: TestCase['status']): number => cases.filter((c) => c.status === status).length;
     const ordered = [...cases.filter((c) => c.status === 'failed'), ...cases.filter((c) => c.status !== 'failed')];
     const previews = previewDir === undefined ? undefined : await readPreviews(previewDir);
     return SystemTestReport.parse({
       system: manifest.name, version: manifest.version, ranAt: started, duration: Date.now() - started,
-      passed: count('passed'), failed: count('failed') + run.unhandledErrors.length, skipped: count('skipped'),
+      passed: count('passed'), failed: count('failed'), skipped: count('skipped'),
       cases: ordered.slice(0, MAX_CASES),
       ...(ordered.length > MAX_CASES ? { more: ordered.length - MAX_CASES } : {}),
       ...(previews === undefined ? {} : { previews: previews.slice(0, MAX_PREVIEWS) }),

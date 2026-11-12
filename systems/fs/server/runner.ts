@@ -2,21 +2,37 @@
  * `HostedRunner` over the SDK's shared supervision (`@harness/sdk/server` `supervise.ts`): each hosted system runs as a
  * child of fs, started by a `ProcessStarter` (the scrubbed environment, fs's tsx loader first) under Node's permission
  * model (`permissionArgs`: read its bundle and the loader, write its own folders, child processes and workers only when
- * `system.json` asks), and restarted after a crash by the `CrashPolicy` (backoff doubling, a cap per hour, then
+ * `system.json` asks, plus the paths its contract's `grants.files` names), its network through an allowlist proxy of the
+ * hosts its `grants.network` names (`proxyEnv`; the hub link goes direct), and restarted after a crash by the `CrashPolicy` (backoff doubling, a cap per hour, then
  * disabled). A start waits until that very process says the hub welcomed it (its `system.status` log line, `connected`
  * or `needs-config`: the SDK writes it once the hub accepted its key and, for a first install, the approved contract),
- * it exits, or the time is up. Another instance of the system, or the old process of an update, never counts.
+ * it exits, or the time is up. Another instance of the system, or the old process of an update, never counts. A host
+ * the proxy refuses, and a path Node's permission model refuses (read from what the child prints), are reported to the
+ * hub as that instance's refusals.
  */
-import { permissionArgs, statusOfLine, type CrashPolicy, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
-import type { RestartPolicy } from '@harness/core';
+import { AccessDeniedReader, permissionArgs, proxyEnv, statusOfLine, type CrashPolicy, type ProcessStarter, type ProxyRefusal, type SupervisedProcess } from '@harness/sdk/server';
+import type { HostRefusal, RestartPolicy } from '@harness/core';
 import type { HostedStateValue } from '../shared/hosting.ts';
 import type { HostedLaunch, HostedRunner, RunnerStatus, StartOutcome } from './hosting.ts';
 
 /** An hour, the window restarts are counted in. */
 const HOUR = 3_600_000;
 
+/** A child's network gate: listens, and is closed when the child is stopped for good (`AllowlistProxy`). */
+export interface NetworkGate {
+  /** Start listening; resolves to the proxy URL the child is pointed at. */
+  start(): Promise<string>;
+  close(): Promise<void>;
+}
+
 /** What the runner is built from. */
 export interface RunnerDeps {
+  /** A gate letting through only `allow`, telling `refused` of every other host. */
+  readonly gate: (allow: readonly string[], refused: (refusal: ProxyRefusal) => void) => NetworkGate;
+  /** Hosts every child reaches directly, never through its gate (the hub's). */
+  readonly direct: readonly string[];
+  /** Sends a refusal to the hub. */
+  readonly refused: (refusal: HostRefusal) => void;
   readonly starter: ProcessStarter;
   readonly policy: CrashPolicy;
   readonly restart: RestartPolicy;
@@ -39,6 +55,8 @@ interface Entry {
   stopping: boolean;
   /** What the current process last said of the hub: welcomed (connected, or waiting for config), or not yet. */
   said: 'connected' | 'needs-config' | undefined;
+  /** Its network gate and the URL it listens at, for every process of this entry. */
+  gate: { readonly gate: NetworkGate; readonly url: string };
 }
 
 /** Runs hosted systems as supervised children. */
@@ -53,7 +71,13 @@ export class SupervisedRunner implements HostedRunner {
   async start(key: string, launch: HostedLaunch, timeout: number): Promise<StartOutcome> {
     await this.stop(key);
     this.#deps.policy.forget(key);
-    const entry: Entry = { launch, process: undefined, state: 'starting', output: '', restarts: [], stopping: false, said: undefined };
+    const gate = this.#deps.gate([...launch.network, ...this.#deps.direct], (refusal) => {
+      this.#deps.refused({
+        instance: launch.ref, rule: 'network', attempt: `${refusal.host}:${String(refusal.port)}`,
+        detail: `${launch.ref.system} tried to reach ${refusal.host}, which its grants.network doesn't name`,
+      });
+    });
+    const entry: Entry = { launch, process: undefined, state: 'starting', output: '', restarts: [], stopping: false, said: undefined, gate: { gate, url: await gate.start() } };
     this.#entries.set(key, entry);
     const child = this.#spawn(key, entry);
     const deadline = this.#deps.now() + timeout;
@@ -64,6 +88,7 @@ export class SupervisedRunner implements HostedRunner {
       if (seen !== undefined) {
         entry.stopping = true;
         entry.state = 'crashed';
+        await entry.gate.gate.close();
         return { exited: { code: seen.exit.code, output: seen.exit.output } };
       }
       const state = entry.said;
@@ -81,9 +106,11 @@ export class SupervisedRunner implements HostedRunner {
     entry.stopping = true;
     entry.state = 'stopped';
     const child = entry.process;
-    if (child === undefined) { return; }
-    child.kill();
-    await child.exited;
+    if (child !== undefined) {
+      child.kill();
+      await child.exited;
+    }
+    await entry.gate.gate.close();
   }
 
   status(key: string): RunnerStatus | undefined {
@@ -101,16 +128,28 @@ export class SupervisedRunner implements HostedRunner {
   /** Launch the entry's process and follow its exit with the crash policy. */
   #spawn(key: string, entry: Entry): SupervisedProcess {
     const { launch } = entry;
-    const grants = { read: [launch.cwd, ...this.#deps.reads], write: launch.writes, ...(launch.permissions === undefined ? {} : { permissions: launch.permissions }) };
+    const grants = {
+      read: [launch.cwd, ...this.#deps.reads, ...launch.files.read], write: [...launch.writes, ...launch.files.write],
+      ...(launch.permissions === undefined ? {} : { permissions: launch.permissions }),
+    };
     entry.said = undefined;
     let partial = '';
+    const denied = new AccessDeniedReader();
     // only this process's own lines count: a new spawn starts again from nothing
     const heard = (text: string) => {
       const lines = (partial + text).split(/\r?\n/);
       partial = lines.pop() ?? '';
-      for (const line of lines) { this.#heard(entry, child, line); }
+      for (const line of lines) {
+        this.#heard(entry, child, line);
+        const access = denied.line(line);
+        if (access !== undefined) {
+          const what = access.resource ?? 'a path';
+          this.#deps.refused({ instance: launch.ref, rule: 'files', attempt: what, detail: `${launch.ref.system} tried ${access.permission} on ${what}, which its grants.files doesn't name` });
+        }
+      }
     };
-    const child: SupervisedProcess = this.#deps.starter.launch({ run: process.execPath, args: [...permissionArgs(grants), launch.entry], cwd: launch.cwd, env: launch.env, onOutput: heard });
+    const env = { ...launch.env, ...proxyEnv(entry.gate.url, this.#deps.direct) };
+    const child: SupervisedProcess = this.#deps.starter.launch({ run: process.execPath, args: [...permissionArgs(grants), launch.entry], cwd: launch.cwd, env, onOutput: heard });
     entry.process = child;
     void child.exited.then(async (exit) => {
       entry.output = exit.output;
@@ -118,8 +157,11 @@ export class SupervisedRunner implements HostedRunner {
       const decision = this.#deps.policy.decide(key, this.#deps.restart, exit, entry.stopping);
       this.#deps.log('fs.hosted.exited', { key, code: exit.code, action: decision.action });
       switch (decision.action) {
-        case 'stopped': entry.state = entry.stopping ? entry.state : 'stopped'; return;
-        case 'give-up': entry.state = 'disabled'; return;
+        case 'stopped':
+          // an asked-for stop closes the gate itself
+          if (!entry.stopping) { entry.state = 'stopped'; await entry.gate.gate.close(); }
+          return;
+        case 'give-up': entry.state = 'disabled'; await entry.gate.gate.close(); return;
         case 'restart': entry.state = 'crashed'; await this.#deps.wait(decision.wait); break;
         case 'restart-now': break;
       }

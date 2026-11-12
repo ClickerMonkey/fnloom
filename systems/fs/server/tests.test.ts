@@ -1,14 +1,17 @@
 /**
  * `ProcessSystemTests`: a folder's tests run in a child under Node's permission model (writes only to the folder's
  * `.harness-test` and the temp folder) with a scrubbed environment, its last line read as the report; a folder with no
- * tests gives none, and a child that printed no report refuses the install with its output.
+ * tests gives none, and a child that printed no report refuses the install with its output. One run is real: the test
+ * files run with no child processes, workers, addons or network.
  */
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { SystemTestReport } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { InstallRefused } from './hosting.ts';
+import { tsxLoader } from './loader.ts';
+import { NETWORK_OFF } from './network-guard.ts';
 import { ProcessSystemTests, readRoots, type ChildRun, type ChildRunner } from './tests.ts';
 
 const REPORT = SystemTestReport.parse({ system: 'notes', version: '0.1.0', ranAt: 1_000, duration: 20, passed: 1, failed: 0, skipped: 0, cases: [{ file: 'server/link.test.ts', name: 'works', status: 'passed', duration: 3 }] });
@@ -33,6 +36,38 @@ describe('the install tests in a sandboxed child', () => {
     expect(call?.env).not.toHaveProperty('OPENROUTER_API_KEY');
     expect(call?.args).not.toContain('--allow-fs-read=*');
     expect(call?.args).toContain('--allow-fs-read=systems/notes');
+    // the runner (vitest itself) may start processes; the test files' processes get the file grants and the guard only
+    expect(call?.args).toContain('--allow-child-process');
+    const testArgs: unknown = JSON.parse(call?.args.at(-1) ?? '[]');
+    expect(testArgs).toEqual(expect.arrayContaining(['--permission', '--import', expect.stringMatching(/network-guard\.ts$/)]));
+    expect(testArgs).not.toEqual(expect.arrayContaining([expect.stringMatching(/^--allow-(child-process|worker|addons)$/)]));
+  });
+
+  it('runs real test files with no child processes, workers, addons or network', { timeout: 120_000 }, async () => {
+    const dir = resolve(import.meta.dirname, '../../../.harness-test/fs-sandbox');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'server'), { recursive: true });
+    writeFileSync(join(dir, 'system.json'), JSON.stringify({ format: 1, name: 'notes', version: '0.1.0', description: 'Notes.', protocol: 1, server: { entry: 'server/main.ts', external: {} }, instances: 'one' }));
+    writeFileSync(join(dir, 'server', 'escape.test.ts'), [
+      "import { execFileSync } from 'node:child_process';",
+      "import { lookup } from 'node:dns/promises';",
+      "import { Worker } from 'node:worker_threads';",
+      "import { expect, it } from 'vitest';",
+      "it('starts no process', () => { expect(() => execFileSync(process.execPath, ['-v'])).toThrow(); });",
+      "it('starts no worker', () => { expect(() => new Worker('1', { eval: true })).toThrow(); });",
+      `it('fetches nothing', async () => { const error = await fetch('http://127.0.0.1:4721/').then(() => undefined, (e) => e); expect(String(error?.cause)).toContain(${JSON.stringify(NETWORK_OFF)}); });`,
+      `it('connects nowhere', async () => { const net = await import('node:net'); expect(() => net.connect(9, '127.0.0.1')).toThrow(${JSON.stringify(NETWORK_OFF)}); });`,
+      `it('looks up no names', () => { expect(() => lookup('example.com')).toThrow(${JSON.stringify(NETWORK_OFF)}); });`,
+      "it('reads no keys', () => { expect(process.env.OPENROUTER_API_KEY).toBeUndefined(); });",
+    ].join('\n'));
+    try {
+      const tests = new ProcessSystemTests({ nodeArgs: tsxLoader(import.meta.url).nodeArgs, baseEnv: { ...process.env, OPENROUTER_API_KEY: 'secret' }, timeout: 100_000 });
+      const report = await tests.run(dir, signal);
+      expect(report?.cases.filter((c) => c.status !== 'passed')).toEqual([]);
+      expect(report?.passed).toBe(6);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('lets the tests read the install code and linked library repos, never their data folders', () => {

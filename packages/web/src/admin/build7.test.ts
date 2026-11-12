@@ -13,7 +13,7 @@ import ChangeList from './components/ChangeList.vue';
 import ConfigCustom from './components/ConfigCustom.vue';
 import PartsByKind from './components/PartsByKind.vue';
 import ReviewFnList from './components/ReviewFnList.vue';
-import { checksLine, checksWarn, clientFileUrl, declaredItems, fnReviews, grantRows, lineDiff, withSwitch } from './logic/review.ts';
+import { checksLine, checksWarn, clientFileUrl, declaredItems, fnReviews, grantRows, lineDiff, refusalLine, timeText, withSwitch } from './logic/review.ts';
 import { partChoices, partGroups, shownPart } from './logic/systems.ts';
 import { ConfigComponents, configTarget } from './state/config-component.ts';
 import { fakeAdmin, fakeAdminApi } from './test/fakes.ts';
@@ -30,6 +30,12 @@ describe('review logic', () => {
       ['notes/find', false, undefined, undefined],
       ['notes/save', true, 'write', 'Creates context.'],
     ]);
+  });
+
+  it('words a refusal as what it tried, then why', () => {
+    expect(refusalLine({ attempt: 'OPENAI_API_KEY', detail: 'it may read only NOTES_TOKEN' })).toBe('Tried OPENAI_API_KEY: it may read only NOTES_TOKEN.');
+    expect(timeText({ times: { runs: 3, typical: 1_200, slow: 3_000, longest: 4_000 }, longRunning: false })).toMatch(/^About .+, slow .+$/);
+    expect(timeText({ longRunning: false })).toBe('No runs yet');
   });
 
   it('lists declared context and types, marking runtime additions and off items', () => {
@@ -139,6 +145,8 @@ describe('review components', () => {
     const body = wrapper.find('[data-testid="review-fn-body"]');
     expect(body.text()).toContain('Search by words in the title.');
     expect(body.text()).toContain('find({"q":"plans"})');
+    expect(body.find('[data-testid="review-fn-facts"]').text()).toContain('native');
+    expect(body.find('[data-testid="review-fn-no-facts"]').exists()).toBe(true);
     await body.find('[data-testid="review-fn-test"]').trigger('click');
     expect(wrapper.emitted('test')?.[0]?.[0]).toMatchObject({ name: 'notes/find' });
   });

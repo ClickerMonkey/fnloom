@@ -6,7 +6,7 @@ import { fake } from '../api/testing/rig.ts';
 import { refusalPage, systemReview } from '../api/web/review.ts';
 import { ADMIN, declOf, manifestFor } from '../catalog/fixtures.ts';
 import type { FnsServices } from '../fns/index.ts';
-import { contractChanges, mergeChanges } from './lifecycle.ts';
+import { contractChanges, foldRuntime, mergeChanges } from './lifecycle.ts';
 import { FakeSystem, linkRig, pairDirectly, type LinkRig } from './rig.ts';
 
 const NOTES = SystemName.parse('notes');
@@ -70,6 +70,16 @@ describe('contract changes', () => {
     const back = contractChanges(next, manifest);
     expect(mergeChanges(changes, back)).toEqual([]);
   });
+
+  it('lists each runtime item that went live once, and drops one removed', () => {
+    const groceries = { section: 'fns', name: 'notes/groceries', origin: 'runtime' } as const;
+    const once = foldRuntime([], [{ ...groceries, change: 'added', after: {} }]);
+    const again = foldRuntime(foldRuntime(once, [{ ...groceries, change: 'changed', before: {}, after: { a: 1 } }]), [{ ...groceries, change: 'changed', before: { a: 1 }, after: { a: 2 } }]);
+    expect(again).toEqual([{ section: 'fns', name: 'notes/groceries' }]);
+    expect(foldRuntime(again, [{ ...groceries, change: 'removed', before: {} }])).toEqual([]);
+    // a contract item is not a runtime one
+    expect(foldRuntime([], [{ ...groceries, origin: 'contract', change: 'added', after: {} }])).toEqual([]);
+  });
 });
 
 describe('installed vs live', () => {
@@ -91,7 +101,7 @@ describe('installed vs live', () => {
   it('gives the review page its stage, contract, switches and refusals, newest first', async () => {
     const { manifest } = await installed();
     const facts = fake<FnsServices['facts']>('facts', { facts: () => Promise.reject(new Error('its kind is away')) });
-    const hub = { store: rig.store, catalog: rig.catalog, fns: fake<FnsServices>('fns', { facts }), link: rig, log: rig.log };
+    const hub = { store: rig.store, catalog: rig.catalog, fns: fake<FnsServices>('fns', { facts }), link: rig, log: rig.log, api: { content: { presignDownload: (ref: { hash: string }) => Promise.resolve(`https://files.test/${ref.hash}`) } } };
     await expect(systemReview(hub, SystemName.parse('ghost'))).rejects.toMatchObject({ status: 404 });
     expect(await systemReview(hub, NOTES)).toMatchObject({ system: NOTES, stage: 'installed', manifest: { hash: manifest.hash }, facts: [], off: [], refusals: { total: 0, last: [] } });
 
@@ -125,6 +135,22 @@ describe('installed vs live', () => {
     expect((await rig.lifecycle.review(NOTES))?.pending).toBeUndefined();
     expect(await rig.catalog.availability(q('notes/write'))).toBe(true);
     expect(await rig.catalog.availability(q('notes/tag'))).toMatchObject({ unavailable: 'disabled', detail: 'notes/tag is switched off' });
+  });
+
+  it('enforces the approved grants while more wait for review, and after they are rejected', async () => {
+    const { manifest, system: fake } = await installed();
+    await rig.lifecycle.goLive({ system: NOTES, hash: manifest.hash, off: [] }, ADMIN);
+    const asking: Manifest = { ...manifest, hash: `${manifest.hash}-ai`, grants: { hub: ['ai', 'fns'] } };
+    await fake.sdk.call('manifest', asking);
+    expect((await rig.lifecycle.review(NOTES))?.pending?.changes.map((c) => c.section)).toEqual(['grants']);
+    expect(await rig.grants.grants(NOTES)).toEqual({ hub: [] });
+    await rig.lifecycle.reject(NOTES, asking.hash, ADMIN);
+    expect(await rig.grants.grants(NOTES)).toEqual({ hub: [] });
+    // asked again and approved, they hold
+    const again: Manifest = { ...asking, hash: `${manifest.hash}-ai2`, grants: { hub: ['ai'] } };
+    await fake.sdk.call('manifest', again);
+    await rig.lifecycle.approve({ system: NOTES, hash: again.hash, off: [] }, ADMIN);
+    expect(await rig.grants.grants(NOTES)).toEqual({ hub: ['ai'] });
   });
 
   it('approves at once a runtime addition a fn declared, and holds one nobody declared', async () => {

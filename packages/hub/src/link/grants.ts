@@ -37,7 +37,7 @@ export const CAPABILITY_ENDPOINTS = {
   fns: ['call', 'usableFns', 'shareFn'],
   search: ['searchFns', 'fnExamples', 'examples'],
   decide: ['decide'],
-  approvals: ['propose', 'grantPairing'],
+  approvals: ['propose', 'grantPairing', 'reportRefusal'],
   connections: ['connectionUpdate'],
   settings: ['setting'],
   state: ['stateGet', 'stateSet'],
@@ -92,8 +92,14 @@ export class SystemGrantGuard {
     this.#options = options;
   }
 
-  /** A system's declared grants; none declared is the base only. */
+  /**
+   * The grants the hub enforces for a system: once it is live, the ones an admin approved (`LiveContract.grants`), so a
+   * newer contract asking for more (waiting for review, or rejected) gets nothing more; before that (installed, or live
+   * from before build 7 with no review yet), what its contract declares. None declared is the base only.
+   */
   async grants(system: SystemName): Promise<SystemGrants> {
+    const live = (await this.#options.store.table('systemReviews').get(system))?.live;
+    if (live !== undefined) { return live.grants; }
     return (await this.#options.catalog.manifest(system))?.grants ?? { hub: [] };
   }
 
@@ -163,7 +169,7 @@ export class SystemGrantGuard {
     const parsed = CallBody.safeParse(body);
     if (!parsed.success) { return undefined; }
     const { parent: parentId, fn: target } = parsed.data;
-    const parent = await this.#options.store.table('runs').get(parentId);
+    const parent = await this.#ownRun(link, parentId);
     const base = { run: parentId, fn: parent?.fn };
     const targetSystem = splitName(target).system;
     if (targetSystem !== link.system) {
@@ -178,7 +184,7 @@ export class SystemGrantGuard {
   async #propose(link: LinkSession, body: unknown): Promise<Refusal | undefined> {
     const parsed = ProposeBody.safeParse(body);
     if (!parsed.success || parsed.data.parent === undefined) { return undefined; }
-    const parent = await this.#options.store.table('runs').get(parsed.data.parent);
+    const parent = await this.#ownRun(link, parsed.data.parent);
     return parent === undefined ? undefined : this.#mode(parent, qualify(link.system, parsed.data.fn), true);
   }
 
@@ -203,18 +209,31 @@ export class SystemGrantGuard {
     return (await this.#options.store.table('fnFacts').get(fn.name))?.mode ?? fn.decl.effects?.mode ?? 'read';
   }
 
-  /** A run whose fn declares the types it reads and writes asks for those and its system's own only. */
+  /** The run a body names, when it is one of this link's system's own (another system's is the handler's to refuse). */
+  async #ownRun(link: LinkSession, id: RunId): Promise<Run | undefined> {
+    const run = await this.#options.store.table('runs').get(id);
+    return run?.system === link.system ? run : undefined;
+  }
+
+  /**
+   * Types asked for under a run whose fn declares the types it reads and writes: those and its system's own only.
+   * Asked for under no run (or not its own), the union of what the system's fns declare, unless one declares none.
+   */
   async #types(link: LinkSession, body: unknown): Promise<Refusal | undefined> {
     const parsed = TypesBody.safeParse(body);
-    if (!parsed.success || parsed.data.run === undefined) { return undefined; }
-    const run = await this.#options.store.table('runs').get(parsed.data.run);
-    const fn = run === undefined ? undefined : await this.#options.catalog.fn(run.fn);
-    const effects = fn?.decl.effects;
-    if (run === undefined || effects === undefined || (effects.reads === undefined && effects.writes === undefined)) { return undefined; }
-    const declared = new Set([...(effects.reads ?? []), ...(effects.writes ?? [])]);
+    if (!parsed.success) { return undefined; }
+    const run = parsed.data.run === undefined ? undefined : await this.#ownRun(link, parsed.data.run);
+    const fns = run === undefined ? await this.#options.catalog.fns({ system: link.system }) : [await this.#options.catalog.fn(run.fn)];
+    const declared = new Set<QualifiedName>();
+    for (const fn of fns) {
+      const effects = fn?.decl.effects;
+      if (effects === undefined || (effects.reads === undefined && effects.writes === undefined)) { return undefined; }
+      for (const name of [...(effects.reads ?? []), ...(effects.writes ?? [])]) { declared.add(name); }
+    }
     const outside = parsed.data.names.filter((name) => splitName(name).system !== link.system && !declared.has(name));
     if (outside.length === 0) { return undefined; }
-    return { rule: 'types', attempt: outside.join(', '), run: run.id, fn: run.fn, detail: `${run.fn} declares the types it reads and writes, and ${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} not among them` };
+    const asker = run === undefined ? `${link.system}'s fns declare the types they read and write` : `${run.fn} declares the types it reads and writes`;
+    return { rule: 'types', attempt: outside.join(', '), run: run?.id, fn: run?.fn, detail: `${asker}, and ${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} not among them` };
   }
 
   /** A model call: its model or role must be granted, and the run and the system's day must be under their caps. */
@@ -229,15 +248,17 @@ export class SystemGrantGuard {
     if (choice !== undefined && 'category' in choice && limits.roles !== undefined && !limits.roles.some((role) => role === choice.category)) {
       return { rule: 'models', attempt: choice.category, run, detail: `it didn't declare that it uses the ${choice.category} models` };
     }
-    if (limits.perRun !== undefined && run !== undefined) {
-      const row = await this.#options.store.table('runs').get(run);
-      if (row !== undefined && row.totalCost >= limits.perRun) {
-        return { rule: 'budget', attempt: endpoint, run, fn: row.fn, detail: `this run has spent $${row.totalCost.toFixed(4)}, its cap of $${limits.perRun.toFixed(4)} per run` };
-      }
-    }
     if (limits.perDay !== undefined) {
       const spent = await this.spentToday(link.system);
       if (spent >= limits.perDay) { return { rule: 'budget', attempt: endpoint, run, detail: `it has spent $${spent.toFixed(4)} today, its cap of $${limits.perDay.toFixed(4)} per day` }; }
+    }
+    if (limits.perRun !== undefined) {
+      // a per-run cap only holds when every model call names the run it is for
+      const row = run === undefined ? undefined : await this.#ownRun(link, run);
+      if (row === undefined) { return { rule: 'budget', attempt: endpoint, run, detail: `it declares a cap of $${limits.perRun.toFixed(4)} per run, so each model call must name one of its own runs` }; }
+      if (row.totalCost >= limits.perRun) {
+        return { rule: 'budget', attempt: endpoint, run, fn: row.fn, detail: `this run has spent $${row.totalCost.toFixed(4)}, its cap of $${limits.perRun.toFixed(4)} per run` };
+      }
     }
     return undefined;
   }
