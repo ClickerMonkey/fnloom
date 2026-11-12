@@ -18,6 +18,24 @@ first, or put on this list.
 > - maybe fs watched for file system changes where you start it and any that can reliably be tied to a bash call should be and display a tabbed view of the changes assuming they are in git
 > - make sure fs system has safe guards against git ignored and sensitive looking files - maybe auto mode classifier does that
 
+## Added by the owner (2026-11-12)
+
+> Let's make it configurable so that you can feed in a custom harness name (right now it's just Harness) and have that be used visually everywhere in the app. Let's do next build
+
+- **One setting:** the hub's display name is configurable. Today it is the fixed `name: 'Harness'` in
+  packages/hub/src/boot/info.ts. The design step picks where it is set: an env var, an admin setting stored by the
+  hub, or both, with the stored setting winning.
+- **Used everywhere it shows:** the app brand (AppBrand), the sign-in and setup page, the browser tab title, the PWA
+  manifest and install name, the version line, notification titles, and any user-visible text that says "Harness".
+  Code names (packages, the `harness` CLI, env var prefixes, storage keys) stay as they are.
+- **Live:** a change shows in open tabs without a rebuild of the web app.
+- **Check:** a test that sets a custom name and finds it on the sign-in page, in the shell and in the tab title, and
+  finds no "Harness" anywhere it would be shown to a person.
+
+Also from the owner the same day, already done on top of build 7 (`9b49d1b`): the sign-in page has "Remember me"
+(stays signed in and keeps the email; unticked, the session ends with the browser), a show/hide button on the password,
+and the field names password managers need.
+
 ## Prior art to read
 
 In product (`C:\Users\pdiff\Documents\GitHub\product\design`):

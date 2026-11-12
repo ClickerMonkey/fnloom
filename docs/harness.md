@@ -1219,3 +1219,8 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **A role's provider answers its calls** (build 2 review): a model role resolves to a model and a provider, and the
   call carries the provider as a real field (`HubCallMetadata.provider`, enforced in aeye's `onModelSelected`), so a
   model name two providers serve answers from the one the settings page shows.
+- **The hub's name is the owner's to choose** (2026-11-12, for build 8): "Let's make it configurable so that you can
+  feed in a custom harness name (right now it's just Harness) and have that be used visually everywhere in the app."
+  Every place the app shows the product name shows the configured one; code names stay `harness`.
+- **Sign-in remembers** (2026-11-12): "The login screen doesn't ask to remember my username and password - also add
+  password visibility toggle. Update so browser can remember or they can click remember me." Done in `9b49d1b`.
