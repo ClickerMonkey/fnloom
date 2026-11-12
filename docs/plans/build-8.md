@@ -124,3 +124,17 @@ Deferred by the fixers:
 - **Graph overlap on a real stack** (packages/web graph view): only checked against the mock's sample graph. The real
   fs cluster (many authoring.* items) still needs a look; fit-all on first load hides labels until zoom-in.
 - **Duplicate 'New chat' button** (packages/web chat list): on desktop it shows beside the panel's own 'New chat'.
+
+## Owner answers to the audit's calls (2026-11-12, verbatim)
+
+> 1. Move into settings
+> 2. Yes
+> 3. Do suggested
+>
+> Do next build
+
+- **METRIC_DEFAULTS:** move the 6 metrics x 3 numbers into @ayepi/env settings (per-contextor overrides stay).
+- **esbuild:** added as a root devDependency before build 8 starts.
+- **@-mention recent pages:** a new hub link endpoint searches resources as the person mentioning; the hub ties the
+  search to the mention request it sent the system, so a system can only search for the person it was asked about.
+  Then systems/web drops RecentPages and WEB_RECENT_PAGES.

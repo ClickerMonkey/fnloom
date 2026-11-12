@@ -1224,3 +1224,6 @@ Already checked: type-checking all of the types and examples takes about two sec
   Every place the app shows the product name shows the configured one; code names stay `harness`.
 - **Sign-in remembers** (2026-11-12): "The login screen doesn't ask to remember my username and password - also add
   password visibility toggle. Update so browser can remember or they can click remember me." Done in `9b49d1b`.
+- **Audit gate calls** (2026-11-12): "1. Move into settings 2. Yes 3. Do suggested". Context metric defaults move into
+  env settings; esbuild is a root devDependency; a system searches resources for a mention only as the person the
+  hub's own mention request named.
