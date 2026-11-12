@@ -141,7 +141,7 @@ Every command, read from the CLI itself:
 | Command | What it does |
 |---|---|
 | `harness system new <name> [--dir <parent folder>] [--from <template folder>]` | Make a system folder from the template, with its name filled in. |
-| `harness system build [dir] [--skip-typecheck]` | Typecheck a system, check its name and context, and bundle its server and client into dist/. |
+| `harness system build [dir] [--skip-typecheck] [--hub <url>] [--token <token>]` | Typecheck a system, check its name and context, and bundle its server and client into dist/. |
 | `harness test [dir] [--previews] [--json] [--filter <text>]` | Run a system's own tests (the SDK test kit); --previews also shoots its components into a gallery. |
 | `harness system pack [dir] [--out <file>] [--skip-typecheck]` | Build if needed, then zip dist/ with every file hashed into a package the hub installs. |
 | `harness system install <zip \| folder \| npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>] [--no-start] [--wait <ms>]` | Install a package zip, a folder or an npm package on a hub, which pairs, configures and starts it. |

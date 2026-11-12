@@ -111,6 +111,11 @@ export interface PolicyEngine {
     fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver; preview?: () => Promise<ApprovalPreview | undefined>;
     /** A chat in auto mode let this call go ahead: no matching policy means allow rather than ask (a fn that always asks still asks). */
     autoAllowed?: boolean;
+    /**
+     * A system's run calls its own fn (a fleet forwarding to the instance with the data) and the calling run's fn declares
+     * at least this fn's mode: what it may do was decided with that run, so no matching policy means allow.
+     */
+    withinParent?: boolean;
   }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
   propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId }): Promise<Approval>;

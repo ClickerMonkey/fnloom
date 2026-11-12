@@ -26,7 +26,7 @@ import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { AnyOutcome, OutcomeHelpers, RunTarget, RuntimeFnCtx, RuntimeKindCtx, RuntimeProgress, RuntimeRunBase } from './table.ts';
-import { decisions, fleets, fnSearch, proposals } from './asks.ts';
+import { adminNotices, decisions, fleets, fnSearch, proposals } from './asks.ts';
 import { decodeArgs, decodeOrThrow, encode, encodeOrThrow, fnError, invalidInput, InvalidValue, messageOf, settledOf, thrownError } from './wire.ts';
 
 /** What every run gets from the runtime. */
@@ -111,6 +111,7 @@ export function servicesFor(env: RunEnvironment, run: RunId, signal: AbortSignal
     resources: new HubResources(env.hub, env.content, { run, signal }),
     types: new HubTypes(env.hub, signal, run),
     ...runReporting(env, run, signal, track),
+    ...adminNotices(env.hub, signal),
     log,
   };
 }

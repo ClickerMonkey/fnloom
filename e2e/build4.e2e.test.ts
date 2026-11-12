@@ -1,8 +1,8 @@
 /**
  * Build 4 on the real stack, API-level: the web system's `crawl` keeps each page as a resource under one root per
  * crawl (only with `TAVILY_API_KEY`, which the stack needs to run the web system); visibility is set and read back on a
- * fn and a crawl root, and put back; and a fn's output hook (database `get_query`'s answer check) is declared on the
- * stored fn, so the hub calls it.
+ * fn and a crawl root, and put back. (A fn's output hook on its stored record is unit-tested in the SDK: no system on
+ * the stack declares one since get_query moved onto the authoring agent.)
  */
 import { QualifiedName, type SessionId } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -42,10 +42,3 @@ describe('visibility', () => {
   });
 });
 
-describe('fn validation hooks', () => {
-  it('keeps the output hook a fn declares on its stored record', async () => {
-    const fns = await me.hub.call('systemFns', { system: 'database' });
-    const getQuery = fns.find((fn) => fn.name === 'database/get_query');
-    expect(getQuery?.decl.validate).toMatchObject({ output: true });
-  });
-});

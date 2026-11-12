@@ -1,12 +1,12 @@
 /**
- * The runtime's side of `ctx.propose`, `ctx.decide`, `ctx.fleet` and `ctx.searchFns`: proposing a run that waits for approval (`propose` on the hub
+ * The runtime's side of `ctx.propose`, `ctx.decide`, `ctx.fleet`, `ctx.searchFns` and `ctx.notifyAdmins`: proposing a run that waits for approval (`propose` on the hub
  * link) and asking the decision model to choose (`decide`). One builder each, used by the run context and, for
  * proposals, the system context.
  */
 import {
-  Json, LocalName, type DecideAnswer, type DecideCandidate, type FleetInstance, type FnExamplesPage, type FnSearchPage, type ProposedRun, type RunId,
+  AdminNotice, Json, LocalName, type DecideAnswer, type DecideCandidate, type FleetInstance, type FnExamplesPage, type FnSearchPage, type ProposedRun, type RunId,
 } from '@harness/core';
-import type { DecideOptions, Decisions, Fleets, FnSearch, ProposeOptions, Proposals } from '../ctx.ts';
+import type { AdminNotices, DecideOptions, Decisions, Fleets, FnSearch, ProposeOptions, Proposals } from '../ctx.ts';
 import { canonicalJson, sha256 } from '../manifest.ts';
 import type { AnyFnRef } from '../refs.ts';
 import type { HubAccess } from './link.ts';
@@ -59,6 +59,16 @@ export function fleets(hub: HubAccess, signal: AbortSignal): Fleets {
     fleet: async (): Promise<FleetInstance[]> => {
       const link = await hub.ready(signal);
       return await link.call('fleet', {});
+    },
+  };
+}
+
+/** `notifyAdmins` for a context: a word to the hub's admins, as this system. */
+export function adminNotices(hub: HubAccess, signal: AbortSignal): AdminNotices {
+  return {
+    notifyAdmins: async (notice): Promise<void> => {
+      const link = await hub.ready(signal);
+      await link.call('notifyAdmins', AdminNotice.parse(notice));
     },
   };
 }

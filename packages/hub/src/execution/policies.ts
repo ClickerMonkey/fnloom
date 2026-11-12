@@ -151,6 +151,8 @@ export class HubPolicyEngine implements PolicyEngine {
     const always = fn.decl.approval;
     // auto mode's classifier stands in for the fallback ask; a policy that says ask, or a fn that always asks, still asks
     if (input.autoAllowed === true && chosen === undefined && always === undefined && input.ask === undefined) return { effect: 'allow' };
+    // a system's own fn called from its run that declares at least this mode was decided with that run
+    if (input.withinParent === true && chosen === undefined && always === undefined && input.ask === undefined) return { effect: 'allow' };
     // a per-person fn kept on 'ask first' asks whatever the policies allow
     const asked = input.ask === undefined ? policy : { effect: 'ask' as const, approver: input.ask };
     // a fn that always asks asks even when allowed, unless its approvals may be remembered and a policy allows it

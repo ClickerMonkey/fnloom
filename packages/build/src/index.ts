@@ -12,7 +12,7 @@ export {
   BUILD_ONLY_MODULES, ContractError, ViteBuilder, isExternal, summaryOf, summaryOfManifest,
   type ContractSummary, type ManifestsOptions, type SystemBuilder, type ViteBuilderOptions,
 } from './builder.ts';
-export { CONTRACT_ENTRY, buildSystem, requiredNames, type BuildDeps, type BuildOptions, type BuildRefused, type BuildResult, type Built } from './build-system.ts';
+export { BuiltContract, CONTRACT_ENTRY, CONTRACT_FILE, buildSystem, requiredNames, type BuildDeps, type CatalogLookup, type KnownToBuild, type BuildOptions, type BuildRefused, type BuildResult, type Built } from './build-system.ts';
 export { checkContextFolder, type CheckedContext, type KnownNames } from './context.ts';
 export { NodeFiles, type BuildFiles, type FileStat } from './files.ts';
 export { BUILT, DIST, FolderError, NOT_SOURCE, builtManifest, isStale, readSystemJson } from './folder.ts';

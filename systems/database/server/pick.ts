@@ -1,6 +1,6 @@
 /**
- * Which database a request is for (`pick_database`, get_query's first step). The database the request names, else the
- * only one the person may use, else the admin's decision model chooses between them (`ctx.decide`), each described by
+ * Which database a request is for (`pick_database`, get_query's first step). The database the caller names, or the
+ * one the request's text names as "the <label> database", else the only one the person may use, else the admin's decision model chooses between them (`ctx.decide`), each described by
  * its label and tables and scored by how many of the request's words its tables match. With the decision model off or
  * failed the scores decide, when the best one leads clearly. Otherwise the person is asked which one.
  */
@@ -42,6 +42,17 @@ export function matchScore(request: ReadonlySet<string>, member: FleetMember): n
   return hits / request.size;
 }
 
+/** A label as a pattern that matches it literally. */
+function literal(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The one database a request's text names as "<label> database" (any case), when exactly one is named so. */
+export function namedIn(description: string, members: readonly FleetMember[]): FleetMember | undefined {
+  const named = members.filter((member) => new RegExp(`\\b${literal(member.label)}\\s+database\\b`, 'i').test(description));
+  return named.length === 1 ? named[0] : undefined;
+}
+
 /** The question for the person, by label. */
 function askWhich(members: readonly FleetMember[]): DatabasePick {
   const labels = members.map((member) => member.label);
@@ -59,6 +70,8 @@ export async function pickDatabase(input: PickInput, limits: PickLimits): Promis
     if (members.length === 0) { return { invalid: `There is no database "${input.asked}" you may use.` }; }
     return { invalid: `There is no database "${input.asked}" you may use; these are: ${members.map((member) => `${member.instance} (${member.label})`).join(', ')}.` };
   }
+  const said = namedIn(input.description, members);
+  if (said !== undefined) { return { database: said.instance, label: said.label, by: 'asked', why: `The request names the ${said.label} database.` }; }
   const [only, second] = members;
   if (only === undefined) { return { invalid: 'There is no database you may use; an admin chooses who may use each on its config.' }; }
   if (second === undefined) { return { database: only.instance, label: only.label, by: 'only', why: `${only.label} is the only database you may use.` }; }

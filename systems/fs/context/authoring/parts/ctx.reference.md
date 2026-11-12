@@ -93,7 +93,7 @@ interface · `import { Services } from '@harness/sdk'`
 What every run, undo and action gets from the hub.
 
 ```ts
-interface Services extends SystemPlace, AiSource {
+interface Services extends SystemPlace, AiSource, AdminNotices {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
@@ -120,7 +120,7 @@ Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
 interface · `import { SystemCtx } from '@harness/sdk'`
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource {
+interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -470,6 +470,21 @@ interface AiSource {
   ai(): Promise<HarnessAi>;
 }
 ```
+
+#### `AdminNotices`
+
+interface · `import { AdminNotices } from '@harness/sdk'`
+
+Telling the hub's admins something that needs a person, e.g. a hosted system disabled after too many crashes.
+
+```ts
+interface AdminNotices {
+  /** Each admin gets an inbox item (title and plain-words body) that links to this system's page. */
+  notifyAdmins(notice: AdminNotice): Promise<void>;
+}
+```
+
+Refers to: [`AdminNotice`](#core-adminnotice).
 
 #### `hubAi`
 

@@ -11,12 +11,12 @@
  *   the chat can draw every field, a title, not too many fields).
  * - **save:** the clean form is kept in the hub as the person's own `input/form` fn, so the next request reuses it.
  */
-import { Json, type FnSearchPage, type FnSearchQuery } from '@harness/core';
+import type { Json, FnSearchPage, FnSearchQuery } from '@harness/core';
 import { expectType, type Equal } from '@harness/sdk';
 import { authoringAgent, authoringTool, type AuthoredFn, type AuthoringSession } from '@harness/sdk/server';
 import { z } from 'zod';
 import { InputFormSchema, FIELD_GUIDE, FORM_KIND, TRIP_FORM, type InputFormValue } from '../shared/index.ts';
-import { FIELD_TYPES, fieldsOf, formProblems } from '../shared/forms.ts';
+import { fieldsOf, formProblems, type FIELD_TYPES } from '../shared/forms.ts';
 
 
 /** A saved form as `hub/fn_get` gives it (the parts the agent reads). */

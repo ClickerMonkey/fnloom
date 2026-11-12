@@ -79,7 +79,9 @@ export async function runSystemTests(dir: string, files: BuildFiles, options: Te
     reporters: [],
     ...(hasConfig ? {} : { config: false, include: TEST_FILES, exclude: NOT_TESTS }),
     env: { HARNESS_PREVIEWS: options.previews === true ? 'true' : 'false', ...(previewDir === undefined ? {} : { HARNESS_PREVIEW_DIR: previewDir }) },
-  }, { plugins });
+    // a named fs allow-list stops vite searching the folders above for a workspace root, which a sandboxed run
+    // (fs's install checks, under Node's permission model) may not look at
+  }, { plugins, server: { fs: { allow: [dir] } } });
   try {
     const specs = await vitest.globTestSpecifications(options.filters === undefined ? [] : [...options.filters]);
     if (specs.length === 0) { return undefined; }

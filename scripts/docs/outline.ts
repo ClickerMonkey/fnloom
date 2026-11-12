@@ -102,7 +102,7 @@ export const OUTLINE: readonly Topic[] = [
     exports: [
       'FnCtx', 'Services', 'SystemCtx', 'SystemPlace', 'UndoCtx', 'AskerCtx', 'BudgetInfo', 'RunStatusView', 'Llm', 'ForwardModality', 'ModelInput', 'ModelOutput', 'Files', 'Resources', 'Types', 'Log',
       'Proposals', 'ProposeOptions', 'Decisions', 'DecideOptions', 'Fleets', 'FnSearch',
-      'AiSource', 'hubAi', 'hubAiOf', 'hubModelId', 'roleModelId', 'aeyeModelOf', 'ModelLink', 'HubModelLink',
+      'AiSource', 'AdminNotices', 'hubAi', 'hubAiOf', 'hubModelId', 'roleModelId', 'aeyeModelOf', 'ModelLink', 'HubModelLink',
       'harnessAi', 'harnessAiOf', 'HarnessAi', 'HarnessProvider', 'HarnessProviderConfig', 'HarnessMetadata', 'HubLlm', 'HubLlmError', 'HubModels', 'HUB_MODEL', 'wireRequest',
     ],
   },
@@ -129,7 +129,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'testing',
     title: 'Testing',
     exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal', 'FakeHubFns', 'KeptFn',
-      'FakeModelLink', 'fakeHubAi', 'replyChunks', 'FakeModelOptions', 'FakeReply', 'checkContextFolder', 'CheckedContext', 'KnownNames',
+      'FakeModelLink', 'fakeHubAi', 'replyChunks', 'FakeModelOptions', 'FakeReply', 'checkContextFolder', 'contextFolderLinks', 'CheckedContext', 'KnownNames',
       'testHub', 'TestSystem', 'TestHubOptions', 'callFn', 'CallNotDone', 'TestCall', 'TestRun', 'TestOutcome', 'HubCalls', 'FnNameOf', 'FnArgsOf', 'FnResultOf', 'KindNameOf', 'KindPayloadOf', 'KindProps',
       'mockModel', 'toolCall', 'ScriptStep', 'ModelRecording', 'RecordedModelLink', 'RecordingOptions', 'realModel', 'RealModelTest', 'OpenRouterModelLink', 'OpenRouterOptions',
       'preview', 'PreviewOptions', 'SavedShot', 'renderHtml', 'galleryHtml', 'PreviewIndex', 'PREVIEW_INDEX', 'PREVIEW_THEMES', 'PreviewTheme', 'contextFolder', 'TestedContext', 'OtherNames', 'kitEnv'],

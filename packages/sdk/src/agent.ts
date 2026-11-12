@@ -1,5 +1,5 @@
 /** Declaring agents: fns of the hub's `llm` kind, with tools and context given as refs. */
-import type { Audience, ModelChoice } from '@harness/core';
+import type { Audience, FnEffects, FnRouting, ModelChoice } from '@harness/core';
 import type { FnDef, FnExampleOf, FnValidators, KindFnTypes } from './fn.ts';
 import type { StatusTemplates } from '@harness/core';
 import type { StatusInput } from './status.ts';
@@ -55,6 +55,10 @@ export interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   validate?: FnValidators<NoInfer<A>, NoInfer<R>, {}>;
   /** What its runs say they are doing; the hub's agent words when absent. Tokens are checked against `args` and `returns`. */
   status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
+  /** For a fleet: always one instance, or whichever is first available (get_query routed to the database it serves). */
+  routing?: FnRouting;
+  /** What it does to data and the registry: its mode, the types it reads and writes, and the fns it creates (`FnFacts`). */
+  effects?: FnEffects;
 }
 
 /**
@@ -73,6 +77,8 @@ export function agent<A, R, const T extends StatusTemplates = StatusTemplates>(d
     ...(def.examples === undefined ? {} : { examples: def.examples }),
     ...(def.validate === undefined ? {} : { validate: def.validate }),
     ...(def.status === undefined ? {} : { status: def.status }),
+    ...(def.routing === undefined ? {} : { routing: def.routing }),
+    ...(def.effects === undefined ? {} : { effects: def.effects }),
     payload: {
       instructions: def.instructions,
       ...(def.model === undefined ? {} : { model: def.model }),

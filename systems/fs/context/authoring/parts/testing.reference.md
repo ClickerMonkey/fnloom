@@ -47,6 +47,8 @@ class FakeHub {
   readonly models: ModelForward[];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
   readonly pairingInfos: PairingInfo[];
+  /** What the system told the admins (`ctx.notifyAdmins`), in order. */
+  readonly notices: AdminNotice[];
   /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
   readonly proposals: Array<HubBody<'propose'> & ProposedRun>;
   /** What systems asked the decision model (`decide`). */
@@ -128,7 +130,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -208,7 +210,7 @@ didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` ove
 Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
 
 ```ts
-const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource;
+const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices;
 ```
 
 #### `HubBody`
@@ -451,6 +453,17 @@ every `imports` cycle. `label` names files in problems (default `context`).
 
 ```ts
 function checkContextFolder(dir: string, known: KnownNames, label?: string): Promise<CheckedContext>;
+```
+
+#### `contextFolderLinks`
+
+function · `import { contextFolderLinks } from '@harness/sdk/server'`
+
+Every fn and context a context folder links to (header and body, not fenced code), each name once, so a build can ask
+a hub's catalog about exactly those names instead of loading the catalog.
+
+```ts
+function contextFolderLinks(dir: string): Promise<{ fns: string[]; context: string[]; }>;
 ```
 
 #### `CheckedContext`

@@ -20,7 +20,7 @@ import type { ToolCompatible } from '@aeye/core';
 import { env } from '@ayepi/env';
 import { z } from 'zod';
 import { g, type Infer } from './gin.ts';
-import type { HarnessAi } from './server/llm.ts';
+import { HUB_MODEL, type HarnessAi } from './server/llm.ts';
 
 /** The authoring agents' tunables. */
 export const authoringEnv = env({
@@ -386,7 +386,9 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
         dynamic: true,
         toolIterations: rounds,
         toolExecution: 'sequential',
-        ...(def.model === undefined ? {} : { metadata: { model: def.model } }),
+        // no model named: the hub picks (its stand-in has every capability), never aeye among the hub's whole list,
+        // whose free entries may not all say they take tools
+        metadata: { model: def.model ?? HUB_MODEL },
         validate: () => {
           if (session.going) {
             throw new Error(`Nothing is saved yet: you are in the ${session.stage} stage. ${STAGE_GUIDE[session.stage]}`);

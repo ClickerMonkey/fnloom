@@ -3,14 +3,15 @@
  * chunks, `content` read back in chunks), session state (`stateGet`, `stateSet`, only the fields the owner
  * declared), settings (`setting`, the value for the run's user) and attachments (`attach`, onto the run's
  * assistant message, the data checked against the attachment's type first), and named types (`types`, a set of
- * qualified type names and every type they reference, so a system can load what another system declared).
+ * qualified type names and every type they reference, so a system can load what another system declared), and a word
+ * to the admins (`notifyAdmins`).
  *
  * Everything runs behind `linkSession` (bound by the link plugin), so `link` is the system asking.
  */
 import { reject as refuse, spec } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  hubLinkSpec, type ActorId, type AttachmentDecl, type ContentRef, type Json, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
+  hubLinkSpec, type ActorId, type AdminNotice, type AttachmentDecl, type ContentRef, type Json, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import type { ContentStore } from '../api/index.ts';
@@ -18,6 +19,7 @@ import { typeDefinitions } from '../catalog/definitions.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { AttachedPart, StateService } from '../chat/index.ts';
 import type { LinkHandler } from '../execution/link-handlers.ts';
+import type { EventBus } from '../bus.ts';
 import type { HubStore } from '../store/index.ts';
 import { askingOf } from './reads.ts';
 
@@ -27,7 +29,7 @@ const endpoints = hubLinkSpec.endpoints;
 export const SERVICES_SPEC = spec({
   endpoints: {
     upload: endpoints.upload, content: endpoints.content, stateGet: endpoints.stateGet, stateSet: endpoints.stateSet,
-    setting: endpoints.setting, attach: endpoints.attach, types: endpoints.types,
+    setting: endpoints.setting, attach: endpoints.attach, types: endpoints.types, notifyAdmins: endpoints.notifyAdmins,
   },
 });
 
@@ -65,6 +67,8 @@ export interface LinkServiceDeps {
   readonly clock: () => number;
   /** Build 6: what an actor may see, so `types` answers only the types the run's person (or the system) may see. */
   readonly access?: (actor: ActorId) => Promise<Pick<AccessScope, 'seesType'>>;
+  /** Build 7: where a system's word to the admins goes (`notifyAdmins`; the notifications service turns it into inbox items). */
+  readonly bus: () => Pick<EventBus, 'publish'>;
 }
 
 /** An upload being received. */
@@ -177,6 +181,11 @@ export class LinkServices {
     await this.#deps.turns().attach(run.id, { type: 'attachment', attachment, data, title });
   }
 
+  /** Pass a system's word on to the admins: each gets an inbox item linking to the system's page. */
+  notifyAdmins(link: LinkSession, notice: AdminNotice): void {
+    this.#deps.bus().publish('system.notice', { system: link.system, title: notice.title, body: notice.body });
+  }
+
   /**
    * Named type definitions and every named type they reference, dependencies first, with the names not found. A type
    * the run's person (the system itself without a run) may not see is answered as not found.
@@ -226,6 +235,7 @@ export function linkServiceHandlers(services: LinkServices): { [K in ServiceEndp
     setting: ({ data, link }) => services.setting(link, data),
     attach: ({ data, link }) => services.attach(link, data),
     types: ({ data, link }) => services.types(link, data.names, data.run),
+    notifyAdmins: ({ data, link }) => { services.notifyAdmins(link, data); return Promise.resolve(); },
   };
 }
 

@@ -151,7 +151,7 @@ export {
   CONTEXT_FOLDER, ContextFolderError, contextChange, contextProblem, formatContextProblem, parseContextFile, positionOf, readContextFolder, watchContextFolder, type ContextWatchOptions,
   type ContextFile, type ContextFolder, type ContextWatchEvents,
 } from './context-files.ts';
-export { checkContextFolder, type CheckedContext, type KnownNames } from './context-check.ts';
+export { checkContextFolder, contextFolderLinks, type CheckedContext, type KnownNames } from './context-check.ts';
 export { LinkHost, SystemStopped, loggedHost, type LinkHostDeps, type LoggedHost } from './host.ts';
 export { placeFolders, RESTART_CODE, sdkEnv, SYSTEM_ENV, systemFields, systemState, defaultStateFolder, type SdkEnv } from './env.ts';
 export { contentHash, contentHasher, type ContentHasher } from './content.ts';

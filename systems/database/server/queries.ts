@@ -7,6 +7,7 @@
  */
 import { CallFailed, SAVE_FN_TAKEN, type Log, type ResultBlock } from '@harness/sdk';
 import { Json, qualify, type InstanceName, type ApprovalPreview, type FnExample, type ProposedRun, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
+import { resultBlock } from '@harness/sdk/server';
 import { QUERY_KIND, database } from '../shared/index.ts';
 import { QueryPayload, SortArg, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
 import { argProblems, argsTypeOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
@@ -21,7 +22,7 @@ export interface DraftTrial {
 export type ReadCtx = Pick<QueryRunCtx, 'attach'> & { readonly watched: boolean | undefined };
 import type { DatabaseSettings } from './env.ts';
 import type { DatabaseInstance } from './instance.ts';
-import { modelBlock, resultTable } from './results.ts';
+import { resultTable } from './results.ts';
 
 /** A saved fn as `hub/fn_get` gives it (the parts a query needs). */
 export interface StoredQuery {
@@ -219,14 +220,14 @@ export class QueryService {
         approval: { run: proposed.run, state: 'waiting', says: `${preview.title}: this waits for the person to approve it in the chat. Tell them what it will do and end your turn; once approved it runs and its result shows, and if they decline you are told why.` },
       };
     }
-    return { ...base, result: await this.read(instance, compiled, plan, called, callOf(values, sort), { attach: ctx.attach, watched: ctx.run.watched }) };
+    return { ...base, result: await this.read(instance, compiled, plan, called, callOf(values, sort), { attach: (table, title) => { ctx.attach(table, title); }, watched: ctx.run.watched }) };
   }
 
   /** Read rows for a call: attach them for the person, and give the model its result block (`args` as called, sort too, for the next page's call). */
   async read(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, args: Readonly<Record<string, Json>>, ctx: ReadCtx): Promise<ResultBlock> {
     const table = resultTable(await instance.read(plan), compiled.columns, plan);
     ctx.attach(table, fn.name);
-    return modelBlock(table, { fn, args }, ctx.watched);
+    return resultBlock(table, { fn, args, watched: ctx.watched === true });
   }
 
   /**
@@ -254,7 +255,7 @@ export class QueryService {
     if (written.columns.length === 0) { return { shown, affected: written.affected }; }
     const table = resultTable(written, compiled.columns, { offset: 0, limit: undefined, sort: [], cap: this.#settings.DATABASE_MAX_ROWS });
     ctx.attach(table, fn.name);
-    return { shown, affected: written.affected, returned: modelBlock(table, { fn }, ctx.watched) };
+    return { shown, affected: written.affected, returned: resultBlock(table, { fn, watched: ctx.watched === true }) };
   }
 
   /** What a write would do: its SQL, how many rows (from a rolled-back run), and the rows it matches now. */

@@ -91,6 +91,8 @@ describe('the policy engine', () => {
     expect(asked).toMatchObject({ effect: 'ask', approval: { run: RUN, fn: 'fs/write', status: 'pending', approver: { by: 'turn-user' } } });
     expect(bus.of('approval')[0]).toMatchObject({ approvers: [ALICE], session: SESSION });
     expect(await policies.decide({ ...ask, fn: write.name, caller: ALICE })).toEqual({ effect: 'allow' });
+    // a system forwarding to its own fn from a run that declares at least that mode was decided with that run
+    expect(await policies.decide({ ...ask, fn: write.name, withinParent: true })).toEqual({ effect: 'allow' });
     expect(await policies.decide({ ...ask, fn: 'fs/none' })).toMatchObject({ effect: 'deny' });
   });
 

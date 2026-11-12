@@ -7,9 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatContextProblem } from '@harness/sdk/server';
-import type { Manifest } from '@harness/core';
-import type { ContractSummary, SystemBuilder } from './builder.ts';
-import { buildSystem } from './build-system.ts';
+import { QualifiedName, SystemName, type Manifest } from '@harness/core';
+import { contractHash, fn, g, manifestOf, system } from '@harness/sdk';
+import { summaryOfManifest, type ContractSummary, type SystemBuilder } from './builder.ts';
+import { BuiltContract, CONTRACT_FILE, buildSystem, type CatalogLookup, type KnownToBuild } from './build-system.ts';
 import { checkContextFolder } from './context.ts';
 import { NodeFiles } from './files.ts';
 import { scanBundle } from './scan.ts';
@@ -75,13 +76,19 @@ describe('checkContextFolder', () => {
   });
 });
 
-/** A builder that writes stand-in output and declares one contract. */
+/** The notes contract the stand-in builder reads: one fn, `add`. */
+const notes = system('notes', { description: 'Notes.' }).with({ fns: { add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() }) } });
+
+/** A builder that writes stand-in output and declares the notes contract, requiring and depending on what it is given. */
 class StandInBuilder implements SystemBuilder {
-  readonly #summary: ContractSummary;
-  constructor(summary: ContractSummary) { this.#summary = summary; }
+  readonly #summary: { readonly requires: readonly SystemName[]; readonly references: readonly QualifiedName[] };
+  constructor(summary: { readonly requires: readonly SystemName[]; readonly references: readonly QualifiedName[] }) { this.#summary = summary; }
   typecheck(): Promise<string[]> { return Promise.resolve([]); }
-  contracts(): Promise<ContractSummary[]> { return Promise.resolve([this.#summary]); }
-  manifests(): Promise<Manifest[]> { return Promise.resolve([]); }
+  async contracts(): Promise<ContractSummary[]> { return (await this.manifests()).map(summaryOfManifest); }
+  async manifests(): Promise<Manifest[]> {
+    const base = await manifestOf(notes, { version: '0.1.0' });
+    return [{ ...base, requires: [...this.#summary.requires], fns: base.fns.map((decl) => ({ ...decl, deps: [...this.#summary.references] })) }];
+  }
   async bundleServer(input: { outDir: string; fileName: string }): Promise<void> {
     await new NodeFiles().write(join(input.outDir, input.fileName), "import 'node:child_process';\nexport {};\n");
   }
@@ -90,7 +97,7 @@ class StandInBuilder implements SystemBuilder {
 
 describe('buildSystem', () => {
   const systemJson = JSON.stringify({ format: 1, name: 'notes', version: '0.1.0', description: 'Notes.', protocol: 1, server: { entry: 'server/main.ts', external: {} } });
-  const builder = new StandInBuilder({ name: 'notes', fns: ['notes/add'], context: [], requires: [], references: [] });
+  const builder = new StandInBuilder({ requires: [], references: [] });
 
   it('refuses a context folder with problems, as file:line:col lines', async () => {
     const dir = await folder({ 'system.json': systemJson, 'context/a.md': header('key: a\ndescription: A.\nsummary: A.\nfns: [notes/gone]') });
@@ -101,17 +108,31 @@ describe('buildSystem', () => {
   it('lets a system that requires the hub link the hub fns and the fns it depends on, without a hub catalog', async () => {
     const links = header('key: a\ndescription: A.\nsummary: A.\nfns: [hub/fns_search, todo/list]');
     const dir = await folder({ 'system.json': systemJson, 'context/a.md': links });
-    const requiring = new StandInBuilder({ name: 'notes', fns: ['notes/add'], context: [], requires: ['hub', 'todo'], references: ['todo/list'] });
+    const requiring = new StandInBuilder({ requires: [SystemName.parse('hub'), SystemName.parse('todo')], references: [QualifiedName.parse('todo/list')] });
     expect(await buildSystem(dir, { builder: requiring, files: new NodeFiles() }, { typecheck: false })).toMatchObject({ ok: true });
     expect(await buildSystem(dir, { builder, files: new NodeFiles() }, { typecheck: false })).toMatchObject({ ok: false, stage: 'context' });
   });
 
-  it('builds, copies the context folder into dist and scans the bundle', async () => {
+  it('asks the hub catalog only about the names the folder links to beyond its own and what it requires', async () => {
+    const links = header('key: a\ndescription: A.\nsummary: A.\nfns: [notes/add, todo/list, todo/gone]\nimports: [todo/guide]', 'See fn:todo/list.\n```\nfn:other/example\n```');
+    const dir = await folder({ 'system.json': systemJson, 'context/a.md': links });
+    const asked: KnownToBuild[] = [];
+    const catalog: CatalogLookup = { existing: (names) => { asked.push(names); return Promise.resolve({ fns: names.fns.filter((n) => n === 'todo/list'), context: names.context }); } };
+    const result = await buildSystem(dir, { builder, files: new NodeFiles() }, { typecheck: false, catalog });
+    expect(asked).toEqual([{ fns: ['todo/list', 'todo/gone'], context: ['todo/guide'] }]);
+    expect(result).toMatchObject({ ok: false, stage: 'context', problems: [expect.stringContaining('todo/gone')] });
+  });
+
+  it('builds, copies the context folder into dist, writes the contract and its hash, and scans the bundle', async () => {
     const dir = await folder({ 'system.json': systemJson, 'context/a.md': header('key: a\ndescription: A.\nsummary: A.\nfns: [notes/add]') });
     const result = await buildSystem(dir, { builder, files: new NodeFiles() });
     if (!result.ok) { throw new Error(result.problems.join('\n')); }
     expect(result.scan.builtins).toEqual(['child_process']);
     expect(await readFile(join(dir, 'dist', 'context', 'a.md'), 'utf8')).toContain('key: a');
     expect(JSON.parse(await readFile(join(dir, 'dist', 'system.json'), 'utf8'))).toMatchObject({ name: 'notes', server: { entry: 'server/main.js' } });
+    const written = BuiltContract.parse(JSON.parse(await readFile(join(dir, 'dist', CONTRACT_FILE), 'utf8')));
+    expect(written).toEqual(result.contract);
+    expect(written.hash).toBe(await contractHash(written.manifest));
+    expect(written.manifest.fns.map((decl) => decl.name)).toEqual(['add']);
   });
 });

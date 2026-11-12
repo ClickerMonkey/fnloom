@@ -3,11 +3,13 @@
  * `.harness-test` and the temp folder) with a scrubbed environment, its last line read as the report; a folder with no
  * tests gives none, and a child that printed no report refuses the install with its output.
  */
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SystemTestReport } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { InstallRefused } from './hosting.ts';
-import { ProcessSystemTests, type ChildRun, type ChildRunner } from './tests.ts';
+import { ProcessSystemTests, readRoots, type ChildRun, type ChildRunner } from './tests.ts';
 
 const REPORT = SystemTestReport.parse({ system: 'notes', version: '0.1.0', ranAt: 1_000, duration: 20, passed: 1, failed: 0, skipped: 0, cases: [{ file: 'server/link.test.ts', name: 'works', status: 'passed', duration: 3 }] });
 
@@ -29,6 +31,22 @@ describe('the install tests in a sandboxed child', () => {
     expect(call?.args).toEqual(expect.arrayContaining(['--permission', `--allow-fs-write=${join('systems/notes', '.harness-test')}`, '--allow-fs-write=/tmp', '--import', 'tsx', 'systems/notes']));
     expect(call?.args.filter((arg) => arg.startsWith('--allow-fs-write'))).toHaveLength(2);
     expect(call?.env).not.toHaveProperty('OPENROUTER_API_KEY');
+    expect(call?.args).not.toContain('--allow-fs-read=*');
+    expect(call?.args).toContain('--allow-fs-read=systems/notes');
+  });
+
+  it('lets the tests read the install code and linked library repos, never their data folders', () => {
+    const top = realpathSync(mkdtempSync(join(tmpdir(), 'harness-roots-')));
+    try {
+      const root = join(top, 'harness');
+      const lib = join(top, 'aits');
+      for (const dir of [join(root, 'node_modules', '@aeye'), join(root, 'packages'), join(root, 'systems'), join(root, '.harness'), join(lib, 'packages', 'ai'), join(lib, 'node_modules'), join(lib, '.secrets')]) { mkdirSync(dir, { recursive: true }); }
+      writeFileSync(join(root, 'package.json'), '{}');
+      symlinkSync(join(lib, 'packages', 'ai'), join(root, 'node_modules', '@aeye', 'ai'), 'junction');
+      expect(readRoots(root)).toEqual([join(lib, 'node_modules'), join(lib, 'packages'), join(root, 'node_modules'), join(root, 'package.json'), join(root, 'packages'), join(root, 'systems')].sort());
+    } finally {
+      rmSync(top, { recursive: true, force: true });
+    }
   });
 
   it('gives no report for a folder with no tests, and refuses when the child printed none', async () => {

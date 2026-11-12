@@ -162,6 +162,12 @@ describe('result blocks', () => {
     expect(block).toMatchObject({ rowCount: 30, total: 95, truncated: true, sort: [{ column: 'total', dir: 'desc' }], fn: fnInfo });
   });
 
+  it('words the block headless when nobody is watching: no one sees the rows, so the model answers from the sample', () => {
+    const headless = resultBlock({ ...table, rows: [['Ada', 1], ['Bo', 2]], total: 2, truncated: false }, { fn: fnInfo, watched: false });
+    expect(headless.shown).toBe('2 rows were read. Nobody is watching this run, so no one sees them: answer from the sample.');
+    expect(headless.shown).not.toContain('shown to the person');
+  });
+
   it('says plainly when nothing matched, and gives every row when they fit', () => {
     expect(resultBlock({ ...table, rows: [], total: 0, truncated: false }, { fn: fnInfo, budget: 100, cellChars: 40 }).shown).toMatch(/^No rows matched/);
     const small = resultBlock({ ...table, rows: [['Ada', 1]], total: 1, truncated: false }, { fn: fnInfo });

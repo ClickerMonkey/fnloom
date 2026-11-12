@@ -90,6 +90,7 @@ function services(options: FakeOptions, recorded: Recorded) {
     ...TEST_PLACE,
     llm: new HubLlm({ hub: unreachable }),
     ai: unused('ai'),
+    notifyAdmins: unused('notifyAdmins'),
     files: { read: unused('files'), readText: unused('files'), write: unused('files'), list: unused('files'), remove: unused('files'), share: unused('files') },
     fetch: unused('fetch'),
     resources: { stat: unused('resources'), text: unused('resources'), links: unused('resources'), sections: unused('resources'), search: unused('resources') },

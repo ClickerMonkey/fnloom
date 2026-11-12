@@ -2,11 +2,9 @@
  * Rows read by a query as the `ResultTable` the person is shown (the `result` attachment): the query's columns, the
  * engine's `$total` taken out as the table's total, and whether more rows exist past the page. No table holds more than
  * the plan's cap (`DATABASE_MAX_ROWS`); rows past it are cut and the table says it is truncated. The model's view of it
- * is the SDK's `resultBlock`, worded for whether a person is watching (`modelBlock`).
+ * is the SDK's `resultBlock`, worded for whether a person is watching.
  */
 import type { Json, ResultColumn, ResultTable } from '@harness/core';
-import type { ResultBlock } from '@harness/sdk';
-import { resultBlock, type ResultBlockOptions } from '@harness/sdk/server';
 import type { CallPlan } from './compile.ts';
 import type { Rows } from './drivers/index.ts';
 
@@ -39,21 +37,3 @@ export function resultTable(read: Rows, columns: readonly ResultColumn[], plan: 
   };
 }
 
-/**
- * The model's view of rows read: the SDK's result block when a person is watching (the rows are shown to them), else
- * the same block worded headless. With nobody watching (a nested agent, an MCP call, a background run) the rows are
- * kept with the run but shown to no one, so the model is told to use the sample itself.
- */
-export function modelBlock(table: ResultTable, options: ResultBlockOptions, watched: boolean | undefined): ResultBlock {
-  const block = resultBlock(table, options);
-  if (watched === true) { return block; }
-  const { sampleNote: _shownNote, ...rest } = block;
-  const counted = block.total !== undefined && block.total > block.rowCount ? ` (of ${block.total})` : '';
-  const more = block.nextPage === undefined ? '' : ` There are more rows: ${block.nextPage.call} reads the next ${block.nextPage.limit}.`;
-  const shown = block.rowCount === 0
-    ? 'No rows matched. Nobody is watching this run, so say so in your answer.'
-    : `${block.rowCount === 1 ? 'One row was' : `${block.rowCount} rows${counted} were`} read. Nobody is watching this run, so no one sees them: answer from the sample.${more}`;
-  return block.sample.length < block.rowCount
-    ? { ...rest, shown, sampleNote: `The sample holds the first ${block.sample.length} of the ${block.rowCount} rows read.` }
-    : { ...rest, shown };
-}

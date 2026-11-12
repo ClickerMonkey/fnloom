@@ -14,13 +14,13 @@ import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
-  type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo,
+  type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type ResourceRead, type RunControl, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
-import type { AiSource, Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
+import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
 import { fakeHubAi, streamOf } from './fake-models.ts';
 import { FakeHubFns } from './fake-hub-fns.ts';
 import { contentHash } from './content.ts';
@@ -47,13 +47,14 @@ export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.har
  * didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
  * Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
  */
-export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource = {
+export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices = {
   ai: () => fakeHubAi(),
   propose: () => Promise.reject(new Error('This test context proposes no runs; serve against FakeHub to record them.')),
   decide: () => Promise.resolve({ by: 'off' }),
   fleet: () => Promise.resolve([]),
   searchFns: () => Promise.resolve({ items: [] }),
   fnExamples: (query) => Promise.resolve({ fn: query.fn, items: [], total: 0 }),
+  notifyAdmins: () => Promise.resolve(),
 };
 
 /** The person fake runs are for. */
@@ -231,6 +232,8 @@ export class FakeHub {
   readonly models: ModelForward[] = [];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
   readonly pairingInfos: PairingInfo[] = [];
+  /** What the system told the admins (`ctx.notifyAdmins`), in order. */
+  readonly notices: AdminNotice[] = [];
   /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
   readonly proposals: Array<HubBody<'propose'> & ProposedRun> = [];
   /** What systems asked the decision model (`decide`). */
@@ -612,6 +615,7 @@ export class FakeHub {
           return this.onModel(data);
         },
         pairingInfo: ({ data }) => { this.pairingInfos.push(data); },
+        notifyAdmins: ({ data }) => { this.notices.push(data); },
       });
   }
 }

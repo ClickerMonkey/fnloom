@@ -11,7 +11,7 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  compact, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  compact, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
   type ApprovalPreview, type Approver, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
@@ -279,6 +279,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(preview === undefined ? {} : { preview }),
       ...(mode.effect === 'ask' ? { ask: { by: 'turn-user' } } : {}),
       ...(mode.effect === 'allow' ? { autoAllowed: true } : {}),
+      ...(await this.#withinParent(fn, parent) ? { withinParent: true } : {}),
       // a per-person fn its person keeps on 'ask first' waits for the connection's owner
       ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
     });
@@ -296,6 +297,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   /** What the run's chat's fn mode says about it: only calls an agent makes in a session are checked. */
+  /** Whether a run of the fn's own system calls it, and that run's fn declares at least the fn's mode (`withinParent`). */
+  async #withinParent(fn: FnRecord, parent: Run | undefined): Promise<boolean> {
+    if (parent === undefined || parent.system !== fn.system || fn.system === HUB_SYSTEM) return false;
+    const mode = fn.decl.effects?.mode;
+    const parentMode = (await this.#deps.catalog.fn(parent.fn))?.decl.effects?.mode;
+    return mode !== undefined && parentMode !== undefined && FN_MODES.indexOf(parentMode) >= FN_MODES.indexOf(mode);
+  }
+
   async #mode(run: Run, fn: FnRecord, parent: Run | undefined): Promise<ModeVerdict> {
     if (this.#gate === undefined || parent?.kind !== AGENT_KIND || run.session === undefined) return { effect: 'pass' };
     const session = await this.#deps.store.table('sessions').get(run.session);

@@ -2649,7 +2649,7 @@ type NextPage = {
 
 function · `import { resultBlock } from '@harness/sdk/server'`
 
-The result block for rows shown to the person.
+The result block for rows read: shown to the person when someone is watching, else worded headless.
 
 ```ts
 function resultBlock(table: ResultTable, options: ResultBlockOptions): ResultBlock;
@@ -2675,6 +2675,8 @@ interface ResultBlockOptions {
   readonly budget?: number;
   /** The most characters of one text cell in the sample. Default: `HARNESS_RESULT_CELL_CHARS`. */
   readonly cellChars?: number;
+  /** Whether a person is watching the run (`RunInfo.watched === true`), so the rows are shown to them. Default true. */
+  readonly watched?: boolean;
 }
 ```
 
@@ -3202,10 +3204,14 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   validate?: FnValidators<NoInfer<A>, NoInfer<R>, {}>;
   /** What its runs say they are doing; the hub's agent words when absent. Tokens are checked against `args` and `returns`. */
   status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
+  /** For a fleet: always one instance, or whichever is first available (get_query routed to the database it serves). */
+  routing?: FnRouting;
+  /** What it does to data and the registry: its mode, the types it reads and writes, and the fns it creates (`FnFacts`). */
+  effects?: FnEffects;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`ModelChoice`](#core-modelchoice).
+Refers to: [`Audience`](#core-audience), [`FnEffects`](#core-fneffects), [`FnRouting`](#core-fnrouting), [`ModelChoice`](#core-modelchoice).
 
 #### `AgentFnTypes`
 
@@ -6974,7 +6980,7 @@ interface · `import { Services } from '@harness/sdk'`
 What every run, undo and action gets from the hub.
 
 ```ts
-interface Services extends SystemPlace, AiSource {
+interface Services extends SystemPlace, AiSource, AdminNotices {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
@@ -7001,7 +7007,7 @@ Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
 interface · `import { SystemCtx } from '@harness/sdk'`
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource {
+interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -7351,6 +7357,21 @@ interface AiSource {
   ai(): Promise<HarnessAi>;
 }
 ```
+
+#### `AdminNotices`
+
+interface · `import { AdminNotices } from '@harness/sdk'`
+
+Telling the hub's admins something that needs a person, e.g. a hosted system disabled after too many crashes.
+
+```ts
+interface AdminNotices {
+  /** Each admin gets an inbox item (title and plain-words body) that links to this system's page. */
+  notifyAdmins(notice: AdminNotice): Promise<void>;
+}
+```
+
+Refers to: [`AdminNotice`](#core-adminnotice).
 
 #### `hubAi`
 
@@ -8831,7 +8852,7 @@ Every command, read from the CLI itself:
 | Command | What it does |
 |---|---|
 | `harness system new <name> [--dir <parent folder>] [--from <template folder>]` | Make a system folder from the template, with its name filled in. |
-| `harness system build [dir] [--skip-typecheck]` | Typecheck a system, check its name and context, and bundle its server and client into dist/. |
+| `harness system build [dir] [--skip-typecheck] [--hub <url>] [--token <token>]` | Typecheck a system, check its name and context, and bundle its server and client into dist/. |
 | `harness test [dir] [--previews] [--json] [--filter <text>]` | Run a system's own tests (the SDK test kit); --previews also shoots its components into a gallery. |
 | `harness system pack [dir] [--out <file>] [--skip-typecheck]` | Build if needed, then zip dist/ with every file hashed into a package the hub installs. |
 | `harness system install <zip \| folder \| npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>] [--no-start] [--wait <ms>]` | Install a package zip, a folder or an npm package on a hub, which pairs, configures and starts it. |
@@ -9162,6 +9183,8 @@ class FakeHub {
   readonly models: ModelForward[];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
   readonly pairingInfos: PairingInfo[];
+  /** What the system told the admins (`ctx.notifyAdmins`), in order. */
+  readonly notices: AdminNotice[];
   /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
   readonly proposals: Array<HubBody<'propose'> & ProposedRun>;
   /** What systems asked the decision model (`decide`). */
@@ -9243,7 +9266,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -9323,7 +9346,7 @@ didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` ove
 Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
 
 ```ts
-const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource;
+const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices;
 ```
 
 #### `HubBody`
@@ -9566,6 +9589,17 @@ every `imports` cycle. `label` names files in problems (default `context`).
 
 ```ts
 function checkContextFolder(dir: string, known: KnownNames, label?: string): Promise<CheckedContext>;
+```
+
+#### `contextFolderLinks`
+
+function · `import { contextFolderLinks } from '@harness/sdk/server'`
+
+Every fn and context a context folder links to (header and body, not fenced code), each name once, so a build can ask
+a hub's catalog about exactly those names instead of loading the catalog.
+
+```ts
+function contextFolderLinks(dir: string): Promise<{ fns: string[]; context: string[]; }>;
 ```
 
 #### `CheckedContext`
@@ -12104,6 +12138,7 @@ export const fs = system('fs', {
     fns: {
       explore: agent({
         description: 'Answers questions about the code by reading it.',
+        effects: { mode: 'read' },
         usage: 'Use it for a question that needs several files read (how a feature works, where something is decided) so your own context stays small. Ask one clear question; the answer quotes paths and lines.',
         args: g.obj({ question: g.text() }),
         returns: g.text(),
@@ -13353,6 +13388,19 @@ What kind of thing an actor is.
 
 ```ts
 type ActorKind = "mcp" | "system" | "user" | "group" | "agent";
+```
+
+#### <a id="core-adminnotice"></a>`AdminNotice`
+
+const, type · declared in `packages/core/src/link.ts`
+
+What a system tells its hub's admins (`notifyAdmins`): a short title and a plain-words body.
+
+```ts
+type AdminNotice = {
+  title: string;
+  body: string;
+};
 ```
 
 #### <a id="core-allowedoperations"></a>`AllowedOperations`

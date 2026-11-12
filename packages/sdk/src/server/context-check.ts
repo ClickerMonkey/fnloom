@@ -79,6 +79,17 @@ function bodyLinks(file: ContextFile): Array<FileLink & { line: number; column: 
 }
 
 /**
+ * Every fn and context a context folder links to (header and body, not fenced code), each name once, so a build can ask
+ * a hub's catalog about exactly those names instead of loading the catalog.
+ */
+export async function contextFolderLinks(dir: string): Promise<{ fns: string[]; context: string[] }> {
+  const read = await readContextFolder(dir);
+  const links = read.files.flatMap((file) => [...headerLinks(file), ...bodyLinks(file)]);
+  const named = (kind: FileLink['kind']) => [...new Set(links.filter((link) => link.kind === kind).map((link) => link.to))];
+  return { fns: named('fn'), context: named('context') };
+}
+
+/**
  * Check a system's context folder (`dir`, usually `<system>/context`): the SDK reader's checks, then every link and
  * every `imports` cycle. `label` names files in problems (default `context`).
  */

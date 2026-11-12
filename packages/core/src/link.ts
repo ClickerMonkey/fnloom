@@ -193,6 +193,10 @@ export type StopReason = z.infer<typeof StopReason>;
 
 // ─── What a system calls on the hub ──────────────────────────────────────────
 
+/** What a system tells its hub's admins (`notifyAdmins`): a short title and a plain-words body. */
+export const AdminNotice = z.object({ title: z.string().min(1).max(120), body: z.string().max(2000) });
+export type AdminNotice = z.infer<typeof AdminNotice>;
+
 const linked = use(linkTel, linkSession).group({
   manifest: { body: Manifest, response: ImportReport, ws: 'mf' },
   patch: { body: ManifestPatch, response: ImportReport, ws: 'mp' },
@@ -302,6 +306,11 @@ const linked = use(linkTel, linkSession).group({
    * equal `subject`.
    */
   grantPairing: { body: PairingGrantRequest, response: PairingGrant, ws: 'gp' },
+  /**
+   * Build 7: tell the hub's admins something about this system that needs a person (`ctx.notifyAdmins`), e.g. a hosted
+   * system disabled after too many crashes. Each admin gets an inbox item that links to the system's page.
+   */
+  notifyAdmins: { body: AdminNotice, ws: 'na' },
 });
 
 /** What a system calls on the hub. */

@@ -209,7 +209,7 @@ describe('test', () => {
 });
 
 describe('system pack', () => {
-  it('builds a stale folder, then zips dist/ with every file hashed', async () => {
+  it('builds a stale folder, then zips dist/ (its contract.json too) with every file hashed', async () => {
     const io = testIo();
     notesFolder(io);
     expect(await isStale(io.files, NOTES)).toBe(true);
@@ -217,8 +217,8 @@ describe('system pack', () => {
     const out = join(NOTES, 'notes-1.2.0.zip');
     const checked = readPackage(unzip(await io.files.read(out), 1e6));
     expect(checked.manifest).toMatchObject({ name: 'notes', version: '1.2.0', server: { entry: 'server/main.js' } });
-    expect(checked.files.map((f) => f.path)).toEqual(['client/index.js', 'server/main.js']);
-    expect(io.lines.at(-1)).toContain('packed notes 1.2.0: 2 files');
+    expect(checked.files.map((f) => f.path)).toEqual(['client/index.js', 'contract.json', 'server/main.js']);
+    expect(io.lines.at(-1)).toContain('packed notes 1.2.0: 3 files');
 
     // a fresh dist/ packs again without building, to the same bytes
     io.built.calls.length = 0;

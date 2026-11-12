@@ -36,6 +36,10 @@ describe('picking a database', () => {
     expect(await pickDatabase(input('x', { by: 'off' }, { asked: 'nope' }).input, limits)).toHaveProperty('invalid', expect.stringContaining('main (Shop), billing (Billing)'));
     const only = input('anything', { by: 'off' }, { members: [shop] });
     expect(await pickDatabase(only.input, limits)).toMatchObject({ database: 'main', by: 'only' });
+    const inText = input('In the billing database: unpaid invoices', { by: 'off' });
+    expect(await pickDatabase(inText.input, limits)).toMatchObject({ database: 'billing', by: 'asked' });
+    expect(inText.asked).toEqual([]);
+    expect(await pickDatabase(input('the Shop database or the Billing database', { by: 'off' }).input, limits)).toHaveProperty('ask');
     expect(named.asked).toEqual([]);
     expect(only.asked).toEqual([]);
     expect(await pickDatabase(input('x', { by: 'off' }, { members: [] }).input, limits)).toHaveProperty('invalid', expect.stringContaining('no database'));

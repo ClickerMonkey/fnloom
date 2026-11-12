@@ -6,10 +6,10 @@
 import { join, resolve, sep } from 'node:path';
 import { client } from '@ayepi/core/client';
 import type { CallReturn, ClientData } from '@ayepi/core';
-import { hubWebSpec, type SystemTestReport, type ContentRef, type HubWebSpec, type Manifest } from '@harness/core';
+import { hubWebSpec, Manifest, type SystemTestReport, type ContentRef, type HubWebSpec } from '@harness/core';
 import { sha256 } from '@harness/hub/package';
 import type { CliIo } from './command.ts';
-import type { ContractSummary, SystemBuilder, SystemTestRunner, TestRunOptions } from '@harness/build';
+import { summaryOfManifest, type ContractSummary, type SystemBuilder, type SystemTestRunner, type TestRunOptions } from '@harness/build';
 import type { CliFiles, FileStat } from './files.ts';
 import { linesOf } from './commands/mcp.ts';
 import { cliEnv, type HubSession } from './hub.ts';
@@ -89,14 +89,17 @@ export class FakeBuilder implements SystemBuilder {
     return Promise.resolve(this.problems);
   }
 
-  contracts(module: string): Promise<ContractSummary[]> {
-    this.calls.push(`contract ${module}`);
-    return Promise.resolve(this.names.map((name) => ({ name, fns: [], context: [], requires: [], references: [] })));
+  async contracts(module: string): Promise<ContractSummary[]> {
+    return (await this.manifests(module)).map(summaryOfManifest);
   }
 
+  /** An empty contract per name in `names`. */
   manifests(module: string): Promise<Manifest[]> {
-    this.calls.push(`manifests ${module}`);
-    return Promise.resolve([]);
+    this.calls.push(`contract ${module}`);
+    return Promise.resolve(this.names.map((name) => Manifest.parse({
+      name, version: '0.0.0', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [],
+      mentions: [], embedders: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [],
+    })));
   }
 
   bundleServer(input: { entry: string; outDir: string; fileName: string; external: readonly string[] }): Promise<void> {

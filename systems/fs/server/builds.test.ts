@@ -69,7 +69,7 @@ describe('HarnessBuilds', () => {
     expect(await builds.build(dir, join(dir, 'out'))).toEqual({ problems: ['server/main.ts:1:1 Broken.'] });
     builder.problems = [];
     builder.contractName = SystemName.parse('other');
-    await expect(builds.build(dir, join(dir, 'out2'))).rejects.toBeInstanceOf(InstallRefused);
+    expect(await builds.build(dir, join(dir, 'out2'))).toEqual({ problems: ['shared/index.ts exports "other", but system.json names "fs"'] });
     await expect(builds.build(await folder({ 'readme.md': 'x' }), join(dir, 'out3'))).rejects.toBeInstanceOf(InstallRefused);
   });
 

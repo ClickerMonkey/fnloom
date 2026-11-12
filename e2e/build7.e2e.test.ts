@@ -2,9 +2,12 @@
  * Build 7 on the real stack, API-level, with the projects/owners sample (the `work` database): a table's generated
  * fns are listed by group and made idempotently, then run; `get_query` with the free model writes and saves a query
  * fn over the sample; `get_input` draws a form; and the graph endpoint answers a system's nodes and edges, its
- * references into other systems greyed, and narrows them by filters.
+ * references into other systems greyed, and narrows them by filters; and `harness test` runs a system's own tests on
+ * the SDK test kit. (Installed-then-live and refusals are in `install.e2e.test.ts`.)
  */
-import { QualifiedName, SystemName, type Json, type SessionId } from '@harness/core';
+import { fileURLToPath } from 'node:url';
+import { nodeIo, runCli } from '@harness/cli';
+import { QualifiedName, SystemName, SystemTestReport, type Json, type SessionId } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SignedIn } from '../scripts/hub-client.ts';
 import { TableFnsGenerated, TableFnsList } from '../systems/database/shared/shapes.ts';
@@ -70,6 +73,18 @@ describe('authoring with the free model', () => {
     }, AUTHORING);
     expect(JSON.stringify(answer)).toMatch(/owner/i);
   }, AUTHORING + 10_000);
+});
+
+describe('harness test', () => {
+  it('runs a system folder’s tests on the SDK test kit and reports them as JSON', async () => {
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const lines: string[] = [];
+    const io = nodeIo(root, {});
+    const code = await runCli(['test', 'systems/template', '--json'], { ...io, out: { line: (text) => { lines.push(text); }, warn: () => undefined } });
+    const report = SystemTestReport.parse(JSON.parse(lines.at(-1) ?? 'null'));
+    expect({ code, system: report.system, failed: report.failed }).toEqual({ code: 0, system: 'template', failed: 0 });
+    expect(report.passed).toBeGreaterThan(0);
+  }, TURN);
 });
 
 describe('the graph', () => {

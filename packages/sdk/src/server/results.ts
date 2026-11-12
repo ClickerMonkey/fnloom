@@ -1,7 +1,9 @@
 /**
  * Building the model's result block (`ResultBlock`) from the rows the person is shown (`ResultTable`). The sample is
  * the first rows that fit a token budget (an estimate: four characters a token), with long text cut; the rest stays
- * with the person, and the block says so, with the exact call for the next page when there are more rows.
+ * with the person, and the block says so, with the exact call for the next page when there are more rows. With nobody
+ * watching (`RunInfo.watched` not true: a nested agent, an MCP call, a background run) the rows are kept with the run
+ * but shown to no one, so the block is worded headless and the model answers from the sample.
  */
 import type { Json, ResultTable } from '@harness/core';
 import type { NextPage, ResultBlock, ResultFn } from '../results.ts';
@@ -19,10 +21,27 @@ export interface ResultBlockOptions {
   readonly budget?: number;
   /** The most characters of one text cell in the sample. Default: `HARNESS_RESULT_CELL_CHARS`. */
   readonly cellChars?: number;
+  /** Whether a person is watching the run (`RunInfo.watched === true`), so the rows are shown to them. Default true. */
+  readonly watched?: boolean;
+}
+
+/** The result block for rows read: shown to the person when someone is watching, else worded headless. */
+export function resultBlock(table: ResultTable, options: ResultBlockOptions): ResultBlock {
+  const block = shownBlock(table, options);
+  if (options.watched ?? true) { return block; }
+  const { sampleNote: _shownNote, ...rest } = block;
+  const counted = block.total !== undefined && block.total > block.rowCount ? ` (of ${block.total})` : '';
+  const more = block.nextPage === undefined ? '' : ` There are more rows: ${block.nextPage.call} reads the next ${block.nextPage.limit}.`;
+  const shown = block.rowCount === 0
+    ? 'No rows matched. Nobody is watching this run, so say so in your answer.'
+    : `${block.rowCount === 1 ? 'One row was' : `${block.rowCount} rows${counted} were`} read. Nobody is watching this run, so no one sees them: answer from the sample.${more}`;
+  return block.sample.length < block.rowCount
+    ? { ...rest, shown, sampleNote: `The sample holds the first ${block.sample.length} of the ${block.rowCount} rows read.` }
+    : { ...rest, shown };
 }
 
 /** The result block for rows shown to the person. */
-export function resultBlock(table: ResultTable, options: ResultBlockOptions): ResultBlock {
+function shownBlock(table: ResultTable, options: ResultBlockOptions): ResultBlock {
   const tunables = options.budget === undefined || options.cellChars === undefined ? sdkEnv.parse() : undefined;
   const budget = options.budget ?? tunables?.HARNESS_RESULT_SAMPLE_TOKENS ?? 0;
   const cellChars = options.cellChars ?? tunables?.HARNESS_RESULT_CELL_CHARS ?? 0;

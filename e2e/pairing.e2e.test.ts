@@ -61,7 +61,8 @@ describe('QR pairing', () => {
     const [, id, shown] = await waitFor('the pairing link', () => Promise.resolve(PAIR_LINK.exec(printed) ?? undefined), { timeout: 120_000, every: 250 });
     pairing = PairingId.parse(id);
     code = shown ?? '';
-    // a QR code is drawn in block characters before the link
+    // the link is logged first; then a QR code is drawn in block characters, with the code in a banner
+    await waitFor('the QR code', () => Promise.resolve(/The request lasts until/.test(printed) ? true : undefined), { timeout: 30_000, every: 250 });
     expect(printed).toMatch(/[█▀▄]{6,}/);
     expect(printed).toContain(code);
   }, 150_000);

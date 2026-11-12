@@ -23,6 +23,7 @@ export const REASONS = {
   'system-disconnected': { icon: 'offline', tone: 'danger', label: 'Disconnected' },
   'spend-limit': { icon: 'warning', tone: 'danger', label: 'Spend limit' },
   'system-paused': { icon: 'pause', tone: 'danger', label: 'System paused' },
+  'system-notice': { icon: 'warning', tone: 'warn', label: 'System notice' },
 } as const satisfies Record<NotificationReason, ReasonLook>;
 
 /** How a notification looks: its reason's look, quietened once what it asked for has happened (`resolved`). */

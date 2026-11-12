@@ -42,6 +42,7 @@ async function services(overrides: Partial<LinkServiceDeps> = {}) {
   const state: Array<{ op: string; owner: unknown; input?: unknown }> = [];
   let now = 1_000;
   const types: Record<string, TypeRecord> = {};
+  const notices: unknown[] = [];
   const deps: LinkServiceDeps = {
     store: () => opened,
     content: () => content,
@@ -59,10 +60,11 @@ async function services(overrides: Partial<LinkServiceDeps> = {}) {
     maxUpload: 10,
     uploadTtl: 1_000,
     clock: () => now,
+    bus: () => ({ publish: (topic, event) => { notices.push({ topic, event }); } }),
     ...overrides,
   };
   await opened.table('runs').insert(makeRun({ id: RUN, fn: 'fs/bash', turn: IDS.turn.parse('trn_one'), actor: ADA }));
-  return { services: new LinkServices(deps), store: opened, content, attached, state, types, advance: (ms: number) => { now += ms; } };
+  return { services: new LinkServices(deps), store: opened, content, attached, state, types, notices, advance: (ms: number) => { now += ms; } };
 }
 
 describe('uploads in chunks', () => {
@@ -150,6 +152,12 @@ describe('state, settings and attachments for a system\'s own runs', () => {
 });
 
 describe('the link handlers', () => {
+  it('passes a word from a system to the admins as the asking system', async () => {
+    const { services: s, notices } = await services();
+    await linkServiceHandlers(s).notifyAdmins(linkPayload({ title: 'Disabled', body: 'It crashed five times.' }, FS));
+    expect(notices).toEqual([{ topic: 'system.notice', event: { system: FS.system, title: 'Disabled', body: 'It crashed five times.' } }]);
+  });
+
   it('hands each endpoint\'s body to its service as the asking system', async () => {
     const { services: s, state, attached, types, content } = await services();
     const handlers = linkServiceHandlers(s);

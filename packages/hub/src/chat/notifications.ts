@@ -138,6 +138,7 @@ export class StoreNotifications implements NotificationService {
       bus.subscribe('system.status', (e) => { this.#guard('system', this.#system(e.system, e.status)); }),
       bus.subscribe('budget.reached', (e) => { this.#guard('budget', this.#budget(e.budget, e.run, e.reason)); }),
       bus.subscribe('system.paused', (e) => { this.#guard('system', this.#paused(e.system, e.refusals)); }),
+      bus.subscribe('system.notice', (e) => { this.#guard('system', this.#admins((user) => this.notify({ user, reason: 'system-notice', title: `${e.system}: ${e.title}`, body: e.body, link: { system: e.system } }))); }),
       bus.subscribe('run.update', (e) => {
         if (e.update.type === 'status' && isSettled(e.update.status)) {
           this.#guard('run', this.#resolve(RUN_ITEMS, (link) => 'run' in link && link.run === e.run, RUN_END[e.update.status]));

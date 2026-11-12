@@ -44,6 +44,19 @@ What kind of thing an actor is.
 type ActorKind = "mcp" | "system" | "user" | "group" | "agent";
 ```
 
+#### <a id="core-adminnotice"></a>`AdminNotice`
+
+const, type · declared in `packages/core/src/link.ts`
+
+What a system tells its hub's admins (`notifyAdmins`): a short title and a plain-words body.
+
+```ts
+type AdminNotice = {
+  title: string;
+  body: string;
+};
+```
+
 #### <a id="core-allowedoperations"></a>`AllowedOperations`
 
 const, type · declared in `packages/core/src/run.ts`

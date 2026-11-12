@@ -70,6 +70,8 @@ export const NotificationReason = z.enum([
   'approval-needed', 'input-needed', 'config-needed', 'message', 'replied', 'turn-finished', 'turn-failed', 'pairing-requested', 'system-disconnected', 'spend-limit',
   /** Build 7: a system kept going past what it declared and was paused. */
   'system-paused',
+  /** Build 7: a system told the admins something (`notifyAdmins`). */
+  'system-notice',
 ]);
 export type NotificationReason = z.infer<typeof NotificationReason>;
 

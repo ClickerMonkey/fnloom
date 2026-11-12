@@ -105,7 +105,7 @@ type NextPage = {
 
 function · `import { resultBlock } from '@harness/sdk/server'`
 
-The result block for rows shown to the person.
+The result block for rows read: shown to the person when someone is watching, else worded headless.
 
 ```ts
 function resultBlock(table: ResultTable, options: ResultBlockOptions): ResultBlock;
@@ -131,6 +131,8 @@ interface ResultBlockOptions {
   readonly budget?: number;
   /** The most characters of one text cell in the sample. Default: `HARNESS_RESULT_CELL_CHARS`. */
   readonly cellChars?: number;
+  /** Whether a person is watching the run (`RunInfo.watched === true`), so the rows are shown to them. Default true. */
+  readonly watched?: boolean;
 }
 ```
 

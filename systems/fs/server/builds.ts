@@ -1,16 +1,15 @@
 /**
  * `SystemBuilds` over `@harness/build`: `buildSystem` typechecks the folder with its own `tsconfig.json`, checks the
  * contract's name and the context folder, bundles one self-contained server file into `dist/`, builds the client and
- * scans the bundle; this copies `dist/` into the version folder, hashes the bundle, works out the contract's manifest
- * (`SystemBuilder.manifests`: the contract runs only in a sandboxed child process, never in fs) and words the card's
- * lines from it. The source hash covers every source
+ * scans the bundle, and writes `dist/contract.json` (the contract's manifest and hash, read only in the builder's
+ * sandboxed child process, never in fs); this copies `dist/` into the version folder, hashes the bundle, and words the
+ * card's lines from the contract. The source hash covers every source
  * file (not `dist/`, `node_modules` and the like), so a change after approval is caught.
  */
 import { cp, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { BUILT, CONTRACT_ENTRY, ContractError, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type SystemBuilder } from '@harness/build';
+import { BUILT, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type SystemBuilder } from '@harness/build';
 import type { Manifest } from '@harness/core';
-import { contractHash } from '@harness/sdk';
 import { contentHash, contentHasher, readClientBundle } from '@harness/sdk/server';
 import type { BuiltSystem, SystemBuilds } from './hosting.ts';
 import { InstallRefused } from './hosting.ts';
@@ -79,11 +78,12 @@ export class HarnessBuilds implements SystemBuilds {
     const bundleHash = await this.bundleHash(entry);
     const client = join(outDir, 'client');
     const hasClient = await stat(client).then((found) => found.isDirectory(), () => false);
-    const manifest = await this.#manifest(join(dir, CONTRACT_ENTRY), result.manifest.name, result.manifest.version, hasClient ? client : '');
+    // the card lists the built client too; the hash leaves it out, so it stays the one in contract.json
+    const manifest: Manifest = hasClient ? { ...result.contract.manifest, client: (await readClientBundle(client)).assets } : result.contract.manifest;
     return {
       built: {
         manifest: result.manifest,
-        manifestHash: await contractHash(manifest),
+        manifestHash: result.contract.hash,
         bundleHash,
         entry,
         fns: manifest.fns.map((decl) => fnLine(manifest.name, decl)),
@@ -91,20 +91,5 @@ export class HarnessBuilds implements SystemBuilds {
         scan: result.scan,
       },
     };
-  }
-
-  /** The contract's manifest with the built client, read in the builder's sandboxed child process. */
-  async #manifest(module: string, name: string, version: string, client: string): Promise<Manifest> {
-    const assets = client === '' ? undefined : (await readClientBundle(client)).assets;
-    let manifests: Manifest[];
-    try {
-      manifests = await this.#deps.builder.manifests(module, { version, client: assets });
-    } catch (error) {
-      if (error instanceof ContractError) { throw new InstallRefused(error.message); }
-      throw error;
-    }
-    const manifest = manifests.find((found) => found.name === name);
-    if (manifest === undefined) { throw new InstallRefused(`${CONTRACT_ENTRY} exports no contract named ${name}.`); }
-    return manifest;
   }
 }

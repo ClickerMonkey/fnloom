@@ -275,10 +275,14 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   validate?: FnValidators<NoInfer<A>, NoInfer<R>, {}>;
   /** What its runs say they are doing; the hub's agent words when absent. Tokens are checked against `args` and `returns`. */
   status?: StatusInput<NoInfer<A>, NoInfer<R>, T>;
+  /** For a fleet: always one instance, or whichever is first available (get_query routed to the database it serves). */
+  routing?: FnRouting;
+  /** What it does to data and the registry: its mode, the types it reads and writes, and the fns it creates (`FnFacts`). */
+  effects?: FnEffects;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`ModelChoice`](#core-modelchoice).
+Refers to: [`Audience`](#core-audience), [`FnEffects`](#core-fneffects), [`FnRouting`](#core-fnrouting), [`ModelChoice`](#core-modelchoice).
 
 #### `AgentFnTypes`
 

@@ -6,7 +6,7 @@ import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
   Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun, FnSearchQuery, FnSearchPage, FnExamplesQuery, FnExamplesPage,
-  ApprovedRun,
+  ApprovedRun, AdminNotice,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -102,8 +102,14 @@ export interface AiSource {
   ai(): Promise<HarnessAi>;
 }
 
+/** Telling the hub's admins something that needs a person, e.g. a hosted system disabled after too many crashes. */
+export interface AdminNotices {
+  /** Each admin gets an inbox item (title and plain-words body) that links to this system's page. */
+  notifyAdmins(notice: AdminNotice): Promise<void>;
+}
+
 /** What every run, undo and action gets from the hub. */
-export interface Services extends SystemPlace, AiSource {
+export interface Services extends SystemPlace, AiSource, AdminNotices {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
@@ -192,7 +198,7 @@ export interface FnSearch {
   fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage>;
 }
 
-export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource {
+export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;

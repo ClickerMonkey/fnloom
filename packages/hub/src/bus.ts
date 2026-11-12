@@ -31,6 +31,8 @@ export interface HubEvents {
   'system.configured': { system: SystemName; version: number };
   /** Build 7: a system kept going past what it declared, so its functions were switched off. */
   'system.paused': { system: SystemName; refusals: number };
+  /** Build 7: a system told its admins something (`notifyAdmins`). */
+  'system.notice': { system: SystemName; title: string; body: string };
   'system.output': { system: SystemName; line: OutputLine };
   'pairing': { pairing: PairingRequest };
   'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };
