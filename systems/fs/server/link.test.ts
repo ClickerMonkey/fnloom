@@ -5,7 +5,7 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import type { Json, OutcomeWire } from '@harness/core';
+import { mintId, type Json, type OutcomeWire } from '@harness/core';
 import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub, TEST_USER } from '@harness/sdk/server/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -106,7 +106,7 @@ describe('fs over the link', () => {
     expect(read.text).toEqual({ inline: 'alpha\nbeta\n' });
     const time = { now: 0, timeZone: 'UTC', local: '1970-01-01T00:00:00Z' };
     const asker = { session: 'ses_1' as never, actor: TEST_USER.id, user: TEST_USER, time }; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- a test session id
-    const options = await peer.call('mentions', { ...asker, provider: 'files', query: 'a.t' });
+    const options = await peer.call('mentions', { ...asker, provider: 'files', query: 'a.t', request: mintId('mentionRequest') });
     expect(options[0]).toMatchObject({ label: 'a.txt', target: { root: 'work', path: 'a.txt' } });
     const blocks = await peer.call('hook', { hook: 'git', message: { session: asker.session, turn: 'trn_1', text: 'hi', user: TEST_USER, time } });
     expect(JSON.stringify(blocks)).toContain('branch main');

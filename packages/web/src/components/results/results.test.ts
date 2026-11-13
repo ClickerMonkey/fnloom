@@ -152,7 +152,7 @@ describe('approval cards', () => {
     const api = fakeChatApi();
     const prepare = vi.fn(() => Promise.resolve());
     const host = new VisualHost({ api, renderers: { contributedVisuals: () => [] }, prepare });
-    const registry = QualifiedName.parse('database/query-visuals');
+    const registry = QualifiedName.parse('hub/visuals');
     await Promise.all([host.prepare(registry), host.prepare(registry)]);
     expect(api.contributions.calls).toHaveLength(1);
     const drawn = defineComponent({ props: { table: { type: Object, required: true }, system: { type: Object, required: true } }, setup: () => () => h('i') });

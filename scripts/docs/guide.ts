@@ -59,6 +59,34 @@ export function folderListing(root: string, folder: string): string {
   }).join('\n\n');
 }
 
+/**
+ * One large file's listing cut into pieces of at most about `budget` characters, each a `####` heading (the file and
+ * the lines it holds) over its own code block, so the part cutter can split the listing at those headings. A piece
+ * ends only where a declaration starts (see `boundary`), so none is split.
+ */
+export function listingInPieces(path: string, text: string, budget: number): string {
+  const language = /\.([a-z]+)$/i.exec(path)?.[1] ?? 'text';
+  const lines = text.replace(/\n+$/, '').split('\n');
+  const pieces: Array<{ from: number; lines: string[] }> = [];
+  let current: { from: number; lines: string[]; size: number } = { from: 1, lines: [], size: 0 };
+  lines.forEach((line, index) => {
+    // a declaration starts here: a top-level statement after a blank line, a builder stage (`.with(`), or one member
+    // built by a call (`read: fn({`)
+    const boundary = index > 0 && ((lines[index - 1] === '' && /^[^\s})\]]/.test(line)) || /^ {2}\.with\(|^ {4,8}[A-Za-z_]+: [A-Za-z_.]+\(/.test(line));
+    if (boundary && current.size + line.length > budget && current.lines.length > 0) {
+      pieces.push(current);
+      current = { from: index + 1, lines: [], size: 0 };
+    }
+    current.lines.push(line);
+    current.size += line.length + 1;
+  });
+  pieces.push(current);
+  return pieces.map((piece) => {
+    const to = piece.from + piece.lines.length - 1;
+    return `#### \`${path}\`, lines ${String(piece.from)}-${String(to)}\n\n${fence(piece.lines.join('\n'), language)}`;
+  }).join('\n\n');
+}
+
 /** Build the guide's text. Throws `GuideProblems` when the outline, prose or directives are wrong. */
 export function buildGuide(config: GuideConfig): string {
   const api = pruneReached(extractApi({

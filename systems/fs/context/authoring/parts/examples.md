@@ -38,13 +38,17 @@ choices:
     when: "Pick this for scripts/docs/example/system.json."
   - to: "fs/authoring.examples.tsconfig-json"
     when: "Pick this for scripts/docs/example/tsconfig.json."
-  - to: "fs/authoring.examples.the-fs-system-s-contract"
-    when: "Pick this for The fs system's contract."
+  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-1-217"
+    when: "Pick this for systems/fs/shared/index.ts, lines 1-217."
+  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-218-414"
+    when: "Pick this for systems/fs/shared/index.ts, lines 218-414."
+  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-415-477"
+    when: "Pick this for systems/fs/shared/index.ts, lines 415-477."
 ---
 
 ## 29. Worked examples
 
-This part is in 16 pieces; load the one you need:
+This part is in 18 pieces; load the one you need:
 
 - [scripts/docs/example/client/FindView.vue](context:fs/authoring.examples.client-findview-vue)
 - [scripts/docs/example/client/NoteCard.vue](context:fs/authoring.examples.client-notecard-vue)
@@ -61,6 +65,8 @@ This part is in 16 pieces; load the one you need:
 - [scripts/docs/example/shared/index.ts](context:fs/authoring.examples.shared-index-ts)
 - [scripts/docs/example/system.json](context:fs/authoring.examples.system-json)
 - [scripts/docs/example/tsconfig.json](context:fs/authoring.examples.tsconfig-json)
-- [The fs system's contract](context:fs/authoring.examples.the-fs-system-s-contract)
+- [systems/fs/shared/index.ts, lines 1-217](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-1-217)
+- [systems/fs/shared/index.ts, lines 218-414](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-218-414)
+- [systems/fs/shared/index.ts, lines 415-477](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-415-477)
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

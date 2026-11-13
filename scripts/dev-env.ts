@@ -18,6 +18,7 @@ export const devEnv = env({
   HARNESS_DEV_ONLY: z.string().default(DEFAULT_COMPONENTS.join(',')).describe('npm run dev: a comma list of what to run (web, the build; hub; fs; embedder; web-system, which runs only with TAVILY_API_KEY; input; calendar, which runs only with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET; database, a new SQLite file, only when listed).'),
   HARNESS_DEV_RESTART_DELAY: z.coerce.number().int().min(0).default(3_000).describe('npm run dev: how long to wait before restarting a crashed hub or system (ms).'),
   HARNESS_DEV_CHECK_EVERY: z.coerce.number().int().min(500).default(5_000).describe('npm run dev: how often to check that the hub and each system still answer (ms).'),
+  HARNESS_DEV_START_TIMEOUT: z.coerce.number().int().min(1_000).default(60_000).describe('npm run dev: how long to wait for the hub and each system to start and connect (ms); raise it on a busy machine.'),
   HARNESS_DEV_CHECK_MISSES: z.coerce.number().int().min(1).default(6).describe('npm run dev: restart a process after this many checks in a row it did not answer.'),
   HARNESS_DEV_ROOT: z.string().optional().describe('npm run dev: the folder the fs system serves; this repository when not given.'),
   HARNESS_EMBEDDER_URL: z.string().default('http://127.0.0.1:8760').describe('npm run dev: the EmbeddingGemma service the embedder system wraps.'),

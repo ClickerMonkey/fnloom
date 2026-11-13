@@ -141,7 +141,7 @@ export interface SystemInfo {
    * (`client({ visuals })`) and lists them in `contributes`.
    */
   registries?: Record<string, RegistryDef>;
-  /** Entries this system adds to registries (`{ registry: 'database/query-visuals', name: 'map', label: 'Map' }`). */
+  /** Entries this system adds to registries (`{ registry: 'hub/visuals', name: 'map', label: 'Map' }`). */
   contributes?: ContributionDecl[];
   /**
    * The dot paths of its config's secret text fields (`connection.password`). The hub seals them when the config is

@@ -47,7 +47,7 @@ as `serve`'s `client` option and the system uploads the bundle when it connects;
 for a packaged system.
 
 **Visuals for a registry.** A system adds components to a registry (its own or another system's, such as
-`database/query-visuals`) with `client(contract, { visuals: { 'database/query-visuals': { pie: { match, component } } } })`
+`hub/visuals`) with `client(contract, { visuals: { 'hub/visuals': { pie: { match, component } } } })`
 (`VisualEntry`). `match(table)` gets the `ResultTable` and answers a `VisualFit`: whether it can draw it and a score
 from 0 to 1 for how much of the data it shows well (the table scores 0, so any other fit beats it). Keep it cheap and
 pure. The component gets `VisualView` (`table`) and `system`. Each visual must be listed in the contract's

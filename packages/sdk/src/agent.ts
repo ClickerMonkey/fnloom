@@ -49,6 +49,8 @@ export interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   maxOutput?: number;
   visibility?: Audience;
   tags?: string[];
+  /** The API group it is listed in: one of the system's `groups` (`system(name, { groups })`); the general group when absent. */
+  group?: string;
   /** Example calls (args of its own args type), shown to other agents on its card. */
   examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
   /** Checks its system runs on the args before it starts and on its answer after (`retry` sends the model back with why). */
@@ -74,6 +76,7 @@ export function agent<A, R, const T extends StatusTemplates = StatusTemplates>(d
     returns: def.returns,
     ...(def.visibility === undefined ? {} : { visibility: def.visibility }),
     ...(def.tags === undefined ? {} : { tags: def.tags }),
+    ...(def.group === undefined ? {} : { group: def.group }),
     ...(def.examples === undefined ? {} : { examples: def.examples }),
     ...(def.validate === undefined ? {} : { validate: def.validate }),
     ...(def.status === undefined ? {} : { status: def.status }),

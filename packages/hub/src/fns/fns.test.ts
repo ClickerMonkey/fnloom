@@ -8,7 +8,7 @@ import {
   type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
 } from '@harness/core';
 import { context, fn, g, hub, system, type as typeDecl } from '@harness/sdk';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openScope } from '../access/index.ts';
 import { StoreCatalog } from '../catalog/catalog.ts';
 import { CatalogFnViews } from '../contextor/views.ts';
@@ -92,6 +92,9 @@ const notes = system('notes', { description: 'Notes.' }).with({
   fns: { read_note: fn({ description: 'Read a travel note about a trip.', args: g.obj({ id: g.text() }), returns: g.text(), tags: ['read'] }) },
   context: { travel: context({ description: 'How trips and travel are planned.', content: 'Plan the flight first.' }) },
 });
+
+// every test imports the hub's whole contract into a fresh store: under a full parallel run that can pass the 5 s default
+vi.setConfig({ testTimeout: 20_000 });
 
 async function setup(options: { status?: SystemStatus } = {}) {
   const store = await testStore({ dimensions: { [DOCUMENT]: 3 } });

@@ -19,7 +19,7 @@ const connected = (system: SystemName): SystemConnection => new TestSystem(syste
 const contributing = (system: SystemName, names: readonly string[]): Manifest => ({
   name: system, description: '', version: '1.0.0', hash: 'h', config: { name: 'object', props: {} }, resources: false, events: [], requires: [],
   types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [], mentions: [], embedders: [], sectioners: [], actions: [],
-  contributes: names.map((name) => ({ registry: 'database/query-visuals', name, label: name })),
+  contributes: names.map((name) => ({ registry: 'hub/visuals', name, label: name })),
 });
 
 const run: Run = {
@@ -38,7 +38,7 @@ describe('build 5 endpoints', () => {
     });
     const web = await webRig(r);
     const as = web.as(await web.admin());
-    const views = await web.client.call('contributions', { registry: 'database/query-visuals' }, as);
+    const views = await web.client.call('contributions', { registry: 'hub/visuals' }, as);
     expect(views.map((v) => `${v.system}:${v.name}`)).toEqual(['charts:pie', 'database:bar', 'database:table']);
     expect(await web.client.call('contributions', { registry: 'other/thing' }, as)).toEqual([]);
 

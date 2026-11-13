@@ -44,7 +44,9 @@ export async function searchForMention(deps: MentionSearchDeps, data: MentionRes
   const seen = keepSeen(access, { context: (name) => deps.catalog().context(name), type: (name) => deps.catalog().type(name) }, session.id);
   const roots = data.roots;
   const found = await deps.search().search({
-    text: data.query, kinds: ['section'], limit: data.limit, systems: searchSystems(session),
+    // words alone: an `@` search answers as the person types, inside HARNESS_MENTION_SEARCH_TIMEOUT, which waiting on the
+    // embedder for the query's vector would use up
+    text: data.query, kinds: ['section'], limit: data.limit, systems: searchSystems(session), match: 'text',
     // inside the roots the system asked for, as the person may see them; checked before the limit counts
     keep: async (hit) => (roots === undefined || roots.some((root) => parseSectionIndexKey(hit.key).uri.startsWith(root))) && await seen(hit),
   });

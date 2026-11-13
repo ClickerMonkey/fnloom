@@ -12,7 +12,7 @@
  *   the widget; anything that is not a read confirms first.
  */
 import {
-  HUB_VISUALS, Json, KindDescription, qualify, SystemName, ResultTable, splitName, WIDGET_KIND, WidgetSpec,
+  HUB_VISUALS, Json, jsonOf, KindDescription, qualify, SystemName, ResultTable, splitName, WIDGET_KIND, WidgetSpec,
   type ActorId, type ContributionDecl, type FnDecl, type FnRecord, type QualifiedName, type RunId, type RunInfo, type WidgetActionOption,
   type WidgetActionsQuery, type WidgetCheck, type WidgetVisual,
   WidgetResult,
@@ -30,6 +30,25 @@ import type { AccessScope } from '../access/index.ts';
 
 /** The table visual every result fits; a widget always offers it last. */
 const TABLE_VISUAL: WidgetVisual = { visual: 'table', bind: {} };
+
+/**
+ * The sample args an authoring tool was given, as an object of the source's args. A model in strict tool mode sends a
+ * free-form `args` as JSON text, so text holding an object is read as that object; anything else is refused with how
+ * to give them, never run as no args.
+ */
+function sampleArgs(args: Json | undefined): { [key: string]: Json } {
+  const value = typeof args === 'string' ? parsedJson(args) : args;
+  if (value === undefined || value === null) { return {}; }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new InvalidArgs('args must be an object of the source fn args by name, such as {"type": "notes/Note"}');
+  }
+  return value;
+}
+
+/** JSON text as a value, or the text itself when it is not JSON. */
+function parsedJson(text: string): Json {
+  try { return Json.parse(JSON.parse(text)); } catch { return text; }
+}
 
 /** How many rows a sample for an authoring tool holds. */
 const SAMPLE_ROWS = 5;
@@ -123,7 +142,7 @@ export class WidgetService {
     if (existing !== undefined && input.replace !== true) { throw new RunRefused(fnError('caller', `${name} is taken: pick another name, or save over it with replace`, SAVE_FN_TAKEN)); }
     if (existing !== undefined && existing.decl.kind !== WIDGET_KIND) { throw new RunRefused(fnError('caller', `${name} is not a widget and can't be saved over`, SAVE_FN_TAKEN)); }
     const decl: FnDecl = {
-      name: input.name, description: input.description, kind: WIDGET_KIND, payload: Json.parse(input.spec),
+      name: input.name, description: input.description, kind: WIDGET_KIND, payload: jsonOf(input.spec),
       // its kind works out the signature from the payload
       args: { name: 'any' }, returns: { name: 'any' }, deps: [], handlers: {}, progress: { type: 'none' },
       operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {}, visibility: 'both', tags: [], group: 'widgets',
@@ -134,23 +153,30 @@ export class WidgetService {
     return { fn: name, created: existing === undefined };
   }
 
-  /** The actions rows of these types offer: each type's methods, narrowed by a widget's list, as the person may use them. */
+  /**
+   * The actions rows of these types offer, as the person may use them: each type's methods, or a widget's own list,
+   * which narrows and relabels them and may bind any other fn to the row's columns.
+   */
   async actions(query: WidgetActionsQuery, actor: ActorId): Promise<WidgetActionOption[]> {
     const access = await this.#deps.access(actor);
-    const methods: FnRecord[] = [];
+    const widget = query.widget === undefined ? undefined : await this.#deps.catalog().fn(query.widget);
+    const parsed = widget?.decl.kind === WIDGET_KIND ? WidgetSpec.safeParse(widget.decl.payload) : undefined;
+    const listed = parsed?.success === true ? parsed.data.actions : undefined;
+    const usable = new Map<QualifiedName, FnRecord>();
+    const take = async (name: QualifiedName): Promise<void> => {
+      const fn = usable.has(name) ? undefined : await this.#deps.catalog().fn(name);
+      if (fn !== undefined && access.mayUse(fn)) { usable.set(name, fn); }
+    };
     for (const type of query.types) {
       const { system, local } = splitName(type);
       const decl = (await this.#deps.catalog().manifest(SystemName.parse(system)))?.types.find((t) => t.name === local);
-      for (const method of decl?.methods ?? []) {
-        const fn = await this.#deps.catalog().fn(qualify(system, `${local}.${method}`));
-        if (fn !== undefined && access.mayUse(fn)) { methods.push(fn); }
-      }
+      for (const method of decl?.methods ?? []) { await take(qualify(system, `${local}.${method}`)); }
     }
-    const modes = await this.#deps.facts().modes(methods.map((fn) => fn.name));
-    const rowFns: RowFn[] = methods.map((fn) => ({ fn: fn.name, mode: modes.get(fn.name) ?? 'write', args: fn.decl.args }));
-    const widget = query.widget === undefined ? undefined : await this.#deps.catalog().fn(query.widget);
-    const spec = widget?.decl.kind === WIDGET_KIND ? WidgetSpec.safeParse(widget.decl.payload) : undefined;
-    return widgetActionOptions(rowFns, spec?.success === true ? spec.data.actions : undefined);
+    for (const action of listed ?? []) { await take(action.fn); }
+    const fns = [...usable.values()];
+    const modes = await this.#deps.facts().modes(fns.map((fn) => fn.name));
+    const rowFns: RowFn[] = fns.map((fn) => ({ fn: fn.name, mode: modes.get(fn.name) ?? 'write', args: fn.decl.args }));
+    return widgetActionOptions(rowFns, listed);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -164,7 +190,7 @@ export class WidgetService {
 
   /** A small sample of a source's result, for the authoring tools. */
   async #sample(source: FnRecord, args: Json | undefined, run: Asking): Promise<ResultTable> {
-    const given = typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
+    const given = sampleArgs(args);
     const limit = 'limit' in (source.decl.args.props ?? {}) ? { limit: SAMPLE_ROWS } : {};
     // the same sample asked again in a run is the same child run
     const { table } = await this.#call(source.name, { ...given, ...limit }, run, `sample:${source.name}:${JSON.stringify(given)}`);

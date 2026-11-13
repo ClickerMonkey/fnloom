@@ -610,7 +610,7 @@ The whole notes contract is in **Worked examples**. Keep `shared/` free of Node 
 
 **Registries, contributions and secrets.** `system(name, info)` also takes (`SystemInfo`): `registries`, the
 registries this system hosts by local name (`RegistryDef`: a description and the gin type of the data each entry
-draws); `contributes`, the entries this system adds to any registry (`{ registry: 'database/query-visuals', name:
+draws); `contributes`, the entries this system adds to any registry (`{ registry: 'hub/visuals', name:
 'map', label: 'Map' }`), whose components are in its client bundle; and `configSecrets`, the dot paths of its config's
 secret text fields (`connection.password`), which the hub seals and only `configure` carries in plain. A secret path
 that is not a text field of the config fails the manifest.
@@ -857,7 +857,7 @@ interface SystemInfo {
    * (`client({ visuals })`) and lists them in `contributes`.
    */
   registries?: Record<string, RegistryDef>;
-  /** Entries this system adds to registries (`{ registry: 'database/query-visuals', name: 'map', label: 'Map' }`). */
+  /** Entries this system adds to registries (`{ registry: 'hub/visuals', name: 'map', label: 'Map' }`). */
   contributes?: ContributionDecl[];
   /**
    * The dot paths of its config's secret text fields (`connection.password`). The hub seals them when the config is
@@ -2008,8 +2008,9 @@ one throws.
 `SensitivityFlag` (`path`, `kind`, `rule`, `access`, `action`, `why`, and `certain: false` for a path only found in a
 command line). The hub asks before the mode gate and policies: a `refuse` flag fails the run as invalid input with the
 rule's words, a write or an `ask` flag makes it wait for the person (never remembered, never passed by a policy or by
-`auto` mode, whose classifier sees the flags), and none lets it go on. Like a preview, `flags` must not change
-anything. `kit.flags('<fn>', args)` tests it (**Testing**).
+`auto` mode, whose classifier sees the flags), and none lets it go on. A run the person approved after that ask has
+`ctx.approved` set, so the fn may then show the sensitive files it would otherwise leave out. Like a preview, `flags`
+must not change anything. `kit.flags('<fn>', args)` tests it (**Testing**).
 
 **API groups.** `system(name, { groups: [{ name, title, description }] })` names the groups a system's fns are listed
 in, and `fn({ group })` puts a fn in one. The hub keeps an index item per system (`<system>/api`, its groups as
@@ -3722,6 +3723,8 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   maxOutput?: number;
   visibility?: Audience;
   tags?: string[];
+  /** The API group it is listed in: one of the system's `groups` (`system(name, { groups })`); the general group when absent. */
+  group?: string;
   /** Example calls (args of its own args type), shown to other agents on its card. */
   examples?: FnExampleOf<NoInfer<A>, NoInfer<R>>[];
   /** Checks its system runs on the args before it starts and on its answer after (`retry` sends the model back with why). */
@@ -5868,6 +5871,157 @@ This is the hub contract as the SDK declares it now:
     want: list<enum<text>{links, text, bytes}>
   }) => obj{ stat, links?, text?, bytes? … }
   ```
+- `hub/data_sets`: The stored types (the data system's record sets) you can see, each with how many records it holds and when one last changed. Tags: `read`.
+
+  ```text
+  (obj{
+    cursor?: text,
+    limit?: num{whole=true, min=1, max=200},
+    text?: text,
+    system?: text
+  }) => obj{
+    items: list<obj{
+      type: text,
+      system: text,
+      description: text,
+      storage: obj{
+        shape: enum<text>{table, value},
+        owner: enum<text>{shared, person},
+        search: obj{text: list<text{minLength=1}>, embed: bool}
+      },
+      records: num{whole=true, min=0},
+      updatedAt?: num{whole=true}
+    }>,
+    cursor?: text
+  }
+  ```
+- `hub/records_find`: Records of one stored type: filtered and sorted on its fields, searched by words (and meaning, when the type is embedded), a page at a time. Tags: `read`.
+
+  ```text
+  (obj{ type, query?, search?, run? … }) => obj{
+    items: list<obj{
+      /* record id */ id: text,
+      type: text,
+      value: any,
+      owner?: text,
+      title: text,
+      version: num{whole=true, min=1},
+      createdAt: num{whole=true},
+      updatedAt: num{whole=true},
+      updatedBy?: text,
+      updatedBySystem?: text,
+      run?: text
+    }>,
+    cursor?: text
+  }
+  ```
+- `hub/record_get`: One record of a stored type by its id, with its value, version and who changed it last. Tags: `read`.
+
+  ```text
+  (obj{type: text, /* record id */ id: text, run?: text}) => obj{
+    record?: obj{
+      /* record id */ id: text,
+      type: text,
+      value: any,
+      owner?: text,
+      title: text,
+      version: num{whole=true, min=1},
+      createdAt: num{whole=true},
+      updatedAt: num{whole=true},
+      updatedBy?: text,
+      updatedBySystem?: text,
+      run?: text
+    }
+  }
+  ```
+- `hub/records_table`: Records of one stored type as a table (one column per field, then the record id), offset-paged: what widgets and the result view draw. Tags: `read`.
+
+  ```text
+  (obj{ type, query?, search?, run?, offset?, limit? … }) => obj{ columns, rows, offset, limit?, total?, truncated, sort … }
+  ```
+- `hub/record_versions`: A record's history, newest first: each version's value, how it changed, and who changed it. Tags: `read`.
+
+  ```text
+  (obj{
+    cursor?: text,
+    limit?: num{whole=true, min=1, max=200},
+    type: text,
+    /* record id */ id: text
+  }) => obj{
+    items: list<obj{
+      id: text{minLength=1},
+      /* record id */ record: text,
+      type: text,
+      number: num{whole=true, min=1},
+      change: enum<text>{created, updated, removed},
+      value: any,
+      by?: text,
+      bySystem?: text,
+      run?: text,
+      at: num{whole=true}
+    }>,
+    cursor?: text
+  }
+  ```
+- `hub/record_save`: Add a record to a stored type, or replace one (with its id); the value is checked against the type.
+
+  ```text
+  (obj{type: text, id?: text, value: any, expect?: num{whole=true, min=1}, run?: text}) => obj{
+    /* record id */ id: text,
+    type: text,
+    value: any,
+    owner?: text,
+    title: text,
+    version: num{whole=true, min=1},
+    createdAt: num{whole=true},
+    updatedAt: num{whole=true},
+    updatedBy?: text,
+    updatedBySystem?: text,
+    run?: text
+  }
+  ```
+- `hub/record_remove`: Remove a record of a stored type; its history stays.
+
+  ```text
+  (obj{type: text, /* record id */ id: text, run?: text}) => obj{removed: bool}
+  ```
+- `hub/widget_source`: A fn that returns a table, for a widget: its description, its args type, and a small sample of its result. Tags: `read`.
+
+  ```text
+  (obj{source: text, args?: any}) => obj{ fn, description, args, sample … }
+  ```
+- `hub/widget_visuals`: The visuals whose declared shape fits a fn's result, each with the channels its bindings fill and the column kinds they take. Tags: `read`.
+
+  ```text
+  (obj{source: text, args?: any}) => list<obj{
+    visual: text,
+    label: text,
+    channels: list<obj{
+      name: text,
+      label: text{minLength=1},
+      accepts: list<enum<text>{text, integer, number, boolean, date, datetime, time, uuid, json, binary}>,
+      required: bool,
+      many: bool
+    }>,
+    rows: obj{min: num, max?: num},
+    whole: bool
+  }>
+  ```
+- `hub/widget_check`: Check a widget spec against a sample of its source's result: every problem in words, and the visuals that still fit. Tags: `read`.
+
+  ```text
+  (obj{ spec, sample … }) => obj{problems: list<text>, visuals: list<text>}
+  ```
+- `hub/widget_save`: Save a widget (a fn of the hub's widget kind) from a checked spec, or replace one of that name.
+
+  ```text
+  (obj{ name, description, spec, replace? … }) => obj{fn: text, created: bool}
+  ```
+- `hub/make_widget`: Make or change a widget: a saved view of a fn's table result, with the visuals, controls, paging and row actions the person asks for. A fn of the `hub/llm` kind.
+
+  ```text
+  (obj{source: text, request: text{minLength=1}, widget?: text}) => text
+  ```
 - `hub/chat`: The chat agent: answers people in a session with every tool the session allows. A fn of the `hub/llm` kind.
 
   ```text
@@ -6238,6 +6392,35 @@ This is the hub contract as the SDK declares it now:
 
 #### Kinds of `hub`
 
+- `hub/widget`: A widget: a saved view of a fn that returns a table, drawn with the visuals that fit it, with a control per arg, a pager and row actions. Use when a person wants to keep a table or chart of a fn's result to look at again (made by hub/make_widget).
+
+  ```text
+  obj{
+    title: text{minLength=1},
+    source: text,
+    visuals: list<obj{visual: text, label?: text{minLength=1}, bind: any}>,
+    controls: list<obj{
+      arg: text,
+      label?: text{minLength=1},
+      choices?: list<any>,
+      custom?: bool,
+      pinned?: any,
+      hidden?: bool
+    }>,
+    paging?: obj{
+      offset?: text,
+      limit?: text,
+      size: num{whole=true, min=1, max=500}
+    },
+    actions?: list<obj{
+      fn: text,
+      label?: text{minLength=1},
+      confirm?: literal<bool>{value=true},
+      bind: any,
+      then: enum<text>{refresh, show, none}
+    }>
+  }
+  ```
 - `hub/llm`: An agent: an LLM with instructions, tools and context, callable like any fn. Use for work that needs judgement, reading or writing in natural language, or several tool calls.
 
   ```text
@@ -6326,7 +6509,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`Section`](#core-section).
+Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MakeWidgetArgs`](#core-makewidgetargs), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`Section`](#core-section), [`WidgetCheck`](#core-widgetcheck), [`WidgetSpec`](#core-widgetspec).
 
 #### `HubContract`
 
@@ -6529,6 +6712,49 @@ An explorer read fn's name.
 ```ts
 type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
 ```
+
+#### `HUB_DATA_ENDPOINTS`
+
+const · `import { HUB_DATA_ENDPOINTS } from '@harness/sdk'`
+
+Build 8, the data system (`core/data.ts`) as fns: stored types and their records, as the run's person. The reads
+are tagged `read`; saving and removing a record ask unless a policy allows it.
+
+```ts
+const HUB_DATA_ENDPOINTS = {
+  data_sets: dataSlice.endpoints.dataSets,
+  records_find: dataSlice.endpoints.records,
+  record_get: dataSlice.endpoints.record,
+  records_table: dataSlice.endpoints.recordTable,
+  record_versions: dataSlice.endpoints.recordVersions,
+  record_save: dataSlice.endpoints.saveRecord,
+  record_remove: dataSlice.endpoints.removeRecord,
+} as const satisfies Record<string, EndpointLike>;
+```
+
+#### `WidgetSourceArgs`
+
+const · `import { WidgetSourceArgs } from '@harness/sdk'`
+
+`hub/widget_source`: a fn whose result is a table, and the args to run a small sample with.
+
+```ts
+const WidgetSourceArgs: z.ZodObject<{ source: z.ZodTemplateLiteral<`${string}/${string}`>; args: z.ZodOptional<z.ZodJSONSchema>; }, z.core.$strip>;
+```
+
+Refers to: [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname).
+
+#### `WidgetSaveArgs`
+
+const · `import { WidgetSaveArgs } from '@harness/sdk'`
+
+`hub/widget_save`: the widget's name, one line about it, its spec, and whether to save over a widget of that name.
+
+```ts
+const WidgetSaveArgs = z.object({ name: LocalName, description: z.string().min(1), spec: WidgetSpec, replace: z.boolean().optional() });
+```
+
+Refers to: [`WidgetSpec`](#core-widgetspec).
 
 #### `ADMIN_READ_ENDPOINTS`
 
@@ -8609,7 +8835,7 @@ as `serve`'s `client` option and the system uploads the bundle when it connects;
 for a packaged system.
 
 **Visuals for a registry.** A system adds components to a registry (its own or another system's, such as
-`database/query-visuals`) with `client(contract, { visuals: { 'database/query-visuals': { pie: { match, component } } } })`
+`hub/visuals`) with `client(contract, { visuals: { 'hub/visuals': { pie: { match, component } } } })`
 (`VisualEntry`). `match(table)` gets the `ResultTable` and answers a `VisualFit`: whether it can draw it and a score
 from 0 to 1 for how much of the data it shows well (the table scores 0, so any other fit beats it). Keep it cheap and
 pure. The component gets `VisualView` (`table`) and `system`. Each visual must be listed in the contract's
@@ -8651,7 +8877,7 @@ interface ClientRenderers<C extends ContractShape> {
    */
   resources?: Readonly<Record<string, BareViewer<Renderer<ResourceView & WithSystem<C>>> | ResourceViewerEntry<Renderer<ResourceView & WithSystem<C>>>>>;
   /**
-   * Visuals this system adds to registries, by registry (`database/query-visuals`) and name. Each must be listed in
+   * Visuals this system adds to registries, by registry (`hub/visuals`) and name. Each must be listed in
    * the contract's `contributes`, which is how the hub and the web app know to load this bundle for that registry.
    */
   visuals?: Readonly<Record<QualifiedName, Readonly<Record<string, VisualEntry<C>>>>>;
@@ -12677,6 +12903,8 @@ The fs system (`systems/fs`) gives agents files and a shell over chosen folders.
 real system's declarations: a named type with a method, a setting, an attachment, fns with status words, undo, state,
 progress and handlers, a hook, a mention provider, static and dynamic context, and an agent.
 
+#### `systems/fs/shared/index.ts`, lines 1-217
+
 ```ts
 /**
  * The fs system's contract (`shared/`): files and a shell over chosen folders, served as resources, a restart so
@@ -12895,6 +13123,11 @@ export const fs = system('fs', {
         },
         tags: ['read'],
       }),
+```
+
+#### `systems/fs/shared/index.ts`, lines 218-414
+
+```ts
       grep: fn({
         group: 'files',
         description: 'Search file contents with a regular expression.',
@@ -13092,6 +13325,11 @@ export const fs = system('fs', {
         // the guide brings the fns it is about, so finding it finds them
         fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
       }),
+```
+
+#### `systems/fs/shared/index.ts`, lines 415-477
+
+```ts
       tree: context({
         description: 'The folder tree of a root, as it is now.',
         command: { name: 'tree', args: { root: arg('Which root (default: all)', { required: false }) } },
@@ -13111,6 +13349,7 @@ export const fs = system('fs', {
     fns: {
       explore: agent({
         description: 'Answers questions about the code by reading it.',
+        group: 'files',
         effects: { mode: 'read' },
         usage: 'Use it for a question that needs several files read (how a feature works, where something is decided) so your own context stays small. Ask one clear question; the answer quotes paths and lines.',
         args: g.obj({ question: g.text() }),
@@ -15243,6 +15482,10 @@ type ContextFileHeader = {
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
+  choices?: {
+    to: `${string}/${string}`;
+    when: string;
+  }[] | undefined;
   weight?: number | undefined;
   next?: `${string}/${string}` | undefined;
   links?: {
@@ -15272,10 +15515,6 @@ type ContextFileHeader = {
     }[];
   } | undefined;
   parent?: `${string}/${string}` | undefined;
-  choices?: {
-    to: `${string}/${string}`;
-    when: string;
-  }[] | undefined;
 };
 ```
 
@@ -16611,7 +16850,7 @@ type KindDescription = {
     retries?: number | undefined;
     cost?: number | undefined;
   } | undefined;
-  display?: "message" | "card" | "hidden" | undefined;
+  display?: "message" | "hidden" | "card" | undefined;
   approval?: {
     preview: boolean;
     remember: boolean;
@@ -16746,7 +16985,7 @@ type Manifest = {
       undo: boolean;
       background: boolean;
     };
-    display: "message" | "card" | "hidden";
+    display: "message" | "hidden" | "card";
     limits: {
       timeout?: number | undefined;
       retries?: number | undefined;
@@ -17113,7 +17352,7 @@ type ManifestPatch = {
         undo: boolean;
         background: boolean;
       };
-      display: "message" | "card" | "hidden";
+      display: "message" | "hidden" | "card";
       limits: {
         timeout?: number | undefined;
         retries?: number | undefined;
@@ -18564,7 +18803,7 @@ How a run looks in the chat once it is done. `card`: its renderer stays, live. `
 a message. `hidden`: it disappears; the run is still in the tree.
 
 ```ts
-type Display = "message" | "card" | "hidden";
+type Display = "message" | "hidden" | "card";
 ```
 
 #### <a id="core-errorclass"></a>`ErrorClass`
@@ -19118,6 +19357,20 @@ type OutputVerdict = {
 
 ### From `packages/core/src/widgets.ts`
 
+#### <a id="core-makewidgetargs"></a>`MakeWidgetArgs`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+`hub/make_widget`: the source fn, what the person wants, and the widget to change (absent: a new one).
+
+```ts
+type MakeWidgetArgs = {
+  source: `${string}/${string}`;
+  request: string;
+  widget?: `${string}/${string}` | undefined;
+};
+```
+
 #### <a id="core-widgetaction"></a>`WidgetAction`
 
 const, type · declared in `packages/core/src/widgets.ts`
@@ -19149,6 +19402,65 @@ type WidgetActionOption = {
   bind: Record<string, string>;
   then: "none" | "refresh" | "show";
   form?: TypeDef<any> | undefined;
+};
+```
+
+#### <a id="core-widgetcheck"></a>`WidgetCheck`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+`hub/widget_check`: a spec and a sample of its source's result; the answer lists every problem, empty when fine.
+
+```ts
+type WidgetCheck = {
+  spec: {
+    title: string;
+    source: `${string}/${string}`;
+    visuals: {
+      visual: string;
+      bind: Record<string, string[]>;
+      label?: string | undefined;
+    }[];
+    controls: {
+      arg: string;
+      label?: string | undefined;
+      choices?: z.core.util.JSONType[] | undefined;
+      custom?: boolean | undefined;
+      pinned?: z.core.util.JSONType | undefined;
+      hidden?: boolean | undefined;
+    }[];
+    paging?: {
+      size: number;
+      offset?: string | undefined;
+      limit?: string | undefined;
+    } | undefined;
+    actions?: {
+      fn: `${string}/${string}`;
+      bind: Record<string, string>;
+      then: "none" | "refresh" | "show";
+      label?: string | undefined;
+      confirm?: true | undefined;
+    }[] | undefined;
+  };
+  sample: {
+    columns: {
+      name: string;
+      kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+      nullable: boolean;
+      label?: string | undefined;
+      type?: TypeDef<any> | undefined;
+      ref?: `${string}/${string}` | undefined;
+    }[];
+    rows: z.core.util.JSONType[][];
+    offset: number;
+    truncated: boolean;
+    sort: {
+      column: string;
+      dir: "asc" | "desc";
+    }[];
+    limit?: number | undefined;
+    total?: number | undefined;
+  };
 };
 ```
 

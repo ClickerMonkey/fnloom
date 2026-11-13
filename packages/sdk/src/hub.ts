@@ -577,6 +577,7 @@ export const WidgetSaveArgs = z.object({ name: LocalName, description: z.string(
 /** The widget agent's instructions (`hub/make_widget`), after product's widget-authoring lessons. */
 const MAKE_WIDGET = [
   'You make a widget: a saved view of one fn whose result is a table, drawn with the visuals that fit it, a control for each of its args, a pager, and actions on its rows.',
+  'The source fn is {{args.source}}. What the person wants: {{args.request}}{{#if args.widget}} Change the widget {{args.widget}}: keep its name and save with replace true.{{/if}}',
   'Work in this order. 1. Call hub/widget_source with the source fn (and sample args when it needs some) to see its args and a sample of its result.',
   '2. Call hub/widget_visuals the same way to see which visuals fit that result and the channels each binds (label, value, series ...).',
   '3. Write the spec: a title in the words of the person; the visuals they asked for first (a bar for comparing, a value for one number, the table always fits), binding each channel to columns of a kind it takes;',

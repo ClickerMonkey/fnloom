@@ -270,7 +270,7 @@ type KindDescription = {
     retries?: number | undefined;
     cost?: number | undefined;
   } | undefined;
-  display?: "message" | "card" | "hidden" | undefined;
+  display?: "message" | "hidden" | "card" | undefined;
   approval?: {
     preview: boolean;
     remember: boolean;
@@ -405,7 +405,7 @@ type Manifest = {
       undo: boolean;
       background: boolean;
     };
-    display: "message" | "card" | "hidden";
+    display: "message" | "hidden" | "card";
     limits: {
       timeout?: number | undefined;
       retries?: number | undefined;

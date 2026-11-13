@@ -42,7 +42,7 @@ systems/
   template/    the template system `harness system new` copies: system.json, shared/, server/, client/ (build 2)
   input/       @harness/system-input     the `input/form` kind, `get_input` (reuses a saved form or has an agent write a gin type), the `ask_*` fns, `save_form`, the form renderer (build 4)
   google-calendar/ @harness/system-google-calendar  a per-person `connect` system (OAuth): list, search, get, create, update and delete events (build 4)
-  database/    @harness/system-database  a fleet, one instance per database (SQLite, Postgres, SQL Server): tables as types, the `database/query` kind, `get_query` / `edit_query`, `create_table` / `alter_table` through approval, the `query-visuals` registry and result view (build 5)
+  database/    @harness/system-database  a fleet, one instance per database (SQLite, Postgres, SQL Server): tables as types, the `database/query` kind, `get_query` / `edit_query`, `create_table` / `alter_table` through approval, visuals contributed to `hub/visuals` (build 8)
 scripts/       dev.ts (npm run dev) and live.ts (npm run live) over run-stack.ts, stack.ts (boots the stack; supervise.ts restarts a crashed dev process), hub-client.ts (the CLI's `@harness/cli/hub-client`) and
                session.ts (driving a hub from scripts), web-manifest.ts (generated web manifest), env-example.ts
   docs/        the authoring guide generator (`npm run docs:authoring`, `--check` in `npm run check`): the TypeScript

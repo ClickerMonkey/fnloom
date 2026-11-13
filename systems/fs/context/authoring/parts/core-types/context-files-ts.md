@@ -33,6 +33,10 @@ type ContextFileHeader = {
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
+  choices?: {
+    to: `${string}/${string}`;
+    when: string;
+  }[] | undefined;
   weight?: number | undefined;
   next?: `${string}/${string}` | undefined;
   links?: {
@@ -62,10 +66,6 @@ type ContextFileHeader = {
     }[];
   } | undefined;
   parent?: `${string}/${string}` | undefined;
-  choices?: {
-    to: `${string}/${string}`;
-    when: string;
-  }[] | undefined;
 };
 ```
 

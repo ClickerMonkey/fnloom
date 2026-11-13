@@ -121,7 +121,7 @@ type ManifestPatch = {
         undo: boolean;
         background: boolean;
       };
-      display: "message" | "card" | "hidden";
+      display: "message" | "hidden" | "card";
       limits: {
         timeout?: number | undefined;
         retries?: number | undefined;

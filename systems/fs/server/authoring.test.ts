@@ -66,6 +66,7 @@ describe('the guide as a context folder', () => {
     expect(checked.files.find((file) => file.header.key === 'authoring')?.header.choices?.map((choice) => choice.to).sort()).toEqual(keys.filter((key) => key.startsWith('authoring.topics.')).map((key) => `fs/${key}`).sort());
   });
 
+  // it reads every item of the guide's folder: under coverage on a full run that can pass the 5 s default
   it('has short summaries, and every item but a reference brings the fns its text names', async () => {
     const { files } = await checkContextFolder(CONTEXT, known);
     for (const file of files) {
@@ -74,7 +75,7 @@ describe('the guide as a context folder', () => {
       expect(file.header.fns.slice(0, 4), file.file).toEqual(reference ? [] : START_FNS.slice(0, 4));
     }
     expect(files.find((file) => file.header.key === 'authoring.packaging')?.header.fns).toContain('fs/install_system');
-  });
+  }, 30_000);
 });
 
 describe('sectionOf', () => {

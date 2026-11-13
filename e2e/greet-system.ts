@@ -96,7 +96,7 @@ export function greetFiles(options: GreetOptions): Record<string, string> {
       '}',
       'await running.patch({',
       "  upsert: { context: [{ name: 'note', title: 'A note on greetings', description: 'A note on saying hello, written by a model when greet started.', content: note, imports: [], fns: ['greet/hello'], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: ['greet'] }] },",
-      "  lists: { contributes: [{ registry: 'database/query-visuals', name: 'greeting', label: 'Greeting' }] },",
+      "  lists: { contributes: [{ registry: 'hub/visuals', name: 'greeting', label: 'Greeting' }] },",
       '});',
       "log.info('greet.ready', { note });",
       '',

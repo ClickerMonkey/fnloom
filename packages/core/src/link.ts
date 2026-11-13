@@ -160,7 +160,7 @@ export const RunRequest = z.object({
   configVersion: z.number().int().min(0),
   /** The person's connection a per-person fn acts as (`connect` systems), with its credentials revealed. */
   connection: RunConnection.optional(),
-  /** The approval this run went ahead on, for a fn with `approval` (`ctx.approved`), so it can check what it runs. */
+  /** The approval this run went ahead on, for a fn with `approval` or `flags` (`ctx.approved`), so it can check what it runs. */
   approved: ApprovedRun.optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;
@@ -396,7 +396,7 @@ export const systemLinkSpec = spec({
     mentions: endpoint({
       // build 8: `request` ties a resource search the system makes for these options to the person asking (`mentionResources`)
       // optional until the hub lane mints one for every search; a system without one can't search resources for it
-      body: Asker.extend({ provider: z.string(), query: z.string(), request: MentionRequestId.optional() }),
+      body: Asker.extend({ provider: z.string(), query: z.string(), request: MentionRequestId }),
       response: z.array(MentionOption),
       ws: 'mn',
     }),

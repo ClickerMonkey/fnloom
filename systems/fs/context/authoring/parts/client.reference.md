@@ -44,7 +44,7 @@ interface ClientRenderers<C extends ContractShape> {
    */
   resources?: Readonly<Record<string, BareViewer<Renderer<ResourceView & WithSystem<C>>> | ResourceViewerEntry<Renderer<ResourceView & WithSystem<C>>>>>;
   /**
-   * Visuals this system adds to registries, by registry (`database/query-visuals`) and name. Each must be listed in
+   * Visuals this system adds to registries, by registry (`hub/visuals`) and name. Each must be listed in
    * the contract's `contributes`, which is how the hub and the web app know to load this bundle for that registry.
    */
   visuals?: Readonly<Record<QualifiedName, Readonly<Record<string, VisualEntry<C>>>>>;

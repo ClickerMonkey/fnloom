@@ -31,6 +31,7 @@ const SOURCE = record(TASKS, {
   args: { name: 'obj', props: { owner: { type: { name: 'text' } }, offset: { type: { name: 'optional', generic: { T: { name: 'num' } } } }, limit: { type: { name: 'optional', generic: { T: { name: 'num' } } } } } },
 });
 const DONE = record(QualifiedName.parse('tasks/Task.done'), { args: { name: 'obj', props: { self: { type: { name: 'text' } } } } });
+const CLOSE = record(QualifiedName.parse('tasks/close'), { args: { name: 'obj', props: { id: { type: { name: 'text' } } } } });
 const RENAME = record(QualifiedName.parse('tasks/Task.rename'), { args: { name: 'obj', props: { self: { type: { name: 'text' } }, title: { type: { name: 'text' } } } } });
 const TABLE: ResultTable = {
   columns: [{ name: 'title', kind: 'text', nullable: false }, { name: 'id', kind: 'text', nullable: false, ref: QualifiedName.parse('tasks/Task') }],
@@ -53,7 +54,7 @@ async function world() {
       }),
     },
   }), { version: '1' });
-  const fns = new Map<string, FnRecord>([[TASKS, SOURCE], [DONE.name, DONE], [RENAME.name, RENAME]]);
+  const fns = new Map<string, FnRecord>([[TASKS, SOURCE], [DONE.name, DONE], [RENAME.name, RENAME], [CLOSE.name, CLOSE]]);
   const started: RunInput[] = [];
   const declared: FnDecl[] = [];
   const widgets = new WidgetService({
@@ -74,7 +75,7 @@ async function world() {
     store: () => store,
     access: (actor) => Promise.resolve(openScope(actor)),
   });
-  return { widgets, started, declared };
+  return { widgets, started, declared, fns };
 }
 
 describe('widgets', () => {
@@ -96,11 +97,24 @@ describe('widgets', () => {
     expect(result.problems).toEqual(['Visual bars is not in hub/visuals.']);
   });
 
+  it('sample a source with args given as an object or as JSON text, and refuse args that are not an object', async () => {
+    const { widgets, started } = await world();
+    await widgets.source(TASKS, { owner: 'ann' }, RUN);
+    await widgets.source(TASKS, '{"owner": "bob"}', RUN);
+    expect(started.map((input) => input.args)).toEqual([{ owner: 'ann', limit: 5 }, { owner: 'bob', limit: 5 }]);
+    await expect(widgets.source(TASKS, 'ann', RUN)).rejects.toThrow(/args must be an object/);
+  });
+
   it('offer each row type\'s methods as actions, confirming what is not a read, and save widgets as hub fns', async () => {
-    const { widgets, declared } = await world();
+    const { widgets, declared, fns } = await world();
     const actions = await widgets.actions({ types: [QualifiedName.parse('tasks/Task')] }, ANN);
     expect(actions.map((a) => [a.fn, a.label, a.confirm])).toEqual([['tasks/Task.done', 'Done', true], ['tasks/Task.rename', 'Rename', false]]);
     expect(actions[1]?.form?.props).toHaveProperty('title');
+    // a widget's own list narrows the methods, and may bind any other fn to a row's columns
+    const listed = record(QualifiedName.parse('hub/closing_tasks'), { kind: 'hub/widget', payload: Json.parse({ ...SPEC, actions: [{ fn: CLOSE.name, label: 'Close', bind: { id: 'id' }, then: 'refresh' }] }) });
+    fns.set(listed.name, listed);
+    const bound = await widgets.actions({ types: [QualifiedName.parse('tasks/Task')], widget: listed.name }, ANN);
+    expect(bound.map((a) => [a.fn, a.label, a.bind])).toEqual([['tasks/close', 'Close', { id: 'id' }]]);
     expect(await widgets.save({ name: 'open_tasks', description: 'Open tasks.', spec: SPEC }, RUN)).toEqual({ fn: 'hub/open_tasks', created: true });
     expect(declared[0]).toMatchObject({ name: 'open_tasks', kind: 'hub/widget', payload: { source: TASKS } });
   });

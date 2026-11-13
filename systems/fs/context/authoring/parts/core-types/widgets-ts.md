@@ -11,6 +11,20 @@ tags: ["authoring", "reference"]
 
 ### From `packages/core/src/widgets.ts`
 
+#### <a id="core-makewidgetargs"></a>`MakeWidgetArgs`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+`hub/make_widget`: the source fn, what the person wants, and the widget to change (absent: a new one).
+
+```ts
+type MakeWidgetArgs = {
+  source: `${string}/${string}`;
+  request: string;
+  widget?: `${string}/${string}` | undefined;
+};
+```
+
 #### <a id="core-widgetaction"></a>`WidgetAction`
 
 const, type · declared in `packages/core/src/widgets.ts`
@@ -42,6 +56,65 @@ type WidgetActionOption = {
   bind: Record<string, string>;
   then: "none" | "refresh" | "show";
   form?: TypeDef<any> | undefined;
+};
+```
+
+#### <a id="core-widgetcheck"></a>`WidgetCheck`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+`hub/widget_check`: a spec and a sample of its source's result; the answer lists every problem, empty when fine.
+
+```ts
+type WidgetCheck = {
+  spec: {
+    title: string;
+    source: `${string}/${string}`;
+    visuals: {
+      visual: string;
+      bind: Record<string, string[]>;
+      label?: string | undefined;
+    }[];
+    controls: {
+      arg: string;
+      label?: string | undefined;
+      choices?: z.core.util.JSONType[] | undefined;
+      custom?: boolean | undefined;
+      pinned?: z.core.util.JSONType | undefined;
+      hidden?: boolean | undefined;
+    }[];
+    paging?: {
+      size: number;
+      offset?: string | undefined;
+      limit?: string | undefined;
+    } | undefined;
+    actions?: {
+      fn: `${string}/${string}`;
+      bind: Record<string, string>;
+      then: "none" | "refresh" | "show";
+      label?: string | undefined;
+      confirm?: true | undefined;
+    }[] | undefined;
+  };
+  sample: {
+    columns: {
+      name: string;
+      kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+      nullable: boolean;
+      label?: string | undefined;
+      type?: TypeDef<any> | undefined;
+      ref?: `${string}/${string}` | undefined;
+    }[];
+    rows: z.core.util.JSONType[][];
+    offset: number;
+    truncated: boolean;
+    sort: {
+      column: string;
+      dir: "asc" | "desc";
+    }[];
+    limit?: number | undefined;
+    total?: number | undefined;
+  };
 };
 ```
 

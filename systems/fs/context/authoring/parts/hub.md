@@ -12,7 +12,7 @@ choices:
   - to: "fs/authoring.hub.hub-load-fns"
     when: "Pick this for hub/load_fns, hub/drop_fns, hub/fns_search, hub/fn_examples, hub/fn_get, hub/save_fn, hub/load_context, hub/search_resources, hub/run_status, hub/run_wait, hub/ask_user, hub/inspect,…"
   - to: "fs/authoring.hub.hub-explore-list"
-    when: "Pick this for hub/explore_list, hub/explore_read, hub/chat, hub/chat_small, hub/configure_provider, hub/set_model_category, hub/set_budget, hub/set_priority, hub/set_policy, hub/set_actor_setting,…"
+    when: "Pick this for hub/explore_list, hub/explore_read, hub/data_sets, hub/records_find, hub/record_get, hub/records_table, hub/record_versions, hub/record_save, hub/record_remove, hub/widget_source,…"
   - to: "fs/authoring.hub.kinds-of-hub"
     when: "Pick this for Kinds of hub, Types of hub, Mentions of hub, Sectioners of hub."
   - to: "fs/authoring.hub.reference"

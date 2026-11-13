@@ -5,7 +5,7 @@
  */
 import { ResourceReadResult, ResourceRecord, type InputProblem, type ResourceImportArgs, type ResourceReadArgs } from '@harness/core';
 import { CallFailed, type FnCtx, type FnTypes, type Outcome, type SystemImpl } from '@harness/sdk';
-import { CRAWL_PAGES_DEFAULT, type RenderModeValue, type WebContract } from '../shared/index.ts';
+import { CRAWL_PAGES_DEFAULT, type PageTargetValue, type RenderModeValue, type WebContract } from '../shared/index.ts';
 import { parseWebUrl, redactUrl } from '../shared/urls.ts';
 import { searchPage } from './searches.ts';
 import { Crawler, FetchedPages, crawlFolder, crawlRoot } from './crawl.ts';
@@ -161,8 +161,8 @@ export function createWebImpl(deps: WebDeps): WebServer {
     mentions: {
       pages: {
         search: (query, ctx) => mentions.search(query, ctx),
-        hover: (target, ctx) => mentions.hover(target, ctx),
-        llm: (target) => mentions.llm(target),
+        hover: (target: PageTargetValue, ctx) => mentions.hover(target, ctx),
+        llm: (target: PageTargetValue) => mentions.llm(target),
       },
     },
     lifecycle: {

@@ -11,6 +11,35 @@ tags: ["authoring"]
 
 #### Kinds of `hub`
 
+- `hub/widget`: A widget: a saved view of a fn that returns a table, drawn with the visuals that fit it, with a control per arg, a pager and row actions. Use when a person wants to keep a table or chart of a fn's result to look at again (made by hub/make_widget).
+
+  ```text
+  obj{
+    title: text{minLength=1},
+    source: text,
+    visuals: list<obj{visual: text, label?: text{minLength=1}, bind: any}>,
+    controls: list<obj{
+      arg: text,
+      label?: text{minLength=1},
+      choices?: list<any>,
+      custom?: bool,
+      pinned?: any,
+      hidden?: bool
+    }>,
+    paging?: obj{
+      offset?: text,
+      limit?: text,
+      size: num{whole=true, min=1, max=500}
+    },
+    actions?: list<obj{
+      fn: text,
+      label?: text{minLength=1},
+      confirm?: literal<bool>{value=true},
+      bind: any,
+      then: enum<text>{refresh, show, none}
+    }>
+  }
+  ```
 - `hub/llm`: An agent: an LLM with instructions, tools and context, callable like any fn. Use for work that needs judgement, reading or writing in natural language, or several tool calls.
 
   ```text

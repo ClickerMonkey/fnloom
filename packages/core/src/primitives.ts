@@ -15,6 +15,14 @@ export type Json = z.infer<typeof Json>;
 export const JsonObject = z.record(z.string(), Json);
 export type JsonObject = z.infer<typeof JsonObject>;
 
+/**
+ * A parsed value as JSON, with fields set to `undefined` left out as `JSON.stringify` leaves them (an optional field a
+ * strict tool call sent as null arrives as `undefined`, which `Json` refuses).
+ */
+export function jsonOf(value: unknown): Json {
+  return value === undefined ? null : Json.parse(JSON.parse(JSON.stringify(value)));
+}
+
 /** Whether a JSON value is an object (not null, not a list). */
 export function isJsonObject(value: Json | undefined): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

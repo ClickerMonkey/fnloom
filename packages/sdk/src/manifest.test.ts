@@ -76,7 +76,7 @@ describe('manifestOf', () => {
 
   it('builds the hub\'s own manifest', async () => {
     const body = manifestBody(hub, { version: '0' });
-    expect(body.kinds.map((k) => k.name)).toEqual(['llm']);
+    expect(body.kinds.map((k) => k.name)).toEqual(['widget', 'llm']);
     expect(body.fns.map((f) => f.name)).toContain('chat');
     expect(Manifest.safeParse(await manifestOf(hub, { version: '0' })).success).toBe(true);
   });

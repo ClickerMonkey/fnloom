@@ -65,6 +65,7 @@ export async function runStack(mode: RunMode, settings: StackSettings = stackSet
     watch: mode.watch,
     ...(mode.pinned === undefined ? {} : { pinned: mode.pinned }),
     only,
+    timeout: settings.HARNESS_DEV_START_TIMEOUT,
     restart: { delay: settings.HARNESS_DEV_RESTART_DELAY, every: settings.HARNESS_DEV_CHECK_EVERY, misses: settings.HARNESS_DEV_CHECK_MISSES },
     systems: {
       fs: fsConfig(settings.HARNESS_DEV_ROOT ?? ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL },

@@ -7,7 +7,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AutoPairId, qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
+import { AutoPairId, mintId, qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
 import { action, attachment, context, embedder, hook, kind, mention, sectioner, sectionKeys, setting, type } from '../declare.ts';
 import { fn, handler, linear, steps } from '../fn.ts';
 import { g } from '../gin.ts';
@@ -499,7 +499,7 @@ describe('everything else the hub asks', () => {
     const asker = { session: 'ses_1' as never, actor: TEST_USER.id, user: TEST_USER, time: { now: 0, timeZone: 'UTC', local: '1970-01-01T00:00:00Z' } }; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- a test session id
     expect(await peer.call('hook', { hook: 'recent', message: { session: asker.session, turn: 'trn_1', text: 'hi', user: TEST_USER, time: asker.time } }))  
       .toEqual([{ type: 'text', tag: 'recent', text: 'for Tess Tester' }, { type: 'suggest-fns', items: [{ fn: 'notes/echo' }] }]);
-    expect(await peer.call('mentions', { ...asker, provider: 'notes', query: 'my' })).toEqual([{ label: 'my note', target: { id: 'n-Tess Tester' } }]);
+    expect(await peer.call('mentions', { ...asker, provider: 'notes', query: 'my', request: mintId('mentionRequest') })).toEqual([{ label: 'my note', target: { id: 'n-Tess Tester' } }]);
     expect(await peer.call('mentionHover', { ...asker, provider: 'notes', target: { id: 'x' } })).toEqual({ hover: { title: 'x', value: { id: 'x', title: 'Hello' } } });
     expect(await peer.call('mentionText', { ...asker, provider: 'notes', target: { id: 'x' } })).toEqual({ text: 'Note x.' });
     expect(await peer.call('context', { ...asker, name: 'list', args: {} })).toEqual({ text: 'notes in /n for Tess Tester' });

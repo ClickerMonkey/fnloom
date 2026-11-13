@@ -89,8 +89,9 @@ one throws.
 `SensitivityFlag` (`path`, `kind`, `rule`, `access`, `action`, `why`, and `certain: false` for a path only found in a
 command line). The hub asks before the mode gate and policies: a `refuse` flag fails the run as invalid input with the
 rule's words, a write or an `ask` flag makes it wait for the person (never remembered, never passed by a policy or by
-`auto` mode, whose classifier sees the flags), and none lets it go on. Like a preview, `flags` must not change
-anything. `kit.flags('<fn>', args)` tests it (**Testing**).
+`auto` mode, whose classifier sees the flags), and none lets it go on. A run the person approved after that ask has
+`ctx.approved` set, so the fn may then show the sensitive files it would otherwise leave out. Like a preview, `flags`
+must not change anything. `kit.flags('<fn>', args)` tests it (**Testing**).
 
 **API groups.** `system(name, { groups: [{ name, title, description }] })` names the groups a system's fns are listed
 in, and `fn({ group })` puts a fn in one. The hub keeps an index item per system (`<system>/api`, its groups as

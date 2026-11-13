@@ -816,11 +816,12 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   /**
-   * The approval a run of a fn with `approval` went ahead on (`ctx.approved`): who approved it and the preview they
-   * saw, so the system can check it runs what was approved. Nothing for other fns or runs that weren't asked about.
+   * The approval a run of a fn with `approval` or `flags` went ahead on (`ctx.approved`): who approved it and the
+   * preview they saw, so the system can check it runs what was approved (fs shows sensitive files only to a run the
+   * person approved after a flags ask). Nothing for other fns or runs that weren't asked about.
    */
   async #approvedOn(run: Run, fn: FnRecord): Promise<Pick<RunRequest, 'approved'>> {
-    if (fn.decl.approval === undefined || run.approvedAt === undefined) return {};
+    if ((fn.decl.approval === undefined && fn.decl.flags !== true) || run.approvedAt === undefined) return {};
     const page = await this.#deps.store.table('approvals').find({ where: { run: run.id, status: 'approved' }, order: [['createdAt', 'desc']], limit: 1 });
     const approval = page.items[0];
     const by = approval?.decisions.findLast((d) => d.approve)?.by;

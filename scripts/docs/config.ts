@@ -11,9 +11,10 @@ import { z } from 'zod';
 import { COMMANDS, usageOf } from '@harness/cli';
 import { fence, renderReached, table } from './compose.ts';
 import { contractListing } from './contract-listing.ts';
-import { filesUnder, folderListing, readText, type GuideConfig } from './guide.ts';
+import { filesUnder, folderListing, listingInPieces, readText, type GuideConfig } from './guide.ts';
 import { mistakesIn, renderMistakes } from './mistakes.ts';
 import { GIN_EXTERNALS, OUTLINE } from './outline.ts';
+import { PART_BUDGET } from './split.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 /** Where the guide is written. */
@@ -49,7 +50,8 @@ export const AUTHORING_CONFIG: GuideConfig = {
   generators: (api) => ({
     'template-files': () => folderListing(ROOT, 'systems/template'),
     'example-system': () => folderListing(ROOT, 'scripts/docs/example'),
-    'fs-contract': () => fence(readText(at('systems/fs/shared/index.ts')) ?? '', 'ts'),
+    // the fs contract is larger than one part, so it is listed in pieces the part cutter splits at
+    'fs-contract': () => listingInPieces('systems/fs/shared/index.ts', readText(at('systems/fs/shared/index.ts')) ?? '', Math.floor(PART_BUDGET / 2)),
     'hub-contract': () => contractListing(hub),
     'cli-commands': () => table(['Command', 'What it does'], COMMANDS.map((c) => [`\`${usageOf(c)}\``, c.summary])),
     'system-json-schema': () => fence(JSON.stringify(z.toJSONSchema(SystemPackageManifest, { io: 'input' }), null, 2), 'json'),

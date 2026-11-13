@@ -21,7 +21,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`Section`](context:fs/authoring.core-types.resources-ts#core-section).
+Refers to: [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`MakeWidgetArgs`](context:fs/authoring.core-types.widgets-ts#core-makewidgetargs), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetCheck`](context:fs/authoring.core-types.widgets-ts#core-widgetcheck), [`WidgetSpec`](context:fs/authoring.core-types.widgets-ts#core-widgetspec).
 
 #### `HubContract`
 
@@ -224,6 +224,49 @@ An explorer read fn's name.
 ```ts
 type HubExploreFnName = keyof typeof HUB_EXPLORE_ENDPOINTS;
 ```
+
+#### `HUB_DATA_ENDPOINTS`
+
+const · `import { HUB_DATA_ENDPOINTS } from '@harness/sdk'`
+
+Build 8, the data system (`core/data.ts`) as fns: stored types and their records, as the run's person. The reads
+are tagged `read`; saving and removing a record ask unless a policy allows it.
+
+```ts
+const HUB_DATA_ENDPOINTS = {
+  data_sets: dataSlice.endpoints.dataSets,
+  records_find: dataSlice.endpoints.records,
+  record_get: dataSlice.endpoints.record,
+  records_table: dataSlice.endpoints.recordTable,
+  record_versions: dataSlice.endpoints.recordVersions,
+  record_save: dataSlice.endpoints.saveRecord,
+  record_remove: dataSlice.endpoints.removeRecord,
+} as const satisfies Record<string, EndpointLike>;
+```
+
+#### `WidgetSourceArgs`
+
+const · `import { WidgetSourceArgs } from '@harness/sdk'`
+
+`hub/widget_source`: a fn whose result is a table, and the args to run a small sample with.
+
+```ts
+const WidgetSourceArgs: z.ZodObject<{ source: z.ZodTemplateLiteral<`${string}/${string}`>; args: z.ZodOptional<z.ZodJSONSchema>; }, z.core.$strip>;
+```
+
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
+
+#### `WidgetSaveArgs`
+
+const · `import { WidgetSaveArgs } from '@harness/sdk'`
+
+`hub/widget_save`: the widget's name, one line about it, its spec, and whether to save over a widget of that name.
+
+```ts
+const WidgetSaveArgs = z.object({ name: LocalName, description: z.string().min(1), spec: WidgetSpec, replace: z.boolean().optional() });
+```
+
+Refers to: [`WidgetSpec`](context:fs/authoring.core-types.widgets-ts#core-widgetspec).
 
 #### `ADMIN_READ_ENDPOINTS`
 

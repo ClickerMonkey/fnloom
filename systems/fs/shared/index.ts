@@ -431,6 +431,7 @@ export const fs = system('fs', {
     fns: {
       explore: agent({
         description: 'Answers questions about the code by reading it.',
+        group: 'files',
         effects: { mode: 'read' },
         usage: 'Use it for a question that needs several files read (how a feature works, where something is decided) so your own context stays small. Ask one clear question; the answer quotes paths and lines.',
         args: g.obj({ question: g.text() }),

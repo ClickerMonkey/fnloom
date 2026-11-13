@@ -84,7 +84,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'hub',
     title: 'The hub contract',
     exports: [
-      'hub', 'HubContract', 'ADMIN_ENDPOINTS', 'AdminFnName', 'HUB_READ_ENDPOINTS', 'HubReadFnName', 'HUB_WRITE_ENDPOINTS', 'HubWriteFnName', 'HUB_PERSON_ENDPOINTS', 'HubPersonFnName', 'HUB_EXPLORE_ENDPOINTS', 'HubExploreFnName', 'ADMIN_READ_ENDPOINTS', 'AdminReadFnName', 'FIND_KINDS',
+      'hub', 'HubContract', 'ADMIN_ENDPOINTS', 'AdminFnName', 'HUB_READ_ENDPOINTS', 'HubReadFnName', 'HUB_WRITE_ENDPOINTS', 'HubWriteFnName', 'HUB_PERSON_ENDPOINTS', 'HubPersonFnName', 'HUB_EXPLORE_ENDPOINTS', 'HubExploreFnName', 'HUB_DATA_ENDPOINTS', 'WidgetSourceArgs', 'WidgetSaveArgs', 'ADMIN_READ_ENDPOINTS', 'AdminReadFnName', 'FIND_KINDS',
       'LlmPayloadType', 'ModelChoiceType', 'ChatModeType', 'ContextorType', 'FnErrorType', 'StoredFn', 'SaveFnArgs', 'SAVE_FN_TAKEN',
     ],
   },

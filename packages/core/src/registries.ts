@@ -57,7 +57,7 @@ export type RegistryDecl = z.infer<typeof RegistryDecl>;
  * client bundle, under the same registry and name; this declaration tells the hub and the web app which bundles to load.
  */
 export const ContributionDecl = z.object({
-  /** The registry, qualified by the system that hosts it (`database/query-visuals`). */
+  /** The registry, qualified by the system that hosts it (`hub/visuals`). */
   registry: QualifiedName,
   name: LocalName,
   /** What the switcher shows ("Table", "Bar chart"). */
