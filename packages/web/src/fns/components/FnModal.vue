@@ -4,7 +4,8 @@
  * of it the opener passes (the chat's own, newest first), with "Open page" for the full fn page when the person may
  * see it. A fn it uses opens in its place. `v-model:fn` is the fn shown; undefined closes it. Mount it only while open
  * (`v-if`), so it stacks over whatever sheet opened it. `manage` (an admin's system pages) adds what the fn page has
- * besides: its on/off switch (`switched` tells the opener) and its numbers over a period.
+ * besides: its on/off switch (`switched` tells the opener), what a kind fn runs (a code fn's program, an api fn's request)
+ * and its numbers over a period.
  */
 import type { QualifiedName, RunId } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -15,7 +16,9 @@ import type { RunView } from '../../chat/logic/runs.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiButton, UiDialog, UiSwitch } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
+import type { PayloadForm } from '../logic/facts.ts';
 import FnOverview from './FnOverview.vue';
+import FnPayload from './FnPayload.vue';
 import FnRuns from './FnRuns.vue';
 
 const props = withDefaults(defineProps<{
@@ -32,6 +35,7 @@ const emit = defineEmits<{ run: [run: RunId]; page: [fn: QualifiedName]; switche
 const { fns, admin, toasts } = useStores();
 const managed = admin.fn;
 const days = ref<FnPeriod>(7);
+const payloadForm = ref<PayloadForm>('readable');
 const record = computed(() => (props.manage ? managed.record.value.value : undefined));
 
 async function switchOn(on: boolean): Promise<void> {
@@ -59,6 +63,7 @@ onBeforeUnmount(() => { fns.close(); if (props.manage) { managed.close(); } });
         <UiSwitch :model-value="!record.disabled" label="In use" :disabled="managed.switching.busy.value" data-testid="fn-on" @update:model-value="switchOn" />
       </template>
       <template #runs>
+        <FnPayload v-if="record && record.name === fn" v-model:form="payloadForm" :payload="record.decl.payload" :readable="record.decl.readable" :max-height="240" />
         <FnRuns v-if="shownRuns.length > 0" :runs="shownRuns" :now="now" title="Its runs here" @open="emit('run', $event)" />
         <FnStats
           v-if="manage" v-model:days="days" :metrics="managed.metrics.value.value" :daily="managed.daily.value.value ?? []" :loading="managed.metrics.loading.value"

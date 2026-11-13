@@ -5,7 +5,7 @@
 import { loggedHost, placeFolders, serve, type RunningSystem } from '@harness/sdk/server';
 import { claude } from '../shared/index.ts';
 import { AgentSdkDriver } from './agent-sdk.ts';
-import { claudeEnv, dialogKinds } from './env.ts';
+import { claudeEnv, dialogKinds, sessionEnv } from './env.ts';
 import { createClaudeImpl } from './impl.ts';
 
 const settings = claudeEnv.parse();
@@ -17,7 +17,7 @@ let resolveRunning: (system: RunningSystem<typeof claude.name>) => void = () => 
 const serving = new Promise<RunningSystem<typeof claude.name>>((resolve) => { resolveRunning = resolve; });
 const server = createClaudeImpl({
   settings,
-  driver: new AgentSdkDriver({ executable: settings.CLAUDE_EXECUTABLE, dialogKinds: dialogKinds(settings), textMax: settings.CLAUDE_TRANSCRIPT_TEXT_MAX }),
+  driver: new AgentSdkDriver({ executable: settings.CLAUDE_EXECUTABLE, dialogKinds: dialogKinds(settings), textMax: settings.CLAUDE_TRANSCRIPT_TEXT_MAX, env: sessionEnv(process.env, settings) }),
   runtime: () => serving,
 });
 

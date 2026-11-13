@@ -38,7 +38,7 @@ export class ResponseFailed extends Error {
   }
 }
 
-/** What sending needs from the run: fetch, the person's connection, files to keep a file response, resource text. */
+/** What sending needs from the run: fetch, the person's connection, files to keep a file response, resource bytes. */
 export interface SendCtx {
   readonly fetch: typeof fetch;
   readonly signal: AbortSignal;
@@ -46,8 +46,8 @@ export interface SendCtx {
   readonly credentials: Json | undefined;
   /** Keep bytes as a file in the hub; its ref. */
   keep(bytes: Uint8Array, mime: string): Promise<ContentRef>;
-  /** A resource's text (a multipart part or a binary body). */
-  text(uri: ResourceUri): Promise<string>;
+  /** A resource's raw bytes (a multipart file part or a binary body), sent unconverted. */
+  bytes(uri: ResourceUri): Promise<Uint8Array<ArrayBuffer>>;
   /** The redirects one request follows; each must stay under the base URL, so a credential never leaves it. */
   readonly maxRedirects: number;
 }
@@ -127,7 +127,7 @@ export interface Prepared {
 }
 
 /** Build the request: the URL with its params, the headers (the service's, the program's, then the auth), the body. */
-export async function prepare(request: HttpRequest, config: ApiServiceConfig, ctx: Pick<SendCtx, 'credentials' | 'text'>): Promise<Prepared> {
+export async function prepare(request: HttpRequest, config: ApiServiceConfig, ctx: Pick<SendCtx, 'credentials' | 'bytes'>): Promise<Prepared> {
   const url = serviceUrl(config.baseUrl, request.url);
   for (const param of request.params ?? []) for (const [key, value] of encodeParam(param)) url.searchParams.append(key, value);
   const auth = authHeaders(config, ctx.credentials);
@@ -151,9 +151,10 @@ export async function prepare(request: HttpRequest, config: ApiServiceConfig, ct
   } else if (body?.multipart !== undefined) {
     const form = new FormData();
     for (const part of body.multipart) {
-      const text = part.resource === undefined ? (part.value ?? '') : await ctx.text(part.resource);
-      if (part.resource === undefined && part.filename === undefined) form.append(part.name, text);
-      else form.append(part.name, new Blob([text], { type: part.contentType ?? 'application/octet-stream' }), part.filename ?? part.name);
+      if (part.resource === undefined && part.filename === undefined) { form.append(part.name, part.value ?? ''); continue; }
+      // a file part is the resource's bytes as they are: reading it as text would break an image, a PDF or a zip
+      const content: BlobPart = part.resource === undefined ? (part.value ?? '') : await ctx.bytes(part.resource);
+      form.append(part.name, new Blob([content], { type: part.contentType ?? 'application/octet-stream' }), part.filename ?? part.name);
     }
     // the boundary is made when it is sent: a content-type of the program's would lose it
     headers.delete('content-type');
@@ -164,7 +165,8 @@ export async function prepare(request: HttpRequest, config: ApiServiceConfig, ct
     if (!headers.has('content-type')) headers.set('content-type', 'text/plain');
     shown = `text ${body.text.slice(0, 500)}`;
   } else if (body?.binary !== undefined) {
-    sent = await ctx.text(body.binary);
+    sent = await ctx.bytes(body.binary);
+    if (!headers.has('content-type')) headers.set('content-type', 'application/octet-stream');
     shown = `binary ${body.binary}`;
   }
   const secret = new Set([...secretHeaderNames(config.auth), ...Object.keys(auth).map((key) => key.toLowerCase())]);

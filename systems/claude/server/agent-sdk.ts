@@ -28,6 +28,8 @@ export interface AgentSdkOptions {
   readonly dialogKinds: readonly string[];
   /** The longest text a transcript item carries. */
   readonly textMax: number;
+  /** The environment Claude Code runs with (`sessionEnv`): never all of this process's, which holds the harness's keys. */
+  readonly env: Readonly<Record<string, string>>;
 }
 
 /** A queue of user messages the SDK reads as its streaming input; `end` finishes it. */
@@ -216,6 +218,8 @@ export class AgentSdkDriver implements ClaudeDriver {
   #base(folder: string): Options {
     return {
       cwd: folder,
+      // the SDK gives Claude Code all of process.env unless told: a session's Bash would see every key the harness holds
+      env: { ...this.#options.env },
       settingSources: ['user', 'project', 'local'],
       ...(this.#options.executable === undefined ? {} : { pathToClaudeCodeExecutable: this.#options.executable }),
     };

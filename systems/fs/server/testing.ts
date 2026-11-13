@@ -93,7 +93,7 @@ function services(options: FakeOptions, recorded: Recorded) {
     notifyAdmins: unused('notifyAdmins'),
     files: { read: unused('files'), readText: unused('files'), write: unused('files'), list: unused('files'), remove: unused('files'), share: unused('files') },
     fetch: unused('fetch'),
-    resources: { stat: unused('resources'), text: unused('resources'), links: unused('resources'), sections: unused('resources'), search: unused('resources') },
+    resources: { stat: unused('resources'), text: unused('resources'), bytes: unused('resources'), links: unused('resources'), sections: unused('resources'), search: unused('resources') },
     types: { definitions: unused('types') },
     data: { find: unused('data'), get: unused('data'), table: unused('data'), save: unused('data'), remove: unused('data') },
     attach: <A>(ref: AttachmentRef<QualifiedName, A>, data: A, title: string) => { recorded.attachments.push({ name: ref.name, data: parseValue(ref.data, data), title }); },

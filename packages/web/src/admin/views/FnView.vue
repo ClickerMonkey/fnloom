@@ -20,11 +20,13 @@ import { useRouteQuery } from '../../app/url.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { useStores } from '../../state/stores.ts';
 import FnOverview from '../../fns/components/FnOverview.vue';
+import FnPayload from '../../fns/components/FnPayload.vue';
+import { PayloadForm } from '../../fns/logic/facts.ts';
 import FnRuns from '../../fns/components/FnRuns.vue';
 import { frameOf } from '../../components/widgets/widget-source.ts';
 import WidgetView from '../../components/widgets/WidgetView.vue';
 import { useWidgetOpener } from '../../data/state/open-widget.ts';
-import { UiBadge, UiButton, UiCard, UiCodeBlock, UiEmpty, UiIcon, UiSegmented, UiSwitch, type SegmentOption } from '../../ui/index.ts';
+import { UiBadge, UiButton, UiCard, UiEmpty, UiIcon, UiSwitch } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import FnStats from '../components/FnStats.vue';
 import LoadState from '../components/LoadState.vue';
@@ -54,13 +56,8 @@ const back = computed(() => {
   if (r === undefined) { return undefined; }
   return r.decl.routing?.to === 'instance' ? links.instance(r.system, r.decl.routing.instance, 'fns') : links.system(r.system, 'fns');
 });
-const payload = computed(() => (record.value?.decl.payload === undefined ? '' : JSON.stringify(record.value.decl.payload, null, 2)));
-/** The payload as its kind writes it for people (a query's SQL), with the stored JSON one switch away (`?form=stored`). */
-const readable = computed(() => record.value?.decl.readable);
-const PayloadForm = z.enum(['readable', 'stored']);
+/** The payload as its kind writes it for people (a query's SQL, a program), with the stored JSON one switch away (`?form=stored`). */
 const form = query.choice('form', PayloadForm, 'readable');
-const FORMS = computed<readonly SegmentOption<z.infer<typeof PayloadForm>>[]>(() => [{ value: 'readable', label: readable.value?.language.toUpperCase() ?? 'Readable' }, { value: 'stored', label: 'Stored form' }]);
-const shownPayload = computed(() => (readable.value !== undefined && form.value === 'readable' ? { code: readable.value.code, language: readable.value.language } : { code: payload.value, language: 'json' }));
 /** A saved widget: its latest finished run drawn as the widget (the runs are newest first). */
 const isWidget = computed(() => record.value?.decl.kind === WIDGET_KIND);
 const shownRun = computed(() => (isWidget.value ? recent.value.find((run) => run.outcome?.status === 'done') : undefined));
@@ -110,10 +107,7 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
           v-model:days="period" :metrics="store.metrics.value.value" :daily="store.daily.value.value ?? []" :loading="store.metrics.loading.value"
           :problem="store.metrics.problem.value || store.daily.problem.value" :now="now" @retry="store.open(name, period)"
         />
-        <UiCard v-if="payload !== ''" title="What it runs" data-testid="fn-payload">
-          <template v-if="readable" #actions><UiSegmented v-model="form" :options="FORMS" label="Show it as" data-testid="fn-payload-form" /></template>
-          <UiCodeBlock :code="shownPayload.code" :language="shownPayload.language" wrap :max-height="360" />
-        </UiCard>
+        <FnPayload v-model:form="form" :payload="record.decl.payload" :readable="record.decl.readable" />
         <AccessControl :target="{ kind: 'fn', fn: name }" />
         <ItemHistory :item="{ system: record.system, section: 'fns', name }" />
         <FnRuns

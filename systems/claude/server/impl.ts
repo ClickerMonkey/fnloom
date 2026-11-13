@@ -126,7 +126,21 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
 
   /** The open request of a session the fleet makes live. */
   function openOf(value: ClaudeSession, resume: boolean, config: ClaudeInstanceConfig): DriverOpen {
-    return { session: value.session, resume, folder: value.folder, model: value.model, permissionMode: value.permissionMode, agent: value.agent, hubMcp: config.hubMcp };
+    return { session: value.session, resume, folder: value.folder, model: value.model, permissionMode: value.permissionMode, agent: value.agent, hubMcp: hubMcpOf(value, config) };
+  }
+
+  /**
+   * The hub MCP a session gets: the configured one, only when the session is its person's. The hub runs each call on it
+   * as that person, so another person's session would call fns with their access and connections.
+   */
+  function hubMcpOf(value: ClaudeSession, config: ClaudeInstanceConfig): DriverOpen['hubMcp'] {
+    const mcp = config.hubMcp;
+    if (mcp === undefined) { return undefined; }
+    if (mcp.person !== value.owner) {
+      system?.log.info('claude.hub_mcp_withheld', { session: value.session, reason: mcp.person === undefined ? 'no person set on the hub MCP' : 'the session is another person\'s' });
+      return undefined;
+    }
+    return { url: mcp.url, secret: mcp.secret };
   }
 
   /** Wait for the turn when asked; else the session as it is now. */
@@ -306,6 +320,8 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           const record = await recordOf(ctx.data, args.session);
           if (record === undefined) { return ctx.invalid([{ path: 'session', message: 'No such session of yours on this machine.' }]); }
           if (args.action === 'mode' && args.mode === undefined) { return ctx.invalid([{ path: 'mode', message: 'Give the permission mode to switch to.' }]); }
+          // the mode decides what Claude may do without asking its person, so only they change it (an admin may interrupt or stop)
+          if (args.mode !== undefined && record.value.owner !== ctx.run.user.id) { return ctx.invalid([{ path: 'mode', message: "This session is another person's: only they can change what it may do without asking. You can interrupt it or stop it." }]); }
           if (!fleet.isLive(args.session)) {
             if (args.action !== 'mode') { return ctx.invalid([{ path: 'session', message: `The session is not live, so there is nothing to ${args.action}.` }]); }
             // a closed session takes the mode when it is next resumed (`send` opens it with its record's mode)
@@ -346,7 +362,7 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           const args = ClaudePermit.parse(raw);
           // the run is the session's person's (the approver of the proposal): only they settle its requests
           if (args.instance !== instance || await recordOf(ctx.data, args.session) === undefined) { return ctx.fail('caller', NOT_WAITING); }
-          return fleet.permit(args.session, args.request, args.always)
+          return fleet.permit(args.session, args.request, ctx.run.id, args.always)
             ? ctx.done({ instance, session: args.session, request: args.request, allowed: true, always: args.always })
             : ctx.fail('caller', NOT_WAITING);
         },
@@ -355,7 +371,7 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
         async run(raw, ctx) {
           const args = ClaudeAnswer.parse(raw);
           if (args.instance !== instance || await recordOf(ctx.data, args.session) === undefined) { return ctx.fail('caller', NOT_WAITING); }
-          return fleet.answer(args.session, args.request, args.answer)
+          return fleet.answer(args.session, args.request, ctx.run.id, args.answer)
             ? ctx.done({ instance, session: args.session, request: args.request, answered: true })
             : ctx.fail('caller', NOT_WAITING);
         },

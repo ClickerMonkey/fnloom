@@ -9,9 +9,10 @@ import { API_KIND, InstanceName, QualifiedName, mintId, type ApiFnSpec, type Api
 import { encodeValue } from '@harness/sdk';
 import { mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
-import { api, ApiPayload } from '../shared/index.ts';
+import { api, ApiPayload, HttpRequest } from '../shared/index.ts';
 import { API_EXAMPLES } from './authoring.ts';
 import { apiEnv } from './env.ts';
+import { prepare } from './http.ts';
 import { createApiImpl } from './impl.ts';
 
 type Kit = TestSystem<'api', typeof api.defs>;
@@ -104,8 +105,28 @@ describe('the request kind', () => {
     const running = await start([], []);
     expect((await running.kindProps('request', ISSUES)).description).toMatchObject({ effects: { mode: 'read' }, deps: [], args: ISSUES.args });
     expect((await running.kindProps('request', CREATE)).description).toMatchObject({ effects: { mode: 'write' } });
+    // its page reads the method, the service and both programs
+    const readable = (await running.kindProps('request', ISSUES)).description?.readable;
+    expect(readable?.code).toContain(`// Sends GET to the ${ISSUES.service} service:`);
+    expect(readable?.code).toContain(ISSUES.output === undefined ? '// The result is the response body.' : '// The result, read from `response`:');
     const computed = { ...CREATE, request: { kind: 'new', type: { name: 'api/HttpRequest' }, value: { ...API_EXAMPLES.createIssue.request.value, method: { kind: 'get', path: [{ prop: 'args' }, { prop: 'title' }] } } } };
     expect((await running.kindProps('request', computed)).problems.join('\n')).toContain('write `method` literally');
+  });
+
+  it('never sends a method the program changed after the one it was checked by', async () => {
+    const sent: Sent[] = [];
+    const running = await start([], sent);
+    const request = { kind: 'new', type: { name: 'api/HttpRequest' }, value: { method: 'GET', url: '/repos/acme/web' } };
+    const changed = {
+      ...ISSUES,
+      request: {
+        kind: 'define', vars: [{ name: 'r', value: request }],
+        body: { kind: 'block', lines: [{ kind: 'set', path: [{ prop: 'r' }, { prop: 'method' }], value: { kind: 'new', type: { name: 'text' }, value: 'DELETE' } }, { kind: 'get', path: [{ prop: 'r' }] }] },
+      },
+    };
+    expect((await running.kindProps('request', changed)).description).toMatchObject({ effects: { mode: 'read' } });
+    expect(JSON.stringify(await run(running, changed, { owner: 'acme', repo: 'web' }))).toContain('checked as GET but built as DELETE');
+    expect(sent).toEqual([]);
   });
 
   it('runs signed with the service\'s token, masks it in the trace, and refuses a url that leaves the base URL', async () => {
@@ -147,5 +168,23 @@ describe('the request kind', () => {
     const running = await start([], []);
     const { result } = await running.call('operations', { text: 'issues', limit: 1 });
     expect(result).toEqual({ items: [{ method: 'GET', path: '/repos/{owner}/{repo}/issues', summary: 'List issues', operationId: 'issues/list' }], total: 2, next: 1 });
+  });
+});
+
+describe('file bodies', () => {
+  const BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x00, 0x80]);
+  const how = { credentials: undefined, bytes: () => Promise.resolve(BYTES) };
+
+  it('sends a binary body and a multipart file part as the resource\'s bytes, not its text', async () => {
+    const binary = await prepare(HttpRequest.parse({ method: 'PUT', url: '/files/logo', body: { binary: 'fs://home/logo.png' } }), CONFIG, how);
+    expect(binary.init.body).toEqual(BYTES);
+    expect(new Headers(binary.init.headers).get('content-type')).toBe('application/octet-stream');
+    const multipart = await prepare(HttpRequest.parse({ method: 'POST', url: '/files', body: { multipart: [{ name: 'note', value: 'hi' }, { name: 'file', resource: 'fs://home/logo.png', filename: 'logo.png', contentType: 'image/png' }] } }), CONFIG, how);
+    const form = multipart.init.body;
+    if (!(form instanceof FormData)) throw new Error('expected a multipart form');
+    const file = form.get('file');
+    if (!(file instanceof Blob)) throw new Error('expected a file part');
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(BYTES);
+    expect(form.get('note')).toBe('hi');
   });
 });

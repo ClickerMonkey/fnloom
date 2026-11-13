@@ -5,7 +5,7 @@
  *
  * - `params` and `headers` are ordered lists of named pairs: a query string and a header bag may repeat a key.
  * - The body's slot is its encoding: set exactly one of `json`, `form`, `multipart`, `text` or `binary`.
- * - A file (a multipart part or a binary body) is a resource URI the hub serves; its text is what is sent.
+ * - A file (a multipart part or a binary body) is a resource URI the hub serves; its raw bytes are what is sent.
  */
 import { HttpMethod, Json, ResourceUri } from '@harness/core';
 import { z } from 'zod';
@@ -22,7 +22,7 @@ export type ParamStyle = z.infer<typeof ParamStyle>;
 export const HttpParam = z.object({ key: z.string().min(1), value: Json, style: ParamStyle.optional(), explode: z.boolean().optional() });
 export type HttpParam = z.infer<typeof HttpParam>;
 
-/** One multipart/form-data part: a text value or a resource's text. */
+/** One multipart/form-data part: a text value or a resource's bytes. */
 export const HttpPart = z.object({
   name: z.string().min(1),
   value: z.string().optional(),
@@ -38,7 +38,7 @@ export const HttpBody = z.object({
   form: z.array(HttpParam).optional(),
   multipart: z.array(HttpPart).optional(),
   text: z.string().optional(),
-  /** A resource whose text is the body, sent with its own type. */
+  /** A resource whose bytes are the body, sent as the request's content-type header says (else application/octet-stream). */
   binary: ResourceUri.optional(),
 });
 export type HttpBody = z.infer<typeof HttpBody>;

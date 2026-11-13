@@ -13,7 +13,7 @@ import { ApiAuthoring, apiAuthoring } from './authoring.ts';
 import type { ApiSettings } from './env.ts';
 import { NoCredential, prepare, RequestRefused, ResponseFailed, responseFile, send, type SendCtx } from './http.ts';
 import { operationsPage, readOperations } from './openapi.ts';
-import { checkApi, modeOf, runApi, type ApiCheck } from './program.ts';
+import { checkApi, modeOf, readableApi, runApi, type ApiCheck } from './program.ts';
 
 /** Everything the implementation is built from. */
 export interface ApiDeps {
@@ -32,8 +32,8 @@ async function payloadProblems(spec: ApiFnSpec, ctx: KindCheckCtx): Promise<stri
   return (await checked(spec, kindCheckLookups(ctx))).check.problems;
 }
 
-/** How a run sends: its fetch and signal, the person's connection, files for a file response, resource text. */
-function sendCtx(settings: ApiSettings, ctx: { fetch: typeof fetch; signal: AbortSignal; files: Files; resources: { text(uri: ResourceUri): Promise<string> }; connection: { credentials: Json } | undefined }): SendCtx {
+/** How a run sends: its fetch and signal, the person's connection, files for a file response, resource bytes. */
+function sendCtx(settings: ApiSettings, ctx: { fetch: typeof fetch; signal: AbortSignal; files: Files; resources: { bytes(uri: ResourceUri): Promise<Uint8Array> }; connection: { credentials: Json } | undefined }): SendCtx {
   return {
     maxRedirects: settings.HARNESS_API_MAX_REDIRECTS,
     fetch: ctx.fetch,
@@ -44,7 +44,8 @@ function sendCtx(settings: ApiSettings, ctx: { fetch: typeof fetch; signal: Abor
       await ctx.files.write(path, bytes);
       return ctx.files.share(path);
     },
-    text: (uri) => ctx.resources.text(uri),
+    // a copy on its own ArrayBuffer, which fetch and Blob take as a body
+    bytes: async (uri) => Uint8Array.from(await ctx.resources.bytes(uri)),
   };
 }
 
@@ -123,6 +124,7 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
           const spec = ApiFnSpec.parse(payload);
           const lookups = kindCheckLookups(ctx);
           const { check } = await checked(spec, lookups);
+          const readable = readableApi(check, spec.service);
           // GET and HEAD read; anything else changes the service; a program that calls fns also does what they do
           const mode = strongerMode(modeOf(check.method), await calleesMode(check.calls, lookups));
           return KindDescription.parse({
@@ -132,7 +134,7 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
             operations: { cancel: true, pause: false, undo: false, background: false },
             // a mode past read makes the hub's policies ask before it runs
             effects: { mode },
-            ...(check.request.code === undefined ? {} : { readable: { language: 'ts', code: check.request.code } }),
+            ...(readable === undefined ? {} : { readable: { language: 'ts', code: readable } }),
           });
         },
         async run(payload, args, ctx) {

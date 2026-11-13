@@ -16,7 +16,7 @@ import { run } from '../chat/test/fakes.ts';
 import { ClientLogs, consoleText } from '../state/client-logs.ts';
 import { fakeCaller, fakeUserEvents } from '../test/fakes.ts';
 import FnOverview from './components/FnOverview.vue';
-import { costText, exampleCall, factFigures } from './logic/facts.ts';
+import { costText, exampleCall, factFigures, shownPayload } from './logic/facts.ts';
 import { FnInfoStore } from './state/fn-info.ts';
 import { fakeFnsApi, SAMPLE_EXAMPLES, SAMPLE_FACTS, SAMPLE_FN, SAMPLE_HIT } from './test/fakes.ts';
 
@@ -180,5 +180,15 @@ describe('browser logs and traffic', () => {
     logs.error(error, 'window');
     const line = send.calls[0]?.[0].entries[0];
     expect(line).toMatchObject({ type: 'log', message: 'Error: fetch failed with Bearer [hidden]', fields: { source: 'window', stack: 'Error: fetch failed with Bearer [hidden]\n    at [hidden]' } });
+  });
+});
+
+describe('what a kind fn runs', () => {
+  it('shows its readable form when picked, else the stored JSON, and nothing for a native fn', () => {
+    const readable = { language: 'ts', code: 'args.a + 1' };
+    expect(shownPayload({ program: 1 }, readable, 'readable')).toEqual(readable);
+    expect(shownPayload({ program: 1 }, readable, 'stored')).toEqual({ language: 'json', code: '{\n  "program": 1\n}' });
+    expect(shownPayload({ program: 1 }, undefined, 'readable')?.language).toBe('json');
+    expect(shownPayload(undefined, undefined, 'readable')).toBeUndefined();
   });
 });

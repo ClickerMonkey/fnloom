@@ -171,18 +171,21 @@ export class SessionFleet {
     await Promise.all(writes);
   }
 
-  /** The approved run of a waiting tool use of `session`: let Claude use it. False when the request is gone. */
-  permit(session: ClaudeSessionId, request: string, always: boolean): boolean {
-    if (!this.#waitingOf(session, request, 'permit')) { return false; }
+  /**
+   * The approved run of a waiting tool use of `session`: let Claude use it. False when the request is gone, or when
+   * `run` is not the run proposed for it (a direct call never is, so nobody settles another person's request).
+   */
+  permit(session: ClaudeSessionId, request: string, run: RunId, always: boolean): boolean {
+    if (!this.#waitingOf(session, request, 'permit', run)) { return false; }
     const waiting = this.#take(request);
     if (waiting?.kind !== 'permit') { return false; }
     waiting.resolve({ allow: true, always });
     return true;
   }
 
-  /** The approved run of a waiting question of `session`, with the person's answer. False when the request is gone. */
-  answer(session: ClaudeSessionId, request: string, answer: Json): boolean {
-    if (!this.#waitingOf(session, request, 'answer')) { return false; }
+  /** The approved run of a waiting question of `session`, with the person's answer. False as `permit` is. */
+  answer(session: ClaudeSessionId, request: string, run: RunId, answer: Json): boolean {
+    if (!this.#waitingOf(session, request, 'answer', run)) { return false; }
     const waiting = this.#take(request);
     if (waiting?.kind !== 'answer') { return false; }
     waiting.resolve({ answer });
@@ -260,10 +263,10 @@ export class SessionFleet {
     return waiting;
   }
 
-  /** Whether `request` is a request of this kind that `session` waits on (a run names both). */
-  #waitingOf(session: ClaudeSessionId, request: string, kind: Waiting['kind']): boolean {
+  /** Whether `request` is a request of this kind that `session` waits on, and `run` the run proposed for it. */
+  #waitingOf(session: ClaudeSessionId, request: string, kind: Waiting['kind'], run: RunId): boolean {
     const waiting = this.#waiting.get(request);
-    return waiting?.session === session && waiting.kind === kind;
+    return waiting?.session === session && waiting.kind === kind && waiting.run === run;
   }
 
   /** Whether a session has requests waiting. */

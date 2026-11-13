@@ -53,10 +53,11 @@ if (layout !== undefined && props.keepTitle) {
 .actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .compact .title { font-size: var(--text-xl); }
 /* on a phone the actions sit beside the title and its line while that leaves the line room to read (12rem); more
-   actions than that fit wrap onto a row of their own under it, rather than squeezing the line to a word a row */
+   actions than that fit wrap onto a row of their own under it, rather than squeezing the line to a word a row, and wrap
+   among themselves when even that row is too narrow */
 .compact .head { align-items: flex-start; }
 .compact .titles { flex: 1 1 12rem; }
 .compact .description { font-size: var(--text-sm); }
-.compact .actions { flex: none; }
+.compact .actions { flex: none; max-width: 100%; }
 .compact { padding: var(--space-4) var(--space-4) max(var(--space-6), var(--safe-bottom)); gap: var(--space-4); }
 </style>

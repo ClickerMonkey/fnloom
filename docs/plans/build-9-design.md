@@ -129,7 +129,7 @@ change writes it in its report.
   shells); `AskUserQuestion`, `onElicitation`, `onUserDialog` (known kinds; others `cancelled`) → proposal of `answer`
   with `ask`. Pending callbacks keyed by request id; on restart they are gone and the runs fail plainly.
 - `task_*` messages → `ClaudeTask`s on the record (debounced writes, env slice). Idle sessions close after
-  `idleClose` and stay resumable. `hubMcp` is given to every session as the `harness` MCP server.
+  `idleClose` and stay resumable. `hubMcp` is given as the `harness` MCP server only to the sessions of its `person` (the hub runs its calls as the person it was made for). Sessions run with an allowlisted env (`sessionEnv`, `CLAUDE_ENV_PASS`), never the harness keys.
 - Imports: skills → context items with `/commands` (runtime patch), agents → fns of kind `claude/agent` that run a
   session as that agent, MCP servers → `hub/add_instance` of `mcp` with a mapped `McpServerConfig`.
 - Stack: `scripts/stack.ts` / `run-stack.ts` gain the `claude` component (folders: the repository's parent); `code`

@@ -2,7 +2,8 @@
  * A fn's facts as people read them (`FnFacts` and its search hit): what it does to data in words, what a call costs
  * and how long it takes, the types it reads and writes, and its examples as text. Pure, so it is tested alone.
  */
-import type { CostEstimate, FnExampleView, FnFacts, FnMode, Json, RunTimes } from '@harness/core';
+import type { CostEstimate, FnExampleView, FnFacts, FnMode, Json, ReadablePayload, RunTimes } from '@harness/core';
+import { z } from 'zod';
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 
 /** What each mode does to data, in plain words. */
@@ -62,4 +63,14 @@ export function jsonText(value: Json): string {
 /** An example as a call: `bash({"command":"ls"})`. */
 export function exampleCall(local: string, example: Pick<FnExampleView, 'args'>): string {
   return `${local}(${jsonText(example.args)})`;
+}
+
+/** How a kind fn's payload is shown: as its kind writes it for people (a query's SQL, a program), or as stored JSON. */
+export const PayloadForm = z.enum(['readable', 'stored']);
+export type PayloadForm = z.infer<typeof PayloadForm>;
+
+/** A kind fn's payload as code to show: its readable form when it has one and that is picked, else the stored JSON. */
+export function shownPayload(payload: Json | undefined, readable: ReadablePayload | undefined, form: PayloadForm): ReadablePayload | undefined {
+  if (readable !== undefined && form === 'readable') { return readable; }
+  return payload === undefined ? undefined : { language: 'json', code: JSON.stringify(payload, null, 2) };
 }

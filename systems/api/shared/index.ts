@@ -68,7 +68,7 @@ const declared = system(API_SYSTEM, {
         description: 'One query or form parameter; order is kept and a name may repeat (?tag=a&tag=b). style and explode (OpenAPI 3.1) spell a list or obj value; leave them out for repeated keys.',
         shape: ginAs(HttpParam), display: display('Param', 'Params'),
       }),
-      HttpPart: type({ description: 'One multipart/form-data part: a text value, or a resource whose text is sent.', shape: ginAs(HttpPart), display: display('Part', 'Parts') }),
+      HttpPart: type({ description: 'One multipart/form-data part: a text value, or a resource whose bytes are sent.', shape: ginAs(HttpPart), display: display('Part', 'Parts') }),
       HttpBody: type({ description: 'The request body. Set exactly one slot: the slot set is the wire encoding.', shape: ginAs(HttpBody), display: display('Body', 'Bodies') }),
       HttpRequest: type({
         description: 'One outbound request: an api fn\'s request program gives one. Its url is relative to the service\'s base URL; a credential is never part of it.',

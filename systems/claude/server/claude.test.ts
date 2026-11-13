@@ -6,13 +6,13 @@
  * transcript items, forms, MCP configs) are checked on their own.
  */
 import { resolve } from 'node:path';
-import { ActorId, jsonOf, McpServerConfig, mintId, qualify, SystemView, type ClaudeTranscriptItem, type DataRecord } from '@harness/core';
+import { ActorId, jsonOf, McpServerConfig, mintId, qualify, SystemView, type ClaudeInstanceConfig, type ClaudeTranscriptItem, type DataRecord } from '@harness/core';
 import { TEST_USER, testHub, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { claude } from '../shared/index.ts';
 import { bodyOf, eventsOf, mcpConfigOf } from './agent-sdk.ts';
-import { claudeEnv } from './env.ts';
+import { claudeEnv, sessionEnv } from './env.ts';
 import { FakeClaudeDriver } from './fake-driver.ts';
 import { createClaudeImpl, type ClaudeRuntime } from './impl.ts';
 import { askUserQuestionForm, elicitationForm } from './questions.ts';
@@ -27,12 +27,12 @@ const MEMBER = { ...TEST_USER, role: 'member' as const };
 let kit: TestSystem<'claude', typeof claude.defs> | undefined;
 afterEach(async () => { await kit?.stop(); kit = undefined; });
 
-async function setup(records: readonly DataRecord[] = []) {
+async function setup(records: readonly DataRecord[] = [], extra: Partial<ClaudeInstanceConfig> = {}) {
   const driver = new FakeClaudeDriver();
   const patches: Parameters<ClaudeRuntime['patch']>[0][] = [];
   const runtime: ClaudeRuntime = { patch: (change) => { patches.push(change); return Promise.resolve({ added: [], updated: [], removed: [], refused: [] }); } };
   const server = createClaudeImpl({ settings: claudeEnv.parse(), driver, runtime: () => Promise.resolve(runtime) });
-  kit = await testHub(claude, server.impl, { config: { folders: [{ path: ROOT, label: 'Code' }], maxLive: 2 }, records });
+  kit = await testHub(claude, server.impl, { config: { folders: [{ path: ROOT, label: 'Code' }], maxLive: 2, ...extra }, records });
   return { kit, driver, patches, fleet: server.fleet };
 }
 
@@ -63,7 +63,21 @@ describe('claude system', () => {
     const sent = await kit.run('send', { instance: 'main', session, text: 'Delete everything.' });
     expect(sent.outcome.status).toBe('invalid-input');
     expect(driver.live(session).sent).toEqual(['Look at the tests.']);
-    expect(kit.records('Session')[0]?.value).toMatchObject({ owner: member.id });
+    // nor may the admin change what the session does without asking its member
+    expect((await kit.run('control', { instance: 'main', session, action: 'mode', mode: 'acceptEdits' })).outcome.status).toBe('invalid-input');
+    expect(driver.live(session).open).toMatchObject({ permissionMode: 'default' });
+    expect(kit.records('Session')[0]?.value).toMatchObject({ owner: member.id, permissionMode: 'default' });
+  });
+
+  it("gives the hub MCP only to its person's sessions, since the hub runs its calls as that person", async () => {
+    const hubMcp = { url: 'http://127.0.0.1:4720/mcp/claude', secret: 'mcp-secret', person: TEST_USER.id };
+    const { kit, driver } = await setup([], { hubMcp });
+    const own = await kit.call('start_session', { folder: FOLDER, prompt: 'Use the harness.' });
+    expect(driver.live(own.result.session).open.hubMcp).toEqual({ url: hubMcp.url, secret: hubMcp.secret });
+    const member = { ...MEMBER, id: ActorId.parse('act_member') };
+    const started = await kit.run('start_session', { folder: FOLDER, prompt: 'Use the harness.' }, { run: kit.hub.runInfo(qualify('claude', 'start_session'), { user: member }) });
+    const session = z.object({ session: z.string() }).parse(started.outcome.status === 'done' ? started.outcome.result : {}).session;
+    expect(driver.live(session).open.hubMcp).toBeUndefined();
   });
 
   it('sends with wait, following the turn as progress and answering with Claude\'s reply', async () => {
@@ -93,9 +107,12 @@ describe('claude system', () => {
     // a run naming another session (or another machine) settles nothing
     const misnamed = await kit.run('permit', { instance: 'main', session: '6f1d7a0e-3b8c-4c2e-9a1f-2d4b6c8e0a13', request: args.request, tool: 'Bash', input: {}, always: true });
     expect(misnamed.outcome.status).toBe('failed');
+    // a direct run naming the waiting request (an admin's, say) is not the proposed run, so it settles nothing
+    const direct = await kit.run('permit', { instance: 'main', session: result.session, request: args.request, tool: 'Bash', input: {}, always: true });
+    expect(direct.outcome.status).toBe('failed');
     // the hub runs the approved proposal with the person's form value set at args.always
-    const permitted = await kit.call('permit', { instance: 'main', session: result.session, request: args.request, tool: 'Bash', input: { command: 'rm -rf dist' }, always: true });
-    expect(permitted.result).toMatchObject({ allowed: true, always: true });
+    const permitted = await kit.approve(proposal?.key ?? '', true);
+    expect(permitted).toMatchObject({ status: 'done', result: { allowed: true, always: true } });
     await expect(decided).resolves.toEqual({ allow: true, always: true });
 
     const again = await kit.run('permit', { instance: 'main', session: result.session, request: args.request, tool: 'Bash', input: {}, always: false });
@@ -249,5 +266,13 @@ describe('the Agent SDK mappings', () => {
     expect(mcpConfigOf({ name: 'api', status: 'connected', config: { type: 'http', url: 'https://example.com/mcp', headers: { 'X-Key': 'k' } } })?.auth).toEqual({ kind: 'headers', per: 'shared', names: ['X-Key'], values: { 'X-Key': 'k' } });
     expect(mcpConfigOf({ name: 'sdk', status: 'connected', config: { type: 'sdk', name: 'sdk' } })).toBeUndefined();
     expect(bodyOf('---\nname: notes\ndescription: x\n---\n\nWrite the notes.\n')).toBe('Write the notes.');
+  });
+});
+
+describe('sessionEnv', () => {
+  it("keeps what Claude Code needs and its own settings, never the harness's keys", () => {
+    const parent = { Path: 'C:/bin', USERPROFILE: 'C:/Users/me', ANTHROPIC_MODEL: 'opus', OPENAI_API_KEY: 'k1', OPENROUTER_API_KEY: 'k2', HARNESS_PAIRING_TOKEN: 't', GIT_AUTHOR_NAME: 'Me' };
+    expect(sessionEnv(parent, { CLAUDE_ENV_PASS: '' })).toEqual({ Path: 'C:/bin', USERPROFILE: 'C:/Users/me', ANTHROPIC_MODEL: 'opus' });
+    expect(sessionEnv(parent, { CLAUDE_ENV_PASS: 'git_author_name' })).toMatchObject({ GIT_AUTHOR_NAME: 'Me' });
   });
 });

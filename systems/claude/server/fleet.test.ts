@@ -70,11 +70,14 @@ describe('SessionFleet', () => {
     expect(proposal?.preview.parts).toContainEqual({ type: 'code', language: 'bash', code: 'npm test' });
     await vi.waitFor(() => { expect(fleet.value(SESSION)?.status).toBe('waiting'); });
     const request = z.object({ request: z.string() }).parse(proposal?.args);
-    expect(fleet.permit('6f1d7a0e-3b8c-4c2e-9a1f-2d4b6c8e0a13', request.request, true)).toBe(false);
-    expect(fleet.permit(SESSION, request.request, true)).toBe(true);
+    const run = RunId.parse(fleet.value(SESSION)?.waiting[0]);
+    expect(fleet.permit('6f1d7a0e-3b8c-4c2e-9a1f-2d4b6c8e0a13', request.request, run, true)).toBe(false);
+    // only the run proposed for the request settles it
+    expect(fleet.permit(SESSION, request.request, mintId('run'), true)).toBe(false);
+    expect(fleet.permit(SESSION, request.request, run, true)).toBe(true);
     await expect(decided).resolves.toEqual({ allow: true, always: true });
     expect(fleet.value(SESSION)).toMatchObject({ waiting: [], asking: [], status: 'working' });
-    expect(fleet.permit(SESSION, request.request, true)).toBe(false);
+    expect(fleet.permit(SESSION, request.request, run, true)).toBe(false);
   });
 
   it('declines a question when its run is cancelled, and withdraws what an interrupt cancels', async () => {

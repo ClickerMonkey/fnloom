@@ -9,7 +9,7 @@ import { HttpMethod, isGinExprDef, Json, type ApiFnSpec, type ApiServiceConfig, 
 import { checkProgram, runProgram, type ProgramCheck, type ProgramScope } from '@harness/sdk/program';
 import { ginAs } from '@harness/sdk';
 import { HttpRequest, HttpResponse } from '../shared/http.ts';
-import { prepare, send, type SendCtx } from './http.ts';
+import { prepare, RequestRefused, send, type SendCtx } from './http.ts';
 
 /** The request type's name, as programs spell it. */
 export const REQUEST_TYPE = 'api/HttpRequest';
@@ -47,6 +47,17 @@ export function requestMethod(def: ExprDef): HttpMethod | undefined {
 export function modeOf(method: HttpMethod | undefined): 'read' | 'write' | 'delete' {
   if (method === 'GET' || method === 'HEAD') return 'read';
   return method === 'DELETE' ? 'delete' : 'write';
+}
+
+/**
+ * An api fn as people read it on its page: the method and service it sends to, the request program, and the output
+ * program (or that the result is the response body). Absent when the request program does not parse.
+ */
+export function readableApi(check: Pick<ApiCheck, 'method' | 'request' | 'output'>, service: string): string | undefined {
+  if (check.request.code === undefined) return undefined;
+  const sends = `// Sends ${check.method ?? 'a request'} to the ${service} service:`;
+  const output = check.output?.code === undefined ? '// The result is the response body.' : `// The result, read from \`response\`:\n${check.output.code}`;
+  return `${sends}\n${check.request.code}\n\n${output}`;
 }
 
 /** Problems with the bodies the program writes literally: each sets exactly one slot. */
@@ -126,6 +137,11 @@ export async function runApi(run: ApiRun, args: Json, options: { prepareOnly?: b
   if (check.request.expr === undefined) throw new Error('The request program does not parse.');
   const built = await runProgram({ program, expr: check.request.expr, args: spec.args, returns: { name: REQUEST_TYPE }, calls: check.request.calls, call: run.call, signal: run.send.signal }, args);
   const request = HttpRequest.parse(built);
+  // the fn's mode (and so its approval) came from the method written literally; a program that changed it after (a `set`
+  // on the request) would send a write or a delete as a read, so it is never sent
+  if (request.method !== check.method) {
+    throw new RequestRefused(`The request was checked as ${check.method ?? 'no method'} but built as ${request.method}: the method is written once, literally, and never changed.`);
+  }
   const prepared = await prepare(request, run.config, run.send);
   if (options.prepareOnly === true) return { exchange: prepared.exchange };
   const sent = await send(prepared, run.config, run.send);

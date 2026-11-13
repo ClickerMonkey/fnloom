@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * One Claude session (`/claude/:instance/:session`, build 9): where it works and how it is set, what waits on the
- * person (its approvals and questions as cards answered right here; they also show in its chat and the inbox), its
+ * person (its approvals and questions as cards answered right here; they also show in its chat, linked from its facts, and the inbox), its
  * transcript (a subagent's own with `?task=`), its tasks and workflows with their progress, and a message box. Interrupt,
  * Stop and the permission mode act on it as the person's runs in the session's chat. Read again while the page is open.
  */
@@ -115,6 +115,7 @@ async function decide(card: WaitingCard, approve: boolean, remember: Remember, r
         <span>{{ record.turns }} {{ record.turns === 1 ? 'turn' : 'turns' }}</span>
         <span>${{ record.costUsd.toFixed(2) }}</span>
         <span :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</span>
+        <RouterLink v-if="record.chat" :to="links.session(record.chat)" data-testid="claude-chat">Open its chat</RouterLink>
       </div>
       <UiBanner v-if="record.problem" tone="danger">{{ record.problem }}</UiBanner>
 
@@ -125,7 +126,9 @@ async function decide(card: WaitingCard, approve: boolean, remember: Remember, r
           @decide="(approve, remember, reason, answer) => decide(card, approve, remember, reason, answer)"
         />
       </section>
-      <p v-else-if="store?.awaiting.value" class="note">Your run waits for approval in the session's chat.</p>
+      <p v-else-if="store?.awaiting.value" class="note">
+        Your run waits for approval in <RouterLink v-if="record.chat" :to="links.session(record.chat)">the session's chat</RouterLink><template v-else>the session's chat</template>.
+      </p>
 
       <div class="body" :class="{ 'with-side': tasks.length > 0 }">
         <aside v-if="tasks.length > 0" class="side" aria-label="Tasks and workflows">
@@ -162,6 +165,8 @@ async function decide(card: WaitingCard, approve: boolean, remember: Remember, r
 .side { display: grid; gap: var(--space-3); min-width: 0; grid-column: 2; grid-row: 1; position: sticky; top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .heading { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .note { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+/* on a phone the select says what it is by its value; the word would push Stop off the row */
+@media (max-width: 559.98px) { .mode-word { display: none; } }
 @media (max-width: 899.98px) {
   .body.with-side { grid-template-columns: minmax(0, 1fr); }
   .side { grid-column: 1; grid-row: 1; position: static; }

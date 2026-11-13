@@ -11,13 +11,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AgentSdkDriver } from './agent-sdk.ts';
 import type { DriverEvent } from './driver.ts';
+import { sessionEnv } from './env.ts';
 
 const enabled = process.env['HARNESS_CLAUDE_LIVE'] === '1';
 
 describe.skipIf(!enabled)('Claude Code through the Agent SDK (live)', () => {
   it('answers a one-line prompt and keeps the transcript', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'harness-claude-'));
-    const driver = new AgentSdkDriver({ dialogKinds: [], textMax: 2_000 });
+    const driver = new AgentSdkDriver({ dialogKinds: [], textMax: 2_000, env: sessionEnv(process.env, { CLAUDE_ENV_PASS: '' }) });
     const session = randomUUID();
     const events: DriverEvent[] = [];
     try {

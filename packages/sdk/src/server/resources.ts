@@ -46,6 +46,14 @@ export class HubResources implements Resources {
     return new TextDecoder().decode(await this.#content.download(read.text.ref, this.#signal));
   }
 
+  async bytes(uri: ResourceUri): Promise<Uint8Array> {
+    const read = await this.#read(uri, ['bytes']);
+    if (read === undefined) { throw new Error(`No resource at ${uri}.`); }
+    if (read.bytes !== undefined) { return await this.#content.download(read.bytes, this.#signal); }
+    // a resource with no raw form (a page, a record) is its text
+    return new TextEncoder().encode(await this.text(uri));
+  }
+
   async links(uri: ResourceUri): Promise<ResourceLink[]> {
     return (await this.#read(uri, ['links']))?.links ?? [];
   }

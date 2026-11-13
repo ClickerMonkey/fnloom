@@ -17,6 +17,7 @@ function ctxOf(hits: ResourceHit[] | Error, stats: Readonly<Record<string, Resou
   const resources: Resources = {
     stat: (uri) => Promise.resolve(stats[uri]),
     text: () => Promise.reject(new Error('not read here')),
+    bytes: () => Promise.reject(new Error('not read here')),
     links: () => Promise.resolve([]),
     sections: () => Promise.resolve([]),
     search: (query, options) => {

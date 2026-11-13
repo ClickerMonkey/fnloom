@@ -57,10 +57,17 @@ export const ClaudeInstanceConfig = z.object({
   /** A live session with nothing to do is closed (it stays resumable) after this long, in milliseconds. */
   idleClose: z.number().int().min(60_000).default(3_600_000),
   /**
-   * A hub MCP (its URL and secret, a config secret) given to every session as the `harness` MCP server, so Claude can
-   * call the fns that MCP's rules expose; each call is a hub run with its approvals.
+   * A hub MCP (its URL and secret, a config secret) given as the `harness` MCP server to the sessions of `person`, so
+   * Claude can call the fns that MCP's rules expose; each call is a hub run with its approvals. The hub runs every call
+   * on it as the person the MCP was made for, so only that person's sessions get it (another person's session would
+   * act with their access); absent `person`, no session does.
    */
-  hubMcp: z.object({ url: z.url(), secret: z.string().min(1) }).optional(),
+  hubMcp: z.object({
+    url: z.url(),
+    secret: z.string().min(1),
+    /** The person the hub MCP was made for: the one whose sessions it is given to. */
+    person: ActorId.optional(),
+  }).optional(),
 });
 export type ClaudeInstanceConfig = z.infer<typeof ClaudeInstanceConfig>;
 
