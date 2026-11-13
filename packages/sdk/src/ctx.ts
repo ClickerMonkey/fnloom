@@ -6,8 +6,9 @@ import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
   Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun, FnSearchQuery, FnSearchPage, FnExamplesQuery, FnExamplesPage,
-  ApprovedRun, AdminNotice, DataRecord, ListQuery, RecordId, ResultTable,
+  ApprovedRun, AdminNotice, DataRecord, ListQuery, RecordId, ResultTable, InstanceConnect, ProposalAsk,
 } from '@harness/core';
+import type { z } from 'zod';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
 import type { AnyFnRef, AttachmentRef, FnRef, SettingRef } from './refs.ts';
@@ -152,6 +153,16 @@ export interface AdminNotices {
   notifyAdmins(notice: AdminNotice): Promise<void>;
 }
 
+/**
+ * Saying how people connect to this instance of an instance-scoped system (`connect.scope: 'instance'`: an MCP server,
+ * an API service). The hub shows a card per instance on the Connections page, and a fn that runs on the instance is
+ * unavailable to a person without a connection when `flow` is set. Say it at start and whenever the config changes;
+ * the latest is sent again on every reconnect.
+ */
+export interface InstanceConnects {
+  instanceConnect(connect: z.input<typeof InstanceConnect>): Promise<void>;
+}
+
 /** What every run, undo and action gets from the hub. */
 export interface Services extends SystemPlace, AiSource, AdminNotices {
   /** LLM calls through the hub, counted against the run's budget. */
@@ -181,12 +192,25 @@ export interface ProposeOptions {
   /** What the run would do, as whoever approves it sees it: the SQL, the rows it touches, a type diff. */
   readonly preview: ApprovalPreview;
   /**
-   * Who answers: the person of the run proposing it (the default inside a run), or an admin (the default, and the
-   * only choice, outside a run, such as a schema change found at start).
+   * Who answers: the person of the run proposing it (the default inside a run, and outside one when `for` names
+   * them), or an admin (the default outside a run otherwise, such as a schema change found at start).
    */
   readonly approver?: ProposalApprover;
   /** Makes a retried proposal the same run. Default: a hash of the fn, its args and the proposing run. */
   readonly key?: string;
+  /**
+   * Outside a run, the person the proposal waits for (the owner of a Claude session this system keeps a record of).
+   * The hub accepts it only when that person owns a record of one of this system's stored types naming `key`, or a
+   * run of it, so pass `key` too (`proposalKeyFor`); without one, `propose` throws.
+   */
+  readonly for?: ActorId;
+  /** The harness chat whose thread shows the card too (it is always in the approver's inbox). */
+  readonly chat?: SessionId;
+  /**
+   * A form the approver fills before approving (a question, an MCP elicitation): its value, checked against
+   * `ask.type`, is set as `args[ask.into]` of the run that then goes ahead.
+   */
+  readonly ask?: ProposalAsk;
 }
 
 /**
@@ -244,7 +268,7 @@ export interface FnSearch {
   fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage>;
 }
 
-export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices {
+export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;

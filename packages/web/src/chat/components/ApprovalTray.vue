@@ -6,7 +6,7 @@
  * it, and Deny all answers every one while Approve all answers only those with no preview: a write or schema change is
  * approved from its own card, once the person has seen what it does.
  */
-import type { ApprovalId, Remember } from '@harness/core';
+import type { ApprovalId, Json, Remember } from '@harness/core';
 import { computed } from 'vue';
 import ApprovalCard from '../../components/approvals/ApprovalCard.vue';
 import { approvableTogether } from '../../components/approvals/rules.ts';
@@ -16,7 +16,7 @@ import { fnLabel } from '../logic/labels.ts';
 import type { ApprovalView } from './types.ts';
 
 const props = defineProps<{ items: readonly ApprovalView[] }>();
-const emit = defineEmits<{ decide: [id: ApprovalId, approve: boolean, remember: Remember, reason: string]; decideAll: [ids: ApprovalId[], approve: boolean, remember: Remember] }>();
+const emit = defineEmits<{ decide: [id: ApprovalId, approve: boolean, remember: Remember, reason: string, answer: Json | undefined]; decideAll: [ids: ApprovalId[], approve: boolean, remember: Remember] }>();
 
 /** How many of the others are listed by name. */
 const LISTED = 3;
@@ -26,16 +26,16 @@ const current = computed(() => props.items[0]);
 const others = computed(() => props.items.slice(1));
 const together = computed(() => approvableTogether(props.items).map((item) => item.id));
 
-function decide(approve: boolean, remember: Remember, reason: string): void {
+function decide(approve: boolean, remember: Remember, reason: string, answer: Json | undefined): void {
   const item = current.value;
-  if (item !== undefined) { emit('decide', item.id, approve, remember, reason); }
+  if (item !== undefined) { emit('decide', item.id, approve, remember, reason, answer); }
 }
 </script>
 
 <template>
   <ApprovalCard
     v-if="current" class="tray" bounded :data-approval="current.id" :ident="current.id" :fn="current.fn" :description="current.description" :args="current.args"
-    :preview="current.preview" :rememberable="current.rememberable" :notice="noticeOf(current.fn)" @decide="decide"
+    :preview="current.preview" :rememberable="current.rememberable" :notice="noticeOf(current.fn)" :ask="current.ask" @decide="decide"
   >
     <template v-if="others.length > 0" #after>
       <div class="others" data-testid="approvals-others">

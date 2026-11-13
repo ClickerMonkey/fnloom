@@ -7,7 +7,7 @@
  * Owner: the hub lane. `StoreConnectionService` (`connections/service.ts`) implements `ConnectionService`.
  */
 import type {
-  ActorId, ConnectionChange, ConnectionId, ConnectionUpdate, ConnectionView, ConnectPage, Json, RunConnection, SystemName, UserConnection,
+  ActorId, ConnectionChange, ConnectionId, ConnectionUpdate, ConnectionView, ConnectPage, InstanceName, Json, RunConnection, SystemName, UserConnection,
 } from '@harness/core';
 import type { ConnectionGate } from '../access/index.ts';
 
@@ -40,8 +40,12 @@ export type ConnectStart = { readonly url: string; readonly binding: ConnectBind
 export interface ConnectionService {
   /** Every `connect` system's page, with the asker's own connections to it. */
   pages(asker: ActorId): Promise<ConnectPage[]>;
-  /** Begin connecting: the provider's URL to send the person to (OAuth), or the finished connection (a form). */
-  connect(asker: ActorId, system: SystemName, form?: Json): Promise<ConnectStart>;
+  /**
+   * Begin connecting: the provider's URL to send the person to (OAuth), or the finished connection (a form). Build 9:
+   * an instance-scoped system (`ConnectDecl.scope`) connects to one `instance`, the way that instance said
+   * (`InstanceConnect`); a shared one is connected by an admin, for everyone.
+   */
+  connect(asker: ActorId, system: SystemName, form?: Json, instance?: InstanceName): Promise<ConnectStart>;
   /**
    * The provider sent the person back to `/connect/callback` with these query params; `cookies` are the browser's and
    * must hold the binding `connect` set. Each sign-in finishes once: a replay changes nothing.
@@ -51,8 +55,8 @@ export interface ConnectionService {
   update(asker: ActorId, change: ConnectionChange): Promise<ConnectionView>;
   /** End the asker's own connection: the system revokes it where it can, then its secret and row go. */
   disconnect(asker: ActorId, connection: ConnectionId): Promise<boolean>;
-  /** A system sent refreshed credentials, or said they can't be refreshed (`connectionUpdate`). */
-  refreshed(system: SystemName, update: ConnectionUpdate): Promise<void>;
+  /** An instance sent refreshed credentials, or said they can't be refreshed (`connectionUpdate`); only for its own connections. */
+  refreshed(system: SystemName, update: ConnectionUpdate, instance?: InstanceName): Promise<void>;
   /** How a person's per-person fns stand: their own connection, else the newest one shared with them. */
   gate(actor: ActorId, groups: ReadonlySet<ActorId>): Promise<ConnectionGate>;
   /** What a run acting as a connection carries: its credentials revealed. */

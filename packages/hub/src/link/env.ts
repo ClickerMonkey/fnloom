@@ -13,6 +13,9 @@ export const packagingEnv = env({
   HARNESS_AUTO_PAIR_WINDOW: z.number().int().min(1_000).default(600_000).describe('The window auto-pair attempts are counted in, in milliseconds.'),
   HARNESS_AUTO_PAIR_EXPIRY: z.number().int().min(60_000).default(90 * 24 * 60 * 60 * 1000).describe('How long an auto-pair secret lasts when the admin picks no expiry, in milliseconds (90 days).'),
   HARNESS_PACKAGE_MAX: z.number().int().min(1_024).default(200_000_000).describe('The largest package zip or data export the hub unpacks, in bytes (unpacked).'),
+  HARNESS_BUNDLED_SYSTEMS: z.string().default('').describe(
+    'Build 9: the folder of bundled system folders an admin adds instances of from the browser (an MCP server, an API service). Empty: the repository `systems/` folder beside the hub package.',
+  ),
   HARNESS_NPM: z.string().default(process.platform === 'win32' ? 'npm.cmd' : 'npm').describe('The npm the hub installs packages and their native externals with.'),
 });
 

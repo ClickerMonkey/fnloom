@@ -10,9 +10,10 @@ export function isRememberable(approval: Pick<Approval, 'preview' | 'proposed'>)
 }
 
 /**
- * The waiting runs a bulk "Approve all" may answer: the ones without a preview. A run with one (a write, a schema
- * change, anything that can't be undone) is approved only from its own card, after the person has seen what it does.
+ * The waiting runs a bulk "Approve all" may answer: the ones without a preview or a form. A run with a preview (a
+ * write, a schema change, anything that can't be undone) is approved only from its own card, after the person has
+ * seen what it does; one that asks for something (`ask`) is answered from its own card.
  */
-export function approvableTogether<T extends { readonly preview?: unknown }>(items: readonly T[]): T[] {
-  return items.filter((item) => item.preview === undefined);
+export function approvableTogether<T extends { readonly preview?: unknown; readonly ask?: unknown }>(items: readonly T[]): T[] {
+  return items.filter((item) => item.preview === undefined && item.ask === undefined);
 }

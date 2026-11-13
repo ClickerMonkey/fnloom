@@ -7,7 +7,7 @@
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
 import type { AutoPairGrant, Duration, FnExamplesPatch, HostRefusal, ImportReport, PairingGrant, PairingGrantRequest, QualifiedName, TypeDecl } from '@harness/core';
-import type { Fleets, FnSearch } from '../ctx.ts';
+import type { Fleets, FnSearch, InstanceConnects } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
@@ -63,7 +63,7 @@ export type McpServe = { stdio: true } | { http: { port: number; host?: string }
 
 
 /** A running system. It searches the hub and lists its fleet (every paired instance) as the system itself. */
-export interface RunningSystem<N extends string> extends FnSearch, Fleets {
+export interface RunningSystem<N extends string> extends FnSearch, Fleets, InstanceConnects {
   readonly name: N;
   readonly status: RunningStatus;
   /** Calls `listener` on every status change; returns the unsubscribe. */

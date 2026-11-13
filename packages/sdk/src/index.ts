@@ -10,6 +10,9 @@ export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens
 export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, type GinType, type Infer, type LoadedTypes } from './gin.ts';
 export { ginOf, ginAs, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
 export {
+  accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,
+} from './remote-auth.ts';
+export {
   fn, handler, linear, steps, noProgress, progressDecl, kindFn, validationOf,
   type FnValidators,
   type FnDef, type AnyFnDef, type FnTypes, type FnInput, type FnExampleOf, type NativeFnTypes, type KindFnInput, type KindFnTypes, type UntypedFn, type TypesOf, type Deps,
@@ -32,7 +35,7 @@ export {
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
   type Data, type StoredRecord, type StoredType, type RecordFind,
-  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices,
+  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices, type InstanceConnects,
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
 export type { FnImpl } from './impl.ts';

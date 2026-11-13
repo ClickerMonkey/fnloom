@@ -21,7 +21,7 @@ function recordingOps(asked: Array<{ op: string; data: unknown; by: string }>): 
     remove_rule: unused, approve_pairing: unused, create_pairing_token: unused, configure_system: unused, enable_system: unused, switch_item: unused, remove_system: unused,
     install_system: unused, start_system: unused, stop_system: unused, restart_system: unused, upgrade_system: unused, set_model_role: unused, clear_model_role: unused,
     set_model_limits: unused, create_mcp: unused, update_mcp: unused, rotate_mcp_secret: unused, delete_mcp: unused, preview_mcp: unused,
-    install_package: unused, remove_instance: unused, export_system_data: unused, suggest_decision_set: unused, auto_pair_revoke: unused, system_reimport: unused,
+    install_package: unused, add_instance: unused, remove_instance: unused, export_system_data: unused, suggest_decision_set: unused, auto_pair_revoke: unused, system_reimport: unused,
   };
 }
 
@@ -134,6 +134,7 @@ const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]>
   delete_mcp: { mcp: 'mcp_1' },
   preview_mcp: { rules: { include: {}, exclude: {} } },
   install_package: { zip: { hash: 'a'.repeat(64), size: 1, mime: 'application/zip' } },
+  add_instance: { system: 'mcp', instance: 'linear', config: {} },
   remove_instance: { system: 'fs', instance: 'one' },
   export_system_data: { system: 'fs', instance: 'one' },
 };
@@ -155,7 +156,7 @@ describe('every admin fn', () => {
       set_model_limits: reached('set_model_limits'), create_mcp: reached('create_mcp'), update_mcp: reached('update_mcp'),
       rotate_mcp_secret: reached('rotate_mcp_secret'), delete_mcp: reached('delete_mcp'), preview_mcp: reached('preview_mcp'),
       suggest_decision_set: reached('suggest_decision_set'), auto_pair_revoke: reached('auto_pair_revoke'), system_reimport: reached('system_reimport'),
-      install_package: reached('install_package'), remove_instance: reached('remove_instance'), export_system_data: reached('export_system_data'),
+      install_package: reached('install_package'), add_instance: reached('add_instance'), remove_instance: reached('remove_instance'), export_system_data: reached('export_system_data'),
     };
     registerAdminFns(r.module.hubFns, () => ops);
     await r.session();

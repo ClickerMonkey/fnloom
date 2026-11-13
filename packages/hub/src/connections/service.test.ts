@@ -1,4 +1,4 @@
-import { ActorId, QualifiedName, SystemName, type ConnectDecl, type SystemRecord } from '@harness/core';
+import { ActorId, InstanceName, noFnStats, QualifiedName, SystemName, type ConnectDecl, type FnRecord, type SystemRecord } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { AesSecretVault, SecretBox } from '../api/secrets.ts';
 import { TEST_KEYS, testManifest } from '../api/testing/rig.ts';
@@ -11,15 +11,19 @@ import { StoreConnectionService } from './service.ts';
 const ADA = ActorId.parse('act_ada');
 const BEN = ActorId.parse('act_ben');
 const CAL = SystemName.parse('cal');
+const LINEAR = InstanceName.parse('linear');
 const DECL: ConnectDecl = {
   title: 'Calendar', description: 'Your calendar.', how: { flow: 'oauth' }, settings: { name: 'object', props: {} },
   fns: { list_events: { on: true, ask: false }, delete_event: { on: false, ask: true } },
 };
 
 
-async function world(decl: ConnectDecl = DECL) {
+async function world(decl: ConnectDecl = DECL, fns: ReadonlyMap<QualifiedName, FnRecord> = new Map()) {
   const store = await testStore();
-  const catalog = { manifest: (name: SystemName) => Promise.resolve(name === CAL ? testManifest(CAL, { connect: decl }) : undefined), check: () => Promise.resolve([]) };
+  const catalog = {
+    manifest: (name: SystemName) => Promise.resolve(name === CAL ? testManifest(CAL, { connect: decl }) : undefined), check: () => Promise.resolve([]),
+    fn: (name: QualifiedName) => Promise.resolve(fns.get(name)),
+  };
   const row: SystemRecord = { name: CAL, description: '', status: 'connected', enabled: { functions: true, renderers: true }, version: '1', manifestHash: 'h', actor: ADA };
   await store.table('systems').insert(row);
   const hub = linkServer();
@@ -28,7 +32,7 @@ async function world(decl: ConnectDecl = DECL) {
   const secrets = new AesSecretVault({ store, box: new SecretBox(TEST_KEYS.secretKey), clock: () => now.at });
   const service = new StoreConnectionService({
     store, catalog, secrets, bus: new RecordingBus(), log: memoryLog().log, clock: () => now.at, settings: connectionsEnv.parse(), hubUrl: 'http://hub.test',
-    link: { connection: (name) => (name === CAL ? system.connection(hub) : undefined) },
+    link: { connection: (name, instance) => (name === CAL && (instance === undefined || instance === LINEAR) ? system.connection(hub) : undefined) },
   });
   return { store, catalog, system, service, secrets, now };
 }
@@ -179,5 +183,83 @@ describe('per-person connections', () => {
     await Promise.all(['a2', 'a3', 'a4'].map((access) => service.refreshed(CAL, { connection: row.id, update: { credentials: { access } } })));
     const secrets = (await store.table('secrets').find({ limit: 10 })).items;
     expect(secrets.map((secret) => secret.id)).toEqual([(await store.table('connections').get(row.id))?.credentials]);
+  });
+});
+
+/** A runtime fn of the `linear` instance (routed to it), as the instance-scoped tests use. */
+function instanceFn(local: string): FnRecord {
+  return {
+    name: QualifiedName.parse(`cal/${local}`), system: CAL, version: 'v1', origin: 'runtime', available: true, paused: false, disabled: false, stats: noFnStats(), updatedAt: 0,
+    decl: {
+      name: local, description: local, kind: 'native', args: { name: 'obj', props: {} }, returns: { name: 'any' }, deps: [], handlers: {}, progress: { type: 'none' },
+      operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {}, visibility: 'both', tags: [], routing: { to: 'instance', instance: LINEAR },
+    },
+  };
+}
+
+describe('instance-scoped connections (build 9)', () => {
+  const SCOPED: ConnectDecl = { ...DECL, title: 'MCP servers', scope: 'instance', fns: {}, defaults: { on: true, ask: false } };
+  const SEARCH = instanceFn('linear_search');
+
+  /** A world with the `linear` instance saying how people connect to it. */
+  async function scoped(share = false) {
+    const made = await world(SCOPED, new Map([[SEARCH.name, SEARCH]]));
+    await made.store.table('instances').insert({
+      system: CAL, instance: LINEAR, description: 'Linear', status: 'connected', keyFingerprint: 'k', publicKey: 'p', version: '1', manifestHash: 'h',
+      connect: { flow: { flow: 'oauth' }, share, title: 'Sign in to Linear' },
+    });
+    await made.store.table('actors').insert({ id: ADA, kind: 'user', name: 'Ada', about: '', email: 'ada@example.com', role: 'admin', createdAt: 0, disabled: false });
+    await made.store.table('actors').insert({ id: BEN, kind: 'user', name: 'Ben', about: '', email: 'ben@example.com', role: 'member', createdAt: 0, disabled: false });
+    return made;
+  }
+
+  it('connects to one instance through its own flow, tells the instance which, and gates only that instance\'s fns', async () => {
+    const { service, system, store } = await scoped();
+    const starts: unknown[] = [];
+    const finishes: unknown[] = [];
+    system.behaviour.connectStart = (input) => { starts.push(input.instance); return { url: `https://linear.example/auth?state=${encodeURIComponent(input.state)}` }; };
+    system.behaviour.connectFinish = (input) => { finishes.push(input.instance); return { account: { label: 'ada@linear' }, credentials: { access: 't1' } }; };
+    const [page] = await service.pages(ADA);
+    expect(page?.instances).toEqual([{ instance: LINEAR, label: 'Linear', connect: { flow: { flow: 'oauth' }, share: false, title: 'Sign in to Linear' } }]);
+    await expect(service.connect(ADA, CAL)).rejects.toThrow(/which cal instance/);
+    expect((await service.gate(ADA, new Set())).fn(SEARCH)).toEqual({ state: 'missing', page: 'MCP servers' });
+    const started = await service.connect(ADA, CAL, undefined, LINEAR);
+    if (!('url' in started)) throw new Error('expected a URL');
+    await service.callback({ state: stateOf(started.url), code: 'c' }, browserOf(started));
+    expect([starts, finishes]).toEqual([[LINEAR], [LINEAR]]);
+    expect((await store.table('connections').find({ limit: 1 })).items[0]).toMatchObject({ instance: LINEAR, status: 'connected', share: { visibility: 'private' } });
+    const gate = await service.gate(ADA, new Set());
+    expect(gate.fn(SEARCH)).toMatchObject({ state: 'ready', option: { on: true, ask: false } });
+    // a contract fn with no instance of its own is not per person; another person has no connection
+    expect(gate.fn({ name: QualifiedName.parse('cal/server_status'), system: 'cal' })).toBeUndefined();
+    expect((await service.gate(BEN, new Set())).fn(SEARCH)).toMatchObject({ state: 'missing' });
+    // the switches name the instance's own fns only
+    const id = (await store.table('connections').find({ limit: 1 })).items[0]?.id ?? 'con_x';
+    await service.update(ADA, { connection: id, fns: { linear_search: { on: false, ask: false } } });
+    expect((await service.gate(ADA, new Set())).fn(SEARCH)).toEqual({ state: 'off' });
+    await expect(service.update(ADA, { connection: id, fns: { other_tool: { on: true, ask: false } } })).rejects.toThrow(/other_tool/);
+    // only its own instance refreshes it
+    await expect(service.refreshed(CAL, { connection: id, update: { expired: 'x' } }, InstanceName.parse('jira'))).rejects.toThrow(/no connection/);
+    await service.refreshed(CAL, { connection: id, update: { expired: 'revoked' } }, LINEAR);
+    expect(await store.table('connections').get(id)).toMatchObject({ status: 'expired' });
+  });
+
+  it('a shared instance is connected once by an admin, for everyone', async () => {
+    const { service } = await scoped(true);
+    await expect(service.connect(BEN, CAL, undefined, LINEAR)).rejects.toThrow(/an admin connects/);
+    const started = await service.connect(ADA, CAL, undefined, LINEAR);
+    if (!('url' in started)) throw new Error('expected a URL');
+    await service.callback({ state: stateOf(started.url), code: 'c' }, browserOf(started));
+    expect((await service.gate(BEN, new Set())).fn(SEARCH)).toMatchObject({ state: 'ready', connection: { owner: ADA, instance: LINEAR } });
+  });
+
+  it('refuses an instance that needs no connection, and an instance for a system-wide connection', async () => {
+    const { service, store } = await scoped();
+    await store.table('instances').update({ system: CAL, instance: LINEAR }, { connect: { share: false, title: 'Linear' } });
+    await expect(service.connect(ADA, CAL, undefined, LINEAR)).rejects.toThrow(/needs no connection/);
+    expect((await service.gate(BEN, new Set())).fn(SEARCH)).toBeUndefined();
+    expect((await service.pages(ADA))[0]?.instances).toEqual([]);
+    const plain = await world();
+    await expect(plain.service.connect(ADA, CAL, undefined, LINEAR)).rejects.toThrow(/once for the whole system/);
   });
 });

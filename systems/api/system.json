@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "api",
+  "version": "0.1.0",
+  "description": "One instance per web API service: its base URL and sign-in, and the requests asked for, kept as fns written by an authoring agent.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "instances": "many"
+}

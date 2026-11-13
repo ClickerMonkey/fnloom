@@ -10,13 +10,17 @@
  * which shows the whole of it in a dialog (its only scroll) with the answer under it. Nothing is approved unseen. The
  * sensitive files it touches are never cut: they sit under the body in short form, every one in sight, and on a phone
  * the body (a command, say) is held to a few lines so the chat above keeps its room.
+ *
+ * A proposal that asks for something (`ask`, build 9: a question Claude waits on) shows its form under the body, never
+ * cut; Approve waits until the form's value fits, and the value goes with the answer.
  */
-import type { ApprovalPreview as Preview, Json, QualifiedName, Remember, SensitivityFlag } from '@harness/core';
-import { computed, ref, watch } from 'vue';
+import type { ApprovalPreview as Preview, Json, ProposalAsk, QualifiedName, Remember, SensitivityFlag } from '@harness/core';
+import { computed, ref, shallowRef, watch } from 'vue';
 import ArgList from '../../chat/components/ArgList.vue';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { UiDialog, UiIcon, useClipped } from '../../ui/index.ts';
 import ApprovalAnswer from './ApprovalAnswer.vue';
+import ApprovalAsk from './ApprovalAsk.vue';
 import ApprovalPreview from './ApprovalPreview.vue';
 import SensitiveFiles from './SensitiveFiles.vue';
 
@@ -33,12 +37,20 @@ const props = withDefaults(defineProps<{
   bounded?: boolean;
   /** Its fn's notice ("This usually takes about 3 minutes."), so the person knows before approving. */
   notice?: string;
-}>(), { preview: undefined, rememberable: true, ident: '', bounded: false, notice: '' });
-const emit = defineEmits<{ decide: [approve: boolean, remember: Remember, reason: string] }>();
+  /** The form the approver fills (a proposal's `ask`); its value is sent with Approve. */
+  ask?: ProposalAsk | undefined;
+}>(), { preview: undefined, rememberable: true, ident: '', bounded: false, notice: '', ask: undefined });
+/** `answer` is the filled form when the card asks for one (undefined otherwise, and on Deny). */
+const emit = defineEmits<{ decide: [approve: boolean, remember: Remember, reason: string, answer: Json | undefined] }>();
 defineSlots<{ badge?: () => unknown; after?: () => unknown; buttons?: (scope: { remember: Remember }) => unknown }>();
 
 const remember = ref<Remember>('once');
 const reviewing = ref(false);
+/** The form's value while it fits; undefined while it doesn't (or there is no form). */
+const answer = shallowRef<Json | undefined>(undefined);
+/** Approve waits for a form that fits. */
+const blocked = computed(() => props.ask !== undefined && answer.value === undefined);
+const approveLabel = computed(() => (props.ask === undefined ? 'Approve' : 'Answer'));
 const body = ref<HTMLElement | null>(null);
 const cut = useClipped(body);
 const clipped = computed(() => props.bounded && cut.value);
@@ -58,9 +70,10 @@ const shownPreview = computed((): Preview | undefined => {
 
 watch(() => props.ident, () => { remember.value = 'once'; reviewing.value = false; });
 
-function decide(approve: boolean, answer: Remember, reason: string): void {
+function decide(approve: boolean, remembered: Remember, reason: string): void {
+  if (approve && blocked.value) { return; }
   reviewing.value = false;
-  emit('decide', approve, answer, reason);
+  emit('decide', approve, remembered, reason, approve && props.ask !== undefined ? answer.value : undefined);
 }
 </script>
 
@@ -80,8 +93,9 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
       <ArgList v-else :args="args" />
     </div>
     <SensitiveFiles v-if="trayFlags.length > 0" :flags="trayFlags" compact />
+    <ApprovalAsk v-if="ask" :type="ask.type" :ident="ident" @change="answer = $event" />
     <slot name="after" />
-    <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :review="clipped" @decide="decide" @review="reviewing = true">
+    <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :review="clipped" :blocked="blocked" :approve-label="approveLabel" @decide="decide" @review="reviewing = true">
       <template #buttons="scope"><slot name="buttons" :remember="scope.remember" /></template>
     </ApprovalAnswer>
 
@@ -91,7 +105,7 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
         <ArgList v-else :args="args" />
       </div>
       <template #footer>
-        <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" @decide="decide" />
+        <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :blocked="blocked" :approve-label="approveLabel" @decide="decide" />
       </template>
     </UiDialog>
   </section>

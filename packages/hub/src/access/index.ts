@@ -8,7 +8,7 @@
  * (`access/scope.ts`) implements `AccessScope`.
  */
 import type {
-  AccessInfo, AccessTarget, AccessView, ActorId, ConnectionFnOption, ContextRecord, FnRecord, FnShare, FnUsable, Sharing, ShareRule, SystemName, UserConnection,
+  AccessInfo, AccessTarget, AccessView, ActorId, ConnectionFnOption, ContextRecord, FnRecord, FnRouting, FnShare, FnUsable, Sharing, ShareRule, SystemName, UserConnection,
 } from '@harness/core';
 
 /** The parts of a fn record access looks at. */
@@ -16,7 +16,7 @@ export interface FnRef {
   readonly name: FnRecord['name'];
   readonly system: string;
   /** Its tags, when the caller has the record: an `admin` fn is hidden from everyone but admins (build 6). */
-  readonly decl?: { readonly tags: readonly string[] };
+  readonly decl?: { readonly tags: readonly string[]; readonly routing?: FnRouting | undefined };
 }
 
 /** The parts of a type record access looks at. */

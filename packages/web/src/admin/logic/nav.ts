@@ -25,6 +25,8 @@ const SECTIONS = {
   runs: { label: 'Runs', icon: 'play', to: links.runs(), routes: [ROUTES.runs] },
   'model-calls': { label: 'Model calls', icon: 'cpu', to: links.modelCalls(), routes: [ROUTES.modelCalls, ROUTES.llmCalls] },
   mcps: { label: 'MCPs', icon: 'link', to: links.mcps(), routes: [ROUTES.mcps, ROUTES.mcp] },
+  'mcp-servers': { label: 'MCP servers', icon: 'braces', to: links.mcpServers(), routes: [ROUTES.mcpServers, ROUTES.mcpServer] },
+  'api-services': { label: 'API services', icon: 'globe', to: links.apiServices(), routes: [ROUTES.apiServices, ROUTES.apiService] },
 } as const satisfies Record<AdminSection, { label: string; icon: IconName; to: RouteLocationRaw; routes: readonly RouteName[] }>;
 
 const isRouteName = (name: unknown): name is RouteName => typeof name === 'string' && Object.values<string>(ROUTES).includes(name);

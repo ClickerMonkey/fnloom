@@ -46,7 +46,7 @@ describe('connect rules', () => {
   it('adds a nav entry per page after Context, lit on its own page', () => {
     const user = tokens().user;
     const entries = navEntries({ name: ROUTES.connect, params: { system: 'calendar' } }, user, { inbox: 0, admin: 0 }, connectNav([page()]));
-    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'connect-calendar', 'data', 'graph', 'admin', 'settings']);
+    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'connect-calendar', 'data', 'graph', 'claude', 'admin', 'settings']);
     expect(entries.find((e) => e.active)?.id).toBe('connect-calendar');
     expect(entries.find((e) => e.id === 'connect-calendar')?.icon).toBe('calendar');
   });

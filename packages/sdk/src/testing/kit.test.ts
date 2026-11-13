@@ -115,3 +115,12 @@ describe('the test kit', () => {
     expect(gallery).toContain('NoteCard · empty');
   }, 60_000);
 });
+
+describe('a kind fn under test', () => {
+  it('runs a fn of a kind with a typed payload and JSON args', async () => {
+    kit = await testHub(notes, impl);
+    const run = await kit.runKind('template', 'greeting', { template: 'Hi {{name}}' }, { name: 'Tess' });
+    expect(run.outcome).toMatchObject({ status: 'done', result: 'Hi {{name}}' });
+    expect(run.hubCalls.calls).toEqual([]);
+  });
+});

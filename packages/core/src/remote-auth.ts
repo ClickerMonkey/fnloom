@@ -71,6 +71,12 @@ export const RemoteCredentials = z.union([
   z.object({ token: z.string().min(1) }),
   z.object({ headers: HeaderValues }),
   /** OAuth tokens, refreshed by the instance and handed back with `connectionUpdate`. */
-  z.object({ accessToken: z.string().min(1), refreshToken: z.string().min(1).optional(), tokenType: z.string().default('Bearer') }),
+  z.object({
+    accessToken: z.string().min(1),
+    refreshToken: z.string().min(1).optional(),
+    tokenType: z.string().default('Bearer'),
+    /** The client the tokens were issued to (one the instance registered itself), needed to refresh them. */
+    clientId: z.string().min(1).optional(),
+  }),
 ]);
 export type RemoteCredentials = z.infer<typeof RemoteCredentials>;

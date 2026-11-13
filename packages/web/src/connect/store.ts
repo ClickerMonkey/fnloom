@@ -2,7 +2,7 @@
  * The connect pages: every per-person system the hub offers, with the asker's connections. Loaded once for the nav
  * and again when a page opens; every change answers with the stored connection, which replaces the one held.
  */
-import type { ConnectionChange, ConnectionId, ConnectionView, ConnectPage, Json, SystemName } from '@harness/core';
+import type { ConnectionChange, ConnectionId, ConnectionView, ConnectPage, InstanceName, Json, SystemName } from '@harness/core';
 import { computed } from 'vue';
 import type { ConnectionsApi } from '../api/connections.ts';
 import { Loaded, Task, type Outcome } from '../state/loaded.ts';
@@ -33,9 +33,13 @@ export class ConnectionsStore {
     return this.pages.value.value?.find((p) => p.system === system);
   }
 
-  /** Start connecting: an OAuth system answers the sign-in address, a form system the connection made. */
-  async connect(system: SystemName, form?: Json): Promise<Outcome<ConnectStarted>> {
-    const done = await this.saving.run(() => this.#api.connect.call({ system, ...(form === undefined ? {} : { form }) }), 'Couldn’t start connecting.');
+  /**
+   * Start connecting: an OAuth system answers the sign-in address, a form system the connection made. `instance` connects
+   * to one instance of an instance-scoped system (an MCP server).
+   */
+  async connect(system: SystemName, form?: Json, instance?: InstanceName): Promise<Outcome<ConnectStarted>> {
+    const body = { system, ...(form === undefined ? {} : { form }), ...(instance === undefined ? {} : { instance }) };
+    const done = await this.saving.run(() => this.#api.connect.call(body), 'Couldn’t start connecting.');
     if (done.ok && 'connection' in done.value) { this.#put(done.value.connection); }
     return done;
   }

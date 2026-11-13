@@ -4,9 +4,9 @@
  * proposals, the system context.
  */
 import {
-  AdminNotice, Json, LocalName, type DecideAnswer, type DecideCandidate, type FleetInstance, type FnExamplesPage, type FnSearchPage, type ProposedRun, type RunId,
+  AdminNotice, InstanceConnect, Json, LocalName, type DecideAnswer, type DecideCandidate, type FleetInstance, type FnExamplesPage, type FnSearchPage, type ProposedRun, type RunId,
 } from '@harness/core';
-import type { AdminNotices, DecideOptions, Decisions, Fleets, FnSearch, ProposeOptions, Proposals } from '../ctx.ts';
+import type { AdminNotices, DecideOptions, Decisions, Fleets, FnSearch, InstanceConnects, ProposeOptions, Proposals } from '../ctx.ts';
 import { canonicalJson, sha256 } from '../manifest.ts';
 import type { AnyFnRef } from '../refs.ts';
 import type { HubAccess } from './link.ts';
@@ -24,9 +24,13 @@ export interface ProposalSource {
 export function proposals(source: ProposalSource): Proposals {
   const propose = async (fn: AnyFnRef | string, args: unknown, options: ProposeOptions): Promise<ProposedRun> => {
     const { local, wire } = proposedCall(source.system, fn, args);
-    const approver = options.approver ?? (source.parent === undefined ? 'admins' : 'person');
-    if (source.parent === undefined && approver === 'person') {
-      throw new Error(`${source.system}: a run proposed outside a run has no person to ask; use approver 'admins'.`);
+    const outside = source.parent === undefined;
+    const approver = options.approver ?? (outside && options.for === undefined ? 'admins' : 'person');
+    if (outside && approver === 'person' && options.for === undefined) {
+      throw new Error(`${source.system}: a run proposed outside a run has no person to ask; name them in 'for' or use approver 'admins'.`);
+    }
+    if (outside && options.for !== undefined && options.key === undefined) {
+      throw new Error(`${source.system}: a run proposed for a person outside a run needs a 'key' naming their session or run (proposalKeyFor).`);
     }
     const key = options.key ?? await sha256(canonicalJson([source.parent ?? null, local, wire]));
     const hub = await source.hub.ready(source.signal);
@@ -37,6 +41,9 @@ export function proposals(source: ProposalSource): Proposals {
       approver,
       preview: options.preview,
       ...(source.parent === undefined ? {} : { parent: source.parent }),
+      ...(options.for === undefined ? {} : { for: options.for }),
+      ...(options.chat === undefined ? {} : { chat: options.chat }),
+      ...(options.ask === undefined ? {} : { ask: options.ask }),
     });
   };
   return { propose };
@@ -71,6 +78,11 @@ export function adminNotices(hub: HubAccess, signal: AbortSignal): AdminNotices 
       await link.call('notifyAdmins', AdminNotice.parse(notice));
     },
   };
+}
+
+/** `instanceConnect` for a context: the value, checked, goes to `keep` (the host, which sends it now and on every reconnect). */
+export function instanceConnects(keep: (connect: InstanceConnect) => Promise<void>): InstanceConnects {
+  return { instanceConnect: (connect) => keep(InstanceConnect.parse(connect)) };
 }
 
 /** `searchFns` and `fnExamples` for a context: as the run's person in a run, as the system outside one. */

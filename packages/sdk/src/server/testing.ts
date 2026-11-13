@@ -13,14 +13,15 @@
 import { randomUUID } from 'node:crypto';
 import { implement, peers, reject, server, type Peer, type Peers, type Server, type WsConn, type WsState } from '@ayepi/core';
 import {
-  ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
+  ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, proposalSubjectOf, splitName, linkSession, linkTel, mintId, qualify, systemLinkSpec,
   type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type KindFnShape, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type PairingGrant, type PairingGrantRequest, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
-import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
+import { g, parseValue } from '../gin.ts';
+import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, InstanceConnects, Proposals, SystemPlace } from '../ctx.ts';
 import { fakeHubAi, streamOf } from './fake-models.ts';
 import { FakeHubFns } from './fake-hub-fns.ts';
 import { FakeHubWidgets } from './fake-hub-widgets.ts';
@@ -49,7 +50,7 @@ export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.har
  * didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
  * Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
  */
-export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices = {
+export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices & InstanceConnects = {
   ai: () => fakeHubAi(),
   propose: () => Promise.reject(new Error('This test context proposes no runs; serve against FakeHub to record them.')),
   decide: () => Promise.resolve({ by: 'off' }),
@@ -57,6 +58,7 @@ export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & Adm
   searchFns: () => Promise.resolve({ items: [] }),
   fnExamples: (query) => Promise.resolve({ fn: query.fn, items: [], total: 0 }),
   notifyAdmins: () => Promise.resolve(),
+  instanceConnect: () => Promise.resolve(),
 };
 
 /** The person fake runs are for. */
@@ -224,7 +226,7 @@ export class FakeHub {
   readonly logs: LogLine[] = [];
   /** Refreshed (or expired) credentials systems handed back (`connectionUpdate`). */
   readonly connectionUpdates: Array<HubBody<'connectionUpdate'>> = [];
-  /** Build 9: how instances said people connect to them (`instanceConnect`). STUB(platform lane, build 9): recorded only. */
+  /** How the instance said people connect to it (`instanceConnect`), in order; it is said again on every welcome. */
   readonly instanceConnects: Array<HubBody<'instanceConnect'>> = [];
   /** Fns a run handed to its person (`shareFn`). */
   readonly shares: Array<HubBody<'shareFn'>> = [];
@@ -240,8 +242,15 @@ export class FakeHub {
   readonly notices: AdminNotice[] = [];
   /** What a host's supervisor refused for the systems it hosts (`reportRefusal`), in order. */
   readonly hostRefusals: HubBody<'reportRefusal'>[] = [];
-  /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
+  /**
+   * Runs systems proposed (`propose`), with the run and approval the fake hub made; one per open `key` (outside a run a
+   * settled key proposes afresh, as on the real hub). Settle one with `approveProposal` or `declineProposal`.
+   */
   readonly proposals: Array<HubBody<'propose'> & ProposedRun> = [];
+  /** The approvals settled by `approveProposal` and `declineProposal`. */
+  readonly #settledProposals = new Set<string>();
+  /** The person each run the fake hub started acts for, by run id (whose run a `for` proposal may name). */
+  readonly #runActors = new Map<string, ActorId>();
   /** What systems asked the decision model (`decide`). */
   readonly decisions: Array<HubBody<'decide'>> = [];
   /** Example changes systems sent (`examples`). */
@@ -495,7 +504,86 @@ export class FakeHub {
 
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra: Partial<Omit<RunRequest, 'fn' | 'args'>> = {}): Promise<OutcomeWire> {
-    return this.peer().call('run', this.request(fn, args, extra));
+    const request = this.request(fn, args, extra);
+    this.#runActors.set(request.run.id, request.run.user.id);
+    return this.peer().call('run', request);
+  }
+
+  /** How the instance last said people connect to it (`instanceConnect`); `undefined` when it never said. */
+  get instanceConnect(): HubBody<'instanceConnect'> | undefined {
+    return this.instanceConnects.at(-1);
+  }
+
+  /** An open proposal by its key, approval id or run id. */
+  openProposal(which: string): HubBody<'propose'> & ProposedRun {
+    const proposal = this.proposals.findLast((p) => p.key === which || p.approval === which || p.run === which);
+    if (proposal === undefined) { throw new Error(`No run was proposed as ${which}.`); }
+    if (this.#settledProposals.has(proposal.approval)) { throw new Error(`The proposal ${which} is settled already.`); }
+    return proposal;
+  }
+
+  /**
+   * Approve a proposed run (by its key, approval id or run id) as its approver would: `answer` (required when the
+   * proposal has an `ask`) is set at `args[ask.into]`, the run goes ahead on the system with `approved`, and the
+   * system hears it settle through the `run` event (`done`, or how it ended). Resolves with the run's outcome.
+   */
+  async approveProposal(which: string, options: { readonly answer?: Json; readonly by?: ActorId } = {}): Promise<OutcomeWire> {
+    const proposal = this.openProposal(which);
+    const args = argsWithAnswer(proposal, options.answer);
+    if (proposal.ask !== undefined) { this.#checkAnswer(proposal.ask, options.answer); }
+    const by = options.by ?? proposal.for ?? TEST_USER.id;
+    this.#settledProposals.add(proposal.approval);
+    const fn = qualify(this.#systemName(), proposal.fn);
+    const outcome = await this.run(fn, args, { run: this.runInfo(fn, { id: proposal.run, caller: by }), approved: { by, preview: proposal.preview } });
+    await this.peer().call('event', { type: 'run', run: proposal.run, fn, update: { type: 'status', status: outcome.status } });
+    return outcome;
+  }
+
+  /**
+   * Decline a proposed run as its approver would: it settles `cancelled`, and the system hears it through the `run`
+   * event, with the hub's words for it ("Declined by …: reason") as the status text.
+   */
+  async declineProposal(which: string, reason = ''): Promise<void> {
+    const proposal = this.openProposal(which);
+    this.#settledProposals.add(proposal.approval);
+    const words = `Declined by ${TEST_USER.name}${reason === '' ? ' (no reason given).' : `: ${reason}`}`;
+    await this.peer().call('event', {
+      type: 'run', run: proposal.run, fn: qualify(this.#systemName(), proposal.fn),
+      update: { type: 'status', status: 'cancelled', text: { phase: 'failed', one: words, many: words } },
+    });
+  }
+
+  /**
+   * Whether a person owns what a `for` proposal's key names (`proposalKeyFor`), as the hub checks it: a record of one
+   * of the system's stored types they own, or a run of the system that acts for them.
+   */
+  #owns(person: ActorId, key: string): boolean {
+    const subject = proposalSubjectOf(key);
+    if (subject === undefined) { return false; }
+    if ('run' in subject) { return this.#runActors.get(subject.run) === person; }
+    const record = this.data.records.get(subject.record);
+    return record !== undefined && record.owner === person && splitName(record.type).system === this.#systemName();
+  }
+
+  /** Check an approver's answer against the proposal's `ask.type` (which may name the system's own types), as the hub does. */
+  #checkAnswer(ask: NonNullable<HubBody<'propose'>['ask']>, answer: unknown): void {
+    const scope = g.scope();
+    const manifest = this.manifests.at(-1);
+    if (manifest !== undefined) {
+      for (const decl of manifest.types) { scope.bind(qualify(manifest.name, decl.name), scope.parse(decl.def)); }
+    }
+    try {
+      parseValue(scope.parse(ask.type), answer);
+    } catch (error) {
+      throw new Error(`The answer doesn't fit ${ask.into}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+  }
+
+  /** The connected system's name, from its hello. */
+  #systemName(): string {
+    const hello = this.hellos.at(-1);
+    if (hello === undefined) { throw new Error('No system has said hello to the fake hub.'); }
+    return hello.name;
   }
 
   /** Store content (as an upload would) and return its ref. */
@@ -649,7 +737,10 @@ export class FakeHub {
         shareFn: ({ data }) => { this.shares.push(data); },
         usableFns: ({ data }) => ({ fns: data.fns.filter((fn) => this.usable(data.run, fn)) }),
         propose: ({ data }) => {
-          const known = this.proposals.find((p) => p.key === data.key);
+          if (data.parent === undefined && data.for !== undefined && !this.#owns(data.for, data.key)) {
+            throw reject(403, 'NOT_YOURS', `${this.#systemName()} can only ask ${data.for} about a session or run of theirs: the key must start with its id.`);
+          }
+          const known = this.proposals.find((p) => p.key === data.key && (p.parent !== undefined || !this.#settledProposals.has(p.approval)));
           if (known !== undefined) { return { run: known.run, approval: known.approval }; }
           const made = { run: mintId('run'), approval: mintId('approval') };
           this.proposals.push({ ...data, ...made });
@@ -699,6 +790,18 @@ const PAIRING_GRANT_MS = 10 * 60_000;
 /** A plain value as JSON, the way it would cross the wire. */
 function jsonOf(value: unknown): Json {
   return Json.parse(JSON.parse(JSON.stringify(value)));
+}
+
+/** A proposal's args with the approver's answer set at `args[ask.into]`, as the hub sets it before the run starts. */
+function argsWithAnswer(proposal: HubBody<'propose'>, answer: Json | undefined): Json {
+  if (proposal.ask === undefined) {
+    if (answer !== undefined) { throw new Error(`The proposal ${proposal.key} asks nothing, so it takes no answer.`); }
+    return proposal.args;
+  }
+  if (answer === undefined) { throw new Error(`The proposal ${proposal.key} asks for ${proposal.ask.into}; approve it with an answer.`); }
+  const args = proposal.args;
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) { throw new Error(`The proposal ${proposal.key} asks for an answer, but its args are not an object.`); }
+  return { ...args, [proposal.ask.into]: answer };
 }
 
 function emptyReport(): ImportReport {

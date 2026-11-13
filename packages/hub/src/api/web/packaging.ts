@@ -26,7 +26,6 @@ export function packagingPlugin(hub: HubServices, systems: ReturnType<typeof sys
       installPackage: ({ data, user }) => ops.install_package(data, user.id),
       removeInstance: ({ data, user }) => ops.remove_instance(data, user.id),
       exportSystemData: ({ data, user }) => ops.export_system_data(data, user.id),
-      // STUB(hub lane, build 9): `addInstance` installs the bundled folder as a new instance (docs/plans/build-9-design.md §3).
-      addInstance: () => Promise.reject(new Error('addInstance is not built yet (build 9, hub lane)')),
+      addInstance: ({ data, user }) => ops.add_instance(data, user.id),
     }));
 }

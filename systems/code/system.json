@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "code",
+  "version": "0.1.0",
+  "description": "Small programs kept as fns: each one reads its args, may call other fns, and gives a typed result; written on request by an authoring agent.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "instances": "one"
+}

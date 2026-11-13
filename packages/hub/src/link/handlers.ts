@@ -29,6 +29,7 @@ import { maskSecrets } from './config-secrets.ts';
 import { Serial } from '../catalog/serial.ts';
 import type { SystemGrantGuard } from './grants.ts';
 import type { SystemLifecycle } from './lifecycle.ts';
+import type { EventBus } from '../bus.ts';
 
 const endpoints = hubLinkSpec.endpoints;
 
@@ -37,7 +38,7 @@ export const LINK_SPEC = spec({
   endpoints: {
     hello: endpoints.hello, prove: endpoints.prove, pairingInfo: endpoints.pairingInfo, manifest: endpoints.manifest, patch: endpoints.patch,
     resourcesChanged: endpoints.resourcesChanged, log: endpoints.log,
-    fleet: endpoints.fleet, reportRefusal: endpoints.reportRefusal,
+    fleet: endpoints.fleet, reportRefusal: endpoints.reportRefusal, instanceConnect: endpoints.instanceConnect,
   },
 });
 export type LinkSpec = typeof LINK_SPEC;
@@ -65,6 +66,8 @@ export interface LinkHandlerOptions {
   readonly lifecycle: Pick<SystemLifecycle, 'contractChanged'>;
   /** Build 7: what a system may do through the hub, checked before every endpoint. */
   readonly grants: Pick<SystemGrantGuard, 'check' | 'refused'>;
+  /** Build 9: told when an instance changes how people connect to it (who may use which fns changes with it). */
+  readonly bus: Pick<EventBus, 'publish'>;
 }
 
 /** Where a socket came from, as far as its upgrade request says. */
@@ -153,6 +156,12 @@ export class LinkHandshake {
           throw refuse(403, 'NOT_YOUR_HOSTED', `${data.instance.system}/${data.instance.instance} is not hosted by ${link.system}/${link.instance}`);
         }
         await this.#options.grants.refused(data.instance, { rule: data.rule, attempt: data.attempt, detail: data.detail });
+      },
+      // build 9: how people connect to this instance (an instance-scoped `connect` system), kept on its row
+      instanceConnect: async ({ data, link }) => {
+        await this.#options.instances.sync(link, { connect: data });
+        log.info('instance.connect.set', { system: link.system, instance: link.instance, flow: data.flow?.flow ?? 'none', share: data.share });
+        this.#options.bus.publish('capabilities.changed', {});
       },
       log: ({ data, link }) => {
         log.log(data.level, data.key, { system: link.system, instance: link.instance, ...data.fields });

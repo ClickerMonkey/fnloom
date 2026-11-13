@@ -75,7 +75,7 @@ type ApprovalPreview = {
     type: "flags";
     flags: {
       path: string;
-      kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+      kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
       rule: string;
       access: "write" | "read";
       action: "ask" | "refuse" | "allow";
@@ -229,7 +229,7 @@ type ApprovedRun = {
       type: "flags";
       flags: {
         path: string;
-        kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "write" | "read";
         action: "ask" | "refuse" | "allow";
@@ -457,7 +457,7 @@ type PreviewAnswer = {
       type: "flags";
       flags: {
         path: string;
-        kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "write" | "read";
         action: "ask" | "refuse" | "allow";
@@ -557,6 +557,19 @@ Who answers a proposed run or a fn that always asks: the run's person, or an adm
 
 ```ts
 type ProposalApprover = "person" | "admins";
+```
+
+#### <a id="core-proposalask"></a>`ProposalAsk`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`.
+
+```ts
+type ProposalAsk = {
+  type: TypeDef<any>;
+  into: string;
+};
 ```
 
 #### <a id="core-proposedrun"></a>`ProposedRun`

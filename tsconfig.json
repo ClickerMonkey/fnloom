@@ -44,6 +44,18 @@
       "path": "systems/widgets"
     },
     {
+      "path": "systems/code"
+    },
+    {
+      "path": "systems/api"
+    },
+    {
+      "path": "systems/mcp"
+    },
+    {
+      "path": "systems/claude"
+    },
+    {
       "path": "scripts"
     },
     {

@@ -12,12 +12,15 @@
  */
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
-import { ActorId, ApprovalId, FnKindName, InstanceName, InstanceRef, Json, LocalName, RunId, SessionId, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, ApprovalId, FnKindName, IDS, InstanceName, InstanceRef, Json, LocalName, RunId, SessionId, SystemName, Timestamp } from './primitives.ts';
 import { InstallChecks } from './checks.ts';
 import { SystemGrants } from './grants.ts';
 import { ResultTable } from './registries.ts';
 import { UserInfo } from './run.ts';
 import { SensitivityFlag } from './sensitivity.ts';
+
+/** A record's id (`IDS.record`, as `RecordId` in data.ts). */
+type RecordId = z.infer<typeof IDS.record>;
 
 /** One part of what a run would do, as the approval card shows it. */
 export const PreviewPart = z.discriminatedUnion('type', [
@@ -150,7 +153,8 @@ export const ProposeRun = z.object({
   approver: ProposalApprover,
   /**
    * Build 9: outside a run, the person it waits for (the owner of a Claude session). The hub accepts it only when the
-   * person owns a record of one of the proposing system's stored types that names this proposal's key, or a run of it.
+   * key names (`proposalKeyFor`) a record of one of the proposing system's stored types the person owns, or a run of
+   * the proposing system the person started.
    */
   for: ActorId.optional(),
   /** Build 9: the harness chat whose thread shows the card too (it is always in the inbox). */
@@ -163,6 +167,24 @@ export const ProposeRun = z.object({
   preview: ApprovalPreview,
 }).refine((value) => value.parent !== undefined || value.approver === 'admins' || value.for !== undefined, { message: 'A run proposed outside a run waits for an admin, or for the person named in `for`.', path: ['approver'] });
 export type ProposeRun = z.infer<typeof ProposeRun>;
+
+/**
+ * Build 9: the key of a run proposed `for` a person outside a run. It starts with what the proposal is about, the id of
+ * a record (a Claude session's `claude/Session` record) or of a run of the proposing system, then `:` and what it asks
+ * (`rec_01H…:permit:toolu_1`; a `RunId` fits the same place). The hub reads the id back (`proposalSubjectOf`) to check the person owns it.
+ */
+export function proposalKeyFor(subject: RecordId, ask: string): string {
+  return `${subject}:${ask}`;
+}
+
+/** The record or run id a `for` proposal's key starts with (`proposalKeyFor`), or undefined when it names none. */
+export function proposalSubjectOf(key: string): { record: RecordId } | { run: RunId } | undefined {
+  const head = key.split(':', 1)[0] ?? '';
+  const record = IDS.record.safeParse(head);
+  if (record.success) return { record: record.data };
+  const run = RunId.safeParse(head);
+  return run.success ? { run: run.data } : undefined;
+}
 
 /** The approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK). */
 export const ApprovedRun = z.object({ by: ActorId, preview: ApprovalPreview });

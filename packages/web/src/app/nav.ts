@@ -33,11 +33,12 @@ const NAV: readonly NavSpec[] = [
   { id: 'context', to: links.context(), label: 'Context', icon: 'book', routes: [ROUTES.context, ROUTES.contextItem], adminOnly: false },
   { id: 'data', to: links.data(), label: 'Data', icon: 'database', routes: [ROUTES.data, ROUTES.dataWidgets, ROUTES.dataType], adminOnly: false },
   { id: 'graph', to: links.graph(), label: 'Graph', icon: 'tree', routes: [ROUTES.graph], adminOnly: false },
+  { id: 'claude', to: links.claude(), label: 'Claude', icon: 'code', routes: [ROUTES.claude, ROUTES.claudeSession], adminOnly: false },
   {
     id: 'admin', to: links.systems(), label: 'Admin', icon: 'shield', adminOnly: true,
     routes: [
       ROUTES.admin, ROUTES.systems, ROUTES.system, ROUTES.review, ROUTES.instance, ROUTES.fn, ROUTES.models, ROUTES.limits, ROUTES.policies, ROUTES.actorSettings, ROUTES.runs, ROUTES.llmCalls,
-      ROUTES.modelCalls, ROUTES.mcps, ROUTES.mcp,
+      ROUTES.modelCalls, ROUTES.mcps, ROUTES.mcp, ROUTES.mcpServers, ROUTES.mcpServer, ROUTES.apiServices, ROUTES.apiService,
     ],
   },
   { id: 'settings', to: links.settings(), label: 'Settings', icon: 'settings', routes: [ROUTES.settings], adminOnly: false },

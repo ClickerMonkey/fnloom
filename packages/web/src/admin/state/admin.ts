@@ -19,6 +19,8 @@ import { FnStore } from './fn.ts';
 import { InstanceStore } from './instance.ts';
 import { InstancePartsStore } from './instance-parts.ts';
 import { McpStore, McpsStore } from './mcps.ts';
+import { McpServersStore } from './mcp-servers.ts';
+import { ApiServicesStore } from './api-services.ts';
 import { PackagesStore } from './packages.ts';
 import { PairingPageStore } from './pairing.ts';
 import { LimitsStore } from './limits.ts';
@@ -69,6 +71,10 @@ export class AdminStore {
   readonly packages: PackagesStore;
   readonly mcps: McpsStore;
   readonly mcp: McpStore;
+  /** Build 9: MCP servers the hub connects to, each an instance of the `mcp` system. */
+  readonly mcpServers: McpServersStore;
+  /** Build 9: API services api fns run on, each an instance of the `api` system. */
+  readonly apiServices: ApiServicesStore;
   readonly pairing: PairingPageStore;
   readonly resources: ResourcesBrowser;
   /** Every fn of every system with its stats, for the fns catalogue. */
@@ -102,6 +108,8 @@ export class AdminStore {
     this.packages = new PackagesStore(api, deps.sender);
     this.mcps = new McpsStore(api);
     this.mcp = new McpStore(api, deps.probe);
+    this.mcpServers = new McpServersStore(api);
+    this.apiServices = new ApiServicesStore(api);
     this.pairing = new PairingPageStore(api, deps.userEvents);
     this.resources = resourcesBrowser(api, deps.chat);
     this.suggestions = new SuggestionsStore(api);

@@ -2,7 +2,9 @@
  * The connect pages' rules, kept apart from the views: which connection a page shows, each fn's switches (the
  * person's own, else the system's default), the nav entries the pages add, and plain words for a connection's state.
  */
-import type { ActorId, ConnectionAccount, ConnectionFnOption, ConnectionStatus, ConnectionView, ConnectPage, GinTypeDef, Json, PickOption, SystemName } from '@harness/core';
+import type {
+  ActorId, ConnectionAccount, ConnectionFnOption, ConnectionStatus, ConnectionView, ConnectPage, GinTypeDef, InstanceConnect, InstanceName, Json, PickOption, SystemName,
+} from '@harness/core';
 import { ICONS, type IconName } from '../ui/icons.ts';
 import type { Tone } from '../ui/types.ts';
 
@@ -117,4 +119,35 @@ export function pickedSettings(picks: readonly SettingsPick[], values: Readonly<
     if (picked.length === 0) { return []; }
     return [[pick.key, pick.many ? [...picked] : picked[0] ?? '']];
   }));
+}
+
+/** Build 9: one instance of an instance-scoped system (an MCP server, an API service) as its card shows it. */
+export interface InstanceCard {
+  readonly instance: InstanceName;
+  readonly label: string;
+  readonly connect: InstanceConnect;
+  /** The person's own connection to it: the newest, if any. */
+  readonly own: ConnectionView | undefined;
+  /** Connections to it others shared with the person (a shared sign-in an admin made). */
+  readonly shared: readonly ConnectionView[];
+  /** What connecting asks for: a sign-in in the browser, a form, or nothing (its calls need no connection). */
+  readonly flow: 'oauth' | 'form' | 'none';
+  /** Whether the person may connect it: anyone for their own; only an admin for a sign-in shared with everyone. */
+  readonly mayConnect: boolean;
+}
+
+/** The instance cards of an instance-scoped page, in label order; empty for a page connected to as a whole. */
+export function instanceCards(page: ConnectPage, me: ActorId | undefined, isAdmin: boolean): InstanceCard[] {
+  const newest = [...page.connections].sort((a, b) => b.updatedAt - a.updatedAt);
+  return (page.instances ?? []).map((entry) => {
+    const mine = newest.filter((c) => c.instance === entry.instance);
+    const flow: InstanceCard['flow'] = entry.connect.flow?.flow ?? 'none';
+    return {
+      ...entry,
+      own: mine.find((c) => c.owner === me),
+      shared: mine.filter((c) => c.owner !== me),
+      flow,
+      mayConnect: flow !== 'none' && (!entry.connect.share || isAdmin),
+    };
+  }).sort((a, b) => a.label.localeCompare(b.label));
 }

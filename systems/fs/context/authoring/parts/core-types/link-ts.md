@@ -236,7 +236,7 @@ type RunRequest = {
         type: "flags";
         flags: {
           path: string;
-          kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+          kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
           rule: string;
           access: "write" | "read";
           action: "ask" | "refuse" | "allow";

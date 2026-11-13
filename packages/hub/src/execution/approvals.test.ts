@@ -1,9 +1,9 @@
 /** Build 5: fns that always ask (with a preview from their system), declines the caller can read, and runs systems propose. */
 import { fn, g } from '@harness/sdk';
-import { ActorId, MAIN_INSTANCE, SystemName, type Approval, type FnApproval, type ProposedRun, type Json, type QualifiedName, type Turn } from '@harness/core';
+import { ActorId, MAIN_INSTANCE, mintId, proposalKeyFor, QualifiedName, SystemName, type Approval, type FnApproval, type ProposedRun, type Json, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RunInput } from './index.ts';
-import { ALICE, executionRig, settle, until, type ExecutionRig } from './testing.ts';
+import { ALICE, executionRig, SESSION, settle, until, type ExecutionRig } from './testing.ts';
 
 const write = fn({ description: 'Insert rows.', args: g.obj({ table: g.text() }), returns: g.num(), tags: ['read'] });
 const PREVIEW = { title: 'Insert 1 row into orders', parts: [{ type: 'code' as const, language: 'sql', code: 'INSERT INTO orders …' }], irreversible: false };
@@ -165,5 +165,58 @@ describe('runs a system proposes', () => {
     const base = { key: 'x', approver: 'admins' as const, preview: PREVIEW, system: SystemName.parse('fs'), instance: MAIN_INSTANCE };
     await expect(r.module.runs.propose({ ...base, fn: 'nope', args: {} })).rejects.toThrow(/no fn fs\/nope/);
     await expect(r.module.runs.propose({ ...base, fn: 'write', args: { table: 3 } })).rejects.toThrow(/don't fit/);
+  });
+});
+
+describe('proposals that wait for a person, with a form (build 9)', () => {
+  const BOB = ActorId.parse('act_bob');
+  const CHAT = SESSION;
+  const answerFn = fn({ description: 'Answer a question Claude asked.', args: g.obj({ request: g.text(), answer: g.text() }), returns: g.text(), tags: ['read'] });
+
+  /** The rig with `fs/answer`, Bob, Alice's session record and a chat Alice is in. */
+  async function withSession() {
+    const r = await started();
+    r.catalog.add('fs', 'answer', answerFn);
+    await r.store.table('actors').insert({ id: BOB, kind: 'user', name: 'Bob', about: '', email: 'bob@example.com', role: 'member', createdAt: 0, disabled: false });
+    const record = mintId('record');
+    await r.store.table('records').insert({ id: record, type: QualifiedName.parse('fs/Session'), value: {}, owner: ALICE, title: 'A session', version: 1, createdAt: 0, updatedAt: 0 });
+    await r.session({ participants: [{ actor: ALICE, role: 'owner', notify: 'all', joinedAt: 0 }] });
+    const system = r.connect('fs');
+    const ask = {
+      fn: 'answer', args: { request: 'q1', answer: '' }, key: proposalKeyFor(record, 'answer:q1'), approver: 'admins' as const, for: ALICE, chat: CHAT,
+      ask: { type: { name: 'text' }, into: 'answer' }, preview: { title: 'Which branch?', parts: [], irreversible: false }, system: SystemName.parse('fs'), instance: MAIN_INSTANCE,
+    };
+    return { r, record, ask, system };
+  }
+
+  it('waits for the person who owns the record its key names, shows in their chat, and takes their answer into the args', async () => {
+    const { r, ask, system } = await withSession();
+    const proposed = await r.module.runs.propose(ask);
+    expect(await r.module.runs.get(proposed.run)).toMatchObject({ actor: ALICE, session: CHAT, status: 'awaiting-approval' });
+    expect(lastApproval(r)).toMatchObject({ approver: { by: 'actor', actor: ALICE }, ask: { into: 'answer' } });
+    await expect(r.module.policies.answer(proposed.approval, { by: ALICE, approve: true, remember: 'once' })).rejects.toThrow(/fill in the form/);
+    await expect(r.module.policies.answer(proposed.approval, { by: ALICE, approve: true, remember: 'once', answer: 3 })).rejects.toThrow(/answer/);
+    await expect(r.module.policies.answer(proposed.approval, { by: BOB, approve: true, remember: 'once', answer: 'dev' })).rejects.toThrow(/can't answer/);
+    // an answer is for this one run: `always` is taken as `once`
+    await r.module.policies.answer(proposed.approval, { by: ALICE, approve: true, remember: 'always', answer: 'main' });
+    expect(await r.module.runs.wait(proposed.run)).toMatchObject({ status: 'done' });
+    expect(system.requests.at(-1)?.args).toEqual({ request: 'q1', answer: 'main' });
+    expect(await r.store.table('policies').count({})).toBe(0);
+  });
+
+  it('refuses a person who owns nothing the key names, and skips a chat they are not in', async () => {
+    const { r, ask } = await withSession();
+    await expect(r.module.runs.propose({ ...ask, for: BOB })).rejects.toThrow(/session or run of theirs/);
+    await expect(r.module.runs.propose({ ...ask, key: 'answer:q1' })).rejects.toThrow(/session or run of theirs/);
+    // a record of another system's type names nothing of this system's
+    const other = mintId('record');
+    await r.store.table('records').insert({ id: other, type: QualifiedName.parse('web/Page'), value: {}, owner: ALICE, title: 'Not fs', version: 1, createdAt: 0, updatedAt: 0 });
+    await expect(r.module.runs.propose({ ...ask, key: proposalKeyFor(other, 'answer:q1') })).rejects.toThrow(/session or run of theirs/);
+    await r.store.table('sessions').update(CHAT, { participants: [] });
+    const proposed = await r.module.runs.propose(ask);
+    expect((await r.module.runs.get(proposed.run))?.session).toBeUndefined();
+    // declined: the run is cancelled with the reason, which the system hears as its run event
+    await r.module.policies.answer(proposed.approval, { by: ALICE, approve: false, remember: 'once', reason: 'not now' });
+    expect(await r.module.runs.wait(proposed.run)).toMatchObject({ status: 'cancelled', error: { message: /not now/ } });
   });
 });

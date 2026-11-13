@@ -20,8 +20,9 @@ import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
   type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
-  type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch, HostRefusal, PairingGrantRequest, type PairingGrant,
+  type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch, HostRefusal, InstanceConnect, PairingGrantRequest, type PairingGrant,
 } from '@harness/core';
+import type { z } from 'zod';
 import type { Log, SystemPlace } from '../ctx.ts';
 import { fleets, fnSearch } from './asks.ts';
 import { wireType } from '../gin.ts';
@@ -184,6 +185,8 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
   #mcp: McpFace | undefined;
   /** Stops watching the context folder, when it is watched. */
   #unwatchContext: (() => void) | undefined;
+  /** How people connect to this instance, as last said; sent again on every welcome. */
+  #instanceConnect: InstanceConnect | undefined;
 
   constructor(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, deps: LinkHostDeps) {
     this.name = contract.name;
@@ -269,6 +272,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
         restart: (reason) => { void this.restart(reason); },
         stop: (reason, timeout) => this.#stopFromHub(reason, timeout),
         configured: (previous) => this.#configured(previous),
+        instanceConnect: (connect) => this.instanceConnect(connect),
       },
     });
     const transport = this.#deps.transport ?? new WsLinkTransport({
@@ -372,6 +376,14 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
 
   fleet(): Promise<FleetInstance[]> {
     return fleets(this.#access, this.#stop.signal).fleet();
+  }
+
+  async instanceConnect(connect: z.input<typeof InstanceConnect>): Promise<void> {
+    const checked = InstanceConnect.parse(connect);
+    this.#instanceConnect = checked;
+    const hub = this.#now();
+    // while offline it goes with the next welcome
+    if (hub !== undefined) { await hub.call('instanceConnect', checked, { signal: this.#stop.signal }); }
   }
 
   async restart(reason: string): Promise<never> {
@@ -508,6 +520,13 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
       if (this.#bundle !== undefined) { await uploadClientBundle(this.#bundle, new HubContent(this.#access), this.#stop.signal); }
       const report = await hub.call('manifest', await this.#manifestState().current());
       for (const refused of report.refused) { this.#log.warn('system.import-refused', { name: refused.name, problems: refused.problems }); }
+    }
+    if (this.#instanceConnect !== undefined) {
+      try {
+        await hub.call('instanceConnect', this.#instanceConnect);
+      } catch (error) {
+        this.#log.warn('system.instance-connect-failed', { error: messageOf(error) });
+      }
     }
     this.#pendingStart = welcome.start;
     await this.#startIfConfigured();

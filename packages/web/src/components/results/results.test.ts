@@ -133,7 +133,7 @@ describe('approval cards', () => {
     expect(card.get('[data-testid=type-diff-breaks]').text()).toContain('shop.by_city');
     expect(card.find('[role=radiogroup]').exists()).toBe(false);
     await card.get('[data-testid=approve]').trigger('click');
-    expect(card.emitted('decide')?.[0]).toEqual([true, 'once', '']);
+    expect(card.emitted('decide')?.[0]).toEqual([true, 'once', '', undefined]);
   });
 
   it('in the chat’s tray, cuts a body too tall for the room and asks for Review before Approve, never scrolling inside', async () => {
@@ -150,7 +150,7 @@ describe('approval cards', () => {
       const dialog = document.body.querySelector('[data-testid=approval-review]');
       expect(dialog?.textContent).toContain('shop.by_city');
       document.body.querySelector<HTMLButtonElement>('[role=dialog] [data-testid=approve]')?.click();
-      expect(card.emitted('decide')?.[0]).toEqual([true, 'once', '']);
+      expect(card.emitted('decide')?.[0]).toEqual([true, 'once', '', undefined]);
       card.unmount();
     } finally {
       scroll.mockRestore();

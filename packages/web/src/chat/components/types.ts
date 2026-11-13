@@ -2,7 +2,7 @@
  * Prop and event shapes the chat's components share, and the handles their owners hold (what each exposes). They
  * live here, not in the components, so plain TypeScript (and lint) sees them.
  */
-import type { ApprovalId, ApprovalPreview, Json, QualifiedName } from '@harness/core';
+import type { ApprovalId, ApprovalPreview, Json, ProposalAsk, QualifiedName } from '@harness/core';
 import type { AnyViews } from '@harness/sdk';
 import type { Component } from 'vue';
 import type { IconName } from '../../ui/index.ts';
@@ -33,6 +33,8 @@ export interface ApprovalView {
   readonly preview?: ApprovalPreview | undefined;
   /** Whether the answer may be remembered past this run. */
   readonly rememberable: boolean;
+  /** The form the approver fills (a proposal's `ask`, build 9). */
+  readonly ask?: ProposalAsk | undefined;
 }
 
 /** A starter on an empty chat: what it says, and what tapping it sends. */

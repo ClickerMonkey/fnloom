@@ -105,7 +105,10 @@ export interface ConfigService {
  * restarted with backoff. Calls without `instance` act on every installed instance of the system.
  */
 export interface Supervisor {
-  install(input: { source: InstallSource; config?: Json; autoStart?: boolean; instance?: InstanceName; by: ActorId }): Promise<InstalledSystem>;
+  /**
+   * Install an instance (see `ProcessSupervisor.install`); build 9 adds `fleet` and `description` (`InstallInput`).
+   */
+  install(input: InstallInput): Promise<InstalledSystem>;
   start(system: SystemName, instance?: InstanceName): Promise<void>;
   /** Stop: ask over the link with a deadline, then end the process if it hasn't. */
   stop(system: SystemName, reason: StopReason, instance?: InstanceName): Promise<void>;
@@ -117,6 +120,21 @@ export interface Supervisor {
   startAll(): Promise<void>;
   stopAll(reason: StopReason): Promise<void>;
   list(): Promise<InstalledSystem[]>;
+}
+
+/** What installing an instance takes. */
+export interface InstallInput {
+  readonly source: InstallSource;
+  readonly config?: Json | undefined;
+  readonly autoStart?: boolean | undefined;
+  readonly instance?: InstanceName | undefined;
+  readonly by: ActorId;
+  /** Build 9: the system the source must hold (refused when it holds another). */
+  readonly system?: SystemName | undefined;
+  /** Build 9: refuse a package whose `system.json` says `instances: "one"` (an instance added from the browser). */
+  readonly fleet?: boolean | undefined;
+  /** Build 9: what the instance's row says about it (`InstanceRecord.description`). */
+  readonly description?: string | undefined;
 }
 
 /** Package zips and data exports (the packaging slice and the CLI). */

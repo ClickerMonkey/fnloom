@@ -535,14 +535,14 @@ export class ThreadStore {
     return sent ? undoSummary(reports) : undefined;
   }
 
-  /** Approve or deny a run. It leaves the queue at once; the hub's event confirms. */
-  async approve(approval: ApprovalId, approve: boolean, remember: Remember, reason?: string): Promise<boolean> {
+  /** Approve or deny a run (with the filled form of one that asks, `answer`). It leaves the queue at once; the hub's event confirms. */
+  async approve(approval: ApprovalId, approve: boolean, remember: Remember, reason?: string, answer?: Json): Promise<boolean> {
     const before = this.approvals.value;
     const run = before.find((a) => a.id === approval)?.run;
     this.approvals.value = before.filter((a) => a.id !== approval);
     try {
       if (approve && run !== undefined) { this.#approved.add(run); }
-      await this.#deps.api.approve.call({ approval, approve, remember, ...(reason === undefined || reason === '' ? {} : { reason }) });
+      await this.#deps.api.approve.call({ approval, approve, remember, ...(reason === undefined || reason === '' ? {} : { reason }), ...(answer === undefined ? {} : { answer }) });
       return true;
     } catch (error) {
       if (run !== undefined) { this.#approved.delete(run); }

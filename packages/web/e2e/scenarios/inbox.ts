@@ -27,12 +27,12 @@ export const inbox: Scenario = {
     await settle(page);
     await shot('page');
 
-    const unreadTab = await page.$$('[role="tab"]');
+    const unreadTab = await page.$$('[data-testid="inbox-filter"] [role="radio"]');
     await unreadTab[1]?.click();
     await page.waitForFunction(() => new URLSearchParams(location.search).get('filter') === 'unread');
     await page.reload({ waitUntil: 'networkidle0' });
-    await page.waitForSelector('[role="tab"][aria-selected="true"]');
-    const selected = await page.$eval('[role="tab"][aria-selected="true"]', (el) => el.textContent.trim());
+    await page.waitForSelector('[data-testid="inbox-filter"] [aria-checked="true"]');
+    const selected = await page.$eval('[data-testid="inbox-filter"] [aria-checked="true"]', (el) => el.textContent.trim());
     check(selected.startsWith('Unread'), `after a reload the Unread tab should still be chosen, got "${selected}"`);
     await settle(page);
     await shot('unread');

@@ -92,6 +92,10 @@ export function adminApi(hub: Hub) {
     instances: hub.caller('instances', { dedupe: true }),
     installPackage: hub.caller('installPackage'),
     removeInstance: hub.caller('removeInstance'),
+    /** Build 9: a new instance of a bundled fleet system (an MCP server, an API service). */
+    addInstance: hub.caller('addInstance'),
+    /** A read fn run quietly as the admin (an MCP server's status). */
+    readFn: hub.caller('readFn'),
     exportSystemData: hub.caller('exportSystemData'),
     // auto pair: the secrets that let instances re-pair, and revoking one
     autoPairs: hub.caller('autoPairs', { dedupe: true }),

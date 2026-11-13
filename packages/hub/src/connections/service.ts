@@ -9,9 +9,11 @@ import { reject } from '@ayepi/core';
 import { z } from 'zod';
 import type { Logger } from '@ayepi/log';
 import {
-  ConnectionId, Json, mintId, splitName, type ActorId, type ConnectDecl, type ConnectionChange, type ConnectionUpdate, type ConnectionView, type ConnectPage,
-  type ConnectResult, type IdRandom, type RunConnection, type SecretId, type SystemName, type UserConnection,
+  ConnectionId, Json, mintId, qualify, splitName, type ActorId, type ConnectDecl, type ConnectFlow, type ConnectionChange, type ConnectionFnOption, type ConnectionUpdate,
+  type ConnectionView, type ConnectPage, type ConnectResult, type IdRandom, type InstanceConnect, type InstanceName, type RunConnection, type SecretId, type SystemName,
+  type UserConnection,
 } from '@harness/core';
+import { fnOwner } from '../catalog/catalog.ts';
 import type { ConnectionGate, FnConnection, FnRef } from '../access/index.ts';
 import { letsIn } from '../access/scope.ts';
 import type { SecretVault } from '../api/index.ts';
@@ -29,7 +31,7 @@ export const CONNECT_CALLBACK_PATH = '/connect/callback';
 /** What the connection service uses. */
 export interface ConnectionDeps {
   readonly store: HubStore;
-  readonly catalog: Pick<Catalog, 'manifest' | 'check'>;
+  readonly catalog: Pick<Catalog, 'manifest' | 'check' | 'fn'>;
   readonly link: Pick<LinkService, 'connection'>;
   readonly secrets: SecretVault;
   readonly bus: Pick<EventBus, 'publish'>;
@@ -47,6 +49,21 @@ export interface ConnectionDeps {
 export function connectionView(row: UserConnection): ConnectionView {
   const { credentials: _credentials, ...view } = row;
   return view;
+}
+
+/** The switches of a fn of an instance-scoped system that neither the connection nor the declaration names. */
+const ON_WITHOUT_ASKING: ConnectionFnOption = { on: true, ask: false };
+
+/** How one connection is made: the flow, and for an instance whether one admin connection serves everyone. */
+interface ConnectHow {
+  readonly flow: ConnectFlow;
+  readonly instance?: InstanceName | undefined;
+  readonly share: boolean;
+}
+
+/** The key of an instance in the gate's map. */
+function instanceKey(system: string, instance: InstanceName): string {
+  return `${system}/${instance}`;
 }
 
 /** Connections over the store. */
@@ -71,25 +88,28 @@ export class StoreConnectionService implements ConnectionService {
     const pages: ConnectPage[] = [];
     for (const { system, decl, ready } of await this.#decls()) {
       const connections = await allRows(this.#table(), { where: { owner: asker, system } });
-      pages.push({ system, decl, ready, connections: connections.sort((a, b) => b.createdAt - a.createdAt).map(connectionView) });
+      const instances = decl.scope === 'instance' ? await this.#instancePages(system) : undefined;
+      pages.push({ system, decl, ready, connections: connections.sort((a, b) => b.createdAt - a.createdAt).map(connectionView), ...(instances === undefined ? {} : { instances }) });
     }
     return pages;
   }
 
-  async connect(asker: ActorId, system: SystemName, form?: Json): Promise<ConnectStart> {
-    const decl = await this.#decl(system);
+  async connect(asker: ActorId, system: SystemName, form?: Json, instance?: InstanceName): Promise<ConnectStart> {
+    const how = await this.#how(asker, system, await this.#decl(system), instance);
     const now = this.#deps.clock();
     const row: UserConnection = {
-      id: mintId('connection', this.#deps.random), system, owner: asker, status: 'pending', settings: {}, fns: {},
-      share: { visibility: 'private', with: [] }, createdAt: now, updatedAt: now,
+      id: mintId('connection', this.#deps.random), system, ...(how.instance === undefined ? {} : { instance: how.instance }), owner: asker, status: 'pending', settings: {}, fns: {},
+      // a shared instance connection (an admin's sign-in) serves everyone
+      share: how.share ? { visibility: 'public', with: [] } : { visibility: 'private', with: [] }, createdAt: now, updatedAt: now,
     };
-    if (decl.how.flow === 'form') {
+    const at = how.instance === undefined ? {} : { instance: how.instance };
+    if (how.flow.flow === 'form') {
       if (form === undefined) { throw reject(422, 'FORM_NEEDED', `connecting to ${system} needs its form filled in`); }
-      const problems = await this.#deps.catalog.check(system, decl.how.form, form);
+      const problems = await this.#deps.catalog.check(system, how.flow.form, form);
       if (problems.length > 0) { throw reject(422, 'INVALID_FORM', problems.join('; ')); }
       await this.#begin(row);
       try {
-        const result = await this.#call(system, (c, signal) => c.peer.call('connectFinish', { connection: row.id, owner: asker, redirect: this.#redirect, answer: { form } }, { signal }));
+        const result = await this.#call(system, how.instance, (c, signal) => c.peer.call('connectFinish', { connection: row.id, owner: asker, ...at, redirect: this.#redirect, answer: { form } }, { signal }));
         return { connection: connectionView(await this.#finish(row, result)) };
       } catch (error) {
         await this.#table().remove(row.id);
@@ -101,7 +121,7 @@ export class StoreConnectionService implements ConnectionService {
     const browser = randomBytes(24).toString('base64url');
     const state = this.#sign(row.id, now + window, sha256(browser));
     try {
-      const { url } = await this.#call(system, (c, signal) => c.peer.call('connectStart', { connection: row.id, owner: asker, redirect: this.#redirect, state }, { signal }));
+      const { url } = await this.#call(system, how.instance, (c, signal) => c.peer.call('connectStart', { connection: row.id, owner: asker, ...at, redirect: this.#redirect, state }, { signal }));
       const binding: ConnectBinding = { cookie: bindingCookie(row.id), value: browser, maxAge: Math.ceil(window / 1000), secure: this.#redirect.startsWith('https:') };
       return { url, binding };
     } catch (error) {
@@ -143,7 +163,9 @@ export class StoreConnectionService implements ConnectionService {
     }
     let result: ConnectResult;
     try {
-      result = await this.#call(row.system, (c, signal) => c.peer.call('connectFinish', { connection: row.id, owner: row.owner, redirect: this.#redirect, answer: { params: { ...params } } }, { signal }));
+      result = await this.#call(row.system, row.instance, (c, signal) => c.peer.call('connectFinish', {
+        connection: row.id, owner: row.owner, ...(row.instance === undefined ? {} : { instance: row.instance }), redirect: this.#redirect, answer: { params: { ...params } },
+      }, { signal }));
     } catch (error) {
       result = { problem: error instanceof Error ? error.message : String(error) };
     }
@@ -157,7 +179,7 @@ export class StoreConnectionService implements ConnectionService {
       const problems = await this.#deps.catalog.check(row.system, decl.settings, change.settings);
       if (problems.length > 0) { throw reject(422, 'INVALID_SETTINGS', problems.join('; ')); }
     }
-    const unknown = Object.keys(change.fns ?? {}).filter((fn) => !(fn in decl.fns));
+    const unknown = await this.#unknownFns(row, decl, Object.keys(change.fns ?? {}));
     if (unknown.length > 0) { throw reject(422, 'UNKNOWN_FN', `${row.system} has no per-person fn ${unknown.join(', ')}`); }
     const updated = await this.#table().update(row.id, {
       ...(change.settings === undefined ? {} : { settings: change.settings }),
@@ -172,9 +194,9 @@ export class StoreConnectionService implements ConnectionService {
   async disconnect(asker: ActorId, connection: ConnectionId): Promise<boolean> {
     const row = await this.#own(asker, connection);
     const credentials = await this.#credentials(row);
-    if (credentials !== undefined && this.#deps.link.connection(row.system) !== undefined) {
+    if (credentials !== undefined && this.#deps.link.connection(row.system, row.instance) !== undefined) {
       // the provider revokes what it can; the hub forgets the connection whether or not it could
-      await this.#call(row.system, (c, signal) => c.peer.call('disconnect', { id: row.id, owner: row.owner, credentials }, { signal }))
+      await this.#call(row.system, row.instance, (c, signal) => c.peer.call('disconnect', { id: row.id, owner: row.owner, credentials }, { signal }))
         .catch((error: unknown) => { this.#deps.log.warn('connection.revoke-failed', { connection: row.id, system: row.system, error: error instanceof Error ? error.message : String(error) }); });
     }
     if (row.credentials !== undefined) await this.#deps.secrets.remove(row.credentials);
@@ -183,19 +205,20 @@ export class StoreConnectionService implements ConnectionService {
     return removed;
   }
 
-  refreshed(system: SystemName, update: ConnectionUpdate): Promise<void> {
+  refreshed(system: SystemName, update: ConnectionUpdate, instance?: InstanceName): Promise<void> {
     // one at a time per connection: each reads the secret the one before stored, so every replaced secret is removed
     const before = this.#refreshing.get(update.connection) ?? Promise.resolve();
-    const next = before.catch(() => undefined).then(() => this.#refresh(system, update));
+    const next = before.catch(() => undefined).then(() => this.#refresh(system, update, instance));
     const tail = next.catch(() => undefined);
     this.#refreshing.set(update.connection, tail);
     void tail.then(() => { if (this.#refreshing.get(update.connection) === tail) this.#refreshing.delete(update.connection); });
     return next;
   }
 
-  async #refresh(system: SystemName, update: ConnectionUpdate): Promise<void> {
+  async #refresh(system: SystemName, update: ConnectionUpdate, instance: InstanceName | undefined): Promise<void> {
     const row = await this.#table().get(update.connection);
-    if (row?.system !== system) { throw reject(404, 'NOT_FOUND', `${system} has no connection ${update.connection}`); }
+    // an instance-scoped connection is refreshed only by its own instance
+    if (row?.system !== system || (row.instance !== undefined && row.instance !== instance)) { throw reject(404, 'NOT_FOUND', `${system} has no connection ${update.connection}`); }
     if ('expired' in update.update) {
       await this.#table().update(row.id, { status: 'expired', problem: update.update.expired, updatedAt: this.#deps.clock() });
     } else {
@@ -215,13 +238,23 @@ export class StoreConnectionService implements ConnectionService {
     const usable = (await allRows(this.#table(), { where: { status: 'connected' } }))
       .filter((row) => decls.has(row.system) && letsIn({ owner: row.owner, ...row.share }, actor, groups))
       .sort((a, b) => (a.owner === actor ? 0 : 1) - (b.owner === actor ? 0 : 1) || b.createdAt - a.createdAt);
+    const connects = await this.#instanceConnects([...decls.values()].filter((entry) => entry.decl.scope === 'instance').map((entry) => entry.system));
     return {
       fn: (record: FnRef): FnConnection | undefined => {
         const entry = decls.get(record.system);
         const local = splitName(record.name).local;
+        if (entry?.decl.scope === 'instance') {
+          // every fn that runs on an instance people connect to acts as the person
+          const instance = record.decl?.routing?.to === 'instance' ? record.decl.routing.instance : undefined;
+          if (instance === undefined || connects.get(instanceKey(record.system, instance))?.flow === undefined) return undefined;
+          const connection = usable.find((row) => row.system === record.system && row.instance === instance);
+          if (connection === undefined) return { state: 'missing', page: entry.decl.title };
+          const option = connection.fns[local] ?? entry.decl.fns[local] ?? entry.decl.defaults ?? ON_WITHOUT_ASKING;
+          return option.on ? { state: 'ready', connection, option } : { state: 'off' };
+        }
         const declared = entry?.decl.fns[local];
         if (entry === undefined || declared === undefined) return undefined;
-        const connection = usable.find((row) => row.system === record.system);
+        const connection = usable.find((row) => row.system === record.system && row.instance === undefined);
         if (connection === undefined) return { state: 'missing', page: entry.decl.title };
         const option = connection.fns[local] ?? declared;
         return option.on ? { state: 'ready', connection, option } : { state: 'off' };
@@ -242,6 +275,7 @@ export class StoreConnectionService implements ConnectionService {
   /** Store a new pending row, dropping the person's earlier sign-ins to the same system that never came back. */
   async #begin(row: UserConnection): Promise<void> {
     for (const stale of await allRows(this.#table(), { where: { owner: row.owner, system: row.system, status: 'pending' } })) {
+      if (stale.instance !== row.instance) continue;
       await this.#table().remove(stale.id);
     }
     await this.#table().insert(row);
@@ -268,15 +302,67 @@ export class StoreConnectionService implements ConnectionService {
     return decl;
   }
 
+  /**
+   * How a connection to a system is made: its declared flow, or for an instance-scoped system the named instance's own
+   * (`InstanceConnect`). Refused when the instance is missing, needs no connection, or is shared and the asker is no admin.
+   */
+  async #how(asker: ActorId, system: SystemName, decl: ConnectDecl, instance: InstanceName | undefined): Promise<ConnectHow> {
+    if (decl.scope !== 'instance') {
+      if (instance !== undefined) { throw reject(422, 'NOT_PER_INSTANCE', `${system} connects once for the whole system, not per instance`); }
+      return { flow: decl.how, share: false };
+    }
+    if (instance === undefined) { throw reject(422, 'INSTANCE_NEEDED', `say which ${system} instance to connect to`); }
+    const record = await this.#deps.store.table('instances').get({ system, instance });
+    if (record === undefined || record.status === 'removed') { throw reject(404, 'NOT_FOUND', `${system} has no instance ${instance}`); }
+    const flow = record.connect?.flow;
+    if (flow === undefined) { throw reject(422, 'NO_CONNECTION_NEEDED', `${system}/${instance} needs no connection`); }
+    const share = record.connect?.share === true;
+    const actor = share ? await this.#deps.store.table('actors').get(asker) : undefined;
+    if (share && (actor?.kind !== 'user' || actor.role !== 'admin')) {
+      throw reject(403, 'ADMIN_CONNECTS', `an admin connects ${system}/${instance} once, for everyone`);
+    }
+    return { flow, instance, share };
+  }
+
+  /** The instances of an instance-scoped system people connect to (those that said how), for its page. */
+  async #instancePages(system: SystemName): Promise<NonNullable<ConnectPage['instances']>> {
+    const rows = await allRows(this.#deps.store.table('instances'), { where: { system } });
+    return rows.flatMap((row) => (row.status === 'removed' || row.connect?.flow === undefined ? []
+      : [{ instance: row.instance, label: row.description === '' ? row.instance : row.description, connect: row.connect }]));
+  }
+
+  /** How people connect to each instance of these systems (`system/instance` to its `InstanceConnect`). */
+  async #instanceConnects(systems: readonly SystemName[]): Promise<Map<string, InstanceConnect>> {
+    const out = new Map<string, InstanceConnect>();
+    for (const system of systems) {
+      for (const row of await allRows(this.#deps.store.table('instances'), { where: { system } })) {
+        if (row.status !== 'removed' && row.connect !== undefined) out.set(instanceKey(system, row.instance), row.connect);
+      }
+    }
+    return out;
+  }
+
+  /** The fn names a connection's switches may not name: not per-person fns of its system (per instance: not its instance's fns). */
+  async #unknownFns(row: UserConnection, decl: ConnectDecl, names: readonly string[]): Promise<string[]> {
+    if (decl.scope !== 'instance') return names.filter((fn) => !(fn in decl.fns));
+    const unknown: string[] = [];
+    for (const name of names) {
+      const record = await this.#deps.catalog.fn(qualify(row.system, name));
+      if (record === undefined || fnOwner(record.decl) !== row.instance) unknown.push(name);
+    }
+    return unknown;
+  }
+
   async #own(asker: ActorId, id: ConnectionId): Promise<UserConnection> {
     const row = await this.#table().get(id);
     if (row?.owner !== asker) { throw reject(404, 'NOT_FOUND', `you have no connection ${id}`); }
     return row;
   }
 
-  async #call<T>(system: SystemName, call: (connection: SystemConnection, signal: AbortSignal) => Promise<T>): Promise<T> {
-    const connection = this.#deps.link.connection(system);
-    if (connection === undefined) { throw reject(503, 'SYSTEM_OFFLINE', `the ${system} system is not connected; try again when it is`); }
+  async #call<T>(system: SystemName, instance: InstanceName | undefined, call: (connection: SystemConnection, signal: AbortSignal) => Promise<T>): Promise<T> {
+    const connection = this.#deps.link.connection(system, instance);
+    const which = instance === undefined ? `the ${system} system` : `${system}/${instance}`;
+    if (connection === undefined) { throw reject(503, 'SYSTEM_OFFLINE', `${which} is not connected; try again when it is`); }
     return call(connection, AbortSignal.any([connection.signal, AbortSignal.timeout(this.#deps.settings.HARNESS_CONNECT_TIMEOUT)]));
   }
 

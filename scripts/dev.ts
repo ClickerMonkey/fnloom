@@ -9,7 +9,7 @@
  *   HARNESS_ADMIN_EMAIL / HARNESS_ADMIN_PASSWORD   the single admin account (required; made on first start)
  *   HARNESS_PORT       hub and web app port (default 4300)
  *   HARNESS_DATA       data folder (default .harness)
- *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder, web-system, input, widgets, calendar,
+ *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder, web-system, input, widgets, claude, calendar,
  *                      database (default all but database, which runs a new SQLite file `dev.db` only when listed)
  *   HARNESS_DEV_ROOT   the folder fs serves (default this repository)
  *   HARNESS_EMBEDDER_URL  the EmbeddingGemma service (default http://127.0.0.1:8760)

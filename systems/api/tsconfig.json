@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "../../.types/system-api", "tsBuildInfoFile": "../../.types/system-api.tsbuildinfo", "types": ["node"] },
+  "include": ["shared", "server"],
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }]
+}

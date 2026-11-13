@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseValue } from './gin.ts';
+import { ApiServiceConfig, ClaudeInstanceConfig, McpServerConfig } from '@harness/core';
 import { ginOf, toolArgsOf } from './zod-gin.ts';
 
 describe('gin types read off zod schemas', () => {
@@ -92,5 +93,40 @@ describe('records', () => {
     expect(parseValue(ginOf(z.record(z.literal(['a', 'b']), z.boolean())), { a: true, b: false })).toEqual({ a: true, b: false });
     expect(ginOf(z.record(z.string(), z.number())).toJSON()).toEqual(ginOf(z.json()).toJSON());
     expect(ginOf(z.looseRecord(Metric, z.number())).toJSON()).toEqual(ginOf(z.json()).toJSON());
+  });
+});
+
+describe('the build 9 instance configs read into gin', () => {
+  const cases: ReadonlyArray<{ name: string; schema: z.ZodType; value: unknown; bad: unknown }> = [
+    {
+      name: 'an MCP server over stdio with env secrets',
+      schema: McpServerConfig,
+      value: { label: 'Files', transport: { type: 'stdio', command: 'npx', args: ['-y', 'server'], env: { API_KEY: 'k' } } },
+      bad: { label: 'Files', transport: { type: 'pipe' } },
+    },
+    {
+      name: 'an MCP server over HTTP with per-person OAuth',
+      schema: McpServerConfig,
+      value: { label: 'Linear', transport: { type: 'http', url: 'https://mcp.linear.app/mcp' }, auth: { kind: 'oauth', per: 'person', scopes: ['read'] }, approval: 'always' },
+      bad: { label: 'Linear', transport: { type: 'sse', url: 'https://x.test/sse' }, auth: { kind: 'oauth', per: 'everyone' } },
+    },
+    {
+      name: 'an API service with shared headers',
+      schema: ApiServiceConfig,
+      value: { label: 'Weather', baseUrl: 'https://api.weather.test/v1', auth: { kind: 'headers', per: 'shared', names: ['X-Key'], values: { 'X-Key': 's' } }, headers: { Accept: 'application/json' } },
+      bad: { label: '', baseUrl: 'https://api.weather.test/v1' },
+    },
+    {
+      name: 'a Claude machine',
+      schema: ClaudeInstanceConfig,
+      value: { folders: [{ path: 'C:/work', label: 'Work' }], permissionMode: 'acceptEdits', maxLive: 4, hubMcp: { url: 'http://127.0.0.1:4320/mcp', secret: 's' } },
+      bad: { folders: [{ path: 'C:/work' }], maxLive: 0 },
+    },
+  ];
+
+  it.each(cases)('$name: gin takes what zod takes, and zod reads the gin value', ({ schema, value, bad }) => {
+    const type = ginOf(schema);
+    expect(schema.parse(parseValue(type, value))).toEqual(schema.parse(value));
+    expect(() => parseValue(type, bad)).toThrow();
   });
 });

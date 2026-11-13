@@ -221,7 +221,7 @@ describe('lists and cards', () => {
 
   it('AdminNav links every section and marks the current one', () => {
     const nav = mount(AdminNav, { props: { entries: adminNav({ name: 'runs' }, { systems: 3 }) }, global: { stubs } });
-    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(9);
+    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(11);
     expect(nav.get('[aria-current=page]').text()).toContain('Runs');
     expect(nav.get('.count').text()).toBe('3');
   });

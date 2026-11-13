@@ -41,7 +41,7 @@ export const CAPABILITY_ENDPOINTS = {
   search: ['searchFns', 'fnExamples', 'examples'],
   decide: ['decide'],
   approvals: ['propose', 'grantPairing', 'reportRefusal'],
-  connections: ['connectionUpdate'],
+  connections: ['connectionUpdate', 'instanceConnect'],
   settings: ['setting'],
   state: ['stateGet', 'stateSet'],
   // build 8: served by the hub lane (the data system)

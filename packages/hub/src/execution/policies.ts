@@ -13,8 +13,10 @@
  */
 import {
   mintId, OWN_TAG, READ_TAG, type ActorId, type ActorKind, type ActorMatch, type Approval, type ApprovalId, type Approver, type FnMatch, type FnRecord, type Policy, type PolicyDecision, type QualifiedName,
-  type Remember, type Run, type SessionId, type Verdict,
+  type Json, type Remember, type Run, type SessionId, type Verdict, problemLine,
 } from '@harness/core';
+import { reject } from '@ayepi/core';
+import { invalidArgs } from './runs.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { messageOf } from './errors.ts';
 import { AGENT_KIND, type PolicyEngine, type RunDecision } from './index.ts';
@@ -192,7 +194,7 @@ export class HubPolicyEngine implements PolicyEngine {
   propose(input: ProposeApproval): Promise<Approval> {
     return this.#ask({
       id: mintId('approval', this.#deps.random), run: input.run, fn: input.fn, approver: input.approver, status: 'pending', decisions: [],
-      createdAt: this.#deps.clock(), preview: input.preview, proposed: true,
+      createdAt: this.#deps.clock(), preview: input.preview, proposed: true, ...(input.ask === undefined ? {} : { ask: input.ask }),
     }, input.turnUser, input.session);
   }
 
@@ -204,7 +206,7 @@ export class HubPolicyEngine implements PolicyEngine {
     return approval;
   }
 
-  async answer(id: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval> {
+  async answer(id: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string; answer?: Json }): Promise<Approval> {
     const { store } = this.#deps;
     const approval = await store.table('approvals').get(id);
     if (approval === undefined) throw new Error(`no approval ${id}`);
@@ -218,8 +220,29 @@ export class HubPolicyEngine implements PolicyEngine {
     // a fn whose approvals may not be remembered (writes, schema changes) is asked about every time
     // nor is a call that touches sensitive files (its card lists them)
     const flagged = approval.preview?.parts.some((part) => part.type === 'flags') === true;
-    const remember = flagged || (await this.#deps.catalog.fn(approval.fn))?.decl.approval?.remember === false ? 'once' : input.remember;
-    return this.#record(approval, run, turnUser, { ...input, remember });
+    // nor is a question: its answer is for this one run (build 9, `ask`)
+    const remember = flagged || approval.ask !== undefined || (await this.#deps.catalog.fn(approval.fn))?.decl.approval?.remember === false ? 'once' : input.remember;
+    if (input.approve && approval.ask !== undefined) await this.#fill(approval, run, input.answer);
+    const { answer: _answer, ...decision } = input;
+    return this.#record(approval, run, turnUser, { ...decision, remember });
+  }
+
+  /**
+   * Build 9: put the approver's answer to a proposal's form in its run's args (`args[into]`), checked against the form's
+   * type and then the fn's args, before the approval lets the run go ahead.
+   */
+  async #fill(approval: Approval, run: Run, answer: Json | undefined): Promise<void> {
+    const ask = approval.ask;
+    if (ask === undefined) return;
+    if (answer === undefined) throw reject(422, 'ANSWER_NEEDED', 'This asks a question: fill in the form to approve it.');
+    const problems = await this.#deps.catalog.check(run.system, ask.type, answer);
+    if (problems.length > 0) throw reject(422, 'ANSWER_INVALID', problems.join('; '));
+    const current = run.args;
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) throw reject(409, 'ARGS_NOT_AN_OBJECT', `${run.fn}'s args take no answer`);
+    const args: Json = { ...current, [ask.into]: answer };
+    const invalid = invalidArgs((await this.#deps.catalog.signature(run.fn)).argsSchema.safeParse(args));
+    if (invalid !== undefined) throw reject(422, 'ANSWER_INVALID', invalid.problems.map(problemLine).join('; '));
+    await this.#deps.store.table('runs').update(run.id, { args });
   }
 
   /**

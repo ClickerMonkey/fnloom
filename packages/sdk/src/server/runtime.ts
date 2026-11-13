@@ -8,7 +8,7 @@ import {
   CostEstimate, EXPORT_NOT_READY, FlagsAnswer, systemLinkSpec, type KindEstimateAnswer, type KindEstimateRequest, type MentionRequestId,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
-  type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest, type PreviewAnswer, type PreviewRequest,
+  type InstanceConnect, type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest, type PreviewAnswer, type PreviewRequest,
 } from '@harness/core';
 import type { ActionCtx, AskerCtx, SystemCtx, UndoCtx } from '../ctx.ts';
 import { hookBlock, type KindCheckCtx, type MentionCtx } from '../declare.ts';
@@ -23,7 +23,7 @@ import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
 import type { RunRegistry } from './runs.ts';
-import { adminNotices, fleets, fnSearch, proposals } from './asks.ts';
+import { adminNotices, fleets, fnSearch, instanceConnects, proposals } from './asks.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { SystemTable } from './table.ts';
 import { decode, decodeOrThrow, encodeOrThrow, messageOf, thrownError, withTimeout } from './wire.ts';
@@ -82,6 +82,8 @@ export interface HostControls {
   stop(reason: StopReason, timeout: number): Promise<void>;
   /** The hub changed the config (it is already applied). */
   configured(previous: unknown): Promise<void>;
+  /** Keep how people connect to this instance, and tell the hub now (when connected) and on every reconnect. */
+  instanceConnect(connect: InstanceConnect): Promise<void>;
 }
 
 /** Everything the system side needs. */
@@ -148,6 +150,7 @@ export class SystemRuntime<C extends ContractShape> {
       ...fleets(env.hub, signal),
       ...fnSearch(env.hub, undefined, signal),
       ...adminNotices(env.hub, signal),
+      ...instanceConnects((connect) => this.#parts.host.instanceConnect(connect)),
     };
   }
 

@@ -2,10 +2,11 @@
 /**
  * A per-person system's page (`/connect/<system>`, a calendar): connect your own account, then choose the settings,
  * which of its fns the chat may use and which ask you first, and, on a hub with more than one person, who else may
- * use it. Until an admin has configured the system the page says so. The hub's redirect back from the provider lands
- * here, with `?problem=` when connecting failed.
+ * use it. Until an admin has configured the system the page says so. An instance-scoped system (build 9: MCP servers,
+ * API services) lists its instances instead, each connected to on its own card. The hub's redirect back from the
+ * provider lands here, with `?problem=` when connecting failed.
  */
-import { SystemName, type ConnectionFnOption, type Json, type ShareRule } from '@harness/core';
+import { SystemName, type ConnectionFnOption, type ConnectionView, type Json, type ShareRule } from '@harness/core';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
@@ -13,7 +14,8 @@ import { links, ROUTES } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import ConnectionFns from '../connect/ConnectionFns.vue';
 import ConnectionSettingsPicks from '../connect/ConnectionSettingsPicks.vue';
-import { fnRows, pageConnections, pageIcon, settingsPicks, STATUS_WORDS, withFnOption } from '../connect/logic.ts';
+import InstanceConnectCard from '../connect/InstanceConnectCard.vue';
+import { fnRows, instanceCards, pageConnections, pageIcon, settingsPicks, STATUS_WORDS, withFnOption, type InstanceCard } from '../connect/logic.ts';
 import GinForm from '../gin/GinForm.vue';
 import { useStores } from '../state/stores.ts';
 import { UiBadge, UiBanner, UiButton, UiCard, UiEmpty, UiIcon, UiSkeleton, UiVisibility, relativeTime } from '../ui/index.ts';
@@ -28,11 +30,14 @@ const problem = useRouteQuery(ROUTES.connect).text('problem');
 
 const system = computed(() => { const read = SystemName.safeParse(route.params['system']); return read.success ? read.data : undefined; });
 const page = computed(() => (system.value === undefined ? undefined : store.page(system.value)));
-const mine = computed(() => (page.value === undefined ? undefined : pageConnections(page.value, session.user.value?.id)));
+/** Build 9: the page of an instance-scoped system, connected to an instance at a time. */
+const scoped = computed(() => page.value?.decl.scope === 'instance');
+const mine = computed(() => (page.value === undefined || scoped.value ? undefined : pageConnections(page.value, session.user.value?.id)));
 const own = computed(() => mine.value?.own);
 const connected = computed(() => own.value?.status === 'connected');
 const rows = computed(() => (page.value === undefined ? [] : fnRows(page.value, own.value)));
 const isAdmin = computed(() => session.user.value?.role === 'admin');
+const cards = computed(() => (page.value === undefined ? [] : instanceCards(page.value, session.user.value?.id, isAdmin.value)));
 /** The account's detail and how long it has been connected, in one line. */
 const accountDetail = computed(() => (own.value === undefined ? '' : [own.value.account?.detail, `since ${relativeTime(own.value.createdAt, now.value)}`].filter((part) => part !== undefined && part !== '').join(' · ')));
 /** The settings as pickers over the account's own values (its calendars), when it offered them. */
@@ -47,7 +52,7 @@ watch(rows, async (list) => {
   const found = await chat.pickers.source('fn').label(list.map((r) => r.name)).catch(() => []);
   hints.value = Object.fromEntries(found.flatMap((o) => (o.hint === undefined || o.missing === true ? [] : [[o.value, o.hint]])));
 }, { immediate: true });
-watch(() => mine.value?.shared ?? [], async (list) => {
+watch(() => [...(mine.value?.shared ?? []), ...cards.value.flatMap((card) => card.shared)], async (list: readonly ConnectionView[]) => {
   if (list.length === 0) { return; }
   const found = await chat.pickers.people().label(list.map((c) => c.owner)).catch(() => []);
   owners.value = Object.fromEntries(found.map((o) => [o.value, o.label]));
@@ -58,18 +63,18 @@ onMounted(() => {
   void chat.access.load();
 });
 
-async function connect(form?: Json): Promise<void> {
+async function connect(form?: Json, card?: InstanceCard): Promise<void> {
   if (system.value === undefined) { return; }
-  const started = await store.connect(system.value, form);
+  const started = await store.connect(system.value, form, card?.instance);
   if (!started.ok) { return; }
   if ('url' in started.value) { window.location.assign(started.value.url); return; }
   problem.value = '';
   toasts.ok('Connected');
 }
 
-async function disconnect(): Promise<void> {
-  if (own.value === undefined) { return; }
-  const done = await store.disconnect(own.value.id);
+async function disconnect(connection: ConnectionView | undefined = own.value): Promise<void> {
+  if (connection === undefined) { return; }
+  const done = await store.disconnect(connection.id);
   if (done.ok) { toasts.ok('Disconnected', 'Its credentials were deleted.'); }
 }
 
@@ -107,7 +112,18 @@ const share = computed({
         </template>
       </UiBanner>
 
-      <UiCard class="account" compact data-testid="connection-account">
+      <UiCard v-if="scoped" :title="`${page.decl.title} to connect`" subtitle="Each has its own sign-in; its fns act as you once you connect." compact flush data-testid="connection-instances">
+        <ul v-if="cards.length > 0" class="instances">
+          <InstanceConnectCard
+            v-for="card in cards" :key="card.instance" :card="card" :owners="owners" :busy="store.saving.busy.value"
+            @connect="connect($event, card)" @disconnect="disconnect(card.own)"
+          />
+        </ul>
+        <p v-else class="none">Nothing has been added yet.</p>
+        <p v-if="store.saving.problem.value !== ''" class="problem pad" role="alert">{{ store.saving.problem.value }}</p>
+      </UiCard>
+
+      <UiCard v-else class="account" compact data-testid="connection-account">
         <div class="account-row">
           <span class="mark" aria-hidden="true"><UiIcon :name="pageIcon(page)" :size="20" /></span>
           <div class="who">
@@ -130,7 +146,7 @@ const share = computed({
             >
               {{ own === undefined ? 'Connect' : 'Reconnect' }}
             </UiButton>
-            <UiButton v-if="own !== undefined" variant="ghost" icon="x" :loading="store.saving.busy.value" data-testid="connect-remove" @click="disconnect">Disconnect</UiButton>
+            <UiButton v-if="own !== undefined" variant="ghost" icon="x" :loading="store.saving.busy.value" data-testid="connect-remove" @click="disconnect()">Disconnect</UiButton>
           </div>
         </div>
         <p v-if="own?.problem" class="problem">{{ own.problem }}</p>
@@ -146,7 +162,7 @@ const share = computed({
         </ul>
       </UiCard>
 
-      <div class="columns" :class="{ split: connected }">
+      <div v-if="!scoped" class="columns" :class="{ split: connected }">
         <UiCard title="What it may do" :subtitle="connected ? 'Fns that are off are hidden from the chat. Ask first waits for your approval each time.' : 'Connect first to change these.'" compact>
           <ConnectionFns :rows="rows" :hints="hints" :disabled="!connected || store.saving.busy.value" @change="setFn" />
         </UiCard>
@@ -179,5 +195,9 @@ const share = computed({
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .problem { margin: var(--space-2) 0 0; color: var(--danger); font-size: var(--text-sm); }
 .shared { margin: var(--space-3) 0 0; padding: var(--space-2) 0 0; list-style: none; border-top: 1px solid var(--border); display: grid; gap: var(--space-1); color: var(--text-dim); font-size: var(--text-sm); }
+.instances { display: grid; margin: 0; padding: 0; list-style: none; }
+.instances > li + li { border-top: 1px solid var(--border); }
+.none { margin: 0; padding: var(--space-3) var(--space-4); color: var(--text-dim); font-size: var(--text-sm); }
+.pad { padding: 0 var(--space-4) var(--space-3); }
 .shared li { display: flex; align-items: center; gap: var(--space-2); }
 </style>

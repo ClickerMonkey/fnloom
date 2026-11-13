@@ -6,7 +6,7 @@
  * a page; nothing here holds a whole set.
  */
 import {
-  WIDGET_KIND, type DataRecord, type DataSetView, type ExportQuery, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordTableQuery,
+  WIDGET_KIND, type DataRecord, type DataSetView, type ExportQuery, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordPage, type RecordQuery, type RecordTableQuery,
   type RecordVersion, type ResultTable, type RowActionsQuery, type SystemName, type WidgetActionOption,
 } from '@harness/core';
 import { ref, shallowRef } from 'vue';
@@ -25,7 +25,7 @@ export interface DataSetFilter {
   readonly system: SystemName | undefined;
 }
 
-type StoreApi = Pick<DataApi, 'dataSets' | 'rowActions' | 'readFn' | 'exportCsv' | 'recordTable' | 'record' | 'saveRecord' | 'removeRecord' | 'recordVersions'>;
+type StoreApi = Pick<DataApi, 'dataSets' | 'records' | 'rowActions' | 'readFn' | 'exportCsv' | 'recordTable' | 'record' | 'saveRecord' | 'removeRecord' | 'recordVersions'>;
 
 /** The Data pages. */
 export class DataStore {
@@ -62,6 +62,11 @@ export class DataStore {
   /** The actions rows of these types offer, narrowed by a widget's list when given. */
   async rowActions(query: RowActionsQuery): Promise<readonly WidgetActionOption[]> {
     return this.#api.rowActions.call(query);
+  }
+
+  /** A page of one stored type's records the person sees, searched, filtered and sorted by the hub (build 9: the Claude fleet). */
+  async findRecords(query: RecordQuery): Promise<RecordPage> {
+    return this.#api.records.call(query);
   }
 
   /** Run a read fn as the person outside any session and give its output; refused for a fn that is not a read. */

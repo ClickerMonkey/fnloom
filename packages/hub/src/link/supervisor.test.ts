@@ -12,6 +12,7 @@ import { NodeInstaller, readManifest, type Installer, type SystemPackage } from 
 import { FakeLauncher, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
 import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
 import { ProcessSupervisor } from './supervisor.ts';
+import { addSource } from '../api/admin-ops.ts';
 
 /** Writes a system.json for the source's version instead of running npm or git. */
 class FakeInstaller implements Installer {
@@ -225,4 +226,37 @@ describe('the Node ports', () => {
     expect((await new NodeInstaller({ npm: RIG_SETTINGS.packaging.HARNESS_NPM, maxBytes: RIG_SETTINGS.packaging.HARNESS_PACKAGE_MAX }).describe(join(dir, '..', 'nowhere-at-all')).catch((e: unknown) => e)) instanceof Error).toBe(true);
   });
 
+});
+
+describe('adding an instance from the browser (build 9)', () => {
+  /** A bundled folder of `name`, a fleet or not. */
+  async function bundled(name: string, instances: 'one' | 'many'): Promise<string> {
+    const folder = join(dir, 'bundled', name);
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, 'system.json'), JSON.stringify(systemJson(name, '0.1.0', { instances, server: { entry: 'main.ts', external: {} } })));
+    return folder;
+  }
+
+  it('installs a fleet folder as a named instance with its description, and refuses a one-instance package or another system', async () => {
+    const sup = supervisor();
+    const fleet = await bundled('shop', 'many');
+    const linear = InstanceName.parse('linear');
+    const installed = await sup.install({ source: { path: fleet }, system: SHOP, instance: linear, description: 'Linear issues', fleet: true, autoStart: false, by: ADMIN });
+    expect(installed).toMatchObject({ name: SHOP, instance: linear });
+    expect(await rig.instances.get({ system: SHOP, instance: linear })).toMatchObject({ description: 'Linear issues' });
+    await expect(sup.install({ source: { path: fleet }, system: SystemName.parse('mcp'), instance: InstanceName.parse('x'), fleet: true, by: ADMIN }))
+      .rejects.toMatchObject({ status: 422, code: 'WRONG_SYSTEM' });
+    const single = await bundled('solo', 'one');
+    await expect(sup.install({ source: { path: single }, instance: InstanceName.parse('two'), fleet: true, by: ADMIN })).rejects.toMatchObject({ status: 409, code: 'ONE_INSTANCE' });
+  });
+
+  it('takes a new instance from the source its fleet was installed from, else the bundled folder', async () => {
+    const sup = supervisor();
+    const settings = { packagingEnv: { ...RIG_SETTINGS.packaging, HARNESS_BUNDLED_SYSTEMS: join(dir, 'bundled') } };
+    const fleet = await bundled('shop', 'many');
+    expect(await addSource({ settings, link: { supervisor: sup } }, SHOP)).toEqual({ path: fleet });
+    await expect(addSource({ settings, link: { supervisor: sup } }, SystemName.parse('nope'))).rejects.toMatchObject({ status: 404, code: 'NOT_BUNDLED' });
+    await sup.install({ source: { package: '@x/shop', version: '1.0.0' }, autoStart: false, by: ADMIN });
+    expect(await addSource({ settings, link: { supervisor: sup } }, SHOP)).toEqual({ package: '@x/shop', version: '1.0.0' });
+  });
 });

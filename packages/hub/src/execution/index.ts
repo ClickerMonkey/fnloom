@@ -13,7 +13,7 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposedRun, ProposeRun, SystemName, OutcomeWire,
+  ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposalAsk, ProposedRun, ProposeRun, SystemName, OutcomeWire,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
@@ -123,9 +123,12 @@ export interface PolicyEngine {
     sensitive?: boolean;
   }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
-  propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId }): Promise<Approval>;
-  /** Answer an approval. For a fn whose approvals may not be remembered, any `remember` counts as `once`. */
-  answer(approval: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string }): Promise<Approval>;
+  propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId; ask?: ProposalAsk }): Promise<Approval>;
+  /**
+   * Answer an approval. For a fn whose approvals may not be remembered, any `remember` counts as `once`. Build 9: an
+   * approval with `ask` is approved only with an `answer` that fits its type, set as the run's `args[into]` first.
+   */
+  answer(approval: ApprovalId, input: { by: ActorId; approve: boolean; remember: Remember; reason?: string; answer?: Json }): Promise<Approval>;
 }
 
 /** Priority and budgets for a turn: always exactly one answer (see `ResolvedLimits` and docs/harness.md). */

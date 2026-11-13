@@ -73,6 +73,7 @@ const ADMIN_ENDPOINTS = {
   delete_mcp: mcpsSlice.endpoints.deleteMcp,
   preview_mcp: mcpsSlice.endpoints.previewMcp,
   install_package: packagingSlice.endpoints.installPackage,
+  add_instance: packagingSlice.endpoints.addInstance,
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
   suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,

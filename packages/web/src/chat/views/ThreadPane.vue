@@ -396,12 +396,12 @@ function useDraftSuggestion(item: { kind: 'fn' | 'context'; name: QualifiedName 
 // ── approvals, questions and the header ───────────────────────────────────────
 
 const approvals = computed<ApprovalView[]>(() => thread.approvals.value.map((a) => ({
-  id: a.id, fn: a.fn, description: caps.invocation(a.fn)?.description ?? '', args: thread.runs.value.get(a.run)?.args, preview: a.preview, rememberable: isRememberable(a),
+  id: a.id, fn: a.fn, description: caps.invocation(a.fn)?.description ?? '', args: thread.runs.value.get(a.run)?.args, preview: a.preview, rememberable: isRememberable(a), ask: a.ask,
 })));
 watch(() => thread.approvals.value.map((a) => a.run), (runs) => { for (const run of runs) { void thread.ensureRun(run); } }, { immediate: true });
 
-async function decide(id: Parameters<typeof thread.approve>[0], approve: boolean, remember: Parameters<typeof thread.approve>[2], reason: string): Promise<void> {
-  if (!(await thread.approve(id, approve, remember, reason))) { toasts.error("Couldn't send your answer", thread.problem.value); }
+async function decide(id: Parameters<typeof thread.approve>[0], approve: boolean, remember: Parameters<typeof thread.approve>[2], reason: string, answer: Json | undefined): Promise<void> {
+  if (!(await thread.approve(id, approve, remember, reason, answer))) { toasts.error("Couldn't send your answer", thread.problem.value); }
 }
 
 const people = computed(() => (record.value?.participants ?? []).map((p) => ({ name: nameOf(p.actor), agent: p.role === 'agent' })));

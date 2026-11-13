@@ -60,6 +60,7 @@ export function registerAdminFns(fns: HubFns, ops: () => AdminOperations): void 
     delete_mcp: run(ADMIN_ENDPOINTS.delete_mcp, (o) => o.delete_mcp),
     preview_mcp: run(ADMIN_ENDPOINTS.preview_mcp, (o) => o.preview_mcp),
     install_package: run(ADMIN_ENDPOINTS.install_package, (o) => o.install_package),
+    add_instance: run(ADMIN_ENDPOINTS.add_instance, (o) => o.add_instance),
     remove_instance: run(ADMIN_ENDPOINTS.remove_instance, (o) => o.remove_instance),
     suggest_decision_set: run(ADMIN_ENDPOINTS.suggest_decision_set, (o) => o.suggest_decision_set),
     auto_pair_revoke: run(ADMIN_ENDPOINTS.auto_pair_revoke, (o) => o.auto_pair_revoke),

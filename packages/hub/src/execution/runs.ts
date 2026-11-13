@@ -14,7 +14,7 @@ import {
   compact, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
-  flagsVerdict, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
+  flagsVerdict, proposalSubjectOf, type SessionId, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
@@ -391,14 +391,18 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (existing !== undefined) return this.#proposal(existing);
     const invalid = invalidArgs((await catalog.signature(name)).argsSchema.safeParse(input.args));
     if (invalid !== undefined) throw new RunRefused(fnError('caller', `The args don't fit ${name}: ${invalid.problems.map(problemLine).join('; ')}`, INVALID_INPUT_CODE));
+    // build 9: outside a run, a proposal may wait for a person (a Claude session's owner) instead of the admins
+    const person = parent === undefined && input.for !== undefined ? await this.#waitsFor(input, input.for) : undefined;
+    const chat = person !== undefined && input.chat !== undefined && await this.#inChat(input.chat, person) ? input.chat : undefined;
     const turn = parent === undefined ? await this.#systemTurn(input.system) : await this.#turn(parent);
     const id = mintId('run', this.#deps.random);
     const { operations } = fn.decl;
     const run: Run = {
       id, fn: name, fnVersion: fn.version, kind: fn.decl.kind, system: input.system, instance: input.instance, root: parent?.root ?? id, turn: turn.id,
       ...(parent?.session === undefined ? {} : { session: parent.session }),
+      ...(chat === undefined ? {} : { session: chat }),
       ...(parent === undefined ? {} : { parent: parent.id }),
-      key, actor: parent?.actor ?? turn.actor, caller: turn.actor, args: input.args, status: 'awaiting-approval',
+      key, actor: parent?.actor ?? person ?? turn.actor, caller: turn.actor, args: input.args, status: 'awaiting-approval',
       allowed: { cancel: operations.cancel, pause: operations.pause, background: operations.background },
       cost: 0, totalCost: 0, priority: parent?.priority ?? turn.limits.priority, background: false, attempt: 1, errors: [], stateChanges: [], createdAt: clock(),
     };
@@ -407,11 +411,40 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (parent === undefined) await store.table('turns').update(turn.id, { root: id });
     this.#publish(run, statusUpdate('awaiting-approval', text));
     this.#deps.log.info('run.proposed', { run: id, fn: name, parent: parent?.id ?? null, approver: input.approver });
-    const approver: Approver = input.approver === 'admins' ? { by: 'admins' } : { by: 'turn-user' };
+    const approver: Approver = person !== undefined ? { by: 'actor', actor: person } : input.approver === 'admins' ? { by: 'admins' } : { by: 'turn-user' };
     const approval = await this.#deps.policies.propose({
       run: id, fn: name, approver, preview: input.preview, turnUser: turn.user.id, ...(run.session === undefined ? {} : { session: run.session }),
+      ...(input.ask === undefined ? {} : { ask: input.ask }),
     });
     return { run: id, approval: approval.id };
+  }
+
+  /**
+   * Build 9: the person a proposal outside a run waits for, when its key names (`proposalKeyFor`) a record of one of
+   * the system's stored types they own, or a run of the system they started. Anything else is refused and logged: a
+   * system can't put cards in the inbox of someone it does no work for.
+   */
+  async #waitsFor(input: ProposeRun & { system: SystemName }, person: ActorId): Promise<ActorId> {
+    const { store } = this.#deps;
+    const subject = proposalSubjectOf(input.key);
+    const actor = await store.table('actors').get(person);
+    const owns = actor?.kind !== 'user' || actor.disabled || subject === undefined ? false
+      : 'record' in subject
+        ? await store.table('records').get(subject.record).then((record) => record?.owner === person && splitName(record.type).system === input.system)
+        : await store.table('runs').get(subject.run).then((run) => run?.system === input.system && run.actor === person);
+    if (!owns) {
+      this.#deps.log.warn('run.propose.for-refused', { system: input.system, fn: input.fn, for: person });
+      throw new RunRefused(fnError('caller', `${input.system} can only ask ${person} about a session or run of theirs: the key must start with its id.`, 'not-yours'));
+    }
+    return person;
+  }
+
+  /** Whether a person is in a chat (a proposal's card shows there only then). */
+  async #inChat(chat: SessionId, person: ActorId): Promise<boolean> {
+    const session = await this.#deps.store.table('sessions').get(chat);
+    const there = session?.participants.some((participant) => participant.actor === person) === true;
+    if (!there) this.#deps.log.warn('run.propose.chat-skipped', { chat, for: person });
+    return there;
   }
 
   /**
@@ -981,7 +1014,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   async #settleTurn(run: Run): Promise<void> {
     if (run.parent !== undefined) return;
     // a system's own turn, made for a run it proposed, ends with that run
-    const proposed = run.session === undefined && run.key.startsWith(PROPOSED_KEY);
+    const proposed = run.key.startsWith(PROPOSED_KEY);
     if (!proposed && (run.session === undefined || run.kind !== AGENT_KIND)) return;
     const status = run.status === 'done' || run.status === 'undone' ? 'done' : run.status === 'cancelled' ? 'cancelled' : 'failed';
     await this.#deps.turns.settle(run.turn, status);

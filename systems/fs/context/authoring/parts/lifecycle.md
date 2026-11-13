@@ -5,14 +5,14 @@ title: "Config, events, lifecycle and data"
 description: "Writing a harness system: Config, events, lifecycle and data."
 summary: "Config, events, the lifecycle hooks and the data folders."
 parent: "fs/authoring.topics.server"
-next: "fs/authoring.client"
+next: "fs/authoring.remote"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 choices:
   - to: "fs/authoring.lifecycle.reference"
     when: "Pick this when you need the exact signatures and options."
-  - to: "fs/authoring.client"
-    when: "Pick this to go on in order: The client: renderers, inputs and resource views."
+  - to: "fs/authoring.remote"
+    when: "Pick this to go on in order: Remote services: fleets, sign-in and connections per instance."
 ---
 
 ## 23. Config, events, lifecycle and data

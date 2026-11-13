@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Packaging: system.json, build, pack, install."
 ---
 
-## 25. Visuals and widgets
+## 26. Visuals and widgets
 
 A fn that returns a `ResultTable` (a database query, `hub/records_table`, any fn of that shape) is drawn by the result
 view, which offers every **visual** that can draw it: a table, value cards and twelve chart families (part of a whole,

@@ -4,7 +4,7 @@
  * marks it read and goes where it leads. A push's click lands here with `?open=<id>`, which opens that notification
  * the same way once the list has it. Runs waiting for the person's approval show first, as cards answered in place.
  */
-import type { Approval, Notification, RunId } from '@harness/core';
+import type { Approval, Json, Notification, RunId } from '@harness/core';
 import { computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
@@ -53,8 +53,8 @@ const waitingRuns = computed<RunId[]>(() => inbox.items.value.flatMap((n) => (n.
 watch(waitingRuns, (runs) => { void chat.approvals.load(runs); }, { immediate: true });
 const waiting = computed(() => waitingRuns.value.flatMap((run) => { const found = chat.approvals.byRun.value.get(run); return found === undefined ? [] : [found]; }));
 
-async function decide(approval: Approval, approve: boolean, reason: string): Promise<void> {
-  if (!(await chat.approvals.decide(approval, approve, reason))) { toasts.error("Couldn't send your answer", chat.approvals.problem.value); return; }
+async function decide(approval: Approval, approve: boolean, reason: string, answer: Json | undefined): Promise<void> {
+  if (!(await chat.approvals.decide(approval, approve, reason, answer))) { toasts.error("Couldn't send your answer", chat.approvals.problem.value); return; }
   const read = inbox.items.value.filter((n) => !n.read && 'run' in n.link && n.link.run === approval.run).map((n) => n.id);
   if (read.length > 0) { void inbox.markRead(read); }
   toasts.ok(approve ? 'Approved' : 'Denied');

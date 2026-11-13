@@ -3,7 +3,7 @@
  * what each run would do (`approvals`), and answered from there. An answered one leaves at once and comes back if the
  * hub refuses the answer.
  */
-import type { Approval, RunId } from '@harness/core';
+import type { Approval, Json, RunId } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import { problemText } from '../../state/problems.ts';
 import type { ChatApi } from '../api.ts';
@@ -40,14 +40,14 @@ export class ApprovalDesk {
     }
   }
 
-  /** Approve or decline once; false (with `problem` set) when the hub refused. */
-  async decide(approval: Approval, approve: boolean, reason: string): Promise<boolean> {
+  /** Approve (with the filled form of one that asks, `answer`) or decline once; false (with `problem` set) when the hub refused. */
+  async decide(approval: Approval, approve: boolean, reason: string, answer?: Json): Promise<boolean> {
     const before = this.byRun.value;
     const next = new Map(before);
     next.delete(approval.run);
     this.byRun.value = next;
     try {
-      await this.#api.approve.call({ approval: approval.id, approve, remember: 'once', ...(reason === '' ? {} : { reason }) });
+      await this.#api.approve.call({ approval: approval.id, approve, remember: 'once', ...(reason === '' ? {} : { reason }), ...(answer === undefined ? {} : { answer }) });
       return true;
     } catch (error) {
       this.byRun.value = before;

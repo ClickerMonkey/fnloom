@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Common mistakes."
 ---
 
-## 27. Testing
+## 28. Testing
 
 Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
 
@@ -29,7 +29,14 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
   call a real free model with `realModel.it('…', async (model) => { … })` and pass `model` to `testHub`: they are
   marked `real` and skipped without `OPENROUTER_API_KEY`.
 - **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
-  derives.
+  derives. `kit.runKind('<kind>', '<fn>', payload, args)` runs a fn of the kind as the hub runs a saved one (a code
+  program, an API request) and gives its outcome, progress and hub calls.
+- **Proposals.** A proposed run waits in `kit.hub.proposals` until the test settles it as its approver would:
+  `kit.approve('<key, approval or run>', answer?)` runs it on the system (the answer at `args[ask.into]` when it asks
+  one) and sends the `run` event `done`; `kit.decline(which, reason?)` sends it `cancelled` with the hub's words. A
+  settled proposal can't be settled again, and outside a run its key then proposes afresh.
+- **Instances people connect to.** `kit.hub.instanceConnect` is what the instance last said (`ctx.instanceConnect`);
+  `kit.hub.instanceConnects` lists every time, including the one sent again on each reconnect.
 - **Data.** The fake hub answers `ctx.data` from records in memory, like the hub (filters, sorts, text search, pages,
   versions, `expect`, person-owned types refused outside runs): `kit.records('<Type>')` reads what runs saved, and
   `kit.hub.data.save(...)` puts records in first. Another system's stored type goes in `kit.hub.storedTypes`.

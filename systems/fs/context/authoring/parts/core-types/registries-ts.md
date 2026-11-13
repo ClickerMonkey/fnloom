@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/registries.ts"
 description: "Core types, the part on From packages/core/src/registries.ts."
 summary: "Core types: From packages/core/src/registries.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.resource-forms-ts"
+next: "fs/authoring.core-types.remote-auth-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 ---

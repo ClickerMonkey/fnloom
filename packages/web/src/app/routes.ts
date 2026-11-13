@@ -10,11 +10,12 @@ import {
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
-import { InstanceTab, LimitsTab, McpTab, ModelsTab, PartTab, ReviewTab, SystemTab } from '../admin/sections.ts';
+import { ApiServiceTab, InstanceTab, LimitsTab, McpServerTab, McpTab, ModelsTab, PartTab, ReviewTab, SystemTab } from '../admin/sections.ts';
 import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
 import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
 import { GraphUrl } from '../graph/url.ts';
+import { FleetUrl, SessionUrl } from '../claude/logic/claude.ts';
 import { DataSetsUrl, RecordsUrl, typeParts } from '../data/logic/data.ts';
 import { InboxFilter } from '../state/inbox.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
@@ -60,12 +61,18 @@ export const ROUTES = {
   modelCalls: 'model-calls',
   mcps: 'mcps',
   mcp: 'mcp',
+  mcpServers: 'mcp-servers',
+  mcpServer: 'mcp-server',
+  apiServices: 'api-services',
+  apiService: 'api-service',
   pair: 'pair',
   resources: 'resources',
   explore: 'explore',
   context: 'context',
   contextItem: 'context-item',
   graph: 'graph',
+  claude: 'claude',
+  claudeSession: 'claude-session',
   data: 'data',
   dataWidgets: 'data-widgets',
   dataType: 'data-type',
@@ -124,6 +131,10 @@ export const QUERIES = {
   [ROUTES.contextItem]: ContextItemQuery,
   /** The graph's filters, search, focus and collapsed systems. */
   [ROUTES.graph]: GraphUrl,
+  /** The Claude fleet's words and filters, and the new-session dialog open (build 9). */
+  [ROUTES.claude]: FleetUrl,
+  /** A subagent's transcript shown on a Claude session's page. */
+  [ROUTES.claudeSession]: SessionUrl,
   /** The stored types' words and system; a type's records page's words, filters, sort and first row (build 8). */
   [ROUTES.data]: DataSetsUrl,
   [ROUTES.dataWidgets]: z.object({ q: z.string() }).partial(),
@@ -131,6 +142,9 @@ export const QUERIES = {
   [ROUTES.modelCalls]: z.object({ q: z.string(), run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.fns]: z.object({ q: z.string() }).partial(),
   [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
+  /** The add dialog, open (build 9). */
+  [ROUTES.mcpServers]: z.object({ add: z.literal('1') }).partial(),
+  [ROUTES.apiServices]: z.object({ add: z.literal('1') }).partial(),
   [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']), form: z.enum(['readable', 'stored']) }).partial(),
   [ROUTES.pair]: z.object({ code: z.string() }).partial(),
   /** Why connecting failed, as the hub's redirect back from the provider says. */
@@ -163,6 +177,12 @@ export const links = {
   message: (session: SessionId, message: MessageId): RouteLocationRaw => ({ name: ROUTES.session, params: { session }, hash: `#m-${message}` }),
   /** A turn's fn tree, over its session. */
   turnTree: (session: SessionId, turn: TurnId): RouteLocationRaw => ({ name: ROUTES.turnTree, params: { session, turn } }),
+  /** The Claude fleet (build 9): the person's sessions, filtered; `new` opens the new-session dialog. */
+  claude: (query: RouteQuery<typeof ROUTES.claude> = {}): RouteLocationRaw => ({ name: ROUTES.claude, ...queryOf(ROUTES.claude, query) }),
+  /** One Claude session on a machine, with a subagent's transcript open when `task` is given. */
+  claudeSession: (instance: string, session: string, query: RouteQuery<typeof ROUTES.claudeSession> = {}): RouteLocationRaw => ({
+    name: ROUTES.claudeSession, params: { instance, session }, ...queryOf(ROUTES.claudeSession, query),
+  }),
   inbox: (filter: InboxFilter = 'all'): RouteLocationRaw => ({ name: ROUTES.inbox, ...queryOf(ROUTES.inbox, filter === 'all' ? {} : { filter }) }),
   /** The systems page; `pairing` picks out a pairing request. */
   systems: (query: RouteQuery<typeof ROUTES.systems> = {}): RouteLocationRaw => ({ name: ROUTES.systems, ...queryOf(ROUTES.systems, query) }),
@@ -234,6 +254,14 @@ export const links = {
   mcps: (query: RouteQuery<typeof ROUTES.mcps> = {}): RouteLocationRaw => ({ name: ROUTES.mcps, ...queryOf(ROUTES.mcps, query) }),
   /** One hub MCP, on one of its tabs. */
   mcp: (id: HubMcpId, tab: McpTab = 'rules'): RouteLocationRaw => ({ name: ROUTES.mcp, params: tab === 'rules' ? { id } : { id, tab } }),
+  /** The MCP servers the hub connects to (build 9); `add: '1'` opens the add dialog. */
+  mcpServers: (query: RouteQuery<typeof ROUTES.mcpServers> = {}): RouteLocationRaw => ({ name: ROUTES.mcpServers, ...queryOf(ROUTES.mcpServers, query) }),
+  /** One MCP server, on one of its tabs. */
+  mcpServer: (instance: InstanceName, tab: McpServerTab = 'overview'): RouteLocationRaw => ({ name: ROUTES.mcpServer, params: tab === 'overview' ? { instance } : { instance, tab } }),
+  /** The API services api fns run on (build 9); `add: '1'` opens the add dialog. */
+  apiServices: (query: RouteQuery<typeof ROUTES.apiServices> = {}): RouteLocationRaw => ({ name: ROUTES.apiServices, ...queryOf(ROUTES.apiServices, query) }),
+  /** One API service, on one of its tabs. */
+  apiService: (instance: InstanceName, tab: ApiServiceTab = 'overview'): RouteLocationRaw => ({ name: ROUTES.apiService, params: tab === 'overview' ? { instance } : { instance, tab } }),
   /** The page a system's pairing QR code opens: approve it with its instance and config. */
   pair: (pairing: PairingId, code?: string): RouteLocationRaw => ({ name: ROUTES.pair, params: { pairing }, ...queryOf(ROUTES.pair, { code }) }),
   /** A per-person system's page (`/connect/google-calendar`): connect your own account and choose what it may do. */
@@ -278,6 +306,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/explore/:system/:instance/:path(.*)*', name: ROUTES.explore, component: () => import('../pages/ExplorePage.vue'), meta: { title: 'Files' } },
   { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
   { path: '/graph', name: ROUTES.graph, component: () => import('../pages/GraphPage.vue'), meta: { title: 'Graph' } },
+  { path: '/claude', name: ROUTES.claude, component: () => import('../pages/ClaudePage.vue'), meta: { title: 'Claude' } },
+  { path: '/claude/:instance/:session', name: ROUTES.claudeSession, component: () => import('../pages/ClaudeSessionPage.vue'), meta: { title: 'Claude session' } },
   { path: '/data', name: ROUTES.data, component: () => import('../pages/DataPage.vue'), meta: { title: 'Data' } },
   { path: '/data/widgets', name: ROUTES.dataWidgets, component: () => import('../pages/DataPage.vue'), meta: { title: 'Widgets' } },
   { path: '/data/:system/:local/:id?', name: ROUTES.dataType, component: () => import('../pages/DataTypePage.vue'), meta: { title: 'Data' } },
@@ -306,6 +336,10 @@ export const routes: RouteRecordRaw[] = [
       { path: 'model-calls/:id', redirect: (to) => ({ name: ROUTES.modelCalls, query: { ...to.query, call: to.params['id'] } }) },
       { path: 'mcps', name: ROUTES.mcps, component: () => import('../admin/views/McpsView.vue'), meta: { title: 'MCPs' } },
       { path: `mcps/:id/:tab(${tabs(McpTab)})?`, name: ROUTES.mcp, component: () => import('../admin/views/McpView.vue'), meta: { title: 'MCP' } },
+      { path: 'mcp-servers', name: ROUTES.mcpServers, component: () => import('../admin/views/McpServersView.vue'), meta: { title: 'MCP servers' } },
+      { path: `mcp-servers/:instance/:tab(${tabs(McpServerTab)})?`, name: ROUTES.mcpServer, component: () => import('../admin/views/McpServerView.vue'), meta: { title: 'MCP server' } },
+      { path: 'api-services', name: ROUTES.apiServices, component: () => import('../admin/views/ApiServicesView.vue'), meta: { title: 'API services' } },
+      { path: `api-services/:instance/:tab(${tabs(ApiServiceTab)})?`, name: ROUTES.apiService, component: () => import('../admin/views/ApiServiceView.vue'), meta: { title: 'API service' } },
       // the resource browser moved to the top level
       { path: 'resources', redirect: (to) => ({ name: ROUTES.resources, query: to.query }) },
     ],

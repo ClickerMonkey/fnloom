@@ -22,7 +22,7 @@ The system's answer to `flags`: the files the call would touch that its rules fl
 type FlagsAnswer = {
   flags: {
     path: string;
-    kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+    kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
     rule: string;
     access: "write" | "read";
     action: "ask" | "refuse" | "allow";
@@ -41,7 +41,7 @@ One sensitive file a call would touch, and what the rule says about it.
 ```ts
 type SensitivityFlag = {
   path: string;
-  kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+  kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
   rule: string;
   access: "write" | "read";
   action: "ask" | "refuse" | "allow";

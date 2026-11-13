@@ -23,8 +23,12 @@ export const API_SYSTEM = 'api';
 /** The kind of an api fn. */
 export const API_KIND = 'api/request';
 
-/** The payload of a code fn: its program. Its args and result types are the fn's own (`FnDecl.args`, `returns`). */
+/** The payload of a code fn: its signature and its program. The kind describes the fn's args and result from these. */
 export const CodeFnSpec = z.object({
+  /** The fn's args, an `obj` type: the program reads them as `args.<name>`. */
+  args: GinTypeDef,
+  /** What the program gives. */
+  returns: GinTypeDef,
   /** The program; `args` and `fns` are in its scope. */
   program: GinExprDef,
 });
@@ -34,6 +38,10 @@ export type CodeFnSpec = z.infer<typeof CodeFnSpec>;
 export const ApiFnSpec = z.object({
   /** The service (an `api` instance) it is sent to; the fn runs on it. */
   service: InstanceName,
+  /** The fn's args, an `obj` type: the programs read them as `args.<name>`. */
+  args: GinTypeDef,
+  /** What the fn gives: the output program's result, else the response body. */
+  returns: GinTypeDef,
   /** The program whose result is an `api/HttpRequest`; its url is relative to the service's base URL. */
   request: GinExprDef,
   /** The response body's type, when the output program reads it. */

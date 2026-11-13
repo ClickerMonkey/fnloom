@@ -9,7 +9,7 @@
  * await kit.stop();
  * ```
  */
-import { qualify, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type ResultTable, type RunRequest, type SensitivityFlag, type VisualRank } from '@harness/core';
+import { qualify, type Json, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type ResultTable, type RunRequest, type SensitivityFlag, type VisualRank } from '@harness/core';
 import type { KindDef } from '../declare.ts';
 import type { AnyFnDef, FnDef, TypesOf } from '../fn.ts';
 import { encodeValue, parseValue } from '../gin.ts';
@@ -130,6 +130,29 @@ export class TestSystem<N extends string, C extends ContractShape> {
     const { outcome, progress, hubCalls } = await this.run(name, args, extra);
     if (outcome.status !== 'done') { throw new CallNotDone(qualify(this.contract.name, name), outcome); }
     return { result: outcome.result, progress, hubCalls };
+  }
+
+  /**
+   * Run a fn of one of the contract's kinds, as the hub runs a saved fn of the kind (a code program, an API request):
+   * `fn` is its local name, `payload` the kind's typed payload, `args` the fn's args as JSON. Its outcome (the result
+   * as JSON, since a kind fn's result type is its own), progress and hub calls.
+   */
+  async runKind<K extends KindNameOf<C>>(kind: K, fn: string, payload: KindPayloadOf<C, K>, args: Json, extra: Partial<Omit<RunRequest, 'fn' | 'args' | 'kind' | 'payload'>> = {}): Promise<TestRun<Json>> {
+    const def = this.#kind(kind);
+    const before = this.#marks();
+    const progressFrom = this.hub.progress.length;
+    const outcome = await this.hub.run(qualify(this.contract.name, fn), args, { ...extra, kind: qualify(this.contract.name, kind), payload: encodeValue(def.payload, payload) });
+    return { outcome, progress: this.hub.progress.slice(progressFrom), hubCalls: this.#since(before) };
+  }
+
+  /** Approve a run the system proposed (by its key, approval id or run id), with the answer its `ask` wants; see `FakeHub.approveProposal`. */
+  approve(proposal: string, answer?: Json): Promise<OutcomeWire> {
+    return this.hub.approveProposal(proposal, answer === undefined ? {} : { answer });
+  }
+
+  /** Decline a run the system proposed, with the approver's reason; see `FakeHub.declineProposal`. */
+  decline(proposal: string, reason?: string): Promise<void> {
+    return this.hub.declineProposal(proposal, reason);
   }
 
   /** What a kind makes of a payload, as the hub asks it when a fn of the kind is saved. */

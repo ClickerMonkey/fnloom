@@ -512,7 +512,7 @@ tags: ["authoring"]
       visibility: enum<text>{private, shared, public},
       with: list<text>
     }
-  }) => obj{ id, system, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
+  }) => obj{ id, system, instance?, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
   ```
 - `hub/connection_disconnect`: Disconnect one of the person's connected accounts.
 

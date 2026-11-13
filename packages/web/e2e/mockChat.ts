@@ -538,6 +538,32 @@ export class MockChat {
     this.#add(chat.id, { turn: second, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 45_000, runs: [asked.id], parts: [{ type: 'text', text: 'This touches your env file and a key, so it waits for you.' }] });
   }
 
+  /**
+   * Build 9: the chat a Claude session was started from, with two runs the claude system proposed for the person (a
+   * tool Claude wants to use, and a question with a form) waiting in it; the waiting runs, for the session's record.
+   */
+  seedClaude(sessionArgs: { instance: string; session: string }, permit: Approval['preview'], ask: Approval['ask']): { chat: SessionId; waiting: RunId[] } {
+    const now = this.#now();
+    const chat = this.create('Claude: Fix checkout');
+    this.sessions.set(chat.id, { ...chat, updatedAt: now - 300_000 });
+    const turn = mintId('turn');
+    const proposals = [
+      { fn: QualifiedName.parse('claude/permit'), args: { ...sessionArgs, request: 'toolu_1', tool: 'Bash', input: { command: 'npm test -- checkout' }, always: false }, preview: permit, ask: undefined },
+      { fn: QualifiedName.parse('claude/answer'), args: { ...sessionArgs, request: 'q_1', from: 'question', answer: null }, preview: { title: 'Which database should the fix target?', parts: [{ type: 'text' as const, text: 'Claude found two configs and asks which one the checkout uses.' }], irreversible: false }, ask },
+    ];
+    const waiting: RunId[] = [];
+    for (const [index, proposal] of proposals.entries()) {
+      const run = this.#run(chat.id, turn, proposal.fn, proposal.args, 'act_claude', undefined, 'awaiting-approval');
+      waiting.push(run.id);
+      const approval = fixture(Approval, {
+        id: mintId('approval'), run: run.id, fn: proposal.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: now - 60_000 + index, proposed: true,
+        ...(proposal.preview === undefined ? {} : { preview: proposal.preview }), ...(proposal.ask === undefined ? {} : { ask: proposal.ask }),
+      });
+      this.approvals.set(approval.id, { approval, resume: () => { this.#settle(chat.id, run.id, 'done'); } });
+    }
+    return { chat: chat.id, waiting };
+  }
+
   #seed(): void {
     const now = this.#now();
     const router = this.create('Refactor the router');

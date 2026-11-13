@@ -6,10 +6,12 @@
  * the same operation in chat (`ADMIN_ENDPOINTS`). The web handlers and the hub's admin fns both call these, so the
  * two can never do different things.
  */
+import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { reject } from '@ayepi/core';
 import {
   compact, dataExportFileName, MAIN_INSTANCE, mintId, qualify, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
-  type ProviderRecord, type SecretId, type SystemRecord, type UserActor,
+  type InstallSource, type ProviderRecord, type SecretId, type SystemRecord, type UserActor,
 } from '@harness/core';
 import type { ADMIN_ENDPOINTS, AdminFnName } from '@harness/sdk';
 import type { z } from 'zod';
@@ -19,6 +21,9 @@ import { findUserByEmail, normalEmail } from './auth.ts';
 import { allRows, firstRow } from '../store/rows.ts';
 import { userInfo } from './web/access.ts';
 import { timeInfo } from '../execution/time.ts';
+import { bundledSystemsDir } from '../boot/info.ts';
+import type { Supervisor } from '../link/index.ts';
+import type { PackagingEnv } from '../link/env.ts';
 
 /** What an endpoint answers: its response schema's output, or nothing. */
 type ResultOf<E> = E extends { readonly cfg: { readonly response: infer R extends z.ZodType } } ? z.output<R> : void;
@@ -125,6 +130,22 @@ export async function viaHost(
   if (hosted === undefined) return undefined;
   const args = { system: target.system, ...(target.instance === undefined ? {} : { instance: target.instance }), ...(reason === undefined ? {} : { reason }) };
   return hostCall(hub, hosted, fn, args, by);
+}
+
+/**
+ * Build 9: where a new instance of a fleet system comes from: the source an installed instance of it was installed
+ * from (so the fleet runs one version), else its folder among the bundled systems (`HARNESS_BUNDLED_SYSTEMS`).
+ */
+export async function addSource(
+  hub: { readonly settings: { readonly packagingEnv: Pick<PackagingEnv, 'HARNESS_BUNDLED_SYSTEMS'> }; readonly link: { readonly supervisor: Pick<Supervisor, 'list'> } },
+  system: SystemName,
+): Promise<InstallSource> {
+  const sibling = (await hub.link.supervisor.list()).find((installed) => installed.name === system);
+  if (sibling !== undefined) return sibling.source;
+  const folder = join(bundledSystemsDir(hub.settings.packagingEnv.HARNESS_BUNDLED_SYSTEMS), system);
+  const found = await stat(join(folder, 'system.json')).then(() => true, () => false);
+  if (!found) throw reject(404, 'NOT_BUNDLED', `${system} is not a bundled system, and no instance of it is installed here`);
+  return { path: folder };
 }
 
 /** The admin operations on the hub's services. */
@@ -295,6 +316,19 @@ export function adminOperations(hub: HubServices): AdminOperations {
       const ref = await link.packages.installZip({ ...compact({ instance: data.instance, config: data.config, data: data.data, autoStart: data.autoStart }), zip: data.zip, by });
       hub.log.info('package.installed', { system: ref.system, instance: ref.instance, user: by });
       return ref;
+    },
+    add_instance: async (data, by) => {
+      const taken = await store.table('instances').get({ system: data.system, instance: data.instance });
+      if (taken !== undefined && taken.status !== 'removed') throw reject(409, 'INSTANCE_TAKEN', `${data.system} already has an instance named ${data.instance}`);
+      // the contract is known once any instance has connected: check the config now rather than at its first start
+      const manifest = await catalog.manifest(data.system);
+      const problems = manifest === undefined ? [] : await catalog.check(data.system, manifest.config, data.config);
+      if (problems.length > 0) throw reject(422, 'CONFIG_INVALID', problems.join('; '));
+      const installed = await link.supervisor.install({
+        source: await addSource(hub, data.system), system: data.system, instance: data.instance, config: data.config, description: data.description, fleet: true, by,
+      });
+      hub.log.info('instance.added', { system: installed.name, instance: installed.instance, user: by });
+      return { system: installed.name, instance: installed.instance };
     },
     remove_instance: async (data, by) => {
       await link.packages.removeInstance(data, by);

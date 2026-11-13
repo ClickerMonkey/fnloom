@@ -140,14 +140,14 @@ describe('nav', () => {
   it('lists the entries for the user, marks the current one and counts the inbox', () => {
     const admin = fakeStores({ signedIn: true }).stores.session.user.value;
     const entries = navEntries({ name: ROUTES.session }, admin, { inbox: 4, admin: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'admin', 'settings']);
+    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'claude', 'admin', 'settings']);
     expect(entries.find((e) => e.id === 'admin')?.count).toBe(2);
     expect(navEntries({ name: ROUTES.llmCalls }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('admin');
     expect(navEntries({ name: ROUTES.resources }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('resources');
     expect(entries.find((e) => e.active)?.id).toBe('chat');
     expect(entries.find((e) => e.id === 'inbox')?.count).toBe(4);
     const member = admin === undefined ? undefined : { ...admin, role: 'member' as const };
-    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'settings']);
+    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'claude', 'settings']);
   });
 });
 

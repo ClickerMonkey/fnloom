@@ -34,6 +34,11 @@ type ConnectDecl = {
     ask: boolean;
   }>;
   icon?: string | undefined;
+  scope?: "instance" | "system" | undefined;
+  defaults?: {
+    on: boolean;
+    ask: boolean;
+  } | undefined;
 };
 ```
 
@@ -53,6 +58,7 @@ type ConnectFinish = {
   } | {
     form: z.core.util.JSONType;
   };
+  instance?: InstanceName | undefined;
 };
 ```
 
@@ -112,6 +118,28 @@ type ConnectStart = {
   owner: string;
   redirect: string;
   state: string;
+  instance?: InstanceName | undefined;
+};
+```
+
+#### <a id="core-instanceconnect"></a>`InstanceConnect`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+Build 9: how people connect to one instance of an instance-scoped system (`instanceConnect` on the hub link, sent
+whenever its config changes). `flow` absent: its calls need no connection (shared credentials, or none).
+`share`: an admin's single connection is used by everyone (a shared OAuth sign-in), rather than each person's own.
+
+```ts
+type InstanceConnect = {
+  share: boolean;
+  title: string;
+  flow?: {
+    flow: "oauth";
+  } | {
+    flow: "form";
+    form: TypeDef<any>;
+  } | undefined;
 };
 ```
 

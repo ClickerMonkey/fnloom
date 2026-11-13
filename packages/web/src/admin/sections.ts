@@ -6,8 +6,16 @@ import { SYSTEM_PART_SECTIONS } from '@harness/core';
 import { z } from 'zod';
 
 /** The admin sections, in the order the admin nav lists them. */
-export const AdminSection = z.enum(['systems', 'fns', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps']);
+export const AdminSection = z.enum(['systems', 'fns', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
 export type AdminSection = z.infer<typeof AdminSection>;
+
+/** Build 9: one MCP server's tabs. */
+export const McpServerTab = z.enum(['overview', 'tools', 'prompts', 'settings']);
+export type McpServerTab = z.infer<typeof McpServerTab>;
+
+/** Build 9: one API service's tabs. */
+export const ApiServiceTab = z.enum(['overview', 'settings']);
+export type ApiServiceTab = z.infer<typeof ApiServiceTab>;
 
 /** A system's tabs. */
 export const SystemTab = z.enum(['overview', 'instances', 'config', 'fns', 'context', 'types', 'parts', 'graph', 'refusals', 'logs']);

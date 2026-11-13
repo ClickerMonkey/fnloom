@@ -6,6 +6,7 @@
  */
 import { z } from 'zod';
 import { ConfigSecrets } from './config-secrets.ts';
+import { InstanceConnect } from './connections.ts';
 import { GinTypeDef } from './gin.ts';
 import { ActorId, ApprovalId, InstanceName, InstanceRef, Json, PairingId, QualifiedName, SystemName, Timestamp } from './primitives.ts';
 import { CONTENT_HASH } from './resources.ts';
@@ -119,6 +120,8 @@ export const InstanceRecord = z.object({
   pairedBy: ActorId.optional(),
   lastSeenAt: Timestamp.optional(),
   address: z.string().optional(),
+  /** Build 9: how people connect to it, for an instance-scoped `connect` system (`instanceConnect` on the hub link). */
+  connect: InstanceConnect.optional(),
 });
 export type InstanceRecord = z.infer<typeof InstanceRecord>;
 

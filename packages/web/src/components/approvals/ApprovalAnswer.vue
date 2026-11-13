@@ -18,7 +18,11 @@ const props = withDefaults(defineProps<{
   ident?: string;
   /** Approve gives way to Review: what the run will do isn't all in sight. */
   review?: boolean;
-}>(), { rememberable: true, irreversible: false, ident: '', review: false });
+  /** Approve waits: the card's form (`ask`) has no value that fits yet. */
+  blocked?: boolean;
+  /** The word on Approve ("Answer" for a question). */
+  approveLabel?: string;
+}>(), { rememberable: true, irreversible: false, ident: '', review: false, blocked: false, approveLabel: 'Approve' });
 const emit = defineEmits<{ decide: [approve: boolean, remember: Remember, reason: string]; review: [] }>();
 defineSlots<{ buttons?: (scope: { remember: Remember }) => unknown }>();
 
@@ -46,7 +50,7 @@ function decide(approve: boolean): void {
         <UiButton v-if="!denying" size="sm" variant="secondary" data-testid="deny" @click="denying = true">Deny</UiButton>
         <UiButton v-else size="sm" variant="danger" data-testid="deny-confirm" @click="decide(false)">Deny</UiButton>
         <UiButton v-if="review" size="sm" :variant="irreversible ? 'danger' : 'primary'" icon="eye" data-testid="review" @click="emit('review')">Review</UiButton>
-        <UiButton v-else size="sm" :variant="irreversible ? 'danger' : 'primary'" icon="check" data-testid="approve" @click="decide(true)">Approve</UiButton>
+        <UiButton v-else size="sm" :variant="irreversible ? 'danger' : 'primary'" icon="check" data-testid="approve" :disabled="blocked" @click="decide(true)">{{ approveLabel }}</UiButton>
       </div>
     </div>
   </div>

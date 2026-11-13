@@ -80,6 +80,13 @@ and system contexts) adds a run of one of this system's own fns that waits for a
 worked out: from a run it is that run's child and waits for its person (`approver: 'person'`), from anywhere else
 (a schema change found at start) for an admin (`'admins'`). Pass a fn ref for typed args, or a runtime fn's local name
 with JSON args. The same `key` (by default a hash of the fn, the args and the proposing run) never makes a second run.
+Outside a run a proposal can also wait for one person: `for` names them, and `key` (required then) must start with
+the id of a record of this system they own, such as a Claude session, or of a run of this system they started
+(`proposalKeyFor(id, what)`; the hub refuses anything else), and `approver` then defaults
+to `'person'`. `chat` puts the card in that harness chat too (it is always in the inbox). `ask: { type, into }` makes
+the card a form: the approver fills a value of the gin type `type`, and the run goes ahead with it at `args[into]`
+(a question Claude asks, an MCP elicitation). The system hears how the run settled through the `run` event
+(`events.run`): `done` when approved, `cancelled` when declined, with the approver's words in the status text.
 `ctx.decide(question, candidates, { max })` (`Decisions`, runs only) asks the admin's decision model to pick
 candidates to reuse (each `{ id, text, score }`); `by: 'off'` or `'failed'` means go by the scores yourself.
 

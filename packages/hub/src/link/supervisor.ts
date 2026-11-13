@@ -15,14 +15,14 @@ import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { CrashPolicy, RESTART_CODE, SYSTEM_ENV, type ProcessExit, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
 import {
-  MAIN_INSTANCE, instanceLabel, type ActorId, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
-  type Json, type StopReason, type SystemName,
+  MAIN_INSTANCE, instanceLabel, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
+  type StopReason, type SystemName,
 } from '@harness/core';
 import { allRows } from '../store/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 import type { StoreConfigService } from './config.ts';
-import type { LinkService, PairingService, Supervisor } from './index.ts';
+import type { InstallInput, LinkService, PairingService, Supervisor } from './index.ts';
 import { KEY_FILE, makeKeyPair, randomToken } from './keys.ts';
 import type { Installer, SystemPackage } from './process.ts';
 import type { InstanceKeeper } from './status.ts';
@@ -105,14 +105,16 @@ export class ProcessSupervisor implements Supervisor {
    * staging folder, placed under `versions/<version>` (a version another instance already runs is shared), and the
    * instance gets its folders and a key the hub made, is paired, has its config preset, and starts.
    */
-  async install(input: { source: InstallSource; config?: Json; autoStart?: boolean; instance?: InstanceName; by: ActorId }): Promise<InstalledSystem> {
+  async install(input: InstallInput): Promise<InstalledSystem> {
     const { instances, pairing, config, settings, clock, log } = this.#options;
     const fetched = await this.#fetch(input.source);
     const name = fetched.pkg.manifest.name;
     const ref: InstanceRef = { system: name, instance: input.instance ?? MAIN_INSTANCE };
     const installed = (await instances.of(name)).filter((i) => i.installed !== undefined && i.status !== 'removed');
-    const refusal = installed.some((i) => i.instance === ref.instance) ? refuse(409, 'ALREADY_INSTALLED', `${instanceLabel(ref)} is already installed`)
+    const refusal = input.system !== undefined && input.system !== name ? refuse(422, 'WRONG_SYSTEM', `the folder holds ${name}, not ${input.system}`)
+      : installed.some((i) => i.instance === ref.instance) ? refuse(409, 'ALREADY_INSTALLED', `${instanceLabel(ref)} is already installed`)
       : installed.length > 0 && fetched.pkg.manifest.instances === 'one' ? refuse(409, 'ONE_INSTANCE', `${name} runs one instance, and it is installed`)
+        : input.fleet === true && fetched.pkg.manifest.instances === 'one' ? refuse(409, 'ONE_INSTANCE', `${name} runs one instance, so it takes no added instances`)
         : undefined;
     if (refusal !== undefined) {
       await fetched.discard();
@@ -129,7 +131,7 @@ export class ProcessSupervisor implements Supervisor {
       autoStart: input.autoStart ?? true, restart: { policy: 'on-failure', backoff: settings.backoff, maxPerHour: settings.perHour },
       status: 'stopped', installedBy: input.by, installedAt: clock(),
     };
-    await instances.sync(ref, { installed: entry, dirs, version: pkg.manifest.version });
+    await instances.sync(ref, { installed: entry, dirs, version: pkg.manifest.version, ...(input.description === undefined ? {} : { description: input.description }) });
     if (input.config !== undefined) { config.preset(ref, input.config, input.by); }
     log.info('supervisor.installed', { system: name, instance: ref.instance, version: pkg.manifest.version, by: input.by });
     if (entry.autoStart) { await this.start(name, ref.instance); }

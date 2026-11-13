@@ -13,7 +13,7 @@ choices:
     when: "Pick this to go on in order: Worked examples."
 ---
 
-## 28. Common mistakes
+## 29. Common mistakes
 
 ### Mistakes the compiler refuses
 

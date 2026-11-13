@@ -39,6 +39,7 @@ import { MockChat } from './mockChat.ts';
 import { MockFns } from './mockBuild5.ts';
 import { MockReviews } from './mockBuild7.ts';
 import { MockData } from './mockBuild8.ts';
+import { CLAUDE_WAITING, MockBuild9, PERMIT_PREVIEW, QUESTION_ASK } from './mockBuild9.ts';
 import { graphOf, SAMPLE_EDGES, SAMPLE_NODES } from '../src/graph/test/graph.ts';
 import { fsAuthoringGraph } from './fsGraph.ts';
 import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer, systemPartsOf } from './mockBuild6.ts';
@@ -129,6 +130,9 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const build4 = new MockBuild4(admin, owner);
   const fns = new MockFns();
   const build8 = new MockData(Date.now);
+  const build9 = new MockBuild9(Date.now);
+  const claudeChat = chat.seedClaude(CLAUDE_WAITING, PERMIT_PREVIEW, QUESTION_ASK);
+  build9.seedClaude(claudeChat.chat, claudeChat.waiting);
   const fsCluster = fsAuthoringGraph();
   const sampleIds = new Set<string>(SAMPLE_NODES.map((n) => n.id));
   const graphNodes = [...SAMPLE_NODES, ...fsCluster.nodes.filter((n) => !sampleIds.has(n.id))];
@@ -232,7 +236,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       searchFns: ({ data }) => build8.widgets(data) ?? fns.search(data),
       // build 8: stored data, widgets' row actions and version history
       dataSets: ({ data }) => build8.sets(data),
-      records: () => ({ items: [] }),
+      records: ({ data }) => build9.records(data) ?? { items: [] },
       recordTable: ({ data }) => build8.table(data),
       record: ({ data }) => build8.record(data),
       saveRecord: ({ data }) => build8.save(data, owner()),
@@ -261,7 +265,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
         return answered;
       },
       createPairingToken: ({ data }) => ({ token: mintId('pairingToken'), expiresAt: Date.now() + data.expiresIn }),
-      configureSystem: ({ data }) => admin.configure(data.system, data.config),
+      configureSystem: ({ data }) => (build9.has(data.system) && data.instance !== undefined ? build9.configure(data.system, data.instance, data.config) : admin.configure(data.system, data.config)),
       enableSystem: ({ data }) => {
         if (data.context !== undefined) { graph.switchSystem(data.system, data.context); }
         return admin.enable(data.system, data);
@@ -288,7 +292,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       stopSystem: ({ data }) => admin.process(data.system, 'stopped'),
       upgradeSystem: ({ data }) => admin.upgrade(data.system, data.version),
       reimport: () => admin.reimport(),
-      systemFns: ({ data }) => (data.system === 'database' ? shopFns(Date.now()) : data.system === 'widgets' ? build8.widgetFns(Date.now()) : admin.fns(data.system)),
+      systemFns: ({ data }) => (build9.has(data.system) ? [] : data.system === 'database' ? shopFns(Date.now()) : data.system === 'widgets' ? build8.widgetFns(Date.now()) : admin.fns(data.system)),
       types: ({ data }) => {
         const known = [...shopTypes(Date.now()), ...build8.types(Date.now())].filter((type) => data.names.includes(type.name));
         return { types: known, missing: data.names.filter((name) => !known.some((type) => type.name === name)) };
@@ -362,9 +366,12 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       previewMcp: ({ data }) => build2.preview(data.rules),
       mcpSessions: ({ data }) => build2.sessions(data.mcp),
       pairing: ({ data }) => build2.pairing(data.pairing),
-      instances: ({ data }) => build2.instancesOf(data.system),
+      instances: ({ data }) => (build9.has(data.system) ? build9.instancesOf(data.system) : build2.instancesOf(data.system)),
+      // build 9: MCP servers and API services added from the browser, and a server's status
+      addInstance: ({ data }) => build9.add(data),
+      readFn: ({ data }) => build9.read(data) ?? null,
       installPackage: ({ data }) => build2.install(library.nameOf(data.zip.hash) ?? 'package.zip', data.zip.hash, data.instance),
-      removeInstance: ({ data }) => build2.removeInstance(data),
+      removeInstance: ({ data }) => (build9.has(data.system) ? build9.remove(data) : build2.removeInstance(data)),
       exportSystemData: ({ data }) => build2.exportData(data),
       // build 3: auto pair secrets and the decision model for suggestions
       autoPairs: ({ data }) => build3.autoPairs(data.system),
@@ -378,7 +385,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       access: ({ data }) => data.targets.map((target) => build4.access(readAccess(target))),
       setAccess: ({ data }) => build4.setAccess(readAccess(data.target), { visibility: data.sharing.visibility, with: readActors(data.sharing.with) }),
       // build 4: the calendar each person connects
-      connectPages: () => build4.connectPages(),
+      connectPages: () => [...build4.connectPages(), build9.connectPage()],
       connect: () => build4.connect(),
       updateConnection: ({ data }) => build4.updateConnection(data),
       disconnect: ({ data }) => build4.disconnect(data.connection),
@@ -409,7 +416,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'runs', 'llmCalls', 'resources', 'resource',
     'upload', 'uploaded', 'browseResources', 'resourceForms', 'readResource', 'convertResource', 'downloadResource', 'importResource', 'renameResource', 'deleteResource', 'contextFromResource',
     'previewSelection', 'modelLimits', 'setModelLimits', 'modelRoles', 'setModelRole', 'clearModelRole', 'modelCalls', 'modelCall', 'fnMetrics', 'fnMetricsDays',
-    'mcps', 'mcp', 'createMcp', 'updateMcp', 'rotateMcpSecret', 'deleteMcp', 'previewMcp', 'mcpSessions', 'pairing', 'instances', 'installPackage', 'removeInstance', 'exportSystemData',
+    'mcps', 'mcp', 'createMcp', 'updateMcp', 'rotateMcpSecret', 'deleteMcp', 'previewMcp', 'mcpSessions', 'pairing', 'instances', 'installPackage', 'removeInstance', 'exportSystemData', 'addInstance', 'readFn',
     'autoPairs', 'revokeAutoPair', 'suggestDecision', 'setSuggestDecision', 'previewSuggestions',
     'pick', 'accessInfo', 'access', 'setAccess', 'connectPages', 'connect', 'updateConnection', 'disconnect',
     'contexts', 'contextItem', 'remember', 'updateMemory', 'forget', 'linkContext', 'unlinkContext',

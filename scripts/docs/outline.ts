@@ -110,6 +110,11 @@ export const OUTLINE: readonly Topic[] = [
   { id: 'calling', title: 'Calling other fns', exports: ['Callers', 'Caller', 'CallOptions', 'FnCall', 'Settled', 'CallFailed', 'HandlerFailed'] },
   { id: 'lifecycle', title: 'Config, events, lifecycle and data', exports: ['Lifecycle', 'EventHandlers'] },
   {
+    id: 'remote',
+    title: 'Remote services: fleets, sign-in and connections per instance',
+    exports: ['InstanceConnects', 'instanceConnectOf', 'connectForm', 'usesConnections', 'credentialsFromForm', 'readCredentials', 'credentialHeaders', 'sharedHeaders', 'accountLabel', 'secretHeaderNames', 'maskHeaders'],
+  },
+  {
     id: 'client',
     title: 'The client: renderers, inputs and resource views',
     exports: [

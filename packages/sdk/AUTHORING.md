@@ -32,14 +32,15 @@ _Every code sample is a compiled file of the repository, so it is correct for th
 21. [The run context and services](#21-the-run-context-and-services)
 22. [Calling other fns](#22-calling-other-fns)
 23. [Config, events, lifecycle and data](#23-config-events-lifecycle-and-data)
-24. [The client: renderers, inputs and resource views](#24-the-client-renderers-inputs-and-resource-views)
-25. [Visuals and widgets](#25-visuals-and-widgets)
-26. [Packaging: system.json, build, pack, install](#26-packaging-systemjson-build-pack-install)
-27. [Testing](#27-testing)
-28. [Common mistakes](#28-common-mistakes)
-29. [Worked examples](#29-worked-examples)
-30. [Runtime internals](#30-runtime-internals)
-31. [Core types](#31-core-types)
+24. [Remote services: fleets, sign-in and connections per instance](#24-remote-services-fleets-sign-in-and-connections-per-instance)
+25. [The client: renderers, inputs and resource views](#25-the-client-renderers-inputs-and-resource-views)
+26. [Visuals and widgets](#26-visuals-and-widgets)
+27. [Packaging: system.json, build, pack, install](#27-packaging-systemjson-build-pack-install)
+28. [Testing](#28-testing)
+29. [Common mistakes](#29-common-mistakes)
+30. [Worked examples](#30-worked-examples)
+31. [Runtime internals](#31-runtime-internals)
+32. [Core types](#32-core-types)
 
 ## 1. Start here
 
@@ -5813,7 +5814,7 @@ This is the hub contract as the SDK declares it now:
       visibility: enum<text>{private, shared, public},
       with: list<text>
     }
-  }) => obj{ id, system, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
+  }) => obj{ id, system, instance?, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
   ```
 - `hub/connection_disconnect`: Disconnect one of the person's connected accounts.
 
@@ -6238,6 +6239,11 @@ This is the hub contract as the SDK declares it now:
     autoStart?: bool
   }) => obj{system: text, instance: text}
   ```
+- `hub/add_instance`: Add an instance of a bundled fleet system (an MCP server, an API service) with its config: installed, paired and started on the hub machine. Tags: `admin`.
+
+  ```text
+  (obj{system: text, instance: text, description?: text, config: any}) => obj{system: text, instance: text}
+  ```
 - `hub/remove_instance`: Remove one instance of a system. Tags: `admin`.
 
   ```text
@@ -6388,7 +6394,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/instances_list`: One system's instances, with their status, version, config (secrets masked) and host. Tags: `admin`, `read`.
 
   ```text
-  (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address? … }>
+  (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address?, connect? … }>
   ```
 - `hub/suggest_decision_get`: The suggestion decision model setting: whether a model picks the suggestions, and its limits. Tags: `admin`, `read`.
 
@@ -6538,6 +6544,7 @@ const ADMIN_ENDPOINTS = {
   delete_mcp: mcpsSlice.endpoints.deleteMcp,
   preview_mcp: mcpsSlice.endpoints.previewMcp,
   install_package: packagingSlice.endpoints.installPackage,
+  add_instance: packagingSlice.endpoints.addInstance,
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
   suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
@@ -7089,7 +7096,7 @@ interface · `import { RunningSystem } from '@harness/sdk/server'`
 A running system. It searches the hub and lists its fleet (every paired instance) as the system itself.
 
 ```ts
-interface RunningSystem<N extends string> extends FnSearch, Fleets {
+interface RunningSystem<N extends string> extends FnSearch, Fleets, InstanceConnects {
   readonly name: N;
   readonly status: RunningStatus;
   /** Calls `listener` on every status change; returns the unsubscribe. */
@@ -7620,6 +7627,13 @@ and system contexts) adds a run of one of this system's own fns that waits for a
 worked out: from a run it is that run's child and waits for its person (`approver: 'person'`), from anywhere else
 (a schema change found at start) for an admin (`'admins'`). Pass a fn ref for typed args, or a runtime fn's local name
 with JSON args. The same `key` (by default a hash of the fn, the args and the proposing run) never makes a second run.
+Outside a run a proposal can also wait for one person: `for` names them, and `key` (required then) must start with
+the id of a record of this system they own, such as a Claude session, or of a run of this system they started
+(`proposalKeyFor(id, what)`; the hub refuses anything else), and `approver` then defaults
+to `'person'`. `chat` puts the card in that harness chat too (it is always in the inbox). `ask: { type, into }` makes
+the card a form: the approver fills a value of the gin type `type`, and the run goes ahead with it at `args[into]`
+(a question Claude asks, an MCP elicitation). The system hears how the run settled through the `run` event
+(`events.run`): `done` when approved, `cancelled` when declined, with the approver's words in the status text.
 `ctx.decide(question, candidates, { max })` (`Decisions`, runs only) asks the admin's decision model to pick
 candidates to reuse (each `{ id, text, score }`); `by: 'off'` or `'failed'` means go by the scores yourself.
 
@@ -7736,7 +7750,7 @@ Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
 interface · `import { SystemCtx } from '@harness/sdk'`
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices {
+interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -8005,16 +8019,29 @@ interface ProposeOptions {
   /** What the run would do, as whoever approves it sees it: the SQL, the rows it touches, a type diff. */
   readonly preview: ApprovalPreview;
   /**
-   * Who answers: the person of the run proposing it (the default inside a run), or an admin (the default, and the
-   * only choice, outside a run, such as a schema change found at start).
+   * Who answers: the person of the run proposing it (the default inside a run, and outside one when `for` names
+   * them), or an admin (the default outside a run otherwise, such as a schema change found at start).
    */
   readonly approver?: ProposalApprover;
   /** Makes a retried proposal the same run. Default: a hash of the fn, its args and the proposing run. */
   readonly key?: string;
+  /**
+   * Outside a run, the person the proposal waits for (the owner of a Claude session this system keeps a record of).
+   * The hub accepts it only when that person owns a record of one of this system's stored types naming `key`, or a
+   * run of it, so pass `key` too (`proposalKeyFor`); without one, `propose` throws.
+   */
+  readonly for?: ActorId;
+  /** The harness chat whose thread shows the card too (it is always in the approver's inbox). */
+  readonly chat?: SessionId;
+  /**
+   * A form the approver fills before approving (a question, an MCP elicitation): its value, checked against
+   * `ask.type`, is set as `args[ask.into]` of the run that then goes ahead.
+   */
+  readonly ask?: ProposalAsk;
 }
 ```
 
-Refers to: [`ApprovalPreview`](#core-approvalpreview), [`ProposalApprover`](#core-proposalapprover).
+Refers to: [`ActorId`](#core-actorid), [`ApprovalPreview`](#core-approvalpreview), [`ProposalApprover`](#core-proposalapprover), [`ProposalAsk`](#core-proposalask), [`SessionId`](#core-sessionid).
 
 #### `Decisions`
 
@@ -8682,7 +8709,180 @@ type EventHandlers<Cfg> = {
 
 Refers to: [`SystemEvent`](#core-systemevent).
 
-## 24. The client: renderers, inputs and resource views
+## 24. Remote services: fleets, sign-in and connections per instance
+
+A system that calls a remote service (an MCP server, an HTTP API) is a fleet: one instance per service, added from
+the browser with its config (`instances: "many"` in `system.json`). Its sign-in is core's `RemoteAuth` in that config:
+`none`, `bearer` (a token), `headers` (named header values) or `oauth`, each `per: 'shared'` (the instance's own config
+secrets, the same for everyone) or `per: 'person'` (each person connects their own). List the secret paths in
+`configSecrets` (core's `REMOTE_AUTH_SECRETS` under `auth`), so the hub seals them and never shows them again.
+
+**Connections per instance.** Declare `connect` with `scope: 'instance'`: then every fn that runs on the instance acts
+as the person, and each instance tells the hub how people connect to it with `ctx.instanceConnect(...)`
+(`InstanceConnects`, on the system context and on the running system). Say it in `started` and `configured`; the SDK
+keeps the latest and says it again on every reconnect. `instanceConnectOf(label, auth)` works it out from the auth:
+OAuth (an admin's sign-in shared with everyone when `per: 'shared'`), a form for a per-person token or headers
+(`connectForm`), or nothing to connect. With nothing to connect, calls need no connection; otherwise a person without one
+finds the instance's fns unavailable until they connect on the Connections page.
+
+**Credentials.** A form connection's `connectFinish` reads the filled form with `credentialsFromForm(auth, form)` into
+core's `RemoteCredentials` (or a problem to show), which the hub keeps as the person's connection; `accountLabel` names
+it without the secret. In a run, `ctx.connection.credentials` carries it back: `readCredentials` reads it and `credentialHeaders`
+turns it into the headers to send; `sharedHeaders(auth)` gives the instance's own. OAuth tokens a run refreshes go back
+with `ctx.updateConnection`. Never log a secret: `maskHeaders(headers, secretHeaderNames(auth))` is what a trace or a
+log may show.
+
+```ts
+const auth = ctx.config.auth;
+const credentials = ctx.connection === undefined ? undefined : readCredentials(ctx.connection.credentials);
+if (usesConnections(auth) && credentials === undefined) { return ctx.fail('caller', 'Connect to this service first.'); }
+const headers = credentials === undefined ? sharedHeaders(auth) : credentialHeaders(credentials);
+```
+
+The MCP client itself is `@ayepi/mcp` (`McpClient` over Streamable HTTP, HTTP + SSE or stdio with `spawnStdioClient`
+from `@ayepi/mcp/node`, its OAuth client functions, and its server-request handlers for elicitation and roots); read
+its `ayepi-mcp.md` before using it.
+
+### Reference: remote services: fleets, sign-in and connections per instance
+
+#### `InstanceConnects`
+
+interface · `import { InstanceConnects } from '@harness/sdk'`
+
+Saying how people connect to this instance of an instance-scoped system (`connect.scope: 'instance'`: an MCP server,
+an API service). The hub shows a card per instance on the Connections page, and a fn that runs on the instance is
+unavailable to a person without a connection when `flow` is set. Say it at start and whenever the config changes;
+the latest is sent again on every reconnect.
+
+```ts
+interface InstanceConnects {
+  instanceConnect(connect: z.input<typeof InstanceConnect>): Promise<void>;
+}
+```
+
+Refers to: [`InstanceConnect`](#core-instanceconnect).
+
+#### `instanceConnectOf`
+
+function · `import { instanceConnectOf } from '@harness/sdk'`
+
+How people connect to an instance, for `ctx.instanceConnect`: OAuth (shared through an admin's sign-in when
+`per: 'shared'`), a form for a per-person token or headers, or nothing to connect (shared credentials, or none).
+
+```ts
+function instanceConnectOf(label: string, auth: RemoteAuth): z.input<typeof InstanceConnect>;
+```
+
+Refers to: [`InstanceConnect`](#core-instanceconnect), [`RemoteAuth`](#core-remoteauth).
+
+#### `connectForm`
+
+function · `import { connectForm } from '@harness/sdk'`
+
+The form a person fills to connect with their own token or header values; `undefined` for any other auth.
+
+```ts
+function connectForm(auth: RemoteAuth): GinType<Record<string, string>> | undefined;
+```
+
+Refers to: [`RemoteAuth`](#core-remoteauth).
+
+#### `usesConnections`
+
+function · `import { usesConnections } from '@harness/sdk'`
+
+Whether calls use a person's connection (their own, or the one an admin shares) rather than the instance's config.
+
+```ts
+function usesConnections(auth: RemoteAuth): boolean;
+```
+
+Refers to: [`RemoteAuth`](#core-remoteauth).
+
+#### `credentialsFromForm`
+
+function · `import { credentialsFromForm } from '@harness/sdk'`
+
+The credentials a filled connect form makes, or what is wrong with it.
+
+```ts
+function credentialsFromForm(auth: RemoteAuth, form: Json): { readonly credentials: RemoteCredentials; } | { readonly problem: string; };
+```
+
+Refers to: [`Json`](#core-json), [`RemoteAuth`](#core-remoteauth), [`RemoteCredentials`](#core-remotecredentials).
+
+#### `readCredentials`
+
+function · `import { readCredentials } from '@harness/sdk'`
+
+A connection's credentials, read; `undefined` when they aren't `RemoteCredentials`.
+
+```ts
+function readCredentials(value: Json): RemoteCredentials | undefined;
+```
+
+Refers to: [`Json`](#core-json), [`RemoteCredentials`](#core-remotecredentials).
+
+#### `credentialHeaders`
+
+function · `import { credentialHeaders } from '@harness/sdk'`
+
+The headers a person's credentials send.
+
+```ts
+function credentialHeaders(credentials: RemoteCredentials): Record<string, string>;
+```
+
+Refers to: [`RemoteCredentials`](#core-remotecredentials).
+
+#### `sharedHeaders`
+
+function · `import { sharedHeaders } from '@harness/sdk'`
+
+The headers the instance's own config sends: a shared token or shared header values; none otherwise.
+
+```ts
+function sharedHeaders(auth: RemoteAuth): Record<string, string>;
+```
+
+Refers to: [`RemoteAuth`](#core-remoteauth).
+
+#### `accountLabel`
+
+function · `import { accountLabel } from '@harness/sdk'`
+
+A short label for an account connected with a token or headers ("Token ending 4f2a"), never the secret itself.
+
+```ts
+function accountLabel(credentials: RemoteCredentials): string;
+```
+
+Refers to: [`RemoteCredentials`](#core-remotecredentials).
+
+#### `secretHeaderNames`
+
+function · `import { secretHeaderNames } from '@harness/sdk'`
+
+Header names a log or a trace must not show: `authorization`, every name a `headers` auth uses, and the usual
+key headers. Compare in lower case.
+
+```ts
+function secretHeaderNames(auth: RemoteAuth): ReadonlySet<string>;
+```
+
+Refers to: [`RemoteAuth`](#core-remoteauth).
+
+#### `maskHeaders`
+
+function · `import { maskHeaders } from '@harness/sdk'`
+
+Headers with the secret ones masked (`••••` and their last four characters), for a trace or a log.
+
+```ts
+function maskHeaders(headers: Readonly<Record<string, string>>, secret: ReadonlySet<string>): Record<string, string>;
+```
+
+## 25. The client: renderers, inputs and resource views
 
 A system can draw its things in the chat with **Vue 3 components**. `client(contract, renderers)` in `client/index.ts`
 (default export) registers them, and each component's props are typed by the contract, so a component with the wrong
@@ -9423,7 +9623,7 @@ visuals other systems contribute. Without it, a view falls back on its own syste
 const VISUALS: InjectionKey<VisualSource>;
 ```
 
-## 25. Visuals and widgets
+## 26. Visuals and widgets
 
 A fn that returns a `ResultTable` (a database query, `hub/records_table`, any fn of that shape) is drawn by the result
 view, which offers every **visual** that can draw it: a table, value cards and twelve chart families (part of a whole,
@@ -10364,7 +10564,7 @@ interface WidgetDraft {
 
 Refers to: [`WidgetSpec`](#core-widgetspec).
 
-## 26. Packaging: system.json, build, pack, install
+## 27. Packaging: system.json, build, pack, install
 
 ### `system.json`
 
@@ -10687,7 +10887,7 @@ interface BuiltEntries {
 }
 ```
 
-## 27. Testing
+## 28. Testing
 
 Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
 
@@ -10701,7 +10901,14 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
   call a real free model with `realModel.it('…', async (model) => { … })` and pass `model` to `testHub`: they are
   marked `real` and skipped without `OPENROUTER_API_KEY`.
 - **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
-  derives.
+  derives. `kit.runKind('<kind>', '<fn>', payload, args)` runs a fn of the kind as the hub runs a saved one (a code
+  program, an API request) and gives its outcome, progress and hub calls.
+- **Proposals.** A proposed run waits in `kit.hub.proposals` until the test settles it as its approver would:
+  `kit.approve('<key, approval or run>', answer?)` runs it on the system (the answer at `args[ask.into]` when it asks
+  one) and sends the `run` event `done`; `kit.decline(which, reason?)` sends it `cancelled` with the hub's words. A
+  settled proposal can't be settled again, and outside a run its key then proposes afresh.
+- **Instances people connect to.** `kit.hub.instanceConnect` is what the instance last said (`ctx.instanceConnect`);
+  `kit.hub.instanceConnects` lists every time, including the one sent again on each reconnect.
 - **Data.** The fake hub answers `ctx.data` from records in memory, like the hub (filters, sorts, text search, pages,
   versions, `expect`, person-owned types refused outside runs): `kit.records('<Type>')` reads what runs saved, and
   `kit.hub.data.save(...)` puts records in first. Another system's stored type goes in `kit.hub.storedTypes`.
@@ -10842,6 +11049,8 @@ class FakeHub {
   readonly logs: LogLine[];
   /** Refreshed (or expired) credentials systems handed back (`connectionUpdate`). */
   readonly connectionUpdates: Array<HubBody<'connectionUpdate'>>;
+  /** How the instance said people connect to it (`instanceConnect`), in order; it is said again on every welcome. */
+  readonly instanceConnects: Array<HubBody<'instanceConnect'>>;
   /** Fns a run handed to its person (`shareFn`). */
   readonly shares: Array<HubBody<'shareFn'>>;
   /** Whether a run's person may use a fn of its system (`usableFns`); every fn by default. */
@@ -10856,7 +11065,10 @@ class FakeHub {
   readonly notices: AdminNotice[];
   /** What a host's supervisor refused for the systems it hosts (`reportRefusal`), in order. */
   readonly hostRefusals: HubBody<'reportRefusal'>[];
-  /** Runs systems proposed (`propose`), with the run and approval the fake hub made; one per `key`. */
+  /**
+  * Runs systems proposed (`propose`), with the run and approval the fake hub made; one per open `key` (outside a run a
+  * settled key proposes afresh, as on the real hub). Settle one with `approveProposal` or `declineProposal`.
+  */
   readonly proposals: Array<HubBody<'propose'> & ProposedRun>;
   /** What systems asked the decision model (`decide`). */
   readonly decisions: Array<HubBody<'decide'>>;
@@ -10961,12 +11173,27 @@ class FakeHub {
   estimate(body: SystemBody<"estimate">): Promise<KindEstimateAnswer>;
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<OutcomeWire>;
+  /** How the instance last said people connect to it (`instanceConnect`); `undefined` when it never said. */
+  get instanceConnect(): { share: boolean; title: string; flow?: { flow: "oauth"; } | { flow: "form"; form: TypeDef<any>; } | undefined; } | undefined;
+  /** An open proposal by its key, approval id or run id. */
+  openProposal(which: string): HubBody<"propose"> & ProposedRun;
+  /**
+  * Approve a proposed run (by its key, approval id or run id) as its approver would: `answer` (required when the
+  * proposal has an `ask`) is set at `args[ask.into]`, the run goes ahead on the system with `approved`, and the
+  * system hears it settle through the `run` event (`done`, or how it ended). Resolves with the run's outcome.
+  */
+  approveProposal(which: string, options?: { readonly answer?: Json; readonly by?: ActorId; }): Promise<OutcomeWire>;
+  /**
+  * Decline a proposed run as its approver would: it settles `cancelled`, and the system hears it through the `run`
+  * event, with the hub's words for it ("Declined by …: reason") as the status text.
+  */
+  declineProposal(which: string, reason?: string): Promise<void>;
   /** Store content (as an upload would) and return its ref. */
   put(bytes: Uint8Array, mime: string): ContentRef;
 }
 ```
 
-Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -11046,7 +11273,7 @@ didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` ove
 Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
 
 ```ts
-const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices;
+const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices & InstanceConnects;
 ```
 
 #### `HubBody`
@@ -11406,6 +11633,16 @@ class TestSystem<N extends string, C extends ContractShape> {
   run<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<TestRun<FnResultOf<C, K>>>;
   /** Run a fn that should finish: its typed result, progress and hub calls; `CallNotDone` when it doesn't. */
   call<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<TestCall<FnResultOf<C, K>>>;
+  /**
+  * Run a fn of one of the contract's kinds, as the hub runs a saved fn of the kind (a code program, an API request):
+  * `fn` is its local name, `payload` the kind's typed payload, `args` the fn's args as JSON. Its outcome (the result
+  * as JSON, since a kind fn's result type is its own), progress and hub calls.
+  */
+  runKind<K extends KindNameOf<C>>(kind: K, fn: string, payload: KindPayloadOf<C, K>, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args" | "kind" | "payload">>): Promise<TestRun<Json>>;
+  /** Approve a run the system proposed (by its key, approval id or run id), with the answer its `ask` wants; see `FakeHub.approveProposal`. */
+  approve(proposal: string, answer?: Json): Promise<OutcomeWire>;
+  /** Decline a run the system proposed, with the approver's reason; see `FakeHub.declineProposal`. */
+  decline(proposal: string, reason?: string): Promise<void>;
   /** What a kind makes of a payload, as the hub asks it when a fn of the kind is saved. */
   kindProps<K extends KindNameOf<C>>(kind: K, payload: KindPayloadOf<C, K>): Promise<KindProps>;
   /**
@@ -11428,7 +11665,7 @@ class TestSystem<N extends string, C extends ContractShape> {
 }
 ```
 
-Refers to: [`DataRecord`](#core-datarecord), [`ResultTable`](#core-resulttable), [`RunRequest`](#core-runrequest), [`SensitivityFlag`](#core-sensitivityflag), [`VisualRank`](#core-visualrank).
+Refers to: [`DataRecord`](#core-datarecord), [`Json`](#core-json), [`OutcomeWire`](#core-outcomewire), [`ResultTable`](#core-resulttable), [`RunRequest`](#core-runrequest), [`SensitivityFlag`](#core-sensitivityflag), [`VisualRank`](#core-visualrank).
 
 #### `TestHubOptions`
 
@@ -12088,7 +12325,7 @@ type StoredTypeDecl = TypeDecl & { readonly records: RecordStorage };
 
 Refers to: [`RecordStorage`](#core-recordstorage), [`TypeDecl`](#core-typedecl).
 
-## 28. Common mistakes
+## 29. Common mistakes
 
 ### Mistakes the compiler refuses
 
@@ -12429,7 +12666,7 @@ reason given. If you see one of these errors, the fix is in the reason.
 - **Vague descriptions.** The LLM picks fns by their description and fills args from their types and docs: say exactly
   what the fn does and give examples for args that are easy to get wrong.
 
-## 29. Worked examples
+## 30. Worked examples
 
 ### The notes system, whole
 
@@ -14000,7 +14237,7 @@ export type PreviousValue = Infer<typeof Previous>;
 export type BashOutput = Infer<typeof BashResult>;
 ```
 
-## 30. Runtime internals
+## 31. Runtime internals
 
 The rest of what the SDK exports: the pieces `serve` is built from (the manifest builder, keys, the outcome journal, the
 link transport, the LLM wire, the MCP face, files and process control, client bundles). A system rarely uses these
@@ -15266,7 +15503,7 @@ interface RedirectProblems {
 }
 ```
 
-## 31. Core types
+## 32. Core types
 
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
@@ -15406,7 +15643,7 @@ type ApprovalPreview = {
     type: "flags";
     flags: {
       path: string;
-      kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+      kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
       rule: string;
       access: "write" | "read";
       action: "ask" | "refuse" | "allow";
@@ -15560,7 +15797,7 @@ type ApprovedRun = {
       type: "flags";
       flags: {
         path: string;
-        kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "write" | "read";
         action: "ask" | "refuse" | "allow";
@@ -15788,7 +16025,7 @@ type PreviewAnswer = {
       type: "flags";
       flags: {
         path: string;
-        kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "write" | "read";
         action: "ask" | "refuse" | "allow";
@@ -15888,6 +16125,19 @@ Who answers a proposed run or a fn that always asks: the run's person, or an adm
 
 ```ts
 type ProposalApprover = "person" | "admins";
+```
+
+#### <a id="core-proposalask"></a>`ProposalAsk`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`.
+
+```ts
+type ProposalAsk = {
+  type: TypeDef<any>;
+  into: string;
+};
 ```
 
 #### <a id="core-proposedrun"></a>`ProposedRun`
@@ -15998,6 +16248,11 @@ type ConnectDecl = {
     ask: boolean;
   }>;
   icon?: string | undefined;
+  scope?: "instance" | "system" | undefined;
+  defaults?: {
+    on: boolean;
+    ask: boolean;
+  } | undefined;
 };
 ```
 
@@ -16017,6 +16272,7 @@ type ConnectFinish = {
   } | {
     form: z.core.util.JSONType;
   };
+  instance?: InstanceName | undefined;
 };
 ```
 
@@ -16076,6 +16332,28 @@ type ConnectStart = {
   owner: string;
   redirect: string;
   state: string;
+  instance?: InstanceName | undefined;
+};
+```
+
+#### <a id="core-instanceconnect"></a>`InstanceConnect`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+Build 9: how people connect to one instance of an instance-scoped system (`instanceConnect` on the hub link, sent
+whenever its config changes). `flow` absent: its calls need no connection (shared credentials, or none).
+`share`: an admin's single connection is used by everyone (a shared OAuth sign-in), rather than each person's own.
+
+```ts
+type InstanceConnect = {
+  share: boolean;
+  title: string;
+  flow?: {
+    flow: "oauth";
+  } | {
+    flow: "form";
+    form: TypeDef<any>;
+  } | undefined;
 };
 ```
 
@@ -16927,7 +17205,7 @@ type RunRequest = {
         type: "flags";
         flags: {
           path: string;
-          kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+          kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
           rule: string;
           access: "write" | "read";
           action: "ask" | "refuse" | "allow";
@@ -17861,6 +18139,11 @@ type Manifest = {
       ask: boolean;
     }>;
     icon?: string | undefined;
+    scope?: "instance" | "system" | undefined;
+    defaults?: {
+      on: boolean;
+      ask: boolean;
+    } | undefined;
   } | undefined;
   registries?: {
     name: string;
@@ -19477,6 +19760,54 @@ type VisualShapeInput = {
 };
 ```
 
+### From `packages/core/src/remote-auth.ts`
+
+#### <a id="core-remoteauth"></a>`RemoteAuth`
+
+const, type · declared in `packages/core/src/remote-auth.ts`
+
+How an instance signs in to its remote service.
+
+```ts
+type RemoteAuth = {
+  kind: "none";
+} | {
+  kind: "bearer";
+  per: "shared" | "person";
+  token?: string | undefined;
+} | {
+  kind: "headers";
+  per: "shared" | "person";
+  names: string[];
+  values?: Record<string, string> | undefined;
+} | {
+  kind: "oauth";
+  per: "shared" | "person";
+  scopes?: string[] | undefined;
+  clientId?: string | undefined;
+  clientSecret?: string | undefined;
+};
+```
+
+#### <a id="core-remotecredentials"></a>`RemoteCredentials`
+
+const, type · declared in `packages/core/src/remote-auth.ts`
+
+Per-person credentials kept by the hub for a `form` connection: the token or the header values the person typed.
+
+```ts
+type RemoteCredentials = {
+  token: string;
+} | {
+  headers: Record<string, string>;
+} | {
+  accessToken: string;
+  tokenType: string;
+  refreshToken?: string | undefined;
+  clientId?: string | undefined;
+};
+```
+
 ### From `packages/core/src/resource-forms.ts`
 
 #### <a id="core-resourceoutlineargs"></a>`ResourceOutlineArgs`
@@ -20155,7 +20486,7 @@ The system's answer to `flags`: the files the call would touch that its rules fl
 type FlagsAnswer = {
   flags: {
     path: string;
-    kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+    kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
     rule: string;
     access: "write" | "read";
     action: "ask" | "refuse" | "allow";
@@ -20174,7 +20505,7 @@ One sensitive file a call would touch, and what the rule says about it.
 ```ts
 type SensitivityFlag = {
   path: string;
-  kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+  kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
   rule: string;
   access: "write" | "read";
   action: "ask" | "refuse" | "allow";

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "mcp",
+  "version": "0.1.0",
+  "description": "Use the tools, prompts and resources of MCP servers: each server added is an instance, its tools are fns, its prompts are /commands and its resources are browsable.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "instances": "many",
+  "permissions": { "childProcess": true }
+}

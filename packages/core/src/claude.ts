@@ -113,6 +113,11 @@ export const ClaudeSession = z.object({
   agent: z.string().optional(),
   /** Open approvals and questions (the waiting runs). */
   waiting: z.array(RunId),
+  /**
+   * The keys of the proposals open for this session (the claude system's own bookkeeping). The hub accepts a proposal
+   * `for` the owner by its key, which must start with this record's id (`proposalKeyFor(record.id, request)`), not by this list.
+   */
+  asking: z.array(z.string().min(1)),
   tasks: z.array(ClaudeTask),
   /** The last thing Claude said, one line. */
   lastText: z.string().optional(),

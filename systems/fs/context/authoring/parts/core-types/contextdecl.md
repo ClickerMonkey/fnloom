@@ -636,6 +636,11 @@ type Manifest = {
       ask: boolean;
     }>;
     icon?: string | undefined;
+    scope?: "instance" | "system" | undefined;
+    defaults?: {
+      on: boolean;
+      ask: boolean;
+    } | undefined;
   } | undefined;
   registries?: {
     name: string;

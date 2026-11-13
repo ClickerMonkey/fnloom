@@ -177,8 +177,12 @@ export class StoreNotifications implements NotificationService {
       return;
     }
     if (!this.#seen.add(`approval:${approval.id}`)) { return; }
+    // build 9: a proposal with a form is a question (Claude asking, an MCP server eliciting): it reads as one
+    const words = approval.ask === undefined
+      ? { title: `Approve ${approval.fn}?`, body: `A run is waiting for your approval to call ${approval.fn}.` }
+      : { title: approval.preview?.title ?? `Answer ${approval.fn}`, body: 'A question is waiting for your answer.' };
     for (const user of approvers) {
-      await this.notify({ user, reason: 'approval-needed', title: `Approve ${approval.fn}?`, body: `A run is waiting for your approval to call ${approval.fn}.`, link: { run: approval.run } });
+      await this.notify({ user, reason: 'approval-needed', ...words, link: { run: approval.run } });
     }
   }
 

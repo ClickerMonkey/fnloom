@@ -153,7 +153,7 @@ export function buildSystems(options: SystemsOptions) {
   });
 
   const handshake = new LinkHandshake({
-    log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output, lifecycle, grants,
+    log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output, lifecycle, grants, bus,
     limits: { maxFrame: settings.link.HARNESS_MAX_FRAME, maxChunk: settings.link.HARNESS_MAX_CHUNK, heartbeat: settings.link.HARNESS_HEARTBEAT },
   });
 

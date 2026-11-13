@@ -260,11 +260,11 @@ describe('ApprovalTray', () => {
     expect(tray.text()).toContain('Show more');
     await tray.findAll('[role=radio]')[1]?.trigger('click');
     await tray.get('[data-testid=approve]').trigger('click');
-    expect(tray.emitted('decide')?.[0]).toEqual(['apr_1', true, 'session', '']);
+    expect(tray.emitted('decide')?.[0]).toEqual(['apr_1', true, 'session', '', undefined]);
     await tray.get('[data-testid=deny]').trigger('click');
     await tray.get('input').setValue('not that file');
     await tray.get('[data-testid=deny-confirm]').trigger('click');
-    expect(tray.emitted('decide')?.[1]).toEqual(['apr_1', false, 'session', 'not that file']);
+    expect(tray.emitted('decide')?.[1]).toEqual(['apr_1', false, 'session', 'not that file', undefined]);
     await tray.get('[data-testid=approve-all]').trigger('click');
     expect(tray.get('[data-testid=approve-all]').text()).toBe('Approve 2');
     expect(tray.emitted('decideAll')?.[0]).toEqual([['apr_1', 'apr_2'], true, 'session']);

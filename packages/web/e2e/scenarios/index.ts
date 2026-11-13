@@ -6,6 +6,8 @@ import { build5 } from './build5.ts';
 import { feedback } from './feedback.ts';
 import { database } from './database.ts';
 import { connect } from './connect.ts';
+import { build9 } from './build9.ts';
+import { claude } from './claude.ts';
 import { chat } from './chat.ts';
 import { design } from './design.ts';
 import { inbox } from './inbox.ts';
@@ -13,4 +15,4 @@ import { settings } from './settings.ts';
 import { shell } from './shell.ts';
 import { signIn } from './sign-in.ts';
 
-export const scenarios: readonly Scenario[] = [signIn, shell, inbox, settings, design, chat, adminSystems, adminRules, adminBrowsers, build4, build5, feedback, database, connect];
+export const scenarios: readonly Scenario[] = [signIn, shell, inbox, settings, design, chat, adminSystems, adminRules, adminBrowsers, build4, build5, feedback, database, connect, build9, claude];

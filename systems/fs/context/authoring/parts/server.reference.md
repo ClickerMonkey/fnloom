@@ -99,7 +99,7 @@ interface · `import { RunningSystem } from '@harness/sdk/server'`
 A running system. It searches the hub and lists its fleet (every paired instance) as the system itself.
 
 ```ts
-interface RunningSystem<N extends string> extends FnSearch, Fleets {
+interface RunningSystem<N extends string> extends FnSearch, Fleets, InstanceConnects {
   readonly name: N;
   readonly status: RunningStatus;
   /** Calls `listener` on every status change; returns the unsubscribe. */

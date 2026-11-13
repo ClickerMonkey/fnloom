@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./server": "./src/server/index.ts",
     "./server/testing": "./src/server/testing.ts",
+    "./program": "./src/program/index.ts",
     "./build": "./src/build.ts",
     "./client": "./src/client-runtime.ts",
     "./AUTHORING.md": "./AUTHORING.md",

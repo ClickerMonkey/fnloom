@@ -5,7 +5,7 @@
  */
 import {
   Actor, ActorSetting, AutoClassifier, FnRecord, ImportReport, ModelCategory, PairingRequest, Policy, PriorityRule, ResourceRecord, SystemView,
-  type LlmInteraction, type SystemName, type UserEvent,
+  InstanceName, SystemName, type LlmInteraction, type UserEvent,
 } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { fakeCaller } from '../../test/fakes.ts';
@@ -149,6 +149,8 @@ export function fakeAdminApi() {
     enableSystem: fakeCaller<'enableSystem'>(({ functions, renderers, context }) => Promise.resolve({ enabled: { functions: functions ?? true, renderers: renderers ?? true, context: context ?? true } })),
     switchItem: fakeCaller<'switchItem'>(({ on }) => Promise.resolve({ on })),
     removeSystem: fakeCaller<'removeSystem'>(() => Promise.resolve({ fnsUnavailable: 12 })),
+    addInstance: fakeCaller<'addInstance'>(({ system, instance }) => Promise.resolve({ system: SystemName.parse(system), instance: InstanceName.parse(instance) })),
+    readFn: fakeCaller<'readFn'>(() => Promise.resolve(null)),
     installSystem: fakeCaller<'installSystem'>(() => Promise.resolve({ name: systemName('weather') })),
     startSystem: fakeCaller<'startSystem'>(() => Promise.resolve({ ok: true })),
     stopSystem: fakeCaller<'stopSystem'>(() => Promise.resolve({ ok: true })),

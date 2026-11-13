@@ -71,3 +71,18 @@ export function checkForm<S extends z.ZodObject>(schema: S, input: unknown): { o
   }
   return { ok: false, problems };
 }
+
+/** A form's messages by the dot path of the field each is about (`transport.url`): one per path, the first issue found. */
+export type PathProblems = Readonly<Record<string, string>>;
+
+/** Check a nested form against a schema; returns the parsed value or a message per field path. */
+export function checkPaths<S extends z.ZodType>(schema: S, input: unknown): { ok: true; value: z.output<S> } | { ok: false; problems: PathProblems } {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) { return { ok: true, value: parsed.data }; }
+  const problems: Record<string, string> = {};
+  for (const issue of parsed.error.issues) {
+    const path = issue.path.filter((part) => typeof part === 'string' || typeof part === 'number').join('.');
+    problems[path] ??= issueText(issue);
+  }
+  return { ok: false, problems };
+}

@@ -416,6 +416,11 @@ tags: ["authoring"]
     autoStart?: bool
   }) => obj{system: text, instance: text}
   ```
+- `hub/add_instance`: Add an instance of a bundled fleet system (an MCP server, an API service) with its config: installed, paired and started on the hub machine. Tags: `admin`.
+
+  ```text
+  (obj{system: text, instance: text, description?: text, config: any}) => obj{system: text, instance: text}
+  ```
 - `hub/remove_instance`: Remove one instance of a system. Tags: `admin`.
 
   ```text
@@ -566,7 +571,7 @@ tags: ["authoring"]
 - `hub/instances_list`: One system's instances, with their status, version, config (secrets masked) and host. Tags: `admin`, `read`.
 
   ```text
-  (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address? … }>
+  (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address?, connect? … }>
   ```
 - `hub/suggest_decision_get`: The suggestion decision model setting: whether a model picks the suggestions, and its limits. Tags: `admin`, `read`.
 
