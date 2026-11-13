@@ -51,6 +51,8 @@ export interface RecordChange {
   /** The row's name (its first text cell), else its id. */
   readonly name: string;
   readonly set: Readonly<Record<string, Json>>;
+  /** What the changed fields held before, as the row shows them (absent when the row isn't held). */
+  readonly was: Readonly<Record<string, Json>>;
 }
 
 /** The grid's side of inline editing: which cells are inputs, what they show, and staging what is typed. */
@@ -125,18 +127,26 @@ export class RecordEdits implements CellEditor {
     const table = this.#table();
     return [...this.staged.value].map(([id, set]) => {
       const at = table === undefined ? -1 : table.rows.findIndex((row) => this.#idOf(row) === id);
-      return { id, name: (table === undefined || at < 0 ? undefined : rowName(table, at)) ?? id, set };
+      const row = at < 0 ? undefined : table?.rows[at];
+      const was = row === undefined || table === undefined ? {} : Object.fromEntries(Object.keys(set).flatMap((name) => {
+        const index = table.columns.findIndex((column) => column.name === name);
+        return index < 0 ? [] : [[name, row[index] ?? null]];
+      }));
+      return { id, name: (table === undefined || at < 0 ? undefined : rowName(table, at)) ?? id, set, was };
     });
   }
 
-  /** A change in words for the confirm: `Plan the trip: title “Plan the walk”, words 7`. */
+  /** A change in words for the confirm, old → new: `Plan the trip: title “Plan the trip” → “Plan the walk”, words 6 → 7`. */
   describe(change: RecordChange): string {
     const columns = this.#table()?.columns ?? [];
     const fields = Object.entries(change.set).map(([name, value]) => {
       const column = columns.find((c) => c.name === name);
       const label = column?.label ?? name;
-      const text = column === undefined ? JSON.stringify(value) : cellText(value, column);
-      return text === undefined ? `${label} cleared` : column?.kind === 'text' ? `${label} “${text}”` : `${label} ${text}`;
+      const say = (held: Json): string => {
+        const text = column === undefined ? JSON.stringify(held) : cellText(held, column);
+        return text === undefined ? 'empty' : column?.kind === 'text' ? `“${text}”` : text;
+      };
+      return Object.hasOwn(change.was, name) ? `${label} ${say(change.was[name] ?? null)} → ${say(value)}` : `${label} ${say(value)}`;
     });
     return `${change.name}: ${fields.join(', ')}`;
   }

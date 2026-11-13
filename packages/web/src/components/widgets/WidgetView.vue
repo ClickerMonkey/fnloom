@@ -15,7 +15,7 @@
  * them, and saves each record.
  */
 import { HUB_VISUALS, QualifiedName, type Json, type ResultSort } from '@harness/core';
-import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import { UiBanner, UiButton, UiIcon, UiIconButton } from '../../ui/index.ts';
 import { OWN_HOST, RESULTS_HOST } from '../results/builtin.ts';
@@ -82,14 +82,33 @@ const pager = computed((): ResultPager | undefined => {
   const ask = (request: PageRequest): void => { if (request.offset >= state.table.value.rows.length) { void state.more(); } };
   return Object.assign(ask, { buffered: true, sort: props.sort });
 });
+/** The row whose actions are open, when the page's own opener leads the list ("Open" the record, then its actions). */
+const pageRow = shallowRef<readonly Json[] | undefined>(undefined);
 const opener = computed((): RowOpener | undefined => {
-  if (props.opener !== undefined) { return props.opener; }
-  if (host === undefined || level.value.actions.length === 0) { return undefined; }
+  const page = props.opener;
+  if (host === undefined || level.value.actions.length === 0) { return page; }
   const indexOf = (row: readonly Json[]): number => state.table.value.rows.findIndex((held) => held === row);
-  return { label: 'Actions', has: (row) => state.hasActions(indexOf(row)), open: (row) => { state.openRow(indexOf(row)); } };
+  if (page === undefined) { return { label: 'Actions', has: (row) => state.hasActions(indexOf(row)), open: (row) => { state.openRow(indexOf(row)); } }; }
+  return {
+    label: page.label,
+    has: (row) => page.has(row) || state.hasActions(indexOf(row)),
+    open: (row) => {
+      const index = indexOf(row);
+      if (!state.hasActions(index)) { page.open(row); return; }
+      pageRow.value = page.has(row) ? row : undefined;
+      state.openRow(index);
+    },
+  };
 });
+const lead = computed(() => (pageRow.value === undefined || props.opener === undefined ? undefined : props.opener.label));
+function openFromPage(): void {
+  const row = pageRow.value;
+  state.close();
+  if (row !== undefined) { props.opener?.open(row); }
+}
 
 const actionsOpen = computed({ get: () => state.row.value !== undefined, set: (on: boolean) => { if (!on) { state.close(); } } });
+watch(actionsOpen, (on) => { if (!on) { pageRow.value = undefined; } });
 const askingAgain = ref(false);
 async function runAgain(): Promise<void> {
   askingAgain.value = false;
@@ -195,7 +214,7 @@ function exportAll(): void { if (!state.reading.busy.value) { void state.exportC
     </p>
     <WidgetActionDialog
       v-model:open="actionsOpen" :offered="state.offered.value" :picked="state.picked.value" :step="state.step.value" :row="state.rowName.value"
-      :busy="state.acting.busy.value" :problem="state.acting.problem.value" @choose="state.choose($event)" @form="state.submitForm($event)" @run="state.runAction()"
+      :busy="state.acting.busy.value" :problem="state.acting.problem.value" :lead="lead" @lead="openFromPage" @choose="state.choose($event)" @form="state.submitForm($event)" @run="state.runAction()"
     />
     <RecordEditsDialog v-model:open="confirming" :lines="editLines" :count="edits.count.value" :busy="saving" :failed="failed" @save="saveEdits" />
     <ConfirmDialog

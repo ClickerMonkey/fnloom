@@ -97,9 +97,10 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); });
   <div class="result" :class="{ full }" data-testid="result-view" :data-visual="shown?.ranked.visual.name" :data-style="shown?.style" :role="full ? 'dialog' : undefined" :aria-label="full ? title : undefined">
     <div class="tools">
       <slot name="lead" />
-      <UiSegmented v-if="visuals.length > 1" v-model="family" :options="families" label="Show as" icon-only data-testid="result-visuals" />
-      <UiSelect v-if="styles.length > 1" v-model="style" class="style" :options="styles" label="Style" hide-label size="sm" data-testid="result-style" />
+      <!-- the families scroll sideways rather than wrap; the style and the actions stay together on one line -->
+      <div v-if="visuals.length > 1" class="families"><UiSegmented v-model="family" :options="families" label="Show as" icon-only data-testid="result-visuals" /></div>
       <span class="actions">
+        <UiSelect v-if="styles.length > 1" v-model="style" class="style" :options="styles" label="Style" hide-label size="sm" data-testid="result-style" />
         <slot name="tools" />
         <UiMenu :items="menu" label="Copy and download" @select="pick">
           <template #trigger="{ toggle, attrs }">
@@ -120,6 +121,9 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); });
   background: var(--surface); --chart-full: calc(100dvh - 120px);
 }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
-.style { width: auto; max-width: 14rem; }
-.actions { display: flex; gap: 2px; margin-left: auto; }
+.families { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.families::-webkit-scrollbar { display: none; }
+.families :deep(.ui-segmented) { flex-wrap: nowrap; max-width: none; }
+.style { flex: 0 1 auto; width: auto; min-width: 7rem; max-width: 12rem; margin-right: var(--space-1); }
+.actions { display: flex; flex: 0 1 auto; align-items: center; gap: 2px; min-width: 0; margin-left: auto; }
 </style>

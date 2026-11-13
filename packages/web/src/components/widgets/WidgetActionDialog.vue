@@ -19,9 +19,11 @@ const props = defineProps<{
   row: string | undefined;
   busy: boolean;
   problem: string;
+  /** A first choice the page offers before the actions (the Data page's "Open" the record). */
+  lead?: string | undefined;
 }>();
 const open = defineModel<boolean>('open', { required: true });
-const emit = defineEmits<{ choose: [option: WidgetActionOption]; form: [value: Json]; run: [] }>();
+const emit = defineEmits<{ lead: []; choose: [option: WidgetActionOption]; form: [value: Json]; run: [] }>();
 
 const title = computed(() => props.picked?.label ?? (props.row === undefined ? 'Actions' : `Actions for “${props.row}”`));
 </script>
@@ -30,6 +32,9 @@ const title = computed(() => props.picked?.label ?? (props.row === undefined ? '
   <UiDialog v-model:open="open" :title="title" :role="step === 'confirm' ? 'alertdialog' : 'dialog'" width="420px">
     <div class="action" data-testid="widget-action">
       <ul v-if="step === 'choose'" class="choices">
+        <li v-if="lead">
+          <button type="button" class="choice" data-testid="widget-action-lead" @click="emit('lead')"><span>{{ lead }}</span></button>
+        </li>
         <li v-for="option in offered" :key="option.fn">
           <button type="button" class="choice" :data-fn="option.fn" data-testid="widget-action-choice" @click="emit('choose', option)">
             <span>{{ option.label }}</span>

@@ -17,12 +17,6 @@ export function fakeDataApi() {
       if (known === undefined) { return Promise.reject(new Error('no sample')); }
       return Promise.resolve({ ...known, value: body.value, version: known.version + 1 });
     }),
-    updateRecord: fakeCaller<'updateRecord'>((body) => {
-      const known = SAMPLE_RECORDS.find((r) => r.id === body.id);
-      if (known === undefined) { return Promise.reject(new Error('no sample')); }
-      const value = typeof known.value === 'object' && known.value !== null && !Array.isArray(known.value) ? known.value : {};
-      return Promise.resolve({ ...known, value: { ...value, ...body.set }, version: known.version + 1 });
-    }),
     removeRecord: fakeCaller<'removeRecord'>(() => Promise.resolve({ removed: true })),
     recordVersions: fakeCaller<'recordVersions'>((body) => {
       const record = SAMPLE_RECORDS.find((r) => r.id === body.id);

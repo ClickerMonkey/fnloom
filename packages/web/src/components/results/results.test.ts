@@ -53,9 +53,13 @@ describe('visual ranking', () => {
     expect(names.slice(0, 2)).toEqual(['part', 'category']);
     expect(names).toContain('table');
     expect(names).not.toContain('calendar');
+    // value cards are for measures: rows of text, or no number at all, read as a table
+    expect(names).not.toContain('value');
+    const one = table({ rows: [['Oslo', 12]] });
+    expect(rankedVisuals(OWN_VISUALS, [], one, columnFacts(one)).map((v) => v.visual.name)).toContain('value');
   });
 
-  it('lets a contribution replace the app’s own and drops one whose veto refuses or throws', () => {
+  it('never lets a contribution take over a known name, and drops one whose veto refuses or throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const component = defineComponent({ setup: () => () => h('p', 'map') });
     const base = OWN_VISUALS.find((v) => v.name === 'category');
@@ -63,8 +67,9 @@ describe('visual ranking', () => {
     const mine: Visual = { ...base, label: 'My bars', system: 'geo', component };
     const vetoed: Visual = { ...base, name: 'waffle', veto: () => 'no' };
     const broken: Visual = { ...base, name: 'broken', veto: () => { throw new Error('no'); } };
-    const ranked = rankedVisuals(OWN_VISUALS, [mine, vetoed, broken], table(), columnFacts(table()));
-    expect(ranked.find((v) => v.visual.name === 'category')?.visual.label).toBe('My bars');
+    const second: Visual = { ...base, name: 'waffle', label: 'Second waffle', system: 'other' };
+    const ranked = rankedVisuals(OWN_VISUALS, [mine, vetoed, broken, second], table(), columnFacts(table()));
+    expect(ranked.find((v) => v.visual.name === 'category')?.visual).toBe(base);
     expect(ranked.map((v) => v.visual.name)).not.toContain('waffle');
     expect(ranked.map((v) => v.visual.name)).not.toContain('broken');
   });

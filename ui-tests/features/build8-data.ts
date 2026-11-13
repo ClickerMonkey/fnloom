@@ -21,7 +21,7 @@ export default feature({
       await open(ctx, '/data', tid('data-set'));
       check(!await scrollsSideways(page), 'the Data page fits the screen');
       await shot('data');
-    });
+    }, { still: true });
 
     await open(ctx, '/data/widgets', tid('data-widget'));
     await settle(page);

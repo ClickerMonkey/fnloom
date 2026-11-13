@@ -28,9 +28,11 @@ export interface TableService {
   read(input: ReadTableArgs, run: TableAsker): Promise<ResultTable>;
   /**
    * Run a read fn as the person outside any session (the web's quiet read: a widget's pager, range, drill, refresh and
-   * live re-runs) in a turn of its own, and give its output; refused for a fn the person can't see or that isn't a read.
+   * live re-runs) in a turn of its own, and give its output; refused for a fn the person can't see or that isn't a read,
+   * and for a run that waits for an approval (nobody can give one there). The run is cancelled when `signal` aborts or
+   * it runs past `HARNESS_QUIET_READ_TIMEOUT`.
    */
-  readAs(input: ReadTableArgs, user: UserView): Promise<Json>;
+  readAs(input: ReadTableArgs, user: UserView, signal?: AbortSignal): Promise<Json>;
   /** Every visual of the registry the person may see: the hub's own in declared order, then each system's by name. */
   visuals(actor: ActorId): Promise<ContributionView[]>;
   /** The actions rows of these types offer the person, narrowed by a widget's list. */
@@ -39,5 +41,5 @@ export interface TableService {
    * A read fn's result as CSV, a page at a time, run as the person in one turn. Refuses (before the first byte) a fn
    * that is not a read, args that are not a JSON object, or a first page that is not a table.
    */
-  export(query: ExportQuery, user: UserView): Promise<{ name: string; lines: AsyncIterable<string> }>;
+  export(query: ExportQuery, user: UserView, signal?: AbortSignal): Promise<{ name: string; lines: AsyncIterable<string> }>;
 }

@@ -9,7 +9,8 @@
  * size starts at the visual's (`pageSize`) and the person may change it.
  *
  * The table family's styles: `table`, `compact` (tighter rows) and `cards` (a card per row, each column labelled),
- * which it also takes by itself when drawn narrower than 600px (product's phone rule). With a binding it draws the
+ * which it also takes by itself when drawn narrower than 600px and too narrow for its columns (product's phone rule;
+ * a chat card on a wide screen keeps a table its columns fit in). With a binding it draws the
  * bound columns only (ranking leaves out the opaque ones: ids, keys, references), in their order. A click on a row
  * (or card) emits `drill` with its index in the table, as a chart's mark does: the page runs its drill there, else
  * opens the row's actions. Where the widget view provides a cell editor (the Data page's records), an editable column's
@@ -22,7 +23,14 @@ import { UiIcon, UiIconButton, UiSelect, useMoreEdges, type SelectOption } from 
 import { PHONE_WIDTH, useWidth } from '../visuals/size.ts';
 import { cellText, GRID_PAGE, gridWindow, isComplete, isNumeric, nextSort, PAGE_SIZES, sortRows, windowLabel } from './table.ts';
 import { CELL_EDITOR } from '../widgets/record-edits.ts';
+import { WIDGET_HOST } from '../widgets/widgets.ts';
 import type { VisualProps } from './visuals.ts';
+
+/** The width a column needs to read as a table column; a narrower frame draws cards. */
+const COLUMN_FITS = 130;
+
+/** Whether an agent can be asked for more rows here (a chat); elsewhere the count says there are more. */
+const askable = inject(WIDGET_HOST, undefined)?.ask !== undefined;
 
 const props = withDefaults(defineProps<Pick<VisualProps, 'table' | 'title' | 'pager' | 'opener'> & Partial<Pick<VisualProps, 'bind' | 'style' | 'facts' | 'palette'>> & {
   /** Rows a page shows at first (the visual's `pageSize`). */
@@ -53,14 +61,14 @@ function typed(row: readonly Json[], index: number, event: Event): void {
 
 const root = ref<HTMLElement | null>(null);
 const width = useWidth(root);
-/** The style drawn: cards on a narrow frame, whatever was picked. */
-const shown = computed(() => (width.value > 0 && width.value < PHONE_WIDTH ? 'cards' : props.style));
 /** The columns drawn, with their index in the row: the bound ones, else every one. */
 const columns = computed(() => {
   const all = props.table.columns.map((column, index) => ({ column, index }));
   const names = props.bind?.['columns'];
   return names === undefined ? all : names.flatMap((name) => all.filter((c) => c.column.name === name));
 });
+/** The style drawn: cards on a frame narrower than a phone's and than its columns need, whatever was picked. */
+const shown = computed(() => (width.value > 0 && width.value < Math.min(PHONE_WIDTH, columns.value.length * COLUMN_FITS) ? 'cards' : props.style));
 
 const strip = ref<HTMLElement | null>(null);
 /** The sides with columns beyond them; any at all pins the first column. */
@@ -187,7 +195,7 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
     </div>
     <footer v-if="hasPrev || hasNext || !complete || buffered" class="foot">
       <span class="count" data-testid="result-count">{{ label }}</span>
-      <span v-if="!complete && pager === undefined && table.truncated" class="hint">Ask for more to see the rest.</span>
+      <span v-if="askable && !complete && pager === undefined && table.truncated" class="hint">Ask for more to see the rest.</span>
       <UiSelect v-if="table.rows.length > PAGE_SIZES[0]" v-model="sizeText" class="size" :options="sizes" label="Rows a page" hide-label size="sm" data-testid="result-page-size" />
       <span class="pages">
         <UiIconButton icon="chevron-left" label="Previous rows" size="sm" :disabled="!hasPrev" data-testid="result-prev" @click="prev" />

@@ -1,7 +1,8 @@
 /**
  * The hub's visual registry (`hub/visuals`) on the web side: every visual that can draw a result table, each declaring
  * the data it draws (`VisualShape`). The app has its own (the table, value cards and the twelve ECharts families), and
- * systems contribute more from their client bundles, which replace a built-in one of the same name. Which fit and in
+ * systems contribute more from their client bundles. A contribution never replaces one already known by its name (the
+ * app's own, or an earlier system's): a system's chart can add to the app, never take over its table or charts. Which fit and in
  * what order is product's ranking (`rankVisuals`: coverage, then priority, then registry order); visuals that can't
  * draw the data are hidden, and a visual's own `veto` may only remove itself, never reorder.
  */
@@ -71,12 +72,16 @@ export interface VisualChoice {
 export const TABLE_VISUAL = 'table';
 
 /**
- * The visuals that can draw a result, best first (product's order). A contributed visual replaces the app's own of the
- * same name and keeps its place in registry order; a veto that throws counts as a veto (and is logged).
+ * The visuals that can draw a result, best first (product's order). A contributed visual named like one already known
+ * (the app's own, or an earlier contribution) is left out and logged; a veto that throws counts as a veto (and is logged).
  */
 export function rankedVisuals(own: readonly Visual[], contributed: readonly Visual[], table: ResultTable, facts: ResultFacts): RankedVisual[] {
-  const byName = new Map<string, Visual>();
-  for (const visual of [...own, ...contributed]) { byName.set(visual.name, visual); }
+  const byName = new Map<string, Visual>(own.map((visual) => [visual.name, visual]));
+  for (const visual of contributed) {
+    const known = byName.get(visual.name);
+    if (known === undefined) { byName.set(visual.name, visual); continue; }
+    if (known !== visual) { console.error('results.visual.name-taken', { visual: visual.name, system: visual.system, by: known.system ?? 'app' }); }
+  }
   const entries = [...byName.values()].map((visual) => ({ name: visual.name, shape: visual.shape }));
   return rankVisuals(entries, facts, table).flatMap((rank) => {
     const visual = byName.get(rank.visual);

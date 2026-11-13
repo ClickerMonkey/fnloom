@@ -23,7 +23,8 @@ export const finance: ChartBuilder = (input) => {
         ? [{ left: 8, right: 16, top: 16, bottom: zoomBottom + 12, outerBoundsMode: 'same', outerBoundsContain: 'axisLabel' }]
         : [{ left: 8, right: 16, top: 16, height: '56%', outerBoundsMode: 'same', outerBoundsContain: 'axisLabel' }, { left: 8, right: 16, top: '72%', bottom: zoomBottom + 12, outerBoundsMode: 'same', outerBoundsContain: 'axisLabel' }],
       xAxis: axes.map((gridIndex) => ({ type: 'category' as const, gridIndex, boundaryGap: true, axisLabel: { show: gridIndex === axes.length - 1, hideOverlap: true } })),
-      yAxis: axes.map((gridIndex) => ({ type: 'value' as const, gridIndex, scale: true, splitNumber: gridIndex === 0 ? 4 : 2 })),
+      // prices float (scale); volume bars start at 0, so their heights compare
+      yAxis: axes.map((gridIndex) => (gridIndex === 0 ? { type: 'value' as const, gridIndex, scale: true, splitNumber: 4 } : { type: 'value' as const, gridIndex, min: 0, splitNumber: 2 })),
       dataZoom: input.phone ? [{ type: 'inside', xAxisIndex: axes }] : [{ type: 'inside', xAxisIndex: axes }, { type: 'slider', xAxisIndex: axes, height: 18, bottom: 4 }],
       series: [
         { type: 'candlestick', name: x.label, encode: { x: x.name, y: columns.map((column) => column.name) }, itemStyle: { color: input.palette.up, color0: input.palette.down, borderColor: input.palette.up, borderColor0: input.palette.down } },

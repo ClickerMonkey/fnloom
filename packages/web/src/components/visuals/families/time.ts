@@ -13,6 +13,14 @@ function timeOf(value: ChartValue): number {
   return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
 }
 
+/**
+ * A time axis's labels at each level: a new month or year names it, a day reads "Mar 3", and hours show only within
+ * a day, so an axis never shows a bare day number.
+ */
+export const TIME_LABELS = {
+  year: '{yyyy}', month: '{MMM} {yyyy}', day: '{MMM} {d}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', millisecond: '{HH}:{mm}:{ss}',
+} as const;
+
 export const time: ChartBuilder = (input) => {
   const data = wide(input, 'x');
   const day = needed(input, 'x').facts?.day === true;
@@ -30,7 +38,7 @@ export const time: ChartBuilder = (input) => {
     return {
       option: {
         useUTC: day, tooltip: { ...tooltip('axis'), axisPointer: { type: 'line' } }, legend: legend(true),
-        singleAxis: { type: 'time', top: 16, bottom: 48, left: 16, right: 16 },
+        singleAxis: { type: 'time', top: 16, bottom: 48, left: 16, right: 16, axisLabel: { hideOverlap: true, formatter: TIME_LABELS } },
         series: [{ type: 'themeRiver', data: river, label: { show: false } }],
       },
       range, points,
@@ -51,7 +59,7 @@ export const time: ChartBuilder = (input) => {
   return {
     option: {
       useUTC: day, dataset: { dimensions: dims, source }, tooltip: { ...tooltip('axis'), axisPointer: { type: 'line' } }, legend: legend(many),
-      grid: plotGrid((many ? 28 : 0) + (input.phone ? 8 : 40)), xAxis: { type: 'time' }, yAxis: { type: 'value' },
+      grid: plotGrid((many ? 28 : 0) + (input.phone ? 8 : 40)), xAxis: { type: 'time', axisLabel: { hideOverlap: true, formatter: TIME_LABELS } }, yAxis: { type: 'value' },
       dataZoom: zoom(input.phone, { xAxisIndex: [0] }), series,
     },
     rowOf: (click) => (click.dataIndex === undefined ? undefined : data.rowAt(order[click.dataIndex] ?? -1, click.seriesIndex ?? 0)),

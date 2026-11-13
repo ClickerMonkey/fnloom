@@ -33,6 +33,14 @@ export function treeOf(rows: readonly { readonly name: string; readonly parent: 
   return roots;
 }
 
+/** A sunburst's nodes coloured by their top-level branch from the palette (children inherit their branch's colour). */
+export function byBranch(roots: readonly TreeNode[], colours: readonly string[]): (TreeNode & { itemStyle?: { color: string } })[] {
+  return roots.map((node, i) => {
+    const colour = colours[i % Math.max(1, colours.length)];
+    return colour === undefined ? node : { ...node, itemStyle: { color: colour } };
+  });
+}
+
 export const hierarchy: ChartBuilder = (input) => {
   const name = needed(input, 'name'); const parent = needed(input, 'parent'); const size = bound(input, 'value');
   const roots = treeOf(input.table.rows.map((row) => {
@@ -49,7 +57,13 @@ export const hierarchy: ChartBuilder = (input) => {
     const data = leafOne(roots);
     const series = input.style === 'treemap'
       ? [{ type: 'treemap' as const, data, roam: false, left: 4, right: 4, top: 4, bottom: 28, label: { show: true }, upperLabel: { show: !input.phone, height: 20, color: input.palette.text }, breadcrumb: { show: true, bottom: 0, itemStyle: { color: input.palette.grid, textStyle: text } }, levels: [{ itemStyle: { borderColor: input.palette.surface, borderWidth: 2, gapWidth: 2 } }, { colorSaturation: [0.35, 0.6], itemStyle: { borderColorSaturation: 0.7, gapWidth: 1, borderWidth: 1 } }] }]
-      : [{ type: 'sunburst' as const, data, radius: ['12%', '92%'], label: { show: !input.phone, rotate: 'radial' as const, color: input.palette.text }, itemStyle: { borderColor: input.palette.surface, borderWidth: 1 } }];
+      : [{
+        type: 'sunburst' as const, data: byBranch(data, input.palette.series), radius: ['12%', '92%'],
+        // labels sit inside each segment, in the ground's colour on the palette's fills; tiny segments drop theirs
+        label: { show: true, rotate: 'radial' as const, color: input.palette.surface, fontSize: input.phone ? 9 : 11, minAngle: input.phone ? 12 : 8 },
+        itemStyle: { borderColor: input.palette.surface, borderWidth: 1 },
+        levels: [{}, { itemStyle: { opacity: 1 } }, { itemStyle: { opacity: 0.78 } }, { itemStyle: { opacity: 0.6 } }],
+      }];
     return { option: { tooltip: tooltip('item'), series }, rowOf, points };
   }
 

@@ -11,7 +11,8 @@ import { Json, RunId, SystemName } from '@harness/core';
 import { createAppRouter } from '../app/router.ts';
 import App from '../app/App.vue';
 import { STORES } from '../state/stores.ts';
-import { fakeStores } from '../test/fakes.ts';
+import { fakeCaller, fakeStores } from '../test/fakes.ts';
+import { run } from '../chat/test/fakes.ts';
 import ItemHistory from '../components/versions/ItemHistory.vue';
 import { ITEM_VERSIONS } from '../components/versions/versions.ts';
 import { filterLabel, filtersOf, filtersParam, recordIdOf, recordTableQuery, sortOf, sortParam, storageWords } from './logic/data.ts';
@@ -86,7 +87,10 @@ describe('the Data pages', () => {
     await vi.dynamicImportSettled();
     await flushPromises();
     expect(app.findAll('[data-testid=result-grid] tbody tr')).toHaveLength(3);
+    // the row's menu leads with Open, then the type's actions
     await app.findAll('[data-testid=result-row-open]')[0]?.trigger('click');
+    await flushPromises();
+    document.body.querySelector<HTMLButtonElement>('[data-testid=widget-action-lead]')?.click();
     await flushPromises();
     expect(router.currentRoute.value.params['id']).toBe('rec_note_1');
     expect(router.currentRoute.value.query['q']).toBe('trip');
@@ -101,8 +105,9 @@ describe('the Data pages', () => {
     app.unmount();
   });
 
-  it('draws the records in the widget view: the visual and the hub sort in the URL, cells edited in place, saved after one confirm', async () => {
-    const { app, data, router } = await visit('/data/notes/Note?view=table');
+  it('draws the records in the widget view: the visual and the hub sort in the URL, cells edited in place, saved as hub/record_update runs after one confirm', async () => {
+    const { app, data, router, chat } = await visit('/data/notes/Note?view=table');
+    chat.api.run = fakeCaller<'run'>(({ run: id }) => Promise.resolve(run({ id, status: 'done', outcome: { status: 'done', result: 'ok' } })));
     await vi.dynamicImportSettled();
     await flushPromises();
     expect(app.find('[data-testid=records-widget] [data-testid=result-view]').attributes('data-visual')).toBe('table');
@@ -122,12 +127,36 @@ describe('the Data pages', () => {
     await app.get('[data-testid=record-edits-review]').trigger('click');
     await flushPromises();
     const lines = [...document.body.querySelectorAll('[data-testid=record-edit-line]')].map((line) => line.textContent);
-    expect(lines).toEqual(['Plan the trip: title “Plan the walk”, words 7']);
+    expect(lines).toEqual(['Plan the trip: title “Plan the trip” → “Plan the walk”, words 6 → 7']);
     document.body.querySelector<HTMLButtonElement>('[data-testid=record-edits-save]')?.click();
     await flushPromises();
-    expect(data.updateRecord.calls.map((call) => call[0])).toEqual([{ type: NOTE_TYPE, id: 'rec_note_1', set: { title: 'Plan the walk', words: 7 } }]);
+    expect(chat.api.createSession.calls.map((call) => call[0])).toEqual([{ title: 'Data: Note' }]);
+    expect(chat.api.invoke.calls.map((call) => [call[0].fn, call[0].args])).toEqual([['hub/record_update', { type: NOTE_TYPE, id: 'rec_note_1', set: { title: 'Plan the walk', words: 7 } }]]);
     expect(app.find('[data-testid=record-edits-review]').exists()).toBe(false);
     expect(app.get('[data-testid=widget-status]').text()).toBe('1 record saved.');
+    expect(data.rowActions.calls.at(-1)?.[0]).toEqual({ types: [NOTE_TYPE] });
+    app.unmount();
+  });
+
+  it("offers a record row its type's actions beside Open, and runs one as the person's run", async () => {
+    const { app, chat, router } = await visit('/data/notes/Note?view=table');
+    chat.api.run = fakeCaller<'run'>(({ run: id }) => Promise.resolve(run({ id, status: 'done', outcome: { status: 'done', result: 'ok' } })));
+    await vi.dynamicImportSettled();
+    await flushPromises();
+    await app.findAll('[data-testid=result-row-open]')[0]?.trigger('click');
+    await flushPromises();
+    const choices = () => [...document.body.querySelectorAll<HTMLButtonElement>('[data-testid=widget-action-lead], [data-testid=widget-action-choice]')];
+    expect(choices().map((c) => c.textContent?.trim())).toEqual(['Open', expect.stringContaining('Archive'), expect.stringContaining('Rename')]);
+    choices()[1]?.click();
+    await flushPromises();
+    document.body.querySelector<HTMLButtonElement>('[data-testid=widget-action-run]')?.click();
+    await flushPromises();
+    expect(chat.api.invoke.calls.map((call) => call[0].fn)).toEqual(['notes/Note.archive']);
+    await app.findAll('[data-testid=result-row-open]')[0]?.trigger('click');
+    await flushPromises();
+    choices()[0]?.click();
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/data/notes/Note/rec_note_1');
     app.unmount();
   });
 

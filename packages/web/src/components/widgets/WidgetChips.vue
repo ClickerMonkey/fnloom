@@ -97,7 +97,7 @@ const isPicked = (value: ChipValue): boolean => control.value !== undefined && s
           </li>
         </ul>
         <GinForm
-          v-if="typed" :key="control.arg" class="typed" :type="control.argType" :initial="literal" :label="control.label" submit-label="Set"
+          v-if="typed" :key="control.arg" class="typed" :type="control.argType" :initial="literal" :label="relatives.length > 0 ? 'Or a date' : control.label" submit-label="Set"
           @submit="pick({ literal: $event })" @cancel="openArg = undefined"
         />
       </div>
@@ -120,7 +120,8 @@ const isPicked = (value: ChipValue): boolean => control.value !== undefined && s
 .value { min-width: 0; font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apply { display: inline-flex; gap: var(--space-1); }
 .editor { display: grid; gap: var(--space-2); min-width: 14rem; max-width: min(24rem, 100vw - 32px); padding: var(--space-2); }
-.options { display: grid; gap: 2px; max-height: 18rem; margin: 0; padding: 0; overflow: auto; list-style: none; }
+/* seven and a half rows, so a cut-off last row says the list scrolls */
+.options { display: grid; gap: 2px; max-height: calc(7.5 * (36px + 2px)); margin: 0; padding: 0; overflow: auto; list-style: none; }
 .option {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; min-height: 36px; padding: 0 var(--space-2);
   border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;

@@ -2,7 +2,7 @@
 /**
  * One run in an answer: its status dot, friendly label, what it is about, and what it is doing now in plain words
  * (only when that adds to the line), with a ticking elapsed time and its cost. Each fact shows once: expanded with its
- * fn's own renderer, the line drops the args summary (the renderer shows them in full), and who started it is the
+ * fn's own renderer (or a widget whose chips show its args, or a proposal), the line drops the args summary, and who started it is the
  * line's tooltip (the card sits under their message). Progress shows as a bar or steps. A failed run says why in place of its
  * summary; refused input (which the agent retries) says so quietly, as a dashed card. The body is the fn's own renderer when its system has one, otherwise the result in brief. The card
  * collapses to its one line; clicking the line opens the run's details.
@@ -15,7 +15,7 @@ import { MAIN_INSTANCE, isSettled } from '@harness/core';
 import { argSummary, invalidLine, invalidSummary, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runDeclined, runResult, runStopped, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import TableResult from '../../components/widgets/TableResult.vue';
-import { showsRows } from '../../components/widgets/widgets.ts';
+import { proposalOf, showsRows, widgetResultOf } from '../../components/widgets/widgets.ts';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
 import type { RenderView } from './types.ts';
@@ -36,8 +36,13 @@ const emit = defineEmits<{ open: []; toggle: [collapsed: boolean]; background: [
 
 const label = computed(() => fnLabel(props.run.fn));
 const summary = computed(() => argSummary(props.run.args));
-/** The args summary on the line: left out while the fn's renderer, open below, shows them. */
-const about = computed(() => (props.view !== undefined && !props.collapsed ? '' : summary.value));
+/** Whether the rows drawn below say what the args are: a widget's chip row, or a proposal's own title and description. */
+const rowsShowArgs = computed(() => {
+  const value = result.value;
+  return proposalOf(value) !== undefined || (widgetResultOf(value)?.controls.length ?? 0) > 0;
+});
+/** The args summary on the line: left out while the fn's renderer, or a widget's chips, open below, show them. */
+const about = computed(() => ((props.view !== undefined || (rows.value && rowsShowArgs.value)) && !props.collapsed ? '' : summary.value));
 const words = computed(() => runText(props.run));
 /** Why its fn's output hook stopped it: said as a stop, not an error. */
 const stopped = computed(() => runStopped(props.run));

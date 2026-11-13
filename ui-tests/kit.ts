@@ -200,14 +200,16 @@ export type Scheme = (typeof SCHEMES)[number];
 
 /**
  * Run steps once in each colour scheme (the device's preference, which the app follows unless a theme was chosen), so
- * every shot of a feature exists in light and dark. Shots name their scheme: `shot(name)` saves `<name>-<scheme>`.
+ * every shot of a feature exists in light and dark. Shots name their scheme: `shot(name)` saves `<name>-<scheme>`. `still`
+ * also asks for reduced motion, so charts draw without their entry animation and a shot shows the finished drawing.
  */
-export async function inEachScheme(ctx: FeatureContext, steps: (shot: (name: string) => Promise<void>, scheme: Scheme) => Promise<void>): Promise<void> {
+export async function inEachScheme(ctx: FeatureContext, steps: (shot: (name: string) => Promise<void>, scheme: Scheme) => Promise<void>, options: { readonly still?: boolean } = {}): Promise<void> {
+  const motion = options.still === true ? [{ name: 'prefers-reduced-motion', value: 'reduce' }] : [];
   for (const scheme of SCHEMES) {
-    await ctx.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
+    await ctx.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }, ...motion]);
     await steps((name) => ctx.shot(`${name}-${scheme}`), scheme);
   }
-  await ctx.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+  await ctx.page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'no-preference' }]);
 }
 
 /** Empty the composer (a draft from an earlier run is kept per chat). */

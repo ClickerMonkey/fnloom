@@ -87,6 +87,12 @@ export class WidgetState {
   readonly step = ref<ActionStep>('choose');
   #form: Json | undefined;
 
+  /**
+   * The read generation: every read and every change of level takes the next one, and a read's answer lands only while
+   * its generation is still the latest (a late refresh, zoom or page never overwrites a level opened after it).
+   */
+  #generation = 0;
+
   #liveTimer: ReturnType<typeof setTimeout> | undefined;
   #shown: () => boolean = () => true;
 
@@ -177,8 +183,9 @@ export class WidgetState {
     const paging = level.frame.paging;
     if (paging === undefined || !level.more || level.source === undefined || this.reading.busy.value) { return false; }
     const source = level.source;
+    const generation = ++this.#generation;
     const outcome = await this.reading.run(() => source.run({ ...level.args, [paging.offset]: level.rows.length }), "Couldn't read more rows.");
-    if (!outcome.ok) { return false; }
+    if (!outcome.ok || !this.#current(generation, level)) { return false; }
     const added = outcome.value.table.rows;
     if (added.length === 0) { this.status.value = 'No more rows'; }
     this.#replaceTop({ ...level, rows: [...level.rows, ...added], more: added.length > 0 && (outcome.value.paging?.more ?? false) });
@@ -200,6 +207,7 @@ export class WidgetState {
   /** Go back to a level (its index in the breadcrumb). */
   back(index: number): void {
     if (index < 0 || index >= this.levels.value.length - 1) { return; }
+    this.#generation++;
     this.levels.value = this.levels.value.slice(0, index + 1);
     this.#close();
     this.#writeLevels();
@@ -217,19 +225,23 @@ export class WidgetState {
 
   async #open(step: DrillStep, host: WidgetHost): Promise<boolean> {
     const source = new FnWidgetSource(host, step.fn, step.label);
+    const generation = ++this.#generation;
     const outcome = await this.reading.run(() => source.run(step.args), `Couldn't open ${step.label}.`);
-    if (!outcome.ok) { return false; }
-    await this.#push(outcome.value, step.label, step.args, source, step);
-    return true;
+    if (!outcome.ok || generation !== this.#generation) { return false; }
+    return this.#push(outcome.value, step.label, step.args, source, step);
   }
 
-  async #push(frame: WidgetFrame, label: string, args: Readonly<Record<string, Json>>, source: WidgetSource | undefined, step: DrillStep | undefined): Promise<void> {
+  /** Put a level on top; false when something else changed the levels while its actions were asked for. */
+  async #push(frame: WidgetFrame, label: string, args: Readonly<Record<string, Json>>, source: WidgetSource | undefined, step: DrillStep | undefined): Promise<boolean> {
+    const generation = ++this.#generation;
     const actions = await this.#actionsOf(frame);
+    if (generation !== this.#generation) { return false; }
     this.levels.value = [...this.levels.value, { label, frame, args, rows: frame.table.rows, more: frame.paging?.more ?? false, actions, source, step }];
     this.discard();
     this.#close();
     this.#writeLevels();
     this.#schedule();
+    return true;
   }
 
   /** The drill steps up to the first level that wasn't a drill, as the URL keeps them. */
@@ -326,7 +338,7 @@ export class WidgetState {
     this.#close();
     if (option.then === 'refresh') { await this.refresh(); return true; }
     const frame = option.then === 'open' ? frameOf(outcome.value, crumbLabel(option.label, name)) : undefined;
-    if (frame !== undefined) { await this.#push(frame, frame.title, {}, undefined, undefined); return true; }
+    if (frame !== undefined) { return this.#push(frame, frame.title, {}, undefined, undefined); }
     this.status.value = `${option.label}: done.`;
     return true;
   }
@@ -388,7 +400,9 @@ export class WidgetState {
     const level = this.level.value;
     const source = level.source;
     if (source === undefined || this.#host === undefined) { return false; }
+    const generation = ++this.#generation;
     const outcome = await this.reading.run(() => source.run(args), "Couldn't run the widget.");
+    if (!this.#current(generation, level)) { return false; }
     if (outcome.ok) {
       const frame = outcome.value;
       this.status.value = '';
@@ -396,6 +410,11 @@ export class WidgetState {
     }
     this.#schedule();
     return outcome.ok;
+  }
+
+  /** Whether a read that took `generation` on `level` may still land (nothing read or changed level since). */
+  #current(generation: number, level: WidgetLevel): boolean {
+    return generation === this.#generation && this.level.value === level;
   }
 
   #replaceTop(level: WidgetLevel): void {

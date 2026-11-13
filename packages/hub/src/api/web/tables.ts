@@ -17,12 +17,12 @@ export function tablesPlugin(hub: HubServices, auth: ReturnType<typeof authPlugi
     plugin({ name: 'web.rowActions', spec: rowActionsSlice, requires: [auth] })
       .handlers((): FullHandlers<typeof rowActionsSlice> => ({
         rowActions: ({ data, user }) => tables.rowActions(data, user.id),
-        readFn: ({ data, user }) => tables.readAs(data, user),
+        readFn: ({ data, user, signal }) => tables.readAs(data, user, signal),
       })),
     plugin({ name: 'web.export', spec: exportSlice, requires: [auth] })
       .handlers((): FullHandlers<typeof exportSlice> => ({
-        export: async ({ data, user, download }) => {
-          const { name, lines } = await tables.export(data, user);
+        export: async ({ data, user, signal, download }) => {
+          const { name, lines } = await tables.export(data, user, signal);
           download(name, 'text/csv; charset=utf-8');
           return lines;
         },

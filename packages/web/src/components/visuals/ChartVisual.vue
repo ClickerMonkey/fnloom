@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue';
 import VChart from 'vue-echarts';
-import { UiIconButton } from '../../ui/index.ts';
+import { UiIconButton, useMediaQuery } from '../../ui/index.ts';
 import type { VisualProps, VisualRange } from '../results/visuals.ts';
 import { isoOf, type ChartClick, type ChartDraw, type RangeAxis } from './chart-data.ts';
 import { chartTheme } from './echarts-setup.ts';
@@ -40,6 +40,9 @@ const built = computed(() => CHART_BUILDERS[props.family]({
 const draw = computed((): ChartDraw | undefined => ('problem' in built.value ? undefined : built.value));
 const problem = computed(() => ('problem' in built.value ? built.value.problem : undefined));
 const theme = computed(() => chartTheme(props.palette));
+/** Charts draw at once, without their entry animation, for a person who asks for reduced motion (and for screenshots). */
+const still = useMediaQuery('(prefers-reduced-motion: reduce)');
+
 const renderer = computed((): 'canvas' | 'svg' => ((draw.value?.points ?? 0) > SVG_MAX_POINTS ? 'canvas' : 'svg'));
 const initOptions = computed(() => ({ renderer: renderer.value, useCoarsePointer: true, pointerSize: 24 }));
 const height = computed(() => `${String(draw.value?.height ?? CHART_HEIGHT)}px`);
@@ -97,7 +100,7 @@ onBeforeUnmount(() => { clearTimeout(resting); slot?.set(undefined); });
     </div>
     <p v-if="problem" class="problem" data-testid="chart-problem">{{ problem }}</p>
     <VChart
-      v-else-if="draw" :key="renderer" ref="chart" class="canvas" :option="draw.option" :theme="theme" :init-options="initOptions" autoresize
+      v-else-if="draw" :key="renderer" ref="chart" class="canvas" :option="still ? { ...draw.option, animation: false } : draw.option" :theme="theme" :init-options="initOptions" autoresize
       :aria-label="title" @click="onClick" @datazoom="onZoom"
     />
   </div>

@@ -108,6 +108,27 @@ describe("a widget's state", () => {
     expect(state.table.value.rows).toEqual(SAMPLE_WORDS.rows);
   });
 
+  it('drops a late answer: a refresh or a page that lands after a drill or a newer run never overwrites it', async () => {
+    const waiting: ((value: Json) => void)[] = [];
+    const fake = fakeHost();
+    const slow: WidgetHost = { ...fake.host, read: (fn, args) => (fn === NOTE_WORDS ? fake.host.read(fn, args) : new Promise((resolve) => { waiting.push(resolve); })) };
+    const state = pagedState(slow);
+    const refreshing = state.refresh();
+    await state.drill(0);
+    waiting.shift()?.(windowAt(0));
+    expect(await refreshing).toBe(false);
+    expect(state.level.value.label).toBe('Words: Plan the trip');
+    state.back(0);
+    const paging = state.more();
+    const older = state.refresh();
+    const newer = state.refresh();
+    waiting.pop()?.(windowAt(1));
+    waiting.pop()?.(windowAt(0));
+    waiting.pop()?.(windowAt(2));
+    expect([await paging, await older, await newer]).toEqual([false, false, true]);
+    expect(state.table.value.rows).toEqual(SAMPLE_TABLE.rows.slice(1, 3));
+  });
+
   it('shows the form, then the confirm, runs the action and refreshes after a write', async () => {
     const fake = fakeHost();
     const state = pagedState(fake.host);

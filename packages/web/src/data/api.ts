@@ -19,8 +19,6 @@ export function dataApi(hub: Hub) {
     record: hub.caller('record', { dedupe: true }),
     saveRecord: hub.caller('saveRecord', { invalidates: [RECORDS_TAG] }),
     removeRecord: hub.caller('removeRecord', { invalidates: [RECORDS_TAG] }),
-    /** Change some fields of one record in place (the Data grid's inline edit). */
-    updateRecord: hub.caller('updateRecord', { invalidates: [RECORDS_TAG] }),
     recordVersions: hub.caller('recordVersions', { dedupe: true }),
     /** The actions rows of some types offer, narrowed by a widget's list. */
     rowActions: hub.caller('rowActions', { cache: { ttl: 30_000 }, dedupe: true }),

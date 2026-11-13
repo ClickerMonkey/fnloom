@@ -1,6 +1,6 @@
 import {
   ActorId, HUB_VISUALS, jsonOf, QualifiedName, RunId, SystemName, TurnId,
-  type ContributionView, type FnMode, type Json, type Manifest, type ResolvedLimits, type ResultTable, type RunSettled,
+  type ContributionView, type FnMode, type Json, type Manifest, type ResolvedLimits, type ResultTable, type Run, type RunSettled,
 } from '@harness/core';
 import { fn, g } from '@harness/sdk';
 import { z } from 'zod';
@@ -29,40 +29,55 @@ function shop() {
   catalog.add('shop', 'orders', fn({ description: 'Orders.', args: g.obj({ offset: g.optional(g.num()), limit: g.optional(g.num()) }), returns: g.text(), tags: ['read'] }));
   catalog.add('shop', 'wipe', fn({ description: 'Wipe.', args: g.obj({}), returns: g.text() }));
   catalog.add('shop', 'note', fn({ description: 'A note.', args: g.obj({}), returns: g.text(), tags: ['read'] }));
+  catalog.add('shop', 'asks', fn({ description: 'Needs an approval.', args: g.obj({}), returns: g.text(), tags: ['read'] }));
+  catalog.add('shop', 'slow', fn({ description: 'Never ends.', args: g.obj({}), returns: g.text(), tags: ['read'] }));
+  catalog.add('shop', 'secret', fn({ description: 'Hidden.', args: g.obj({}), returns: g.text() }));
   catalog.add('shop', 'Task.close', fn({ description: 'Close a task.', args: g.obj({ self: g.text(), reason: g.text() }), returns: g.text() }));
   catalog.add('shop', 'Task.view', fn({ description: 'View a task.', args: g.obj({ self: g.text() }), returns: g.text(), tags: ['read'] }));
   return catalog;
 }
 
-const MODES: Readonly<Record<string, FnMode>> = { 'shop/orders': 'read', 'shop/note': 'read', 'shop/wipe': 'write', 'shop/Task.close': 'write', 'shop/Task.view': 'read' };
+const MODES: Readonly<Record<string, FnMode>> = { 'shop/orders': 'read', 'shop/note': 'read', 'shop/asks': 'read', 'shop/slow': 'read', 'shop/wipe': 'write', 'shop/Task.close': 'write', 'shop/Task.view': 'read' };
 
 /** A manifest of the shop with a task type whose methods are close and view. */
 const shopManifest: Manifest = testManifest(SHOP, {
   types: [{ name: 'Task', description: 'A task.', def: { name: 'obj', props: {} }, display: { label: 'Task' }, methods: ['close', 'view'] }],
 });
 
-/** The service over fakes; `started` records every run it starts, `answer` gives each its result. */
+/** The service over fakes; `started` records every run it starts, `answer` gives each its result, `cancelled` each cancel. shop/asks waits for an approval and shop/slow never ends. */
 function service(answer: (input: RunInput) => Json = () => jsonOf(numbers(0, 3, false)), contributions: ContributionView[] = []) {
   const catalog = shop();
   const started: RunInput[] = [];
   const finished: boolean[] = [];
+  const cancelled: RunId[] = [];
+  const held = new Map<RunId, Run>();
   const hubManifest = testManifest(SystemName.parse('hub'), { contributes: [{ registry: HUB_VISUALS, name: 'table', label: 'Table' }, { registry: 'hub/other', name: 'x', label: 'X' }] });
   const tables = new HubTables({
     catalog: () => ({ fn: (name) => catalog.fn(name), manifest: (system) => Promise.resolve(system === 'hub' ? hubManifest : system === SHOP ? shopManifest : undefined) }),
     runs: () => ({
       start: (input) => {
         started.push(input);
+        const run = RunId.parse(`run_${String(started.length)}`);
+        if (input.fn === 'shop/asks') {
+          held.set(run, {
+            id: run, fn: input.fn, fnVersion: 'v1', kind: 'native', system: SHOP, root: run, turn: input.turn, key: input.key, actor: input.actor, caller: input.caller, args: input.args,
+            status: 'awaiting-approval', allowed: { cancel: true, pause: false, background: false }, cost: 0, totalCost: 0, priority: input.priority, background: false, attempt: 1, errors: [], stateChanges: [], createdAt: 0,
+          });
+        }
+        if (input.fn === 'shop/asks' || input.fn === 'shop/slow') return Promise.resolve({ run, settled: new Promise<RunSettled>(() => undefined) });
         const settled: RunSettled = input.fn === 'shop/note' ? { status: 'done', result: 'just text' } : { status: 'done', result: answer(input) };
-        return Promise.resolve({ run: RunId.parse(`run_${String(started.length)}`), settled: Promise.resolve(settled) });
+        return Promise.resolve({ run, settled: Promise.resolve(settled) });
       },
+      get: (run) => Promise.resolve(held.get(run)),
+      cancel: (run) => { cancelled.push(run); return Promise.resolve({ accepted: true }); },
     }),
     facts: () => ({ modes: (names) => Promise.resolve(new Map(names.map((name) => [name, MODES[name] ?? 'write']))) }),
-    access: (actor) => Promise.resolve({ ...openScope(actor), mayUse: (record) => record.name !== 'shop/Task.view' || actor === ANN }),
+    access: (actor) => Promise.resolve({ ...openScope(actor), seesFn: (record) => record.name !== 'shop/secret', mayUse: (record) => record.name !== 'shop/Task.view' || actor === ANN }),
     contributions: () => Promise.resolve(contributions),
     turn: (): Promise<PersonTurn> => Promise.resolve({ id: TurnId.parse('trn_export'), priority: 'interactive', finish: (ok) => { finished.push(ok); return Promise.resolve(); } }),
-    settings: { ...tablesEnv.parse(), HARNESS_EXPORT_PAGE: 2, HARNESS_EXPORT_MAX_ROWS: 5 },
+    settings: { ...tablesEnv.parse(), HARNESS_EXPORT_PAGE: 2, HARNESS_EXPORT_MAX_ROWS: 5, HARNESS_QUIET_READ_TIMEOUT: 1_000 },
   });
-  return { tables, started, finished };
+  return { tables, started, finished, cancelled };
 }
 
 const asker: TableAsker = {
@@ -86,6 +101,33 @@ describe('hub tables', () => {
     await expect(tables.read({ fn: QualifiedName.parse('shop/wipe'), args: {} }, asker)).rejects.toMatchObject({ error: { code: 'not-a-read' } });
     await expect(tables.read({ fn: QualifiedName.parse('shop/note'), args: {} }, asker)).rejects.toMatchObject({ error: { code: 'not-a-table' } });
     expect(started).toHaveLength(2);
+    // a fn the person may not see is missing, never "writes"
+    await expect(tables.read({ fn: QualifiedName.parse('shop/secret'), args: {} }, asker)).rejects.toMatchObject({ error: { code: 'no-fn', message: 'there is no fn shop/secret' } });
+  });
+
+  it('refuses a quiet read that waits for approval, and stops one when the request goes away or runs too long', async () => {
+    const { tables, cancelled, finished } = service();
+    let said = '';
+    /** The refusal a call ends in; `said` keeps its words. */
+    const refusal = async (call: Promise<unknown>): Promise<unknown> => {
+      try { await call; } catch (error) { said = error instanceof Error ? error.message : ''; return error; }
+      throw new Error('it was not refused');
+    };
+    const user = { kind: 'user' as const, id: ANN, name: 'Ann', email: 'ann@example.com', role: 'member' as const };
+    expect(await refusal(tables.readAs({ fn: QualifiedName.parse('shop/asks'), args: {} }, user))).toMatchObject({ status: 400, code: 'READ_FAILED' });
+    expect(said).toContain('needs an approval');
+    expect(cancelled).toEqual(['run_1']);
+    const gone = new AbortController();
+    const reading = tables.readAs({ fn: QualifiedName.parse('shop/slow'), args: {} }, user, gone.signal);
+    gone.abort();
+    await refusal(reading);
+    expect(said).toContain('the request went away');
+    await refusal(tables.readAs({ fn: QualifiedName.parse('shop/slow'), args: {} }, user));
+    expect(said).toContain('took too long');
+    expect(cancelled).toEqual(['run_1', 'run_2', 'run_3']);
+    expect(finished).toEqual([false, false, false]);
+    await expect(tables.export({ fn: QualifiedName.parse('shop/asks'), args: '{}', offset: 'offset', limit: 'limit', format: 'csv' }, user)).rejects.toMatchObject({ status: 400, code: 'NOT_EXPORTABLE' });
+    expect(cancelled).toHaveLength(4);
   });
 
   it('lists the hub\'s own visuals first, then other systems\', and derives row actions as the person may use them', async () => {
@@ -127,7 +169,10 @@ describe('hub tables', () => {
       fns: { facts: { modes: (names) => Promise.resolve(new Map(names.map((name) => [name, MODES[name] ?? 'write']))) } },
       execution: {
         limits: { resolve: () => Promise.resolve(limits) },
-        runs: { start: () => Promise.resolve({ run: RunId.parse('run_x'), settled: Promise.resolve<RunSettled>({ status: 'done', result: jsonOf(numbers(0, 2, false)) }) }) },
+        runs: {
+          start: () => Promise.resolve({ run: RunId.parse('run_x'), settled: Promise.resolve<RunSettled>({ status: 'done', result: jsonOf(numbers(0, 2, false)) }) }),
+          get: () => Promise.resolve(undefined),
+        },
       },
       access: { scope: (actor) => Promise.resolve(openScope(actor)) },
     });

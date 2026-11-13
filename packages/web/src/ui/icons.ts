@@ -76,6 +76,7 @@ export const ICONS = {
   scatter: '<path d="M3 3v18h18"/><circle cx="8" cy="15" r="1.5"/><circle cx="12" cy="9" r="1.5"/><circle cx="17" cy="12" r="1.5"/><circle cx="16" cy="6" r="1.5"/>',
   gauge: '<path d="M4 18a9 9 0 1 1 16 0"/><path d="m12 14 4-5"/>',
   graph: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="9" cy="18" r="2.5"/><path d="m8.4 7.2 7.2.6M7 8.4l1.4 7.2M16.4 10l-5.6 6.2"/>',
+  heatmap: '<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="6" y="6" width="5" height="5" fill="currentColor" stroke="none"/><rect x="13" y="13" width="5" height="5" fill="currentColor" stroke="none"/><rect x="13" y="6" width="5" height="5" fill="currentColor" stroke="none" opacity="0.45"/>',
   candles: '<path d="M7 3v18M17 3v18"/><rect x="5" y="7" width="4" height="8" rx="1"/><rect x="15" y="9" width="4" height="6" rx="1"/>',
   timeline: '<path d="M3 6h9M7 12h11M5 18h7"/>',
   maximize: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',

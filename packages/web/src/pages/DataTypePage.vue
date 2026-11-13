@@ -23,7 +23,7 @@ import { WIDGET_HOST } from '../components/widgets/widgets.ts';
 import RecordFilters from '../data/components/RecordFilters.vue';
 import RecordPanel from '../data/components/RecordPanel.vue';
 import { choiceOf, choiceParam, filtersOf, filtersParam, recordIdOf, recordsFrame, recordTableQuery, sortParam, typeOf, type RecordsUrl } from '../data/logic/data.ts';
-import { RecordsWidgetSource, recordsWidgetHost } from '../data/state/records-widget.ts';
+import { RecordsRuns, RecordsWidgetSource, recordsWidgetHost } from '../data/state/records-widget.ts';
 import { COMPACT_QUERY } from '../state/layout.ts';
 import { useActorNames } from '../state/actor-names.ts';
 import { useStores } from '../state/stores.ts';
@@ -60,19 +60,16 @@ watch([type, opened], () => {
   const id = RecordId.safeParse(opened.value);
   if (type.value !== undefined && id.success) { void records.open(type.value, id.data); } else { records.close(); }
 }, { immediate: true });
-onBeforeUnmount(() => { records.close(); });
+/** Row actions and inline edits run as the person's runs, in a chat made for this page the first time one runs. */
+const runs = new RecordsRuns(chat, () => `Data: ${param('local')}`);
+onBeforeUnmount(() => { records.close(); runs.close(); });
 
 const table = computed(() => records.table.value.value);
-/** How many records there are, under the heading (the heading already names the type). */
-const description = computed(() => {
-  const total = table.value?.total;
-  return total === undefined ? '' : `${String(total)} ${total === 1 ? 'record' : 'records'}${words.value.value !== '' || filters.value.length > 0 ? ' found' : ''}`;
-});
 /** People's names for the record's history. */
 const { nameOf } = useActorNames(chat.pickers.source('person'), () => records.versions.value.flatMap((version) => (version.by === undefined ? [] : [version.by])));
 
 // the widget view: the records as a widget's frame, read again through hub/records_table, with the visual picked in the URL
-provide(WIDGET_HOST, recordsWidgetHost({ data, records }));
+provide(WIDGET_HOST, recordsWidgetHost({ data, records, runs }));
 const results: ResultsHost = {
   visuals: (registry, shown, facts) => chat.visuals.visuals(registry, shown, facts),
   prepare: (registry) => chat.visuals.prepare(registry),
@@ -141,7 +138,7 @@ async function showAsWidget(): Promise<void> {
 </script>
 
 <template>
-  <AppPage :title="param('local')" :description="description" keep-title>
+  <AppPage :title="param('local')" keep-title>
     <template #crumb>
       <RouterLink :to="links.data()" class="crumb" data-testid="back-to-data"><UiIcon name="chevron-left" :size="14" />Data</RouterLink>
     </template>
@@ -180,6 +177,6 @@ async function showAsWidget(): Promise<void> {
 <style scoped>
 .crumb { display: inline-flex; align-items: center; gap: 2px; color: var(--text-dim); font-size: var(--text-sm); text-decoration: none; }
 .crumb:hover { color: var(--text); }
-.search { flex: 1 1 8rem; min-width: 0; max-width: 420px; }
+.search { flex: 1 1 12rem; min-width: min(100%, 12rem); max-width: 420px; }
 .dim { margin: 0; color: var(--text-dim); }
 </style>

@@ -7,7 +7,7 @@
  */
 import {
   WIDGET_KIND, type DataRecord, type DataSetView, type ExportQuery, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordTableQuery,
-  type RecordUpdate, type RecordVersion, type ResultTable, type RowActionsQuery, type SystemName, type WidgetActionOption,
+  type RecordVersion, type ResultTable, type RowActionsQuery, type SystemName, type WidgetActionOption,
 } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import { Loaded, Paged, Task } from '../../state/loaded.ts';
@@ -25,7 +25,7 @@ export interface DataSetFilter {
   readonly system: SystemName | undefined;
 }
 
-type StoreApi = Pick<DataApi, 'dataSets' | 'rowActions' | 'readFn' | 'exportCsv' | 'recordTable' | 'record' | 'saveRecord' | 'updateRecord' | 'removeRecord' | 'recordVersions'>;
+type StoreApi = Pick<DataApi, 'dataSets' | 'rowActions' | 'readFn' | 'exportCsv' | 'recordTable' | 'record' | 'saveRecord' | 'removeRecord' | 'recordVersions'>;
 
 /** The Data pages. */
 export class DataStore {
@@ -144,9 +144,8 @@ export class RecordsStore {
     return this.#api.recordTable.call(query);
   }
 
-  /** Change some fields of a record in place (an inline edit); the record opened follows. Throws why it wasn't saved. */
-  async update(change: RecordUpdate): Promise<void> {
-    const saved = await this.#api.updateRecord.call(change);
+  /** A record changed elsewhere (an inline edit's run): the record opened follows. */
+  follow(saved: DataRecord): void {
     if (this.record.value.value?.id === saved.id) { this.record.set(saved); void this.#history(saved.type, saved.id, true); }
   }
 

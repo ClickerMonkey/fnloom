@@ -21,12 +21,15 @@ export const WidgetPayload = ginAs(WidgetSpec);
 /** What `save_widget` gives: the widget fn, its version, and whether it is new. */
 export const SavedWidget = g.obj({ fn: g.text(), version: g.num({ min: 1, whole: true }), created: g.bool() });
 
-/** A widget over the hub's own records: open tasks by stage, as the examples write it. */
+/**
+ * A widget over a saved query that counts open tasks by stage (columns `stage`, `count`), as the examples write it.
+ * A count needs a source that aggregates: `hub/records_table` gives one row per record and never counts.
+ */
 export const TASKS_BY_STAGE: WidgetSpec = {
   title: 'Open tasks by stage',
-  source: 'hub/records_table',
+  source: 'database/main.open_tasks_by_stage',
   visuals: [{ visual: 'category', style: 'bar', bind: { x: ['stage'], y: ['count'] } }, { visual: 'table', style: 'table', bind: {} }],
-  args: { type: { show: 'pinned', value: { literal: 'tasks/Task' } } },
+  args: {},
   presets: [],
 };
 
@@ -80,8 +83,8 @@ export const widgets = system(WIDGETS_SYSTEM, {
             note: 'The person asked to see it: the proposal opens with its chart drawn.',
           },
           {
-            args: { source: 'hub/records_table', request: 'My open tasks by stage, only tasks/Task records.', args: { type: 'tasks/Task' }, show: false },
-            note: 'A pinned record type; the proposal opens collapsed.',
+            args: { source: 'hub/records_table', request: 'My open tasks as cards, only tasks/Task records.', args: { type: 'tasks/Task' }, show: false },
+            note: 'A pinned record type over one row per record (records_table never counts; a count by stage needs a query that aggregates); the proposal opens collapsed.',
           },
           {
             args: { source: 'database/main.sales_by_region', request: 'Same widget, but over sales by region as a pie.', widget: 'widgets/sales_by_month', show: true },

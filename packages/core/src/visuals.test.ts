@@ -21,6 +21,14 @@ describe('visual ranking (widget pass)', () => {
     expect(Object.values(best?.bind ?? {}).flat()).not.toContain('id');
   });
 
+  it('never binds a column with a value per row (free text) as a series', () => {
+    const notes = table([{ name: 'title', kind: 'text', nullable: false }, { name: 'body', kind: 'text', nullable: true }, { name: 'words', kind: 'integer', nullable: false }], [
+      ['Plan the trip', 'Book the cabin.', 6], ['Groceries', 'Milk, eggs.', 3], ['Old idea', 'A garden.', 5],
+    ]);
+    const bars = rankVisuals(BUILT_IN_ENTRIES, columnFacts(notes), notes).find((rank) => rank.visual === 'category');
+    expect(bars?.bind).toEqual({ x: ['title'], y: ['words'] });
+  });
+
   it('withholds whole-only styles from a page', () => {
     const page = table([{ name: 'k', kind: 'text', nullable: false }, { name: 'v', kind: 'integer', nullable: false }], [['a', 1], ['b', 2]], true);
     const ranks = rankVisuals(BUILT_IN_ENTRIES, columnFacts(page), page);

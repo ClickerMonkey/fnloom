@@ -4,7 +4,7 @@
  * text of a tool reply, token totals, and the lenient mapping it saves transcripts and interactions with.
  */
 import type { Message, Request } from '@aeye/core';
-import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetResult, type Json, type LlmMessage, type TableModelView, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
+import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
 import { LlmWire } from '@harness/sdk/server';
 
 export {
@@ -40,7 +40,8 @@ export function requestToWire(request: Request): LlmRequest {
  * command's change set (`changes`, `core/changes.ts`, from fs `bash`) is listed file by file without its diffs: the
  * run keeps it whole for the run view's diff tabs, and the model reads a file when it needs the content. A table
  * result (a widget run, a fn returning a `ResultTable`) is drawn for the person, so the model reads its summary and the
- * first `tableRows` rows (`tableModelView`).
+ * first `tableRows` rows (`tableModelView`); a widget proposal (`widgets/make_widget`) the same of its preview, with a line
+ * saying it waits for the person's Save.
  */
 export function replyText(value: Json, tableRows: number): string {
   if (typeof value === 'string') return value;
@@ -52,8 +53,23 @@ export function replyText(value: Json, tableRows: number): string {
   return set.success ? `${JSON.stringify(rest)}\n${changeSummary(set.data)}` : JSON.stringify(value);
 }
 
-/** A widget's or a table's result as the model reads it, or undefined for anything else. */
-function tableReply(value: Json, rows: number): TableModelView | undefined {
+/** A widget proposal as the model reads it: its preview's view plus a line saying it waits for the person's Save. */
+interface ProposalModelView extends TableModelView {
+  readonly proposed: string;
+  readonly saved: string;
+}
+
+/** A widget proposal's, a widget's or a table's result as the model reads it, or undefined for anything else. */
+function tableReply(value: Json, rows: number): TableModelView | ProposalModelView | undefined {
+  const proposal = WidgetProposal.safeParse(value);
+  if (proposal.success) {
+    const { name, description, preview, replaces } = proposal.data;
+    return {
+      proposed: `${name}: ${description}${replaces === undefined ? '' : ` (changes ${replaces})`}`,
+      saved: 'Proposed, not saved: the person sees the preview and presses Save to keep it.',
+      ...tableModelView(preview.summary, preview.table, rows),
+    };
+  }
   const widget = WidgetResult.safeParse(value);
   if (widget.success) return tableModelView(widget.data.summary, widget.data.table, rows);
   const table = ResultTable.safeParse(value);

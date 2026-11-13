@@ -1,8 +1,9 @@
 /**
  * Registries: a system declares a registry of components, and any system (itself included) contributes
- * entries to it from its client bundle. The first registry is the database system's query visuals: each visual's
- * client code says whether a result table fits it and how well (`VisualFit`); the result view shows the best fit and
- * lets the person switch between every visual that fits. The table is always there, with the lowest score.
+ * entries to it from its client bundle. The first registry is the database system's query visuals: the hub ranks the
+ * visuals that fit a result table (`rankVisuals` in `visuals.ts`), a visual's client code may veto a fit but never
+ * scores one, and the result view shows the top visual and lets the person switch between the rest. The table always
+ * fits.
  *
  * The result table itself (`ResultTable`) lives here because a visual from any system draws it, and because an
  * approval preview shows the rows a write would touch.

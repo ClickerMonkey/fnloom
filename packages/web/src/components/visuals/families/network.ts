@@ -3,7 +3,7 @@
  * without a cycle) and a chord diagram (`chord`). Nodes are the distinct from and to values, sized by their links.
  */
 import type { GraphSeriesOption, SankeySeriesOption } from 'echarts/charts';
-import { bound, chartValue, labelOf, legend, needed, numberOf, tooltip, type ChartBuilder } from '../chart-data.ts';
+import { bound, chartValue, labelOf, needed, numberOf, tooltip, type ChartBuilder } from '../chart-data.ts';
 
 /** One edge per row (rows without both ends are left out), with the row it came from. */
 interface Edge {
@@ -55,7 +55,15 @@ export const network: ChartBuilder = (input) => {
   }
   if (input.style === 'chord') {
     return {
-      option: { tooltip: tooltip('item'), legend: legend(!input.phone && nodes.length <= 12), series: [{ type: 'chord', data: nodes.map(({ name }) => ({ name })), links, radius: ['62%', '68%'], center: ['50%', '46%'], label: { show: !input.phone, color: input.palette.text }, lineStyle: { opacity: 0.4 } }] },
+      // every node named on its arc (smaller on a phone) and coloured from the palette; links take their source's colour
+      option: {
+        tooltip: tooltip('item'),
+        series: [{
+          type: 'chord', data: nodes.map(({ name }, i) => ({ name, itemStyle: { color: input.palette.series[i % input.palette.series.length] ?? input.palette.text } })), links,
+          radius: input.phone ? ['52%', '58%'] : ['62%', '68%'], center: ['50%', '50%'],
+          label: { show: nodes.length <= 40, position: 'outside', color: input.palette.text, fontSize: input.phone ? 10 : 12 }, lineStyle: { color: 'source', opacity: 0.4 },
+        }],
+      },
       rowOf, points,
     };
   }

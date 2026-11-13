@@ -140,7 +140,7 @@ const INSTRUCTIONS = [
   '',
   `Example. Request: "${EXAMPLE.request}" Source: ${EXAMPLE.source}. Columns: ${EXAMPLE.columns}. The proposal:`,
   JSON.stringify(EXAMPLE.proposal),
-  'Example. Request: "my open tasks by stage" over hub/records_table(type: text, query?: …, limit?, offset?). Pin the type ({"type": {"show": "pinned", "value": {"literal": "tasks/Task"}}}), pin the query to open tasks, and choose the category visual with x = stage when it is listed; else the table.',
+  'Example. Request: "my open tasks by stage" over hub/records_table(type: text, query?: …, limit?, offset?). It gives one row per task (its fields and id) and never counts, so there is no count to chart. Pin the type ({"type": {"show": "pinned", "value": {"literal": "tasks/Task"}}}), pin the query to open tasks, choose the table visual in its cards style (or table), and answer that a count by stage needs a query that aggregates (stage, count); over that query the category visual with x = stage, y = count fits.',
 ].join('\n');
 
 type Session = AuthoringSession<WidgetAuthoring, unknown>;

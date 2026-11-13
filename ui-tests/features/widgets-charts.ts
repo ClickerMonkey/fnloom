@@ -31,6 +31,8 @@ export default feature({
   id: 'widgets-charts', ref: 'build-8 widgets design §2 Chart types, Look', title: 'Every chart family and style', viewports: ['desktop', 'phone'],
   async run(ctx) {
     const { page } = ctx;
+    // charts draw without their entry animation, so each shot shows the finished drawing
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await open(ctx, '/chat', tid('session-row'));
     const session = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="session-row"]')].find((row) => row.textContent.includes('Chart gallery'))?.dataset['session']);
     check(typeof session === 'string', 'the mock lists the chart gallery chat');
@@ -52,6 +54,6 @@ export default feature({
         check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${family}: the chat fits the screen`);
         await shot(family);
       }
-    });
+    }, { still: true });
   },
 });

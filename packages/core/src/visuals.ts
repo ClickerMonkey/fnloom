@@ -179,12 +179,20 @@ function takes(channel: VisualChannel, column: ColumnFacts): boolean {
   return channel.accepts.includes(column.kind) && (channel.role === undefined || channel.role === column.role);
 }
 
+/**
+ * Whether a column would split nothing as an optional grouping (a series or lane): one value per row, as free text
+ * (a note's body) has, makes a group per row, a legend of every value and bars pushed off their labels.
+ */
+function splitsNothing(channel: VisualChannel, column: ColumnFacts, rows: number): boolean {
+  return !channel.required && channel.role === 'group' && rows > 1 && column.distinct >= rows;
+}
+
 /** The default binding of a shape's channels over the readable columns, or why it has none. */
-function defaultBinding(shape: VisualShape, columns: readonly ColumnFacts[]): VisualBinding | string {
+function defaultBinding(shape: VisualShape, columns: readonly ColumnFacts[], rows: number): VisualBinding | string {
   const bind: VisualBinding = {};
   const used = new Set<string>();
   for (const channel of shape.channels) {
-    const free = columns.filter((column) => !used.has(column.name) && takes(channel, column)).map((column) => column.name);
+    const free = columns.filter((column) => !used.has(column.name) && takes(channel, column) && !splitsNothing(channel, column, rows)).map((column) => column.name);
     const picked = channel.many ? free : free.slice(0, 1);
     if (picked.length < (channel.many ? channel.min ?? 1 : 1)) {
       if (channel.required) { return `No column fits ${channel.label} (${channel.accepts.join(', ')}).`; }
@@ -288,7 +296,7 @@ export function bindingProblems(shape: VisualShape, bind: VisualBinding, facts: 
 export function rankVisuals(entries: readonly RankedEntry[], facts: ResultFacts, table?: Pick<ResultTable, 'rows' | 'columns'>): VisualRank[] {
   const readable = informative(facts);
   const ranked = entries.flatMap((entry, index) => {
-    const bind = defaultBinding(entry.shape, readable.length > 0 ? readable : facts.columns);
+    const bind = defaultBinding(entry.shape, readable.length > 0 ? readable : facts.columns, facts.rows);
     if (typeof bind === 'string' || bindingProblems(entry.shape, bind, facts, table).length > 0) { return []; }
     const styles = fittingStyles(entry.shape, bind, facts.whole);
     const [first, ...rest] = styles;

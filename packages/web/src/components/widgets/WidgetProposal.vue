@@ -43,7 +43,7 @@ async function change(): Promise<void> {
     <header class="head">
       <div class="words">
         <h3 class="title">{{ proposal.spec.title }} <UiBadge v-if="proposal.replaces" tone="neutral">changes {{ proposal.replaces }}</UiBadge></h3>
-        <p class="description">{{ proposal.description }} <span class="source">From {{ proposal.spec.source }}.</span></p>
+        <p class="description">{{ proposal.description }}</p>
       </div>
       <div class="buttons">
         <UiButton v-if="!showing" size="sm" variant="ghost" icon="eye" data-testid="widget-proposal-show" @click="showing = true">Preview</UiButton>
@@ -63,7 +63,6 @@ async function change(): Promise<void> {
 .words { display: grid; flex: 1 1 16rem; gap: 2px; min-width: 0; }
 .title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .description { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
-.source { color: var(--text-faint); }
 .buttons { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 .saved { color: var(--accent); font-size: var(--text-sm); text-decoration: none; }
 .saved:hover { text-decoration: underline; }

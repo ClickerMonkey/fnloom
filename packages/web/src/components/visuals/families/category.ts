@@ -51,7 +51,8 @@ export const category: ChartBuilder = (input) => {
       return { type: 'line', name, encode, showSymbol: source.length <= 30, ...(input.style === 'area' ? { areaStyle: { opacity: 0.16 } } : {}) };
     }
     if (input.style === 'pictorial') {
-      return { type: 'pictorialBar', name, encode, symbol: 'roundRect', symbolRepeat: true, symbolSize: ['80%', 6], symbolMargin: 2 };
+      // a pictorial bar overlaps the one before it by default (barGap -100%): each series takes its own slot instead
+      return { type: 'pictorialBar', name, encode, symbol: 'roundRect', symbolRepeat: true, symbolSize: ['80%', 6], symbolMargin: 2, barGap: '12%', barCategoryGap: many ? '28%' : '40%' };
     }
     return { type: 'bar', name, encode, ...(stacked ? { stack: 'total' } : {}), barMaxWidth: 36, itemStyle: { borderRadius: stacked ? 0 : 3 } };
   });

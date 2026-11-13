@@ -42,6 +42,21 @@ describe('messages', () => {
     expect(replyText({ a: [1] }, 5)).toBe('{"a":[1]}');
   });
 
+  it('gives a widget proposal as its preview\'s summary and first rows, waiting for the person\'s Save', () => {
+    const visual = { visual: 'table', style: 'table', bind: {} };
+    const table = { columns: [{ name: 'n', kind: 'integer', nullable: false }], rows: Array.from({ length: 50 }, (_, i) => [i]), offset: 0, truncated: false, sort: [] };
+    const preview = {
+      title: 'Numbers', table, facts: { columns: [], rows: 50, whole: true }, source: { fn: 'shop/numbers', run: 'run_1', args: {} }, visuals: [visual],
+      problems: [], controls: [], presets: [], actions: [], readOnly: false, summary: 'Table of n, 50 rows',
+    };
+    const spec = { title: 'Numbers', source: 'shop/numbers', visuals: [visual], args: {}, presets: [] };
+    const reply: unknown = JSON.parse(replyText({ name: 'numbers', description: 'The numbers.', spec, preview, show: true }, 3));
+    expect(reply).toEqual({
+      proposed: 'numbers: The numbers.', saved: 'Proposed, not saved: the person sees the preview and presses Save to keep it.',
+      summary: 'Table of n, 50 rows', columns: ['n'], rows: [[0], [1], [2]], more: 47,
+    });
+  });
+
   it('lists the changed files of a command for the model without their diffs, which the run keeps', () => {
     const result = {
       exitCode: 0, stdout: 'ok', stderr: '',

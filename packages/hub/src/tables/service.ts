@@ -6,7 +6,7 @@
 import { reject } from '@ayepi/core';
 import {
   HUB_VISUALS, Json, qualify, ResultTable, splitName, SystemName, csvHeader, csvRows,
-  type ActorId, type ContributionView, type ExportQuery, type FnRecord, type Priority, type QualifiedName, type ReadTableArgs, type RowActionsQuery, type TurnId,
+  type ActorId, type ContributionView, type ExportQuery, type FnRecord, type Priority, type QualifiedName, type ReadTableArgs, type RowActionsQuery, type RunSettled, type TurnId,
   type UserView, type WidgetActionOption,
 } from '@harness/core';
 import { returnsTable, widgetActionOptions, type RowFn } from '@harness/sdk';
@@ -29,7 +29,7 @@ export interface PersonTurn {
 /** What the table service uses, each looked up when it is needed. */
 export interface TableDeps {
   readonly catalog: () => Pick<Catalog, 'fn' | 'manifest'>;
-  readonly runs: () => Pick<RunService, 'start'>;
+  readonly runs: () => Pick<RunService, 'start' | 'get' | 'cancel'>;
   readonly facts: () => Pick<FnFactsService, 'modes'>;
   readonly access: (actor: ActorId) => Promise<AccessScope>;
   /** The registry entries of the systems the person may see (`contributionsTo`), by system then name. */
@@ -40,9 +40,12 @@ export interface TableDeps {
 }
 
 /** Why a fn can't be read as a table, as the refusal's code. */
+const NO_FN = 'no-fn';
 const NOT_A_READ = 'not-a-read';
 const NOT_A_TABLE = 'not-a-table';
 const SOURCE_FAILED = 'source-failed';
+const NEEDS_APPROVAL = 'needs-approval';
+const STOPPED = 'stopped';
 
 /** The hub's table operations. */
 export class HubTables implements TableService {
@@ -53,7 +56,7 @@ export class HubTables implements TableService {
   }
 
   async read(input: ReadTableArgs, run: TableAsker): Promise<ResultTable> {
-    const source = await this.#readable(input.fn);
+    const source = await this.#readable(input.fn, run.user.id);
     // the same read asked again in a run is the same child run
     return this.#call(source.name, input.args, {
       turn: run.turn, ...(run.session === undefined ? {} : { session: run.session }), parent: run.id, key: `table:${source.name}:${JSON.stringify(input.args)}`,
@@ -61,18 +64,13 @@ export class HubTables implements TableService {
     });
   }
 
-  async readAs(input: ReadTableArgs, user: UserView): Promise<Json> {
-    const access = await this.#deps.access(user.id);
-    const found = await this.#deps.catalog().fn(input.fn);
-    if (found === undefined || !access.seesFn(found)) { throw reject(404, 'NO_FN', `there is no fn ${input.fn}`); }
-    const source = await this.#readable(found.name).catch((error: unknown) => { throw refusedAs400(error, 'NOT_A_READ'); });
+  async readAs(input: ReadTableArgs, user: UserView, signal?: AbortSignal): Promise<Json> {
+    const source = await this.#seen(input.fn, user.id, 'NOT_A_READ');
     const turn = await this.#deps.turn(user);
     let ok = false;
     try {
-      const started = await this.#deps.runs().start({
-        fn: source.name, args: input.args, turn: turn.id, key: 'read', actor: user.id, caller: user.id, priority: turn.priority, background: false, handlers: [],
-      });
-      const settled = await started.settled;
+      const settled = await this.#quiet({ fn: source.name, args: input.args, turn: turn.id, key: 'read', actor: user.id, caller: user.id, priority: turn.priority }, signal)
+        .catch((error: unknown) => { throw refusedAs400(error, 'READ_FAILED'); });
       if (settled.status !== 'done') {
         const why = settled.status === 'background' ? 'it went to the background' : settled.error?.message ?? settled.status;
         throw reject(400, 'READ_FAILED', `${source.name} did not finish: ${why}`);
@@ -87,10 +85,13 @@ export class HubTables implements TableService {
   async visuals(actor: ActorId): Promise<ContributionView[]> {
     const own = (await this.#deps.catalog().manifest(HUB_SYSTEM))?.contributes ?? [];
     const others = await this.#deps.contributions(HUB_VISUALS, actor);
-    return [
+    const all = [
       ...own.filter((entry) => entry.registry === HUB_VISUALS).map((entry): ContributionView => ({ ...entry, system: HUB_SYSTEM })),
       ...others.filter((entry) => entry.system !== HUB_SYSTEM),
     ];
+    // one entry per name, the hub's own first: a system's visual never takes over a name already known
+    const seen = new Set<string>();
+    return all.filter((entry) => { if (seen.has(entry.name)) { return false; } seen.add(entry.name); return true; });
   }
 
   async rowActions(query: RowActionsQuery, actor: ActorId): Promise<WidgetActionOption[]> {
@@ -113,17 +114,15 @@ export class HubTables implements TableService {
     return widgetActionOptions(rowFns, query.narrow);
   }
 
-  async export(query: ExportQuery, user: UserView): Promise<{ name: string; lines: AsyncIterable<string> }> {
+  async export(query: ExportQuery, user: UserView, signal?: AbortSignal): Promise<{ name: string; lines: AsyncIterable<string> }> {
     const args = exportArgs(query.args);
-    const access = await this.#deps.access(user.id);
-    const found = await this.#deps.catalog().fn(query.fn);
-    if (found === undefined || !access.seesFn(found)) { throw reject(404, 'NO_FN', `there is no fn ${query.fn}`); }
-    const source = await this.#readable(found.name).catch((error: unknown) => { throw refusedAs400(error); });
+    const source = await this.#seen(query.fn, user.id, 'NOT_EXPORTABLE');
     const turn = await this.#deps.turn(user);
     const { HARNESS_EXPORT_PAGE: page, HARNESS_EXPORT_MAX_ROWS: max } = this.#deps.settings;
-    const pageOf = (offset: number): Promise<ResultTable> => this.#call(source.name, { ...args, [query.offset]: offset, [query.limit]: Math.min(page, max - offset) }, {
+    const pageOf = async (offset: number): Promise<ResultTable> => tableOf(source.name, await this.#quiet({
+      fn: source.name, args: { ...args, [query.offset]: offset, [query.limit]: Math.min(page, max - offset) },
       turn: turn.id, key: `export:${String(offset)}`, actor: user.id, caller: user.id, priority: turn.priority,
-    });
+    }, signal));
     // the first page is read before the first byte, so a source that fails or gives no table is refused, not cut short
     const first = await pageOf(0).catch(async (error: unknown) => { await turn.finish(false); throw refusedAs400(error); });
     return { name: `${splitName(source.name).local}.csv`, lines: exportLines(first, pageOf, max, turn) };
@@ -131,10 +130,14 @@ export class HubTables implements TableService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  /** A fn that reads (its mode worked out deeply, `FnFacts`); refused before anything runs otherwise. */
-  async #readable(name: QualifiedName): Promise<FnRecord> {
+  /**
+   * A fn the person sees that reads (its mode worked out deeply, `FnFacts`); refused before anything runs otherwise. A
+   * fn they may not see is refused as missing before its mode is looked at, so a refusal never reveals it.
+   */
+  async #readable(name: QualifiedName, actor: ActorId): Promise<FnRecord> {
+    const access = await this.#deps.access(actor);
     const source = await this.#deps.catalog().fn(name);
-    if (source === undefined) { throw new RunRefused(fnError('caller', `there is no fn ${name}`, 'no-fn')); }
+    if (source === undefined || !access.seesFn(source)) { throw new RunRefused(fnError('caller', `there is no fn ${name}`, NO_FN)); }
     const mode = (await this.#deps.facts().modes([source.name])).get(source.name) ?? 'write';
     if (mode !== 'read') {
       throw new RunRefused(fnError('caller', `${source.name} ${mode === 'delete' ? 'deletes' : 'writes'}, so it can't be read as a table: pick a fn that reads and returns a table`, NOT_A_READ));
@@ -145,15 +148,55 @@ export class HubTables implements TableService {
   /** Run a fn and read its result as a table; refused when it fails or isn't one. */
   async #call(fn: QualifiedName, args: Json, input: Omit<RunInput, 'fn' | 'args' | 'background' | 'handlers'>): Promise<ResultTable> {
     const started = await this.#deps.runs().start({ ...input, fn, args, background: false, handlers: [] });
-    const settled = await started.settled;
-    if (settled.status !== 'done') {
-      const why = settled.status === 'background' ? 'went to the background' : settled.error?.message ?? settled.status;
-      throw new RunRefused(fnError('caller', `${fn} did not give a table: ${why}`, SOURCE_FAILED));
-    }
-    const table = ResultTable.safeParse(settled.result);
-    if (!table.success) { throw new RunRefused(fnError('caller', `${fn} does not return a table`, NOT_A_TABLE)); }
-    return table.data;
+    return tableOf(fn, await started.settled);
   }
+
+  /** A read fn the person may see, by name: a 404 when they may not see it, a 400 with `code` when it is not a read. */
+  async #seen(name: QualifiedName, actor: ActorId, code: string): Promise<FnRecord> {
+    return this.#readable(name, actor).catch((error: unknown) => {
+      throw error instanceof RunRefused && error.error.code === NO_FN ? reject(404, 'NO_FN', error.error.message) : refusedAs400(error, code);
+    });
+  }
+
+  /**
+   * Run a fn as the person outside any session (a quiet read or an export page) and wait for it. Nobody can approve a
+   * run there, so one that waits for an approval is cancelled and refused at once; the run is also cancelled when the
+   * caller goes away (`signal`) or it runs past `HARNESS_QUIET_READ_TIMEOUT` (a call inside it waiting for approval).
+   */
+  async #quiet(input: Omit<RunInput, 'background' | 'handlers'>, signal?: AbortSignal): Promise<RunSettled> {
+    const runs = this.#deps.runs();
+    const started = await runs.start({ ...input, background: false, handlers: [] });
+    const stop = async (message: string, code: string): Promise<never> => {
+      await runs.cancel(started.run, input.actor);
+      throw new RunRefused(fnError('caller', message, code));
+    };
+    if ((await runs.get(started.run))?.status === 'awaiting-approval') {
+      return stop(`${input.fn} needs an approval before it runs, and there is no chat here to give it in: ask for it in a chat instead`, NEEDS_APPROVAL);
+    }
+    const limit = AbortSignal.timeout(this.#deps.settings.HARNESS_QUIET_READ_TIMEOUT);
+    const ended = signal === undefined ? limit : AbortSignal.any([limit, signal]);
+    const outcome = await new Promise<RunSettled | 'timeout' | 'gone'>((resolve) => {
+      const quit = (): void => { resolve(limit.aborted ? 'timeout' : 'gone'); };
+      if (ended.aborted) { quit(); return; }
+      ended.addEventListener('abort', quit, { once: true });
+      const settle = (to: RunSettled | 'gone'): void => { ended.removeEventListener('abort', quit); resolve(to); };
+      started.settled.then(settle, () => { settle('gone'); });
+    });
+    if (outcome === 'timeout') return stop(`${input.fn} took too long (it may be waiting for an approval) and was stopped`, STOPPED);
+    if (outcome === 'gone') return stop(`${input.fn} was stopped: the request went away`, STOPPED);
+    return outcome;
+  }
+}
+
+/** A settled run's result as a table; refused when it failed or isn't one. */
+function tableOf(fn: QualifiedName, settled: RunSettled): ResultTable {
+  if (settled.status !== 'done') {
+    const why = settled.status === 'background' ? 'went to the background' : settled.error?.message ?? settled.status;
+    throw new RunRefused(fnError('caller', `${fn} did not give a table: ${why}`, SOURCE_FAILED));
+  }
+  const table = ResultTable.safeParse(settled.result);
+  if (!table.success) { throw new RunRefused(fnError('caller', `${fn} does not return a table`, NOT_A_TABLE)); }
+  return table.data;
 }
 
 /** An export's args (JSON text of an object of the fn's args); refused otherwise. */

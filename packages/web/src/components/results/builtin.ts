@@ -24,16 +24,27 @@ const CHART = later(() => import('../visuals/ChartVisual.vue'));
 
 /** Each family's switcher icon (core's icons say what kind of thing it is; these tell the families apart). */
 const FAMILY_ICONS: Readonly<Record<VisualFamily, IconName>> = {
-  table: 'table', value: 'hash', part: 'pie', category: 'chart', time: 'line', distribution: 'scatter', crosstab: 'grid', calendar: 'calendar',
+  table: 'table', value: 'hash', part: 'pie', category: 'chart', time: 'line', distribution: 'scatter', crosstab: 'heatmap', calendar: 'calendar',
   timeline: 'timeline', network: 'graph', hierarchy: 'tree', gauge: 'gauge', finance: 'candles',
 };
+
+/**
+ * Why value cards don't fit a result their shape takes: they show measures, so a result with no number is a table's,
+ * and rows of text (notes, names) become a wall of cut-off tiles past the first row.
+ */
+export function valueVeto(_table: ResultTable, facts: ResultFacts): string | undefined {
+  const shown = facts.columns.filter((column) => !column.opaque);
+  if (!shown.some((column) => column.kind === 'integer' || column.kind === 'number')) { return 'Value cards show numbers, and this has none.'; }
+  if (facts.rows > 1 && shown.some((column) => column.kind === 'text')) { return 'Rows of text read better as a table.'; }
+  return undefined;
+}
 
 /** The table, value cards and the chart families, in registry order. */
 export const OWN_VISUALS: readonly Visual[] = VISUAL_FAMILIES.map((family): Visual => {
   const entry = BUILT_IN_VISUALS[family];
   const component = family === 'table' ? TABLE : family === 'value' ? VALUE : CHART;
   const props = component === CHART ? { family } : component === TABLE && entry.shape.pageSize !== undefined ? { pageSize: entry.shape.pageSize } : undefined;
-  return { name: family, label: entry.label, icon: FAMILY_ICONS[family], shape: entry.shape, component, ...(props === undefined ? {} : { props }) };
+  return { name: family, label: entry.label, icon: FAMILY_ICONS[family], shape: entry.shape, component, ...(props === undefined ? {} : { props }), ...(family === 'value' ? { veto: valueVeto } : {}) };
 });
 
 /** What a result view needs from the page it is on. */
