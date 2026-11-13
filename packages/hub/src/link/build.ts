@@ -7,7 +7,7 @@
  */
 import type { Logger } from '@ayepi/log';
 import type { Peers } from '@ayepi/core';
-import { QualifiedName, WIDGET_KIND, type Json, type SystemLinkSpec } from '@harness/core';
+import { QualifiedName, WIDGET_KIND_V1, type Json, type SystemLinkSpec } from '@harness/core';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
 import { StoreCatalog } from '../catalog/catalog.ts';
@@ -97,7 +97,7 @@ export function buildSystems(options: SystemsOptions) {
 
   const connections = new PeerLinkService({ log, clock, ...(options.peers === undefined ? {} : { peers: options.peers }) });
   // the hub's own kinds are described here (a widget's signature is its source's), every other one by its system
-  const describer = new RoutedKindDescriber(new Map([[WIDGET_KIND, (payload: Json) => describeWidget((name) => catalog.fn(name), payload)]]), new LinkKindDescriber(connections));
+  const describer = new RoutedKindDescriber(new Map([[WIDGET_KIND_V1, (payload: Json) => describeWidget((name) => catalog.fn(name), payload)]]), new LinkKindDescriber(connections));
   const catalog: Catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
   const instances = new InstanceKeeper({ store, bus, catalog, links: connections });
   const configSecrets = new ConfigSecretKeeper(options.secrets);

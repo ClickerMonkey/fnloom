@@ -184,6 +184,13 @@ export const ReadablePayload = z.object({
 export type ReadablePayload = z.infer<typeof ReadablePayload>;
 
 /**
+ * Widget pass: a fn whose rows change on their own (a sensor, a feed), so a widget over it may refresh itself while
+ * shown: at most every `every` ms, never below the hub's floor, one run in flight. Hub record changes are not this.
+ */
+export const FnLive = z.object({ every: Duration.min(1000) });
+export type FnLive = z.infer<typeof FnLive>;
+
+/**
  * A fn. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a payload; the hub
  * asks the kind's system to describe it and checks the result against the declared signature.
  */
@@ -238,6 +245,8 @@ export const FnDecl = z.object({
    * link, `sensitivity.ts`), and refuses, asks or goes ahead by the answer.
    */
   flags: z.boolean().optional(),
+  /** Widget pass: its rows change on their own, so widgets over it may refresh while shown. */
+  live: FnLive.optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 

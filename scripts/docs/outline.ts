@@ -122,7 +122,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'widgets',
     title: 'Visuals and widgets',
     exports: [
-      'HUB_VISUALS', 'WIDGET_KIND', 'visual', 'VisualInput', 'channel', 'fittingVisuals', 'FittingVisual', 'DECLARED_FIT_SCORE', 'visualMatch',
+      'HUB_VISUALS', 'WIDGET_KIND_V1', 'visual', 'VisualInput', 'channel', 'fittingVisuals', 'FittingVisual', 'DECLARED_FIT_SCORE', 'visualMatch',
       'widgetArgs', 'widgetControls', 'WidgetControlView', 'checkWidget', 'WidgetCheckInput', 'WidgetCheckResult', 'widgetSpecSchema', 'WidgetSchemaInput', 'widgetActionOptions', 'RowFn',
     ],
   },

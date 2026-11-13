@@ -3,7 +3,7 @@
  * check finds (and which visuals survive), the strict authoring schema, the derived row actions, a visual judged by its
  * declared shape alone, and an authoring agent that skips `find` and names its tools for widgets.
  */
-import { mintId, type GinTypeDef, type LlmForward, type LlmForwardChunk, type ResultTable, type WidgetSpec } from '@harness/core';
+import { mintId, type GinTypeDef, type LlmForward, type LlmForwardChunk, type ResultTable, type WidgetSpecV1 } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { defineComponent } from 'vue';
 import { z } from 'zod';
@@ -26,7 +26,7 @@ const TABLE: ResultTable = {
   offset: 0, limit: 2, truncated: true, sort: [],
 };
 
-const SPEC: WidgetSpec = {
+const SPEC: WidgetSpecV1 = {
   title: 'Open tasks by owner',
   source: 'tasks/open_by_owner',
   visuals: [{ visual: 'bar', bind: { label: ['owner'], value: ['open'] } }],
@@ -60,7 +60,7 @@ describe('a widget spec', () => {
 
   it('checks clean against a real result, and lists every problem of a broken one', () => {
     expect(checkWidget(SPEC, { args: SOURCE_ARGS, table: TABLE, visuals: VISUALS })).toEqual({ visuals: SPEC.visuals, problems: [] });
-    const broken: WidgetSpec = {
+    const broken: WidgetSpecV1 = {
       ...SPEC,
       visuals: [{ visual: 'bar', bind: { label: ['open'], size: ['open'] } }, { visual: 'map', bind: {} }, { visual: 'pie', bind: { value: ['missing'] } }],
       controls: [{ arg: 'status', hidden: true }, { arg: 'nope' }],
@@ -119,10 +119,10 @@ const offered = (forward: LlmForward | undefined): string[] => (forward?.request
 describe('an authoring agent for widgets', () => {
   it('skips find, drafts with widget_check against the strict schema and saves with widget_save', async () => {
     const saved: AuthoredFn = { fn: 'hub/open_by_owner_widget', version: 1, signature: 'hub/open_by_owner_widget(owner?: text)', about: 'Open tasks by owner.', reused: false, call: 'hub/open_by_owner_widget({})' };
-    const source = authoringTool<{ table: ResultTable }, WidgetSpec, object>({
+    const source = authoringTool<{ table: ResultTable }, WidgetSpecV1, object>({
       name: 'widget_source', stage: 'inspect', description: 'The source args and a sample.', schema: z.object({}), call: () => 'owner: text, open: integer',
     });
-    const agent = authoringAgent<{ table: ResultTable }, WidgetSpec>({
+    const agent = authoringAgent<{ table: ResultTable }, WidgetSpecV1>({
       name: 'make_widget', description: 'Make a widget.', instructions: 'Inspect the source, draft, check, save.', tools: [source],
       stages: { find: false }, toolNames: { draft: 'widget_check', save: 'widget_save' },
       draft: { description: 'The widget spec.', schema: (s) => widgetSpecSchema({ source: SPEC.source, args: SOURCE_ARGS, columns: s.state.table.columns, visuals: fittingVisuals(s.state.table, VISUALS, true) }) },
@@ -138,8 +138,8 @@ describe('an authoring agent for widgets', () => {
   });
 
   it('refuses find tools when it skips find', () => {
-    const search = authoringTool<object, WidgetSpec, object>({ name: 'search', stage: 'find', description: 'x', schema: z.object({}), call: () => '' });
-    expect(() => authoringAgent<object, WidgetSpec>({
+    const search = authoringTool<object, WidgetSpecV1, object>({ name: 'search', stage: 'find', description: 'x', schema: z.object({}), call: () => '' });
+    expect(() => authoringAgent<object, WidgetSpecV1>({
       name: 'w', description: 'w', instructions: 'w', tools: [search], stages: { find: false },
       draft: { description: 'x', schema: widgetSpecSchema({ source: SPEC.source, args: SOURCE_ARGS, columns: [], visuals: [] }) },
       check: () => Promise.resolve({ problems: [] }), save: () => Promise.reject(new Error('no')),

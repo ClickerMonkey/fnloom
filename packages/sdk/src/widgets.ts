@@ -1,7 +1,7 @@
 /**
  * Widgets for system authors and for the hub's widget kind (`hub/widget`), after product's widget design. A widget is a
  * saved view of a fn that returns a `ResultTable`: the visuals it switches between with their bindings, a control per
- * source argument, the paging it drives, and the actions offered on each row (`WidgetSpec` in `@harness/core`).
+ * source argument, the paging it drives, and the actions offered on each row (`WidgetSpecV1` in `@harness/core`).
  *
  * These are the pure pieces every side shares, so a fit, a check or a control means the same thing in a system, the
  * hub's kind and `hub/make_widget`, and the web app:
@@ -17,13 +17,13 @@
  *   by the spec, with a confirm for anything above a read (`confirmOf`) and a form for the args left after binding.
  */
 import {
-  ContributionDecl, HUB_VISUALS, Json, LocalName, QualifiedName, WidgetSpec, actionLabel, confirmOf, declaredFit,
-  type ActionThen, type ColumnKind, type FnMode, type GinTypeDef, type ResultColumn, type ResultTable, type VisualChannel, type VisualShape,
-  type WidgetAction, type WidgetActionOption, type WidgetVisual,
+  ContributionDecl, HUB_VISUALS, Json, LocalName, QualifiedName, WidgetSpecV1, actionLabel, confirmOf, declaredFit,
+  type ActionThenV1, type ColumnKind, type FnMode, type GinTypeDef, type ResultColumn, type ResultTable, type VisualChannel, type VisualShape, type VisualShapeInput,
+  type WidgetActionV1, type WidgetActionOptionV1, type WidgetVisualV1,
 } from '@harness/core';
 import { z } from 'zod';
 
-export { HUB_VISUALS, WIDGET_KIND } from '@harness/core';
+export { HUB_VISUALS, WIDGET_KIND_V1 } from '@harness/core';
 
 // ─── Visuals ──────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ export interface VisualInput {
   readonly label: string;
   readonly description?: string;
   readonly icon?: string;
-  readonly shape: VisualShape;
+  readonly shape: VisualShapeInput;
 }
 
 /**
@@ -98,7 +98,7 @@ function argsOf(args: GinTypeDef): ArgInfo[] {
 }
 
 /** The source args the widget's pager drives. */
-function pagingArgs(spec: Pick<WidgetSpec, 'paging'>): Set<string> {
+function pagingArgs(spec: Pick<WidgetSpecV1, 'paging'>): Set<string> {
   return new Set([spec.paging?.offset, spec.paging?.limit].filter((arg): arg is string => arg !== undefined));
 }
 
@@ -106,7 +106,7 @@ function pagingArgs(spec: Pick<WidgetSpec, 'paging'>): Set<string> {
  * The widget's args type (the kind's `describe`): its source's args minus the pinned ones and the page size the widget
  * fixes. The offset arg stays, so the pager asks for another page by running the widget with it.
  */
-export function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, 'controls' | 'paging'>): GinTypeDef {
+export function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpecV1, 'controls' | 'paging'>): GinTypeDef {
   const size = spec.paging?.limit;
   const dropped = new Set([...(size === undefined ? [] : [size]), ...spec.controls.filter((control) => control.pinned !== undefined).map((control) => control.arg)]);
   const props = Object.fromEntries(Object.entries(source.props ?? {}).filter(([name]) => !dropped.has(name)));
@@ -131,7 +131,7 @@ function argLabel(arg: string): string {
 }
 
 /** The controls a widget shows, in its source's arg order: every arg not pinned, hidden or driven by the pager. */
-export function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpec, 'controls' | 'paging'>): WidgetControlView[] {
+export function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpecV1, 'controls' | 'paging'>): WidgetControlView[] {
   const paging = pagingArgs(spec);
   const byArg = new Map(spec.controls.map((control) => [control.arg, control]));
   return argsOf(source).flatMap((arg): WidgetControlView[] => {
@@ -159,7 +159,7 @@ export interface WidgetCheckInput {
 
 /** What `checkWidget` finds: the spec's visuals that still fit, in order, and every problem in words. */
 export interface WidgetCheckResult {
-  readonly visuals: WidgetVisual[];
+  readonly visuals: WidgetVisualV1[];
   readonly problems: string[];
 }
 
@@ -171,7 +171,7 @@ const NUMBER_TYPES: ReadonlySet<string> = new Set(['num']);
  * columns of a kind the channel doesn't take, visuals whose shape doesn't fit, and actions binding missing columns.
  * A visual with a problem leaves `visuals`; the rest keep the spec's order.
  */
-export function checkWidget(spec: WidgetSpec, input: WidgetCheckInput): WidgetCheckResult {
+export function checkWidget(spec: WidgetSpecV1, input: WidgetCheckInput): WidgetCheckResult {
   const problems: string[] = [];
   const args = new Map(argsOf(input.args).map((arg) => [arg.name, arg]));
   const columns = new Map(input.table.columns.map((column) => [column.name, column]));
@@ -197,7 +197,7 @@ export function checkWidget(spec: WidgetSpec, input: WidgetCheckInput): WidgetCh
   }
   const declared = new Map(input.visuals.filter((entry) => entry.registry === HUB_VISUALS).map((entry) => [entry.name, entry]));
   const fitting = new Set(fittingVisuals(input.table, input.visuals, spec.paging !== undefined).map((fit) => fit.name));
-  const visuals: WidgetVisual[] = [];
+  const visuals: WidgetVisualV1[] = [];
   const named = new Set<string>();
   for (const offered of spec.visuals) {
     const before = problems.length;
@@ -223,7 +223,7 @@ export function checkWidget(spec: WidgetSpec, input: WidgetCheckInput): WidgetCh
 }
 
 /** The problems with one visual's bindings: unknown channels, missing columns, kinds the channel doesn't take. */
-function bindingProblems(offered: WidgetVisual, shape: VisualShape, columns: ReadonlyMap<string, ResultColumn>): string[] {
+function bindingProblems(offered: WidgetVisualV1, shape: VisualShape, columns: ReadonlyMap<string, ResultColumn>): string[] {
   const problems: string[] = [];
   const channels = new Map(shape.channels.map((c) => [c.name, c]));
   for (const [name, bound] of Object.entries(offered.bind)) {
@@ -270,7 +270,7 @@ function namesOf(names: readonly string[]): z.ZodType<string> | undefined {
  * source's args, paging names its number args, and an action names one of the row methods. What the schema can't say
  * (a required arg hidden with no value) `checkWidget` catches.
  */
-export function widgetSpecSchema(input: WidgetSchemaInput): z.ZodType<WidgetSpec> {
+export function widgetSpecSchema(input: WidgetSchemaInput): z.ZodType<WidgetSpecV1> {
   const argNames = namesOf(argsOf(input.args).map((arg) => arg.name)) ?? z.never();
   const numberArgs = namesOf(argsOf(input.args).filter((arg) => NUMBER_TYPES.has(arg.type.name)).map((arg) => arg.name)) ?? z.never();
   const columnNames = namesOf(input.columns.map((column) => column.name)) ?? z.never();
@@ -306,7 +306,7 @@ export function widgetSpecSchema(input: WidgetSchemaInput): z.ZodType<WidgetSpec
       then: z.enum(['refresh', 'show', 'none']),
     })).optional().describe('Leave out to offer every action of the row type; [] for none.'),
   });
-  return strict.pipe(WidgetSpec);
+  return strict.pipe(WidgetSpecV1);
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -324,15 +324,15 @@ export interface RowFn {
  * left. A method's value (`self`) is bound by the row's ref, so it never shows in the form. A listed action whose fn
  * isn't a row fn is left out.
  */
-export function widgetActionOptions(rowFns: readonly RowFn[], actions: readonly WidgetAction[] | undefined): WidgetActionOption[] {
+export function widgetActionOptions(rowFns: readonly RowFn[], actions: readonly WidgetActionV1[] | undefined): WidgetActionOptionV1[] {
   const byFn = new Map(rowFns.map((rowFn) => [rowFn.fn, rowFn]));
-  const chosen: Array<{ rowFn: RowFn; action: WidgetAction | undefined }> = actions === undefined
+  const chosen: Array<{ rowFn: RowFn; action: WidgetActionV1 | undefined }> = actions === undefined
     ? rowFns.map((rowFn) => ({ rowFn, action: undefined }))
     : actions.flatMap((action) => { const rowFn = byFn.get(action.fn); return rowFn === undefined ? [] : [{ rowFn, action }]; });
   return chosen.map(({ rowFn, action }) => {
     const bind = action?.bind ?? {};
     const left = Object.fromEntries(Object.entries(rowFn.args.props ?? {}).filter(([name]) => name !== 'self' && !(name in bind)));
-    const then: ActionThen = action?.then ?? (rowFn.mode === 'read' ? 'show' : 'refresh');
+    const then: ActionThenV1 = action?.then ?? (rowFn.mode === 'read' ? 'show' : 'refresh');
     return {
       fn: rowFn.fn,
       label: action?.label ?? actionLabel(rowFn.fn),

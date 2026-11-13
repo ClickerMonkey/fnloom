@@ -47,7 +47,7 @@ import { GraphPage, GraphQuery } from './graph.ts';
 import { HubIdentity, SetHubName } from './identity.ts';
 import { ItemVersionsPage, ItemVersionsQuery } from './versions.ts';
 import { DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordVersionsPage, RecordVersionsQuery } from './data.ts';
-import { WidgetActionOption, WidgetActionsQuery } from './widgets.ts';
+import { WidgetActionOptionV1, WidgetActionsQueryV1 } from './widgets-v1.ts';
 import { ResultTable } from './registries.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
@@ -732,7 +732,7 @@ export const dataSlice = spec({
 /** Widgets: the actions offered on rows of some types, narrowed by a widget (`widgets.ts`). */
 export const widgetsSlice = spec({
   endpoints: use(tel, hubAuth).group({
-    widgetActions: { body: WidgetActionsQuery, response: z.array(WidgetActionOption), ws: 'widgetActions' },
+    widgetActions: { body: WidgetActionsQueryV1, response: z.array(WidgetActionOptionV1), ws: 'widgetActions' },
   }),
 });
 

@@ -4,8 +4,8 @@
  * saved widgets, the actions a note's row offers, and version histories for records and any item.
  */
 import {
-  ApprovalPreview, ChangeSet, DataRecord, SystemName, TypeRecord, WIDGET_KIND, type DataSetPage, type DataSetQuery, type FnSearchPage, type FnSearchQuery, type ItemVersionsPage, type ItemVersionsQuery,
-  type RecordGet, type RecordRemove, type RecordSave, type RecordTableQuery, type RecordVersionsPage, type RecordVersionsQuery, type ResultTable, type WidgetActionOption,
+  ApprovalPreview, ChangeSet, DataRecord, SystemName, TypeRecord, WIDGET_KIND_V1, type DataSetPage, type DataSetQuery, type FnSearchPage, type FnSearchQuery, type ItemVersionsPage, type ItemVersionsQuery,
+  type RecordGet, type RecordRemove, type RecordSave, type RecordTableQuery, type RecordVersionsPage, type RecordVersionsQuery, type ResultTable, type WidgetActionOptionV1,
 } from '@harness/core';
 import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_RECORDS, SAMPLE_SETS, SAMPLE_TABLE, sampleItemVersions, sampleRecordVersions } from '../src/data/test/samples.ts';
 
@@ -136,11 +136,11 @@ export class MockData {
 
   /** The saved widgets, for a fn search by the widget kind; undefined for any other search. */
   widgets(query: FnSearchQuery): FnSearchPage | undefined {
-    if (query.kinds?.includes(WIDGET_KIND) !== true) { return undefined; }
+    if (query.kinds?.includes(WIDGET_KIND_V1) !== true) { return undefined; }
     return {
       items: [
-        { item: 'fn', name: NOTES_WIDGET, system: HUB, description: 'Open notes, with words per note as a bar chart. Archive or rename a note from its row.', kind: WIDGET_KIND, mode: 'read', available: true },
-        { item: 'fn', name: 'hub/orders_by_city', system: HUB, description: "This month's orders per city, from the shop database.", kind: WIDGET_KIND, mode: 'read', available: false, unavailable: 'The database system is offline.' },
+        { item: 'fn', name: NOTES_WIDGET, system: HUB, description: 'Open notes, with words per note as a bar chart. Archive or rename a note from its row.', kind: WIDGET_KIND_V1, mode: 'read', available: true },
+        { item: 'fn', name: 'hub/orders_by_city', system: HUB, description: "This month's orders per city, from the shop database.", kind: WIDGET_KIND_V1, mode: 'read', available: false, unavailable: 'The database system is offline.' },
       ],
     };
   }
@@ -153,7 +153,7 @@ export class MockData {
     })];
   }
 
-  actions(): WidgetActionOption[] {
+  actions(): WidgetActionOptionV1[] {
     return [...SAMPLE_ACTIONS];
   }
 

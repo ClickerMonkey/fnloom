@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionLabel, confirmOf, declaredFit, flagsVerdict, hubNameOf, type ResultTable, type SensitivityFlag, type VisualShape } from './index.ts';
+import { VisualShape, actionLabel, confirmOf, declaredFit, flagsVerdict, hubNameOf, type ResultTable, type SensitivityFlag } from './index.ts';
 
 const flag = (over: Partial<SensitivityFlag>): SensitivityFlag => ({ path: '.env', kind: 'env', rule: 'env-files', access: 'read', action: 'ask', why: 'Env files hold keys.', certain: true, ...over });
 
@@ -27,7 +27,7 @@ describe('build 8 contracts', () => {
   });
 
   it('fits a declared shape by channel kinds, row range and wholeness', () => {
-    const shape: VisualShape = { channels: [{ name: 'label', label: 'Label', accepts: ['text'], required: true, many: false }, { name: 'value', label: 'Value', accepts: ['number', 'integer'], required: true, many: false }], rows: { min: 2, max: 3 }, whole: true };
+    const shape = VisualShape.parse({ channels: [{ name: 'label', label: 'Label', accepts: ['text'], required: true, many: false }, { name: 'value', label: 'Value', accepts: ['number', 'integer'], required: true, many: false }], rows: { min: 2, max: 3 }, whole: true });
     const table: ResultTable = { columns: [{ name: 'a', kind: 'text', nullable: false }, { name: 'b', kind: 'integer', nullable: false }], rows: [['x', 1], ['y', 2]], offset: 0, truncated: false, sort: [] };
     expect(declaredFit(shape, table)).toEqual({ fits: true });
     expect(declaredFit(shape, { ...table, truncated: true }).fits).toBe(false);

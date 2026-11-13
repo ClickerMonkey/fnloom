@@ -8,7 +8,7 @@
  * binding, a confirm for anything that is not a read, and nothing runs until a person clicks. Without a widget host
  * (a page that can't run fns) it draws read-only.
  */
-import { HUB_VISUALS, QualifiedName, type Json, type WidgetActionOption, type WidgetResult } from '@harness/core';
+import { HUB_VISUALS, QualifiedName, type Json, type WidgetActionOptionV1, type WidgetResultV1 } from '@harness/core';
 import { computed, inject, onMounted, ref, watch } from 'vue';
 import GinForm from '../../gin/GinForm.vue';
 import { UiBanner, UiButton, UiDialog, UiIconButton, UiSelect, type SelectOption } from '../../ui/index.ts';
@@ -19,7 +19,7 @@ import { WidgetState } from './widget-state.ts';
 import { ACTION_MODE_WORDS, boundTable, choiceValue, confirmText, offeredVisuals, rowName, shownControls, WIDGET_HOST, type ControlShown } from './widgets.ts';
 
 const props = withDefaults(defineProps<{
-  result: WidgetResult;
+  result: WidgetResultV1;
   /** The widget fn that made it, and the args it ran with (its controls' values). */
   fn?: QualifiedName | undefined;
   args?: Json | undefined;
@@ -80,7 +80,7 @@ const rows = computed((): RowOpener | undefined => {
 onMounted(() => { void results.prepare(registry); });
 watch(() => props.result.table, (table) => { void state?.load(table); }, { immediate: true });
 
-async function pick(option: WidgetActionOption): Promise<void> {
+async function pick(option: WidgetActionOptionV1): Promise<void> {
   if (state === undefined) { return; }
   state.choose(option);
   if (state.runsAtOnce) { await state.run(props.result.table); }

@@ -4,7 +4,7 @@
  * then what follows (`then`: run the widget again, or leave its result to show as its own run). Changing a control,
  * paging or refreshing runs the widget again as a new run; nothing runs until a person clicks.
  */
-import type { Json, QualifiedName, ResultTable, WidgetActionOption, WidgetResult } from '@harness/core';
+import type { Json, QualifiedName, ResultTable, WidgetActionOptionV1, WidgetResultV1 } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import { Loaded, Task } from '../../state/loaded.ts';
 import { actionArgs, argsObject, boundArgs, rowActions, rowTypes, type WidgetHost } from './widgets.ts';
@@ -23,12 +23,12 @@ export class WidgetState {
   readonly #host: WidgetHost;
   readonly #source: () => WidgetSource;
   /** The actions rows of this table's types offer. */
-  readonly options = new Loaded<readonly WidgetActionOption[]>();
+  readonly options = new Loaded<readonly WidgetActionOptionV1[]>();
   /** The row whose actions are open, with the actions it can take. */
   readonly row = shallowRef<readonly Json[] | undefined>(undefined);
-  readonly offered = shallowRef<readonly WidgetActionOption[]>([]);
+  readonly offered = shallowRef<readonly WidgetActionOptionV1[]>([]);
   /** The action picked for the row, and what it waits for. */
-  readonly picked = shallowRef<WidgetActionOption | undefined>(undefined);
+  readonly picked = shallowRef<WidgetActionOptionV1 | undefined>(undefined);
   readonly step = ref<ActionStep>('choose');
   readonly running = new Task();
   /** Whether the row's actions are open. */
@@ -66,7 +66,7 @@ export class WidgetState {
   }
 
   /** Pick an action: its form first when it has args left, else its confirm when it asks, else ready to run. */
-  choose(option: WidgetActionOption): void {
+  choose(option: WidgetActionOptionV1): void {
     this.picked.value = option;
     this.step.value = option.form !== undefined ? 'form' : 'confirm';
   }
@@ -99,7 +99,7 @@ export class WidgetState {
   }
 
   /** Run the widget for the page at `offset` (its paging arg set to it, every other arg kept). */
-  async page(paging: NonNullable<WidgetResult['paging']>, offset: number): Promise<boolean> {
+  async page(paging: NonNullable<WidgetResultV1['paging']>, offset: number): Promise<boolean> {
     return this.apply({ ...argsObject(this.#source().args), [paging.arg]: Math.max(0, Math.floor(offset)) });
   }
 

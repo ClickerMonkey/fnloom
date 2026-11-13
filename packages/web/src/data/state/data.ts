@@ -6,8 +6,8 @@
  * a page; nothing here holds a whole set.
  */
 import {
-  WIDGET_KIND, type DataRecord, type DataSetView, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordTableQuery,
-  type RecordVersion, type ResultTable, type SystemName, type WidgetActionOption,
+  WIDGET_KIND_V1, type DataRecord, type DataSetView, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordTableQuery,
+  type RecordVersion, type ResultTable, type SystemName, type WidgetActionOptionV1,
 } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import { Loaded, Paged, Task } from '../../state/loaded.ts';
@@ -50,7 +50,7 @@ export class DataStore {
     this.widgets = new Paged<FnSearchHit, string>({
       fetch: async (text, cursor, limit) => {
         const offset = cursor === undefined ? 0 : Number(cursor);
-        const page = await this.#fns.searchFns.call({ kinds: [WIDGET_KIND], items: ['fn'], limit, offset, ...(text === '' ? {} : { text }) });
+        const page = await this.#fns.searchFns.call({ kinds: [WIDGET_KIND_V1], items: ['fn'], limit, offset, ...(text === '' ? {} : { text }) });
         return { items: page.items, ...(page.next === undefined ? {} : { cursor: String(page.next) }) };
       },
       key: (hit) => hit.name,
@@ -60,7 +60,7 @@ export class DataStore {
   }
 
   /** The actions rows of these types offer, narrowed by a widget when given. */
-  async widgetActions(types: readonly QualifiedName[], widget: QualifiedName | undefined): Promise<readonly WidgetActionOption[]> {
+  async widgetActions(types: readonly QualifiedName[], widget: QualifiedName | undefined): Promise<readonly WidgetActionOptionV1[]> {
     return this.#api.widgetActions.call({ types: [...types], ...(widget === undefined ? {} : { widget }) });
   }
 

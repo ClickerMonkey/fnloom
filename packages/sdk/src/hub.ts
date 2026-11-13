@@ -10,7 +10,7 @@
  */
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  graphSlice, versionsSlice, dataSlice, COLUMN_KINDS, GinTypeDef, Json, LocalName, MakeWidgetArgs, QualifiedName, ResultTable, VisualChannel, WIDGET_KIND, WidgetCheck, WidgetSpec, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  graphSlice, versionsSlice, dataSlice, COLUMN_KINDS, GinTypeDef, Json, LocalName, MakeWidgetArgsV1, QualifiedName, ResultTable, VisualChannel, WIDGET_KIND_V1, WidgetCheckV1, WidgetSpecV1, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
   FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule, type RegistryEffect,
 } from '@harness/core';
@@ -572,7 +572,7 @@ export const WidgetVisualFit = z.object({ visual: z.string(), label: z.string(),
 /** `hub/widget_check`'s answer: every problem (none when the spec is fine), and the visuals that still fit. */
 export const WidgetCheckAnswer = z.object({ problems: z.array(z.string()), visuals: z.array(z.string()) });
 /** `hub/widget_save`: the widget's name, one line about it, its spec, and whether to save over a widget of that name. */
-export const WidgetSaveArgs = z.object({ name: LocalName, description: z.string().min(1), spec: WidgetSpec, replace: z.boolean().optional() });
+export const WidgetSaveArgs = z.object({ name: LocalName, description: z.string().min(1), spec: WidgetSpecV1, replace: z.boolean().optional() });
 
 /** The widget agent's instructions (`hub/make_widget`), after product's widget-authoring lessons. */
 const MAKE_WIDGET = [
@@ -616,7 +616,7 @@ export const hub = system('hub', {
       widget: kind({
         description: 'A widget: a saved view of a fn that returns a table, drawn with the visuals that fit it, with a control per arg, a pager and row actions.',
         applicability: 'Use when a person wants to keep a table or chart of a fn\'s result to look at again (made by hub/make_widget).',
-        payload: ginAs(WidgetSpec),
+        payload: ginAs(WidgetSpecV1),
       }),
       llm: kind({
         description: 'An agent: an LLM with instructions, tools and context, callable like any fn.',
@@ -846,14 +846,14 @@ export const hub = system('hub', {
           description: 'Check a widget spec against a sample of its source\'s result: every problem in words, and the visuals that still fit.',
           instructions: 'Call it with the spec you wrote and the sample from hub/widget_source; fix every problem and check again before saving.',
           examples: [{ args: { spec: { title: 'Open tasks', source: 'hub/records_table', visuals: [{ visual: 'table', bind: {} }], controls: [] }, sample: { columns: [], rows: [], offset: 0, truncated: false, sort: [] } } }],
-          args: ginAs(WidgetCheck), returns: ginAs(WidgetCheckAnswer), tags: [READ_TAG], display: 'hidden',
+          args: ginAs(WidgetCheckV1), returns: ginAs(WidgetCheckAnswer), tags: [READ_TAG], display: 'hidden',
         }),
         widget_save: fn({
           description: 'Save a widget (a fn of the hub\'s widget kind) from a checked spec, or replace one of that name.',
           instructions: 'Call it last, once hub/widget_check finds no problem. Name it in snake_case after what it shows (`open_tasks_by_person`); give `replace` only to change a widget the person asked to change.',
           examples: [{ args: { name: 'open_tasks', description: 'Open tasks, soonest first.', spec: { title: 'Open tasks', source: 'hub/records_table', visuals: [{ visual: 'table', bind: {} }], controls: [{ arg: 'type', pinned: 'tasks/Task' }] } } }],
           args: ginAs(WidgetSaveArgs), returns: g.obj({ fn: g.text(), created: g.bool() }),
-          effects: { registry: [{ thing: 'fns', action: 'create', kind: WIDGET_KIND }, { thing: 'fns', action: 'update', kind: WIDGET_KIND }] },
+          effects: { registry: [{ thing: 'fns', action: 'create', kind: WIDGET_KIND_V1 }, { thing: 'fns', action: 'update', kind: WIDGET_KIND_V1 }] },
         }),
         make_widget: kinds.llm.fn({
           description: 'Make or change a widget: a saved view of a fn\'s table result, with the visuals, controls, paging and row actions the person asks for.',
@@ -867,7 +867,7 @@ export const hub = system('hub', {
             tools: ['hub/widget_source', 'hub/widget_visuals', 'hub/widget_check', 'hub/widget_save'],
             canLoad: {}, maxTools: 8, context: [], hooks: [], toolExecution: 'sequential', maxIterations: 12,
           },
-          args: ginAs(MakeWidgetArgs),
+          args: ginAs(MakeWidgetArgsV1),
           returns: g.text(),
         }),
         chat: kinds.llm.fn({

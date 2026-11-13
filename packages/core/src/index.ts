@@ -37,8 +37,9 @@
  * - `lifecycle`: installed vs live, reviews, item switches and refusals.
  * - `graph`: the graph of systems' items and their relations.
  * - build 8: `sensitivity` (sensitive files and their rules), `changes` (what a command changed), `identity` (the hub's
- *   display name), `versions` (every item's version history), `data` (the data system's records), `widgets` (widget
- *   specs, actions and visual shapes), `api-index` (API groups and their index items), `mention-search` (resource
+ *   display name), `versions` (every item's version history), `data` (the data system's records), widget pass: `visuals` (column facts,
+ *   coverage-first ranking, the built-in families), `widgets` (the `widgets` system's specs, results, actions and
+ *   routing) and `widgets-v1` (build 8's hub widget contracts, for the migration), `api-index` (API groups and their index items), `mention-search` (resource
  *   search tied to a mention request).
  */
 export * from './primitives.ts';
@@ -93,6 +94,8 @@ export * from './changes.ts';
 export * from './identity.ts';
 export * from './versions.ts';
 export * from './data.ts';
+export * from './visuals.ts';
 export * from './widgets.ts';
+export * from './widgets-v1.ts';
 export * from './api-index.ts';
 export * from './mention-search.ts';

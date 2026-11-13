@@ -58,7 +58,7 @@ export {
   type ResourceViewerEntry, type ResourceViewerMode, type BareViewer, type VisualView, type VisualEntry, type VisualOption, type VisualSource, DECLARED_FIT_SCORE, visualMatch,
 } from './client.ts';
 export {
-  HUB_VISUALS, WIDGET_KIND, channel, visual, fittingVisuals, widgetArgs, widgetControls, checkWidget, widgetSpecSchema, widgetActionOptions,
+  HUB_VISUALS, WIDGET_KIND_V1, channel, visual, fittingVisuals, widgetArgs, widgetControls, checkWidget, widgetSpecSchema, widgetActionOptions,
   type VisualInput, type FittingVisual, type WidgetControlView, type WidgetCheckInput, type WidgetCheckResult, type WidgetSchemaInput, type RowFn,
 } from './widgets.ts';
 export { expectType, type Equal, type Simplify } from './util.ts';

@@ -3,7 +3,7 @@
  * `hub/make_widget` works with, and the actions a row offers. The pure parts (args, checks, fits, action options) are
  * the SDK's (`@harness/sdk` widgets), so a fit or a check means the same thing here, in systems and in the web app.
  *
- * - **Describe:** a widget's args are its source's minus the pinned and paging ones; it returns a `WidgetResult`,
+ * - **Describe:** a widget's args are its source's minus the pinned and paging ones; it returns a `WidgetResultV1`,
  *   depends on its source, and does to data what its source does.
  * - **Run:** the source runs as a child run (cost, approval and provenance as for any call) with the pinned values and
  *   the first page; the spec's bindings are checked against the real columns, and a binding that no longer fits is a
@@ -12,10 +12,10 @@
  *   the widget; anything that is not a read confirms first.
  */
 import {
-  HUB_VISUALS, Json, jsonOf, KindDescription, qualify, SystemName, ResultTable, splitName, WIDGET_KIND, WidgetSpec,
-  type ActorId, type ContributionDecl, type FnDecl, type FnRecord, type QualifiedName, type RunId, type RunInfo, type WidgetActionOption,
-  type WidgetActionsQuery, type WidgetCheck, type WidgetVisual,
-  WidgetResult,
+  HUB_VISUALS, Json, jsonOf, KindDescription, qualify, SystemName, ResultTable, splitName, WIDGET_KIND_V1, WidgetSpecV1,
+  type ActorId, type ContributionDecl, type FnDecl, type FnRecord, type QualifiedName, type RunId, type RunInfo, type WidgetActionOptionV1,
+  type WidgetActionsQueryV1, type WidgetCheckV1, type WidgetVisualV1,
+  WidgetResultV1,
 } from '@harness/core';
 import { checkWidget, fittingVisuals, ginAs, SAVE_FN_TAKEN, widgetActionOptions, widgetArgs, widgetControls, wireType, type RowFn } from '@harness/sdk';
 import { allRows } from '../store/rows.ts';
@@ -29,7 +29,7 @@ import type { HubStore } from '../store/index.ts';
 import type { AccessScope, AccessService } from '../access/index.ts';
 
 /** The table visual every result fits; a widget always offers it last. */
-const TABLE_VISUAL: WidgetVisual = { visual: 'table', bind: {} };
+const TABLE_VISUAL: WidgetVisualV1 = { visual: 'table', bind: {} };
 
 /**
  * The sample args an authoring tool was given, as an object of the source's args. A model in strict tool mode sends a
@@ -76,14 +76,14 @@ type Asking = Pick<RunInfo, 'id' | 'turn' | 'user' | 'session' | 'caller'>;
  * to data what its source does.
  */
 export async function describeWidget(fnOf: (name: QualifiedName) => Promise<FnRecord | undefined>, payload: Json): Promise<{ problems: string[]; description?: KindDescription }> {
-  const spec = WidgetSpec.safeParse(payload);
+  const spec = WidgetSpecV1.safeParse(payload);
   if (!spec.success) { return { problems: spec.error.issues.map((issue) => `${issue.path.join('.') || 'payload'}: ${issue.message}`) }; }
   const source = await fnOf(spec.data.source);
   if (source === undefined) { return { problems: [`there is no fn ${spec.data.source} to draw`] }; }
   return {
     problems: [],
     description: KindDescription.parse({
-      args: widgetArgs(source.decl.args, spec.data), returns: wireType(ginAs(WidgetResult)), deps: [source.name],
+      args: widgetArgs(source.decl.args, spec.data), returns: wireType(ginAs(WidgetResultV1)), deps: [source.name],
       operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card',
       ...(source.decl.effects === undefined ? {} : { effects: source.decl.effects }),
       ...(source.decl.approval === undefined ? {} : { approval: source.decl.approval }),
@@ -100,8 +100,8 @@ export class WidgetService {
   }
 
   /** Run a widget: its source as a child run, the bindings checked against what came back. */
-  async run(fn: FnRecord, args: Json, run: Asking): Promise<WidgetResult> {
-    const spec = WidgetSpec.parse(fn.decl.payload);
+  async run(fn: FnRecord, args: Json, run: Asking): Promise<WidgetResultV1> {
+    const spec = WidgetSpecV1.parse(fn.decl.payload);
     const source = await this.#readSource(spec.source);
     const pinned = Object.fromEntries(spec.controls.flatMap((control) => (control.pinned === undefined ? [] : [[control.arg, control.pinned]])));
     const given = typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
@@ -116,7 +116,7 @@ export class WidgetService {
     const check = checkWidget(spec, { args: source.decl.args, table, visuals: await this.#visuals() });
     const visuals = [...check.visuals.filter((v) => v.visual !== TABLE_VISUAL.visual), ...check.visuals.filter((v) => v.visual === TABLE_VISUAL.visual)];
     const controls = widgetControls(source.decl.args, spec).map(({ arg, label, choices, custom }) => ({ arg, label, custom, ...(choices === undefined ? {} : { choices }) }));
-    return WidgetResult.parse({
+    return WidgetResultV1.parse({
       title: spec.title, table, source: { fn: source.name, run: child },
       visuals: visuals.some((v) => v.visual === TABLE_VISUAL.visual) ? visuals : [...visuals, TABLE_VISUAL], problems: check.problems,
       ...(offsetArg === undefined || spec.paging === undefined ? {} : { paging: { arg: offsetArg, size: spec.paging.size } }),
@@ -137,7 +137,7 @@ export class WidgetService {
   }
 
   /** `hub/widget_check`: every problem with a spec against a sample, and the visuals that still fit. */
-  async check(input: WidgetCheck): Promise<{ problems: string[]; visuals: string[] }> {
+  async check(input: WidgetCheckV1): Promise<{ problems: string[]; visuals: string[] }> {
     const source = await this.#deps.catalog().fn(input.spec.source);
     if (source === undefined) { return { problems: [`there is no fn ${input.spec.source}`], visuals: [] }; }
     const check = checkWidget(input.spec, { args: source.decl.args, table: input.sample, visuals: await this.#visuals() });
@@ -148,14 +148,14 @@ export class WidgetService {
    * `hub/widget_save`: declare the widget as a fn of the hub's widget kind, as the run's person. A new widget is
    * private to them; only its owner (or an admin) saves over one.
    */
-  async save(input: { name: string; description: string; spec: WidgetSpec; replace?: boolean | undefined }, run: Asking): Promise<{ fn: QualifiedName; created: boolean }> {
+  async save(input: { name: string; description: string; spec: WidgetSpecV1; replace?: boolean | undefined }, run: Asking): Promise<{ fn: QualifiedName; created: boolean }> {
     const checked = await this.check({ spec: input.spec, sample: { columns: [], rows: [], offset: 0, truncated: false, sort: [] } });
     // only problems the spec has whatever the data (a missing source) stop a save; bindings were checked on a sample
     if (checked.problems.some((p) => p.startsWith('there is no fn'))) { throw new InvalidArgs(checked.problems.join('; ')); }
     const name = qualify(HUB_SYSTEM, input.name);
     const existing = await this.#deps.catalog().fn(name);
     if (existing !== undefined && input.replace !== true) { throw new RunRefused(fnError('caller', `${name} is taken: pick another name, or save over it with replace`, SAVE_FN_TAKEN)); }
-    if (existing !== undefined && existing.decl.kind !== WIDGET_KIND) { throw new RunRefused(fnError('caller', `${name} is not a widget and can't be saved over`, SAVE_FN_TAKEN)); }
+    if (existing !== undefined && existing.decl.kind !== WIDGET_KIND_V1) { throw new RunRefused(fnError('caller', `${name} is not a widget and can't be saved over`, SAVE_FN_TAKEN)); }
     const person = run.user.id;
     if (existing !== undefined) {
       const [sharing, access] = await Promise.all([this.#deps.sharing().sharing({ kind: 'fn', fn: name }), this.#deps.access(person)]);
@@ -163,7 +163,7 @@ export class WidgetService {
     }
     await this.#readSource(input.spec.source);
     const decl: FnDecl = {
-      name: input.name, description: input.description, kind: WIDGET_KIND, payload: jsonOf(input.spec),
+      name: input.name, description: input.description, kind: WIDGET_KIND_V1, payload: jsonOf(input.spec),
       // its kind works out the signature from the payload
       args: { name: 'any' }, returns: { name: 'any' }, deps: [], handlers: {}, progress: { type: 'none' },
       operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {}, visibility: 'both', tags: [], group: 'widgets',
@@ -179,10 +179,10 @@ export class WidgetService {
    * The actions rows of these types offer, as the person may use them: each type's methods, or a widget's own list,
    * which narrows and relabels them and may bind any other fn to the row's columns.
    */
-  async actions(query: WidgetActionsQuery, actor: ActorId): Promise<WidgetActionOption[]> {
+  async actions(query: WidgetActionsQueryV1, actor: ActorId): Promise<WidgetActionOptionV1[]> {
     const access = await this.#deps.access(actor);
     const widget = query.widget === undefined ? undefined : await this.#deps.catalog().fn(query.widget);
-    const parsed = widget?.decl.kind === WIDGET_KIND ? WidgetSpec.safeParse(widget.decl.payload) : undefined;
+    const parsed = widget?.decl.kind === WIDGET_KIND_V1 ? WidgetSpecV1.safeParse(widget.decl.payload) : undefined;
     const listed = parsed?.success === true ? parsed.data.actions : undefined;
     const usable = new Map<QualifiedName, FnRecord>();
     const take = async (name: QualifiedName): Promise<void> => {

@@ -4,7 +4,7 @@
  * histories. Plain values only, so the mock hub can serve them too.
  */
 import {
-  DataRecord, DataSetView, ItemVersionRecord, QualifiedName, RecordVersion, ResultTable, WidgetActionOption, WidgetResult,
+  DataRecord, DataSetView, ItemVersionRecord, QualifiedName, RecordVersion, ResultTable, WidgetActionOptionV1, WidgetResultV1,
 } from '@harness/core';
 
 /** The stored type the samples are of. */
@@ -47,7 +47,7 @@ export const SAMPLE_TABLE: ResultTable = ResultTable.parse({
 });
 
 /** A widget's result over the notes, offering a bar chart of words per title and the table. */
-export const SAMPLE_WIDGET: WidgetResult = WidgetResult.parse({
+export const SAMPLE_WIDGET: WidgetResultV1 = WidgetResultV1.parse({
   title: 'Open notes',
   table: SAMPLE_TABLE,
   source: { fn: 'hub/records_table', run: 'run_widget_source' },
@@ -59,7 +59,7 @@ export const SAMPLE_WIDGET: WidgetResult = WidgetResult.parse({
  * A widget over the notes with controls and paging: Status limited to its choices (a select), Owner typed freely, and
  * the second page of three (more follow).
  */
-export const SAMPLE_PAGED_WIDGET: WidgetResult = WidgetResult.parse({
+export const SAMPLE_PAGED_WIDGET: WidgetResultV1 = WidgetResultV1.parse({
   title: 'Notes by status',
   table: { ...SAMPLE_TABLE, offset: 3, total: 9, truncated: true },
   source: { fn: 'hub/records_table', run: 'run_widget_paged' },
@@ -70,7 +70,7 @@ export const SAMPLE_PAGED_WIDGET: WidgetResult = WidgetResult.parse({
 });
 
 /** What a note's row offers: archive it (a write, so it confirms) and rename it (a form for the new title). */
-export const SAMPLE_ACTIONS: readonly WidgetActionOption[] = WidgetActionOption.array().parse([
+export const SAMPLE_ACTIONS: readonly WidgetActionOptionV1[] = WidgetActionOptionV1.array().parse([
   { fn: 'notes/Note.archive', label: 'Archive', mode: 'write', confirm: true, bind: { self: 'id' }, then: 'refresh' },
   { fn: 'notes/Note.rename', label: 'Rename', mode: 'write', confirm: true, bind: { self: 'id' }, form: { name: 'obj', props: { title: { type: { name: 'text' } } } }, then: 'refresh' },
 ]);

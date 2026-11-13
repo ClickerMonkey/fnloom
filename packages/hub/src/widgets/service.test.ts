@@ -1,6 +1,6 @@
 import {
   ActorId, IDS, Json, noFnStats, QualifiedName, SystemName, TurnId,
-  type FnDecl, type FnRecord, type ImportReport, type Manifest, type ResultTable, type RunSettled, type UserInfo, type WidgetSpec,
+  type FnDecl, type FnRecord, type ImportReport, type Manifest, type ResultTable, type RunSettled, type UserInfo, type WidgetSpecV1,
 } from '@harness/core';
 import { fn, g, manifestOf, system, type, hub as hubContract } from '@harness/sdk';
 import { systemRow } from '../catalog/fixtures.ts';
@@ -39,7 +39,7 @@ const TABLE: ResultTable = {
   columns: [{ name: 'title', kind: 'text', nullable: false }, { name: 'id', kind: 'text', nullable: false, ref: QualifiedName.parse('tasks/Task') }],
   rows: [['Pay rent', 'rec_1']], offset: 0, truncated: false, sort: [],
 };
-const SPEC: WidgetSpec = {
+const SPEC: WidgetSpecV1 = {
   title: 'Open tasks', source: TASKS, visuals: [{ visual: 'table', bind: {} }, { visual: 'bars', bind: { value: ['stars'] } }],
   controls: [{ arg: 'owner', pinned: 'ann' }], paging: { offset: 'offset', limit: 'limit', size: 25 },
 };

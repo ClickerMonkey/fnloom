@@ -5,15 +5,15 @@
  * them. The host a widget is drawn in (`WidgetHost`) runs what it asks for, so the view knows nothing of where it is.
  */
 import {
-  ResultTable, WidgetResult, type FnMode, type GinTypeDef, type Json, type QualifiedName, type WidgetActionOption, type WidgetShownControl, type WidgetVisual,
+  ResultTable, WidgetResultV1, type FnMode, type GinTypeDef, type Json, type QualifiedName, type WidgetActionOptionV1, type WidgetShownControlV1, type WidgetVisualV1,
 } from '@harness/core';
 import type { InjectionKey } from 'vue';
 import { TABLE_VISUAL, type FittingVisual } from '../results/visuals.ts';
 
 /** A run result as a widget's, when it is one. */
-export function widgetResultOf(value: Json | undefined): WidgetResult | undefined {
+export function widgetResultOf(value: Json | undefined): WidgetResultV1 | undefined {
   if (value === undefined) { return undefined; }
-  const parsed = WidgetResult.safeParse(value);
+  const parsed = WidgetResultV1.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -45,7 +45,7 @@ export function rowTypes(table: Pick<ResultTable, 'columns'>): QualifiedName[] {
  * The args an action takes from a row: each bound argument gets its column's value. Undefined when a bound column is
  * missing from the table or empty in this row, so the row doesn't offer it.
  */
-export function boundArgs(option: Pick<WidgetActionOption, 'bind'>, table: Pick<ResultTable, 'columns'>, row: readonly Json[]): Record<string, Json> | undefined {
+export function boundArgs(option: Pick<WidgetActionOptionV1, 'bind'>, table: Pick<ResultTable, 'columns'>, row: readonly Json[]): Record<string, Json> | undefined {
   const args: Record<string, Json> = {};
   for (const [arg, column] of Object.entries(option.bind)) {
     const at = table.columns.findIndex((c) => c.name === column);
@@ -57,7 +57,7 @@ export function boundArgs(option: Pick<WidgetActionOption, 'bind'>, table: Pick<
 }
 
 /** The actions one row can take: those whose bound columns all have a value in it. */
-export function rowActions(options: readonly WidgetActionOption[], table: Pick<ResultTable, 'columns'>, row: readonly Json[]): WidgetActionOption[] {
+export function rowActions(options: readonly WidgetActionOptionV1[], table: Pick<ResultTable, 'columns'>, row: readonly Json[]): WidgetActionOptionV1[] {
   return options.filter((option) => boundArgs(option, table, row) !== undefined);
 }
 
@@ -81,7 +81,7 @@ export function rowName(table: Pick<ResultTable, 'columns'>, row: readonly Json[
   return typeof cell === 'string' && cell !== '' ? cell : undefined;
 }
 
-export function confirmText(option: Pick<WidgetActionOption, 'label' | 'mode'>): string {
+export function confirmText(option: Pick<WidgetActionOptionV1, 'label' | 'mode'>): string {
   const what = option.mode === 'delete' ? 'It removes something and may not be undone.'
     : option.mode === 'read' ? 'It only reads.'
       : 'It changes something.';
@@ -92,7 +92,7 @@ export function confirmText(option: Pick<WidgetActionOption, 'label' | 'mode'>):
  * The visuals a widget offers, in its own order and with its own labels: each visual it kept that fits the columns it
  * binds (`fitting` answers the registry's visuals that fit a table), then the table, which is always there and last.
  */
-export function offeredVisuals(fitting: (table: ResultTable) => readonly FittingVisual[], table: ResultTable, visuals: readonly WidgetVisual[]): FittingVisual[] {
+export function offeredVisuals(fitting: (table: ResultTable) => readonly FittingVisual[], table: ResultTable, visuals: readonly WidgetVisualV1[]): FittingVisual[] {
   const offered: FittingVisual[] = [];
   const labelled = (fit: FittingVisual, label: string | undefined): FittingVisual => (label === undefined ? fit : { fit: fit.fit, visual: { ...fit.visual, label } });
   for (const kept of visuals) {
@@ -115,7 +115,7 @@ export interface BoundTable {
  * The table a visual draws: with bindings, only the bound columns, in the order of the visual's channels as the widget
  * lists them (a bar chart's label, then its value); without any, or when a bound column is gone, the whole table.
  */
-export function boundTable(table: ResultTable, visual: WidgetVisual | undefined): BoundTable {
+export function boundTable(table: ResultTable, visual: WidgetVisualV1 | undefined): BoundTable {
   const whole: BoundTable = { table, original: (row) => row };
   const names = visual === undefined ? [] : Object.values(visual.bind).flat();
   if (names.length === 0) { return whole; }
@@ -168,7 +168,7 @@ export function argsObject(args: Json | undefined): Record<string, Json> {
 const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /** The widget's controls with the values it ran with, in its order: a select for one limited to choices, else its value. */
-export function shownControls(controls: readonly WidgetShownControl[], args: Json | undefined): ControlShown[] {
+export function shownControls(controls: readonly WidgetShownControlV1[], args: Json | undefined): ControlShown[] {
   const given = argsObject(args);
   return controls.map((control): ControlShown => {
     const value = given[control.arg];
@@ -181,7 +181,7 @@ export function shownControls(controls: readonly WidgetShownControl[], args: Jso
 }
 
 /** The value a control's choice key stands for: the choice, or undefined for "Any" (the arg is left out). */
-export function choiceValue(control: Pick<WidgetShownControl, 'choices'>, key: string): Json | undefined {
+export function choiceValue(control: Pick<WidgetShownControlV1, 'choices'>, key: string): Json | undefined {
   return key === '' ? undefined : control.choices?.[Number(key)];
 }
 
@@ -194,7 +194,7 @@ export function saveWidgetRequest(fn: QualifiedName, args: Json | undefined): st
 /** What a widget needs from the page it is drawn on: its row actions, running fns, and its controls' type. */
 export interface WidgetHost {
   /** The actions rows of these types offer, narrowed by the widget when it is one. */
-  actions(types: readonly QualifiedName[], widget: QualifiedName | undefined): Promise<readonly WidgetActionOption[]>;
+  actions(types: readonly QualifiedName[], widget: QualifiedName | undefined): Promise<readonly WidgetActionOptionV1[]>;
   /** Run a fn as an ordinary run (a control change, a refresh, an action); whether it started. */
   run(fn: QualifiedName, args: Json): Promise<boolean>;
   /** The gin type of a fn's args, when the page knows it (the widget's controls). */
